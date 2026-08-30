@@ -42,7 +42,18 @@ def require_object(
         errors.append(issue("INVALID_TYPE", path, "expected object"))
         return None
     for name in sorted(required - value.keys()):
-        code = "MISSING_BACKEND" if path == "$" and name == "backend" else "MISSING_FIELD"
+        top_level_codes = {
+            "producer": "MISSING_PRODUCER",
+            "inputs": "MISSING_INPUTS",
+            "backend": "MISSING_BACKEND",
+            "outputs": "MISSING_OUTPUTS",
+        }
+        if path == "$" and name in top_level_codes:
+            code = top_level_codes[name]
+        elif name == "schema" and path.startswith(("$.inputs[", "$.outputs[")):
+            code = "MISSING_SCHEMA_IDENTITY"
+        else:
+            code = "MISSING_FIELD"
         errors.append(issue(code, f"{path}.{name}", "required field is absent"))
     for name in sorted(value.keys() - allowed):
         errors.append(issue("UNKNOWN_FIELD", f"{path}.{name}", "field is not defined by v1"))
@@ -109,7 +120,9 @@ def validate_envelope(document: Any) -> list[dict[str, str]]:
         errors.append(issue("INVALID_TIMESTAMP", "$.recordedAt", "expected an RFC 3339 date-time"))
 
     producer_fields = {"name", "version", "sourceRevision", "executableDigest", "invocation"}
-    producer = require_object(top.get("producer"), "$.producer", producer_fields, producer_fields, errors)
+    producer = None
+    if "producer" in top:
+        producer = require_object(top["producer"], "$.producer", producer_fields, producer_fields, errors)
     if producer is not None:
         require_string(producer.get("name"), "$.producer.name", errors)
         require_string(producer.get("version"), "$.producer.version", errors)
@@ -122,7 +135,9 @@ def validate_envelope(document: Any) -> list[dict[str, str]]:
             errors.append(issue("INVALID_INVOCATION", "$.producer.invocation", "expected a non-empty string array"))
 
     for collection_name in ("inputs", "outputs"):
-        values = top.get(collection_name)
+        if collection_name not in top:
+            continue
+        values = top[collection_name]
         if not isinstance(values, list) or not values:
             errors.append(issue("INVALID_ARTIFACTS", f"$.{collection_name}", "expected a non-empty array"))
         else:
@@ -152,7 +167,9 @@ def validate_envelope(document: Any) -> list[dict[str, str]]:
         validate_digest(top["parametersDigest"], "$.parametersDigest", errors)
 
     environment_fields = {"targetTriple", "operatingSystem", "toolchain", "dependenciesDigest"}
-    environment = require_object(top.get("environment"), "$.environment", environment_fields, environment_fields, errors)
+    environment = None
+    if "environment" in top:
+        environment = require_object(top["environment"], "$.environment", environment_fields, environment_fields, errors)
     if environment is not None:
         for name in ("targetTriple", "operatingSystem", "toolchain"):
             require_string(environment.get(name), f"$.environment.{name}", errors)
@@ -160,7 +177,9 @@ def validate_envelope(document: Any) -> list[dict[str, str]]:
             validate_digest(environment["dependenciesDigest"], "$.environment.dependenciesDigest", errors)
 
     provenance_fields = {"repository", "sourceRevision", "candidateRevision", "contributionMethod", "reviewers"}
-    provenance = require_object(top.get("provenance"), "$.provenance", provenance_fields, provenance_fields, errors)
+    provenance = None
+    if "provenance" in top:
+        provenance = require_object(top["provenance"], "$.provenance", provenance_fields, provenance_fields, errors)
     if provenance is not None:
         require_string(provenance.get("repository"), "$.provenance.repository", errors)
         for name in ("sourceRevision", "candidateRevision"):
@@ -174,7 +193,9 @@ def validate_envelope(document: Any) -> list[dict[str, str]]:
             errors.append(issue("INVALID_REVIEWERS", "$.provenance.reviewers", "expected at least one @owner"))
 
     result_fields = {"status", "summary", "requirementRefs"}
-    result = require_object(top.get("result"), "$.result", result_fields, result_fields, errors)
+    result = None
+    if "result" in top:
+        result = require_object(top["result"], "$.result", result_fields, result_fields, errors)
     if result is not None:
         if result.get("status") not in RESULTS:
             errors.append(issue("INVALID_RESULT", "$.result.status", "unknown terminal state"))

@@ -52,7 +52,10 @@ fn pgm01_t02_classifies_all_repositories_and_orders_tags() {
             "missing class: {classification}"
         );
     }
-    assert!(POLICY.contains("quire-contract-codegen` follows the IR and runtime"));
+    assert!(POLICY.contains("are independent\ninitial source-tag roots"));
+    assert!(POLICY.contains("quire-contract-codegen`\nfollows the IR and runtime"));
+    assert!(POLICY.contains("quire-analyze` follows the IR"));
+    assert!(POLICY.contains("tl-rewrite` follows `tl-syntax` plus retained\nevaluator evidence"));
 }
 
 #[test]
@@ -113,4 +116,36 @@ fn pgm01_t08_rejects_invalid_output_and_unknown_schema_identity() {
     assert!(!schema.status.success());
     assert!(String::from_utf8_lossy(&digest.stdout).contains("INVALID_DIGEST"));
     assert!(String::from_utf8_lossy(&schema.stdout).contains("UNSUPPORTED_SCHEMA"));
+}
+
+#[test]
+fn pgm01_t09_rejects_missing_producer_tool_identity() {
+    let result = fixture_result("corpus/governance/invalid/missing-producer.json");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(!result.status.success());
+    assert!(stdout.contains("MISSING_PRODUCER"), "{stdout}");
+}
+
+#[test]
+fn pgm01_t10_rejects_missing_input_identities() {
+    let result = fixture_result("corpus/governance/invalid/missing-inputs.json");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(!result.status.success());
+    assert!(stdout.contains("MISSING_INPUTS"), "{stdout}");
+}
+
+#[test]
+fn pgm01_t11_rejects_missing_nested_schema_identity() {
+    let result = fixture_result("corpus/governance/invalid/missing-schema-identity.json");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(!result.status.success());
+    assert!(stdout.contains("MISSING_SCHEMA_IDENTITY"), "{stdout}");
+}
+
+#[test]
+fn pgm01_t12_rejects_missing_output_identities() {
+    let result = fixture_result("corpus/governance/invalid/missing-outputs.json");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(!result.status.success());
+    assert!(stdout.contains("MISSING_OUTPUTS"), "{stdout}");
 }

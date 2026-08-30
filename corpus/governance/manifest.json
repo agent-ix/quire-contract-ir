@@ -15,6 +15,26 @@
       "expectedCode": "MISSING_BACKEND"
     },
     {
+      "path": "invalid/missing-producer.json",
+      "valid": false,
+      "expectedCode": "MISSING_PRODUCER"
+    },
+    {
+      "path": "invalid/missing-inputs.json",
+      "valid": false,
+      "expectedCode": "MISSING_INPUTS"
+    },
+    {
+      "path": "invalid/missing-schema-identity.json",
+      "valid": false,
+      "expectedCode": "MISSING_SCHEMA_IDENTITY"
+    },
+    {
+      "path": "invalid/missing-outputs.json",
+      "valid": false,
+      "expectedCode": "MISSING_OUTPUTS"
+    },
+    {
       "path": "invalid/invalid-output-digest.json",
       "valid": false,
       "expectedCode": "INVALID_DIGEST"

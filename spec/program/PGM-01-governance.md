@@ -51,21 +51,26 @@ only after the exact dependency tags and checksums are available:
 
 ```text
 quire-contract-ir
-├── quire-contract-runtime
-│   └── quire-contract-codegen
-├── quire-analyze
-└── tl-syntax
-    ├── tl-parse
-    ├── tl-rewrite
-    └── tl-mltl
+├── quire-contract-codegen (also requires quire-contract-runtime)
+└── quire-analyze
+
+quire-contract-runtime
+└── quire-contract-codegen (also requires quire-contract-ir)
+
+tl-syntax
+├── tl-parse
+├── tl-mltl
+└── tl-rewrite (also requires retained evaluator evidence)
 ```
 
-`quire-contract-ir` is tagged first. `quire-contract-runtime`, `quire-analyze`,
-and `tl-syntax` may follow when their actual declared dependencies permit;
-`quire-contract-codegen` follows the IR and runtime; temporal consumers follow
-`tl-syntax`. Where a temporal crate declares another temporal crate, normal
-topological order applies. A source-release manifest shall name every exact
-dependency tag, commit, and checksum. Rebuilds of an existing tag are forbidden.
+`quire-contract-ir`, `quire-contract-runtime`, and `tl-syntax` are independent
+initial source-tag roots and may be tagged in any order. `quire-contract-codegen`
+follows the IR and runtime; `quire-analyze` follows the IR; `tl-parse` and
+`tl-mltl` follow `tl-syntax`; and `tl-rewrite` follows `tl-syntax` plus retained
+evaluator evidence for its rewrite corpus. Where an actual manifest adds a
+dependency, normal topological order applies. A source-release manifest shall
+name every exact dependency tag, commit, and checksum. Rebuilds of an existing
+tag are forbidden.
 
 ### PGM-01-R04 — licensing and third-party provenance
 
@@ -189,6 +194,6 @@ program release decision by implication.
 | PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-PGM-03 |
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-PGM-04; protected-branch API evidence |
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-PGM-02 |
-| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted. | TC-PGM-05 through TC-PGM-08 |
+| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted. | TC-PGM-05 through TC-PGM-12 |
 | PGM-01-R09-AC-1 | Evidence cannot silently replace the human decision. | Policy inspection; TC-PGM-04 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-PGM-03 |
