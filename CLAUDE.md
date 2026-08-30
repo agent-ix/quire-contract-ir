@@ -19,9 +19,9 @@ make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # fmt-check + lint + test + deny + audit-unsafe
 ```
 
-The governance and test targets require Python 3.10.12 and
-`jsonschema==3.2.0`, pinned by `.python-version` and
-`requirements-governance.txt`.
+The governance and test targets require Python 3.10.12, `jsonschema==3.2.0`,
+and the pinned RFC 3339/RFC 3986 format validators declared by
+`.python-version` and `requirements-governance.txt`.
 
 ## Safety scaffolding
 

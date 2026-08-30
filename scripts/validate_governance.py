@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.metadata
 import json
 import platform
 import re
@@ -21,6 +22,12 @@ SCHEMA_PATH = ROOT / "schemas" / "derivation-evidence-envelope-v1.schema.json"
 MANIFEST_PATH = ROOT / "corpus" / "governance" / "manifest.json"
 PYTHON_VERSION = (3, 10, 12)
 JSONSCHEMA_VERSION = "3.2.0"
+FORMAT_DEPENDENCIES = {
+    "rfc3339-validator": "0.1.4",
+    "rfc3986-validator": "0.1.1",
+}
+REQUIRED_FORMATS = {"date-time", "uri", "uri-reference"}
+FORMAT_CHECKER = FormatChecker()
 MISSING_CODES = {
     "producer": "MISSING_PRODUCER",
     "inputs": "MISSING_INPUTS",
@@ -44,6 +51,17 @@ def check_runtime() -> None:
         raise RuntimeError(
             f"expected jsonschema {JSONSCHEMA_VERSION}, found {jsonschema.__version__}"
         )
+    for package, expected in FORMAT_DEPENDENCIES.items():
+        try:
+            actual = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError as error:
+            raise RuntimeError(f"required format validator {package} is not installed") from error
+        if actual != expected:
+            raise RuntimeError(f"expected {package} {expected}, found {actual}")
+    missing_formats = REQUIRED_FORMATS.difference(FORMAT_CHECKER.checkers)
+    if missing_formats:
+        missing = ", ".join(sorted(missing_formats))
+        raise RuntimeError(f"required JSON Schema format checkers are unavailable: {missing}")
 
 
 def load_schema() -> dict[str, Any]:
@@ -70,7 +88,7 @@ def classify_error(error: jsonschema.ValidationError) -> str:
 def validate_envelope(
     schema: dict[str, Any], document: Any
 ) -> list[dict[str, Any]]:
-    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    validator = Draft7Validator(schema, format_checker=FORMAT_CHECKER)
     errors = sorted(
         validator.iter_errors(document),
         key=lambda error: (list(error.absolute_path), error.message),
@@ -132,21 +150,45 @@ def replace_required(
     return mutate
 
 
+def replace_document_value(
+    path: tuple[str | int, ...], value: Any
+) -> Callable[[dict[str, Any]], None]:
+    def mutate(document: dict[str, Any]) -> None:
+        parent: Any = document
+        for segment in path[:-1]:
+            parent = parent[segment]
+        parent[path[-1]] = value
+
+    return mutate
+
+
 def run_mutation_probes(schema: dict[str, Any]) -> dict[str, Any]:
-    probes = {
+    schema_probes = {
         "producer-required": replace_required("producer", ["name"]),
         "backend-required": replace_required("backend", ["kind"]),
         "output-required": replace_required("artifactOutput", ["role"]),
         "provenance-required": replace_required("provenance", ["repository"]),
     }
     results = []
-    for name, mutate in probes.items():
+    for name, mutate in schema_probes.items():
         candidate = copy.deepcopy(schema)
         mutate(candidate)
         Draft7Validator.check_schema(candidate)
         report = validate_manifest(candidate)
         detected = not report["matched"]
         results.append({"name": name, "detected": detected})
+    format_probes = {
+        "invalid-recorded-at": replace_document_value(("recordedAt",), ""),
+        "invalid-repository-uri": replace_document_value(
+            ("provenance", "repository"), "foo"
+        ),
+        "invalid-artifact-uri": replace_document_value(("inputs", 0, "uri"), "foo bar"),
+    }
+    valid_fixture = load_json(MANIFEST_PATH.parent / "valid" / "generated-oracle.json")
+    for name, mutate in format_probes.items():
+        candidate = copy.deepcopy(valid_fixture)
+        mutate(candidate)
+        results.append({"name": name, "detected": bool(validate_envelope(schema, candidate))})
     return {
         "schemaVersion": "quire.governance-mutation-report/v1",
         "probes": results,
@@ -186,7 +228,8 @@ def main() -> int:
         if args.check_runtime:
             print(
                 f"PGM-01 Python lane: {platform.python_version()}, "
-                f"jsonschema {jsonschema.__version__}"
+                f"jsonschema {jsonschema.__version__}; formats "
+                f"{','.join(sorted(REQUIRED_FORMATS))}"
             )
             return 0
         schema = load_schema()

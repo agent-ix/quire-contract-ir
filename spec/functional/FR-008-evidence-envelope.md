@@ -26,14 +26,15 @@ A deterministic validation report with a Boolean validity result and structured 
 - The gate validates every manifest fixture and fails if schema acceptance differs from the declared valid/invalid result or expected code.
 - Stable targeted codes are `UNSUPPORTED_SCHEMA`, `MISSING_PRODUCER`, `MISSING_INPUTS`, `MISSING_SCHEMA_IDENTITY`, `MISSING_BACKEND`, `MISSING_OUTPUTS`, and `INVALID_DIGEST`; every other Draft 7 finding is `SCHEMA_VIOLATION`.
 - Mutation probes weaken producer, backend, output, and provenance requirements and must be detected by the corpus gate.
-- The Python runtime and jsonschema package are exact declared dependencies.
+- Format probes reject malformed RFC 3339 timestamps, repository URIs, and artifact URI references.
+- The Python runtime, jsonschema package, and its RFC 3339/RFC 3986 format validators are exact declared dependencies; the gate fails closed if a required checker is unavailable.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-008-AC-1 | Both valid fixtures pass the published schema and every invalid fixture fails with its declared code. | Test (TC-005) |
-| FR-008-AC-2 | Mutating any probed nested required-field set causes the conformance gate to fail. | Test (TC-005) |
+| FR-008-AC-2 | Mutating any probed nested required-field set or identity format causes the conformance gate to fail. | Test (TC-005) |
 | FR-008-AC-3 | Tool, input, schema, backend, output, and provenance identity omissions have targeted negative evidence. | Test (TC-007) |
 
 ## Dependencies

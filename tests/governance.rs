@@ -155,7 +155,17 @@ fn tc_005_accepts_generated_artifact_identity() {
     assert_eq!(fixture["backend"]["kind"], "none");
     let report = mutation_report();
     assert_eq!(report["detected"], true);
-    assert_eq!(report["probes"].as_array().unwrap().len(), 4);
+    let probes = report["probes"].as_array().unwrap();
+    assert_eq!(probes.len(), 7);
+    for name in [
+        "invalid-recorded-at",
+        "invalid-repository-uri",
+        "invalid-artifact-uri",
+    ] {
+        assert!(probes
+            .iter()
+            .any(|probe| { probe["name"] == name && probe["detected"] == true }));
+    }
 }
 
 /// Tracing: TC-006
