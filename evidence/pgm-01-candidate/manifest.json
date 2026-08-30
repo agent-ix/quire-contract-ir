@@ -29,7 +29,8 @@
     {"name": "make-ci", "status": "pass", "observations": 10}
   ],
   "limitations": [
-    "protected-branch CI has not yet run on this evidence commit",
+    "GitHub Actions is intentionally disabled by operator policy and no remote check was dispatched",
+    "local evidence does not silently satisfy the branch protection required-check contexts",
     "CODEOWNER approval is not present",
     "no source-release decision is asserted"
   ],

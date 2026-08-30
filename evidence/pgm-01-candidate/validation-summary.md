@@ -36,7 +36,12 @@ still passed.
 
 ## Limitations and open workflow gates
 
-- Local results do not substitute for protected-branch required checks.
+- GitHub Actions is intentionally disabled at repository level by operator
+  policy; no remote workflow was dispatched and PR #12 reports no checks. Local
+  results are the retained automated evidence but do not silently satisfy the
+  protected branch's configured `Rust Checks` and `License Check` contexts.
 - The branch-protection snapshot records configuration, not a review approval.
-- CODEOWNER review, project Done, issue closure, and any source-release decision
-  remain human/external workflow actions.
+- The human CODEOWNER must decide how the configured required-check gate is
+  resolved while Actions remains disabled. CODEOWNER review, merge, project
+  Done, issue closure, and any source-release decision remain human/external
+  workflow actions.
