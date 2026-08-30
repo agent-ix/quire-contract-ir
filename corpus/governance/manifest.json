@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "quire.governance-corpus/v1",
+  "cases": [
+    {
+      "path": "valid/generated-oracle.json",
+      "valid": true
+    },
+    {
+      "path": "valid/solver-analysis.json",
+      "valid": true
+    },
+    {
+      "path": "invalid/missing-backend.json",
+      "valid": false,
+      "expectedCode": "MISSING_BACKEND"
+    },
+    {
+      "path": "invalid/invalid-output-digest.json",
+      "valid": false,
+      "expectedCode": "INVALID_DIGEST"
+    },
+    {
+      "path": "invalid/unsupported-schema.json",
+      "valid": false,
+      "expectedCode": "UNSUPPORTED_SCHEMA"
+    }
+  ]
+}

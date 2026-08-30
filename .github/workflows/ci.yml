@@ -29,7 +29,7 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: make test
 
       - name: Unsafe audit
         run: bash scripts/check_unsafe_comments.sh

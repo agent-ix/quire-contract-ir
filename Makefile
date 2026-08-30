@@ -10,7 +10,8 @@ help:
 	@echo "  make fmt              - Format with rustfmt"
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
-	@echo "  make test             - cargo test"
+	@echo "  make governance       - Validate PGM-01 schema and corpus"
+	@echo "  make test             - Validate governance and run cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - cargo deny check licenses"
@@ -33,8 +34,12 @@ fmt-check:
 lint:
 	$(CARGO) clippy --all-targets -- -D warnings
 
+.PHONY: governance
+governance:
+	python3 scripts/validate_governance.py
+
 .PHONY: test
-test:
+test: governance
 	$(CARGO) test
 
 .PHONY: build
