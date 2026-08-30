@@ -26,4 +26,3 @@ No implementation-blocking specification finding remains. Downstream
 workstreams consume this policy by reference when their specifications are
 authored; this ticket does not modify those repositories. Automated evidence
 cannot close the human release-decision claim.
-

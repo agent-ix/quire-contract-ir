@@ -35,4 +35,3 @@ Dual-licensed program material and a reviewable provenance inventory.
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-

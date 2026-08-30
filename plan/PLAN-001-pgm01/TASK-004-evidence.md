@@ -11,4 +11,3 @@ relationships:
 Run local CI, repo-wide Quire validation and coverage, schema mutation probes,
 and whitespace checks. Mint a revision-scoped evidence record, verify it through
 the release-only target, and record open external workflow or program gaps.
-

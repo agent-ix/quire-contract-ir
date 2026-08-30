@@ -36,4 +36,3 @@ A revision-scoped content-addressed record and a separately authorized release d
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-

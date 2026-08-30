@@ -34,4 +34,3 @@ A reviewable set of exact source and artifact pins.
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-

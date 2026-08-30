@@ -35,4 +35,3 @@ Truthful contribution provenance and an open, approved, deferred, or rejected hu
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-

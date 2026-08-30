@@ -11,4 +11,3 @@ relationships:
 Author discrete FR identities, the canonical policy, test matrix, and composite
 review. Correct the issue dependency and canonical component URI before
 implementation.
-

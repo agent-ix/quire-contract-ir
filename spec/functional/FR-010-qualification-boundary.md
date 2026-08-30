@@ -34,4 +34,3 @@ A bounded project-specific claim or an explicit absence of such a claim.
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-

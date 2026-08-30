@@ -42,4 +42,3 @@ TASK-001 requirements, matrix, and composite review
 Every task is represented by merged source on the branch, all Quire artifacts
 validate, matrix coverage is fully backed, local gates pass, evidence is
 revision-scoped, and the PR is ready for human CODEOWNER re-review.
-

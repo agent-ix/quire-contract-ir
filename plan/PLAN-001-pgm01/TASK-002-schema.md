@@ -13,4 +13,3 @@ relationships:
 Publish the strict Draft 7 schema and a manifest-complete corpus covering valid
 generation, an inconclusive external engine, version rejection, malformed
 digests, and every mandatory identity boundary.
-

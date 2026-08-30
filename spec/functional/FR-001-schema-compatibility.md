@@ -36,4 +36,3 @@ An accepted v1 document or an explicit unsupported-schema result.
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-
