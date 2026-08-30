@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "quire.derivation-evidence/v1",
+  "recordId": "invalid.missing-backend-configuration-digest",
+  "recordedAt": "2026-08-30T20:05:00Z",
+  "producer": {
+    "name": "quire-analyze",
+    "version": "0.1.0",
+    "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "executableDigest": {
+      "algorithm": "sha256",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "invocation": [
+      "quire-analyze",
+      "consistency",
+      "contract.json",
+      "--backend",
+      "z3"
+    ]
+  },
+  "inputs": [
+    {
+      "role": "contract-package",
+      "uri": "artifact:contract.json",
+      "mediaType": "application/json",
+      "schema": {
+        "id": "quire.contract-package",
+        "version": "v1",
+        "digest": {
+          "algorithm": "sha256",
+          "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "contentDigest": {
+        "algorithm": "sha256",
+        "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  ],
+  "backend": {
+    "kind": "engine",
+    "name": "z3",
+    "version": "4.13.3",
+    "executableDigest": {
+      "algorithm": "sha256",
+      "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "outputs": [
+    {
+      "role": "consistency-report",
+      "uri": "artifact:reports/consistency.json",
+      "mediaType": "application/json",
+      "schema": {
+        "id": "quire.analysis-report",
+        "version": "v1",
+        "digest": {
+          "algorithm": "sha256",
+          "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      },
+      "contentDigest": {
+        "algorithm": "sha256",
+        "value": "9999999999999999999999999999999999999999999999999999999999999999"
+      }
+    }
+  ],
+  "parametersDigest": {
+    "algorithm": "sha256",
+    "value": "1212121212121212121212121212121212121212121212121212121212121212"
+  },
+  "environment": {
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "operatingSystem": "ubuntu-24.04",
+    "toolchain": "rust-1.75.0",
+    "dependenciesDigest": {
+      "algorithm": "sha256",
+      "value": "3434343434343434343434343434343434343434343434343434343434343434"
+    }
+  },
+  "provenance": {
+    "repository": "https://github.com/agent-ix/quire-analyze",
+    "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "candidateRevision": "5656565656565656565656565656565656565656",
+    "contributionMethod": "mixed",
+    "reviewers": [
+      "@kreneskyp"
+    ]
+  },
+  "result": {
+    "status": "inconclusive",
+    "summary": "solver returned unknown; no consistency claim was made",
+    "requirementRefs": [
+      "REQ-10@2",
+      "REQ-11@1"
+    ]
+  },
+  "extensions": {
+    "org.agent-ix.solver-reason": "incomplete"
+  }
+}

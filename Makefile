@@ -3,6 +3,8 @@
 # =============================================================================
 
 CARGO ?= cargo
+PYTHON ?= python3
+QUIRE ?= quire
 
 .PHONY: help
 help:
@@ -11,6 +13,8 @@ help:
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
 	@echo "  make governance       - Validate PGM-01 schema and corpus"
+	@echo "  make spec             - Validate and cover all Quire artifacts"
+	@echo "  make evidence-verify  - Verify one immutable evidence record"
 	@echo "  make test             - Validate governance and run cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
@@ -36,8 +40,18 @@ lint:
 
 .PHONY: governance
 governance:
-	python3 scripts/validate_governance.py
-	sha256sum --check evidence/pgm-01-candidate/sha256sums.txt
+	$(PYTHON) scripts/validate_governance.py --check-runtime
+	$(PYTHON) scripts/validate_governance.py
+	$(PYTHON) scripts/validate_governance.py --mutation-probes
+
+.PHONY: spec
+spec:
+	$(QUIRE) validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --summary
+	$(QUIRE) coverage --scope . --strict
+
+.PHONY: evidence-verify
+evidence-verify:
+	sha256sum --check evidence/pgm-01-6e45964.sha256
 
 .PHONY: test
 test: governance

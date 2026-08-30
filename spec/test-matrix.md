@@ -12,46 +12,46 @@ relationships:
 
 | Functional Req | Acceptance Criteria | Test Cases | Coverage Status |
 |---|---|---|---|
-| PGM-01-R01 | PGM-01-R01-AC-1 | TC-PGM-01, TC-PGM-07 | covered |
-| PGM-01-R02 | PGM-01-R02-AC-1 | TC-PGM-01 | covered |
-| PGM-01-R03 | PGM-01-R03-AC-1 | TC-PGM-02 | covered |
-| PGM-01-R04 | PGM-01-R04-AC-1 | TC-PGM-03 | covered |
-| PGM-01-R05 | PGM-01-R05-AC-1 | TC-PGM-03 | covered |
-| PGM-01-R06 | PGM-01-R06-AC-1 | TC-PGM-04 | covered |
-| PGM-01-R07 | PGM-01-R07-AC-1 | TC-PGM-02 | covered |
-| PGM-01-R08 | PGM-01-R08-AC-1 | TC-PGM-05 through TC-PGM-12 | covered |
-| PGM-01-R09 | PGM-01-R09-AC-1 | TC-PGM-04, TC-PGM-06 | covered |
-| PGM-01-R10 | PGM-01-R10-AC-1 | TC-PGM-03 | covered |
+| FR-001 | FR-001-AC-1, FR-001-AC-2 | TC-008, TC-001 | ✅ covered |
+| FR-002 | FR-002-AC-1 | TC-001 | ✅ covered |
+| FR-003 | FR-003-AC-1 | TC-002 | ✅ covered |
+| FR-004 | FR-004-AC-1 | TC-003 | ✅ covered |
+| FR-005 | FR-005-AC-1 | TC-003 | ✅ covered |
+| FR-006 | FR-006-AC-1 | TC-004 | ✅ covered |
+| FR-007 | FR-007-AC-1 | TC-002 | ✅ covered |
+| FR-008 | FR-008-AC-1, FR-008-AC-2, FR-008-AC-3 | TC-005 through TC-012 | ✅ covered |
+| FR-009 | FR-009-AC-1, FR-009-AC-2 | TC-006, TC-004 | ✅ covered |
+| FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
 
 ## Stakeholder Requirement Coverage
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
 |---|---|---|---|
-| Issue #3 deliverables | PGM-01-R01 through R09 | TC-PGM-01 through TC-PGM-08 | covered |
-| Issue #3 acceptance | PGM-01-R08, R10 | TC-PGM-03, TC-PGM-05 through TC-PGM-12 | covered |
-| Issue #1 human ownership | PGM-01-R06, R09 | TC-PGM-04 and protected-branch API | covered |
+| Issue #3 deliverables | FR-001 through FR-009 | TC-001 through TC-012 | ✅ covered |
+| Issue #3 acceptance | FR-008, FR-010 | TC-003, TC-005 through TC-012 | ✅ covered |
+| Issue #1 human ownership | FR-006, FR-009 | TC-004 and protected-branch API | ✅ covered |
 
 ## Non-Functional Requirement Coverage
 
 | Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
 |---|---|---|---|
-| Deterministic corpus validation | repeatable local/CI command | TC-PGM-05 through TC-PGM-12 | covered |
-| Reviewable provenance | schema inspection and valid fixtures | TC-PGM-05, TC-PGM-06 | covered |
-| No silent identity omission | negative fixtures | TC-PGM-07 through TC-PGM-12 | covered |
+| Deterministic schema validation | Draft 7 corpus plus mutation probes | TC-005 through TC-012 | ✅ covered |
+| Reviewable provenance | schema inspection and valid fixtures | TC-005, TC-006 | ✅ covered |
+| No silent identity omission | targeted negative fixtures | TC-007 through TC-012 | ✅ covered |
 
 ## Test Case Summary
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
-| TC-PGM-01 | Compatibility and pinning language exists | Inspection | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-02 | Eight repositories and release classes are complete | Inspection | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-03 | License, clean-room, agent, and boundary rules exist | Inspection | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-04 | CODEOWNER and human-only decision gate agree | Inspection | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-05 | Generated-artifact envelope is accepted | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-06 | External-engine envelope is accepted | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-07 | Missing backend identity is rejected | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-08 | Missing/invalid output or schema identity is rejected | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-09 | Missing producer/tool identity is rejected | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-10 | Missing input identities are rejected | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-11 | Missing nested schema identity is rejected | Integration | P0 | PGM-01 | ✅ implemented |
-| TC-PGM-12 | Missing output identities are rejected | Integration | P0 | PGM-01 | ✅ implemented |
+| TC-001 | Compatibility and pinning language exists | Inspection | P0 | FR-001, FR-002 | ✅ implemented |
+| TC-002 | Eight repositories and release classes are complete | Inspection | P0 | FR-003, FR-007 | ✅ implemented |
+| TC-003 | License, clean-room, agent, and boundary rules exist | Inspection | P0 | FR-004, FR-005, FR-010 | ✅ implemented |
+| TC-004 | CODEOWNER and human-only decision gate agree | Inspection | P0 | FR-006, FR-009 | ✅ implemented |
+| TC-005 | Generated-artifact envelope is accepted | Integration | P0 | FR-008 | ✅ implemented |
+| TC-006 | External-engine envelope retains inconclusive status | Integration | P0 | FR-008, FR-009 | ✅ implemented |
+| TC-007 | Missing backend identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
+| TC-008 | Invalid digest and unknown schema are rejected | Integration | P0 | FR-001, FR-008 | ✅ implemented |
+| TC-009 | Missing producer/tool/provenance identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
+| TC-010 | Missing input identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
+| TC-011 | Missing nested schema identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
+| TC-012 | Missing output identities are rejected | Integration | P0 | FR-008 | ✅ implemented |

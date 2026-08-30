@@ -160,12 +160,21 @@ exact bytes stored or transferred. A transformation with no external backend
 uses `kind: none` with a reason; omission is never equivalent to none. An
 extension key must be a reverse-DNS name and must not change core-field meaning.
 
+The published Draft 7 schema is the normative validation boundary. The
+conformance report uses `UNSUPPORTED_SCHEMA`, `MISSING_PRODUCER`,
+`MISSING_INPUTS`, `MISSING_SCHEMA_IDENTITY`, `MISSING_BACKEND`,
+`MISSING_OUTPUTS`, and `INVALID_DIGEST` for those targeted conditions; every
+other Draft 7 failure is `SCHEMA_VIOLATION`. Error order is deterministic by
+instance path then schema message.
+
 ### PGM-01-R09 — evidence retention and release record
 
-Candidate evidence shall be immutable, content-addressed, and retained with a
+Candidate evidence shall be immutable, revision-scoped, content-addressed, and retained with a
 manifest containing source revision, collection time, commands, tool/dependency
 identities, environment, individual outcomes, limitations, and checksums. A
-rerun is a new record. Failed and skipped measurements remain visible.
+rerun is a new record at `evidence/pgm-01-<short-source-revision>/`. Failed and
+skipped measurements remain visible. A checksum file outside that directory
+covers its manifest and every retained output without self-reference.
 
 The human release record shall identify the candidate and evidence manifest,
 open gaps and accepted exceptions, decision (`approve`, `reject`, or `defer`),
@@ -187,13 +196,13 @@ program release decision by implication.
 
 | ID | Criterion | Verification |
 |---|---|---|
-| PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | Policy inspection; TC-PGM-01 |
-| PGM-01-R02-AC-1 | Exact release and qualification pins are mandatory. | Policy inspection; TC-PGM-01 |
-| PGM-01-R03-AC-1 | All eight repositories have a topological source-tag rule. | TC-PGM-02 |
-| PGM-01-R04-AC-1 | Generated and third-party material has explicit license provenance. | Policy inspection; TC-PGM-03 |
-| PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-PGM-03 |
-| PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-PGM-04; protected-branch API evidence |
-| PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-PGM-02 |
-| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted. | TC-PGM-05 through TC-PGM-12 |
-| PGM-01-R09-AC-1 | Evidence cannot silently replace the human decision. | Policy inspection; TC-PGM-04 |
-| PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-PGM-03 |
+| PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | TC-008; policy inspection TC-001 |
+| PGM-01-R02-AC-1 | Exact release and qualification pins are mandatory. | Policy inspection; TC-001 |
+| PGM-01-R03-AC-1 | All eight repositories have a topological source-tag rule. | TC-002 |
+| PGM-01-R04-AC-1 | Generated and third-party material has explicit license provenance. | Policy inspection; TC-003 |
+| PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-003 |
+| PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
+| PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
+| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted. | TC-005 through TC-012 |
+| PGM-01-R09-AC-1 | Evidence cannot silently replace the human decision. | Policy inspection; TC-004 |
+| PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |

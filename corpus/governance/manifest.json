@@ -20,6 +20,11 @@
       "expectedCode": "MISSING_PRODUCER"
     },
     {
+      "path": "invalid/missing-producer-executable-digest.json",
+      "valid": false,
+      "expectedCode": "SCHEMA_VIOLATION"
+    },
+    {
       "path": "invalid/missing-inputs.json",
       "valid": false,
       "expectedCode": "MISSING_INPUTS"
@@ -30,9 +35,24 @@
       "expectedCode": "MISSING_SCHEMA_IDENTITY"
     },
     {
+      "path": "invalid/missing-backend-configuration-digest.json",
+      "valid": false,
+      "expectedCode": "SCHEMA_VIOLATION"
+    },
+    {
       "path": "invalid/missing-outputs.json",
       "valid": false,
       "expectedCode": "MISSING_OUTPUTS"
+    },
+    {
+      "path": "invalid/missing-output-content-digest.json",
+      "valid": false,
+      "expectedCode": "SCHEMA_VIOLATION"
+    },
+    {
+      "path": "invalid/missing-contribution-method.json",
+      "valid": false,
+      "expectedCode": "SCHEMA_VIOLATION"
     },
     {
       "path": "invalid/invalid-output-digest.json",

@@ -1,6 +1,6 @@
 ---
 type: master-requirements
-name: quire-contract-ir-program-governance
+name: quire-contract-ir
 org: agent-ix
 component_type: governance-contract
 implementation_language: markdown-json-schema
@@ -53,14 +53,13 @@ The named human release owner decides whether an exact candidate may be tagged.
 
 ## Requirements Architecture
 
-The normative requirements PGM-01-R01 through PGM-01-R10 are defined in the
-canonical policy. TM-001 maps each requirement to automated tests or retained
-inspection. Planning artifacts preserve the composite review, implementation
-delta, and final gap analysis.
+The canonical policy owns PGM-01-R01 through PGM-01-R10. Discrete requirements
+FR-001 through FR-010 provide traceable artifact identities without redefining
+that policy. TM-001 maps them to automated tests or retained inspection.
+Typed review, plan, task, and gap artifacts preserve the spec-first workflow.
 
 ## References
 
 - [Program umbrella](https://github.com/agent-ix/quire-contract-ir/issues/1).
 - [PGM-01 issue](https://github.com/agent-ix/quire-contract-ir/issues/3).
 - [Canonical PGM-01 policy](program/PGM-01-governance.md).
-

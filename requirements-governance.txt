@@ -1,0 +1,2 @@
+# PGM-01's published schema is Draft 7; keep the validator identity exact.
+jsonschema==3.2.0
