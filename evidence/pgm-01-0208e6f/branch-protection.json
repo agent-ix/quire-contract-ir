@@ -1,7 +1,7 @@
 {
   "branch": "main",
   "repository": "agent-ix/quire-contract-ir",
-  "capturedAt": "2026-08-30",
+  "capturedAt": "2026-08-30T22:18:35Z",
   "requiredStatusChecks": {
     "strict": true,
     "contexts": ["Rust Checks", "License Check"]
