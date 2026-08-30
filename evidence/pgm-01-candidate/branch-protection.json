@@ -1,0 +1,20 @@
+{
+  "branch": "main",
+  "repository": "agent-ix/quire-contract-ir",
+  "capturedAt": "2026-08-30",
+  "requiredStatusChecks": {
+    "strict": true,
+    "contexts": ["Rust Checks", "License Check"]
+  },
+  "requiredPullRequestReviews": {
+    "dismissStaleReviews": true,
+    "requireCodeOwnerReviews": true,
+    "requiredApprovingReviewCount": 1
+  },
+  "enforceAdmins": true,
+  "requiredConversationResolution": true,
+  "allowForcePushes": false,
+  "allowDeletions": false,
+  "codeowners": "* @kreneskyp",
+  "source": "https://api.github.com/repos/agent-ix/quire-contract-ir/branches/main/protection"
+}

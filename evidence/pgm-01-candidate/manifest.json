@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "quire.pgm01-candidate-evidence/v1",
+  "subjectRevision": "cb64e6a2d83837e9eacce6544b94c714e9cba63b",
+  "repository": "https://github.com/agent-ix/quire-contract-ir",
+  "collectedAt": "2026-08-30T21:00:00Z",
+  "collector": {
+    "method": "agent-assisted",
+    "implementation": "scripts/validate_governance.py",
+    "implementationRevision": "cb64e6a2d83837e9eacce6544b94c714e9cba63b"
+  },
+  "inputs": [
+    "spec/index.md",
+    "spec/program/PGM-01-governance.md",
+    "spec/test-matrix.md",
+    "schemas/derivation-evidence-envelope-v1.schema.json",
+    "corpus/governance/manifest.json",
+    ".github/CODEOWNERS",
+    ".github/workflows/ci.yml"
+  ],
+  "outputs": [
+    "evidence/pgm-01-candidate/validation-summary.md",
+    "evidence/pgm-01-candidate/branch-protection.json",
+    "evidence/pgm-01-candidate/sha256sums.txt"
+  ],
+  "checks": [
+    {"name": "governance-corpus", "status": "pass", "observations": 5},
+    {"name": "draft7-cross-check", "status": "pass", "observations": 5},
+    {"name": "quire-validation", "status": "pass", "observations": 3},
+    {"name": "make-ci", "status": "pass", "observations": 10}
+  ],
+  "limitations": [
+    "protected-branch CI has not yet run on this evidence commit",
+    "CODEOWNER approval is not present",
+    "no source-release decision is asserted"
+  ],
+  "decision": "pending-human-review"
+}

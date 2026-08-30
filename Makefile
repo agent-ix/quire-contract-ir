@@ -37,6 +37,7 @@ lint:
 .PHONY: governance
 governance:
 	python3 scripts/validate_governance.py
+	sha256sum --check evidence/pgm-01-candidate/sha256sums.txt
 
 .PHONY: test
 test: governance
