@@ -52,7 +52,7 @@ spec:
 
 .PHONY: evidence-verify
 evidence-verify:
-	$(PYTHON) scripts/verify_evidence.py evidence/pgm-01-7d8c769
+	$(PYTHON) scripts/verify_evidence.py
 
 .PHONY: test
 test: governance

@@ -159,17 +159,46 @@ def verify_record(record: Path) -> tuple[int, int]:
     return output_count, input_count
 
 
+def select_current_record() -> tuple[Path, int, int]:
+    matches: list[tuple[Path, int, int]] = []
+    failures = []
+    for manifest_path in sorted((ROOT / "evidence").glob("pgm-01-*/manifest.json")):
+        record = manifest_path.parent
+        try:
+            outputs, inputs = verify_record(record)
+        except EvidenceError as error:
+            failures.append(f"{record.name}: {error}")
+        else:
+            matches.append((record, outputs, inputs))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        names = ", ".join(match[0].name for match in matches)
+        raise EvidenceError(f"multiple evidence records match the current candidate: {names}")
+    detail = "; ".join(failures) if failures else "no records found"
+    raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("record", type=Path, help="revision-scoped evidence directory")
+    parser.add_argument(
+        "record",
+        nargs="?",
+        type=Path,
+        help="revision-scoped evidence directory; omit to discover the unique current record",
+    )
     args = parser.parse_args()
     try:
-        outputs, inputs = verify_record(args.record)
+        if args.record is None:
+            record, outputs, inputs = select_current_record()
+        else:
+            record = args.record
+            outputs, inputs = verify_record(record)
     except EvidenceError as error:
         print(f"evidence verification error: {error}", file=sys.stderr)
         return 1
     print(
-        f"PGM-01 evidence: {outputs}/{outputs} retained outputs and "
+        f"PGM-01 evidence {record.name}: {outputs}/{outputs} retained outputs and "
         f"{inputs}/{inputs} subject/current inputs matched"
     )
     return 0
