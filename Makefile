@@ -43,6 +43,7 @@ governance:
 	$(PYTHON) scripts/validate_governance.py --check-runtime
 	$(PYTHON) scripts/validate_governance.py
 	$(PYTHON) scripts/validate_governance.py --mutation-probes
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 .PHONY: spec
 spec:
@@ -51,7 +52,7 @@ spec:
 
 .PHONY: evidence-verify
 evidence-verify:
-	sha256sum --check evidence/pgm-01-7d8c769.sha256
+	$(PYTHON) scripts/verify_evidence.py evidence/pgm-01-7d8c769
 
 .PHONY: test
 test: governance

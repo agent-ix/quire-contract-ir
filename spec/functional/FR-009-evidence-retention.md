@@ -24,6 +24,7 @@ A revision-scoped content-addressed record and a separately authorized release d
 
 - Each rerun mints a new `evidence/pgm-01-<short-sha>/` record rather than rewriting a prior record.
 - An external checksum file covers the evidence manifest and every retained output.
+- The release-only verifier checks every recorded input digest against both the exact subject-revision Git blob and the current candidate file, and fails on either mismatch.
 - Inconclusive, failed, and skipped results remain explicit; CI success does not approve a release.
 
 ## Acceptance Criteria
@@ -32,6 +33,7 @@ A revision-scoped content-addressed record and a separately authorized release d
 |---|---|---|
 | FR-009-AC-1 | The solver fixture remains semantically `inconclusive` after successful schema validation. | Test (TC-006) |
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
+| FR-009-AC-3 | Evidence verification rejects a false recorded input digest or current input drift. | Test (TC-013) |
 
 ## Dependencies
 
