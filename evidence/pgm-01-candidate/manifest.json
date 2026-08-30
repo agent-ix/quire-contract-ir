@@ -1,12 +1,12 @@
 {
   "schemaVersion": "quire.pgm01-candidate-evidence/v1",
-  "subjectRevision": "cb64e6a2d83837e9eacce6544b94c714e9cba63b",
+  "subjectRevision": "6e45964cf5efdc472ebe33cdb43b2ae1d4bda370",
   "repository": "https://github.com/agent-ix/quire-contract-ir",
   "collectedAt": "2026-08-30T21:00:00Z",
   "collector": {
     "method": "agent-assisted",
     "implementation": "scripts/validate_governance.py",
-    "implementationRevision": "cb64e6a2d83837e9eacce6544b94c714e9cba63b"
+    "implementationRevision": "6e45964cf5efdc472ebe33cdb43b2ae1d4bda370"
   },
   "inputs": [
     "spec/index.md",
@@ -23,10 +23,10 @@
     "evidence/pgm-01-candidate/sha256sums.txt"
   ],
   "checks": [
-    {"name": "governance-corpus", "status": "pass", "observations": 5},
-    {"name": "draft7-cross-check", "status": "pass", "observations": 5},
+    {"name": "governance-corpus", "status": "pass", "observations": 9},
+    {"name": "draft7-cross-check", "status": "pass", "observations": 9},
     {"name": "quire-validation", "status": "pass", "observations": 3},
-    {"name": "make-ci", "status": "pass", "observations": 10}
+    {"name": "make-ci", "status": "pass", "observations": 14}
   ],
   "limitations": [
     "GitHub Actions is intentionally disabled by operator policy and no remote check was dispatched",

@@ -3,7 +3,7 @@
 Collected: 2026-08-30
 
 Subject implementation revision:
-`cb64e6a2d83837e9eacce6544b94c714e9cba63b`
+`6e45964cf5efdc472ebe33cdb43b2ae1d4bda370`
 
 ## Tool identities
 
@@ -19,15 +19,17 @@ Subject implementation revision:
 
 | Command or check | Result |
 |---|---|
-| `python3 scripts/validate_governance.py` | pass; 5/5 manifest cases matched |
-| Independent Draft 7 schema validation | pass; 2/2 positive fixtures accepted and 3/3 negative fixtures rejected |
+| `python3 scripts/validate_governance.py` | pass; 9/9 manifest cases matched |
+| Independent Draft 7 schema validation | pass; 2/2 positive fixtures accepted and 7/7 negative fixtures rejected |
 | `quire validate --scope . 'spec/**/*.md' --summary` | pass; 3/3 documents grammar-clean, zero grammar findings |
-| `CARGO_TARGET_DIR=target make ci` | pass; format, clippy, governance, 10 Rust tests, licenses, and unsafe audit |
+| `CARGO_TARGET_DIR=target make ci` | pass; format, clippy, governance, 14 Rust tests, licenses, and unsafe audit |
 | Git diff whitespace check | pass |
 
-The negative corpus retained `MISSING_BACKEND`, `INVALID_DIGEST`, and
-`UNSUPPORTED_SCHEMA` as explicit outcomes. The solver fixture retained an
-`inconclusive` result and did not convert it into successful analysis evidence.
+The negative corpus retained `MISSING_PRODUCER`, `MISSING_INPUTS`,
+`MISSING_SCHEMA_IDENTITY`, `MISSING_BACKEND`, `MISSING_OUTPUTS`,
+`INVALID_DIGEST`, and `UNSUPPORTED_SCHEMA` as explicit outcomes. The solver
+fixture retained an `inconclusive` result and did not convert it into successful
+analysis evidence.
 
 The cargo-deny license gate reported only pre-existing unmatched allow-list
 warnings and ended with `licenses ok`. Stable rustfmt reported the repository's

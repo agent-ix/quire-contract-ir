@@ -10,7 +10,7 @@ evidence manifest.
 | PGM-01-R01–R03 compatibility, pins, release order | canonical policy; PGM-01-T01/T02 | pass |
 | PGM-01-R04–R06 licensing, clean-room, contribution, authority | policy, CONTRIBUTING, CODEOWNERS, protection snapshot; T03/T04 | pass |
 | PGM-01-R07 classification | complete eight-repository table; T02 | pass |
-| PGM-01-R08 envelope | strict schema, corpus, validator; T05–T08 | pass |
+| PGM-01-R08 envelope | strict schema, corpus, validator; TC-PGM-05–TC-PGM-12 | pass |
 | PGM-01-R09 retention and human decision | policy, evidence manifest, T04/T06 | pass |
 | PGM-01-R10 qualification boundary | policy and T03 | pass |
 | Issue #3 spec-first workflow | requirements, matrix, composite review, plan delta | pass |
@@ -23,4 +23,3 @@ gates remain deliberately open and are not represented as automated success:
 2. The project item must move to Done and issue #3 must close after merge.
 3. Any later v0.1 source tag requires a separate, explicit human release record;
    issue #3 completion does not authorize that tag.
-
