@@ -19,6 +19,7 @@ REVISION = re.compile(r"^[0-9a-f]{40}$")
 CHECKSUM_LINE = re.compile(r"^([0-9a-f]{64})  (.+)$")
 BlobReader = Callable[[str, Path], bytes]
 WorktreeReader = Callable[[Path], bytes]
+InputSetReader = Callable[[str], set[Path]]
 
 
 class EvidenceError(ValueError):
@@ -49,6 +50,28 @@ def read_subject_blob(revision: str, path: Path) -> bytes:
     return result.stdout
 
 
+def read_subject_inputs(revision: str) -> set[Path]:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "-z", "--name-only", revision],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise EvidenceError(f"cannot enumerate subject tree {revision}: {detail}")
+    paths = set()
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        path = safe_relative_path(raw_path.decode("utf-8"))
+        if path.parts[0] != "evidence":
+            paths.add(path)
+    if not paths:
+        raise EvidenceError("subject tree contains no non-evidence inputs")
+    return paths
+
+
 def read_worktree_file(path: Path) -> bytes:
     try:
         return (ROOT / path).read_bytes()
@@ -61,6 +84,7 @@ def verify_input_checksums(
     manifest: dict[str, Any],
     subject_reader: BlobReader = read_subject_blob,
     worktree_reader: WorktreeReader = read_worktree_file,
+    input_set_reader: InputSetReader = read_subject_inputs,
 ) -> int:
     revision = manifest.get("subjectRevision")
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
@@ -68,12 +92,24 @@ def verify_input_checksums(
     checksums = manifest.get("inputChecksums")
     if not isinstance(checksums, dict) or not checksums:
         raise EvidenceError("inputChecksums must be a non-empty object")
+    normalized_checksums: dict[Path, str] = {}
     for raw_path, expected in checksums.items():
         if not isinstance(raw_path, str) or not isinstance(expected, str):
             raise EvidenceError("inputChecksums entries must map paths to digests")
         if not DIGEST.fullmatch(expected):
             raise EvidenceError(f"invalid recorded input digest for {raw_path}")
         path = safe_relative_path(raw_path)
+        if path in normalized_checksums:
+            raise EvidenceError(f"duplicate normalized input path: {path}")
+        normalized_checksums[path] = expected
+    required_inputs = input_set_reader(revision)
+    if set(normalized_checksums) != required_inputs:
+        missing = sorted(str(path) for path in required_inputs - set(normalized_checksums))
+        extra = sorted(str(path) for path in set(normalized_checksums) - required_inputs)
+        raise EvidenceError(
+            f"inputChecksums do not cover the subject tree; missing={missing}, extra={extra}"
+        )
+    for path, expected in normalized_checksums.items():
         subject_actual = sha256(subject_reader(revision, path))
         if subject_actual != expected:
             raise EvidenceError(
@@ -86,14 +122,10 @@ def verify_input_checksums(
                 f"current input checksum mismatch for {path}: "
                 f"expected {expected}, got {worktree_actual}"
             )
-    return len(checksums)
+    return len(normalized_checksums)
 
 
-def parse_external_checksums(path: Path) -> dict[Path, str]:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as error:
-        raise EvidenceError(f"cannot read external checksum file {path}: {error}") from error
+def parse_external_checksum_lines(lines: list[str]) -> dict[Path, str]:
     entries: dict[Path, str] = {}
     for line in lines:
         match = CHECKSUM_LINE.fullmatch(line)
@@ -108,37 +140,60 @@ def parse_external_checksums(path: Path) -> dict[Path, str]:
     return entries
 
 
-def verify_retained_outputs(
-    manifest: dict[str, Any], checksum_file: Path
+def parse_external_checksums(path: Path) -> dict[Path, str]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise EvidenceError(f"cannot read external checksum file {path}: {error}") from error
+    return parse_external_checksum_lines(lines)
+
+
+def verify_output_entries(
+    manifest: dict[str, Any],
+    checksum_relative: Path,
+    recorded_entries: dict[Path, str],
+    current_reader: WorktreeReader = read_worktree_file,
+    head_reader: BlobReader = read_subject_blob,
 ) -> int:
     outputs = manifest.get("outputs")
     if not isinstance(outputs, list) or not all(isinstance(item, str) for item in outputs):
         raise EvidenceError("outputs must be an array of paths")
-    output_paths = {safe_relative_path(item) for item in outputs}
+    output_paths = [safe_relative_path(item) for item in outputs]
+    if len(set(output_paths)) != len(output_paths):
+        raise EvidenceError("outputs must not contain duplicate paths")
+    output_set = set(output_paths)
+    if checksum_relative not in output_set:
+        raise EvidenceError("outputs must name the external checksum file")
+    expected_entries = output_set - {checksum_relative}
+    if set(recorded_entries) != expected_entries:
+        raise EvidenceError("external checksum entries do not match retained outputs")
+    for path in output_set:
+        current = current_reader(path)
+        if current != head_reader("HEAD", path):
+            raise EvidenceError(f"retained output differs from the current HEAD blob: {path}")
+        if path in recorded_entries:
+            expected = recorded_entries[path]
+            actual = sha256(current)
+            if actual != expected:
+                raise EvidenceError(
+                    f"retained output checksum mismatch for {path}: "
+                    f"expected {expected}, got {actual}"
+                )
+    return len(recorded_entries)
+
+
+def verify_retained_outputs(
+    manifest: dict[str, Any], checksum_file: Path
+) -> int:
     try:
         checksum_relative = checksum_file.relative_to(ROOT)
     except ValueError as error:
         raise EvidenceError("external checksum file must be inside the repository") from error
-    if checksum_relative not in output_paths:
-        raise EvidenceError("outputs must name the external checksum file")
-    expected_entries = output_paths - {checksum_relative}
     recorded_entries = parse_external_checksums(checksum_file)
-    if set(recorded_entries) != expected_entries:
-        raise EvidenceError("external checksum entries do not match retained outputs")
-    for path, expected in recorded_entries.items():
-        try:
-            actual = sha256((ROOT / path).read_bytes())
-        except OSError as error:
-            raise EvidenceError(f"cannot read retained output {path}: {error}") from error
-        if actual != expected:
-            raise EvidenceError(
-                f"retained output checksum mismatch for {path}: "
-                f"expected {expected}, got {actual}"
-            )
-    return len(recorded_entries)
+    return verify_output_entries(manifest, checksum_relative, recorded_entries)
 
 
-def verify_record(record: Path) -> tuple[int, int]:
+def verify_record(record: Path) -> tuple[int, int, str]:
     record = record.resolve()
     if not record.is_relative_to(ROOT):
         raise EvidenceError("evidence record must be inside the repository")
@@ -150,31 +205,64 @@ def verify_record(record: Path) -> tuple[int, int]:
     if not isinstance(manifest, dict):
         raise EvidenceError("evidence manifest must be an object")
     revision = manifest.get("subjectRevision")
+    if not isinstance(revision, str) or not REVISION.fullmatch(revision):
+        raise EvidenceError("subjectRevision must be a full lowercase Git revision")
     expected_record_id = f"pgm-01-{str(revision)[:7]}"
     if manifest.get("recordId") != record.name or record.name != expected_record_id:
         raise EvidenceError("record path, recordId, and subjectRevision do not agree")
     checksum_file = record.parent / f"{record.name}.sha256"
     output_count = verify_retained_outputs(manifest, checksum_file)
     input_count = verify_input_checksums(manifest)
-    return output_count, input_count
+    return output_count, input_count, revision
+
+
+def subject_distance(revision: str) -> int:
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", revision, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if ancestor.returncode != 0:
+        raise EvidenceError(f"evidence subject is not an ancestor of HEAD: {revision}")
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{revision}..HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise EvidenceError(f"cannot measure evidence subject distance: {revision}")
+    return int(result.stdout.strip())
+
+
+def choose_closest_match(
+    matches: list[tuple[Path, int, int, int]],
+) -> tuple[Path, int, int]:
+    minimum = min(match[3] for match in matches)
+    closest = [match for match in matches if match[3] == minimum]
+    if len(closest) != 1:
+        names = ", ".join(match[0].name for match in closest)
+        raise EvidenceError(f"multiple equally current evidence records match: {names}")
+    record, outputs, inputs, _distance = closest[0]
+    return record, outputs, inputs
 
 
 def select_current_record() -> tuple[Path, int, int]:
-    matches: list[tuple[Path, int, int]] = []
+    matches: list[tuple[Path, int, int, int]] = []
     failures = []
     for manifest_path in sorted((ROOT / "evidence").glob("pgm-01-*/manifest.json")):
         record = manifest_path.parent
         try:
-            outputs, inputs = verify_record(record)
+            outputs, inputs, revision = verify_record(record)
+            distance = subject_distance(revision)
         except EvidenceError as error:
             failures.append(f"{record.name}: {error}")
         else:
-            matches.append((record, outputs, inputs))
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        names = ", ".join(match[0].name for match in matches)
-        raise EvidenceError(f"multiple evidence records match the current candidate: {names}")
+            matches.append((record, outputs, inputs, distance))
+    if matches:
+        return choose_closest_match(matches)
     detail = "; ".join(failures) if failures else "no records found"
     raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
 
@@ -193,7 +281,7 @@ def main() -> int:
             record, outputs, inputs = select_current_record()
         else:
             record = args.record
-            outputs, inputs = verify_record(record)
+            outputs, inputs, _revision = verify_record(record)
     except EvidenceError as error:
         print(f"evidence verification error: {error}", file=sys.stderr)
         return 1
