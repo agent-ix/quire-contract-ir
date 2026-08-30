@@ -2,6 +2,9 @@
 id: TASK-004
 title: "Retain evidence and perform gap analysis"
 type: Task
+status: done
+track: Gate
+priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-003
     type: depends_on

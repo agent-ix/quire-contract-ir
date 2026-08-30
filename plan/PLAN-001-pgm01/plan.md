@@ -2,6 +2,7 @@
 id: PLAN-001
 title: "Implement PGM-01 governance gate"
 type: Plan
+status: done
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-001
     type: contains

@@ -2,6 +2,9 @@
 id: TASK-002
 title: "Publish the evidence-envelope schema and corpus"
 type: Task
+status: done
+track: A
+priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-001
     type: depends_on
