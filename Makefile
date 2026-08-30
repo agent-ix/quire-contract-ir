@@ -51,7 +51,7 @@ spec:
 
 .PHONY: evidence-verify
 evidence-verify:
-	sha256sum --check evidence/pgm-01-772806a.sha256
+	sha256sum --check evidence/pgm-01-7d8c769.sha256
 
 .PHONY: test
 test: governance
