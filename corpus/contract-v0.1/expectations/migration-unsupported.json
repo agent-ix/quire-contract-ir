@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "diagnostics": [
+    {
+      "code": "unsupported_schema_version",
+      "path": "schema_version.major",
+      "severity": "error"
+    }
+  ],
+  "migration_receipt": null,
+  "valid": false
+}

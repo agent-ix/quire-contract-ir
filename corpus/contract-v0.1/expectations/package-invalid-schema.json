@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_schema_version",
+      "path": "schema_version.major",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

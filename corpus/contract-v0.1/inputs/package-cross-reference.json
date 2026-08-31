@@ -1,0 +1,78 @@
+{
+  "id": "agent-ix/conformance",
+  "schema_version": {
+    "major": 1,
+    "minor": 1
+  },
+  "source": {
+    "document": "contract",
+    "revision": 1
+  },
+  "requirements": [
+    {
+      "id": "REQ_alpha",
+      "revision": 1,
+      "source": {
+        "start": {
+          "source": {
+            "document": "contract",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 1,
+          "byte_offset": 0
+        },
+        "end": {
+          "source": {
+            "document": "contract",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 2,
+          "byte_offset": 1
+        }
+      },
+      "clauses": [
+        {
+          "id": "note",
+          "kind": "information",
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 1,
+              "byte_offset": 0
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 2,
+              "byte_offset": 1
+            }
+          },
+          "body": {
+            "node": "reference",
+            "identity": {
+              "requirement": {
+                "package": "agent-ix/other",
+                "requirement": "REQ_alpha",
+                "revision": 1
+              },
+              "kind": "input",
+              "path": [
+                "value"
+              ],
+              "observation": "current"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

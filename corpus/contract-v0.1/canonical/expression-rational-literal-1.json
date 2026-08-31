@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"rational","value":{"maximum_denominator":10,"numerator_maximum":10,"numerator_minimum":-10}},"tree":{"kind":{"denominator":1,"node":"rational_literal","numerator":2,"value_type":{"maximum_denominator":10,"numerator_maximum":10,"numerator_minimum":-10}}}}}

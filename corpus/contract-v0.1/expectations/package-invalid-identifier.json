@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_identifier",
+      "path": "requirement.id",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

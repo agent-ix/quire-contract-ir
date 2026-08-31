@@ -1,0 +1,22 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "duplicate_requirement",
+      "path": "requirements",
+      "related": [
+        {
+          "kind": "requirement",
+          "reference": {
+            "package": "agent-ix/conformance",
+            "requirement": "REQ_alpha",
+            "revision": 1
+          }
+        }
+      ],
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "canonicalization_resource_exhausted",
+      "path": "package",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

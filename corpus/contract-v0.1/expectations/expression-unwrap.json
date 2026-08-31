@@ -1,0 +1,21 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-unwrap-0.json",
+      "bytes_sha256": "7c4f66554fff08fd44267b21033b367b4d0da1c08d4d13d6e86fb163af5a56c6"
+    },
+    {
+      "digest": "3fda33076373ec0c5c38a4b6a9eacd54c6722c8165ca2a3b9bd2de8f1f9ba4ee",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-unwrap-1.json",
+      "bytes_sha256": "9b9c8675c20e06dc2c46df378a7aa3b1556e734b2fca397fe87f6ae8408b0dc8"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

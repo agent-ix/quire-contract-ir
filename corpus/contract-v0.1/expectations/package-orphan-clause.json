@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "orphaned_clause_reference",
+      "path": "reference.clause",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

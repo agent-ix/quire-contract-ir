@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"enum","name":"Color"},"tree":{"kind":{"enumeration":"Color","node":"enum_literal","variant":"red"}}}}

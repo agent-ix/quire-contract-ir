@@ -1,0 +1,597 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json",
+  "title": "Quire Contract IR conformance corpus v1",
+  "$ref": "#/definitions/manifest",
+  "definitions": {
+    "identifier": {
+      "type": "string"
+    },
+    "packageId": {
+      "type": "string"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\u0000]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "positiveU64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "u64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document", "revision"],
+      "properties": {
+        "document": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" }
+      }
+    },
+    "sourceLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "line", "column", "byte_offset"],
+      "properties": {
+        "source": { "$ref": "#/definitions/sourceIdentity" },
+        "line": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "column": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "byte_offset": { "$ref": "#/definitions/u64" }
+      }
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/definitions/sourceLocation" },
+        "end": { "$ref": "#/definitions/sourceLocation" }
+      }
+    },
+    "schemaVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "minor": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "requirementRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "requirement", "revision"],
+      "properties": {
+        "package": { "$ref": "#/definitions/packageId" },
+        "requirement": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" }
+      }
+    },
+    "clauseRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement", "clause"],
+      "properties": {
+        "requirement": { "$ref": "#/definitions/requirementRef" },
+        "clause": { "$ref": "#/definitions/identifier" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement", "kind", "path"],
+      "properties": {
+        "requirement": { "$ref": "#/definitions/requirementRef" },
+        "kind": { "enum": ["input", "state", "field", "enum_variant", "pure_function"] },
+        "observation": { "enum": ["current", "pre", "post"] },
+        "path": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/identifier" }
+        }
+      }
+    },
+    "semanticIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["package", "requirement", "clause", "dependency"] },
+        "package": { "$ref": "#/definitions/packageId" },
+        "reference": {
+          "oneOf": [
+            { "$ref": "#/definitions/requirementRef" },
+            { "$ref": "#/definitions/clauseRef" }
+          ]
+        },
+        "identity": { "$ref": "#/definitions/dependency" }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "const": "package" } }, "required": ["package"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "kind": { "enum": ["requirement", "clause"] } }, "required": ["reference"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "kind": { "const": "dependency" } }, "required": ["identity"], "minProperties": 2, "maxProperties": 2 }
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "path"],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_package_namespace", "invalid_wire_format", "invalid_schema_version", "invalid_identifier",
+            "invalid_requirement_revision", "invalid_source_revision", "duplicate_requirement", "duplicate_clause",
+            "cross_package_reference", "invalid_source_span", "floating_executable_clause", "informational_clause_anchored",
+            "incompatible_clause_anchor", "malformed_reference", "stale_requirement_revision", "orphaned_requirement_reference",
+            "orphaned_clause_reference", "duplicate_type_declaration", "duplicate_value_declaration", "duplicate_function_declaration",
+            "duplicate_field", "duplicate_variant", "duplicate_parameter", "empty_enum", "invalid_numeric_bounds",
+            "text_bound_exceeded", "unbounded_collection", "collection_bound_exceeded", "orphaned_type_reference", "recursive_type",
+            "orphaned_value_reference", "orphaned_function_reference", "invalid_state_observation", "invalid_scope", "arity_mismatch",
+            "ill_typed_expression", "result_type_mismatch", "non_boolean_clause_root", "potentially_undefined", "expression_too_large",
+            "unsupported_schema_version", "unregistered_migration", "canonicalization_resource_exhausted", "duplicate_artifact_trace",
+            "stale_trace_digest", "semantic_input_too_large"
+          ]
+        },
+        "severity": { "const": "error" },
+        "path": { "type": "string", "minLength": 1 },
+        "span": { "$ref": "#/definitions/sourceSpan" },
+        "related": { "type": "array", "items": { "$ref": "#/definitions/semanticIdentity" } },
+        "obligation_kind": { "enum": ["option_presence", "non_zero_divisor", "index_in_bounds", "checked_range"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "code": { "const": "potentially_undefined" } } },
+          "then": { "required": ["obligation_kind"] },
+          "else": { "not": { "required": ["obligation_kind"] } }
+        }
+      ]
+    },
+    "executionPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["initialization", "handler", "pre", "post"] },
+        "name": { "$ref": "#/definitions/identifier" },
+        "operation": { "$ref": "#/definitions/identifier" }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "enum": ["initialization", "handler"] } }, "required": ["name"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "kind": { "enum": ["pre", "post"] } }, "required": ["operation"], "minProperties": 2, "maxProperties": 2 }
+      ]
+    },
+    "valueType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["boolean", "integer", "rational", "text", "enum", "record", "option", "collection"] },
+        "domain": { "enum": ["signed", "unsigned"] },
+        "minimum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "maximum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "overflow": { "enum": ["reject", "saturate"] },
+        "numerator_minimum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "numerator_maximum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "maximum_denominator": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "name": { "$ref": "#/definitions/identifier" },
+        "value": { "$ref": "#/definitions/valueType" },
+        "element": { "$ref": "#/definitions/valueType" },
+        "maximum_items": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "enum": ["boolean", "text"] } }, "minProperties": 1, "maxProperties": 1 },
+        { "properties": { "kind": { "const": "integer" } }, "required": ["domain", "minimum", "maximum", "overflow"], "minProperties": 5, "maxProperties": 5 },
+        { "properties": { "kind": { "const": "rational" } }, "required": ["numerator_minimum", "numerator_maximum", "maximum_denominator"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "kind": { "enum": ["enum", "record"] } }, "required": ["name"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "kind": { "const": "option" } }, "required": ["value"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "kind": { "const": "collection" } }, "required": ["element", "maximum_items"], "minProperties": 3, "maxProperties": 3 }
+      ]
+    },
+    "enumVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "source": { "$ref": "#/definitions/sourceSpan" }
+      }
+    },
+    "recordField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_type", "source"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "value_type": { "$ref": "#/definitions/valueType" },
+        "source": { "$ref": "#/definitions/sourceSpan" }
+      }
+    },
+    "typeDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "source"],
+      "properties": {
+        "kind": { "enum": ["enum", "record"] },
+        "name": { "$ref": "#/definitions/identifier" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "variants": { "type": "array", "items": { "$ref": "#/definitions/enumVariant" } },
+        "fields": { "type": "array", "items": { "$ref": "#/definitions/recordField" } }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "const": "enum" } }, "required": ["variants"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "kind": { "const": "record" } }, "required": ["fields"], "minProperties": 4, "maxProperties": 4 }
+      ]
+    },
+    "valueDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "value_type", "source"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "kind": { "enum": ["input", "state"] },
+        "value_type": { "$ref": "#/definitions/valueType" },
+        "source": { "$ref": "#/definitions/sourceSpan" }
+      }
+    },
+    "functionParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_type", "source"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "value_type": { "$ref": "#/definitions/valueType" },
+        "source": { "$ref": "#/definitions/sourceSpan" }
+      }
+    },
+    "functionDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "parameters", "result_type", "source"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "parameters": { "type": "array", "items": { "$ref": "#/definitions/functionParameter" } },
+        "result_type": { "$ref": "#/definitions/valueType" },
+        "source": { "$ref": "#/definitions/sourceSpan" }
+      }
+    },
+    "recordLiteralField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "$ref": "#/definitions/identifier" },
+        "value": { "$ref": "#/definitions/expression" }
+      }
+    },
+    "expression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "source"],
+      "properties": {
+        "node": { "enum": ["boolean_literal", "integer_literal", "rational_literal", "text_literal", "enum_literal", "option_none", "option_some", "record_literal", "collection_literal", "value_reference", "local_reference", "field_access", "is_present", "unwrap", "length", "index", "call", "numeric", "numeric_negate", "compare", "boolean_not", "boolean", "quantifier"] },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "value": {},
+        "value_type": { "$ref": "#/definitions/valueType" },
+        "numerator": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "denominator": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "enumeration": { "$ref": "#/definitions/identifier" },
+        "variant": { "$ref": "#/definitions/identifier" },
+        "record": { "$ref": "#/definitions/identifier" },
+        "fields": { "type": "array", "items": { "$ref": "#/definitions/recordLiteralField" } },
+        "items": { "type": "array", "items": { "$ref": "#/definitions/expression" } },
+        "name": { "$ref": "#/definitions/identifier" },
+        "observation": { "enum": ["current", "pre", "post"] },
+        "base": { "$ref": "#/definitions/expression" },
+        "field": { "$ref": "#/definitions/identifier" },
+        "option": { "$ref": "#/definitions/expression" },
+        "collection": { "$ref": "#/definitions/expression" },
+        "index": { "$ref": "#/definitions/expression" },
+        "function": { "$ref": "#/definitions/identifier" },
+        "arguments": { "type": "array", "items": { "$ref": "#/definitions/expression" } },
+        "operator": { "enum": ["add", "subtract", "multiply", "divide", "remainder", "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "short_circuit_and", "short_circuit_or", "total_and", "total_or", "implication"] },
+        "left": { "$ref": "#/definitions/expression" },
+        "right": { "$ref": "#/definitions/expression" },
+        "operand": { "$ref": "#/definitions/expression" },
+        "quantifier": { "enum": ["for_all", "exists"] },
+        "domain": { "enum": ["elements", "indices"] },
+        "local": { "$ref": "#/definitions/identifier" },
+        "local_source": { "$ref": "#/definitions/sourceSpan" },
+        "predicate": { "$ref": "#/definitions/expression" }
+      },
+      "oneOf": [
+        { "properties": { "node": { "const": "boolean_literal" }, "value": { "type": "boolean" } }, "required": ["value"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "integer_literal" }, "value": { "type": "integer" } }, "required": ["value", "value_type"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "rational_literal" } }, "required": ["numerator", "denominator", "value_type"], "minProperties": 5, "maxProperties": 5 },
+        { "properties": { "node": { "const": "text_literal" }, "value": { "type": "string" } }, "required": ["value"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "enum_literal" } }, "required": ["enumeration", "variant"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "option_none" } }, "required": ["value_type"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "option_some" }, "value": { "$ref": "#/definitions/expression" } }, "required": ["value_type", "value"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "record_literal" } }, "required": ["record", "fields"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "collection_literal" } }, "required": ["value_type", "items"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "value_reference" } }, "required": ["name", "observation"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "local_reference" } }, "required": ["name"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "field_access" } }, "required": ["base", "field"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "enum": ["is_present", "unwrap"] } }, "required": ["option"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "length" } }, "required": ["collection"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "index" } }, "required": ["collection", "index"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "call" } }, "required": ["function", "arguments"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "enum": ["numeric", "compare", "boolean"] } }, "required": ["operator", "left", "right"], "minProperties": 5, "maxProperties": 5 },
+        { "properties": { "node": { "enum": ["numeric_negate", "boolean_not"] } }, "required": ["operand"], "minProperties": 3, "maxProperties": 3 },
+        { "properties": { "node": { "const": "quantifier" } }, "required": ["quantifier", "domain", "collection", "local", "local_source", "predicate"], "minProperties": 8, "maxProperties": 8 }
+      ]
+    },
+    "referenceBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node"],
+      "properties": {
+        "node": { "enum": ["literal", "reference", "composite"] },
+        "identity": { "$ref": "#/definitions/dependency" },
+        "children": { "type": "array", "items": { "$ref": "#/definitions/referenceBody" } }
+      },
+      "oneOf": [
+        { "properties": { "node": { "const": "literal" } }, "minProperties": 1, "maxProperties": 1 },
+        { "properties": { "node": { "const": "reference" } }, "required": ["identity"], "minProperties": 2, "maxProperties": 2 },
+        { "properties": { "node": { "const": "composite" } }, "required": ["children"], "minProperties": 2, "maxProperties": 2 }
+      ]
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "body"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "kind": { "enum": ["precondition", "postcondition", "invariant", "assertion", "case", "information"] },
+        "anchor": { "$ref": "#/definitions/executionPoint" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "body": { "$ref": "#/definitions/referenceBody" }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "source", "clauses"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "clauses": { "type": "array", "items": { "$ref": "#/definitions/clause" } }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "schema_version", "source", "requirements"],
+      "properties": {
+        "id": { "$ref": "#/definitions/packageId" },
+        "schema_version": { "$ref": "#/definitions/schemaVersion" },
+        "source": { "$ref": "#/definitions/sourceIdentity" },
+        "requirements": { "type": "array", "items": { "$ref": "#/definitions/requirement" } }
+      }
+    },
+    "packageProbeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package"],
+      "properties": {
+        "package": { "$ref": "#/definitions/package" },
+        "clause_resolutions": { "type": "array", "items": { "$ref": "#/definitions/clauseRef" } },
+        "canonical_maximum_bytes": { "$ref": "#/definitions/u64" }
+      }
+    },
+    "packageInput": {
+      "oneOf": [
+        { "$ref": "#/definitions/package" },
+        { "$ref": "#/definitions/packageProbeInput" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_json"],
+          "properties": { "document_json": { "type": "string" } }
+        }
+      ]
+    },
+    "expressionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "types", "values", "functions", "expression", "expected_type", "execution_point", "clause_root"],
+      "properties": {
+        "owner": { "$ref": "#/definitions/requirementRef" },
+        "types": { "type": "array", "items": { "$ref": "#/definitions/typeDeclaration" } },
+        "values": { "type": "array", "items": { "$ref": "#/definitions/valueDeclaration" } },
+        "functions": { "type": "array", "items": { "$ref": "#/definitions/functionDeclaration" } },
+        "expression": { "$ref": "#/definitions/expression" },
+        "expected_type": { "$ref": "#/definitions/valueType" },
+        "execution_point": { "$ref": "#/definitions/executionPoint" },
+        "clause_root": { "type": "boolean" }
+      }
+    },
+    "migrationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "target_version"],
+      "properties": {
+        "package": { "$ref": "#/definitions/package" },
+        "target_version": { "$ref": "#/definitions/schemaVersion" }
+      }
+    },
+    "traceDepth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["shallow", "deep"] },
+        "requirement_digest": { "$ref": "#/definitions/digest" },
+        "digest_span": { "$ref": "#/definitions/sourceSpan" }
+      },
+      "oneOf": [
+        { "properties": { "kind": { "const": "shallow" } }, "minProperties": 1, "maxProperties": 1 },
+        { "properties": { "kind": { "const": "deep" } }, "required": ["requirement_digest", "digest_span"], "minProperties": 3, "maxProperties": 3 }
+      ]
+    },
+    "artifactTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "source", "target", "target_span", "depth"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/identifier" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "target": { "$ref": "#/definitions/requirementRef" },
+        "target_span": { "$ref": "#/definitions/sourceSpan" },
+        "depth": { "$ref": "#/definitions/traceDepth" }
+      }
+    },
+    "coverageInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "traces"],
+      "properties": {
+        "package": { "$ref": "#/definitions/package" },
+        "traces": { "type": "array", "items": { "$ref": "#/definitions/artifactTrace" } }
+      }
+    },
+    "canonicalExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "kind", "bytes_path", "bytes_sha256", "digest"],
+      "properties": {
+        "identity": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["package", "requirement", "clause", "declaration", "expression"] },
+        "bytes_path": { "$ref": "#/definitions/relativePath" },
+        "bytes_sha256": { "$ref": "#/definitions/digest" },
+        "digest": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "packageExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "diagnostics", "canonical", "dependencies"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/definitions/diagnostic" } },
+        "canonical": { "type": "array", "items": { "$ref": "#/definitions/canonicalExpectation" } },
+        "dependencies": { "type": "array", "items": { "$ref": "#/definitions/dependency" } }
+      }
+    },
+    "expressionExpectation": { "$ref": "#/definitions/packageExpectation" },
+    "migrationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["migration_id", "source_version", "target_version", "source_package_digest", "target_package_digest"],
+      "properties": {
+        "migration_id": { "const": "reference_body_1_0_to_1_1" },
+        "source_version": { "$ref": "#/definitions/schemaVersion" },
+        "target_version": { "$ref": "#/definitions/schemaVersion" },
+        "source_package_digest": { "$ref": "#/definitions/digest" },
+        "target_package_digest": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "migrationExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "diagnostics", "canonical", "migration_receipt"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/definitions/diagnostic" } },
+        "canonical": { "type": "array", "items": { "$ref": "#/definitions/canonicalExpectation" } },
+        "migration_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/migrationReceipt" }] }
+      }
+    },
+    "requirementCoverageRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "class"],
+      "properties": {
+        "reference": { "$ref": "#/definitions/requirementRef" },
+        "class": { "enum": ["shallow", "deep", "uncovered"] }
+      }
+    },
+    "artifactCoverageRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "target", "class"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/identifier" },
+        "target": { "$ref": "#/definitions/requirementRef" },
+        "class": { "enum": ["shallow", "deep", "orphaned"] },
+        "orphan_reason": { "type": ["string", "null"], "enum": ["cross_package", "missing_requirement", "stale_revision", "duplicate_artifact", "digest_mismatch", null] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "class": { "const": "orphaned" } } },
+          "then": { "required": ["orphan_reason"] },
+          "else": { "properties": { "orphan_reason": { "type": "null" } } }
+        }
+      ]
+    },
+    "coverageReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirements", "artifacts"],
+      "properties": {
+        "requirements": { "type": "array", "items": { "$ref": "#/definitions/requirementCoverageRow" } },
+        "artifacts": { "type": "array", "items": { "$ref": "#/definitions/artifactCoverageRow" } }
+      }
+    },
+    "coverageExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostics", "coverage"],
+      "properties": {
+        "diagnostics": { "type": "array", "items": { "$ref": "#/definitions/diagnostic" } },
+        "coverage": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/coverageReport" }] }
+      }
+    },
+    "digestedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/definitions/relativePath" },
+        "sha256": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "input", "input_sha256", "expectation", "expectation_sha256", "covers"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
+        "operation": { "enum": ["package", "expression", "migration", "coverage"] },
+        "input": { "$ref": "#/definitions/relativePath" },
+        "input_sha256": { "$ref": "#/definitions/digest" },
+        "expectation": { "$ref": "#/definitions/relativePath" },
+        "expectation_sha256": { "$ref": "#/definitions/digest" },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpus_id", "package_schema", "conformance_schema", "inventory", "canonical_profile", "protocol", "fixtures"],
+      "properties": {
+        "corpus_id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
+        "package_schema": { "$ref": "#/definitions/digestedPath" },
+        "conformance_schema": { "$ref": "#/definitions/digestedPath" },
+        "inventory": { "$ref": "#/definitions/digestedPath" },
+        "canonical_profile": { "type": "string", "minLength": 1 },
+        "protocol": { "type": "string", "minLength": 1 },
+        "fixtures": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/definitions/fixture" } }
+      }
+    }
+  }
+}

@@ -5,14 +5,17 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sys
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.verify_evidence import (
     EVIDENCE_SCHEMA,
     ROOT,
     EvidenceError,
+    EvidenceUnavailable,
     choose_unique_match,
     parse_external_checksum_lines,
     safe_relative_path,
@@ -23,6 +26,7 @@ from scripts.verify_evidence import (
     verify_input_checksums,
     verify_output_entries,
     verify_record,
+    main,
 )
 
 
@@ -34,6 +38,22 @@ def assert_evidence_error(message: str, callback: Callable[[], object]) -> None:
             raise AssertionError(f"expected {message!r}, got {error!r}") from error
     else:
         raise AssertionError(f"expected EvidenceError containing {message!r}")
+
+
+def test_evidence_verifier_distinguishes_unavailable_from_failed() -> None:
+    """TC-013. Trace: TC-013, FR-009-AC-3."""
+    with patch.object(sys, "argv", ["verify_evidence.py"]), patch(
+        "scripts.verify_evidence.select_current_record",
+        side_effect=EvidenceUnavailable("subject revision is absent"),
+    ):
+        if main() != 3:
+            raise AssertionError("unavailable evidence must use exit 3")
+    with patch.object(sys, "argv", ["verify_evidence.py"]), patch(
+        "scripts.verify_evidence.select_current_record",
+        side_effect=EvidenceError("candidate bytes differ"),
+    ):
+        if main() != 1:
+            raise AssertionError("failed evidence must use exit 1")
 
 
 def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
@@ -245,36 +265,9 @@ def load_tests(
     tests: unittest.TestSuite,
     _pattern: str | None,
 ) -> unittest.TestSuite:
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_detects_head_and_current_input_drift
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_rejects_incomplete_input_coverage_and_unsafe_paths
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_authenticates_outputs_and_checksum_file_to_head
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_requires_one_matching_record
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_manifest_schema_rejects_missing_required_provenance
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_enforces_append_only_correction
-        )
-    )
+    for name, function in sorted(globals().items()):
+        if name.startswith("test_") and callable(function):
+            tests.addTest(unittest.FunctionTestCase(function))
     return tests
 
 

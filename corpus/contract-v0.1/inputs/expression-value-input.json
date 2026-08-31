@@ -1,0 +1,430 @@
+{
+  "owner": {
+    "package": "agent-ix/conformance",
+    "requirement": "REQ_alpha",
+    "revision": 1
+  },
+  "types": [
+    {
+      "kind": "enum",
+      "name": "Color",
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 2,
+          "byte_offset": 1
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 3,
+          "byte_offset": 2
+        }
+      },
+      "variants": [
+        {
+          "name": "red",
+          "source": {
+            "start": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 3,
+              "byte_offset": 2
+            },
+            "end": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 4,
+              "byte_offset": 3
+            }
+          }
+        },
+        {
+          "name": "blue",
+          "source": {
+            "start": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 4,
+              "byte_offset": 3
+            },
+            "end": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 5,
+              "byte_offset": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "record",
+      "name": "Sensor",
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 5,
+          "byte_offset": 4
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 6,
+          "byte_offset": 5
+        }
+      },
+      "fields": [
+        {
+          "name": "reading",
+          "value_type": {
+            "kind": "integer",
+            "domain": "signed",
+            "minimum": -10,
+            "maximum": 10,
+            "overflow": "reject"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 6,
+              "byte_offset": 5
+            },
+            "end": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 7,
+              "byte_offset": 6
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "name": "divisor",
+      "kind": "input",
+      "value_type": {
+        "kind": "integer",
+        "domain": "signed",
+        "minimum": -10,
+        "maximum": 10,
+        "overflow": "reject"
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 7,
+          "byte_offset": 6
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 8,
+          "byte_offset": 7
+        }
+      }
+    },
+    {
+      "name": "state_value",
+      "kind": "state",
+      "value_type": {
+        "kind": "integer",
+        "domain": "signed",
+        "minimum": -10,
+        "maximum": 10,
+        "overflow": "reject"
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 8,
+          "byte_offset": 7
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 9,
+          "byte_offset": 8
+        }
+      }
+    },
+    {
+      "name": "maybe",
+      "kind": "state",
+      "value_type": {
+        "kind": "option",
+        "value": {
+          "kind": "integer",
+          "domain": "signed",
+          "minimum": -10,
+          "maximum": 10,
+          "overflow": "reject"
+        }
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 9,
+          "byte_offset": 8
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 10,
+          "byte_offset": 9
+        }
+      }
+    },
+    {
+      "name": "items",
+      "kind": "state",
+      "value_type": {
+        "kind": "collection",
+        "element": {
+          "kind": "integer",
+          "domain": "signed",
+          "minimum": -10,
+          "maximum": 10,
+          "overflow": "reject"
+        },
+        "maximum_items": 4
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 10,
+          "byte_offset": 9
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 11,
+          "byte_offset": 10
+        }
+      }
+    },
+    {
+      "name": "position",
+      "kind": "input",
+      "value_type": {
+        "kind": "integer",
+        "domain": "unsigned",
+        "minimum": 0,
+        "maximum": 4,
+        "overflow": "reject"
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 11,
+          "byte_offset": 10
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 12,
+          "byte_offset": 11
+        }
+      }
+    },
+    {
+      "name": "sensor",
+      "kind": "state",
+      "value_type": {
+        "kind": "record",
+        "name": "Sensor"
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 12,
+          "byte_offset": 11
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 13,
+          "byte_offset": 12
+        }
+      }
+    }
+  ],
+  "functions": [
+    {
+      "name": "identity",
+      "parameters": [
+        {
+          "name": "argument",
+          "value_type": {
+            "kind": "integer",
+            "domain": "signed",
+            "minimum": -10,
+            "maximum": 10,
+            "overflow": "reject"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 13,
+              "byte_offset": 12
+            },
+            "end": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 14,
+              "byte_offset": 13
+            }
+          }
+        }
+      ],
+      "result_type": {
+        "kind": "integer",
+        "domain": "signed",
+        "minimum": -10,
+        "maximum": 10,
+        "overflow": "reject"
+      },
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 14,
+          "byte_offset": 13
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 15,
+          "byte_offset": 14
+        }
+      }
+    }
+  ],
+  "expression": {
+    "node": "value_reference",
+    "name": "divisor",
+    "observation": "current",
+    "source": {
+      "start": {
+        "source": {
+          "document": "expression",
+          "revision": 1
+        },
+        "line": 1,
+        "column": 21,
+        "byte_offset": 20
+      },
+      "end": {
+        "source": {
+          "document": "expression",
+          "revision": 1
+        },
+        "line": 1,
+        "column": 22,
+        "byte_offset": 21
+      }
+    }
+  },
+  "expected_type": {
+    "kind": "integer",
+    "domain": "signed",
+    "minimum": -10,
+    "maximum": 10,
+    "overflow": "reject"
+  },
+  "execution_point": {
+    "kind": "pre",
+    "operation": "check"
+  },
+  "clause_root": false
+}

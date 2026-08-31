@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fmt};
 use serde::Serialize;
 
 use crate::{
-    CanonicalBody, CanonicalDigest, ContractPackage, Diagnostic, DiagnosticCode, RequirementRef,
-    SourceSpan,
+    CanonicalBody, CanonicalDigest, CanonicalProfile, ContractPackage, Diagnostic, DiagnosticCode,
+    RequirementRef, SourceSpan,
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -212,7 +212,15 @@ impl CoverageResult {
 pub fn classify_coverage<B: CanonicalBody>(
     package: &ContractPackage<B>,
     traces: &[ArtifactTrace],
+    profile: CanonicalProfile,
 ) -> Result<CoverageResult, Diagnostic> {
+    if traces.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+        return Err(Diagnostic::error(
+            DiagnosticCode::SemanticInputTooLarge,
+            "artifact trace collection exceeds the semantic input limit",
+            "artifacts",
+        ));
+    }
     let mut requirement_rows = package
         .requirements()
         .iter()
@@ -276,7 +284,9 @@ pub fn classify_coverage<B: CanonicalBody>(
                 requirement_digest,
                 digest_span,
             } => {
-                let current = package.canonical_requirement(requirement)?.digest();
+                let current = package
+                    .canonical_requirement(requirement, profile)?
+                    .digest();
                 if current != *requirement_digest {
                     diagnostics.push(
                         Diagnostic::error(

@@ -27,6 +27,9 @@ A revision-scoped content-addressed record and a separately authorized release d
 - The release-only verifier independently enumerates every non-evidence file in the current `HEAD` tree, requires an exact checksum-key match, rejects non-ignored untracked inputs, and checks each digest against both the `HEAD` Git blob and current candidate file. The source revision is provenance only; an ancestor relationship is not required after a squash merge.
 - Every retained output, including the external checksum file, matches its current `HEAD` Git blob.
 - Exactly one record matches the current candidate.
+- Evidence verification exits 1 when candidate evidence is available but
+  invalid, and exits 3 when candidate evidence cannot be evaluated because a
+  required Git object or worktree input is unavailable.
 - The evidence manifest is validated against the published `quire.pgm01-evidence/v1` Draft 7 schema, whose identity and digest are carried in the record.
 - Inconclusive, failed, and skipped results remain explicit; CI success does not approve a release.
 - An append-only `quire.evidence-correction/v1` record may supersede a false
@@ -40,7 +43,7 @@ A revision-scoped content-addressed record and a separately authorized release d
 |---|---|---|
 | FR-009-AC-1 | The solver fixture remains semantically `inconclusive` after successful schema validation. | Test (TC-006) |
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
-| FR-009-AC-3 | Evidence verification rejects incomplete, committed-added, or untracked input coverage; false or drifted input digests; output/checksum drift; unsafe paths; schema-invalid manifests; and ambiguous record selection without depending on source-revision ancestry. | Test (TC-013) |
+| FR-009-AC-3 | Evidence verification rejects incomplete, committed-added, or untracked input coverage; false or drifted input digests; output/checksum drift; unsafe paths; schema-invalid manifests; and ambiguous record selection without depending on source-revision ancestry. It distinguishes invalid available evidence (exit 1) from unavailable evidence (exit 3). | Test (TC-013) |
 | FR-009-AC-4 | A schema-valid, checksum-authenticated correction makes the verifier reject the affected review-pass record; malformed, unauthenticated, and dangling corrections fail closed. | Test (TC-022) |
 
 ## Dependencies

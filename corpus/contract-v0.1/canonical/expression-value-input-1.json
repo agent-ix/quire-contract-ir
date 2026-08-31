@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"integer","value":{"domain":"signed","maximum":10,"minimum":-10,"overflow":"reject"}},"tree":{"kind":{"name":"divisor","node":"value_reference","observation":"current"}}}}

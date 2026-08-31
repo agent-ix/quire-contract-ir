@@ -92,13 +92,16 @@ rows when some artifacts are orphaned. Requirement rows never use `orphaned`;
 artifact rows never use `uncovered`. Diagnostics use the trace span and follow
 authored trace order. Repeating or permuting unique trace inputs produces the
 same sorted rows; diagnostics remain authored-order evidence for invalid input.
+Package requirements, requirement clauses, and artifact-trace inputs are also
+subject to FR-019's semantic node/depth/collection preflight before migration,
+canonicalization, or coverage recursion begins.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-017-AC-1 | Version preflight rejects unknown majors and unregistered minor/migration paths before semantic interpretation; the registered 1.0-to-1.1 migration alone succeeds and its receipt binds source/target versions and digests. | Test (TC-017) |
-| FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale, missing, cross-package, duplicate, and digest-mismatched artifacts retain distinct diagnostics and cannot make a current requirement appear covered. | Test (TC-017) |
+| FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale, missing, cross-package, duplicate, digest-mismatched, and over-limit inputs retain distinct diagnostics and cannot make a current requirement appear covered. | Test (TC-017, TC-018) |
 
 ## Dependencies
 

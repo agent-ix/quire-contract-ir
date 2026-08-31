@@ -12,6 +12,20 @@ use crate::{
 pub const CANONICAL_PROFILE: &str = "quire.contract.canonical-json/v1";
 const DIGEST_DOMAIN: &[u8] = b"quire-contract-ir";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum CanonicalProfile {
+    #[serde(rename = "quire.contract.canonical-json/v1")]
+    V1,
+}
+
+impl CanonicalProfile {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V1 => CANONICAL_PROFILE,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalKind {
     Package,
@@ -156,14 +170,19 @@ impl CanonicalBody for TypedExpression {
 }
 
 impl<B: CanonicalBody> ContractPackage<B> {
-    pub fn canonical_package(&self) -> Result<CanonicalOutput, Diagnostic> {
-        self.canonical_package_with_limit(u64::MAX)
+    pub fn canonical_package(
+        &self,
+        profile: CanonicalProfile,
+    ) -> Result<CanonicalOutput, Diagnostic> {
+        self.canonical_package_with_limit(profile, u64::MAX)
     }
 
     pub fn canonical_package_with_limit(
         &self,
+        profile: CanonicalProfile,
         maximum_bytes: u64,
     ) -> Result<CanonicalOutput, Diagnostic> {
+        require_profile(profile)?;
         ensure_supported(self.schema_version())?;
         canonicalize(
             CanonicalKind::Package,
@@ -177,15 +196,18 @@ impl<B: CanonicalBody> ContractPackage<B> {
     pub fn canonical_requirement(
         &self,
         requirement: &Requirement<B>,
+        profile: CanonicalProfile,
     ) -> Result<CanonicalOutput, Diagnostic> {
-        self.canonical_requirement_with_limit(requirement, u64::MAX)
+        self.canonical_requirement_with_limit(requirement, profile, u64::MAX)
     }
 
     pub fn canonical_requirement_with_limit(
         &self,
         requirement: &Requirement<B>,
+        profile: CanonicalProfile,
         maximum_bytes: u64,
     ) -> Result<CanonicalOutput, Diagnostic> {
+        require_profile(profile)?;
         ensure_supported(self.schema_version())?;
         let requirement = self
             .requirements()
@@ -211,16 +233,19 @@ impl<B: CanonicalBody> ContractPackage<B> {
         &self,
         requirement: &Requirement<B>,
         clause: &Clause<B>,
+        profile: CanonicalProfile,
     ) -> Result<CanonicalOutput, Diagnostic> {
-        self.canonical_clause_with_limit(requirement, clause, u64::MAX)
+        self.canonical_clause_with_limit(requirement, clause, profile, u64::MAX)
     }
 
     pub fn canonical_clause_with_limit(
         &self,
         requirement: &Requirement<B>,
         clause: &Clause<B>,
+        profile: CanonicalProfile,
         maximum_bytes: u64,
     ) -> Result<CanonicalOutput, Diagnostic> {
+        require_profile(profile)?;
         ensure_supported(self.schema_version())?;
         let requirement = self
             .requirements()
@@ -255,14 +280,19 @@ impl<B: CanonicalBody> ContractPackage<B> {
 }
 
 impl DeclarationEnvironment {
-    pub fn canonical_declaration(&self) -> Result<CanonicalOutput, Diagnostic> {
-        self.canonical_declaration_with_limit(u64::MAX)
+    pub fn canonical_declaration(
+        &self,
+        profile: CanonicalProfile,
+    ) -> Result<CanonicalOutput, Diagnostic> {
+        self.canonical_declaration_with_limit(profile, u64::MAX)
     }
 
     pub fn canonical_declaration_with_limit(
         &self,
+        profile: CanonicalProfile,
         maximum_bytes: u64,
     ) -> Result<CanonicalOutput, Diagnostic> {
+        require_profile(profile)?;
         canonicalize(
             CanonicalKind::Declaration,
             declaration_value(self)?,
@@ -274,14 +304,19 @@ impl DeclarationEnvironment {
 }
 
 impl TypedExpression {
-    pub fn canonical_expression(&self) -> Result<CanonicalOutput, Diagnostic> {
-        self.canonical_expression_with_limit(u64::MAX)
+    pub fn canonical_expression(
+        &self,
+        profile: CanonicalProfile,
+    ) -> Result<CanonicalOutput, Diagnostic> {
+        self.canonical_expression_with_limit(profile, u64::MAX)
     }
 
     pub fn canonical_expression_with_limit(
         &self,
+        profile: CanonicalProfile,
         maximum_bytes: u64,
     ) -> Result<CanonicalOutput, Diagnostic> {
+        require_profile(profile)?;
         canonicalize(
             CanonicalKind::Expression,
             typed_expression_value(self)?,
@@ -305,6 +340,12 @@ fn ensure_supported(version: SchemaVersion) -> Result<(), Diagnostic> {
             "schema major is unsupported",
             "schema_version.major",
         )),
+    }
+}
+
+fn require_profile(profile: CanonicalProfile) -> Result<(), Diagnostic> {
+    match profile {
+        CanonicalProfile::V1 => Ok(()),
     }
 }
 
@@ -713,6 +754,7 @@ impl MigrationReceipt {
 pub fn migrate_reference_body(
     package: ContractPackage<ReferenceBody>,
     target_version: SchemaVersion,
+    profile: CanonicalProfile,
 ) -> Result<(ContractPackage<ReferenceBody>, MigrationReceipt), Vec<Diagnostic>> {
     if package.schema_version() != SchemaVersion::V1_0 || target_version != SchemaVersion::V1_1 {
         return Err(vec![Diagnostic::error(
@@ -722,7 +764,7 @@ pub fn migrate_reference_body(
         )]);
     }
     let source_package_digest = package
-        .canonical_package()
+        .canonical_package(profile)
         .map_err(|diagnostic| vec![diagnostic])?
         .digest();
     let migrated = ContractPackage::new(
@@ -732,7 +774,7 @@ pub fn migrate_reference_body(
         package.requirements().to_vec(),
     )?;
     let target_package_digest = migrated
-        .canonical_package()
+        .canonical_package(profile)
         .map_err(|diagnostic| vec![diagnostic])?
         .digest();
     let receipt = MigrationReceipt {

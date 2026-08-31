@@ -1,13 +1,13 @@
 use quire_contract_ir::{
     classify_coverage, migrate_reference_body, AnchorName, ArtifactId, ArtifactTrace,
-    CanonicalDigest, CanonicalKind, Clause, ClauseId, ClauseKind, CollectionType, ContractPackage,
-    CoverageClass, DeclarationEnvironment, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration,
-    ExecutionPoint, Expression, ExpressionKind, FunctionParameter, OrphanReason, PackageId,
-    PureFunctionDeclaration, RationalType, RecordDeclaration, RecordFieldDeclaration,
-    RecordLiteralField, ReferenceBody, Requirement, RequirementId, RequirementRef,
-    RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity, SourceLocation,
-    SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValueDeclaration,
-    ValueDeclarationKind, ValueType,
+    CanonicalDigest, CanonicalKind, CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType,
+    ContractPackage, CoverageClass, DeclarationEnvironment, DiagnosticCode, EnumDeclaration,
+    EnumVariantDeclaration, ExecutionPoint, Expression, ExpressionKind, FunctionParameter,
+    OrphanReason, PackageId, PureFunctionDeclaration, RationalType, RecordDeclaration,
+    RecordFieldDeclaration, RecordLiteralField, ReferenceBody, Requirement, RequirementId,
+    RequirementRef, RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity,
+    SourceLocation, SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions,
+    ValueDeclaration, ValueDeclarationKind, ValueType,
 };
 
 fn source(document: &str) -> SourceIdentity {
@@ -82,9 +82,9 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
 fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);
     let permuted = package_fixture("canonical_b", true, false);
-    let output = package.canonical_package().unwrap();
-    let repeated = package.canonical_package().unwrap();
-    let permuted_output = permuted.canonical_package().unwrap();
+    let output = package.canonical_package(CanonicalProfile::V1).unwrap();
+    let repeated = package.canonical_package(CanonicalProfile::V1).unwrap();
+    let permuted_output = permuted.canonical_package(CanonicalProfile::V1).unwrap();
 
     assert_eq!(output, repeated);
     assert_eq!(output.kind(), CanonicalKind::Package);
@@ -114,31 +114,34 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let changed = package_fixture("canonical_c", false, true);
     assert_ne!(
         output.digest(),
-        changed.canonical_package().unwrap().digest()
+        changed
+            .canonical_package(CanonicalProfile::V1)
+            .unwrap()
+            .digest()
     );
     assert_ne!(
         package
-            .canonical_requirement(&package.requirements()[0])
+            .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
             .unwrap()
             .digest(),
         changed
-            .canonical_requirement(&changed.requirements()[0])
+            .canonical_requirement(&changed.requirements()[0], CanonicalProfile::V1)
             .unwrap()
             .digest()
     );
     assert_eq!(
         package
-            .canonical_requirement(&package.requirements()[1])
+            .canonical_requirement(&package.requirements()[1], CanonicalProfile::V1)
             .unwrap()
             .digest(),
         changed
-            .canonical_requirement(&changed.requirements()[1])
+            .canonical_requirement(&changed.requirements()[1], CanonicalProfile::V1)
             .unwrap()
             .digest()
     );
     assert_eq!(
         package
-            .canonical_requirement(&package.requirements()[0])
+            .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
             .unwrap()
             .kind(),
         CanonicalKind::Requirement
@@ -147,7 +150,8 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
         package
             .canonical_clause(
                 &package.requirements()[0],
-                &package.requirements()[0].clauses()[0]
+                &package.requirements()[0].clauses()[0],
+                CanonicalProfile::V1,
             )
             .unwrap()
             .kind(),
@@ -155,7 +159,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     );
     assert_eq!(
         package
-            .canonical_requirement(&permuted.requirements()[0])
+            .canonical_requirement(&permuted.requirements()[0], CanonicalProfile::V1)
             .unwrap_err()
             .code,
         DiagnosticCode::MalformedReference
@@ -169,17 +173,22 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     )
     .unwrap();
     assert_eq!(
-        unsupported.canonical_package().unwrap_err().code,
+        unsupported
+            .canonical_package(CanonicalProfile::V1)
+            .unwrap_err()
+            .code,
         DiagnosticCode::UnregisteredMigration
     );
 
-    let exhausted = package.canonical_package_with_limit(0).unwrap_err();
+    let exhausted = package
+        .canonical_package_with_limit(CanonicalProfile::V1, 0)
+        .unwrap_err();
     assert_eq!(
         exhausted.code,
         DiagnosticCode::CanonicalizationResourceExhausted
     );
     let exhausted_requirement = package
-        .canonical_requirement_with_limit(&package.requirements()[0], 0)
+        .canonical_requirement_with_limit(&package.requirements()[0], CanonicalProfile::V1, 0)
         .unwrap_err();
     assert_eq!(
         exhausted_requirement.code,
@@ -193,6 +202,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
         .canonical_clause_with_limit(
             &package.requirements()[0],
             &package.requirements()[0].clauses()[0],
+            CanonicalProfile::V1,
             0,
         )
         .unwrap_err();
@@ -354,17 +364,21 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
         vec![function_b],
     )
     .unwrap();
-    let declaration = environment.canonical_declaration().unwrap();
+    let declaration = environment
+        .canonical_declaration(CanonicalProfile::V1)
+        .unwrap();
     assert_eq!(
         environment
-            .canonical_declaration_with_limit(0)
+            .canonical_declaration_with_limit(CanonicalProfile::V1, 0)
             .unwrap_err()
             .code,
         DiagnosticCode::CanonicalizationResourceExhausted
     );
     assert_eq!(
         declaration,
-        environment_permuted.canonical_declaration().unwrap()
+        environment_permuted
+            .canonical_declaration(CanonicalProfile::V1)
+            .unwrap()
     );
     let declaration_text = std::str::from_utf8(declaration.bytes().as_slice()).unwrap();
     assert_eq!(declaration.kind(), CanonicalKind::Declaration);
@@ -397,8 +411,10 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
         false,
     )
     .unwrap();
-    let expression_output = typed.canonical_expression().unwrap();
-    let exhausted_expression = typed.canonical_expression_with_limit(0).unwrap_err();
+    let expression_output = typed.canonical_expression(CanonicalProfile::V1).unwrap();
+    let exhausted_expression = typed
+        .canonical_expression_with_limit(CanonicalProfile::V1, 0)
+        .unwrap_err();
     assert_eq!(
         exhausted_expression.code,
         DiagnosticCode::CanonicalizationResourceExhausted
@@ -453,7 +469,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
         .unwrap();
     let record_text = String::from_utf8(
         typed_record
-            .canonical_expression()
+            .canonical_expression(CanonicalProfile::V1)
             .unwrap()
             .bytes()
             .as_slice()
@@ -506,10 +522,14 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             false,
         )
         .unwrap();
-    let rational_output = typed_unreduced.canonical_expression().unwrap();
+    let rational_output = typed_unreduced
+        .canonical_expression(CanonicalProfile::V1)
+        .unwrap();
     assert_eq!(
         rational_output,
-        typed_reduced.canonical_expression().unwrap()
+        typed_reduced
+            .canonical_expression(CanonicalProfile::V1)
+            .unwrap()
     );
     let rational_text = String::from_utf8(rational_output.bytes().as_slice().to_vec()).unwrap();
     assert!(rational_text.contains("\"denominator\":2"));
@@ -548,7 +568,7 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
         .unwrap();
     let collection_text = String::from_utf8(
         typed_collection
-            .canonical_expression()
+            .canonical_expression(CanonicalProfile::V1)
             .unwrap()
             .bytes()
             .as_slice()
@@ -564,7 +584,8 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
 #[test]
 fn tc_017_version_preflight_and_registered_migration_fail_closed() {
     let package = package_fixture("migration", false, false);
-    let (migrated, receipt) = migrate_reference_body(package.clone(), SchemaVersion::V1_1).unwrap();
+    let (migrated, receipt) =
+        migrate_reference_body(package.clone(), SchemaVersion::V1_1, CanonicalProfile::V1).unwrap();
     assert_eq!(migrated.schema_version(), SchemaVersion::V1_1);
     assert_eq!(receipt.migration_id(), "reference_body_1_0_to_1_1");
     assert_eq!(receipt.source_version(), SchemaVersion::V1_0);
@@ -576,7 +597,9 @@ fn tc_017_version_preflight_and_registered_migration_fail_closed() {
     assert_eq!(package.id(), migrated.id());
     assert_eq!(package.requirements(), migrated.requirements());
     assert_eq!(
-        migrate_reference_body(package.clone(), SchemaVersion::V1_0).unwrap_err()[0].code,
+        migrate_reference_body(package.clone(), SchemaVersion::V1_0, CanonicalProfile::V1,)
+            .unwrap_err()[0]
+            .code,
         DiagnosticCode::UnregisteredMigration
     );
 
@@ -584,22 +607,30 @@ fn tc_017_version_preflight_and_registered_migration_fail_closed() {
     wire["id"] = serde_json::json!("bad id");
     wire["schema_version"] = serde_json::json!({"major": 2, "minor": 0});
     assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string()).unwrap_err()[0].code,
+        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
+            [0]
+        .code,
         DiagnosticCode::UnsupportedSchemaVersion
     );
     wire["schema_version"] = serde_json::json!({"major": 1, "minor": 9});
     assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string()).unwrap_err()[0].code,
+        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
+            [0]
+        .code,
         DiagnosticCode::UnregisteredMigration
     );
     wire["schema_version"] = serde_json::json!({"major": 0, "minor": 1});
     assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string()).unwrap_err()[0].code,
+        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
+            [0]
+        .code,
         DiagnosticCode::InvalidSchemaVersion
     );
     wire.as_object_mut().unwrap().remove("schema_version");
     assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string()).unwrap_err()[0].code,
+        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
+            [0]
+        .code,
         DiagnosticCode::InvalidWireFormat
     );
 }
@@ -614,7 +645,7 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     let req_a = reference(&package, "REQ_a", 1);
     let req_b = reference(&package, "REQ_b", 2);
     let req_a_digest = package
-        .canonical_requirement(&package.requirements()[0])
+        .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
         .unwrap()
         .digest();
     let wrong_digest = quire_contract_ir::CanonicalDigest::parse(
@@ -676,7 +707,7 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
             make_span(17),
         ),
     ];
-    let result = classify_coverage(&package, &traces).unwrap();
+    let result = classify_coverage(&package, &traces, CanonicalProfile::V1).unwrap();
     assert_eq!(result.report().requirements().len(), 2);
     assert_eq!(result.report().requirements()[0].reference(), &req_a);
     assert_eq!(

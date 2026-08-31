@@ -119,6 +119,7 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
         "TASK-006-identities.md",
         "TASK-007-expressions.md",
         "TASK-008-canonicalization.md",
+        "TASK-009-conformance.md",
     ] {
         let path = format!("plan/PLAN-002-contract-ir-v01/{completed}");
         assert!(
@@ -130,12 +131,6 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
     assert!(current_review.contains("FND-085"));
     assert!(current_review.contains("FND-096"));
     assert!(current_review.contains("`No actionable findings.`"));
-
-    let successor = read("plan/PLAN-002-contract-ir-v01/TASK-009-conformance.md");
-    assert!(
-        successor.contains("status: pending"),
-        "TASK-009 escaped Backlog before TASK-008 reached Done"
-    );
 
     let review = read("reviews/REV-002-contract-ir-foundation.md");
     for dimension in [

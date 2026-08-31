@@ -4,8 +4,9 @@ use std::{
 };
 
 use serde::{
-    de::Error as _, ser::Error as _, ser::SerializeStruct, Deserialize, Deserializer, Serialize,
-    Serializer,
+    de::{DeserializeOwned, Error as _},
+    ser::{Error as _, SerializeStruct},
+    Deserialize, Deserializer, Serialize, Serializer,
 };
 
 const IDENTIFIER_RULE: &str =
@@ -82,6 +83,7 @@ diagnostic_codes! {
     CanonicalizationResourceExhausted => "canonicalization_resource_exhausted",
     DuplicateArtifactTrace => "duplicate_artifact_trace",
     StaleTraceDigest => "stale_trace_digest",
+    SemanticInputTooLarge => "semantic_input_too_large",
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -795,7 +797,7 @@ pub trait DependencySource {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "node", rename_all = "snake_case")]
 pub enum ReferenceBody {
     Literal,
@@ -975,6 +977,9 @@ impl<B> Requirement<B> {
         source: SourceSpan,
         clauses: Vec<Clause<B>>,
     ) -> Result<Self, Diagnostic> {
+        if clauses.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+            return Err(semantic_input_too_large("requirement.clauses"));
+        }
         let mut clause_ids = BTreeMap::new();
         for clause in &clauses {
             if let Some(first_clause) = clause_ids.insert(clause.id.clone(), clause) {
@@ -1032,6 +1037,9 @@ impl<B: DependencySource> ContractPackage<B> {
         source: SourceIdentity,
         requirements: Vec<Requirement<B>>,
     ) -> Result<Self, Vec<Diagnostic>> {
+        if requirements.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+            return Err(vec![semantic_input_too_large("requirements")]);
+        }
         let package = Self {
             id,
             schema_version,
@@ -1222,8 +1230,19 @@ fn with_optional_span(diagnostic: Diagnostic, span: Option<&SourceSpan>) -> Diag
 
 impl ContractPackage<ReferenceBody> {
     /// Parses the issue #6 JSON representation without reducing semantic failures to text.
-    pub fn from_json_str(input: &str) -> Result<Self, Vec<Diagnostic>> {
-        let preflight: VersionPreflight = serde_json::from_str(input).map_err(|error| {
+    pub fn from_json_str(
+        input: &str,
+        options: crate::ValidationOptions,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        debug_assert!(options.is_strict());
+        if crate::limits::json_nesting_exceeds(input.as_bytes(), crate::MAX_WIRE_JSON_DEPTH) {
+            return Err(vec![Diagnostic::error(
+                DiagnosticCode::InvalidWireFormat,
+                "JSON nesting exceeds decode limit",
+                "document",
+            )]);
+        }
+        let preflight: VersionPreflight = parse_json_stack_safe(input).map_err(|error| {
             vec![Diagnostic::error(
                 DiagnosticCode::InvalidWireFormat,
                 error.to_string(),
@@ -1233,7 +1252,7 @@ impl ContractPackage<ReferenceBody> {
         preflight
             .validate()
             .map_err(|diagnostic| vec![diagnostic])?;
-        let wire: WirePackage = serde_json::from_str(input).map_err(|error| {
+        let wire: WirePackage = parse_json_stack_safe(input).map_err(|error| {
             vec![Diagnostic::error(
                 DiagnosticCode::InvalidWireFormat,
                 error.to_string(),
@@ -1242,6 +1261,26 @@ impl ContractPackage<ReferenceBody> {
         })?;
         wire.validate()
     }
+
+    pub fn from_json_bytes(
+        input: &[u8],
+        options: crate::ValidationOptions,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        let input = std::str::from_utf8(input).map_err(|_| {
+            vec![Diagnostic::error(
+                DiagnosticCode::InvalidWireFormat,
+                "document is not UTF-8",
+                "document",
+            )]
+        })?;
+        Self::from_json_str(input, options)
+    }
+}
+
+fn parse_json_stack_safe<T: DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_str(input);
+    deserializer.disable_recursion_limit();
+    T::deserialize(serde_stacker::Deserializer::new(&mut deserializer))
 }
 
 #[derive(Deserialize)]
@@ -1269,6 +1308,7 @@ impl VersionPreflight {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WirePackage {
     id: String,
     schema_version: WireSchemaVersion,
@@ -1278,6 +1318,7 @@ struct WirePackage {
 
 impl WirePackage {
     fn validate(self) -> Result<ContractPackage<ReferenceBody>, Vec<Diagnostic>> {
+        self.preflight()?;
         let id = PackageId::new(self.id).map_err(|diagnostic| vec![diagnostic])?;
         let schema_version = self
             .schema_version
@@ -1295,9 +1336,57 @@ impl WirePackage {
             .map_err(|diagnostic| vec![diagnostic])?;
         ContractPackage::new(id, schema_version, source, requirements)
     }
+
+    fn preflight(&self) -> Result<(), Vec<Diagnostic>> {
+        if self.requirements.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+            return Err(vec![semantic_input_too_large("requirements")]);
+        }
+        let mut nodes = u32::try_from(self.requirements.len()).unwrap_or(u32::MAX);
+        let mut bodies = Vec::new();
+        for requirement in &self.requirements {
+            if requirement.clauses.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+                return Err(vec![semantic_input_too_large("requirements.clauses")]);
+            }
+            nodes =
+                nodes.saturating_add(u32::try_from(requirement.clauses.len()).unwrap_or(u32::MAX));
+            bodies.extend(
+                requirement
+                    .clauses
+                    .iter()
+                    .map(|clause| (&clause.body, 1_u32)),
+            );
+        }
+        while let Some((body, depth)) = bodies.pop() {
+            if depth > crate::MAX_SEMANTIC_DEPTH {
+                return Err(vec![semantic_input_too_large("requirements.clauses.body")]);
+            }
+            nodes = nodes.saturating_add(1);
+            if nodes > crate::MAX_SEMANTIC_NODES {
+                return Err(vec![semantic_input_too_large("package")]);
+            }
+            if let WireReferenceBody::Composite { children } = body {
+                if children.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+                    return Err(vec![semantic_input_too_large(
+                        "requirements.clauses.body.children",
+                    )]);
+                }
+                bodies.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn semantic_input_too_large(path: &'static str) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::SemanticInputTooLarge,
+        "semantic input exceeds a fixed validation limit",
+        path,
+    )
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSchemaVersion {
     major: u16,
     minor: u16,
@@ -1310,6 +1399,7 @@ impl WireSchemaVersion {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceIdentity {
     document: String,
     revision: u64,
@@ -1325,6 +1415,7 @@ impl WireSourceIdentity {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceLocation {
     source: WireSourceIdentity,
     line: u32,
@@ -1344,6 +1435,7 @@ impl WireSourceLocation {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceSpan {
     start: WireSourceLocation,
     end: WireSourceLocation,
@@ -1356,6 +1448,7 @@ impl WireSourceSpan {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRequirementRef {
     package: String,
     requirement: String,
@@ -1369,6 +1462,7 @@ impl WireRequirementRef {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireDependencyIdentity {
     requirement: WireRequirementRef,
     kind: DependencyKind,
@@ -1397,7 +1491,7 @@ impl WireDependencyIdentity {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "node", rename_all = "snake_case")]
+#[serde(tag = "node", rename_all = "snake_case", deny_unknown_fields)]
 enum WireReferenceBody {
     Literal,
     Reference { identity: WireDependencyIdentity },
@@ -1422,7 +1516,7 @@ impl WireReferenceBody {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum WireExecutionPoint {
     Initialization { name: String },
     Handler { name: String },
@@ -1450,6 +1544,7 @@ impl WireExecutionPoint {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireClause {
     id: String,
     kind: ClauseKind,
@@ -1472,6 +1567,7 @@ impl WireClause {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRequirement {
     id: String,
     revision: u64,

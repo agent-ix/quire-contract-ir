@@ -1,0 +1,32 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "duplicate_variant",
+      "path": "enum.variants",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 3,
+          "column": 4,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 2,
+          "column": 3,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ],
+  "valid": false
+}

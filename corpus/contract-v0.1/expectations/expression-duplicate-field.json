@@ -1,0 +1,32 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "duplicate_field",
+      "path": "record.fields",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 6,
+          "column": 7,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 5,
+          "column": 6,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ],
+  "valid": false
+}

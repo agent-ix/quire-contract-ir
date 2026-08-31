@@ -1,0 +1,34 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-is-present-0.json",
+      "bytes_sha256": "7c4f66554fff08fd44267b21033b367b4d0da1c08d4d13d6e86fb163af5a56c6"
+    },
+    {
+      "digest": "30b563a689ced8916334f4c47c401f91450f81271c2bf4ccbc4b434ce6208352",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-is-present-1.json",
+      "bytes_sha256": "ed1fc90c77375a50aaae5ca0d8299cbb71dbd6507bbb1b93bd4430a15e4ddda4"
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "state",
+      "observation": "pre",
+      "path": [
+        "maybe"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "valid": true
+}
