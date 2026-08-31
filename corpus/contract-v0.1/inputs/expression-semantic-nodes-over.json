@@ -10,7 +10,10 @@
       "name": "v0",
       "kind": "input",
       "value_type": {
-        "kind": "boolean"
+        "kind": "option",
+        "value": {
+          "kind": "boolean"
+        }
       },
       "source": {
         "start": {
@@ -67476,33 +67479,6 @@
           "line": 1,
           "column": 100,
           "byte_offset": 99
-        }
-      }
-    },
-    {
-      "name": "v2499",
-      "kind": "input",
-      "value_type": {
-        "kind": "boolean"
-      },
-      "source": {
-        "start": {
-          "source": {
-            "document": "expression",
-            "revision": 1
-          },
-          "line": 1,
-          "column": 100,
-          "byte_offset": 99
-        },
-        "end": {
-          "source": {
-            "document": "expression",
-            "revision": 1
-          },
-          "line": 1,
-          "column": 101,
-          "byte_offset": 100
         }
       }
     }

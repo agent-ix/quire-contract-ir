@@ -25,7 +25,7 @@ pub const MAX_CONFORMANCE_FIXTURES: u32 = 10_000;
 pub const MAX_SEMANTIC_NODES: u32 = 25_000;
 pub const MAX_SEMANTIC_DEPTH: u32 = 256;
 pub const MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10_000;
-const MAX_WIRE_JSON_DEPTH: u32 = MAX_SEMANTIC_DEPTH + 32;
+pub(crate) const MAX_WIRE_JSON_DEPTH: u32 = MAX_SEMANTIC_DEPTH * 2 + 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ValidationOptions {
@@ -332,15 +332,11 @@ pub fn expected_inventory() -> Vec<String> {
 
 pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     let manifest_bytes = read_manifest(path)?;
-    let manifest_value: Value = parse_json(&manifest_bytes).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "manifest",
-            "manifest JSON is malformed",
-        )
-    })?;
+    let manifest_value: Value =
+        parse_json(&manifest_bytes, "manifest", "manifest JSON is malformed")?;
     let root = path
         .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .canonicalize()
         .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "manifest", "root unreadable"))?;
@@ -356,15 +352,20 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                 "manifest shape is invalid",
             )
         })?;
-    let conformance_schema_bytes = read_relative(&root, bootstrap_schema)?;
-    let conformance_schema: Value = parse_json(&conformance_schema_bytes).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "conformance_schema",
-            "schema JSON is malformed",
-        )
-    })?;
+    let conformance_schema_bytes =
+        read_relative(&root, bootstrap_schema, "conformance_schema.path")?;
+    let conformance_schema: Value = parse_json(
+        &conformance_schema_bytes,
+        "conformance_schema",
+        "schema JSON is malformed",
+    )?;
     preflight_manifest_paths(&manifest_value)?;
+    require_schema_identity(
+        &conformance_schema,
+        CONFORMANCE_SCHEMA_ID,
+        "conformance_schema",
+    )?;
+    validate_complete_schema(&conformance_schema, "conformance_schema")?;
     validate_named(&conformance_schema, "manifest", &manifest_value)?;
     let manifest: Manifest = serde_json::from_value(manifest_value).map_err(|_| {
         RunnerError::new(
@@ -379,59 +380,42 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
         &manifest.conformance_schema.sha256,
         "conformance_schema.sha256",
     )?;
-    let package_schema_bytes = read_relative(&root, &manifest.package_schema.path)?;
+    let package_schema_bytes =
+        read_relative(&root, &manifest.package_schema.path, "package_schema.path")?;
     verify_digest(
         &package_schema_bytes,
         &manifest.package_schema.sha256,
         "package_schema.sha256",
     )?;
-    let package_schema: Value = parse_json(&package_schema_bytes).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "package_schema",
-            "schema JSON is malformed",
-        )
-    })?;
+    let package_schema: Value = parse_json(
+        &package_schema_bytes,
+        "package_schema",
+        "schema JSON is malformed",
+    )?;
     require_schema_identity(&package_schema, PACKAGE_SCHEMA_ID, "package_schema")?;
     validate_complete_schema(&package_schema, "package_schema")?;
-    require_schema_identity(
-        &conformance_schema,
-        CONFORMANCE_SCHEMA_ID,
-        "conformance_schema",
-    )?;
-    let inventory_bytes = read_relative(&root, &manifest.inventory.path)?;
+    let inventory_bytes = read_relative(&root, &manifest.inventory.path, "inventory.path")?;
     verify_digest(
         &inventory_bytes,
         &manifest.inventory.sha256,
         "inventory.sha256",
     )?;
-    let inventory: Vec<String> = parse_json(&inventory_bytes).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "inventory",
-            "inventory JSON is malformed",
-        )
-    })?;
+    let inventory: Vec<String> =
+        parse_json(&inventory_bytes, "inventory", "inventory JSON is malformed")?;
     validate_inventory(&manifest, &inventory)?;
 
     let mut loaded = Vec::with_capacity(manifest.fixtures.len());
     for fixture in manifest.fixtures.iter().cloned() {
-        let input_bytes = read_relative(&root, &fixture.input)?;
-        let expectation_bytes = read_relative(&root, &fixture.expectation)?;
-        let input: Value = parse_json(&input_bytes).map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                fixture.input.clone(),
-                "fixture JSON is malformed",
-            )
-        })?;
-        let mut expected: Value = parse_json(&expectation_bytes).map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                fixture.expectation.clone(),
-                "expectation JSON is malformed",
-            )
-        })?;
+        let input_path = format!("fixtures.{}.input", fixture.id);
+        let expectation_path = format!("fixtures.{}.expectation", fixture.id);
+        let input_bytes = read_relative(&root, &fixture.input, &input_path)?;
+        let expectation_bytes = read_relative(&root, &fixture.expectation, &expectation_path)?;
+        let input: Value = parse_json(&input_bytes, input_path, "fixture JSON is malformed")?;
+        let mut expected: Value = parse_json(
+            &expectation_bytes,
+            expectation_path,
+            "expectation JSON is malformed",
+        )?;
         validate_named(
             &conformance_schema,
             fixture.operation.input_definition(),
@@ -478,9 +462,16 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                     RunnerError::new(
                         RunnerErrorCode::ResourceExhausted,
                         "fixture_execution",
-                        "fixture execution exhausted its bounded stack",
+                        "fixture execution thread terminated unexpectedly",
                     )
                 })?;
+            validate_successful_package_schema(
+                operation,
+                &loaded.input,
+                &actual,
+                &package_schema,
+                &loaded.fixture.id,
+            )?;
             validate_observed_coverage(&loaded.fixture, &loaded.input, &actual)?;
             let mismatch_kinds = mismatch_kinds(&actual, &loaded.expected);
             Ok(FixtureResult {
@@ -501,10 +492,124 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
         .collect()
 }
 
-fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ()> {
+fn validate_successful_package_schema(
+    operation: ConformanceOperation,
+    input: &Value,
+    actual: &Value,
+    package_schema: &Value,
+    fixture_id: &str,
+) -> Result<(), RunnerError> {
+    let succeeded = actual.get("valid").and_then(Value::as_bool) == Some(true)
+        || (operation == ConformanceOperation::Coverage
+            && actual.get("coverage").is_some_and(|value| !value.is_null()));
+    if !succeeded {
+        return Ok(());
+    }
+    let package = match operation {
+        ConformanceOperation::Package => input.get("package").unwrap_or(input),
+        ConformanceOperation::Migration | ConformanceOperation::Coverage => {
+            input.get("package").ok_or_else(|| {
+                RunnerError::new(
+                    RunnerErrorCode::InvalidManifest,
+                    format!("fixtures.{fixture_id}.input.package"),
+                    "successful operation has no package input",
+                )
+            })?
+        }
+        ConformanceOperation::Expression => return Ok(()),
+    };
+    ensure_bounded_json_depth(package, "package")?;
+    let schema = package_schema.clone();
+    let package = package.clone();
+    let path = format!("fixtures.{fixture_id}.input.package");
+    std::thread::Builder::new()
+        .name("quire-package-schema-validation".to_owned())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let compiled = JSONSchema::options()
+                .with_draft(Draft::Draft7)
+                .compile(&schema)
+                .map_err(|_| {
+                    RunnerError::new(
+                        RunnerErrorCode::InvalidManifest,
+                        "package_schema",
+                        "schema cannot be compiled",
+                    )
+                })?;
+            if compiled.is_valid(&package) {
+                Ok(())
+            } else {
+                Err(RunnerError::new(
+                    RunnerErrorCode::InvalidManifest,
+                    path,
+                    "successful package does not match published schema",
+                ))
+            }
+        })
+        .map_err(|_| {
+            RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                "package_schema_validation",
+                "package schema validation thread cannot be created",
+            )
+        })?
+        .join()
+        .map_err(|_| {
+            RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                "package_schema_validation",
+                "package schema validation thread terminated unexpectedly",
+            )
+        })?
+}
+
+fn parse_json<T: DeserializeOwned>(
+    bytes: &[u8],
+    path: impl Into<String>,
+    malformed_detail: &'static str,
+) -> Result<T, RunnerError> {
+    let path = path.into();
+    if json_nesting_exceeds(bytes, MAX_WIRE_JSON_DEPTH) {
+        return Err(RunnerError::new(
+            RunnerErrorCode::ResourceExhausted,
+            path,
+            "JSON nesting exceeds decode limit",
+        ));
+    }
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     deserializer.disable_recursion_limit();
-    T::deserialize(serde_stacker::Deserializer::new(&mut deserializer)).map_err(|_| ())
+    T::deserialize(serde_stacker::Deserializer::new(&mut deserializer))
+        .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidManifest, path, malformed_detail))
+}
+
+pub(crate) fn json_nesting_exceeds(bytes: &[u8], maximum: u32) -> bool {
+    let mut depth = 0_u32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match *byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth = depth.saturating_add(1);
+                if depth > maximum {
+                    return true;
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
 }
 
 fn preflight_manifest_paths(manifest: &Value) -> Result<(), RunnerError> {
@@ -525,7 +630,7 @@ fn preflight_manifest_paths(manifest: &Value) -> Result<(), RunnerError> {
             if !safe_relative(path) {
                 return Err(RunnerError::new(
                     RunnerErrorCode::UnsafePath,
-                    path,
+                    format!("{name}.path"),
                     "path is unsafe",
                 ));
             }
@@ -539,13 +644,13 @@ fn preflight_manifest_paths(manifest: &Value) -> Result<(), RunnerError> {
                 "fixture count exceeds limit",
             ));
         }
-        for fixture in fixtures {
+        for (index, fixture) in fixtures.iter().enumerate() {
             for name in ["input", "expectation"] {
                 if let Some(path) = fixture.get(name).and_then(Value::as_str) {
                     if !safe_relative(path) {
                         return Err(RunnerError::new(
                             RunnerErrorCode::UnsafePath,
-                            path,
+                            format!("fixtures.{index}.{name}"),
                             "path is unsafe",
                         ));
                     }
@@ -624,62 +729,59 @@ fn safe_relative(path: &str) -> bool {
         })
 }
 
-fn read_relative(root: &Path, relative: &str) -> Result<Vec<u8>, RunnerError> {
+fn read_relative(root: &Path, relative: &str, field: &str) -> Result<Vec<u8>, RunnerError> {
     if !safe_relative(relative) {
         return Err(RunnerError::new(
             RunnerErrorCode::UnsafePath,
-            relative,
+            field,
             "path is unsafe",
         ));
     }
     let joined = root.join(relative);
-    let resolved = joined.canonicalize().map_err(|_| {
-        RunnerError::new(RunnerErrorCode::FixtureIo, relative, "fixture unreadable")
-    })?;
+    let resolved = joined
+        .canonicalize()
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "fixture unreadable"))?;
     if !resolved.starts_with(root) {
         return Err(RunnerError::new(
             RunnerErrorCode::UnsafePath,
-            relative,
+            field,
             "path escapes corpus root",
         ));
     }
-    let before = fs::metadata(&resolved).map_err(|_| {
-        RunnerError::new(RunnerErrorCode::FixtureIo, relative, "fixture unreadable")
-    })?;
+    let before = fs::metadata(&resolved)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "fixture unreadable"))?;
     if !before.is_file() {
         return Err(RunnerError::new(
             RunnerErrorCode::FixtureIo,
-            relative,
+            field,
             "fixture is not a regular file",
         ));
     }
     if before.len() > MAX_CONFORMANCE_FILE_BYTES {
         return Err(RunnerError::new(
             RunnerErrorCode::ResourceExhausted,
-            relative,
+            field,
             "fixture exceeds byte limit",
         ));
     }
-    let bytes = fs::read(&resolved).map_err(|_| {
-        RunnerError::new(RunnerErrorCode::FixtureIo, relative, "fixture unreadable")
-    })?;
+    let bytes = fs::read(&resolved)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "fixture unreadable"))?;
     if bytes.len() as u64 > MAX_CONFORMANCE_FILE_BYTES {
         return Err(RunnerError::new(
             RunnerErrorCode::ResourceExhausted,
-            relative,
+            field,
             "fixture exceeds byte limit",
         ));
     }
-    let after = fs::metadata(&resolved).map_err(|_| {
-        RunnerError::new(RunnerErrorCode::FixtureIo, relative, "fixture unreadable")
-    })?;
+    let after = fs::metadata(&resolved)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "fixture unreadable"))?;
     if bytes.len() as u64 != before.len()
         || before.len() != after.len()
         || before.modified().ok() != after.modified().ok()
     {
         return Err(RunnerError::new(
             RunnerErrorCode::FixtureIo,
-            relative,
+            field,
             "fixture changed during preload",
         ));
     }
@@ -707,7 +809,7 @@ fn validate_named(schema: &Value, definition: &str, instance: &Value) -> Result<
             RunnerError::new(
                 RunnerErrorCode::ResourceExhausted,
                 "schema_validation",
-                "schema validation exhausted its bounded stack",
+                "schema validation thread terminated unexpectedly",
             )
         })?
 }
@@ -820,7 +922,7 @@ fn validate_complete_schema(schema: &Value, path: &'static str) -> Result<(), Ru
             RunnerError::new(
                 RunnerErrorCode::ResourceExhausted,
                 path,
-                "schema compilation exhausted its bounded stack",
+                "schema compilation thread terminated unexpectedly",
             )
         })?
 }
@@ -936,9 +1038,14 @@ fn observed_coverage(
     actual: &Value,
 ) -> BTreeSet<String> {
     let mut observed = BTreeSet::from([format!("operation:{}", operation.as_str())]);
+    let succeeded = actual.get("valid").and_then(Value::as_bool) == Some(true)
+        || (operation == ConformanceOperation::Coverage
+            && actual.get("coverage").is_some_and(|value| !value.is_null()));
+    let mut diagnostic_codes = BTreeSet::new();
     if let Some(diagnostics) = actual.get("diagnostics").and_then(Value::as_array) {
         for diagnostic in diagnostics {
             if let Some(code) = diagnostic.get("code").and_then(Value::as_str) {
+                diagnostic_codes.insert(code);
                 observed.insert(format!("diagnostic:{code}"));
                 observe_diagnostic_boundaries(code, &mut observed);
             }
@@ -947,10 +1054,7 @@ fn observed_coverage(
             }
         }
     }
-    observe_structural_boundaries(input, actual, &mut observed);
-    let succeeded = actual.get("valid").and_then(Value::as_bool) == Some(true)
-        || (operation == ConformanceOperation::Coverage
-            && actual.get("coverage").is_some_and(|value| !value.is_null()));
+    observe_structural_boundaries(input, actual, succeeded, &diagnostic_codes, &mut observed);
     if succeeded {
         observe_constructs(input, actual, operation, &mut observed);
     }
@@ -974,7 +1078,14 @@ fn observe_diagnostic_boundaries(code: &str, observed: &mut BTreeSet<String>) {
     );
 }
 
-fn observe_structural_boundaries(input: &Value, actual: &Value, observed: &mut BTreeSet<String>) {
+fn observe_structural_boundaries(
+    input: &Value,
+    actual: &Value,
+    succeeded: bool,
+    diagnostic_codes: &BTreeSet<&str>,
+    output: &mut BTreeSet<String>,
+) {
+    let mut observed = BTreeSet::new();
     let mut pending = vec![(input, 1_u32)];
     let mut semantic_nodes = 0_u32;
     while let Some((value, depth)) = pending.pop() {
@@ -1172,7 +1283,39 @@ fn observe_structural_boundaries(input: &Value, actual: &Value, observed: &mut B
     {
         observed.insert("boundary:canonical.sequence_order".to_owned());
     }
-    observe_revisions(input, observed);
+    observe_revisions(input, &mut observed);
+    output.extend(
+        observed
+            .into_iter()
+            .filter(|token| structural_boundary_observed(token, succeeded, diagnostic_codes)),
+    );
+}
+
+fn structural_boundary_observed(
+    token: &str,
+    succeeded: bool,
+    diagnostics: &BTreeSet<&str>,
+) -> bool {
+    let required_diagnostic = match token {
+        "boundary:collection.minimum" => Some("unbounded_collection"),
+        "boundary:collection.declared_out_of_range"
+        | "boundary:integer.out_of_range"
+        | "boundary:rational.zero_denominator" => Some("invalid_numeric_bounds"),
+        "boundary:text.over_maximum" => Some("text_bound_exceeded"),
+        "boundary:expression.nodes.over_maximum" => Some("expression_too_large"),
+        "boundary:collection.over_maximum"
+        | "boundary:expression.depth.over_maximum"
+        | "boundary:semantic.nodes.over_maximum"
+        | "boundary:semantic_collection.over_maximum"
+        | "boundary:type.depth.over_maximum" => Some("semantic_input_too_large"),
+        "boundary:revision.stale" => Some("stale_requirement_revision"),
+        "boundary:schema.zero_major" => Some("invalid_schema_version"),
+        "boundary:schema.unregistered_minor" => Some("unregistered_migration"),
+        "boundary:schema.unknown_major" => Some("unsupported_schema_version"),
+        "boundary:source_span.reversed" => Some("invalid_source_span"),
+        _ => None,
+    };
+    required_diagnostic.map_or(succeeded, |code| diagnostics.contains(code))
 }
 
 fn has_authored_set_out_of_order(input: &Value) -> bool {
@@ -1589,11 +1732,11 @@ fn expand_canonical_paths(root: &Path, value: &mut Value) -> Result<(), RunnerEr
                         "canonical path is malformed",
                     )
                 })?;
-                let bytes = read_relative(root, path)?;
+                let bytes = read_relative(root, path, "canonical.bytes_path")?;
                 let text = String::from_utf8(bytes).map_err(|_| {
                     RunnerError::new(
                         RunnerErrorCode::InvalidManifest,
-                        path,
+                        "canonical.bytes_path",
                         "canonical bytes are not UTF-8",
                     )
                 })?;

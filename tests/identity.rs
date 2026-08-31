@@ -748,10 +748,6 @@ fn tc_015_untrusted_json_preserves_structured_failure_codes() {
     let mut dependency_value = candidate_dependency(valid.clone());
     dependency_value["path"] = serde_json::json!([]);
     assert!(serde_json::from_value::<DependencyIdentity>(dependency_value).is_err());
-
-    let mut clause_value = valid["requirements"][0]["clauses"][0].clone();
-    clause_value["anchor"] = serde_json::Value::Null;
-    assert!(serde_json::from_value::<Clause<ReferenceBody>>(clause_value).is_err());
 }
 
 fn candidate_dependency(mut package: serde_json::Value) -> serde_json::Value {

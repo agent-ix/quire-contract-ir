@@ -797,7 +797,7 @@ pub trait DependencySource {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "node", rename_all = "snake_case")]
 pub enum ReferenceBody {
     Literal,
@@ -1235,6 +1235,12 @@ impl ContractPackage<ReferenceBody> {
         options: crate::ValidationOptions,
     ) -> Result<Self, Vec<Diagnostic>> {
         debug_assert!(options.is_strict());
+        if crate::conformance::json_nesting_exceeds(
+            input.as_bytes(),
+            crate::conformance::MAX_WIRE_JSON_DEPTH,
+        ) {
+            return Err(vec![semantic_input_too_large("document")]);
+        }
         let preflight: VersionPreflight = parse_json_stack_safe(input).map_err(|error| {
             vec![Diagnostic::error(
                 DiagnosticCode::InvalidWireFormat,

@@ -60,7 +60,7 @@ or a default manifest.
 For a valid manifest, standard output contains exactly one compact JSON object
 and newline per fixture in manifest order. No banner or progress text appears.
 Each result contains protocol, corpus ID, fixture ID, operation, closed status
-`match` or `mismatch`, sorted unique mismatch kinds, actual structured result,
+`match` or `mismatch`, unique mismatch kinds in fixed registry order, actual structured result,
 and tool identity: crate version, package-schema path/digest, canonical profile,
 and runner protocol. Mismatch kinds are `validity`, `diagnostics`,
 `canonical_bytes`, `canonical_digest`, `dependencies`, `migration_receipt`, and

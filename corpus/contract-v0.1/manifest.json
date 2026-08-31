@@ -833,7 +833,6 @@
       "input": "inputs/expression-nodes-over.json",
       "expectation": "expectations/expression-nodes-over.json",
       "covers": [
-        "boundary:collection.maximum",
         "boundary:expression.nodes.over_maximum",
         "diagnostic:expression_too_large",
         "operation:expression"
@@ -898,6 +897,7 @@
       "input": "inputs/expression-semantic-nodes-maximum.json",
       "expectation": "expectations/expression-semantic-nodes-maximum.json",
       "covers": [
+        "boundary:collection.maximum",
         "boundary:semantic.nodes.maximum",
         "boundary:semantic_collection.maximum",
         "operation:expression"

@@ -330,8 +330,7 @@ def build_cases() -> list:
     expression_over = copy.deepcopy(expression_max)
     expression_over["items"].append(boolean())
     add_case(cases, "expression-nodes-over", "expression", expression_input(expression_over, {"kind": "collection", "element": BOOL, "maximum_items": 10_000}),
-             "diagnostic:expression_too_large", "boundary:expression.nodes.over_maximum",
-             "boundary:collection.maximum")
+             "diagnostic:expression_too_large", "boundary:expression.nodes.over_maximum")
 
     def nested_option(depth: int) -> dict:
         result = copy.deepcopy(BOOL)
@@ -368,8 +367,10 @@ def build_cases() -> list:
         return {"name": f"v{index}", "kind": "input", "value_type": copy.deepcopy(BOOL), "source": span(index % 100, "expression")}
     semantic_max = expression_input(boolean(), BOOL, types=[], functions=[empty_function(i) for i in range(10_000)], values=[empty_value(i) for i in range(2_499)])
     add_case(cases, "expression-semantic-nodes-maximum", "expression", semantic_max,
-             "boundary:semantic.nodes.maximum", "boundary:semantic_collection.maximum")
-    semantic_over = copy.deepcopy(semantic_max); semantic_over["values"].append(empty_value(2_499))
+             "boundary:collection.maximum", "boundary:semantic.nodes.maximum",
+             "boundary:semantic_collection.maximum")
+    semantic_over = copy.deepcopy(semantic_max)
+    semantic_over["values"][0]["value_type"] = {"kind": "option", "value": copy.deepcopy(BOOL)}
     add_case(cases, "expression-semantic-nodes-over", "expression", semantic_over,
              "diagnostic:semantic_input_too_large", "boundary:semantic.nodes.over_maximum")
     collection_over = expression_input(boolean(), BOOL, types=[], values=[], functions=[empty_function(i) for i in range(10_001)])
