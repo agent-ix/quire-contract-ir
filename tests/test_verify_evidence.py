@@ -18,6 +18,7 @@ from scripts.verify_evidence import (
     safe_relative_path,
     sha256,
     validate_manifest_schema,
+    load_evidence_corrections,
     verify_input_checksums,
     verify_output_entries,
 )
@@ -200,6 +201,13 @@ def test_evidence_manifest_schema_rejects_missing_required_provenance() -> None:
     )
 
 
+def test_evidence_verifier_enforces_append_only_correction() -> None:
+    """TC-022. Trace: TC-022, FR-009-AC-4, NFR-004-AC-4."""
+    corrections = load_evidence_corrections()
+    if corrections != {"pgm-01-568bd05": ["COR-001"]}:
+        raise AssertionError(f"unexpected enforced corrections: {corrections}")
+
+
 def load_tests(
     _loader: unittest.TestLoader,
     tests: unittest.TestSuite,
@@ -228,6 +236,11 @@ def load_tests(
     tests.addTest(
         unittest.FunctionTestCase(
             test_evidence_manifest_schema_rejects_missing_required_provenance
+        )
+    )
+    tests.addTest(
+        unittest.FunctionTestCase(
+            test_evidence_verifier_enforces_append_only_correction
         )
     )
     return tests

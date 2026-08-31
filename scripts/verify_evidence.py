@@ -23,6 +23,7 @@ BlobReader = Callable[[str, Path], bytes]
 WorktreeReader = Callable[[Path], bytes]
 InputSetReader = Callable[[], set[Path]]
 EVIDENCE_SCHEMA = Path("schemas/pgm01-evidence-v1.schema.json")
+CORRECTION_SCHEMA = Path("schemas/evidence-correction-v1.schema.json")
 
 
 class EvidenceError(ValueError):
@@ -208,6 +209,56 @@ def parse_external_checksums(path: Path) -> dict[Path, str]:
     return parse_external_checksum_lines(lines)
 
 
+# Implements: FR-009
+def load_evidence_corrections() -> dict[str, list[str]]:
+    correction_paths = sorted((ROOT / "evidence/corrections").glob("COR-*.json"))
+    if not correction_paths:
+        return {}
+    try:
+        schema = json.loads((ROOT / CORRECTION_SCHEMA).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvidenceError(f"cannot load evidence correction schema: {error}") from error
+    try:
+        Draft7Validator.check_schema(schema)
+    except Exception as error:
+        raise EvidenceError(f"invalid evidence correction schema: {error}") from error
+
+    corrected: dict[str, list[str]] = {}
+    for path in correction_paths:
+        relative = path.relative_to(ROOT)
+        try:
+            payload = path.read_bytes()
+            correction = json.loads(payload)
+        except (OSError, json.JSONDecodeError) as error:
+            raise EvidenceError(f"cannot load evidence correction {relative}: {error}") from error
+        errors = sorted(
+            Draft7Validator(schema, format_checker=FormatChecker()).iter_errors(correction),
+            key=lambda error: (list(error.absolute_path), error.message),
+        )
+        if errors:
+            first = errors[0]
+            location = "/".join(str(part) for part in first.absolute_path) or "<root>"
+            raise EvidenceError(
+                f"evidence correction schema violation in {relative} at "
+                f"{location}: {first.message}"
+            )
+        record_id = correction["recordId"]
+        if not path.name.startswith(f"{record_id}-"):
+            raise EvidenceError(f"evidence correction filename does not match {record_id}")
+        checksum_path = path.with_suffix(".sha256")
+        entries = parse_external_checksums(checksum_path)
+        if entries != {relative: sha256(payload)}:
+            raise EvidenceError(f"evidence correction checksum mismatch: {relative}")
+        for claim in correction["affectedClaims"]:
+            affected = claim["record"]
+            if not (ROOT / "evidence" / affected / "manifest.json").is_file():
+                raise EvidenceError(
+                    f"evidence correction {record_id} names unavailable record {affected}"
+                )
+            corrected.setdefault(affected, []).append(record_id)
+    return corrected
+
+
 def verify_output_entries(
     manifest: dict[str, Any],
     checksum_relative: Path,
@@ -271,6 +322,13 @@ def verify_record(record: Path) -> tuple[int, int, str]:
     expected_record_id = f"pgm-01-{str(revision)[:7]}"
     if manifest.get("recordId") != record.name or record.name != expected_record_id:
         raise EvidenceError("record path, recordId, and subjectRevision do not agree")
+    corrections = load_evidence_corrections()
+    if record.name in corrections:
+        correction_ids = ", ".join(corrections[record.name])
+        raise EvidenceError(
+            f"record has an append-only correction and cannot support a current "
+            f"decision: {correction_ids}"
+        )
     checksum_file = record.parent / f"{record.name}.sha256"
     output_count = verify_retained_outputs(manifest, checksum_file)
     input_count = verify_input_checksums(manifest)
@@ -325,7 +383,9 @@ def main() -> int:
         return 1
     print(
         f"PGM-01 evidence {record.name}: {outputs}/{outputs} retained outputs and "
-        f"{inputs}/{inputs} HEAD/worktree inputs matched"
+        f"{inputs}/{inputs} HEAD/worktree inputs matched; "
+        f"{sum(len(items) for items in load_evidence_corrections().values())} "
+        "correction claim(s) enforced"
     )
     return 0
 

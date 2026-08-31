@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "quire.evidence-correction/v1",
+  "recordId": "COR-001",
+  "recordedAt": "2026-08-31T00:39:11Z",
+  "repository": "https://github.com/agent-ix/quire-contract-ir",
+  "affectedClaims": [
+    {
+      "record": "pgm-01-568bd05",
+      "claim": "code-review status pass and final review reported no actionable findings",
+      "location": "https://github.com/agent-ix/quire-contract-ir/blob/7dac9d8c19952412b56a0347387666e2ca81e01d/evidence/pgm-01-568bd05/manifest.json"
+    }
+  ],
+  "correctedStatus": "inconclusive",
+  "findingRefs": [
+    "https://github.com/agent-ix/quire-contract-ir/pull/12#pullrequestreview-5062152784",
+    "https://github.com/agent-ix/quire-contract-ir/pull/12#pullrequestreview-5062178118"
+  ],
+  "basis": "The merged retained pass claim is not corroborated by the formal GitHub review record. The 2026-08-30T23:14:09Z review identified the evidence claim itself as a HIGH finding, and the 2026-08-30T23:26:36Z review explicitly kept that finding open. Later unpublished agent review sessions cannot retroactively turn those contemporaneous formal results into a pass. The superseded pgm-01-7d8c769 name discussed in review is intentionally not asserted here because it is not resolvable from main's reachable Git history.",
+  "immutability": "The affected records remain byte-for-byte unchanged. This append-only record supersedes only their code-review pass interpretation and preserves the original claims for audit.",
+  "decisionEffect": "PR #12 is already merged, so this correction does not undo that merge. No PGM-01 evidence record may use either affected code-review pass claim as support for release, qualification, or accreditation; later decisions require a new review and a new candidate-scoped evidence record."
+}

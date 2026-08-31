@@ -1,0 +1,13 @@
+{
+  "schema": "schemas/evidence-correction-v1.schema.json",
+  "fixtures": [
+    {
+      "path": "evidence/corrections/COR-001-pr12-code-review.json",
+      "valid": true
+    },
+    {
+      "path": "corpus/evidence-corrections/invalid/missing-finding-refs.json",
+      "valid": false
+    }
+  ]
+}
