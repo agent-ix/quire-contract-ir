@@ -28,7 +28,8 @@ owning child issue supplies requirement-tagged implementation evidence.
 ## Independent Review Findings and Disposition
 
 Three independent read-only review rounds of the issue #5 worktree reported 14
-findings. Each was fixed before the candidate evidence record was minted.
+findings, and the subsequent manual PR-range gap audit reported two more. All 16
+were fixed before the superseding candidate evidence record was minted.
 
 | ID | Severity | Finding | Disposition |
 |---|---|---|---|
