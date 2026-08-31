@@ -4,13 +4,15 @@
       "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
       "identity": "declaration",
       "kind": "declaration",
-      "bytes_path": "canonical/expression-boolean-literal-0.json"
+      "bytes_path": "canonical/expression-boolean-literal-0.json",
+      "bytes_sha256": "7c4f66554fff08fd44267b21033b367b4d0da1c08d4d13d6e86fb163af5a56c6"
     },
     {
       "digest": "ff2880901ac4985c31965e3a7244fe603b757e2ee69468324814c311a12d1368",
       "identity": "expression",
       "kind": "expression",
-      "bytes_path": "canonical/expression-boolean-literal-1.json"
+      "bytes_path": "canonical/expression-boolean-literal-1.json",
+      "bytes_sha256": "353949155a5c55a60414fb593d7705ed50a8864e5b4aa5f43b63f87085aaf637"
     }
   ],
   "dependencies": [],

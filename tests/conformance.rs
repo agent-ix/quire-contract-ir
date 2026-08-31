@@ -13,7 +13,8 @@ use quire_contract_ir::{
     PackageId, RequirementId, RequirementRef, RequirementRevision, SourceDocumentId,
     SourceIdentity, SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions,
     ValueDeclaration, ValueDeclarationKind, ValueType, CONFORMANCE_BOUNDARIES,
-    MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, PUBLIC_CONSTRUCT_TAGS,
+    MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
+    PUBLIC_CONSTRUCT_TAGS,
 };
 use serde_json::{json, Value};
 
@@ -84,6 +85,19 @@ fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
+fn refresh_expectation_digests(scratch: &Scratch, fixture_ids: &[&str]) {
+    let mut manifest = read_json(&scratch.manifest());
+    for fixture in manifest["fixtures"].as_array_mut().unwrap() {
+        let id = fixture["id"].as_str().unwrap();
+        if fixture_ids.contains(&id) {
+            let path = scratch.0.join(fixture["expectation"].as_str().unwrap());
+            fixture["expectation_sha256"] =
+                json!(quire_contract_ir::hex_digest(&fs::read(path).unwrap()));
+        }
+    }
+    write_json(&scratch.manifest(), &manifest);
+}
+
 fn error_code(output: &Output) -> String {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
@@ -92,9 +106,10 @@ fn error_code(output: &Output) -> String {
     error["code"].as_str().unwrap().to_owned()
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-020-AC-1.
+/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-3, FR-019-AC-1, FR-020-AC-1.
 /// TC-019.
 /// FR-018-AC-1.
+/// FR-018-AC-3.
 /// FR-019-AC-1.
 /// FR-020-AC-1.
 #[test]
@@ -133,6 +148,7 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     assert_eq!(MAX_SEMANTIC_NODES, 25_000);
     assert_eq!(MAX_SEMANTIC_DEPTH, 256);
     assert_eq!(MAX_SEMANTIC_COLLECTION_ITEMS, 10_000);
+    assert_eq!(MAX_WIRE_JSON_DEPTH, 576);
     assert_eq!(
         CanonicalProfile::V1.as_str(),
         "quire.contract.canonical-json/v1"
@@ -196,6 +212,16 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .compile(&package_schema_value)
         .unwrap();
     let manifest_value = read_json(&manifest);
+    let coverage_fixtures = manifest_value["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|fixture| fixture["operation"] == "coverage")
+        .collect::<Vec<_>>();
+    assert_eq!(coverage_fixtures.len(), 8);
+    assert!(coverage_fixtures
+        .iter()
+        .all(|fixture| fixture["covers"].as_array().unwrap().len() <= 4));
     let mut schema_negative = BTreeSet::new();
     for fixture in manifest_value["fixtures"].as_array().unwrap() {
         let operation = fixture["operation"].as_str().unwrap();
@@ -236,6 +262,9 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
             "package-invalid-schema",
             "package-invalid-source-revision",
             "package-malformed-reference",
+            "package-unknown-field",
+            "package-wire-depth-maximum",
+            "package-wire-depth-over",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -280,6 +309,9 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         "path": "mutated"
     }]);
     package["canonical"][0]["bytes_path"] = json!("canonical/package-constructs-1.json");
+    package["canonical"][0]["bytes_sha256"] = json!(quire_contract_ir::hex_digest(
+        &fs::read(scratch.0.join("canonical/package-constructs-1.json")).unwrap()
+    ));
     package["canonical"][0]["digest"] =
         json!("0000000000000000000000000000000000000000000000000000000000000000");
     package["dependencies"] = json!([{
@@ -295,10 +327,14 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         json!("0000000000000000000000000000000000000000000000000000000000000000");
     write_json(&migration_path, &migration);
 
-    let coverage_path = scratch.0.join("expectations/coverage-complete.json");
+    let coverage_path = scratch.0.join("expectations/coverage-shallow.json");
     let mut coverage = read_json(&coverage_path);
     coverage["coverage"] = Value::Null;
     write_json(&coverage_path, &coverage);
+    refresh_expectation_digests(
+        &scratch,
+        &["package-constructs", "migration-valid", "coverage-shallow"],
+    );
 
     let mismatch = run_manifest(&scratch.manifest());
     assert_eq!(mismatch.status.code(), Some(1));
@@ -383,6 +419,27 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         "invalid_manifest"
     );
 
+    let tightened_schema = Scratch::corpus();
+    let schema_path = tightened_schema
+        .0
+        .join("schemas/contract-package-reference-v1.schema.json");
+    let mut schema = read_json(&schema_path);
+    schema["definitions"]["package"]["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("reviewer_probe"));
+    write_json(&schema_path, &schema);
+    let mut manifest = read_json(&tightened_schema.manifest());
+    manifest["package_schema"]["sha256"] = json!(quire_contract_ir::hex_digest(
+        &fs::read(&schema_path).unwrap()
+    ));
+    write_json(&tightened_schema.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&tightened_schema.manifest())),
+        "invalid_manifest",
+        "successful semantic packages must be checked against the published schema"
+    );
+
     let false_coverage = Scratch::corpus();
     let mut manifest = read_json(&false_coverage.manifest());
     let covers = manifest["fixtures"][0]["covers"].as_array_mut().unwrap();
@@ -393,6 +450,32 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         error_code(&run_manifest(&false_coverage.manifest())),
         "invalid_manifest"
     );
+
+    for (fixture_id, false_boundary) in [
+        ("package-invalid-namespace", "boundary:revision.current"),
+        ("package-invalid-namespace", "boundary:schema.1_1"),
+        ("package-invalid-namespace", "boundary:source_span.minimum"),
+        ("package-invalid-namespace", "boundary:wire.depth.maximum"),
+        ("package-stale-reference", "boundary:artifact.stale"),
+    ] {
+        let false_boundary_claim = Scratch::corpus();
+        let mut manifest = read_json(&false_boundary_claim.manifest());
+        let fixture = manifest["fixtures"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|fixture| fixture["id"] == fixture_id)
+            .unwrap();
+        let covers = fixture["covers"].as_array_mut().unwrap();
+        covers.push(json!(false_boundary));
+        covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+        write_json(&false_boundary_claim.manifest(), &manifest);
+        assert_eq!(
+            error_code(&run_manifest(&false_boundary_claim.manifest())),
+            "invalid_manifest",
+            "{fixture_id} must not claim {false_boundary}"
+        );
+    }
 
     let unsupported = Scratch::corpus();
     let mut manifest = read_json(&unsupported.manifest());
@@ -423,6 +506,26 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     assert_eq!(
         error_code(&run_manifest(&exhausted.manifest())),
         "resource_exhausted"
+    );
+
+    let tampered_input = Scratch::corpus();
+    let input_path = tampered_input.0.join("inputs/package-reference.json");
+    let mut input = read_json(&input_path);
+    input["source"]["document"] = json!("tampered");
+    write_json(&input_path, &input);
+    assert_eq!(
+        error_code(&run_manifest(&tampered_input.manifest())),
+        "invalid_manifest"
+    );
+
+    let tampered_canonical = Scratch::corpus();
+    let canonical_path = tampered_canonical
+        .0
+        .join("canonical/package-constructs-0.json");
+    fs::write(&canonical_path, b"{}").unwrap();
+    assert_eq!(
+        error_code(&run_manifest(&tampered_canonical.manifest())),
+        "invalid_manifest"
     );
 
     let controls = Scratch::corpus();
@@ -488,6 +591,26 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     );
 
     let mut manifest = baseline.clone();
+    let prototype = manifest["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|fixture| fixture["id"] == "expression-semantic-nodes-over")
+        .unwrap()
+        .clone();
+    let fixtures = manifest["fixtures"].as_array_mut().unwrap();
+    for index in 0..5 {
+        let mut fixture = prototype.clone();
+        fixture["id"] = json!(format!("aggregate-probe-{index}"));
+        fixtures.push(fixture);
+    }
+    write_json(&controls.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "resource_exhausted"
+    );
+
+    let mut manifest = baseline.clone();
     manifest["package_schema"]["path"] = json!("/etc/shadow");
     write_json(&controls.manifest(), &manifest);
     let absolute = run_manifest(&controls.manifest());
@@ -506,10 +629,22 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         String::from_utf8_lossy(&bare.stderr)
     );
 
-    let mut deeply_nested = vec![b'['; 2_048];
+    let mut deeply_nested = vec![b'['; 60_000];
     deeply_nested.push(b'0');
-    deeply_nested.extend(std::iter::repeat(b']').take(2_048));
+    deeply_nested.extend(std::iter::repeat(b']').take(60_000));
     fs::write(controls.manifest(), &deeply_nested).unwrap();
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "resource_exhausted"
+    );
+
+    write_json(&controls.manifest(), &baseline);
+    let deep_input_path = controls.0.join("inputs/deep.json");
+    fs::write(&deep_input_path, &deeply_nested).unwrap();
+    let mut manifest = baseline.clone();
+    manifest["fixtures"][0]["input"] = json!("inputs/deep.json");
+    manifest["fixtures"][0]["input_sha256"] = json!(quire_contract_ir::hex_digest(&deeply_nested));
+    write_json(&controls.manifest(), &manifest);
     assert_eq!(
         error_code(&run_manifest(&controls.manifest())),
         "resource_exhausted"
@@ -548,7 +683,11 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     let linked_results = linked_run
         .expect("the linked runner panicked over the complete corpus")
         .expect("the linked runner rejected the published corpus");
-    assert_eq!(linked_results.len(), 89);
+    let authored_fixture_count = read_json(&corpus().join("manifest.json"))["fixtures"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(linked_results.len(), authored_fixture_count);
     assert!(linked_results
         .iter()
         .all(|result| result.status() == quire_contract_ir::FixtureStatus::Match));
@@ -565,7 +704,25 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     })
     .expect("deep package decoding panicked")
     .unwrap_err();
-    assert_eq!(deep_decode[0].code, DiagnosticCode::SemanticInputTooLarge);
+    assert_eq!(deep_decode[0].code, DiagnosticCode::InvalidWireFormat);
+
+    let at_wire_depth = format!(
+        "{}0{}",
+        "[".repeat(MAX_WIRE_JSON_DEPTH as usize),
+        "]".repeat(MAX_WIRE_JSON_DEPTH as usize)
+    );
+    let over_wire_depth = format!(
+        "{}0{}",
+        "[".repeat(MAX_WIRE_JSON_DEPTH as usize + 1),
+        "]".repeat(MAX_WIRE_JSON_DEPTH as usize + 1)
+    );
+    for document in [at_wire_depth, over_wire_depth] {
+        let failure =
+            catch_unwind(|| ContractPackage::from_json_str(&document, ValidationOptions::strict()))
+                .expect("wire-depth package decoding panicked")
+                .unwrap_err();
+        assert_eq!(failure[0].code, DiagnosticCode::InvalidWireFormat);
+    }
 
     let owner = RequirementRef::new(
         PackageId::new("agent-ix/conformance").unwrap(),

@@ -1235,11 +1235,12 @@ impl ContractPackage<ReferenceBody> {
         options: crate::ValidationOptions,
     ) -> Result<Self, Vec<Diagnostic>> {
         debug_assert!(options.is_strict());
-        if crate::conformance::json_nesting_exceeds(
-            input.as_bytes(),
-            crate::conformance::MAX_WIRE_JSON_DEPTH,
-        ) {
-            return Err(vec![semantic_input_too_large("document")]);
+        if crate::limits::json_nesting_exceeds(input.as_bytes(), crate::MAX_WIRE_JSON_DEPTH) {
+            return Err(vec![Diagnostic::error(
+                DiagnosticCode::InvalidWireFormat,
+                "JSON nesting exceeds decode limit",
+                "document",
+            )]);
         }
         let preflight: VersionPreflight = parse_json_stack_safe(input).map_err(|error| {
             vec![Diagnostic::error(
@@ -1307,6 +1308,7 @@ impl VersionPreflight {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WirePackage {
     id: String,
     schema_version: WireSchemaVersion,
@@ -1384,6 +1386,7 @@ fn semantic_input_too_large(path: &'static str) -> Diagnostic {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSchemaVersion {
     major: u16,
     minor: u16,
@@ -1396,6 +1399,7 @@ impl WireSchemaVersion {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceIdentity {
     document: String,
     revision: u64,
@@ -1411,6 +1415,7 @@ impl WireSourceIdentity {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceLocation {
     source: WireSourceIdentity,
     line: u32,
@@ -1430,6 +1435,7 @@ impl WireSourceLocation {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireSourceSpan {
     start: WireSourceLocation,
     end: WireSourceLocation,
@@ -1442,6 +1448,7 @@ impl WireSourceSpan {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRequirementRef {
     package: String,
     requirement: String,
@@ -1455,6 +1462,7 @@ impl WireRequirementRef {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireDependencyIdentity {
     requirement: WireRequirementRef,
     kind: DependencyKind,
@@ -1483,7 +1491,7 @@ impl WireDependencyIdentity {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "node", rename_all = "snake_case")]
+#[serde(tag = "node", rename_all = "snake_case", deny_unknown_fields)]
 enum WireReferenceBody {
     Literal,
     Reference { identity: WireDependencyIdentity },
@@ -1508,7 +1516,7 @@ impl WireReferenceBody {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum WireExecutionPoint {
     Initialization { name: String },
     Handler { name: String },
@@ -1536,6 +1544,7 @@ impl WireExecutionPoint {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireClause {
     id: String,
     kind: ClauseKind,
@@ -1558,6 +1567,7 @@ impl WireClause {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRequirement {
     id: String,
     revision: u64,

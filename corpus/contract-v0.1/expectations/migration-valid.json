@@ -4,7 +4,8 @@
       "digest": "acd09eb2a0710c7d1ddbfcbfe856269f9faaacf09fe0c317048a4d9bb16593f2",
       "identity": "migrated_package",
       "kind": "package",
-      "bytes_path": "canonical/migration-valid-0.json"
+      "bytes_path": "canonical/migration-valid-0.json",
+      "bytes_sha256": "51d481783f57923f6ff8a8bc474aee263460066848bc09dbda2fc77fcbf7c28d"
     }
   ],
   "diagnostics": [],

@@ -213,21 +213,9 @@ def load_tests(
     tests: unittest.TestSuite,
     _pattern: str | None,
 ) -> unittest.TestSuite:
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_uses_head_tree_without_subject_ancestry
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_verifier_selects_only_the_unique_valid_record
-        )
-    )
-    tests.addTest(
-        unittest.FunctionTestCase(
-            test_evidence_corrections_fail_closed_on_identity_integrity_and_target
-        )
-    )
+    for name, function in sorted(globals().items()):
+        if name.startswith("test_") and callable(function):
+            tests.addTest(unittest.FunctionTestCase(function))
     return tests
 
 

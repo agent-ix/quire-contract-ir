@@ -54,12 +54,18 @@ file is at most 16777216 bytes, checked before parsing or digesting; the
 manifest contains at most 10000 fixtures. Duplicate IDs, unsafe paths, unknown
 fields, malformed inputs or expectations, digest mismatch, unsupported
 profiles, or resource-limit breach fail before any fixture executes.
+Each fixture carries the lowercase SHA-256 of its input and expectation, and
+each referenced canonical-byte record carries its raw-byte SHA-256. The runner
+verifies those manifest-bound digests before semantic execution; adjacent
+sidecars remain convenient external pin material. The manifest plus every
+logical referenced-file read has a 67108864-byte aggregate preload budget, so
+repeated paths cannot multiply accepted allocation without bound.
 
 The four closed fixture operations are:
 
 | Operation | Declarative input | Comparable result |
 |---|---|---|
-| `package` | package JSON, optionally wrapped with authored clause-resolution references and a canonical byte limit | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
+| `package` | package JSON, optionally wrapped with authored clause-resolution references and a canonical byte limit, or raw package JSON text for decoder-boundary probes | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
 | `expression` | declarations, expression, expected type, execution point, clause-root flag | validity, ordered diagnostics, separate declaration/expression canonical outputs and expression dependencies |
 | `migration` | reference-body package and explicit target version | validity, ordered diagnostics, migrated package digest, immutable receipt |
 | `coverage` | reference-body package and artifact traces | ordered diagnostics and sorted requirement/artifact rows |
@@ -91,6 +97,18 @@ inventory is derived exactly from `PUBLIC_CONSTRUCT_TAGS`,
 `CONFORMANCE_BOUNDARIES`, the four-operation enum, `DiagnosticCode::ALL`, and
 the four-obligation enum.
 
+Coverage claims are observations, not trusted fixture declarations.
+`operation:` is observed only by selecting that declared operation;
+`diagnostic:` and `obligation:` are observed only in the actual structured
+diagnostic result; and `construct:` requires semantic success plus the named
+wire/result construct. A valid minimum, maximum, normalization, revision,
+schema, canonical-order, or depth boundary requires semantic success and its
+exact structural predicate. An invalid boundary requires both its exact
+structural predicate and the owning actual diagnostic. Artifact boundaries are
+observed only by the coverage operation's artifact result/diagnostic domain;
+a package reference diagnostic cannot claim an artifact-trace boundary. Any
+fixture token not observed under these family rules invalidates the manifest.
+
 The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `revision.current`,
 `revision.stale`, `schema.1_0`, `schema.1_1`, `schema.zero_major`,
@@ -108,6 +126,9 @@ The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `canonical.semantic_set_order`, `canonical.sequence_order`,
 `canonical.resource_failure`, `artifact.cross_package`, `artifact.missing`,
 `artifact.stale`, `artifact.duplicate`, and `artifact.digest_mismatch`.
+The decoder registry also includes `wire.depth.maximum` and
+`wire.depth.over_maximum`; raw-text package probes exercise exactly 576 and 577
+levels without requiring the manifest decoder to materialize the nested value.
 
 Expectations contain only fields meaningful for their operation. Valid results
 carry no diagnostics; invalid results carry the exact authored-order diagnostic
@@ -127,6 +148,10 @@ their own evidence; no checked-in file attempts to contain the commit that
 contains itself. A downstream pin is documentation, not evidence that
 downstream execution occurred. Downstream tools can execute the process runner
 without linking the Rust library.
+The checked-in generator is owned by this requirement, derives its runner from
+the configured Cargo target directory, and has a scratch-directory byte-for-byte
+regeneration gate. Frozen outputs establish regression stability and
+determinism for this implementation, not independent semantic correctness.
 
 ## Acceptance Criteria
 
@@ -134,6 +159,7 @@ without linking the Rust library.
 |---|---|---|
 | FR-018-AC-1 | The manifest-schema, exact inventory equality, and positive/negative fixtures prove every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; duplicate, unknown, unsafe-path, oversize, profile/digest-drift, and one-past-limit manifests fail before execution. | Test (TC-018) |
 | FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
+| FR-018-AC-3 | Per-family observation rules reject every unobserved claim, cross-domain artifact claim, stale fixture/canonical digest, aggregate-byte overflow, and disabled corpus lane; raw package probes pin unknown-member rejection and exact/one-past wire depth; the portable generator reproduces the complete checked-in corpus byte-for-byte in scratch space. | Test (TC-018) |
 
 ## Dependencies
 

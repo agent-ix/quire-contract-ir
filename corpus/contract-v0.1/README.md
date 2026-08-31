@@ -22,6 +22,10 @@ fixture's declarative input and actual result and rejects an unobserved
 `covers` token before comparing expectations. Large exact-edge fixtures are
 reproducibly authored by `scripts/generate_conformance_corpus.py`; the script
 freezes runner output as expectations but cannot bypass the observation check.
+For this crate, 99/99 matches proves deterministic regression stability against
+those frozen outputs, not independent semantic correctness. The corpus becomes
+an external oracle when an independently implemented downstream consumer runs
+the pinned bytes.
 
 Automatic CI triggers and crate publication remain disabled. A later human
 release decision owns both changes.

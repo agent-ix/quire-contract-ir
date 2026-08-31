@@ -4,13 +4,15 @@
       "digest": "d7f5798878c018e250487bf4fecd43d13286663ca3dcc66a6c09e53d2959af87",
       "identity": "declaration",
       "kind": "declaration",
-      "bytes_path": "canonical/expression-numeric-edges-0.json"
+      "bytes_path": "canonical/expression-numeric-edges-0.json",
+      "bytes_sha256": "be658d5a4d103b39d363c902d76c09aacae53ecf3623339185fc18e75da788f3"
     },
     {
       "digest": "ff2880901ac4985c31965e3a7244fe603b757e2ee69468324814c311a12d1368",
       "identity": "expression",
       "kind": "expression",
-      "bytes_path": "canonical/expression-numeric-edges-1.json"
+      "bytes_path": "canonical/expression-numeric-edges-1.json",
+      "bytes_sha256": "353949155a5c55a60414fb593d7705ed50a8864e5b4aa5f43b63f87085aaf637"
     }
   ],
   "dependencies": [],

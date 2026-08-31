@@ -4,49 +4,57 @@
       "digest": "6ca8a65d33f43d03ea9e3b0da7c05ef03cfb9b0ee4babec1cffa02b0459e3421",
       "identity": "package",
       "kind": "package",
-      "bytes_path": "canonical/package-constructs-0.json"
+      "bytes_path": "canonical/package-constructs-0.json",
+      "bytes_sha256": "18b77eea1f39191ccb12a2549cd647349ced2a0bf3304cbdb44344f8a833b78f"
     },
     {
       "digest": "9a5e8b75dbb1deba53c63e5d5b5cfd1f90e7963debf2d0d3ff6208920bac3b87",
       "identity": "requirement:REQ_alpha",
       "kind": "requirement",
-      "bytes_path": "canonical/package-constructs-1.json"
+      "bytes_path": "canonical/package-constructs-1.json",
+      "bytes_sha256": "1b8e9b3a4be3d2e92fb37286faee34f7b3e2794f7c0e7369e432a044ad8c59a9"
     },
     {
       "digest": "30d4b4188ed0bddfd64d125612dd007e1baafba4d331b3b5d537950cb2879087",
       "identity": "clause:REQ_alpha:a_assert",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-2.json"
+      "bytes_path": "canonical/package-constructs-2.json",
+      "bytes_sha256": "f0ee74e35cf4edf5f2daed50de62b96d991e0b148781d4fd0e7c8c30a4a5ee8d"
     },
     {
       "digest": "821ecceb86d57ca12a9b428c7fe68fc9366beab00e1055c90471a7073cd40cf6",
       "identity": "clause:REQ_alpha:b_case",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-3.json"
+      "bytes_path": "canonical/package-constructs-3.json",
+      "bytes_sha256": "d20f3666d013ef0a7e063f83571bd8d777e6ed9ae9561ada0f449da215ddd65a"
     },
     {
       "digest": "b9434991eb0c7701b2e6ec61888411841c3b2e59e62e37df69972a550b397c22",
       "identity": "clause:REQ_alpha:c_info",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-4.json"
+      "bytes_path": "canonical/package-constructs-4.json",
+      "bytes_sha256": "a2cd353f69c2780bbc3c1361426a5c05e65afbd120dc88eb2fa9c19765a7468c"
     },
     {
       "digest": "583344dad02409daccba3135235f77b8d855e7b750fa599251da98a93a003093",
       "identity": "clause:REQ_alpha:d_inv",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-5.json"
+      "bytes_path": "canonical/package-constructs-5.json",
+      "bytes_sha256": "fe4581d6f6e261c04176bf963735f46e278f7c834af141e3c05184bb0a49ce01"
     },
     {
       "digest": "8a3604f81174e212242d2583596bf0bfdd10d31cd32d45794d63288121570b36",
       "identity": "clause:REQ_alpha:e_post",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-6.json"
+      "bytes_path": "canonical/package-constructs-6.json",
+      "bytes_sha256": "b0102211b25f6b7687c69076aa8b5ec2c12d28489ae1386b1940730d03bc27de"
     },
     {
       "digest": "7917e14c239233e699975ebdb2ebb7b8c67d02331d7786a1c80b47ec4e90744a",
       "identity": "clause:REQ_alpha:f_pre",
       "kind": "clause",
-      "bytes_path": "canonical/package-constructs-7.json"
+      "bytes_path": "canonical/package-constructs-7.json",
+      "bytes_sha256": "981b090ab6994509664c5fd3fa73b81753efc28d55e4bfcd9820e27e7d841ce4"
     }
   ],
   "dependencies": [],

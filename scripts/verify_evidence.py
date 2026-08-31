@@ -31,6 +31,10 @@ class EvidenceError(ValueError):
     """Raised when retained evidence is inconsistent or stale."""
 
 
+class EvidenceUnavailable(EvidenceError):
+    """Raised when required repository state cannot be resolved or read."""
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -58,7 +62,7 @@ def read_subject_blob(revision: str, path: Path) -> bytes:
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot read {path} at {revision}: {detail}")
+        raise EvidenceUnavailable(f"cannot read {path} at {revision}: {detail}")
     return result.stdout
 
 
@@ -71,7 +75,7 @@ def read_revision_inputs(revision: str) -> set[Path]:
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot enumerate input tree at {revision}: {detail}")
+        raise EvidenceUnavailable(f"cannot enumerate input tree at {revision}: {detail}")
     paths = set()
     for raw_path in result.stdout.split(b"\0"):
         if not raw_path:
@@ -97,7 +101,7 @@ def read_worktree_inputs() -> set[Path]:
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot enumerate current worktree: {detail}")
+        raise EvidenceUnavailable(f"cannot enumerate current worktree: {detail}")
     paths = set()
     for raw_path in result.stdout.split(b"\0"):
         if not raw_path:
@@ -112,7 +116,7 @@ def read_worktree_file(path: Path) -> bytes:
     try:
         return (ROOT / path).read_bytes()
     except OSError as error:
-        raise EvidenceError(f"cannot read current input {path}: {error}") from error
+        raise EvidenceUnavailable(f"cannot read current input {path}: {error}") from error
 
 
 def read_head_correction_paths() -> set[Path]:
@@ -133,7 +137,7 @@ def read_head_correction_paths() -> set[Path]:
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot enumerate HEAD correction set: {detail}")
+        raise EvidenceUnavailable(f"cannot enumerate HEAD correction set: {detail}")
     return {
         safe_relative_path(raw.decode("utf-8"))
         for raw in result.stdout.split(b"\0")
@@ -427,17 +431,26 @@ def choose_unique_match(
 def select_current_record() -> tuple[Path, int, int]:
     matches: list[tuple[Path, int, int]] = []
     failures = []
+    unavailable = []
     for manifest_path in sorted((ROOT / "evidence").glob("pgm-01-*/manifest.json")):
         record = manifest_path.parent
         try:
             outputs, inputs, _revision = verify_record(record)
+        except EvidenceUnavailable as error:
+            unavailable.append(f"{record.name}: {error}")
         except EvidenceError as error:
             failures.append(f"{record.name}: {error}")
         else:
             matches.append((record, outputs, inputs))
     if not matches:
-        detail = "; ".join(failures) if failures else "no records found"
-        raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
+        if failures:
+            detail = "; ".join(failures + unavailable)
+            raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
+        if unavailable:
+            raise EvidenceUnavailable(
+                "candidate evidence is unavailable: " + "; ".join(unavailable)
+            )
+        raise EvidenceError("no evidence record matches the current candidate: no records found")
     return choose_unique_match(matches)
 
 
@@ -456,6 +469,9 @@ def main() -> int:
         else:
             record = args.record
             outputs, inputs, _revision = verify_record(record)
+    except EvidenceUnavailable as error:
+        print(f"evidence unavailable: {error}", file=sys.stderr)
+        return 3
     except EvidenceError as error:
         print(f"evidence verification error: {error}", file=sys.stderr)
         return 1

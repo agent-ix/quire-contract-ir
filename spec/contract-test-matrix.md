@@ -27,7 +27,7 @@ relationships:
 | FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | implemented |
 | FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | implemented |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | implemented |
-| FR-018 | FR-018-AC-1, FR-018-AC-2 | TC-018 | ✅ implemented |
+| FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
 | FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
 

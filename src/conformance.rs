@@ -1,7 +1,9 @@
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fs,
     path::{Component, Path},
+    sync::mpsc::{self, Sender},
+    thread::JoinHandle,
 };
 
 use jsonschema::{Draft, JSONSchema};
@@ -12,7 +14,8 @@ use sha2::{Digest as _, Sha256};
 use crate::{
     classify_coverage, migrate_reference_body, ArtifactId, ArtifactTrace, CanonicalDigest,
     CanonicalOutput, CanonicalProfile, ClauseRef, ContractPackage, Diagnostic, DiagnosticCode,
-    ReferenceBody, RequirementRef, SchemaVersion, SourceSpan,
+    ReferenceBody, RequirementRef, SchemaVersion, SourceSpan, MAX_SEMANTIC_COLLECTION_ITEMS,
+    MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
 };
 
 pub const CONFORMANCE_PROTOCOL: &str = "quire.contract.conformance-jsonl/v1";
@@ -21,11 +24,8 @@ pub const PACKAGE_SCHEMA_ID: &str =
 pub const CONFORMANCE_SCHEMA_ID: &str =
     "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json";
 pub const MAX_CONFORMANCE_FILE_BYTES: u64 = 16_777_216;
+pub const MAX_CONFORMANCE_TOTAL_BYTES: u64 = 67_108_864;
 pub const MAX_CONFORMANCE_FIXTURES: u32 = 10_000;
-pub const MAX_SEMANTIC_NODES: u32 = 25_000;
-pub const MAX_SEMANTIC_DEPTH: u32 = 256;
-pub const MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10_000;
-pub(crate) const MAX_WIRE_JSON_DEPTH: u32 = MAX_SEMANTIC_DEPTH * 2 + 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ValidationOptions {
@@ -148,6 +148,8 @@ pub const CONFORMANCE_BOUNDARIES: &[&str] = &[
     "text.over_maximum",
     "type.depth.maximum",
     "type.depth.over_maximum",
+    "wire.depth.maximum",
+    "wire.depth.over_maximum",
 ];
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -242,7 +244,9 @@ struct Fixture {
     id: String,
     operation: ConformanceOperation,
     input: String,
+    input_sha256: String,
     expectation: String,
+    expectation_sha256: String,
     covers: Vec<String>,
 }
 
@@ -298,6 +302,196 @@ struct LoadedFixture {
     expected: Value,
 }
 
+struct ReadBudget {
+    consumed: u64,
+}
+
+struct SchemaValidationRequest {
+    schema_name: String,
+    error_path: String,
+    instance: Value,
+    response: Sender<Result<Value, RunnerError>>,
+}
+
+struct SchemaWorker {
+    sender: Option<Sender<SchemaValidationRequest>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl SchemaWorker {
+    fn named(schema: Value) -> Result<Self, RunnerError> {
+        Self::spawn(move || compile_named_schemas(&schema))
+    }
+
+    fn whole(
+        schema: Value,
+        schema_name: &'static str,
+        error_path: &'static str,
+    ) -> Result<Self, RunnerError> {
+        Self::spawn(move || {
+            let compiled = JSONSchema::options()
+                .with_draft(Draft::Draft7)
+                .compile(&schema)
+                .map_err(|_| {
+                    RunnerError::new(
+                        RunnerErrorCode::InvalidManifest,
+                        error_path,
+                        "schema cannot be compiled",
+                    )
+                })?;
+            Ok(BTreeMap::from([(schema_name.to_owned(), compiled)]))
+        })
+    }
+
+    fn spawn<F>(compiler: F) -> Result<Self, RunnerError>
+    where
+        F: FnOnce() -> Result<BTreeMap<String, JSONSchema>, RunnerError> + Send + 'static,
+    {
+        let (sender, receiver) = mpsc::channel::<SchemaValidationRequest>();
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let handle = std::thread::Builder::new()
+            .name("quire-schema-worker".to_owned())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                let schemas = match compiler() {
+                    Ok(schemas) => {
+                        let _ = ready_sender.send(Ok(()));
+                        schemas
+                    }
+                    Err(error) => {
+                        let _ = ready_sender.send(Err(error));
+                        return;
+                    }
+                };
+                for request in receiver {
+                    let result = match schemas.get(&request.schema_name) {
+                        Some(schema) if schema.is_valid(&request.instance) => Ok(request.instance),
+                        Some(_) => Err(RunnerError::new(
+                            RunnerErrorCode::InvalidManifest,
+                            request.error_path,
+                            "instance does not match schema",
+                        )),
+                        None => Err(RunnerError::new(
+                            RunnerErrorCode::InvalidManifest,
+                            "conformance_schema",
+                            "named schema definition is absent",
+                        )),
+                    };
+                    let _ = request.response.send(result);
+                }
+            })
+            .map_err(|_| {
+                RunnerError::new(
+                    RunnerErrorCode::ResourceExhausted,
+                    "schema_validation",
+                    "schema validation thread cannot be created",
+                )
+            })?;
+        match ready_receiver.recv() {
+            Ok(Ok(())) => Ok(Self {
+                sender: Some(sender),
+                handle: Some(handle),
+            }),
+            Ok(Err(error)) => {
+                let _ = handle.join();
+                Err(error)
+            }
+            Err(_) => {
+                let _ = handle.join();
+                Err(RunnerError::new(
+                    RunnerErrorCode::ResourceExhausted,
+                    "schema_validation",
+                    "schema validation thread terminated unexpectedly",
+                ))
+            }
+        }
+    }
+
+    fn validate(
+        &self,
+        schema_name: &str,
+        error_path: impl Into<String>,
+        instance: Value,
+    ) -> Result<Value, RunnerError> {
+        let error_path = error_path.into();
+        ensure_bounded_json_depth(&instance, &error_path)?;
+        let (response, result) = mpsc::channel();
+        self.sender
+            .as_ref()
+            .ok_or_else(|| {
+                RunnerError::new(
+                    RunnerErrorCode::ResourceExhausted,
+                    "schema_validation",
+                    "schema validation worker is unavailable",
+                )
+            })?
+            .send(SchemaValidationRequest {
+                schema_name: schema_name.to_owned(),
+                error_path,
+                instance,
+                response,
+            })
+            .map_err(|_| {
+                RunnerError::new(
+                    RunnerErrorCode::ResourceExhausted,
+                    "schema_validation",
+                    "schema validation worker terminated unexpectedly",
+                )
+            })?;
+        result.recv().map_err(|_| {
+            RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                "schema_validation",
+                "schema validation worker terminated unexpectedly",
+            )
+        })?
+    }
+}
+
+impl Drop for SchemaWorker {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl ReadBudget {
+    fn new(manifest_bytes: usize) -> Result<Self, RunnerError> {
+        let consumed = u64::try_from(manifest_bytes).unwrap_or(u64::MAX);
+        if consumed > MAX_CONFORMANCE_TOTAL_BYTES {
+            return Err(RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                "manifest",
+                "corpus exceeds aggregate byte limit",
+            ));
+        }
+        Ok(Self { consumed })
+    }
+
+    fn ensure_available(&self, additional: u64, field: &str) -> Result<(), RunnerError> {
+        if !matches!(
+            self.consumed.checked_add(additional),
+            Some(total) if total <= MAX_CONFORMANCE_TOTAL_BYTES
+        ) {
+            Err(RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                field,
+                "corpus exceeds aggregate byte limit",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn consume(&mut self, additional: u64, field: &str) -> Result<(), RunnerError> {
+        self.ensure_available(additional, field)?;
+        self.consumed += additional;
+        Ok(())
+    }
+}
+
 pub fn expected_inventory() -> Vec<String> {
     let mut inventory = Vec::new();
     inventory.extend(
@@ -332,6 +526,7 @@ pub fn expected_inventory() -> Vec<String> {
 
 pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     let manifest_bytes = read_manifest(path)?;
+    let mut read_budget = ReadBudget::new(manifest_bytes.len())?;
     let manifest_value: Value =
         parse_json(&manifest_bytes, "manifest", "manifest JSON is malformed")?;
     let root = path
@@ -352,8 +547,12 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                 "manifest shape is invalid",
             )
         })?;
-    let conformance_schema_bytes =
-        read_relative(&root, bootstrap_schema, "conformance_schema.path")?;
+    let conformance_schema_bytes = read_relative(
+        &root,
+        bootstrap_schema,
+        "conformance_schema.path",
+        &mut read_budget,
+    )?;
     let conformance_schema: Value = parse_json(
         &conformance_schema_bytes,
         "conformance_schema",
@@ -366,7 +565,8 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
         "conformance_schema",
     )?;
     validate_complete_schema(&conformance_schema, "conformance_schema")?;
-    validate_named(&conformance_schema, "manifest", &manifest_value)?;
+    let conformance_validator = SchemaWorker::named(conformance_schema.clone())?;
+    let manifest_value = conformance_validator.validate("manifest", "manifest", manifest_value)?;
     let manifest: Manifest = serde_json::from_value(manifest_value).map_err(|_| {
         RunnerError::new(
             RunnerErrorCode::InvalidManifest,
@@ -380,8 +580,12 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
         &manifest.conformance_schema.sha256,
         "conformance_schema.sha256",
     )?;
-    let package_schema_bytes =
-        read_relative(&root, &manifest.package_schema.path, "package_schema.path")?;
+    let package_schema_bytes = read_relative(
+        &root,
+        &manifest.package_schema.path,
+        "package_schema.path",
+        &mut read_budget,
+    )?;
     verify_digest(
         &package_schema_bytes,
         &manifest.package_schema.sha256,
@@ -394,7 +598,13 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     )?;
     require_schema_identity(&package_schema, PACKAGE_SCHEMA_ID, "package_schema")?;
     validate_complete_schema(&package_schema, "package_schema")?;
-    let inventory_bytes = read_relative(&root, &manifest.inventory.path, "inventory.path")?;
+    let package_validator = SchemaWorker::whole(package_schema, "package", "package_schema")?;
+    let inventory_bytes = read_relative(
+        &root,
+        &manifest.inventory.path,
+        "inventory.path",
+        &mut read_budget,
+    )?;
     verify_digest(
         &inventory_bytes,
         &manifest.inventory.sha256,
@@ -408,25 +618,36 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     for fixture in manifest.fixtures.iter().cloned() {
         let input_path = format!("fixtures.{}.input", fixture.id);
         let expectation_path = format!("fixtures.{}.expectation", fixture.id);
-        let input_bytes = read_relative(&root, &fixture.input, &input_path)?;
-        let expectation_bytes = read_relative(&root, &fixture.expectation, &expectation_path)?;
-        let input: Value = parse_json(&input_bytes, input_path, "fixture JSON is malformed")?;
+        let input_bytes = read_relative(&root, &fixture.input, &input_path, &mut read_budget)?;
+        verify_digest(&input_bytes, &fixture.input_sha256, "fixtures.input_sha256")?;
+        let expectation_bytes = read_relative(
+            &root,
+            &fixture.expectation,
+            &expectation_path,
+            &mut read_budget,
+        )?;
+        verify_digest(
+            &expectation_bytes,
+            &fixture.expectation_sha256,
+            "fixtures.expectation_sha256",
+        )?;
+        let input: Value = parse_json(&input_bytes, &input_path, "fixture JSON is malformed")?;
         let mut expected: Value = parse_json(
             &expectation_bytes,
-            expectation_path,
+            &expectation_path,
             "expectation JSON is malformed",
         )?;
-        validate_named(
-            &conformance_schema,
+        let input = conformance_validator.validate(
             fixture.operation.input_definition(),
-            &input,
+            input_path,
+            input,
         )?;
-        validate_named(
-            &conformance_schema,
+        expected = conformance_validator.validate(
             fixture.operation.expectation_definition(),
-            &expected,
+            expectation_path,
+            expected,
         )?;
-        expand_canonical_paths(&root, &mut expected)?;
+        expand_canonical_paths(&root, &mut expected, &mut read_budget)?;
         loaded.push(LoadedFixture {
             fixture,
             input,
@@ -469,7 +690,7 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                 operation,
                 &loaded.input,
                 &actual,
-                &package_schema,
+                &package_validator,
                 &loaded.fixture.id,
             )?;
             validate_observed_coverage(&loaded.fixture, &loaded.input, &actual)?;
@@ -496,19 +717,29 @@ fn validate_successful_package_schema(
     operation: ConformanceOperation,
     input: &Value,
     actual: &Value,
-    package_schema: &Value,
+    package_validator: &SchemaWorker,
     fixture_id: &str,
 ) -> Result<(), RunnerError> {
-    let succeeded = actual.get("valid").and_then(Value::as_bool) == Some(true)
-        || (operation == ConformanceOperation::Coverage
-            && actual.get("coverage").is_some_and(|value| !value.is_null()));
-    if !succeeded {
+    if !operation_succeeded(operation, actual) {
         return Ok(());
     }
     let package = match operation {
-        ConformanceOperation::Package => input.get("package").unwrap_or(input),
+        ConformanceOperation::Package if input.get("document_json").is_some() => {
+            let document = input
+                .get("document_json")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    RunnerError::new(
+                        RunnerErrorCode::InvalidManifest,
+                        format!("fixtures.{fixture_id}.input.document_json"),
+                        "successful raw package input is malformed",
+                    )
+                })?;
+            parse_json(document.as_bytes(), "package", "package JSON is malformed")?
+        }
+        ConformanceOperation::Package => input.get("package").unwrap_or(input).clone(),
         ConformanceOperation::Migration | ConformanceOperation::Coverage => {
-            input.get("package").ok_or_else(|| {
+            input.get("package").cloned().ok_or_else(|| {
                 RunnerError::new(
                     RunnerErrorCode::InvalidManifest,
                     format!("fixtures.{fixture_id}.input.package"),
@@ -518,49 +749,16 @@ fn validate_successful_package_schema(
         }
         ConformanceOperation::Expression => return Ok(()),
     };
-    ensure_bounded_json_depth(package, "package")?;
-    let schema = package_schema.clone();
-    let package = package.clone();
     let path = format!("fixtures.{fixture_id}.input.package");
-    std::thread::Builder::new()
-        .name("quire-package-schema-validation".to_owned())
-        .stack_size(16 * 1024 * 1024)
-        .spawn(move || {
-            let compiled = JSONSchema::options()
-                .with_draft(Draft::Draft7)
-                .compile(&schema)
-                .map_err(|_| {
-                    RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
-                        "package_schema",
-                        "schema cannot be compiled",
-                    )
-                })?;
-            if compiled.is_valid(&package) {
-                Ok(())
-            } else {
-                Err(RunnerError::new(
-                    RunnerErrorCode::InvalidManifest,
-                    path,
-                    "successful package does not match published schema",
-                ))
-            }
-        })
-        .map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "package_schema_validation",
-                "package schema validation thread cannot be created",
-            )
-        })?
-        .join()
-        .map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "package_schema_validation",
-                "package schema validation thread terminated unexpectedly",
-            )
-        })?
+    package_validator
+        .validate("package", path, package)
+        .map(|_| ())
+}
+
+fn operation_succeeded(operation: ConformanceOperation, actual: &Value) -> bool {
+    actual.get("valid").and_then(Value::as_bool) == Some(true)
+        || (operation == ConformanceOperation::Coverage
+            && actual.get("coverage").is_some_and(|value| !value.is_null()))
 }
 
 fn parse_json<T: DeserializeOwned>(
@@ -569,7 +767,7 @@ fn parse_json<T: DeserializeOwned>(
     malformed_detail: &'static str,
 ) -> Result<T, RunnerError> {
     let path = path.into();
-    if json_nesting_exceeds(bytes, MAX_WIRE_JSON_DEPTH) {
+    if crate::limits::json_nesting_exceeds(bytes, MAX_WIRE_JSON_DEPTH) {
         return Err(RunnerError::new(
             RunnerErrorCode::ResourceExhausted,
             path,
@@ -580,36 +778,6 @@ fn parse_json<T: DeserializeOwned>(
     deserializer.disable_recursion_limit();
     T::deserialize(serde_stacker::Deserializer::new(&mut deserializer))
         .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidManifest, path, malformed_detail))
-}
-
-pub(crate) fn json_nesting_exceeds(bytes: &[u8], maximum: u32) -> bool {
-    let mut depth = 0_u32;
-    let mut in_string = false;
-    let mut escaped = false;
-    for byte in bytes {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if *byte == b'\\' {
-                escaped = true;
-            } else if *byte == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match *byte {
-            b'"' => in_string = true,
-            b'{' | b'[' => {
-                depth = depth.saturating_add(1);
-                if depth > maximum {
-                    return true;
-                }
-            }
-            b'}' | b']' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    false
 }
 
 fn preflight_manifest_paths(manifest: &Value) -> Result<(), RunnerError> {
@@ -729,7 +897,12 @@ fn safe_relative(path: &str) -> bool {
         })
 }
 
-fn read_relative(root: &Path, relative: &str, field: &str) -> Result<Vec<u8>, RunnerError> {
+fn read_relative(
+    root: &Path,
+    relative: &str,
+    field: &str,
+    budget: &mut ReadBudget,
+) -> Result<Vec<u8>, RunnerError> {
     if !safe_relative(relative) {
         return Err(RunnerError::new(
             RunnerErrorCode::UnsafePath,
@@ -764,6 +937,7 @@ fn read_relative(root: &Path, relative: &str, field: &str) -> Result<Vec<u8>, Ru
             "fixture exceeds byte limit",
         ));
     }
+    budget.ensure_available(before.len(), field)?;
     let bytes = fs::read(&resolved)
         .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "fixture unreadable"))?;
     if bytes.len() as u64 > MAX_CONFORMANCE_FILE_BYTES {
@@ -785,40 +959,11 @@ fn read_relative(root: &Path, relative: &str, field: &str) -> Result<Vec<u8>, Ru
             "fixture changed during preload",
         ));
     }
+    budget.consume(bytes.len() as u64, field)?;
     Ok(bytes)
 }
 
-fn validate_named(schema: &Value, definition: &str, instance: &Value) -> Result<(), RunnerError> {
-    ensure_bounded_json_depth(instance, definition)?;
-    let schema = schema.clone();
-    let definition = definition.to_owned();
-    let instance = instance.clone();
-    std::thread::Builder::new()
-        .name("quire-schema-validation".to_owned())
-        .stack_size(16 * 1024 * 1024)
-        .spawn(move || validate_named_on_bounded_stack(&schema, &definition, &instance))
-        .map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "schema_validation",
-                "schema validation thread cannot be created",
-            )
-        })?
-        .join()
-        .map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "schema_validation",
-                "schema validation thread terminated unexpectedly",
-            )
-        })?
-}
-
-fn validate_named_on_bounded_stack(
-    schema: &Value,
-    definition: &str,
-    instance: &Value,
-) -> Result<(), RunnerError> {
+fn compile_named_schemas(schema: &Value) -> Result<BTreeMap<String, JSONSchema>, RunnerError> {
     let definitions = schema.get("definitions").cloned().ok_or_else(|| {
         RunnerError::new(
             RunnerErrorCode::InvalidManifest,
@@ -826,30 +971,31 @@ fn validate_named_on_bounded_stack(
             "schema definitions are absent",
         )
     })?;
-    let wrapper = json!({
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "$ref": format!("#/definitions/{definition}"),
-        "definitions": definitions,
-    });
-    let compiled = JSONSchema::options()
-        .with_draft(Draft::Draft7)
-        .compile(&wrapper)
-        .map_err(|_| {
-            RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                "conformance_schema",
-                "schema cannot be compiled",
-            )
-        })?;
-    if compiled.is_valid(instance) {
-        Ok(())
-    } else {
-        Err(RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            definition,
-            "instance does not match schema",
-        ))
+    let mut names = vec!["manifest"];
+    for operation in ConformanceOperation::ALL {
+        names.push(operation.input_definition());
+        names.push(operation.expectation_definition());
     }
+    let mut compiled = BTreeMap::new();
+    for name in names {
+        let wrapper = json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$ref": format!("#/definitions/{name}"),
+            "definitions": definitions.clone(),
+        });
+        let validator = JSONSchema::options()
+            .with_draft(Draft::Draft7)
+            .compile(&wrapper)
+            .map_err(|_| {
+                RunnerError::new(
+                    RunnerErrorCode::InvalidManifest,
+                    "conformance_schema",
+                    "schema cannot be compiled",
+                )
+            })?;
+        compiled.insert(name.to_owned(), validator);
+    }
+    Ok(compiled)
 }
 
 fn ensure_bounded_json_depth(value: &Value, path: &str) -> Result<(), RunnerError> {
@@ -1038,16 +1184,14 @@ fn observed_coverage(
     actual: &Value,
 ) -> BTreeSet<String> {
     let mut observed = BTreeSet::from([format!("operation:{}", operation.as_str())]);
-    let succeeded = actual.get("valid").and_then(Value::as_bool) == Some(true)
-        || (operation == ConformanceOperation::Coverage
-            && actual.get("coverage").is_some_and(|value| !value.is_null()));
+    let succeeded = operation_succeeded(operation, actual);
     let mut diagnostic_codes = BTreeSet::new();
     if let Some(diagnostics) = actual.get("diagnostics").and_then(Value::as_array) {
         for diagnostic in diagnostics {
             if let Some(code) = diagnostic.get("code").and_then(Value::as_str) {
                 diagnostic_codes.insert(code);
                 observed.insert(format!("diagnostic:{code}"));
-                observe_diagnostic_boundaries(code, &mut observed);
+                observe_diagnostic_boundaries(operation, code, &mut observed);
             }
             if let Some(kind) = diagnostic.get("obligation_kind").and_then(Value::as_str) {
                 observed.insert(format!("obligation:{kind}"));
@@ -1061,14 +1205,29 @@ fn observed_coverage(
     observed
 }
 
-fn observe_diagnostic_boundaries(code: &str, observed: &mut BTreeSet<String>) {
+fn observe_diagnostic_boundaries(
+    operation: ConformanceOperation,
+    code: &str,
+    observed: &mut BTreeSet<String>,
+) {
     let boundaries: &[&str] = match code {
         "canonicalization_resource_exhausted" => &["canonical.resource_failure"],
-        "cross_package_reference" => &["artifact.cross_package"],
-        "duplicate_artifact_trace" => &["artifact.duplicate"],
-        "orphaned_requirement_reference" => &["artifact.missing"],
-        "stale_requirement_revision" => &["artifact.stale", "revision.stale"],
-        "stale_trace_digest" => &["artifact.digest_mismatch"],
+        "cross_package_reference" if operation == ConformanceOperation::Coverage => {
+            &["artifact.cross_package"]
+        }
+        "duplicate_artifact_trace" if operation == ConformanceOperation::Coverage => {
+            &["artifact.duplicate"]
+        }
+        "orphaned_requirement_reference" if operation == ConformanceOperation::Coverage => {
+            &["artifact.missing"]
+        }
+        "stale_requirement_revision" if operation == ConformanceOperation::Coverage => {
+            &["artifact.stale", "revision.stale"]
+        }
+        "stale_requirement_revision" => &["revision.stale"],
+        "stale_trace_digest" if operation == ConformanceOperation::Coverage => {
+            &["artifact.digest_mismatch"]
+        }
         _ => &[],
     };
     observed.extend(
@@ -1085,19 +1244,32 @@ fn observe_structural_boundaries(
     diagnostic_codes: &BTreeSet<&str>,
     output: &mut BTreeSet<String>,
 ) {
-    let mut observed = BTreeSet::new();
+    let mut record = |token: &'static str| {
+        if structural_boundary_observed(token, succeeded, diagnostic_codes) {
+            output.insert(token.to_owned());
+        }
+    };
+    if let Some(document) = input.get("document_json").and_then(Value::as_str) {
+        let depth = crate::limits::json_nesting_depth(document.as_bytes());
+        if depth == MAX_WIRE_JSON_DEPTH {
+            record("boundary:wire.depth.maximum");
+        }
+        if depth > MAX_WIRE_JSON_DEPTH {
+            record("boundary:wire.depth.over_maximum");
+        }
+    }
     let mut pending = vec![(input, 1_u32)];
     let mut semantic_nodes = 0_u32;
     while let Some((value, depth)) = pending.pop() {
         match value {
             Value::Array(values) => {
                 if values.len() == MAX_SEMANTIC_COLLECTION_ITEMS as usize {
-                    observed.insert("boundary:semantic_collection.maximum".to_owned());
-                    observed.insert("boundary:collection.maximum".to_owned());
+                    record("boundary:semantic_collection.maximum");
+                    record("boundary:collection.maximum");
                 }
                 if values.len() > MAX_SEMANTIC_COLLECTION_ITEMS as usize {
-                    observed.insert("boundary:semantic_collection.over_maximum".to_owned());
-                    observed.insert("boundary:collection.over_maximum".to_owned());
+                    record("boundary:semantic_collection.over_maximum");
+                    record("boundary:collection.over_maximum");
                 }
                 pending.extend(values.iter().map(|value| (value, depth + 1)));
             }
@@ -1109,7 +1281,7 @@ fn observe_structural_boundaries(
                         .zip(end_offset)
                         .is_some_and(|(start, end)| start > end)
                     {
-                        observed.insert("boundary:source_span.reversed".to_owned());
+                        record("boundary:source_span.reversed");
                     }
                 }
                 if let Some(version) = object.get("schema_version").or_else(|| {
@@ -1120,19 +1292,19 @@ fn observe_structural_boundaries(
                         version.get("minor").and_then(Value::as_u64),
                     ) {
                         (Some(1), Some(0)) => {
-                            observed.insert("boundary:schema.1_0".to_owned());
+                            record("boundary:schema.1_0");
                         }
                         (Some(1), Some(1)) => {
-                            observed.insert("boundary:schema.1_1".to_owned());
+                            record("boundary:schema.1_1");
                         }
                         (Some(0), _) => {
-                            observed.insert("boundary:schema.zero_major".to_owned());
+                            record("boundary:schema.zero_major");
                         }
                         (Some(1), Some(_)) => {
-                            observed.insert("boundary:schema.unregistered_minor".to_owned());
+                            record("boundary:schema.unregistered_minor");
                         }
                         (Some(_), _) => {
-                            observed.insert("boundary:schema.unknown_major".to_owned());
+                            record("boundary:schema.unknown_major");
                         }
                         _ => {}
                     }
@@ -1141,33 +1313,32 @@ fn observe_structural_boundaries(
                     && object.get("column").and_then(Value::as_u64) == Some(1)
                     && object.get("byte_offset").and_then(Value::as_u64) == Some(0)
                 {
-                    observed.insert("boundary:source_span.minimum".to_owned());
+                    record("boundary:source_span.minimum");
                 }
                 if let Some(kind) = object.get("kind").and_then(Value::as_str) {
                     if kind == "collection" {
                         match object.get("maximum_items").and_then(Value::as_u64) {
                             Some(0) => {
-                                observed.insert("boundary:collection.minimum".to_owned());
+                                record("boundary:collection.minimum");
                             }
                             Some(1) => {
-                                observed.insert("boundary:collection.minimum".to_owned());
+                                record("boundary:collection.minimum");
                             }
                             Some(value) if value == u32::MAX as u64 => {
-                                observed.insert("boundary:collection.declared_maximum".to_owned());
+                                record("boundary:collection.declared_maximum");
                             }
                             Some(value) if value > u32::MAX as u64 => {
-                                observed
-                                    .insert("boundary:collection.declared_out_of_range".to_owned());
+                                record("boundary:collection.declared_out_of_range");
                             }
                             _ => {}
                         }
                     }
                     if kind == "integer" {
                         if object.get("minimum").and_then(Value::as_i64) == Some(i64::MIN) {
-                            observed.insert("boundary:integer.minimum".to_owned());
+                            record("boundary:integer.minimum");
                         }
                         if object.get("maximum").and_then(Value::as_i64) == Some(i64::MAX) {
-                            observed.insert("boundary:integer.maximum".to_owned());
+                            record("boundary:integer.maximum");
                         }
                         let minimum = object.get("minimum").and_then(Value::as_i64);
                         let maximum = object.get("maximum").and_then(Value::as_i64);
@@ -1177,19 +1348,19 @@ fn observe_structural_boundaries(
                                     == Some("unsigned")
                                     && minimum < 0)
                         }) {
-                            observed.insert("boundary:integer.out_of_range".to_owned());
+                            record("boundary:integer.out_of_range");
                         }
                     }
                     if kind == "rational"
                         && object.get("maximum_denominator").and_then(Value::as_u64)
                             == Some(i64::MAX as u64)
                     {
-                        observed.insert("boundary:rational.maximum_denominator".to_owned());
+                        record("boundary:rational.maximum_denominator");
                     }
                     if kind == "rational"
                         && object.get("maximum_denominator").and_then(Value::as_u64) == Some(0)
                     {
-                        observed.insert("boundary:rational.zero_denominator".to_owned());
+                        record("boundary:rational.zero_denominator");
                     }
                 }
                 if object.contains_key("node") {
@@ -1197,13 +1368,13 @@ fn observe_structural_boundaries(
                     if let Some(text) = object.get("value").and_then(Value::as_str) {
                         let length = text.chars().count();
                         if length == crate::MAX_TEXT_LENGTH as usize {
-                            observed.insert("boundary:text.maximum".to_owned());
+                            record("boundary:text.maximum");
                         }
                         if length > crate::MAX_TEXT_LENGTH as usize {
-                            observed.insert("boundary:text.over_maximum".to_owned());
+                            record("boundary:text.over_maximum");
                         }
                         if text.chars().any(char::is_control) {
-                            observed.insert("boundary:canonical.escape_controls".to_owned());
+                            record("boundary:canonical.escape_controls");
                         }
                     }
                     if object.get("node").and_then(Value::as_str) == Some("rational_literal") {
@@ -1212,10 +1383,10 @@ fn observe_structural_boundaries(
                             object.get("denominator").and_then(Value::as_i64),
                         ) {
                             if denominator != 0 && numerator % denominator == 0 {
-                                observed.insert("boundary:rational.normalized".to_owned());
+                                record("boundary:rational.normalized");
                             }
                             if denominator == 0 {
-                                observed.insert("boundary:rational.zero_denominator".to_owned());
+                                record("boundary:rational.zero_denominator");
                             }
                         }
                     }
@@ -1229,7 +1400,7 @@ fn observe_structural_boundaries(
                             .zip(maximum)
                             .is_some_and(|(items, maximum)| items.len() as u64 > maximum)
                         {
-                            observed.insert("boundary:collection.declared_out_of_range".to_owned());
+                            record("boundary:collection.declared_out_of_range");
                         }
                     }
                 }
@@ -1239,31 +1410,31 @@ fn observe_structural_boundaries(
         }
     }
     if semantic_nodes == crate::MAX_EXPRESSION_NODES {
-        observed.insert("boundary:expression.nodes.maximum".to_owned());
+        record("boundary:expression.nodes.maximum");
     }
     if semantic_nodes > crate::MAX_EXPRESSION_NODES {
-        observed.insert("boundary:expression.nodes.over_maximum".to_owned());
+        record("boundary:expression.nodes.over_maximum");
     }
     let expression_depth = expression_depth(input);
     if expression_depth == MAX_SEMANTIC_DEPTH {
-        observed.insert("boundary:expression.depth.maximum".to_owned());
+        record("boundary:expression.depth.maximum");
     }
     if expression_depth > MAX_SEMANTIC_DEPTH {
-        observed.insert("boundary:expression.depth.over_maximum".to_owned());
+        record("boundary:expression.depth.over_maximum");
     }
     let type_depth = type_depth(input);
     if type_depth == MAX_SEMANTIC_DEPTH {
-        observed.insert("boundary:type.depth.maximum".to_owned());
+        record("boundary:type.depth.maximum");
     }
     if type_depth > MAX_SEMANTIC_DEPTH {
-        observed.insert("boundary:type.depth.over_maximum".to_owned());
+        record("boundary:type.depth.over_maximum");
     }
     match expression_semantic_nodes(input) {
         Some(nodes) if nodes == MAX_SEMANTIC_NODES => {
-            observed.insert("boundary:semantic.nodes.maximum".to_owned());
+            record("boundary:semantic.nodes.maximum");
         }
         Some(nodes) if nodes > MAX_SEMANTIC_NODES => {
-            observed.insert("boundary:semantic.nodes.over_maximum".to_owned());
+            record("boundary:semantic.nodes.over_maximum");
         }
         _ => {}
     }
@@ -1273,7 +1444,7 @@ fn observe_structural_boundaries(
         .is_some_and(|values| !values.is_empty())
         && has_authored_set_out_of_order(input)
     {
-        observed.insert("boundary:canonical.semantic_set_order".to_owned());
+        record("boundary:canonical.semantic_set_order");
     }
     if actual
         .get("canonical")
@@ -1281,14 +1452,11 @@ fn observe_structural_boundaries(
         .is_some_and(|values| !values.is_empty())
         && has_authored_sequence(input)
     {
-        observed.insert("boundary:canonical.sequence_order".to_owned());
+        record("boundary:canonical.sequence_order");
     }
-    observe_revisions(input, &mut observed);
-    output.extend(
-        observed
-            .into_iter()
-            .filter(|token| structural_boundary_observed(token, succeeded, diagnostic_codes)),
-    );
+    if observes_current_revision(input) {
+        record("boundary:revision.current");
+    }
 }
 
 fn structural_boundary_observed(
@@ -1313,6 +1481,9 @@ fn structural_boundary_observed(
         "boundary:schema.unregistered_minor" => Some("unregistered_migration"),
         "boundary:schema.unknown_major" => Some("unsupported_schema_version"),
         "boundary:source_span.reversed" => Some("invalid_source_span"),
+        "boundary:wire.depth.maximum" | "boundary:wire.depth.over_maximum" => {
+            Some("invalid_wire_format")
+        }
         _ => None,
     };
     required_diagnostic.map_or(succeeded, |code| diagnostics.contains(code))
@@ -1505,10 +1676,10 @@ fn expression_semantic_nodes(input: &Value) -> Option<u32> {
                 .get("variants")
                 .or_else(|| declaration.get("fields"))
                 .and_then(Value::as_array)
-                .map_or(0, |values| values.len() as u32),
+                .map_or(0, |values| u32::try_from(values.len()).unwrap_or(u32::MAX)),
         );
     }
-    nodes = nodes.saturating_add(values.len() as u32);
+    nodes = nodes.saturating_add(u32::try_from(values.len()).unwrap_or(u32::MAX));
     nodes = nodes.saturating_add(
         functions
             .iter()
@@ -1516,7 +1687,7 @@ fn expression_semantic_nodes(input: &Value) -> Option<u32> {
                 1 + function
                     .get("parameters")
                     .and_then(Value::as_array)
-                    .map_or(0, |values| values.len() as u32)
+                    .map_or(0, |values| u32::try_from(values.len()).unwrap_or(u32::MAX))
             })
             .sum::<u32>(),
     );
@@ -1564,23 +1735,19 @@ fn count_type_nodes(root: &Value) -> u32 {
     nodes
 }
 
-fn observe_revisions(input: &Value, observed: &mut BTreeSet<String>) {
+fn observes_current_revision(input: &Value) -> bool {
     let Some(package) = input
         .get("package")
-        .or_else(|| input.get("package").and_then(|value| value.get("package")))
         .or_else(|| input.get("id").is_some().then_some(input))
     else {
-        return;
+        return false;
     };
     let Some(requirements) = package.get("requirements").and_then(Value::as_array) else {
-        return;
+        return false;
     };
-    if requirements
+    requirements
         .iter()
         .any(|requirement| requirement.get("revision").and_then(Value::as_u64) == Some(1))
-    {
-        observed.insert("boundary:revision.current".to_owned());
-    }
 }
 
 fn observe_constructs(
@@ -1716,11 +1883,15 @@ fn observe_constructs(
     }
 }
 
-fn expand_canonical_paths(root: &Path, value: &mut Value) -> Result<(), RunnerError> {
+fn expand_canonical_paths(
+    root: &Path,
+    value: &mut Value,
+    budget: &mut ReadBudget,
+) -> Result<(), RunnerError> {
     match value {
         Value::Array(values) => {
             for value in values {
-                expand_canonical_paths(root, value)?;
+                expand_canonical_paths(root, value, budget)?;
             }
         }
         Value::Object(object) => {
@@ -1732,7 +1903,18 @@ fn expand_canonical_paths(root: &Path, value: &mut Value) -> Result<(), RunnerEr
                         "canonical path is malformed",
                     )
                 })?;
-                let bytes = read_relative(root, path, "canonical.bytes_path")?;
+                let expected_sha256 = object
+                    .remove("bytes_sha256")
+                    .and_then(|value| value.as_str().map(str::to_owned))
+                    .ok_or_else(|| {
+                        RunnerError::new(
+                            RunnerErrorCode::InvalidManifest,
+                            "canonical.bytes_sha256",
+                            "canonical digest is malformed",
+                        )
+                    })?;
+                let bytes = read_relative(root, path, "canonical.bytes_path", budget)?;
+                verify_digest(&bytes, &expected_sha256, "canonical.bytes_sha256")?;
                 let text = String::from_utf8(bytes).map_err(|_| {
                     RunnerError::new(
                         RunnerErrorCode::InvalidManifest,
@@ -1743,7 +1925,7 @@ fn expand_canonical_paths(root: &Path, value: &mut Value) -> Result<(), RunnerEr
                 object.insert("bytes".to_owned(), Value::String(text));
             }
             for value in object.values_mut() {
-                expand_canonical_paths(root, value)?;
+                expand_canonical_paths(root, value, budget)?;
             }
         }
         _ => {}
@@ -1761,6 +1943,15 @@ fn execute(operation: ConformanceOperation, input: Value) -> Value {
 }
 
 fn execute_package(input: Value) -> Value {
+    if let Some(document) = input.get("document_json").and_then(Value::as_str) {
+        return match ContractPackage::from_json_str(document, ValidationOptions::strict()) {
+            Ok(package) => match package_actual(&package, u64::MAX) {
+                Ok(value) => value,
+                Err(diagnostic) => invalid_actual(vec![diagnostic]),
+            },
+            Err(diagnostics) => invalid_actual(diagnostics),
+        };
+    }
     let (package_input, clause_resolutions, maximum_bytes) = if input.get("package").is_some() {
         let request: PackageProbeInput = match serde_json::from_value(input) {
             Ok(request) => request,

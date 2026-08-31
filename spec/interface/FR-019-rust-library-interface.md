@@ -54,6 +54,9 @@ dependency sets, and coverage classifications.
 ## Behavior
 
 The stable v0.1 surface is the public API re-exported by `quire_contract_ir`.
+Serde deserialization trait implementations are not part of that surface:
+untrusted package JSON enters through `ContractPackage::from_json_str` or
+`from_json_bytes`, while validated values remain serializable.
 Unvalidated JSON enters only through wire/request decoders. Validated identity,
 package, declaration, expression, canonical, migration, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There
@@ -61,7 +64,8 @@ is no `From`/unchecked constructor from untrusted wire values to validated
 types. `ValidationOptions::strict()` is the sole v0.1 option set and cannot
 disable limits, diagnostics, version preflight, or definedness.
 
-Package parsing accepts UTF-8 `&str` and byte slices. Invalid UTF-8 is
+Package parsing accepts UTF-8 `&str` and byte slices. Invalid UTF-8, unknown
+object members, malformed wire shape, and wire nesting above the fixed limit are
 `invalid_wire_format`. Parsing is separate from semantic validation and version
 preflight precedes semantic conversion. Expression conformance requests decode
 to public wire types, then explicitly validate declarations, expression nodes,
@@ -87,7 +91,8 @@ All recursive or collection-bearing untrusted inputs undergo fixed-limit
 preflight before recursive conversion. The crate root exports the
 wire-independent `MAX_SEMANTIC_NODES: u32 = 25000`,
 `MAX_SEMANTIC_DEPTH: u32 = 256`, and
-`MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`. A complete operation input may
+`MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, plus the parser guard
+`MAX_WIRE_JSON_DEPTH: u32 = 576`. A complete operation input may
 contain at most that many decoded semantic nodes; nested value-type or other
 recursive structure may be at most that deep; and every declaration,
 requirement, clause, field, variant, parameter, trace, item, or other semantic
@@ -103,7 +108,7 @@ with default features; the crate remains `publish = false`.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, every conversion is fallible, canonical/migration profiles are explicit, the three fixed conformance registries and three semantic-limit constants are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 
 ## Dependencies

@@ -9,16 +9,25 @@ observe in the fixture.
 
 from __future__ import annotations
 
+import argparse
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "corpus" / "contract-v0.1"
-RUNNER = pathlib.Path("/tmp/quire-contract-ir-cargo-target/debug/quire-contract-conformance")
+DEFAULT_CORPUS = ROOT / "corpus" / "contract-v0.1"
+
+
+def default_runner() -> pathlib.Path:
+    target = pathlib.Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
+    if not target.is_absolute():
+        target = ROOT / target
+    return target / "debug" / "quire-contract-conformance"
 
 
 def span(at: int = 0, document: str = "contract", revision: int = 1) -> dict:
@@ -199,10 +208,10 @@ def build_cases() -> list:
     ]:
         add_case(cases, fixture_id, "package", package_with_clause(kind, anchor), f"diagnostic:{code}")
     for fixture_id, dep, code, boundary in [
-        ("package-cross-reference", dependency(package_id="agent-ix/other"), "cross_package_reference", "boundary:artifact.cross_package"),
+        ("package-cross-reference", dependency(package_id="agent-ix/other"), "cross_package_reference", None),
         ("package-malformed-reference", {**dependency(), "path": []}, "malformed_reference", None),
         ("package-stale-reference", dependency(revision=2), "stale_requirement_revision", "boundary:revision.stale"),
-        ("package-orphan-reference", dependency(requirement="REQ_missing"), "orphaned_requirement_reference", "boundary:artifact.missing"),
+        ("package-orphan-reference", dependency(requirement="REQ_missing"), "orphaned_requirement_reference", None),
     ]:
         candidate = package_with_clause("information", None, {"node": "reference", "identity": dep})
         tokens = [f"diagnostic:{code}"] + ([boundary] if boundary else [])
@@ -211,6 +220,17 @@ def build_cases() -> list:
     add_case(cases, "package-orphan-clause", "package", clause_probe, "diagnostic:orphaned_clause_reference")
     add_case(cases, "package-canonical-limit", "package", {"package": package(), "canonical_maximum_bytes": 0},
              "diagnostic:canonicalization_resource_exhausted", "boundary:canonical.resource_failure")
+    unknown_package = package()
+    unknown_package["ignored"] = 0
+    add_case(cases, "package-unknown-field", "package",
+             {"document_json": json.dumps(unknown_package, separators=(",", ":"))},
+             "diagnostic:invalid_wire_format")
+    wire_maximum = "[" * 576 + "0" + "]" * 576
+    wire_over = "[" * 577 + "0" + "]" * 577
+    add_case(cases, "package-wire-depth-maximum", "package", {"document_json": wire_maximum},
+             "diagnostic:invalid_wire_format", "boundary:wire.depth.maximum")
+    add_case(cases, "package-wire-depth-over", "package", {"document_json": wire_over},
+             "diagnostic:invalid_wire_format", "boundary:wire.depth.over_maximum")
 
     construct_cases = [
         ("boolean-literal", boolean(), BOOL, ["expression.boolean_literal"]),
@@ -396,23 +416,31 @@ def build_cases() -> list:
         return {"artifact_id": artifact, "source": span(at, "trace"), "target": target, "target_span": span(at + 1, "trace"), "depth": depth}
     req_a = copy.deepcopy(OWNER)
     req_b = {"package": "agent-ix/conformance", "requirement": "REQ_1", "revision": 1}
-    traces = [
-        trace("a_shallow", req_a, 1), trace("b_deep", req_a, 3, requirement_digest),
-        trace("c_cross", {**req_a, "package": "agent-ix/other"}, 5),
-        trace("d_missing", {**req_a, "requirement": "REQ_missing"}, 7),
-        trace("e_stale", {**req_a, "revision": 9}, 9),
-        trace("f_digest", req_a, 11, "0" * 64),
-        trace("g_duplicate", req_b, 13), trace("g_duplicate", req_b, 15),
-    ]
-    add_case(cases, "coverage-complete", "coverage", {"package": coverage_package, "traces": traces},
-             "construct:artifact.depth.shallow", "construct:artifact.depth.deep",
-             "construct:coverage.class.shallow", "construct:coverage.class.deep",
-             "construct:coverage.class.uncovered", "construct:coverage.class.orphaned",
-             "diagnostic:cross_package_reference", "diagnostic:orphaned_requirement_reference",
-             "diagnostic:stale_requirement_revision", "diagnostic:stale_trace_digest",
-             "diagnostic:duplicate_artifact_trace", "boundary:artifact.cross_package",
-             "boundary:artifact.missing", "boundary:artifact.stale", "boundary:artifact.digest_mismatch",
-             "boundary:artifact.duplicate")
+    add_case(cases, "coverage-shallow", "coverage",
+             {"package": coverage_package, "traces": [trace("shallow", req_a, 1)]},
+             "construct:artifact.depth.shallow", "construct:coverage.class.shallow")
+    add_case(cases, "coverage-deep", "coverage",
+             {"package": coverage_package, "traces": [trace("deep", req_a, 3, requirement_digest)]},
+             "construct:artifact.depth.deep", "construct:coverage.class.deep")
+    add_case(cases, "coverage-uncovered", "coverage",
+             {"package": coverage_package, "traces": []},
+             "construct:coverage.class.uncovered")
+    add_case(cases, "coverage-cross-package", "coverage",
+             {"package": coverage_package, "traces": [trace("cross", {**req_a, "package": "agent-ix/other"}, 5)]},
+             "construct:coverage.class.orphaned", "diagnostic:cross_package_reference",
+             "boundary:artifact.cross_package")
+    add_case(cases, "coverage-missing", "coverage",
+             {"package": coverage_package, "traces": [trace("missing", {**req_a, "requirement": "REQ_missing"}, 7)]},
+             "diagnostic:orphaned_requirement_reference", "boundary:artifact.missing")
+    add_case(cases, "coverage-stale", "coverage",
+             {"package": coverage_package, "traces": [trace("stale", {**req_a, "revision": 9}, 9)]},
+             "diagnostic:stale_requirement_revision", "boundary:artifact.stale")
+    add_case(cases, "coverage-digest", "coverage",
+             {"package": coverage_package, "traces": [trace("digest", req_a, 11, "0" * 64)]},
+             "diagnostic:stale_trace_digest", "boundary:artifact.digest_mismatch")
+    add_case(cases, "coverage-duplicate", "coverage",
+             {"package": coverage_package, "traces": [trace("duplicate", req_b, 13), trace("duplicate", req_b, 15)]},
+             "diagnostic:duplicate_artifact_trace", "boundary:artifact.duplicate")
     return cases
 
 
@@ -433,61 +461,122 @@ def placeholder(operation: str) -> dict:
     return {"diagnostics": [], "coverage": None}
 
 
-def main() -> None:
+def generate(corpus: pathlib.Path, runner: pathlib.Path, update_root_sidecars: bool) -> None:
+    # Implements: FR-018-AC-3.
     cases = build_cases()
-    for directory in (CORPUS / "inputs", CORPUS / "expectations", CORPUS / "canonical"):
+    for directory in (corpus / "inputs", corpus / "expectations", corpus / "canonical"):
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True)
-    (CORPUS / "schemas").mkdir(parents=True, exist_ok=True)
+    (corpus / "schemas").mkdir(parents=True, exist_ok=True)
     for name in ("contract-package-reference-v1.schema.json", "contract-conformance-manifest-v1.schema.json"):
-        shutil.copyfile(ROOT / "schemas" / name, CORPUS / "schemas" / name)
+        shutil.copyfile(ROOT / "schemas" / name, corpus / "schemas" / name)
 
     fixtures = []
     for case in cases:
-        input_path = CORPUS / "inputs" / f"{case['id']}.json"
-        expectation_path = CORPUS / "expectations" / f"{case['id']}.json"
+        input_path = corpus / "inputs" / f"{case['id']}.json"
+        expectation_path = corpus / "expectations" / f"{case['id']}.json"
         write_json(input_path, case["value"])
         write_json(expectation_path, placeholder(case["operation"]))
         fixtures.append({
             "id": case["id"], "operation": case["operation"],
             "input": f"inputs/{case['id']}.json",
+            "input_sha256": digest(input_path),
             "expectation": f"expectations/{case['id']}.json",
+            "expectation_sha256": digest(expectation_path),
             "covers": case["covers"],
         })
 
-    inventory = json.loads((CORPUS / "inventory.json").read_text())
+    inventory = json.loads((corpus / "inventory.json").read_text())
     manifest = {
         "corpus_id": "contract-v0.1",
-        "package_schema": {"path": "schemas/contract-package-reference-v1.schema.json", "sha256": digest(CORPUS / "schemas/contract-package-reference-v1.schema.json")},
-        "conformance_schema": {"path": "schemas/contract-conformance-manifest-v1.schema.json", "sha256": digest(CORPUS / "schemas/contract-conformance-manifest-v1.schema.json")},
-        "inventory": {"path": "inventory.json", "sha256": digest(CORPUS / "inventory.json")},
+        "package_schema": {"path": "schemas/contract-package-reference-v1.schema.json", "sha256": digest(corpus / "schemas/contract-package-reference-v1.schema.json")},
+        "conformance_schema": {"path": "schemas/contract-conformance-manifest-v1.schema.json", "sha256": digest(corpus / "schemas/contract-conformance-manifest-v1.schema.json")},
+        "inventory": {"path": "inventory.json", "sha256": digest(corpus / "inventory.json")},
         "canonical_profile": "quire.contract.canonical-json/v1",
         "protocol": "quire.contract.conformance-jsonl/v1",
         "fixtures": fixtures,
     }
-    write_json(CORPUS / "manifest.json", manifest)
-    completed = subprocess.run([str(RUNNER), "run", "--manifest", str(CORPUS / "manifest.json")], capture_output=True, check=False)
+    write_json(corpus / "manifest.json", manifest)
+    completed = subprocess.run([str(runner), "run", "--manifest", str(corpus / "manifest.json")], capture_output=True, check=False)
     if completed.returncode not in (0, 1):
         raise SystemExit(completed.stderr.decode())
     rows = [json.loads(line) for line in completed.stdout.splitlines()]
     if len(rows) != len(fixtures):
         raise SystemExit(f"runner returned {len(rows)} rows for {len(fixtures)} fixtures")
+    fixtures_by_id = {fixture["id"]: fixture for fixture in fixtures}
     for row in rows:
         actual = row["actual"]
         for index, canonical in enumerate(actual.get("canonical", [])):
             data = canonical.pop("bytes").encode()
             relative = f"canonical/{row['fixture_id']}-{index}.json"
-            (CORPUS / relative).write_bytes(data)
+            (corpus / relative).write_bytes(data)
             canonical["bytes_path"] = relative
-        write_json(CORPUS / "expectations" / f"{row['fixture_id']}.json", actual)
-    for path in sorted(CORPUS.rglob("*")):
+            canonical["bytes_sha256"] = hashlib.sha256(data).hexdigest()
+        expectation_path = corpus / "expectations" / f"{row['fixture_id']}.json"
+        write_json(expectation_path, actual)
+        fixtures_by_id[row["fixture_id"]]["expectation_sha256"] = digest(expectation_path)
+    write_json(corpus / "manifest.json", manifest)
+    verified = subprocess.run(
+        [str(runner), "run", "--manifest", str(corpus / "manifest.json")],
+        capture_output=True,
+        check=False,
+    )
+    if verified.returncode != 0:
+        raise SystemExit(verified.stderr.decode() or verified.stdout.decode())
+    if len(verified.stdout.splitlines()) != len(fixtures):
+        raise SystemExit("final corpus runner census differs from manifest")
+    for path in sorted(corpus.rglob("*")):
         if path.is_file() and path.name != "README.md" and path.suffix != ".sha256":
             path.with_name(path.name + ".sha256").write_text(f"{digest(path)}  {path.name}\n")
-    (ROOT / "schemas" / "contract-package-reference-v1.schema.json.sha256").write_text(
-        f"{digest(ROOT / 'schemas' / 'contract-package-reference-v1.schema.json')}  contract-package-reference-v1.schema.json\n")
-    (ROOT / "schemas" / "contract-conformance-manifest-v1.schema.json.sha256").write_text(
-        f"{digest(ROOT / 'schemas' / 'contract-conformance-manifest-v1.schema.json')}  contract-conformance-manifest-v1.schema.json\n")
+    if update_root_sidecars:
+        (ROOT / "schemas" / "contract-package-reference-v1.schema.json.sha256").write_text(
+            f"{digest(ROOT / 'schemas' / 'contract-package-reference-v1.schema.json')}  contract-package-reference-v1.schema.json\n")
+        (ROOT / "schemas" / "contract-conformance-manifest-v1.schema.json.sha256").write_text(
+            f"{digest(ROOT / 'schemas' / 'contract-conformance-manifest-v1.schema.json')}  contract-conformance-manifest-v1.schema.json\n")
+
+
+def compare_corpus(candidate: pathlib.Path) -> None:
+    expected_files = {
+        path.relative_to(DEFAULT_CORPUS) for path in DEFAULT_CORPUS.rglob("*") if path.is_file()
+    }
+    candidate_files = {
+        path.relative_to(candidate) for path in candidate.rglob("*") if path.is_file()
+    }
+    if expected_files != candidate_files:
+        raise SystemExit("regenerated corpus file census differs from checked-in corpus")
+    changed = [
+        path
+        for path in sorted(expected_files)
+        if (DEFAULT_CORPUS / path).read_bytes() != (candidate / path).read_bytes()
+    ]
+    if changed:
+        raise SystemExit(f"regenerated corpus differs: {', '.join(map(str, changed[:10]))}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--output", type=pathlib.Path)
+    parser.add_argument("--runner", type=pathlib.Path, default=default_runner())
+    args = parser.parse_args()
+    if args.check and args.output is not None:
+        parser.error("--check and --output are mutually exclusive")
+    if args.check:
+        with tempfile.TemporaryDirectory(prefix="quire-contract-corpus-") as directory:
+            candidate = pathlib.Path(directory) / "contract-v0.1"
+            candidate.mkdir()
+            for name in ("README.md", "inventory.json"):
+                shutil.copyfile(DEFAULT_CORPUS / name, candidate / name)
+            generate(candidate, args.runner, False)
+            compare_corpus(candidate)
+    else:
+        corpus = args.output or DEFAULT_CORPUS
+        if corpus != DEFAULT_CORPUS:
+            corpus.mkdir(parents=True, exist_ok=True)
+            for name in ("README.md", "inventory.json"):
+                shutil.copyfile(DEFAULT_CORPUS / name, corpus / name)
+        generate(corpus, args.runner, corpus == DEFAULT_CORPUS)
 
 
 if __name__ == "__main__":

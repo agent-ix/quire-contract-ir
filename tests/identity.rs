@@ -567,6 +567,14 @@ fn tc_015_untrusted_json_preserves_structured_failure_codes() {
     let valid = serde_json::to_value(&package).unwrap();
 
     let mut candidate = valid.clone();
+    candidate["ignored"] = serde_json::json!([0]);
+    assert_eq!(
+        package_error(&candidate)[0].code,
+        DiagnosticCode::InvalidWireFormat,
+        "the public decoder and closed published schema must reject unknown fields"
+    );
+
+    let mut candidate = valid.clone();
     candidate["schema_version"]["major"] = 0.into();
     assert_eq!(
         package_error(&candidate)[0].code,

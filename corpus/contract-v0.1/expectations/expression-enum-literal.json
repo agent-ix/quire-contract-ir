@@ -4,13 +4,15 @@
       "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
       "identity": "declaration",
       "kind": "declaration",
-      "bytes_path": "canonical/expression-enum-literal-0.json"
+      "bytes_path": "canonical/expression-enum-literal-0.json",
+      "bytes_sha256": "7c4f66554fff08fd44267b21033b367b4d0da1c08d4d13d6e86fb163af5a56c6"
     },
     {
       "digest": "1f7e7ed4fc6b8eb1044f59ec383010fab803e49a125e6ac006c1f7fbfc487f6f",
       "identity": "expression",
       "kind": "expression",
-      "bytes_path": "canonical/expression-enum-literal-1.json"
+      "bytes_path": "canonical/expression-enum-literal-1.json",
+      "bytes_sha256": "f5b0b72ffc45ed58006511cacef2a6f441cba4ed8014fae808ca0e3fbddd620e"
     }
   ],
   "dependencies": [

@@ -2,10 +2,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    conformance::{
-        canonical_value, diagnostics_value, MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH,
-        MAX_SEMANTIC_NODES,
-    },
+    conformance::{canonical_value, diagnostics_value},
+    limits::{MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES},
     BooleanOperator, CanonicalProfile, CollectionType, ComparisonOperator, DeclarationEnvironment,
     Diagnostic, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration, ExecutionPoint,
     Expression, ExpressionKind, FunctionParameter, IntegerDomain, IntegerType, NumericOperator,

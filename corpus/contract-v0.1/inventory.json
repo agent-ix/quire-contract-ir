@@ -40,6 +40,8 @@
   "boundary:text.over_maximum",
   "boundary:type.depth.maximum",
   "boundary:type.depth.over_maximum",
+  "boundary:wire.depth.maximum",
+  "boundary:wire.depth.over_maximum",
   "construct:artifact.depth.deep",
   "construct:artifact.depth.shallow",
   "construct:clause_kind.assertion",

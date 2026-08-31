@@ -391,7 +391,13 @@
     "packageInput": {
       "oneOf": [
         { "$ref": "#/definitions/package" },
-        { "$ref": "#/definitions/packageProbeInput" }
+        { "$ref": "#/definitions/packageProbeInput" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_json"],
+          "properties": { "document_json": { "type": "string" } }
+        }
       ]
     },
     "expressionInput": {
@@ -456,11 +462,12 @@
     "canonicalExpectation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "kind", "bytes_path", "digest"],
+      "required": ["identity", "kind", "bytes_path", "bytes_sha256", "digest"],
       "properties": {
         "identity": { "type": "string", "minLength": 1 },
         "kind": { "enum": ["package", "requirement", "clause", "declaration", "expression"] },
         "bytes_path": { "$ref": "#/definitions/relativePath" },
+        "bytes_sha256": { "$ref": "#/definitions/digest" },
         "digest": { "$ref": "#/definitions/digest" }
       }
     },
@@ -556,12 +563,14 @@
     "fixture": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "operation", "input", "expectation", "covers"],
+      "required": ["id", "operation", "input", "input_sha256", "expectation", "expectation_sha256", "covers"],
       "properties": {
         "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
         "operation": { "enum": ["package", "expression", "migration", "coverage"] },
         "input": { "$ref": "#/definitions/relativePath" },
+        "input_sha256": { "$ref": "#/definitions/digest" },
         "expectation": { "$ref": "#/definitions/relativePath" },
+        "expectation_sha256": { "$ref": "#/definitions/digest" },
         "covers": {
           "type": "array",
           "minItems": 1,

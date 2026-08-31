@@ -1,0 +1,61 @@
+{
+  "coverage": {
+    "artifacts": [
+      {
+        "artifact_id": "cross",
+        "class": "orphaned",
+        "orphan_reason": "cross_package",
+        "target": {
+          "package": "agent-ix/other",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      },
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "cross_package_reference",
+      "path": "reference.package",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 7,
+          "column": 8,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 6,
+          "column": 7,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ]
+}
