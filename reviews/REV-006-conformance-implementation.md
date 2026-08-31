@@ -2,7 +2,7 @@
 id: REV-006
 title: "Issue #10 schema, corpus, and runner implementation review"
 type: Review
-status: in_progress
+status: complete
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/10
     type: reviews
@@ -100,6 +100,13 @@ FND-125 through FND-174 have producer dispositions. Reviewer comment
 the current candidate rather than dismissed as stale. A fresh independent
 closing CLI review was attempted twice but was unavailable (`API Error:
 ENOTIMP`), so the closing gap audit remains a producer result and found
-FND-161. Complete local gates are still required after the final remediation.
-This document does not claim independent approval, downstream execution,
-cross-platform CI, or release authority.
+FND-161. After that remediation, the exact `be548a0` candidate passed the
+composite local CI lane with 13 Python tests and 34 Rust tests, the independent
+99-row corpus and byte-reproduction lanes, Rust 1.75 compatibility, 67/67 Quire
+grammar validation plus the fail-closed local completed-row census, the
+optimized 60,000-level depth regression, and `git diff --check`. GitHub Actions
+was not dispatched and reported no branch runs or PR checks. The GitHub
+reviewer was asked to re-review `be548a0`; no later response or formal review
+was present at closure capture. Accordingly, this completed finding record
+remains explicitly inconclusive as independent approval. It does not claim
+downstream execution, cross-platform CI, or release authority.

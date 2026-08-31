@@ -2,8 +2,7 @@
 id: TASK-009
 title: "Publish schema, corpus, and conformance runner"
 type: Task
-status: in_progress
-phase: implement
+status: done
 track: A
 priority: P0
 relationships:
@@ -35,3 +34,14 @@ coverage, downstream pin documentation, retained measurements, and epic review.
 - Add TC-018 end-to-end positive, negative, mutation, stdout/stderr, and
   process-exit fixtures; retain issue-scoped review and evidence before epic
   closure.
+
+## Completion
+
+The published candidate contains 99 declarative fixtures, the two pinned Draft
+7 schemas, the bounded JSON-lines runner, manifest-bound payload digests, and
+the complete TC-018 mutation and process suite. The final producer gate passed
+the composite local CI lane, corpus reproduction, Rust 1.75 compatibility,
+matrix-status census, and the optimized adversarial depth regression. Hosted CI
+remains disabled and was not dispatched. REV-006 retains every review finding
+and labels the unavailable independent closing review inconclusive rather than
+claiming approval.
