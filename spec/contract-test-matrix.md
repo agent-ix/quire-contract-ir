@@ -21,10 +21,10 @@ relationships:
 | Functional Req | Acceptance Criteria | Test Cases | Coverage Status |
 |---|---|---|---|
 | FR-011 | FR-011-AC-1 through FR-011-AC-3 | TC-015 | implemented |
-| FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | AC-1/2/3/4/6 implemented; AC-5 planned for issue #8 |
-| FR-013 | FR-013-AC-1, FR-013-AC-2 | TC-016 | planned |
-| FR-014 | FR-014-AC-1, FR-014-AC-2 | TC-016 | planned |
-| FR-015 | FR-015-AC-1, FR-015-AC-2 | TC-016 | planned |
+| FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | implemented |
+| FR-013 | FR-013-AC-1 through FR-013-AC-4 | TC-016 | implemented |
+| FR-014 | FR-014-AC-1 through FR-014-AC-6 | TC-016 | implemented |
+| FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | implemented |
 | FR-016 | FR-016-AC-1, FR-016-AC-2 | TC-017 | planned |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | planned |
 | FR-018 | FR-018-AC-1, FR-018-AC-2 | TC-018 | planned |
@@ -36,7 +36,7 @@ relationships:
 | Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
 |---|---|---|---|
 | NFR-001 | repeated golden corpus and cross-platform comparison | TC-017, TC-019 | planned |
-| NFR-002 | vocabulary, schema, API, and MSRV inspection | TC-015, TC-016, TC-019 | AC-3 implemented; remainder planned |
+| NFR-002 | vocabulary, schema, API, and MSRV inspection | TC-015, TC-016, TC-019 | AC-3/4 implemented; AC-1/2 planned |
 | NFR-003 | negative corpus, mutation, panic-free, and orphan checks | TC-017 through TC-019 | planned |
 | NFR-004 | repository/assurance/plan inspection and retained review | TC-014, TC-020 through TC-022 | foundation covered |
 
@@ -44,7 +44,7 @@ relationships:
 
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
-| STD-001 | exact issue #6 code set, precedence, structured fields, and no message parsing | TC-015 | implemented |
+| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015, TC-016 | issues #6 and #8 implemented |
 
 ## Test Case Summary
 
@@ -52,7 +52,7 @@ relationships:
 |---|---|---|---|---|---|
 | TC-014 | Baseline, licenses, protected workflow, and publication lock agree | Inspection | P0 | NFR-004 | ✅ implemented |
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
-| TC-016 | Types, expressions, short-circuiting, and definedness conform | Integration | P0 | FR-013..FR-015, NFR-002 | 🚧 planned for issue #8 |
+| TC-016 | Types, expressions, short-circuiting, and definedness conform | Integration | P0 | FR-012..FR-015, NFR-002, STD-001 | ✅ implemented |
 | TC-017 | Canonical bytes, digests, migrations, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | 🚧 planned for issue #9 |
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | 🚧 planned for issue #10 |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned across issues #8–#10 |

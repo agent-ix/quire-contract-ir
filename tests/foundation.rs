@@ -114,18 +114,18 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
         assert!(plan.contains(edge), "PLAN-002 is missing DAG edge {edge}");
     }
 
-    for completed in ["TASK-005-foundation.md", "TASK-006-identities.md"] {
+    for completed in [
+        "TASK-005-foundation.md",
+        "TASK-006-identities.md",
+        "TASK-007-expressions.md",
+    ] {
         let path = format!("plan/PLAN-002-contract-ir-v01/{completed}");
         assert!(
             read(&path).contains("status: done"),
             "{completed} is not done"
         );
     }
-    for task in [
-        "TASK-007-expressions.md",
-        "TASK-008-canonicalization.md",
-        "TASK-009-conformance.md",
-    ] {
+    for task in ["TASK-008-canonicalization.md", "TASK-009-conformance.md"] {
         let path = format!("plan/PLAN-002-contract-ir-v01/{task}");
         assert!(
             read(&path).contains("status: pending"),
