@@ -39,3 +39,8 @@ coverage classification, and the conformance runner.
 
 Negative fixtures, mutation tests, diagnostic-order tests, and orphan coverage
 tests (TC-017 through TC-019).
+
+Issue #9 extends fail-closed behavior to version preflight, migration selection,
+canonical byte allocation, and artifact coverage. Unsupported or unregistered
+versions never reach semantic decoding; canonicalization never emits partial
+identity; every orphan class remains visible while contributing zero coverage.
