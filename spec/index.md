@@ -62,7 +62,8 @@ FR-001 through FR-010 provide traceable artifact identities without redefining
 that policy. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, and NFR-001 through
-NFR-004 define the v0.1 semantic substrate.
+NFR-004 define the v0.1 semantic substrate. STD-001 is the stable diagnostic
+code registry, and TM-002 maps the substrate to staged verification.
 
 ## References
 
@@ -71,3 +72,4 @@ NFR-004 define the v0.1 semantic substrate.
 - [Canonical PGM-01 policy](program/PGM-01-governance.md).
 - [Contract IR epic](https://github.com/agent-ix/quire-contract-ir/issues/11).
 - [Contract IR test matrix](contract-test-matrix.md).
+- [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
