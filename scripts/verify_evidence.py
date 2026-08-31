@@ -75,6 +75,26 @@ def read_head_inputs() -> set[Path]:
     return paths
 
 
+def read_worktree_inputs() -> set[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise EvidenceError(f"cannot enumerate current worktree: {detail}")
+    paths = set()
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        path = safe_relative_path(raw_path.decode("utf-8"))
+        if path.parts[0] != "evidence":
+            paths.add(path)
+    return paths
+
+
 def read_worktree_file(path: Path) -> bytes:
     try:
         return (ROOT / path).read_bytes()
@@ -88,6 +108,7 @@ def verify_input_checksums(
     head_reader: BlobReader = read_subject_blob,
     worktree_reader: WorktreeReader = read_worktree_file,
     input_set_reader: InputSetReader = read_head_inputs,
+    worktree_set_reader: InputSetReader = read_worktree_inputs,
 ) -> int:
     revision = manifest.get("subjectRevision")
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
@@ -112,6 +133,14 @@ def verify_input_checksums(
         raise EvidenceError(
             f"inputChecksums do not cover the current HEAD tree; "
             f"missing={missing}, extra={extra}"
+        )
+    worktree_inputs = worktree_set_reader()
+    if worktree_inputs != required_inputs:
+        missing = sorted(str(path) for path in required_inputs - worktree_inputs)
+        untracked = sorted(str(path) for path in worktree_inputs - required_inputs)
+        raise EvidenceError(
+            f"worktree input set differs from current HEAD; "
+            f"missing={missing}, untracked={untracked}"
         )
     for path, expected in normalized_checksums.items():
         head_actual = sha256(head_reader("HEAD", path))
@@ -210,7 +239,7 @@ def verify_output_entries(
                     f"retained output checksum mismatch for {path}: "
                     f"expected {expected}, got {actual}"
                 )
-    return len(recorded_entries)
+    return len(output_set)
 
 
 def verify_retained_outputs(

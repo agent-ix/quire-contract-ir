@@ -111,8 +111,9 @@ their own work or make a release decision.
 
 `@kreneskyp` is the v0.1 human source-release authority. `.github/CODEOWNERS`
 assigns every path to that owner, and protected `main` requires a non-stale
-CODEOWNER approval, strict required checks, resolved conversations, and admin
-enforcement. Only that human may record sufficiency, accept a bounded exception,
+CODEOWNER approval, strict required checks, and resolved conversations. Admin
+enforcement is the default policy; only that human may record a bounded admin
+bypass exception under PGM-01-R09. Only that human may record sufficiency,
 authorize a source tag, or reject a candidate. Automation shall leave the
 decision open.
 

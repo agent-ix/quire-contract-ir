@@ -24,7 +24,7 @@ A revision-scoped content-addressed record and a separately authorized release d
 
 - Each rerun mints a new `evidence/pgm-01-<short-sha>/` record rather than rewriting a prior record.
 - An external checksum file covers the evidence manifest and every retained output.
-- The release-only verifier independently enumerates every non-evidence file in the current `HEAD` tree, requires an exact checksum-key match, and checks each digest against both the `HEAD` Git blob and current candidate file. The source revision is provenance only; an ancestor relationship is not required after a squash merge.
+- The release-only verifier independently enumerates every non-evidence file in the current `HEAD` tree, requires an exact checksum-key match, rejects non-ignored untracked inputs, and checks each digest against both the `HEAD` Git blob and current candidate file. The source revision is provenance only; an ancestor relationship is not required after a squash merge.
 - Every retained output, including the external checksum file, matches its current `HEAD` Git blob.
 - Exactly one record matches the current candidate.
 - The evidence manifest is validated against the published `quire.pgm01-evidence/v1` Draft 7 schema, whose identity and digest are carried in the record.
@@ -36,7 +36,7 @@ A revision-scoped content-addressed record and a separately authorized release d
 |---|---|---|
 | FR-009-AC-1 | The solver fixture remains semantically `inconclusive` after successful schema validation. | Test (TC-006) |
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
-| FR-009-AC-3 | Evidence verification rejects incomplete or added-file input coverage, false or drifted input digests, output/checksum drift, unsafe paths, schema-invalid manifests, and ambiguous record selection without depending on source-revision ancestry. | Test (TC-013) |
+| FR-009-AC-3 | Evidence verification rejects incomplete, committed-added, or untracked input coverage; false or drifted input digests; output/checksum drift; unsafe paths; schema-invalid manifests; and ambiguous record selection without depending on source-revision ancestry. | Test (TC-013) |
 
 ## Dependencies
 

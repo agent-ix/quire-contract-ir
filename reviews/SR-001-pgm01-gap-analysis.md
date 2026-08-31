@@ -30,7 +30,7 @@ explicitly assigned to issue #5 and is not silently claimed by this ticket.
 | Requirement | Evidence | Result |
 |---|---|---|
 | FR-001–FR-003 | canonical policy and TC-001/02/08 | pass |
-| FR-004–FR-007 | policy, CONTRIBUTING, CODEOWNERS, protection snapshot, TC-002/03/04 | pass |
+| FR-004–FR-007 | policy, CONTRIBUTING, CODEOWNERS, protection snapshot, bounded admin-bypass exception, TC-002/03/04 | pass |
 | FR-008 | published Draft 7 schema, complete corpus, mutation probes, TC-005–12 | pass |
 | FR-009 | revision-scoped evidence, semantic inconclusive assertion, TC-004/06/13 | pass |
 | FR-010 | qualification boundary and TC-003 | pass |

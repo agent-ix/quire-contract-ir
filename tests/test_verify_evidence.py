@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import unittest
 from collections.abc import Callable
 from pathlib import Path
@@ -46,6 +47,7 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
         head_reader=lambda _revision, _path: payload,
         worktree_reader=lambda _path: payload,
         input_set_reader=lambda: {Path("spec/example.md")},
+        worktree_set_reader=lambda: {Path("spec/example.md")},
     )
     if actual != 1:
         raise AssertionError(f"expected one verified input, got {actual}")
@@ -59,6 +61,7 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
             head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: payload,
             input_set_reader=lambda: {Path("spec/example.md")},
+            worktree_set_reader=lambda: {Path("spec/example.md")},
         ),
     )
     assert_evidence_error(
@@ -68,6 +71,7 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
             head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: b"drifted current input",
             input_set_reader=lambda: {Path("spec/example.md")},
+            worktree_set_reader=lambda: {Path("spec/example.md")},
         ),
     )
 
@@ -91,6 +95,7 @@ def test_evidence_verifier_rejects_incomplete_input_coverage_and_unsafe_paths() 
                 Path("spec/example.md"),
                 Path("scripts/missing.py"),
             },
+            worktree_set_reader=lambda: {Path("spec/example.md")},
         ),
     )
     assert_evidence_error(
@@ -127,8 +132,8 @@ def test_evidence_verifier_authenticates_outputs_and_checksum_file_to_head() -> 
         current_reader=lambda path: payloads[path],
         head_reader=lambda _revision, path: payloads[path],
     )
-    if actual != 2:
-        raise AssertionError(f"expected two verified retained outputs, got {actual}")
+    if actual != 3:
+        raise AssertionError(f"expected three verified retained outputs, got {actual}")
     assert_evidence_error(
         "differs from the current HEAD blob",
         lambda: verify_output_entries(
@@ -167,6 +172,22 @@ def test_evidence_verifier_requires_one_matching_record() -> None:
 def test_evidence_manifest_schema_rejects_missing_required_provenance() -> None:
     """TC-013. Trace: TC-013, FR-009-AC-3."""
     schema_bytes = (ROOT / EVIDENCE_SCHEMA).read_bytes()
+    schema = json.loads(schema_bytes)
+    required_tools = set(schema["properties"]["environment"]["required"])
+    expected_tools = {
+        "platform",
+        "rustc",
+        "cargo",
+        "cargoDeny",
+        "python",
+        "jsonschema",
+        "rfc3339Validator",
+        "rfc3986Validator",
+        "quire",
+        "codeReviewSessions",
+    }
+    if required_tools != expected_tools:
+        raise AssertionError(f"unexpected required tool identities: {required_tools}")
     incomplete = {
         "schemaIdentity": {
             "path": EVIDENCE_SCHEMA.as_posix(),

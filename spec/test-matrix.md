@@ -27,7 +27,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
 |---|---|---|---|
-| Issue #3 deliverables | FR-001 through FR-009 | TC-001 through TC-012 | ✅ covered |
+| Issue #3 deliverables | FR-001 through FR-009 | TC-001 through TC-013 | ✅ covered |
 | Issue #3 acceptance | FR-008, FR-010 | TC-003, TC-005 through TC-012 | ✅ covered |
 | Issue #1 human ownership | FR-006, FR-009 | TC-004 and protected-branch API | ✅ covered |
 
