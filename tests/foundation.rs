@@ -93,7 +93,12 @@ fn tc_020_assurance_packet_names_boundaries_evidence_failures_and_owner() {
 
     let argument = read("spec/assurance/AA-001-contract-ir-v01.md");
     assert!(argument.contains("status: active"));
-    assert!(argument.contains("remains open"));
+    let top_claim = argument
+        .split_once("reasoning:")
+        .map(|(frontmatter, _)| frontmatter)
+        .expect("AA-001 must declare reasoning after its top claim");
+    assert!(top_claim.contains("  status: open"));
+    assert!(argument.contains("PGM-02") && argument.contains("Wave 4"));
 }
 
 /// Tracing: TC-021
