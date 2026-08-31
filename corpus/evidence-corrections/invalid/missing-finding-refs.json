@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "quire.evidence-correction/v1",
+  "recordId": "COR-999",
+  "recordedAt": "2026-08-31T00:39:11Z",
+  "repository": "https://github.com/agent-ix/quire-contract-ir",
+  "affectedClaims": [
+    {
+      "record": "pgm-01-example",
+      "claim": "code-review status pass",
+      "location": "https://github.com/agent-ix/quire-contract-ir/pull/12"
+    }
+  ],
+  "correctedStatus": "inconclusive",
+  "basis": "Fixture deliberately omits findingRefs.",
+  "immutability": "The affected record remains unchanged.",
+  "decisionEffect": "The affected claim cannot support a decision."
+}
