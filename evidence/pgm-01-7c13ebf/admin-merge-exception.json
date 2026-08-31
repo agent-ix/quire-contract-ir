@@ -1,0 +1,14 @@
+{
+  "scope": "PR #12 admin squash merge only",
+  "decision": "approve",
+  "owner": "@kreneskyp",
+  "recordedAt": "2026-08-31T00:15:28Z",
+  "rationale": "GitHub Actions are intentionally disabled. The named authority authorized an admin merge after code review, gap analysis, remediation, local release gates, and squash-safety verification.",
+  "authorization": "ok if run through code review and gap analusis and findings are fixed you may --admin merge!",
+  "exclusions": [
+    "no source release decision",
+    "no source tag authorization",
+    "no project-specific qualification or accreditation decision"
+  ],
+  "identityEvidence": "gh auth status reported the active GitHub account as kreneskyp"
+}
