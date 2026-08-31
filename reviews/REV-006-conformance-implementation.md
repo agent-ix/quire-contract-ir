@@ -69,8 +69,9 @@ publication remain outside scope and disabled.
 | FND-170 | medium | Rust governance tests hard-coded `python3`, ignored Make's `PYTHON` selection, and discarded the child error when stdout was not JSON. | fixed: the test recipe supplies `QUIRE_GOVERNANCE_PYTHON=$(PYTHON)`, tests honor it with a `python3` fallback, and parse/status failures include child status and stderr. |
 | FND-171 | low | Named-schema validation errors exposed a schema definition name instead of the authored manifest field. | fixed: each persistent-worker request carries its exact `fixtures.<id>.input` or expectation field path into the stable error record. |
 | FND-172 | low | Linked corpus tests hard-coded a second fixture-count source. | fixed: linked and process tests derive their census from the manifest; the direct Make gate compares the complete ordered result-ID list to the complete authored fixture-ID list. |
-| FND-173 | low | The PR body described the earlier 89-fixture/FND-133 candidate after the head had advanced. | fixed at candidate publication: the body reports the 99-row corpus, FND-125 through FND-174 dispositions, exact local gate scope, Quire limitation, unavailable independent closer, and no hosted CI/downstream/cross-platform claim. |
+| FND-173 | low | The PR body described the earlier 89-fixture/FND-133 candidate after the head had advanced. | fixed at candidate publication: the body reports the 99-row corpus, the complete retained finding range, exact local gate scope, Quire limitation, unavailable independent closer, and no hosted CI/downstream/cross-platform claim. |
 | FND-174 | low | Structural boundary filtering allocated a second owned-string set on every fixture. | fixed: each candidate boundary is result/diagnostic-filtered directly into the final observation set, eliminating the intermediate set and its duplicate strings. |
+| FND-175 | medium | The producer's closure-commit gate found TC-021 hard-coded TASK-009's transient `in_progress`/`implement` state, so recording the completed task as `done` failed the otherwise-clean suite. | fixed: TC-021 now includes TASK-009 in the exact completed dependency chain and rejects any non-`done` task state. The first closure candidate is preserved in Git history and no evidence record was created for it. |
 
 ## Gap analysis
 
@@ -94,7 +95,7 @@ refinement of that issue-level shorthand.
 
 ## Closing gate
 
-FND-125 through FND-174 have producer dispositions. Reviewer comment
+FND-125 through FND-175 have producer dispositions. Reviewer comment
 `5481162405` was written against `37eb001`, and comment `5481528618` reviewed
 `db24d90`; their still-applicable findings were reproduced or checked against
 the current candidate rather than dismissed as stale. A fresh independent
