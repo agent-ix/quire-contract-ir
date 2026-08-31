@@ -3,7 +3,10 @@ use std::{
     fmt,
 };
 
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use serde::{
+    de::Error as _, ser::Error as _, ser::SerializeStruct, Deserialize, Deserializer, Serialize,
+    Serializer,
+};
 
 const IDENTIFIER_RULE: &str =
     "must start with an ASCII letter and contain only ASCII letters, digits, '.', '_', or '-'";
@@ -51,6 +54,46 @@ diagnostic_codes! {
     StaleRequirementRevision => "stale_requirement_revision",
     OrphanedRequirementReference => "orphaned_requirement_reference",
     OrphanedClauseReference => "orphaned_clause_reference",
+    DuplicateTypeDeclaration => "duplicate_type_declaration",
+    DuplicateValueDeclaration => "duplicate_value_declaration",
+    DuplicateFunctionDeclaration => "duplicate_function_declaration",
+    DuplicateField => "duplicate_field",
+    DuplicateVariant => "duplicate_variant",
+    DuplicateParameter => "duplicate_parameter",
+    EmptyEnum => "empty_enum",
+    InvalidNumericBounds => "invalid_numeric_bounds",
+    TextBoundExceeded => "text_bound_exceeded",
+    UnboundedCollection => "unbounded_collection",
+    CollectionBoundExceeded => "collection_bound_exceeded",
+    OrphanedTypeReference => "orphaned_type_reference",
+    RecursiveType => "recursive_type",
+    OrphanedValueReference => "orphaned_value_reference",
+    OrphanedFunctionReference => "orphaned_function_reference",
+    InvalidStateObservation => "invalid_state_observation",
+    InvalidScope => "invalid_scope",
+    ArityMismatch => "arity_mismatch",
+    IllTypedExpression => "ill_typed_expression",
+    ResultTypeMismatch => "result_type_mismatch",
+    NonBooleanClauseRoot => "non_boolean_clause_root",
+    PotentiallyUndefined => "potentially_undefined",
+    ExpressionTooLarge => "expression_too_large",
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefinednessObligationKind {
+    OptionPresence,
+    NonZeroDivisor,
+    IndexInBounds,
+    CheckedRange,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StateObservation {
+    Current,
+    Pre,
+    Post,
 }
 
 impl<'de> Deserialize<'de> for DiagnosticCode {
@@ -67,20 +110,99 @@ impl<'de> Deserialize<'de> for DiagnosticCode {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
     pub message: String,
     pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub span: Option<Box<SourceSpan>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<SemanticIdentity>,
+    pub obligation_kind: Option<DefinednessObligationKind>,
+}
+
+#[derive(Deserialize)]
+struct DiagnosticWire {
+    code: DiagnosticCode,
+    severity: Severity,
+    message: String,
+    path: String,
+    #[serde(default)]
+    span: Option<Box<SourceSpan>>,
+    #[serde(default)]
+    related: Vec<SemanticIdentity>,
+    #[serde(default)]
+    obligation_kind: Option<DefinednessObligationKind>,
+}
+
+impl Serialize for Diagnostic {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if !self.has_valid_obligation_kind() {
+            return Err(S::Error::custom(
+                "diagnostic obligation_kind must be present if and only if code is potentially_undefined",
+            ));
+        }
+        let mut state = serializer.serialize_struct(
+            "Diagnostic",
+            4 + usize::from(self.span.is_some())
+                + usize::from(!self.related.is_empty())
+                + usize::from(self.obligation_kind.is_some()),
+        )?;
+        state.serialize_field("code", &self.code)?;
+        state.serialize_field("severity", &self.severity)?;
+        state.serialize_field("message", &self.message)?;
+        state.serialize_field("path", &self.path)?;
+        if let Some(span) = &self.span {
+            state.serialize_field("span", span)?;
+        }
+        if !self.related.is_empty() {
+            state.serialize_field("related", &self.related)?;
+        }
+        if let Some(kind) = self.obligation_kind {
+            state.serialize_field("obligation_kind", &kind)?;
+        }
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Diagnostic {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = DiagnosticWire::deserialize(deserializer)?;
+        let diagnostic = Self {
+            code: wire.code,
+            severity: wire.severity,
+            message: wire.message,
+            path: wire.path,
+            span: wire.span,
+            related: wire.related,
+            obligation_kind: wire.obligation_kind,
+        };
+        if diagnostic.has_valid_obligation_kind() {
+            Ok(diagnostic)
+        } else {
+            Err(D::Error::custom(
+                "diagnostic obligation_kind must be present if and only if code is potentially_undefined",
+            ))
+        }
+    }
 }
 
 impl Diagnostic {
-    fn error(code: DiagnosticCode, message: impl Into<String>, path: impl Into<String>) -> Self {
+    fn has_valid_obligation_kind(&self) -> bool {
+        (self.code == DiagnosticCode::PotentiallyUndefined) == self.obligation_kind.is_some()
+    }
+
+    pub(crate) fn error(
+        code: DiagnosticCode,
+        message: impl Into<String>,
+        path: impl Into<String>,
+    ) -> Self {
         Self {
             code,
             severity: Severity::Error,
@@ -88,16 +210,22 @@ impl Diagnostic {
             path: path.into(),
             span: None,
             related: Vec::new(),
+            obligation_kind: None,
         }
     }
 
-    fn at_span(mut self, span: &SourceSpan) -> Self {
+    pub(crate) fn at_span(mut self, span: &SourceSpan) -> Self {
         self.span = Some(Box::new(span.clone()));
         self
     }
 
-    fn related_to(mut self, identity: SemanticIdentity) -> Self {
+    pub(crate) fn related_to(mut self, identity: SemanticIdentity) -> Self {
         self.related.push(identity);
+        self
+    }
+
+    pub(crate) fn with_obligation(mut self, kind: DefinednessObligationKind) -> Self {
+        self.obligation_kind = Some(kind);
         self
     }
 }
@@ -570,6 +698,8 @@ pub enum DependencyKind {
 pub struct DependencyIdentity {
     requirement: RequirementRef,
     kind: DependencyKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    observation: Option<StateObservation>,
     path: Vec<DependencyName>,
 }
 
@@ -589,9 +719,21 @@ impl DependencyIdentity {
             Ok(Self {
                 requirement,
                 kind,
+                observation: None,
                 path,
             })
         }
+    }
+
+    pub fn new_observed(
+        requirement: RequirementRef,
+        kind: DependencyKind,
+        observation: StateObservation,
+        path: Vec<DependencyName>,
+    ) -> Result<Self, Diagnostic> {
+        let mut identity = Self::new(requirement, kind, path)?;
+        identity.observation = Some(observation);
+        Ok(identity)
     }
 
     pub fn requirement(&self) -> &RequirementRef {
@@ -600,6 +742,10 @@ impl DependencyIdentity {
 
     pub const fn kind(&self) -> DependencyKind {
         self.kind
+    }
+
+    pub const fn observation(&self) -> Option<StateObservation> {
+        self.observation
     }
 
     pub fn path(&self) -> &[DependencyName] {
@@ -616,10 +762,18 @@ impl<'de> Deserialize<'de> for DependencyIdentity {
         struct Wire {
             requirement: RequirementRef,
             kind: DependencyKind,
+            #[serde(default)]
+            observation: Option<StateObservation>,
             path: Vec<DependencyName>,
         }
         let wire = Wire::deserialize(deserializer)?;
-        Self::new(wire.requirement, wire.kind, wire.path).map_err(D::Error::custom)
+        match wire.observation {
+            Some(observation) => {
+                Self::new_observed(wire.requirement, wire.kind, observation, wire.path)
+            }
+            None => Self::new(wire.requirement, wire.kind, wire.path),
+        }
+        .map_err(D::Error::custom)
     }
 }
 
@@ -1178,6 +1332,8 @@ impl WireRequirementRef {
 struct WireDependencyIdentity {
     requirement: WireRequirementRef,
     kind: DependencyKind,
+    #[serde(default)]
+    observation: Option<StateObservation>,
     path: Vec<String>,
 }
 
@@ -1188,7 +1344,15 @@ impl WireDependencyIdentity {
             .into_iter()
             .map(DependencyName::new)
             .collect::<Result<Vec<_>, _>>()?;
-        DependencyIdentity::new(self.requirement.validate()?, self.kind, path)
+        match self.observation {
+            Some(observation) => DependencyIdentity::new_observed(
+                self.requirement.validate()?,
+                self.kind,
+                observation,
+                path,
+            ),
+            None => DependencyIdentity::new(self.requirement.validate()?, self.kind, path),
+        }
     }
 }
 
