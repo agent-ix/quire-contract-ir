@@ -226,6 +226,15 @@ def test_evidence_verifier_enforces_append_only_correction() -> None:
         ),
     )
     assert_evidence_error(
+        "correction set differs from HEAD",
+        lambda: load_evidence_corrections(
+            head_set_reader=lambda: {
+                Path("evidence/corrections/COR-001-pr12-code-review.json")
+            },
+            worktree_set_reader=lambda: set(),
+        ),
+    )
+    assert_evidence_error(
         "record has an append-only correction",
         lambda: verify_record(ROOT / "evidence/pgm-01-568bd05"),
     )

@@ -36,7 +36,10 @@ class EvidenceCorrectionTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema"], SCHEMA.relative_to(ROOT).as_posix())
         declared = {fixture["path"] for fixture in manifest["fixtures"]}
-        available = {RECORD.relative_to(ROOT).as_posix()}
+        available = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "evidence/corrections").glob("COR-*.json")
+        }
         available.update(
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / "corpus/evidence-corrections/invalid").glob("*.json")

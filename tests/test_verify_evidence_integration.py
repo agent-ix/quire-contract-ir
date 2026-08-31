@@ -127,6 +127,12 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
             encoding="utf-8",
         )
 
+    def correction_set(root: Path) -> set[Path]:
+        return {
+            path.relative_to(root)
+            for path in (root / "evidence/corrections").glob("COR-*.json")
+        }
+
     base: dict[str, object] = {
         "schemaVersion": "quire.evidence-correction/v1",
         "recordId": "COR-001",
@@ -155,7 +161,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
             verify_evidence.EvidenceError, "checksum mismatch"
         ):
             verify_evidence.load_evidence_corrections(
-                head_reader=lambda _revision, path: (root / path).read_bytes()
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
             )
 
     with tempfile.TemporaryDirectory() as directory:
@@ -173,7 +181,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
             verify_evidence.EvidenceError, "unavailable record"
         ):
             verify_evidence.load_evidence_corrections(
-                head_reader=lambda _revision, path: (root / path).read_bytes()
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
             )
 
     traversal = json.loads(json.dumps(base))
@@ -192,7 +202,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
             verify_evidence.EvidenceError, "schema violation"
         ):
             verify_evidence.load_evidence_corrections(
-                head_reader=lambda _revision, path: (root / path).read_bytes()
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
             )
 
 

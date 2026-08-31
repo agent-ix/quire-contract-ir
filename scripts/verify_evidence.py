@@ -115,6 +115,39 @@ def read_worktree_file(path: Path) -> bytes:
         raise EvidenceError(f"cannot read current input {path}: {error}") from error
 
 
+def read_head_correction_paths() -> set[Path]:
+    result = subprocess.run(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            "HEAD",
+            "--",
+            "evidence/corrections",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise EvidenceError(f"cannot enumerate HEAD correction set: {detail}")
+    return {
+        safe_relative_path(raw.decode("utf-8"))
+        for raw in result.stdout.split(b"\0")
+        if raw and Path(raw.decode("utf-8")).match("COR-*.json")
+    }
+
+
+def read_worktree_correction_paths() -> set[Path]:
+    return {
+        path.relative_to(ROOT)
+        for path in (ROOT / "evidence/corrections").glob("COR-*.json")
+    }
+
+
 # Implements: FR-009
 def verify_input_checksums(
     manifest: dict[str, Any],
@@ -238,8 +271,18 @@ def parse_external_checksums(path: Path) -> dict[Path, str]:
 # Implements: FR-009
 def load_evidence_corrections(
     head_reader: BlobReader = read_subject_blob,
+    head_set_reader: InputSetReader = read_head_correction_paths,
+    worktree_set_reader: InputSetReader = read_worktree_correction_paths,
 ) -> dict[str, list[str]]:
-    correction_paths = sorted((ROOT / "evidence/corrections").glob("COR-*.json"))
+    head_paths = head_set_reader()
+    worktree_paths = worktree_set_reader()
+    if head_paths != worktree_paths:
+        missing = sorted(str(path) for path in head_paths - worktree_paths)
+        added = sorted(str(path) for path in worktree_paths - head_paths)
+        raise EvidenceError(
+            f"correction set differs from HEAD; missing={missing}, added={added}"
+        )
+    correction_paths = sorted(ROOT / path for path in head_paths)
     if not correction_paths:
         return {}
     try:
