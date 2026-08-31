@@ -14,8 +14,7 @@ name = "quire_contract_ir"
 path = "src/lib.rs"
 
 [dependencies]
-
-[dev-dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.151"
 
 [profile.release]
