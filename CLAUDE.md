@@ -8,13 +8,21 @@ Versioned semantic contract model and canonical representation for assurance too
 make fmt            # format with rustfmt
 make fmt-check      # verify formatting (CI gate)
 make lint           # clippy with -D warnings
-make test           # cargo test
+make governance     # validate the PGM-01 schema and corpus
+make spec           # validate and cover all Quire artifacts
+make evidence-verify # verify the current immutable evidence record
+make release-check   # run all local release gates, including evidence
+make test           # governance validation + cargo test
 make build          # release build
 make clean          # cargo clean
 make deny           # cargo deny check licenses
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # fmt-check + lint + test + deny + audit-unsafe
 ```
+
+The governance and test targets require Python 3.10.12, `jsonschema==3.2.0`,
+and the pinned RFC 3339/RFC 3986 format validators declared by
+`.python-version` and `requirements-governance.txt`.
 
 ## Safety scaffolding
 

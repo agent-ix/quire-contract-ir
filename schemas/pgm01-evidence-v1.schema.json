@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/pgm01-evidence-v1.schema.json",
+  "title": "PGM-01 retained evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "schemaIdentity",
+    "recordId",
+    "subjectRevision",
+    "repository",
+    "collectedAt",
+    "collector",
+    "environment",
+    "commands",
+    "inputs",
+    "inputChecksums",
+    "outputs",
+    "checks",
+    "limitations",
+    "decision"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "quire.pgm01-evidence/v1"},
+    "schemaIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"const": "schemas/pgm01-evidence-v1.schema.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "recordId": {"type": "string", "pattern": "^pgm-01-[0-9a-f]{7}$"},
+    "subjectRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "repository": {"type": "string", "format": "uri"},
+    "collectedAt": {"type": "string", "format": "date-time"},
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "implementation", "implementationRevision"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1},
+        "implementation": {"type": "string", "minLength": 1},
+        "implementationRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "rustc",
+        "cargo",
+        "cargoDeny",
+        "python",
+        "jsonschema",
+        "rfc3339Validator",
+        "rfc3986Validator",
+        "quire",
+        "codeReviewSessions"
+      ],
+      "properties": {
+        "platform": {"type": "string", "minLength": 1},
+        "rustc": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "cargo": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "cargoDeny": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "python": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "jsonschema": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "rfc3339Validator": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "rfc3986Validator": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "quire": {"type": "string", "pattern": "sha256:[0-9a-f]{64}"},
+        "codeReviewSessions": {"type": "string", "minLength": 1}
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "inputChecksums": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pass", "fail", "inconclusive", "skipped"]},
+          "detail": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "decision", "owner", "recordedAt", "rationale", "authorization"],
+        "properties": {
+          "scope": {"type": "string", "minLength": 1},
+          "decision": {"enum": ["approve", "reject", "defer"]},
+          "owner": {"type": "string", "pattern": "^@[A-Za-z0-9-]+$"},
+          "recordedAt": {"type": "string", "format": "date-time"},
+          "rationale": {"type": "string", "minLength": 1},
+          "authorization": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "decision": {"enum": ["ready-for-operator-authorized-admin-squash-merge"]}
+  }
+}

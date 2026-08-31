@@ -3,6 +3,8 @@
 # =============================================================================
 
 CARGO ?= cargo
+PYTHON ?= python3
+QUIRE ?= quire
 
 .PHONY: help
 help:
@@ -10,7 +12,11 @@ help:
 	@echo "  make fmt              - Format with rustfmt"
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
-	@echo "  make test             - cargo test"
+	@echo "  make governance       - Validate PGM-01 schema and corpus"
+	@echo "  make spec             - Validate and cover all Quire artifacts"
+	@echo "  make evidence-verify  - Verify one immutable evidence record"
+	@echo "  make release-check    - Run every local release gate, including evidence"
+	@echo "  make test             - Validate governance and run cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - cargo deny check licenses"
@@ -33,8 +39,24 @@ fmt-check:
 lint:
 	$(CARGO) clippy --all-targets -- -D warnings
 
+.PHONY: governance
+governance:
+	$(PYTHON) scripts/validate_governance.py --check-runtime
+	$(PYTHON) scripts/validate_governance.py
+	$(PYTHON) scripts/validate_governance.py --mutation-probes
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
+
+.PHONY: spec
+spec:
+	$(QUIRE) validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --summary
+	$(QUIRE) coverage --scope . --strict
+
+.PHONY: evidence-verify
+evidence-verify:
+	$(PYTHON) scripts/verify_evidence.py
+
 .PHONY: test
-test:
+test: governance
 	$(CARGO) test
 
 .PHONY: build
@@ -67,3 +89,6 @@ audit-unsafe:
 
 .PHONY: ci
 ci: fmt-check lint test deny audit-unsafe
+
+.PHONY: release-check
+release-check: ci spec evidence-verify

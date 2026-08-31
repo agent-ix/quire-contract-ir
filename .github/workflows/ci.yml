@@ -15,6 +15,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install declared Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.12"
+
+      - name: Install governance validator dependencies
+        run: python3 -m pip install --disable-pip-version-check -r requirements-governance.txt
+
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
@@ -25,7 +33,7 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: make test
 
       - name: Unsafe audit
         run: bash scripts/check_unsafe_comments.sh
