@@ -118,6 +118,7 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
         "TASK-005-foundation.md",
         "TASK-006-identities.md",
         "TASK-007-expressions.md",
+        "TASK-008-canonicalization.md",
     ] {
         let path = format!("plan/PLAN-002-contract-ir-v01/{completed}");
         assert!(
@@ -125,9 +126,6 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
             "{completed} is not done"
         );
     }
-    let current = read("plan/PLAN-002-contract-ir-v01/TASK-008-canonicalization.md");
-    assert!(current.contains("status: in_progress"));
-    assert!(current.contains("phase: in_review"));
     let current_review = read("reviews/SR-012-canonicalization-spec-review.md");
     assert!(current_review.contains("FND-085"));
     assert!(current_review.contains("FND-096"));

@@ -2,8 +2,7 @@
 id: TASK-008
 title: "Implement canonicalization, versions, and orphan coverage"
 type: Task
-status: in_progress
-phase: in_review
+status: done
 track: A
 priority: P0
 relationships:
