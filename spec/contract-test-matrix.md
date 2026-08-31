@@ -27,9 +27,9 @@ relationships:
 | FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | implemented |
 | FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | implemented |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | implemented |
-| FR-018 | FR-018-AC-1, FR-018-AC-2 | TC-018 | planned |
-| FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | planned |
-| FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | planned |
+| FR-018 | FR-018-AC-1, FR-018-AC-2 | TC-018 | implementing issue #10 |
+| FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | implementing issue #10 |
+| FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | implementing issue #10 |
 
 ## Non-Functional Requirement Coverage
 
@@ -54,7 +54,7 @@ relationships:
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-016 | Types, expressions, short-circuiting, and definedness conform | Integration | P0 | FR-012..FR-015, NFR-002, STD-001 | ✅ implemented |
 | TC-017 | Canonical bytes, digests, migrations, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | ✅ implemented |
-| TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | 🚧 planned for issue #10 |
+| TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | 🚧 implementing issue #10 |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned across issues #8–#10 |
 | TC-020 | Five assurance artifacts declare boundaries, evidence, failures, and owner | Inspection | P0 | StR-003, NFR-004 | ✅ implemented |
 | TC-021 | Composite review and dependency DAG preserve spec-first child gates | Inspection | P0 | NFR-004 | ✅ implemented |

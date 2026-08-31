@@ -56,7 +56,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `duplicate_variant` | Two enum variants share one name | later variant span |
 | `duplicate_parameter` | Two function parameters share one name | later parameter span |
 | `empty_enum` | Enum declaration has no variants | enum declaration span |
-| `invalid_numeric_bounds` | Integer bounds/domain or rational denominator is invalid | type/literal span or path |
+| `invalid_numeric_bounds` | Integer bounds/domain, rational denominator, or collection maximum exceeds its closed numeric range | type/literal span or path |
 | `text_bound_exceeded` | Text literal contains more than 1048576 Unicode scalar values | text literal span |
 | `unbounded_collection` | Collection maximum is zero or absent | type span/path |
 | `collection_bound_exceeded` | Collection literal contains more items than its declared maximum | collection literal span |
@@ -82,6 +82,12 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `canonicalization_resource_exhausted` | Canonical byte allocation cannot be reserved without exceeding host resources | canonicalized object path; source span when the object has one |
 | `duplicate_artifact_trace` | A later artifact trace repeats an artifact ID in one classification input | later trace span |
 | `stale_trace_digest` | A deep trace's requirement digest differs from the resolved current requirement digest | digest-token span |
+
+## Issue 10 Codes
+
+| Code | Condition | Required location |
+|---|---|---|
+| `semantic_input_too_large` | A complete operation exceeds 10000 semantic nodes, recursive semantic depth 256, or 10000 entries in any semantic collection | first node, depth, or collection path crossing the limit; source span when present |
 
 ## Application Guidance
 
@@ -130,4 +136,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-020 extend this registry without renaming issue #6 codes.
+- **Downstream**: FR-013 through FR-019 extend or consume this semantic registry
+  without renaming issue #6 codes. FR-020 defines separate
+  runner operational codes that are neither `DiagnosticCode` values nor
+  semantic diagnostic shapes.
