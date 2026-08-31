@@ -1,0 +1,32 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "ill_typed_expression",
+      "path": "expression",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 21,
+          "column": 22,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 20,
+          "column": 21,
+          "line": 1,
+          "source": {
+            "document": "expression",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ],
+  "valid": false
+}

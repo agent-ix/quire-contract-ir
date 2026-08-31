@@ -1,0 +1,32 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "orphaned_requirement_reference",
+      "path": "reference.requirement",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 1,
+          "column": 2,
+          "line": 1,
+          "source": {
+            "document": "contract",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 0,
+          "column": 1,
+          "line": 1,
+          "source": {
+            "document": "contract",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ],
+  "valid": false
+}

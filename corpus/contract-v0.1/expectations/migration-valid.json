@@ -1,0 +1,25 @@
+{
+  "canonical": [
+    {
+      "digest": "acd09eb2a0710c7d1ddbfcbfe856269f9faaacf09fe0c317048a4d9bb16593f2",
+      "identity": "migrated_package",
+      "kind": "package",
+      "bytes_path": "canonical/migration-valid-0.json"
+    }
+  ],
+  "diagnostics": [],
+  "migration_receipt": {
+    "migration_id": "reference_body_1_0_to_1_1",
+    "source_package_digest": "2f32645f7a53d27cf08a6ed3a29643198115abd76b837fc67c29db29052c1c82",
+    "source_version": {
+      "major": 1,
+      "minor": 0
+    },
+    "target_package_digest": "acd09eb2a0710c7d1ddbfcbfe856269f9faaacf09fe0c317048a4d9bb16593f2",
+    "target_version": {
+      "major": 1,
+      "minor": 1
+    }
+  },
+  "valid": true
+}

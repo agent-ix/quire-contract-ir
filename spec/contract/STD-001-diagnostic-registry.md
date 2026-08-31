@@ -87,7 +87,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `semantic_input_too_large` | A complete operation exceeds 10000 semantic nodes, recursive semantic depth 256, or 10000 entries in any semantic collection | first node, depth, or collection path crossing the limit; source span when present |
+| `semantic_input_too_large` | A complete operation exceeds 25000 semantic nodes, recursive semantic depth 256, or 10000 entries in any semantic collection | first node, depth, or collection path crossing the limit; source span when present |
 
 ## Application Guidance
 

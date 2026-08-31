@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "diagnostics": [
+    {
+      "code": "unregistered_migration",
+      "path": "schema_version",
+      "severity": "error"
+    }
+  ],
+  "migration_receipt": null,
+  "valid": false
+}

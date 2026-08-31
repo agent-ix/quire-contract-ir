@@ -1,0 +1,19 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-numeric-negate-0.json"
+    },
+    {
+      "digest": "7cf912303cbc9a3e5a8135da73f770e7e1b9de7afe4270f0f3be4eb29879f779",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-numeric-negate-1.json"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

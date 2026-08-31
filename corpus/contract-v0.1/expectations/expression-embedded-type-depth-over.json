@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "semantic_input_too_large",
+      "path": "type.depth",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

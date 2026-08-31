@@ -1,0 +1,55 @@
+{
+  "canonical": [
+    {
+      "digest": "6ca8a65d33f43d03ea9e3b0da7c05ef03cfb9b0ee4babec1cffa02b0459e3421",
+      "identity": "package",
+      "kind": "package",
+      "bytes_path": "canonical/package-constructs-0.json"
+    },
+    {
+      "digest": "9a5e8b75dbb1deba53c63e5d5b5cfd1f90e7963debf2d0d3ff6208920bac3b87",
+      "identity": "requirement:REQ_alpha",
+      "kind": "requirement",
+      "bytes_path": "canonical/package-constructs-1.json"
+    },
+    {
+      "digest": "30d4b4188ed0bddfd64d125612dd007e1baafba4d331b3b5d537950cb2879087",
+      "identity": "clause:REQ_alpha:a_assert",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-2.json"
+    },
+    {
+      "digest": "821ecceb86d57ca12a9b428c7fe68fc9366beab00e1055c90471a7073cd40cf6",
+      "identity": "clause:REQ_alpha:b_case",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-3.json"
+    },
+    {
+      "digest": "b9434991eb0c7701b2e6ec61888411841c3b2e59e62e37df69972a550b397c22",
+      "identity": "clause:REQ_alpha:c_info",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-4.json"
+    },
+    {
+      "digest": "583344dad02409daccba3135235f77b8d855e7b750fa599251da98a93a003093",
+      "identity": "clause:REQ_alpha:d_inv",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-5.json"
+    },
+    {
+      "digest": "8a3604f81174e212242d2583596bf0bfdd10d31cd32d45794d63288121570b36",
+      "identity": "clause:REQ_alpha:e_post",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-6.json"
+    },
+    {
+      "digest": "7917e14c239233e699975ebdb2ebb7b8c67d02331d7786a1c80b47ec4e90744a",
+      "identity": "clause:REQ_alpha:f_pre",
+      "kind": "clause",
+      "bytes_path": "canonical/package-constructs-7.json"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

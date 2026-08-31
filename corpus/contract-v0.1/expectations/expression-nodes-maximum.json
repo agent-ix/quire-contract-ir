@@ -1,0 +1,19 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-nodes-maximum-0.json"
+    },
+    {
+      "digest": "3272922e1ea8ab543f0858a4b8528b1eb5601ec07cfb5e864f38b312382fcd29",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-nodes-maximum-1.json"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

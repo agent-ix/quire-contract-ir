@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     DefinednessObligationKind, DependencyIdentity, DependencyKind, DependencyName,
@@ -38,14 +38,14 @@ impl SymbolName {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegerDomain {
     Signed,
     Unsigned,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OverflowPolicy {
     Reject,
@@ -401,7 +401,7 @@ impl TypeDeclaration {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueDeclarationKind {
     Input,
@@ -556,6 +556,9 @@ impl DeclarationEnvironment {
             values,
             functions,
         };
+        if let Some(diagnostic) = candidate.preflight_semantic_input() {
+            return Err(vec![diagnostic]);
+        }
         let diagnostics = candidate.validate();
         if diagnostics.is_empty() {
             Ok(candidate)
@@ -578,6 +581,80 @@ impl DeclarationEnvironment {
 
     pub fn functions(&self) -> &[PureFunctionDeclaration] {
         &self.functions
+    }
+
+    fn preflight_semantic_input(&self) -> Option<Diagnostic> {
+        if [self.types.len(), self.values.len(), self.functions.len()]
+            .into_iter()
+            .any(|length| length > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize)
+        {
+            return Some(semantic_input_too_large("declarations"));
+        }
+        let mut nodes = 0_u32;
+        let mut value_types = Vec::new();
+        for declaration in &self.types {
+            nodes = nodes.saturating_add(1);
+            match declaration {
+                TypeDeclaration::Enum { declaration } => {
+                    if declaration.variants.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+                        return Some(semantic_input_too_large("types.enum.variants"));
+                    }
+                    nodes = nodes.saturating_add(
+                        u32::try_from(declaration.variants.len()).unwrap_or(u32::MAX),
+                    );
+                }
+                TypeDeclaration::Record { declaration } => {
+                    if declaration.fields.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+                        return Some(semantic_input_too_large("types.record.fields"));
+                    }
+                    nodes = nodes.saturating_add(
+                        u32::try_from(declaration.fields.len()).unwrap_or(u32::MAX),
+                    );
+                    value_types.extend(
+                        declaration
+                            .fields
+                            .iter()
+                            .map(|field| (&field.value_type, 1_u32)),
+                    );
+                }
+            }
+        }
+        for declaration in &self.values {
+            nodes = nodes.saturating_add(1);
+            value_types.push((&declaration.value_type, 1));
+        }
+        for declaration in &self.functions {
+            if declaration.parameters.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
+                return Some(semantic_input_too_large("functions.parameters"));
+            }
+            nodes = nodes.saturating_add(
+                u32::try_from(declaration.parameters.len() + 1).unwrap_or(u32::MAX),
+            );
+            value_types.push((&declaration.result_type, 1));
+            value_types.extend(
+                declaration
+                    .parameters
+                    .iter()
+                    .map(|parameter| (&parameter.value_type, 1)),
+            );
+        }
+        while let Some((value_type, depth)) = value_types.pop() {
+            if depth > crate::MAX_SEMANTIC_DEPTH {
+                return Some(semantic_input_too_large("type.depth"));
+            }
+            nodes = nodes.saturating_add(1);
+            if nodes > crate::MAX_SEMANTIC_NODES {
+                return Some(semantic_input_too_large("semantic.nodes"));
+            }
+            match value_type {
+                ValueType::Option { value } => value_types.push((value, depth + 1)),
+                ValueType::Collection { value } => {
+                    value_types.push((value.element(), depth + 1));
+                }
+                _ => {}
+            }
+        }
+        (nodes > crate::MAX_SEMANTIC_NODES).then(|| semantic_input_too_large("semantic.nodes"))
     }
 
     fn validate(&self) -> Vec<Diagnostic> {
@@ -834,6 +911,14 @@ fn orphaned_type(span: &SourceSpan) -> Diagnostic {
     .at_span(span)
 }
 
+fn semantic_input_too_large(path: &'static str) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::SemanticInputTooLarge,
+        "semantic input exceeds a fixed validation limit",
+        path,
+    )
+}
+
 fn record_references(value_type: &ValueType, output: &mut Vec<SymbolName>) {
     match value_type {
         ValueType::Record { name } => output.push(name.clone()),
@@ -843,7 +928,7 @@ fn record_references(value_type: &ValueType, output: &mut Vec<SymbolName>) {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NumericOperator {
     Add,
@@ -853,7 +938,7 @@ pub enum NumericOperator {
     Remainder,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComparisonOperator {
     Equal,
@@ -864,7 +949,7 @@ pub enum ComparisonOperator {
     GreaterEqual,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BooleanOperator {
     ShortCircuitAnd,
@@ -874,14 +959,14 @@ pub enum BooleanOperator {
     Implication,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantifierKind {
     ForAll,
     Exists,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantifierDomain {
     Elements,

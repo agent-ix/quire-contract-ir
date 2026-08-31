@@ -1,0 +1,1 @@
+{"kind":"clause","profile":"quire.contract.canonical-json/v1","value":{"anchor":{"kind":"initialization","name":"boot"},"body":{"node":"literal"},"id":"d_inv","kind":"invariant","requirement":{"package":"agent-ix/conformance","requirement":"REQ_alpha","revision":1}}}

@@ -1,0 +1,44 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-field-access-0.json"
+    },
+    {
+      "digest": "e03997605b58f7bf1f94ac226cc9e7018eba39d7a6130ff883259974788d60d9",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-field-access-1.json"
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "state",
+      "observation": "pre",
+      "path": [
+        "sensor"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    },
+    {
+      "kind": "field",
+      "path": [
+        "Sensor",
+        "reading"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "valid": true
+}

@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"integer","value":{"domain":"unsigned","maximum":4,"minimum":0,"overflow":"reject"}},"tree":{"kind":{"collection":{"kind":{"name":"items","node":"value_reference","observation":"pre"}},"node":"length"}}}}

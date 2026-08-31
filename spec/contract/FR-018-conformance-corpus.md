@@ -59,7 +59,7 @@ The four closed fixture operations are:
 
 | Operation | Declarative input | Comparable result |
 |---|---|---|
-| `package` | package JSON | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
+| `package` | package JSON, optionally wrapped with authored clause-resolution references and a canonical byte limit | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
 | `expression` | declarations, expression, expected type, execution point, clause-root flag | validity, ordered diagnostics, separate declaration/expression canonical outputs and expression dependencies |
 | `migration` | reference-body package and explicit target version | validity, ordered diagnostics, migrated package digest, immutable receipt |
 | `coverage` | reference-body package and artifact traces | ordered diagnostics and sorted requirement/artifact rows |

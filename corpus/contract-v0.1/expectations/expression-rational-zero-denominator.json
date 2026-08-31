@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_numeric_bounds",
+      "path": "type.rational.bounds",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

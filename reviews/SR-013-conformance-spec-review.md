@@ -40,10 +40,11 @@ execution engines, or the human release decision.
 | FND-121 | low | The disposition's finding count became stale after later closing rounds. | SR-013 |
 | FND-122 | low | Review scope omitted FR-013 and FR-017 after findings required normative edits there. | SR-013, FR-013, FR-017 |
 | FND-123 | low | Review scope still omitted FR-011, FR-014, and FR-016 cited by retained findings. | SR-013, FR-011, FR-014, FR-016 |
+| FND-124 | medium | Equal 10000-node and 10000-entry caps made an exact-at-collection-limit structured input impossible. | FR-019, STD-001, FR-018 |
 
 ## Independent Spec Review Disposition
 
-All eighteen findings are fixed and retained; none is waived:
+All nineteen findings are fixed and retained; none is waived:
 
 - FND-106: the conformance schema has named subschemas for every operation's input and expectation.
 - FND-107: all expectations validate before any fixture executes.
@@ -58,14 +59,15 @@ All eighteen findings are fixed and retained; none is waived:
 - FND-116: the four tokens without normative numeric bounds were removed from the closed boundary registry.
 - FND-117: every schema, inventory, payload, expectation, and canonical-byte file has the same pre-parse/pre-digest byte cap.
 - FND-118: FR-019 owns and inspects the three stable fixed-width registry exports, and FR-018 declares that dependency.
-- FND-119: FR-019 fixes global node, recursive-depth, and collection limits; STD-001 registers the failure; owning FRs and exact boundary tokens force at-limit and one-past-limit tests.
+- FND-119: FR-019 fixes the global 25000-node, depth-256, and 10000-entry collection limits so an exact-at-collection-limit input can remain below the global node cap; STD-001 registers the failure and exact boundary tokens force both edges.
 - FND-120: collection declarations use the closed unsigned 32-bit range, wider wire integers use `invalid_numeric_bounds`, and exact declaration-boundary tokens force both edges.
 - FND-121: the disposition heading is synchronized with the current retained finding set.
 - FND-122: the declared review scope now includes FR-013 and FR-017.
 - FND-123: the declared review scope now includes every FR from FR-011 through FR-020.
+- FND-124: the global node cap is 25000 while the per-collection cap remains 10000, so exact collection boundaries remain constructible under the 16 MiB file cap and independently testable.
 
-The final documentary consistency check returned exactly
-`No actionable findings.` after verifying the complete FND-106 through FND-123
-set, its dispositions, and review scope. The task may proceed to Implement.
+The pre-implementation closing check returned exactly `No actionable findings.`
+for FND-106 through FND-123. Implementation then exposed FND-124, which is
+retained and fixed above; implementation review must re-check this delta.
 TASK-008 is the upstream dependency; epic #11 and its human release decision
 remain downstream.

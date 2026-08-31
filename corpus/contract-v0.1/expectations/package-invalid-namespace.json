@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_package_namespace",
+      "path": "package",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

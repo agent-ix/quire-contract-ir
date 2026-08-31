@@ -1,0 +1,988 @@
+{
+  "corpus_id": "contract-v0.1",
+  "package_schema": {
+    "path": "schemas/contract-package-reference-v1.schema.json",
+    "sha256": "748d98def7c0a67e3e12f882cd9ef7d0948c8eacbff1e5f6135faa7fd29d642d"
+  },
+  "conformance_schema": {
+    "path": "schemas/contract-conformance-manifest-v1.schema.json",
+    "sha256": "a1cd75c486faf89bea319a254f0b88a2e044b81d17797d18c5ae6ba6be0067a4"
+  },
+  "inventory": {
+    "path": "inventory.json",
+    "sha256": "3c482d31d7c27dd4b1b16441ca236fcd6cb256efc785341d4ba58304ff7d1606"
+  },
+  "canonical_profile": "quire.contract.canonical-json/v1",
+  "protocol": "quire.contract.conformance-jsonl/v1",
+  "fixtures": [
+    {
+      "id": "package-constructs",
+      "operation": "package",
+      "input": "inputs/package-constructs.json",
+      "expectation": "expectations/package-constructs.json",
+      "covers": [
+        "boundary:canonical.semantic_set_order",
+        "boundary:canonical.sequence_order",
+        "boundary:revision.current",
+        "boundary:schema.1_1",
+        "boundary:source_span.minimum",
+        "construct:clause_kind.assertion",
+        "construct:clause_kind.case",
+        "construct:clause_kind.information",
+        "construct:clause_kind.invariant",
+        "construct:clause_kind.postcondition",
+        "construct:clause_kind.precondition",
+        "construct:reference_body.composite",
+        "construct:reference_body.literal",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-reference",
+      "operation": "package",
+      "input": "inputs/package-reference.json",
+      "expectation": "expectations/package-reference.json",
+      "covers": [
+        "construct:dependency.kind.input",
+        "construct:reference_body.reference",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-namespace",
+      "operation": "package",
+      "input": "inputs/package-invalid-namespace.json",
+      "expectation": "expectations/package-invalid-namespace.json",
+      "covers": [
+        "diagnostic:invalid_package_namespace",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-schema",
+      "operation": "package",
+      "input": "inputs/package-invalid-schema.json",
+      "expectation": "expectations/package-invalid-schema.json",
+      "covers": [
+        "boundary:schema.zero_major",
+        "diagnostic:invalid_schema_version",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-identifier",
+      "operation": "package",
+      "input": "inputs/package-invalid-identifier.json",
+      "expectation": "expectations/package-invalid-identifier.json",
+      "covers": [
+        "diagnostic:invalid_identifier",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-requirement-revision",
+      "operation": "package",
+      "input": "inputs/package-invalid-requirement-revision.json",
+      "expectation": "expectations/package-invalid-requirement-revision.json",
+      "covers": [
+        "diagnostic:invalid_requirement_revision",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-source-revision",
+      "operation": "package",
+      "input": "inputs/package-invalid-source-revision.json",
+      "expectation": "expectations/package-invalid-source-revision.json",
+      "covers": [
+        "diagnostic:invalid_source_revision",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-invalid-span",
+      "operation": "package",
+      "input": "inputs/package-invalid-span.json",
+      "expectation": "expectations/package-invalid-span.json",
+      "covers": [
+        "boundary:source_span.reversed",
+        "diagnostic:invalid_source_span",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-duplicate-requirement",
+      "operation": "package",
+      "input": "inputs/package-duplicate-requirement.json",
+      "expectation": "expectations/package-duplicate-requirement.json",
+      "covers": [
+        "diagnostic:duplicate_requirement",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-duplicate-clause",
+      "operation": "package",
+      "input": "inputs/package-duplicate-clause.json",
+      "expectation": "expectations/package-duplicate-clause.json",
+      "covers": [
+        "diagnostic:duplicate_clause",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-floating",
+      "operation": "package",
+      "input": "inputs/package-floating.json",
+      "expectation": "expectations/package-floating.json",
+      "covers": [
+        "diagnostic:floating_executable_clause",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-information-anchored",
+      "operation": "package",
+      "input": "inputs/package-information-anchored.json",
+      "expectation": "expectations/package-information-anchored.json",
+      "covers": [
+        "diagnostic:informational_clause_anchored",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-incompatible-anchor",
+      "operation": "package",
+      "input": "inputs/package-incompatible-anchor.json",
+      "expectation": "expectations/package-incompatible-anchor.json",
+      "covers": [
+        "diagnostic:incompatible_clause_anchor",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-cross-reference",
+      "operation": "package",
+      "input": "inputs/package-cross-reference.json",
+      "expectation": "expectations/package-cross-reference.json",
+      "covers": [
+        "boundary:artifact.cross_package",
+        "diagnostic:cross_package_reference",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-malformed-reference",
+      "operation": "package",
+      "input": "inputs/package-malformed-reference.json",
+      "expectation": "expectations/package-malformed-reference.json",
+      "covers": [
+        "diagnostic:malformed_reference",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-stale-reference",
+      "operation": "package",
+      "input": "inputs/package-stale-reference.json",
+      "expectation": "expectations/package-stale-reference.json",
+      "covers": [
+        "boundary:revision.stale",
+        "diagnostic:stale_requirement_revision",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-orphan-reference",
+      "operation": "package",
+      "input": "inputs/package-orphan-reference.json",
+      "expectation": "expectations/package-orphan-reference.json",
+      "covers": [
+        "boundary:artifact.missing",
+        "diagnostic:orphaned_requirement_reference",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-orphan-clause",
+      "operation": "package",
+      "input": "inputs/package-orphan-clause.json",
+      "expectation": "expectations/package-orphan-clause.json",
+      "covers": [
+        "diagnostic:orphaned_clause_reference",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "package-canonical-limit",
+      "operation": "package",
+      "input": "inputs/package-canonical-limit.json",
+      "expectation": "expectations/package-canonical-limit.json",
+      "covers": [
+        "boundary:canonical.resource_failure",
+        "diagnostic:canonicalization_resource_exhausted",
+        "operation:package"
+      ]
+    },
+    {
+      "id": "expression-boolean-literal",
+      "operation": "expression",
+      "input": "inputs/expression-boolean-literal.json",
+      "expectation": "expectations/expression-boolean-literal.json",
+      "covers": [
+        "construct:declaration.enum",
+        "construct:declaration.function",
+        "construct:declaration.input",
+        "construct:declaration.record",
+        "construct:declaration.state",
+        "construct:execution.pre",
+        "construct:expression.boolean_literal",
+        "construct:type.boolean",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-integer-literal",
+      "operation": "expression",
+      "input": "inputs/expression-integer-literal.json",
+      "expectation": "expectations/expression-integer-literal.json",
+      "covers": [
+        "construct:expression.integer_literal",
+        "construct:type.integer",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-rational-literal",
+      "operation": "expression",
+      "input": "inputs/expression-rational-literal.json",
+      "expectation": "expectations/expression-rational-literal.json",
+      "covers": [
+        "boundary:rational.normalized",
+        "construct:expression.rational_literal",
+        "construct:type.rational",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-text-literal",
+      "operation": "expression",
+      "input": "inputs/expression-text-literal.json",
+      "expectation": "expectations/expression-text-literal.json",
+      "covers": [
+        "boundary:canonical.escape_controls",
+        "construct:expression.text_literal",
+        "construct:type.text",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-enum-literal",
+      "operation": "expression",
+      "input": "inputs/expression-enum-literal.json",
+      "expectation": "expectations/expression-enum-literal.json",
+      "covers": [
+        "construct:dependency.kind.enum_variant",
+        "construct:expression.enum_literal",
+        "construct:type.enum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-option-none",
+      "operation": "expression",
+      "input": "inputs/expression-option-none.json",
+      "expectation": "expectations/expression-option-none.json",
+      "covers": [
+        "construct:expression.option_none",
+        "construct:type.option",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-option-some",
+      "operation": "expression",
+      "input": "inputs/expression-option-some.json",
+      "expectation": "expectations/expression-option-some.json",
+      "covers": [
+        "construct:expression.option_some",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-record-literal",
+      "operation": "expression",
+      "input": "inputs/expression-record-literal.json",
+      "expectation": "expectations/expression-record-literal.json",
+      "covers": [
+        "construct:dependency.kind.field",
+        "construct:expression.record_literal",
+        "construct:type.record",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-collection-literal",
+      "operation": "expression",
+      "input": "inputs/expression-collection-literal.json",
+      "expectation": "expectations/expression-collection-literal.json",
+      "covers": [
+        "construct:expression.collection_literal",
+        "construct:type.collection",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-value-input",
+      "operation": "expression",
+      "input": "inputs/expression-value-input.json",
+      "expectation": "expectations/expression-value-input.json",
+      "covers": [
+        "construct:dependency.kind.input",
+        "construct:expression.value_reference",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-value-state",
+      "operation": "expression",
+      "input": "inputs/expression-value-state.json",
+      "expectation": "expectations/expression-value-state.json",
+      "covers": [
+        "construct:dependency.kind.state",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-field-access",
+      "operation": "expression",
+      "input": "inputs/expression-field-access.json",
+      "expectation": "expectations/expression-field-access.json",
+      "covers": [
+        "construct:expression.field_access",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-is-present",
+      "operation": "expression",
+      "input": "inputs/expression-is-present.json",
+      "expectation": "expectations/expression-is-present.json",
+      "covers": [
+        "construct:expression.is_present",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-unwrap",
+      "operation": "expression",
+      "input": "inputs/expression-unwrap.json",
+      "expectation": "expectations/expression-unwrap.json",
+      "covers": [
+        "construct:expression.unwrap",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-length",
+      "operation": "expression",
+      "input": "inputs/expression-length.json",
+      "expectation": "expectations/expression-length.json",
+      "covers": [
+        "construct:expression.length",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-index",
+      "operation": "expression",
+      "input": "inputs/expression-index.json",
+      "expectation": "expectations/expression-index.json",
+      "covers": [
+        "construct:expression.index",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-call",
+      "operation": "expression",
+      "input": "inputs/expression-call.json",
+      "expectation": "expectations/expression-call.json",
+      "covers": [
+        "construct:dependency.kind.pure_function",
+        "construct:expression.call",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-numeric",
+      "operation": "expression",
+      "input": "inputs/expression-numeric.json",
+      "expectation": "expectations/expression-numeric.json",
+      "covers": [
+        "construct:expression.numeric",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-numeric-negate",
+      "operation": "expression",
+      "input": "inputs/expression-numeric-negate.json",
+      "expectation": "expectations/expression-numeric-negate.json",
+      "covers": [
+        "construct:expression.numeric_negate",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-compare",
+      "operation": "expression",
+      "input": "inputs/expression-compare.json",
+      "expectation": "expectations/expression-compare.json",
+      "covers": [
+        "construct:expression.compare",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-boolean-not",
+      "operation": "expression",
+      "input": "inputs/expression-boolean-not.json",
+      "expectation": "expectations/expression-boolean-not.json",
+      "covers": [
+        "construct:expression.boolean_not",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-boolean",
+      "operation": "expression",
+      "input": "inputs/expression-boolean.json",
+      "expectation": "expectations/expression-boolean.json",
+      "covers": [
+        "construct:expression.boolean",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-quantifier",
+      "operation": "expression",
+      "input": "inputs/expression-quantifier.json",
+      "expectation": "expectations/expression-quantifier.json",
+      "covers": [
+        "construct:expression.local_reference",
+        "construct:expression.quantifier",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-execution-post",
+      "operation": "expression",
+      "input": "inputs/expression-execution-post.json",
+      "expectation": "expectations/expression-execution-post.json",
+      "covers": [
+        "construct:execution.post",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-execution-initialization",
+      "operation": "expression",
+      "input": "inputs/expression-execution-initialization.json",
+      "expectation": "expectations/expression-execution-initialization.json",
+      "covers": [
+        "construct:execution.initialization",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-execution-handler",
+      "operation": "expression",
+      "input": "inputs/expression-execution-handler.json",
+      "expectation": "expectations/expression-execution-handler.json",
+      "covers": [
+        "construct:execution.handler",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-invalid-wire",
+      "operation": "expression",
+      "input": "inputs/expression-invalid-wire.json",
+      "expectation": "expectations/expression-invalid-wire.json",
+      "covers": [
+        "diagnostic:invalid_wire_format",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-orphan-value",
+      "operation": "expression",
+      "input": "inputs/expression-orphan-value.json",
+      "expectation": "expectations/expression-orphan-value.json",
+      "covers": [
+        "diagnostic:orphaned_value_reference",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-orphan-function",
+      "operation": "expression",
+      "input": "inputs/expression-orphan-function.json",
+      "expectation": "expectations/expression-orphan-function.json",
+      "covers": [
+        "diagnostic:orphaned_function_reference",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-invalid-state",
+      "operation": "expression",
+      "input": "inputs/expression-invalid-state.json",
+      "expectation": "expectations/expression-invalid-state.json",
+      "covers": [
+        "diagnostic:invalid_state_observation",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-invalid-scope",
+      "operation": "expression",
+      "input": "inputs/expression-invalid-scope.json",
+      "expectation": "expectations/expression-invalid-scope.json",
+      "covers": [
+        "diagnostic:invalid_scope",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-arity",
+      "operation": "expression",
+      "input": "inputs/expression-arity.json",
+      "expectation": "expectations/expression-arity.json",
+      "covers": [
+        "diagnostic:arity_mismatch",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-ill-typed",
+      "operation": "expression",
+      "input": "inputs/expression-ill-typed.json",
+      "expectation": "expectations/expression-ill-typed.json",
+      "covers": [
+        "diagnostic:ill_typed_expression",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-result-type",
+      "operation": "expression",
+      "input": "inputs/expression-result-type.json",
+      "expectation": "expectations/expression-result-type.json",
+      "covers": [
+        "diagnostic:result_type_mismatch",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-non-boolean-root",
+      "operation": "expression",
+      "input": "inputs/expression-non-boolean-root.json",
+      "expectation": "expectations/expression-non-boolean-root.json",
+      "covers": [
+        "diagnostic:non_boolean_clause_root",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-collection-bound",
+      "operation": "expression",
+      "input": "inputs/expression-collection-bound.json",
+      "expectation": "expectations/expression-collection-bound.json",
+      "covers": [
+        "diagnostic:collection_bound_exceeded",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-orphan-type",
+      "operation": "expression",
+      "input": "inputs/expression-orphan-type.json",
+      "expectation": "expectations/expression-orphan-type.json",
+      "covers": [
+        "diagnostic:orphaned_type_reference",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-type",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-type.json",
+      "expectation": "expectations/expression-duplicate-type.json",
+      "covers": [
+        "diagnostic:duplicate_type_declaration",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-value",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-value.json",
+      "expectation": "expectations/expression-duplicate-value.json",
+      "covers": [
+        "diagnostic:duplicate_value_declaration",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-function",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-function.json",
+      "expectation": "expectations/expression-duplicate-function.json",
+      "covers": [
+        "diagnostic:duplicate_function_declaration",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-field",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-field.json",
+      "expectation": "expectations/expression-duplicate-field.json",
+      "covers": [
+        "diagnostic:duplicate_field",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-variant",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-variant.json",
+      "expectation": "expectations/expression-duplicate-variant.json",
+      "covers": [
+        "diagnostic:duplicate_variant",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-duplicate-parameter",
+      "operation": "expression",
+      "input": "inputs/expression-duplicate-parameter.json",
+      "expectation": "expectations/expression-duplicate-parameter.json",
+      "covers": [
+        "diagnostic:duplicate_parameter",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-empty-enum",
+      "operation": "expression",
+      "input": "inputs/expression-empty-enum.json",
+      "expectation": "expectations/expression-empty-enum.json",
+      "covers": [
+        "diagnostic:empty_enum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-invalid-numeric",
+      "operation": "expression",
+      "input": "inputs/expression-invalid-numeric.json",
+      "expectation": "expectations/expression-invalid-numeric.json",
+      "covers": [
+        "boundary:integer.out_of_range",
+        "diagnostic:invalid_numeric_bounds",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-unbounded-collection",
+      "operation": "expression",
+      "input": "inputs/expression-unbounded-collection.json",
+      "expectation": "expectations/expression-unbounded-collection.json",
+      "covers": [
+        "boundary:collection.minimum",
+        "diagnostic:unbounded_collection",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-recursive-type",
+      "operation": "expression",
+      "input": "inputs/expression-recursive-type.json",
+      "expectation": "expectations/expression-recursive-type.json",
+      "covers": [
+        "diagnostic:recursive_type",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-obligation-non-zero-divisor",
+      "operation": "expression",
+      "input": "inputs/expression-obligation-non-zero-divisor.json",
+      "expectation": "expectations/expression-obligation-non-zero-divisor.json",
+      "covers": [
+        "diagnostic:potentially_undefined",
+        "obligation:non_zero_divisor",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-obligation-option-presence",
+      "operation": "expression",
+      "input": "inputs/expression-obligation-option-presence.json",
+      "expectation": "expectations/expression-obligation-option-presence.json",
+      "covers": [
+        "diagnostic:potentially_undefined",
+        "obligation:option_presence",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-obligation-index-in-bounds",
+      "operation": "expression",
+      "input": "inputs/expression-obligation-index-in-bounds.json",
+      "expectation": "expectations/expression-obligation-index-in-bounds.json",
+      "covers": [
+        "diagnostic:potentially_undefined",
+        "obligation:index_in_bounds",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-obligation-checked-range",
+      "operation": "expression",
+      "input": "inputs/expression-obligation-checked-range.json",
+      "expectation": "expectations/expression-obligation-checked-range.json",
+      "covers": [
+        "diagnostic:potentially_undefined",
+        "obligation:checked_range",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-numeric-edges",
+      "operation": "expression",
+      "input": "inputs/expression-numeric-edges.json",
+      "expectation": "expectations/expression-numeric-edges.json",
+      "covers": [
+        "boundary:collection.declared_maximum",
+        "boundary:integer.maximum",
+        "boundary:integer.minimum",
+        "boundary:rational.maximum_denominator",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-rational-zero-denominator",
+      "operation": "expression",
+      "input": "inputs/expression-rational-zero-denominator.json",
+      "expectation": "expectations/expression-rational-zero-denominator.json",
+      "covers": [
+        "boundary:rational.zero_denominator",
+        "diagnostic:invalid_numeric_bounds",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-declared-collection-over",
+      "operation": "expression",
+      "input": "inputs/expression-declared-collection-over.json",
+      "expectation": "expectations/expression-declared-collection-over.json",
+      "covers": [
+        "boundary:collection.declared_out_of_range",
+        "diagnostic:invalid_numeric_bounds",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-text-maximum",
+      "operation": "expression",
+      "input": "inputs/expression-text-maximum.json",
+      "expectation": "expectations/expression-text-maximum.json",
+      "covers": [
+        "boundary:text.maximum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-text-over",
+      "operation": "expression",
+      "input": "inputs/expression-text-over.json",
+      "expectation": "expectations/expression-text-over.json",
+      "covers": [
+        "boundary:text.over_maximum",
+        "diagnostic:text_bound_exceeded",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-nodes-maximum",
+      "operation": "expression",
+      "input": "inputs/expression-nodes-maximum.json",
+      "expectation": "expectations/expression-nodes-maximum.json",
+      "covers": [
+        "boundary:expression.nodes.maximum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-nodes-over",
+      "operation": "expression",
+      "input": "inputs/expression-nodes-over.json",
+      "expectation": "expectations/expression-nodes-over.json",
+      "covers": [
+        "boundary:collection.maximum",
+        "boundary:expression.nodes.over_maximum",
+        "diagnostic:expression_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-type-depth-maximum",
+      "operation": "expression",
+      "input": "inputs/expression-type-depth-maximum.json",
+      "expectation": "expectations/expression-type-depth-maximum.json",
+      "covers": [
+        "boundary:type.depth.maximum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-type-depth-over",
+      "operation": "expression",
+      "input": "inputs/expression-type-depth-over.json",
+      "expectation": "expectations/expression-type-depth-over.json",
+      "covers": [
+        "boundary:type.depth.over_maximum",
+        "diagnostic:semantic_input_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-embedded-type-depth-over",
+      "operation": "expression",
+      "input": "inputs/expression-embedded-type-depth-over.json",
+      "expectation": "expectations/expression-embedded-type-depth-over.json",
+      "covers": [
+        "boundary:type.depth.over_maximum",
+        "diagnostic:semantic_input_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-depth-maximum",
+      "operation": "expression",
+      "input": "inputs/expression-depth-maximum.json",
+      "expectation": "expectations/expression-depth-maximum.json",
+      "covers": [
+        "boundary:expression.depth.maximum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-depth-over",
+      "operation": "expression",
+      "input": "inputs/expression-depth-over.json",
+      "expectation": "expectations/expression-depth-over.json",
+      "covers": [
+        "boundary:expression.depth.over_maximum",
+        "diagnostic:semantic_input_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-semantic-nodes-maximum",
+      "operation": "expression",
+      "input": "inputs/expression-semantic-nodes-maximum.json",
+      "expectation": "expectations/expression-semantic-nodes-maximum.json",
+      "covers": [
+        "boundary:semantic.nodes.maximum",
+        "boundary:semantic_collection.maximum",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-semantic-nodes-over",
+      "operation": "expression",
+      "input": "inputs/expression-semantic-nodes-over.json",
+      "expectation": "expectations/expression-semantic-nodes-over.json",
+      "covers": [
+        "boundary:semantic.nodes.over_maximum",
+        "diagnostic:semantic_input_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "expression-semantic-collection-over",
+      "operation": "expression",
+      "input": "inputs/expression-semantic-collection-over.json",
+      "expectation": "expectations/expression-semantic-collection-over.json",
+      "covers": [
+        "boundary:collection.over_maximum",
+        "boundary:semantic_collection.over_maximum",
+        "diagnostic:semantic_input_too_large",
+        "operation:expression"
+      ]
+    },
+    {
+      "id": "migration-valid",
+      "operation": "migration",
+      "input": "inputs/migration-valid.json",
+      "expectation": "expectations/migration-valid.json",
+      "covers": [
+        "boundary:schema.1_0",
+        "construct:migration.reference_body_1_0_to_1_1",
+        "operation:migration"
+      ]
+    },
+    {
+      "id": "migration-unregistered",
+      "operation": "migration",
+      "input": "inputs/migration-unregistered.json",
+      "expectation": "expectations/migration-unregistered.json",
+      "covers": [
+        "boundary:schema.unregistered_minor",
+        "diagnostic:unregistered_migration",
+        "operation:migration"
+      ]
+    },
+    {
+      "id": "migration-unsupported",
+      "operation": "migration",
+      "input": "inputs/migration-unsupported.json",
+      "expectation": "expectations/migration-unsupported.json",
+      "covers": [
+        "boundary:schema.unknown_major",
+        "diagnostic:unsupported_schema_version",
+        "operation:migration"
+      ]
+    },
+    {
+      "id": "coverage-complete",
+      "operation": "coverage",
+      "input": "inputs/coverage-complete.json",
+      "expectation": "expectations/coverage-complete.json",
+      "covers": [
+        "boundary:artifact.cross_package",
+        "boundary:artifact.digest_mismatch",
+        "boundary:artifact.duplicate",
+        "boundary:artifact.missing",
+        "boundary:artifact.stale",
+        "construct:artifact.depth.deep",
+        "construct:artifact.depth.shallow",
+        "construct:coverage.class.deep",
+        "construct:coverage.class.orphaned",
+        "construct:coverage.class.shallow",
+        "construct:coverage.class.uncovered",
+        "diagnostic:cross_package_reference",
+        "diagnostic:duplicate_artifact_trace",
+        "diagnostic:orphaned_requirement_reference",
+        "diagnostic:stale_requirement_revision",
+        "diagnostic:stale_trace_digest",
+        "operation:coverage"
+      ]
+    }
+  ]
+}

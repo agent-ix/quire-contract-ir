@@ -1,0 +1,32 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-is-present-0.json"
+    },
+    {
+      "digest": "30b563a689ced8916334f4c47c401f91450f81271c2bf4ccbc4b434ce6208352",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-is-present-1.json"
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "state",
+      "observation": "pre",
+      "path": [
+        "maybe"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "valid": true
+}

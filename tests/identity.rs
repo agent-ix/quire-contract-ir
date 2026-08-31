@@ -3,6 +3,7 @@ use quire_contract_ir::{
     DependencyKind, DependencyName, DependencySource, DiagnosticCode, ExecutionPoint, PackageId,
     ReferenceBody, Requirement, RequirementId, RequirementRef, RequirementRevision, SchemaVersion,
     SemanticIdentity, SourceDocumentId, SourceIdentity, SourceLocation, SourceRevision, SourceSpan,
+    ValidationOptions,
 };
 
 const REGISTRY: &str = include_str!("../spec/contract/STD-001-diagnostic-registry.md");
@@ -101,7 +102,11 @@ fn valid_package() -> ContractPackage<ReferenceBody> {
 }
 
 fn package_error(value: &serde_json::Value) -> Vec<quire_contract_ir::Diagnostic> {
-    ContractPackage::from_json_str(&serde_json::to_string(value).unwrap()).unwrap_err()
+    ContractPackage::from_json_str(
+        &serde_json::to_string(value).unwrap(),
+        ValidationOptions::strict(),
+    )
+    .unwrap_err()
 }
 
 fn diagnostic_code<T: std::fmt::Debug>(
@@ -128,7 +133,7 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
 
     // FR-011-AC-1: valid issue #6 values round-trip structurally through JSON.
     let json = serde_json::to_string_pretty(&package).unwrap();
-    let round_trip = ContractPackage::from_json_str(&json).unwrap();
+    let round_trip = ContractPackage::from_json_str(&json, ValidationOptions::strict()).unwrap();
     assert_eq!(round_trip, package);
     assert_eq!(package.schema_version(), SchemaVersion::new(1, 0).unwrap());
     assert_eq!(
@@ -721,7 +726,7 @@ fn tc_015_untrusted_json_preserves_structured_failure_codes() {
     assert_eq!(invalid_anchor.path, "clause.anchor.name");
 
     assert_eq!(
-        ContractPackage::from_json_str("{").unwrap_err()[0].code,
+        ContractPackage::from_json_str("{", ValidationOptions::strict()).unwrap_err()[0].code,
         DiagnosticCode::InvalidWireFormat
     );
     assert!(serde_json::from_str::<DiagnosticCode>("\"not_registered\"").is_err());

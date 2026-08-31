@@ -1,0 +1,38 @@
+{
+  "canonical": [
+    {
+      "digest": "4667c34fc4f8eab349830be76698a738fc62c9bfa2b649008601cf425cfd1680",
+      "identity": "package",
+      "kind": "package",
+      "bytes_path": "canonical/package-reference-0.json"
+    },
+    {
+      "digest": "a6cf34f730036483382ea90953b16514d3fff0df1d40b491dfa7ab3ef09214ee",
+      "identity": "requirement:REQ_alpha",
+      "kind": "requirement",
+      "bytes_path": "canonical/package-reference-1.json"
+    },
+    {
+      "digest": "de636a27e353b6e89d24172035140323b13a0f6d2f637a6926e5e2a9d2f40d4f",
+      "identity": "clause:REQ_alpha:note",
+      "kind": "clause",
+      "bytes_path": "canonical/package-reference-2.json"
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "input",
+      "observation": "current",
+      "path": [
+        "value"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "valid": true
+}

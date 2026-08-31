@@ -133,8 +133,8 @@ fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
 
     let successor = read("plan/PLAN-002-contract-ir-v01/TASK-009-conformance.md");
     assert!(
-        successor.contains("status: pending"),
-        "TASK-009 escaped Backlog before TASK-008 reached Done"
+        successor.contains("status: in_progress") && successor.contains("phase: implement"),
+        "TASK-009 did not enter Implement after TASK-008 reached Done"
     );
 
     let review = read("reviews/REV-002-contract-ir-foundation.md");

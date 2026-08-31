@@ -1,0 +1,19 @@
+{
+  "canonical": [
+    {
+      "digest": "d7f5798878c018e250487bf4fecd43d13286663ca3dcc66a6c09e53d2959af87",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-numeric-edges-0.json"
+    },
+    {
+      "digest": "ff2880901ac4985c31965e3a7244fe603b757e2ee69468324814c311a12d1368",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-numeric-edges-1.json"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

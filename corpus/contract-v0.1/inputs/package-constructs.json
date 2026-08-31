@@ -1,0 +1,230 @@
+{
+  "id": "agent-ix/conformance",
+  "schema_version": {
+    "major": 1,
+    "minor": 1
+  },
+  "source": {
+    "document": "contract",
+    "revision": 1
+  },
+  "requirements": [
+    {
+      "id": "REQ_alpha",
+      "revision": 1,
+      "source": {
+        "start": {
+          "source": {
+            "document": "contract",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 1,
+          "byte_offset": 0
+        },
+        "end": {
+          "source": {
+            "document": "contract",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 2,
+          "byte_offset": 1
+        }
+      },
+      "clauses": [
+        {
+          "id": "f_pre",
+          "kind": "precondition",
+          "anchor": {
+            "kind": "pre",
+            "operation": "check"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 7,
+              "byte_offset": 6
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 8,
+              "byte_offset": 7
+            }
+          },
+          "body": {
+            "node": "literal"
+          }
+        },
+        {
+          "id": "e_post",
+          "kind": "postcondition",
+          "anchor": {
+            "kind": "post",
+            "operation": "check"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 6,
+              "byte_offset": 5
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 7,
+              "byte_offset": 6
+            }
+          },
+          "body": {
+            "node": "literal"
+          }
+        },
+        {
+          "id": "d_inv",
+          "kind": "invariant",
+          "anchor": {
+            "kind": "initialization",
+            "name": "boot"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 5,
+              "byte_offset": 4
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 6,
+              "byte_offset": 5
+            }
+          },
+          "body": {
+            "node": "literal"
+          }
+        },
+        {
+          "id": "c_info",
+          "kind": "information",
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 4,
+              "byte_offset": 3
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 5,
+              "byte_offset": 4
+            }
+          },
+          "body": {
+            "node": "literal"
+          }
+        },
+        {
+          "id": "b_case",
+          "kind": "case",
+          "anchor": {
+            "kind": "handler",
+            "name": "handle"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 3,
+              "byte_offset": 2
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 4,
+              "byte_offset": 3
+            }
+          },
+          "body": {
+            "node": "composite",
+            "children": [
+              {
+                "node": "composite",
+                "children": []
+              },
+              {
+                "node": "literal"
+              }
+            ]
+          }
+        },
+        {
+          "id": "a_assert",
+          "kind": "assertion",
+          "anchor": {
+            "kind": "pre",
+            "operation": "check"
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 2,
+              "byte_offset": 1
+            },
+            "end": {
+              "source": {
+                "document": "contract",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 3,
+              "byte_offset": 2
+            }
+          },
+          "body": {
+            "node": "literal"
+          }
+        }
+      ]
+    }
+  ]
+}

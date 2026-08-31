@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"integer","value":{"domain":"signed","maximum":10,"minimum":-10,"overflow":"reject"}},"tree":{"kind":{"base":{"kind":{"name":"sensor","node":"value_reference","observation":"pre"}},"field":"reading","node":"field_access"}}}}

@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_wire_format",
+      "path": "expression.integer_literal.value_type",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}

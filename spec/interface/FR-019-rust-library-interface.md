@@ -85,7 +85,7 @@ other public signatures.
 
 All recursive or collection-bearing untrusted inputs undergo fixed-limit
 preflight before recursive conversion. The crate root exports the
-wire-independent `MAX_SEMANTIC_NODES: u32 = 10000`,
+wire-independent `MAX_SEMANTIC_NODES: u32 = 25000`,
 `MAX_SEMANTIC_DEPTH: u32 = 256`, and
 `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`. A complete operation input may
 contain at most that many decoded semantic nodes; nested value-type or other

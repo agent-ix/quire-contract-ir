@@ -1,0 +1,32 @@
+{
+  "canonical": [
+    {
+      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-enum-literal-0.json"
+    },
+    {
+      "digest": "1f7e7ed4fc6b8eb1044f59ec383010fab803e49a125e6ac006c1f7fbfc487f6f",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-enum-literal-1.json"
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "enum_variant",
+      "path": [
+        "Color",
+        "red"
+      ],
+      "requirement": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_alpha",
+        "revision": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "valid": true
+}

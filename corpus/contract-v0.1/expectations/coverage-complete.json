@@ -1,0 +1,231 @@
+{
+  "coverage": {
+    "artifacts": [
+      {
+        "artifact_id": "a_shallow",
+        "class": "shallow",
+        "orphan_reason": null,
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      },
+      {
+        "artifact_id": "b_deep",
+        "class": "deep",
+        "orphan_reason": null,
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      },
+      {
+        "artifact_id": "c_cross",
+        "class": "orphaned",
+        "orphan_reason": "cross_package",
+        "target": {
+          "package": "agent-ix/other",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      },
+      {
+        "artifact_id": "d_missing",
+        "class": "orphaned",
+        "orphan_reason": "missing_requirement",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_missing",
+          "revision": 1
+        }
+      },
+      {
+        "artifact_id": "e_stale",
+        "class": "orphaned",
+        "orphan_reason": "stale_revision",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 9
+        }
+      },
+      {
+        "artifact_id": "f_digest",
+        "class": "orphaned",
+        "orphan_reason": "digest_mismatch",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      },
+      {
+        "artifact_id": "g_duplicate",
+        "class": "orphaned",
+        "orphan_reason": "duplicate_artifact",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      },
+      {
+        "class": "deep",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "cross_package_reference",
+      "path": "reference.package",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 7,
+          "column": 8,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 6,
+          "column": 7,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    },
+    {
+      "code": "orphaned_requirement_reference",
+      "path": "reference.requirement",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 9,
+          "column": 10,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 8,
+          "column": 9,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    },
+    {
+      "code": "stale_requirement_revision",
+      "path": "reference.revision",
+      "related": [
+        {
+          "kind": "requirement",
+          "reference": {
+            "package": "agent-ix/conformance",
+            "requirement": "REQ_alpha",
+            "revision": 1
+          }
+        }
+      ],
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 11,
+          "column": 12,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 10,
+          "column": 11,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    },
+    {
+      "code": "stale_trace_digest",
+      "path": "artifact.depth.digest",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 13,
+          "column": 14,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 12,
+          "column": 13,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    },
+    {
+      "code": "duplicate_artifact_trace",
+      "path": "artifact.id",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 16,
+          "column": 17,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 15,
+          "column": 16,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ]
+}

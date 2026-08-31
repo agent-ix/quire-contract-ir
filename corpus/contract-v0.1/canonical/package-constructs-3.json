@@ -1,0 +1,1 @@
+{"kind":"clause","profile":"quire.contract.canonical-json/v1","value":{"anchor":{"kind":"handler","name":"handle"},"body":{"children":[{"children":[],"node":"composite"},{"node":"literal"}],"node":"composite"},"id":"b_case","kind":"case","requirement":{"package":"agent-ix/conformance","requirement":"REQ_alpha","revision":1}}}

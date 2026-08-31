@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-package-reference-v1.schema.json",
+  "title": "Quire Contract IR reference-body package v1",
+  "$ref": "#/definitions/package",
+  "definitions": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+    },
+    "positiveU64": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "u64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "schemaVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "const": 1 },
+        "minor": { "enum": [0, 1] }
+      }
+    },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document", "revision"],
+      "properties": {
+        "document": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" }
+      }
+    },
+    "sourceLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "line", "column", "byte_offset"],
+      "properties": {
+        "source": { "$ref": "#/definitions/sourceIdentity" },
+        "line": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "column": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "byte_offset": { "$ref": "#/definitions/u64" }
+      }
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/definitions/sourceLocation" },
+        "end": { "$ref": "#/definitions/sourceLocation" }
+      }
+    },
+    "requirementRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "requirement", "revision"],
+      "properties": {
+        "package": { "$ref": "#/definitions/packageId" },
+        "requirement": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement", "kind", "path"],
+      "properties": {
+        "requirement": { "$ref": "#/definitions/requirementRef" },
+        "kind": { "enum": ["input", "state", "field", "enum_variant", "pure_function"] },
+        "observation": { "enum": ["current", "pre", "post"] },
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/identifier" }
+        }
+      }
+    },
+    "referenceBody": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node"],
+          "properties": { "node": { "const": "literal" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node", "identity"],
+          "properties": {
+            "node": { "const": "reference" },
+            "identity": { "$ref": "#/definitions/dependency" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node", "children"],
+          "properties": {
+            "node": { "const": "composite" },
+            "children": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/referenceBody" }
+            }
+          }
+        }
+      ]
+    },
+    "executionPoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "enum": ["initialization", "handler"] },
+            "name": { "$ref": "#/definitions/identifier" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation"],
+          "properties": {
+            "kind": { "enum": ["pre", "post"] },
+            "operation": { "$ref": "#/definitions/identifier" }
+          }
+        }
+      ]
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "body"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "kind": {
+          "enum": ["precondition", "postcondition", "invariant", "assertion", "case", "information"]
+        },
+        "anchor": { "$ref": "#/definitions/executionPoint" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "body": { "$ref": "#/definitions/referenceBody" }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "source", "clauses"],
+      "properties": {
+        "id": { "$ref": "#/definitions/identifier" },
+        "revision": { "$ref": "#/definitions/positiveU64" },
+        "source": { "$ref": "#/definitions/sourceSpan" },
+        "clauses": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/clause" }
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "schema_version", "source", "requirements"],
+      "properties": {
+        "id": { "$ref": "#/definitions/packageId" },
+        "schema_version": { "$ref": "#/definitions/schemaVersion" },
+        "source": { "$ref": "#/definitions/sourceIdentity" },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/requirement" }
+        }
+      }
+    }
+  }
+}

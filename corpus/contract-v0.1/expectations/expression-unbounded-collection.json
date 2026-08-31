@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "unbounded_collection",
+      "path": "type.collection.maximum_items",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}
