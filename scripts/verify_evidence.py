@@ -22,6 +22,7 @@ CHECKSUM_LINE = re.compile(r"^([0-9a-f]{64})  (.+)$")
 BlobReader = Callable[[str, Path], bytes]
 WorktreeReader = Callable[[Path], bytes]
 InputSetReader = Callable[[], set[Path]]
+RevisionInputSetReader = Callable[[str], set[Path]]
 EVIDENCE_SCHEMA = Path("schemas/pgm01-evidence-v1.schema.json")
 CORRECTION_SCHEMA = Path("schemas/evidence-correction-v1.schema.json")
 
@@ -41,6 +42,13 @@ def safe_relative_path(value: str) -> Path:
     return path
 
 
+def safe_record_name(value: str) -> str:
+    path = safe_relative_path(value)
+    if len(path.parts) != 1:
+        raise EvidenceError(f"invalid evidence record name: {value!r}")
+    return path.name
+
+
 def read_subject_blob(revision: str, path: Path) -> bytes:
     result = subprocess.run(
         ["git", "cat-file", "blob", f"{revision}:{path.as_posix()}"],
@@ -54,16 +62,16 @@ def read_subject_blob(revision: str, path: Path) -> bytes:
     return result.stdout
 
 
-def read_head_inputs() -> set[Path]:
+def read_revision_inputs(revision: str) -> set[Path]:
     result = subprocess.run(
-        ["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"],
+        ["git", "ls-tree", "-r", "-z", "--name-only", revision],
         cwd=ROOT,
         check=False,
         capture_output=True,
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot enumerate current HEAD tree: {detail}")
+        raise EvidenceError(f"cannot enumerate input tree at {revision}: {detail}")
     paths = set()
     for raw_path in result.stdout.split(b"\0"):
         if not raw_path:
@@ -72,8 +80,12 @@ def read_head_inputs() -> set[Path]:
         if path.parts[0] != "evidence":
             paths.add(path)
     if not paths:
-        raise EvidenceError("current HEAD tree contains no non-evidence inputs")
+        raise EvidenceError(f"input tree at {revision} contains no non-evidence inputs")
     return paths
+
+
+def read_head_inputs() -> set[Path]:
+    return read_revision_inputs("HEAD")
 
 
 def read_worktree_inputs() -> set[Path]:
@@ -110,6 +122,7 @@ def verify_input_checksums(
     worktree_reader: WorktreeReader = read_worktree_file,
     input_set_reader: InputSetReader = read_head_inputs,
     worktree_set_reader: InputSetReader = read_worktree_inputs,
+    subject_set_reader: RevisionInputSetReader = read_revision_inputs,
 ) -> int:
     revision = manifest.get("subjectRevision")
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
@@ -127,10 +140,17 @@ def verify_input_checksums(
         if path in normalized_checksums:
             raise EvidenceError(f"duplicate normalized input path: {path}")
         normalized_checksums[path] = expected
+    subject_inputs = subject_set_reader(revision)
     required_inputs = input_set_reader()
-    if set(normalized_checksums) != required_inputs:
-        missing = sorted(str(path) for path in required_inputs - set(normalized_checksums))
-        extra = sorted(str(path) for path in set(normalized_checksums) - required_inputs)
+    if subject_inputs != required_inputs:
+        missing = sorted(str(path) for path in subject_inputs - required_inputs)
+        added = sorted(str(path) for path in required_inputs - subject_inputs)
+        raise EvidenceError(
+            f"subject input tree differs from current HEAD; missing={missing}, added={added}"
+        )
+    if set(normalized_checksums) != subject_inputs:
+        missing = sorted(str(path) for path in subject_inputs - set(normalized_checksums))
+        extra = sorted(str(path) for path in set(normalized_checksums) - subject_inputs)
         raise EvidenceError(
             f"inputChecksums do not cover the current HEAD tree; "
             f"missing={missing}, extra={extra}"
@@ -144,6 +164,12 @@ def verify_input_checksums(
             f"missing={missing}, untracked={untracked}"
         )
     for path, expected in normalized_checksums.items():
+        subject_actual = sha256(head_reader(revision, path))
+        if subject_actual != expected:
+            raise EvidenceError(
+                f"subject input checksum mismatch for {path}: "
+                f"expected {expected}, got {subject_actual}"
+            )
         head_actual = sha256(head_reader("HEAD", path))
         if head_actual != expected:
             raise EvidenceError(
@@ -250,12 +276,7 @@ def load_evidence_corrections() -> dict[str, list[str]]:
         if entries != {relative: sha256(payload)}:
             raise EvidenceError(f"evidence correction checksum mismatch: {relative}")
         for claim in correction["affectedClaims"]:
-            affected = claim["record"]
-            affected_path = safe_relative_path(affected)
-            if len(affected_path.parts) != 1:
-                raise EvidenceError(
-                    f"evidence correction {record_id} has invalid record name {affected}"
-                )
+            affected = safe_record_name(claim["record"])
             if not (ROOT / "evidence" / affected / "manifest.json").is_file():
                 raise EvidenceError(
                     f"evidence correction {record_id} names unavailable record {affected}"

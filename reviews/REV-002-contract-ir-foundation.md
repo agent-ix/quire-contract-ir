@@ -27,9 +27,8 @@ owning child issue supplies requirement-tagged implementation evidence.
 
 ## Independent Review Findings and Disposition
 
-An independent read-only review of the complete issue #5 worktree reported the
-following findings. Each was fixed before the candidate evidence record was
-minted.
+Three independent read-only review rounds of the issue #5 worktree reported 14
+findings. Each was fixed before the candidate evidence record was minted.
 
 | ID | Severity | Finding | Disposition |
 |---|---|---|---|
@@ -43,3 +42,7 @@ minted.
 | FND-R08 | medium | Correction enforcement and integrity failure branches lacked direct negative tests. | TC-022 now executes affected-record rejection plus checksum-mismatch, dangling-target, and malformed-record failures. |
 | FND-R09 | low | The correction fixture manifest did not prove it listed every correction fixture. | The corpus test now requires exact equality between declared and discovered valid/invalid fixtures. |
 | FND-R10 | low | An affected record name could contain path traversal and evade the record-name comparison. | The schema restricts affected records to `pgm-01-<seven hex>` and the loader additionally enforces a one-component safe relative name. |
+| FND-R11 | high | A multiple-record assertion was unreachable inside an expected-exception block. | The assertion is restored to the unique-record test, and safe-record-name defense has a direct unit test. |
+| FND-R12 | high | Draft evidence claimed its own still-pending exact-candidate review had passed. | Candidate evidence records review status as inconclusive and makes no self-certifying review claim. |
+| FND-R13 | medium | Evidence and review artifacts disagreed about review-round counts. | REV-002 and retained evidence consistently record three rounds and 14 findings. |
+| FND-R14 | medium | The verifier labeled `subjectRevision` but read all inputs from literal `HEAD`. | Verification now resolves and enumerates the subject revision, requires its non-evidence tree to equal current `HEAD`, and checks every digest against subject, `HEAD`, and worktree bytes. |

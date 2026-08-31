@@ -35,9 +35,10 @@ def test_evidence_verifier_uses_head_tree_without_subject_ancestry() -> None:
         (root / "candidate.txt").write_bytes(payload)
         run_git(root, "add", "candidate.txt")
         run_git(root, "commit", "-q", "-m", "candidate")
+        subject_revision = run_git(root, "rev-parse", "HEAD")
 
         manifest = {
-            "subjectRevision": "f" * 40,
+            "subjectRevision": subject_revision,
             "inputChecksums": {
                 "candidate.txt": hashlib.sha256(payload).hexdigest(),
             },
@@ -58,7 +59,7 @@ def test_evidence_verifier_uses_head_tree_without_subject_ancestry() -> None:
             run_git(root, "commit", "-q", "-m", "add uncovered input")
             with unittest.TestCase().assertRaisesRegex(
                 verify_evidence.EvidenceError,
-                "do not cover the current HEAD tree",
+                "subject input tree differs from current HEAD",
             ):
                 verify_evidence.verify_input_checksums(manifest)
 
@@ -93,6 +94,16 @@ def test_evidence_verifier_selects_only_the_unique_valid_record() -> None:
             ), unittest.TestCase().assertRaisesRegex(
                 verify_evidence.EvidenceError,
                 "no evidence record matches the current candidate",
+            ):
+                verify_evidence.select_current_record()
+
+            with patch.object(
+                verify_evidence,
+                "verify_record",
+                return_value=(4, 66, "f" * 40),
+            ), unittest.TestCase().assertRaisesRegex(
+                verify_evidence.EvidenceError,
+                "multiple current evidence records",
             ):
                 verify_evidence.select_current_record()
 
@@ -177,16 +188,6 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
             verify_evidence.EvidenceError, "schema violation"
         ):
             verify_evidence.load_evidence_corrections()
-
-            with patch.object(
-                verify_evidence,
-                "verify_record",
-                return_value=(4, 66, "f" * 40),
-            ), unittest.TestCase().assertRaisesRegex(
-                verify_evidence.EvidenceError,
-                "multiple current evidence records",
-            ):
-                verify_evidence.select_current_record()
 
 
 def load_tests(
