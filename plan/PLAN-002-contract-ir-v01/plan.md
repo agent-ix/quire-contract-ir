@@ -2,8 +2,10 @@
 id: PLAN-002
 title: "Build quire-contract-ir v0.1 semantic substrate"
 type: Plan
-status: active
+status: done
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/issues/11
+    type: references
   - target: ix://agent-ix/quire-contract-ir/TASK-005
     type: contains
   - target: ix://agent-ix/quire-contract-ir/TASK-006
@@ -25,7 +27,8 @@ TASK-005 issue #5 specification + assurance foundation
     -> TASK-007 issue #8 types, expressions, definedness
       -> TASK-008 issue #9 canonicalization, digests, versions, orphans
         -> TASK-009 issue #10 schema, corpus, reusable runner
-          -> epic #11 code review + gap analysis + human source decision
+          -> epic #11 implementation review + gap analysis
+            -> PGM-02 Wave 4 human source decision and tag
 ```
 
 Each task advances through Specify, Spec Review, Implement, In review, and Done.
@@ -42,7 +45,20 @@ Only the dependency-ready task moves out of Backlog.
 
 ## Exit Criteria
 
-All five tasks and native issues are Done; 100% of implemented criteria are
-backed; the complete corpus, golden bytes, diagnostics, dependencies, and
-digests pass; no blocking review or reverse gap remains; and `@kreneskyp`
-records the v0.1 source decision for an exact candidate.
+Wave 1 Agent A is complete when all five tasks and native issues are Done; all
+implemented criteria resolve to executable completed tests; the complete
+corpus, golden bytes, diagnostics, dependencies, and digests pass; retained
+review and reverse-gap findings have dispositions; and the source-release claim
+remains honestly bounded. The program handoff assigns the human source
+decision, source tag, and checksums to PGM-02 in Wave 4 after all eight
+repository epics complete. They are therefore not asserted by this plan.
+
+## Completion
+
+Issues #5, #6, #8, #9, and #10 are closed and their project items are Done.
+Post-merge `main` at `5c49ebfd1c87415f74420ad047392bd03b1bd202`
+passes the complete isolated local CI lane, Rust 1.75 check, specification and
+matrix-status gates, and retained-evidence verification. REV-007 records the
+epic gap analysis and the limitations carried into Wave 4. No hosted workflow,
+source tag, registry publication, qualification, or accreditation was
+performed.

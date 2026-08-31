@@ -8,7 +8,7 @@ profile: ix://agent-ix/quire-contract-ir/AP-001
 top_claim:
   id: claim-v01-source
   statement: the identified quire-contract-ir v0.1 source candidate is suitable for an independently authorized source tag within the declared profile
-  subject: no candidate selected; issue 11 remains open
+  subject: no source-release candidate selected; Wave 1 implementation baseline 5c49ebfd1c87415f74420ad047392bd03b1bd202 is complete
   status: open
 reasoning:
   - id: reasoning-semantic-contract
@@ -32,9 +32,9 @@ participants:
     authority: approve reject or defer one exact source candidate and tag
     independence: human review is separate from agent-authored implementation and evidence
 challenges:
-  - id: challenge-implementation-absent
+  - id: challenge-wave4-release-evidence
     target: claim-v01-source
-    statement: semantic implementation, schema corpus, and downstream pin evidence are not complete
+    statement: cross-platform and independent downstream evidence plus the human source decision remain assigned to PGM-02 Wave 4
     status: open
     owner: kreneskyp
 relationships:
@@ -47,8 +47,10 @@ relationships:
 
 ## Claim
 
-The claim is intentionally open. No candidate revision or source tag is
-selected while issues #5, #6, #8, #9, and #10 remain incomplete.
+The source-release claim remains intentionally open. Issues #5, #6, #8, #9,
+and #10 are complete, and merge commit
+`5c49ebfd1c87415f74420ad047392bd03b1bd202` is the Wave 1 implementation
+baseline. It is not selected as a source-release candidate by this artifact.
 
 ## Reasoning
 
@@ -59,11 +61,17 @@ sufficiency decision for one revision.
 
 ## Sufficiency Decision
 
-No sufficiency decision has been recorded. Automated checks and agent-authored
-evidence cannot change the top claim from `open`.
+No source-release sufficiency decision has been recorded. The program handoff
+assigns human release decisions and source tags to PGM-02 in Wave 4 after all
+eight repository epics complete. Closing the Wave 1 implementation epic does
+not change the top claim from `open`, and automated checks or agent-authored
+evidence cannot do so later.
 
 ## Challenges
 
-The implementation and corpus are absent at foundation time. Cross-platform
-golden evidence and downstream revision pins are also absent. These challenges
-remain open until their owning issues produce reviewed evidence.
+The semantic implementation, schemas, and corpus are now present and their
+child evidence is retained. Cross-platform golden comparison remains deferred
+while automatic CI is intentionally off; independent downstream execution and
+the exact human source decision also remain absent. REV-007 carries these
+limitations into the Wave 4 decision without treating them as Wave 1
+implementation failures or as successful release evidence.
