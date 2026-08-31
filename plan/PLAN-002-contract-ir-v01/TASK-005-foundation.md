@@ -2,7 +2,7 @@
 id: TASK-005
 title: "Establish specification and assurance foundation"
 type: Task
-status: in_progress
+status: done
 track: A
 priority: P0
 relationships:

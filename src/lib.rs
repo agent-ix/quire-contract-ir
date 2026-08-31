@@ -1,16 +1,5 @@
-//! Versioned semantic contract model and canonical representation for assurance tooling.
+//! Versioned, implementation-language-independent semantic contract model.
 
-/// Placeholder entry point.
-pub fn hello() -> &'static str {
-    "hello from quire_contract_ir"
-}
+mod identity;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hello_returns_greeting() {
-        assert!(hello().contains("quire_contract_ir"));
-    }
-}
+pub use identity::*;
