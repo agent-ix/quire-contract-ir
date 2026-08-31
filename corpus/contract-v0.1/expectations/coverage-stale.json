@@ -1,0 +1,71 @@
+{
+  "coverage": {
+    "artifacts": [
+      {
+        "artifact_id": "stale",
+        "class": "orphaned",
+        "orphan_reason": "stale_revision",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 9
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      },
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "stale_requirement_revision",
+      "path": "reference.revision",
+      "related": [
+        {
+          "kind": "requirement",
+          "reference": {
+            "package": "agent-ix/conformance",
+            "requirement": "REQ_alpha",
+            "revision": 1
+          }
+        }
+      ],
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 11,
+          "column": 12,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 10,
+          "column": 11,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ]
+}

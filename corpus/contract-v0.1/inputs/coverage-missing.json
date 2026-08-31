@@ -1,0 +1,174 @@
+{
+  "package": {
+    "id": "agent-ix/conformance",
+    "schema_version": {
+      "major": 1,
+      "minor": 1
+    },
+    "source": {
+      "document": "contract",
+      "revision": 1
+    },
+    "requirements": [
+      {
+        "id": "REQ_alpha",
+        "revision": 1,
+        "source": {
+          "start": {
+            "source": {
+              "document": "contract",
+              "revision": 1
+            },
+            "line": 1,
+            "column": 1,
+            "byte_offset": 0
+          },
+          "end": {
+            "source": {
+              "document": "contract",
+              "revision": 1
+            },
+            "line": 1,
+            "column": 2,
+            "byte_offset": 1
+          }
+        },
+        "clauses": [
+          {
+            "id": "note",
+            "kind": "information",
+            "source": {
+              "start": {
+                "source": {
+                  "document": "contract",
+                  "revision": 1
+                },
+                "line": 1,
+                "column": 1,
+                "byte_offset": 0
+              },
+              "end": {
+                "source": {
+                  "document": "contract",
+                  "revision": 1
+                },
+                "line": 1,
+                "column": 2,
+                "byte_offset": 1
+              }
+            },
+            "body": {
+              "node": "literal"
+            }
+          }
+        ]
+      },
+      {
+        "id": "REQ_1",
+        "revision": 1,
+        "source": {
+          "start": {
+            "source": {
+              "document": "contract",
+              "revision": 1
+            },
+            "line": 1,
+            "column": 3,
+            "byte_offset": 2
+          },
+          "end": {
+            "source": {
+              "document": "contract",
+              "revision": 1
+            },
+            "line": 1,
+            "column": 4,
+            "byte_offset": 3
+          }
+        },
+        "clauses": [
+          {
+            "id": "note",
+            "kind": "information",
+            "source": {
+              "start": {
+                "source": {
+                  "document": "contract",
+                  "revision": 1
+                },
+                "line": 1,
+                "column": 1,
+                "byte_offset": 0
+              },
+              "end": {
+                "source": {
+                  "document": "contract",
+                  "revision": 1
+                },
+                "line": 1,
+                "column": 2,
+                "byte_offset": 1
+              }
+            },
+            "body": {
+              "node": "literal"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "traces": [
+    {
+      "artifact_id": "missing",
+      "source": {
+        "start": {
+          "source": {
+            "document": "trace",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 8,
+          "byte_offset": 7
+        },
+        "end": {
+          "source": {
+            "document": "trace",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 9,
+          "byte_offset": 8
+        }
+      },
+      "target": {
+        "package": "agent-ix/conformance",
+        "requirement": "REQ_missing",
+        "revision": 1
+      },
+      "target_span": {
+        "start": {
+          "source": {
+            "document": "trace",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 9,
+          "byte_offset": 8
+        },
+        "end": {
+          "source": {
+            "document": "trace",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 10,
+          "byte_offset": 9
+        }
+      },
+      "depth": {
+        "kind": "shallow"
+      }
+    }
+  ]
+}

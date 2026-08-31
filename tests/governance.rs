@@ -1,4 +1,4 @@
-use std::{fs, path::Path, process::Command};
+use std::{ffi::OsString, fs, path::Path, process::Command};
 
 use serde_json::Value;
 
@@ -8,28 +8,42 @@ fn normalized_policy() -> String {
     POLICY.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn governance_python() -> OsString {
+    std::env::var_os("QUIRE_GOVERNANCE_PYTHON").unwrap_or_else(|| OsString::from("python3"))
+}
+
 fn fixture_result(path: &str) -> (std::process::ExitStatus, Value) {
-    let output = Command::new("python3")
+    let python = governance_python();
+    let output = Command::new(&python)
         .arg("scripts/validate_governance.py")
         .arg("--fixture")
         .arg(path)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("the declared PGM-01 Python lane must execute");
-    let report: Value =
-        serde_json::from_slice(&output.stdout).expect("validator stdout must be JSON");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!(
+            "validator stdout must be JSON ({error}); interpreter={python:?}; status={}; stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
     (output.status, report)
 }
 
 fn mutation_report() -> Value {
-    let output = Command::new("python3")
+    let output = Command::new(governance_python())
         .arg("scripts/validate_governance.py")
         .arg("--mutation-probes")
         .arg("--json")
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("the declared PGM-01 Python lane must execute");
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "mutation validator failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     serde_json::from_slice(&output.stdout).expect("mutation stdout must be JSON")
 }
 

@@ -1,0 +1,35 @@
+{
+  "coverage": {
+    "artifacts": [
+      {
+        "artifact_id": "deep",
+        "class": "deep",
+        "orphan_reason": null,
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      },
+      {
+        "class": "deep",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ]
+  },
+  "diagnostics": []
+}

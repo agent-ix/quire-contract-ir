@@ -1,0 +1,1 @@
+{"kind":"clause","profile":"quire.contract.canonical-json/v1","value":{"anchor":{"kind":"pre","operation":"check"},"body":{"node":"literal"},"id":"f_pre","kind":"precondition","requirement":{"package":"agent-ix/conformance","requirement":"REQ_alpha","revision":1}}}

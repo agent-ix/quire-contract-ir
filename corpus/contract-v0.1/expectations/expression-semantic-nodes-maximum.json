@@ -1,0 +1,21 @@
+{
+  "canonical": [
+    {
+      "digest": "6aaf5c0ca7afbbc6807e993a948c07a8b01f0d574275affe2297c8c50f5ba0dd",
+      "identity": "declaration",
+      "kind": "declaration",
+      "bytes_path": "canonical/expression-semantic-nodes-maximum-0.json",
+      "bytes_sha256": "0bb9f1417ff4e85df80d11ec180032c94c5f39d0f1b44c5c1ebf15942bbbb109"
+    },
+    {
+      "digest": "ff2880901ac4985c31965e3a7244fe603b757e2ee69468324814c311a12d1368",
+      "identity": "expression",
+      "kind": "expression",
+      "bytes_path": "canonical/expression-semantic-nodes-maximum-1.json",
+      "bytes_sha256": "353949155a5c55a60414fb593d7705ed50a8864e5b4aa5f43b63f87085aaf637"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

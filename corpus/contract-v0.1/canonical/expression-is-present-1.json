@@ -1,0 +1,1 @@
+{"kind":"expression","profile":"quire.contract.canonical-json/v1","value":{"result_type":{"kind":"boolean"},"tree":{"kind":{"node":"is_present","option":{"kind":{"name":"maybe","node":"value_reference","observation":"pre"}}}}}}

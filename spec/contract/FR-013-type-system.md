@@ -36,8 +36,11 @@ the closed range `-9223372036854775808` through `9223372036854775807`; wider
 bounds use `invalid_numeric_bounds`. A rational declares inclusive numerator bounds and a
 positive maximum normalized denominator; rational arithmetic always uses
 `reject` overflow behavior. Its maximum denominator lies in `1` through
-`9223372036854775807`. A collection declares a positive finite maximum
-item count. Options and collections recursively contain value types.
+`9223372036854775807`. A collection declares a maximum item count in the
+closed unsigned 32-bit range `1` through `4294967295`; zero uses
+`unbounded_collection`, and a wider wire integer uses
+`invalid_numeric_bounds`. Options and collections recursively contain value
+types.
 
 Text is a sequence of Unicode scalar values with no normalization or locale
 folding. A text value contains at most `1048576` scalar values; an over-length
@@ -47,6 +50,8 @@ Every declaration, enum variant, record field, function parameter, input, and
 state carries a source span. Public validation limits are
 `maximum_expression_nodes = 10000` and `maximum_expression_depth = 256`; these
 are wire-independent semantic constants, not host pointer-sized values.
+FR-019 additionally bounds every complete semantic request, including nested
+value types and declaration collections, before recursive validation begins.
 
 Enum and record declarations share one type-name namespace. Enums contain at
 least one unique variant. Records contain unique fields. Named types must
@@ -72,7 +77,7 @@ denominator bounds are checked.
 |---|---|---|
 | FR-013-AC-1 | Every closed value-type and declaration construct has positive and negative fixtures with deterministic STD-001 diagnostics. | Test (TC-016) |
 | FR-013-AC-2 | Public serialized types contain no Rust, GUMBO, AADL, HAMR, solver, or runtime-specific vocabulary. | Inspection (TC-016) |
-| FR-013-AC-3 | Duplicate names/fields/variants, empty enums, invalid integer or collection bounds, absent named types, and direct or indirect record cycles fail before expression validation. | Test (TC-016) |
+| FR-013-AC-3 | Duplicate names/fields/variants, empty enums, zero or over-unsigned-32-bit collection declarations, invalid integer bounds, absent named types, direct or indirect record cycles, and FR-019 semantic node/depth/collection limit breaches fail before expression validation. | Test (TC-016, TC-018) |
 | FR-013-AC-4 | A valid declaration environment round trips structurally through public constructors/accessors without losing declaration identity, types, bounds, overflow policy, or provenance spans. | Test (TC-016) |
 
 ## Dependencies

@@ -1,0 +1,99 @@
+{
+  "owner": {
+    "package": "agent-ix/conformance",
+    "requirement": "REQ_alpha",
+    "revision": 1
+  },
+  "types": [
+    {
+      "kind": "record",
+      "name": "Cycle",
+      "source": {
+        "start": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 2,
+          "byte_offset": 1
+        },
+        "end": {
+          "source": {
+            "document": "expression",
+            "revision": 1
+          },
+          "line": 1,
+          "column": 3,
+          "byte_offset": 2
+        }
+      },
+      "fields": [
+        {
+          "name": "next",
+          "value_type": {
+            "kind": "option",
+            "value": {
+              "kind": "record",
+              "name": "Cycle"
+            }
+          },
+          "source": {
+            "start": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 3,
+              "byte_offset": 2
+            },
+            "end": {
+              "source": {
+                "document": "expression",
+                "revision": 1
+              },
+              "line": 1,
+              "column": 4,
+              "byte_offset": 3
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "values": [],
+  "functions": [],
+  "expression": {
+    "node": "boolean_literal",
+    "value": true,
+    "source": {
+      "start": {
+        "source": {
+          "document": "expression",
+          "revision": 1
+        },
+        "line": 1,
+        "column": 21,
+        "byte_offset": 20
+      },
+      "end": {
+        "source": {
+          "document": "expression",
+          "revision": 1
+        },
+        "line": 1,
+        "column": 22,
+        "byte_offset": 21
+      }
+    }
+  },
+  "expected_type": {
+    "kind": "boolean"
+  },
+  "execution_point": {
+    "kind": "pre",
+    "operation": "check"
+  },
+  "clause_root": false
+}

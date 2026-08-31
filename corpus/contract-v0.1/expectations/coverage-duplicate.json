@@ -1,0 +1,61 @@
+{
+  "coverage": {
+    "artifacts": [
+      {
+        "artifact_id": "duplicate",
+        "class": "orphaned",
+        "orphan_reason": "duplicate_artifact",
+        "target": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_1",
+          "revision": 1
+        }
+      },
+      {
+        "class": "uncovered",
+        "reference": {
+          "package": "agent-ix/conformance",
+          "requirement": "REQ_alpha",
+          "revision": 1
+        }
+      }
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "duplicate_artifact_trace",
+      "path": "artifact.id",
+      "severity": "error",
+      "span": {
+        "end": {
+          "byte_offset": 16,
+          "column": 17,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        },
+        "start": {
+          "byte_offset": 15,
+          "column": 16,
+          "line": 1,
+          "source": {
+            "document": "trace",
+            "revision": 1
+          }
+        }
+      }
+    }
+  ]
+}

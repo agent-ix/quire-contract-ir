@@ -1,0 +1,12 @@
+{
+  "canonical": [],
+  "dependencies": [],
+  "diagnostics": [
+    {
+      "code": "invalid_source_revision",
+      "path": "source.revision",
+      "severity": "error"
+    }
+  ],
+  "valid": false
+}
