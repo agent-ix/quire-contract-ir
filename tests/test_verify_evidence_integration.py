@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -34,9 +35,10 @@ def test_evidence_verifier_uses_head_tree_without_subject_ancestry() -> None:
         (root / "candidate.txt").write_bytes(payload)
         run_git(root, "add", "candidate.txt")
         run_git(root, "commit", "-q", "-m", "candidate")
+        subject_revision = run_git(root, "rev-parse", "HEAD")
 
         manifest = {
-            "subjectRevision": "f" * 40,
+            "subjectRevision": subject_revision,
             "inputChecksums": {
                 "candidate.txt": hashlib.sha256(payload).hexdigest(),
             },
@@ -57,7 +59,7 @@ def test_evidence_verifier_uses_head_tree_without_subject_ancestry() -> None:
             run_git(root, "commit", "-q", "-m", "add uncovered input")
             with unittest.TestCase().assertRaisesRegex(
                 verify_evidence.EvidenceError,
-                "do not cover the current HEAD tree",
+                "subject input tree differs from current HEAD",
             ):
                 verify_evidence.verify_input_checksums(manifest)
 
@@ -106,6 +108,106 @@ def test_evidence_verifier_selects_only_the_unique_valid_record() -> None:
                 verify_evidence.select_current_record()
 
 
+def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> None:
+    """TC-022. Trace: TC-022, FR-009-AC-4, NFR-004-AC-4."""
+    source_schema = (
+        verify_evidence.ROOT / verify_evidence.CORRECTION_SCHEMA
+    ).read_bytes()
+
+    def write_case(root: Path, correction: dict[str, object], checksum: str) -> None:
+        schema_path = root / verify_evidence.CORRECTION_SCHEMA
+        schema_path.parent.mkdir(parents=True)
+        schema_path.write_bytes(source_schema)
+        correction_path = root / "evidence/corrections/COR-001-test.json"
+        correction_path.parent.mkdir(parents=True)
+        correction_path.write_text(json.dumps(correction), encoding="utf-8")
+        checksum_path = correction_path.with_suffix(".sha256")
+        checksum_path.write_text(
+            f"{checksum}  {correction_path.relative_to(root).as_posix()}\n",
+            encoding="utf-8",
+        )
+
+    def correction_set(root: Path) -> set[Path]:
+        return {
+            path.relative_to(root)
+            for path in (root / "evidence/corrections").glob("COR-*.json")
+        }
+
+    base: dict[str, object] = {
+        "schemaVersion": "quire.evidence-correction/v1",
+        "recordId": "COR-001",
+        "recordedAt": "2026-08-31T00:39:11Z",
+        "repository": "https://github.com/agent-ix/quire-contract-ir",
+        "affectedClaims": [
+            {
+                "record": "pgm-01-abcdef0",
+                "claim": "code-review status pass",
+                "location": "https://github.com/agent-ix/quire-contract-ir/pull/12",
+            }
+        ],
+        "correctedStatus": "inconclusive",
+        "findingRefs": [
+            "https://github.com/agent-ix/quire-contract-ir/pull/12#review"
+        ],
+        "basis": "Formal review contradicts the pass claim.",
+        "immutability": "The original bytes remain unchanged.",
+        "decisionEffect": "The affected record cannot support a decision.",
+    }
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        write_case(root, base, "0" * 64)
+        with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
+            verify_evidence.EvidenceError, "checksum mismatch"
+        ):
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
+            )
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        payload = json.dumps(base).encode()
+        write_case(root, base, hashlib.sha256(payload).hexdigest())
+        correction_path = root / "evidence/corrections/COR-001-test.json"
+        checksum_path = correction_path.with_suffix(".sha256")
+        checksum_path.write_text(
+            f"{hashlib.sha256(correction_path.read_bytes()).hexdigest()}  "
+            f"{correction_path.relative_to(root).as_posix()}\n",
+            encoding="utf-8",
+        )
+        with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
+            verify_evidence.EvidenceError, "unavailable record"
+        ):
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
+            )
+
+    traversal = json.loads(json.dumps(base))
+    traversal["affectedClaims"][0]["record"] = "../pgm-01-abcdef0"
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        write_case(root, traversal, "0" * 64)
+        correction_path = root / "evidence/corrections/COR-001-test.json"
+        checksum_path = correction_path.with_suffix(".sha256")
+        checksum_path.write_text(
+            f"{hashlib.sha256(correction_path.read_bytes()).hexdigest()}  "
+            f"{correction_path.relative_to(root).as_posix()}\n",
+            encoding="utf-8",
+        )
+        with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
+            verify_evidence.EvidenceError, "schema violation"
+        ):
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes(),
+                head_set_reader=lambda: correction_set(root),
+                worktree_set_reader=lambda: correction_set(root),
+            )
+
+
 def load_tests(
     _loader: unittest.TestLoader,
     tests: unittest.TestSuite,
@@ -119,6 +221,11 @@ def load_tests(
     tests.addTest(
         unittest.FunctionTestCase(
             test_evidence_verifier_selects_only_the_unique_valid_record
+        )
+    )
+    tests.addTest(
+        unittest.FunctionTestCase(
+            test_evidence_corrections_fail_closed_on_identity_integrity_and_target
         )
     )
     return tests

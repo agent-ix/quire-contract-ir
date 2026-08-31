@@ -16,10 +16,13 @@ from scripts.verify_evidence import (
     choose_unique_match,
     parse_external_checksum_lines,
     safe_relative_path,
+    safe_record_name,
     sha256,
     validate_manifest_schema,
+    load_evidence_corrections,
     verify_input_checksums,
     verify_output_entries,
+    verify_record,
 )
 
 
@@ -48,6 +51,7 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
         worktree_reader=lambda _path: payload,
         input_set_reader=lambda: {Path("spec/example.md")},
         worktree_set_reader=lambda: {Path("spec/example.md")},
+        subject_set_reader=lambda _revision: {Path("spec/example.md")},
     )
     if actual != 1:
         raise AssertionError(f"expected one verified input, got {actual}")
@@ -55,13 +59,14 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
     wrong_record = copy.deepcopy(manifest)
     wrong_record["inputChecksums"]["spec/example.md"] = "0" * 64
     assert_evidence_error(
-        "HEAD input checksum mismatch",
+        "subject input checksum mismatch",
         lambda: verify_input_checksums(
             wrong_record,
             head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: payload,
             input_set_reader=lambda: {Path("spec/example.md")},
             worktree_set_reader=lambda: {Path("spec/example.md")},
+            subject_set_reader=lambda _revision: {Path("spec/example.md")},
         ),
     )
     assert_evidence_error(
@@ -72,6 +77,7 @@ def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
             worktree_reader=lambda _path: b"drifted current input",
             input_set_reader=lambda: {Path("spec/example.md")},
             worktree_set_reader=lambda: {Path("spec/example.md")},
+            subject_set_reader=lambda _revision: {Path("spec/example.md")},
         ),
     )
 
@@ -96,11 +102,19 @@ def test_evidence_verifier_rejects_incomplete_input_coverage_and_unsafe_paths() 
                 Path("scripts/missing.py"),
             },
             worktree_set_reader=lambda: {Path("spec/example.md")},
+            subject_set_reader=lambda _revision: {
+                Path("spec/example.md"),
+                Path("scripts/missing.py"),
+            },
         ),
     )
     assert_evidence_error(
         "unsafe evidence path",
         lambda: safe_relative_path("../escape"),
+    )
+    assert_evidence_error(
+        "invalid evidence record name",
+        lambda: safe_record_name("nested/pgm-01-abcdef0"),
     )
     assert_evidence_error(
         "unsafe evidence path",
@@ -200,6 +214,32 @@ def test_evidence_manifest_schema_rejects_missing_required_provenance() -> None:
     )
 
 
+def test_evidence_verifier_enforces_append_only_correction() -> None:
+    """TC-022. Trace: TC-022, FR-009-AC-4, NFR-004-AC-4."""
+    corrections = load_evidence_corrections()
+    if corrections != {"pgm-01-568bd05": ["COR-001"]}:
+        raise AssertionError(f"unexpected enforced corrections: {corrections}")
+    assert_evidence_error(
+        "differs from HEAD",
+        lambda: load_evidence_corrections(
+            head_reader=lambda _revision, _path: b"simultaneously tampered evidence"
+        ),
+    )
+    assert_evidence_error(
+        "correction set differs from HEAD",
+        lambda: load_evidence_corrections(
+            head_set_reader=lambda: {
+                Path("evidence/corrections/COR-001-pr12-code-review.json")
+            },
+            worktree_set_reader=lambda: set(),
+        ),
+    )
+    assert_evidence_error(
+        "record has an append-only correction",
+        lambda: verify_record(ROOT / "evidence/pgm-01-568bd05"),
+    )
+
+
 def load_tests(
     _loader: unittest.TestLoader,
     tests: unittest.TestSuite,
@@ -228,6 +268,11 @@ def load_tests(
     tests.addTest(
         unittest.FunctionTestCase(
             test_evidence_manifest_schema_rejects_missing_required_provenance
+        )
+    )
+    tests.addTest(
+        unittest.FunctionTestCase(
+            test_evidence_verifier_enforces_append_only_correction
         )
     )
     return tests
