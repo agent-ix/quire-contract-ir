@@ -11,6 +11,7 @@ make lint           # clippy with -D warnings
 make governance     # validate the PGM-01 schema and corpus
 make spec           # validate and cover all Quire artifacts
 make evidence-verify # verify the current immutable evidence record
+make release-check   # run all local release gates, including evidence
 make test           # governance validation + cargo test
 make build          # release build
 make clean          # cargo clean

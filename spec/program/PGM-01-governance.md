@@ -174,7 +174,11 @@ manifest containing source revision, collection time, commands, tool/dependency
 identities, environment, individual outcomes, limitations, and checksums. A
 rerun is a new record at `evidence/pgm-01-<short-source-revision>/`. Failed and
 skipped measurements remain visible. A checksum file outside that directory
-covers its manifest and every retained output without self-reference.
+covers its manifest and every retained output without self-reference. The
+manifest conforms to the checked-in `quire.pgm01-evidence/v1` schema and pins
+that schema by path and SHA-256 digest. Release verification compares the
+complete non-evidence `HEAD` tree with the recorded input set so squash-merged
+records remain verifiable and later added files cannot escape coverage.
 
 The human release record shall identify the candidate and evidence manifest,
 open gaps and accepted exceptions, decision (`approve`, `reject`, or `defer`),

@@ -23,7 +23,7 @@ explicitly assigned to issue #5 and is not silently claimed by this ticket.
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
 | FND-001 | low | Assurance Profile, Architecture Description, Component Assurance Contract, Measurement Plan, and Assurance Argument remain an explicit issue #5 obligation; issue #3 neither supplies nor claims them. | issue #5 | correct-requirement-no-evidence |
-| FND-002 | low | The installed `spec-artifacts-process` archetype requires the literal `Coverage Status` column while its coverage declaration requires `Status`. The canonical archetype column is retained so repository-wide validation remains sound. Quire still reports 26/26 backed, 12/12 test bindings, zero status lies, and zero unbacked rows; the skipped functional-row status classification is an upstream module contradiction, not a false coverage claim. | TM-001; local `quire validate`; local `quire coverage --strict` | correct-requirement-no-evidence |
+| FND-002 | low | The installed `spec-artifacts-process` archetype requires the literal `Coverage Status` column while its coverage declaration requires `Status`. The canonical archetype column is retained so repository-wide validation remains sound. Quire reports 28/28 backed, complete authored test bindings, zero status lies, and zero unbacked rows; the skipped functional-row status classification is an upstream module contradiction, not a false coverage claim. | TM-001; local `quire validate`; local `quire coverage --strict` | correct-requirement-no-evidence |
 
 ## Requirement Results
 
@@ -32,7 +32,7 @@ explicitly assigned to issue #5 and is not silently claimed by this ticket.
 | FR-001–FR-003 | canonical policy and TC-001/02/08 | pass |
 | FR-004–FR-007 | policy, CONTRIBUTING, CODEOWNERS, protection snapshot, TC-002/03/04 | pass |
 | FR-008 | published Draft 7 schema, complete corpus, mutation probes, TC-005–12 | pass |
-| FR-009 | revision-scoped evidence, semantic inconclusive assertion, TC-004/06 | pass |
+| FR-009 | revision-scoped evidence, semantic inconclusive assertion, TC-004/06/13 | pass |
 | FR-010 | qualification boundary and TC-003 | pass |
 
 ## Open Workflow Gates

@@ -15,6 +15,7 @@ help:
 	@echo "  make governance       - Validate PGM-01 schema and corpus"
 	@echo "  make spec             - Validate and cover all Quire artifacts"
 	@echo "  make evidence-verify  - Verify one immutable evidence record"
+	@echo "  make release-check    - Run every local release gate, including evidence"
 	@echo "  make test             - Validate governance and run cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
@@ -88,3 +89,6 @@ audit-unsafe:
 
 .PHONY: ci
 ci: fmt-check lint test deny audit-unsafe
+
+.PHONY: release-check
+release-check: ci spec evidence-verify

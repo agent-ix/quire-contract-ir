@@ -9,10 +9,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 from scripts.verify_evidence import (
+    EVIDENCE_SCHEMA,
+    ROOT,
     EvidenceError,
-    choose_closest_match,
+    choose_unique_match,
     parse_external_checksum_lines,
     safe_relative_path,
+    sha256,
+    validate_manifest_schema,
     verify_input_checksums,
     verify_output_entries,
 )
@@ -28,7 +32,7 @@ def assert_evidence_error(message: str, callback: Callable[[], object]) -> None:
         raise AssertionError(f"expected EvidenceError containing {message!r}")
 
 
-def test_evidence_verifier_detects_subject_and_current_input_drift() -> None:
+def test_evidence_verifier_detects_head_and_current_input_drift() -> None:
     """TC-013. Trace: TC-013, FR-009-AC-3."""
     payload = b"exact subject input"
     manifest = {
@@ -39,9 +43,9 @@ def test_evidence_verifier_detects_subject_and_current_input_drift() -> None:
     }
     actual = verify_input_checksums(
         manifest,
-        subject_reader=lambda _revision, _path: payload,
+        head_reader=lambda _revision, _path: payload,
         worktree_reader=lambda _path: payload,
-        input_set_reader=lambda _revision: {Path("spec/example.md")},
+        input_set_reader=lambda: {Path("spec/example.md")},
     )
     if actual != 1:
         raise AssertionError(f"expected one verified input, got {actual}")
@@ -49,21 +53,21 @@ def test_evidence_verifier_detects_subject_and_current_input_drift() -> None:
     wrong_record = copy.deepcopy(manifest)
     wrong_record["inputChecksums"]["spec/example.md"] = "0" * 64
     assert_evidence_error(
-        "subject input checksum mismatch",
+        "HEAD input checksum mismatch",
         lambda: verify_input_checksums(
             wrong_record,
-            subject_reader=lambda _revision, _path: payload,
+            head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: payload,
-            input_set_reader=lambda _revision: {Path("spec/example.md")},
+            input_set_reader=lambda: {Path("spec/example.md")},
         ),
     )
     assert_evidence_error(
         "current input checksum mismatch",
         lambda: verify_input_checksums(
             manifest,
-            subject_reader=lambda _revision, _path: payload,
+            head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: b"drifted current input",
-            input_set_reader=lambda _revision: {Path("spec/example.md")},
+            input_set_reader=lambda: {Path("spec/example.md")},
         ),
     )
 
@@ -78,12 +82,12 @@ def test_evidence_verifier_rejects_incomplete_input_coverage_and_unsafe_paths() 
         },
     }
     assert_evidence_error(
-        "do not cover the subject tree",
+        "do not cover the current HEAD tree",
         lambda: verify_input_checksums(
             manifest,
-            subject_reader=lambda _revision, _path: payload,
+            head_reader=lambda _revision, _path: payload,
             worktree_reader=lambda _path: payload,
-            input_set_reader=lambda _revision: {
+            input_set_reader=lambda: {
                 Path("spec/example.md"),
                 Path("scripts/missing.py"),
             },
@@ -149,16 +153,30 @@ def test_evidence_verifier_authenticates_outputs_and_checksum_file_to_head() -> 
     )
 
 
-def test_evidence_verifier_selects_the_closest_matching_subject() -> None:
+def test_evidence_verifier_requires_one_matching_record() -> None:
     """TC-013. Trace: TC-013, FR-009-AC-3."""
-    selected = choose_closest_match(
-        [
-            (Path("evidence/pgm-01-old"), 3, 48, 4),
-            (Path("evidence/pgm-01-new"), 3, 48, 1),
-        ]
+    only = (Path("evidence/pgm-01-only"), 2, 64)
+    if choose_unique_match([only]) != only:
+        raise AssertionError("expected the sole current record")
+    assert_evidence_error(
+        "multiple current evidence records",
+        lambda: choose_unique_match([only, (Path("evidence/pgm-01-other"), 2, 64)]),
     )
-    if selected[0].name != "pgm-01-new":
-        raise AssertionError(f"expected closest record, got {selected[0]}")
+
+
+def test_evidence_manifest_schema_rejects_missing_required_provenance() -> None:
+    """TC-013. Trace: TC-013, FR-009-AC-3."""
+    schema_bytes = (ROOT / EVIDENCE_SCHEMA).read_bytes()
+    incomplete = {
+        "schemaIdentity": {
+            "path": EVIDENCE_SCHEMA.as_posix(),
+            "sha256": sha256(schema_bytes),
+        }
+    }
+    assert_evidence_error(
+        "evidence manifest schema violation",
+        lambda: validate_manifest_schema(incomplete),
+    )
 
 
 def load_tests(
@@ -168,7 +186,7 @@ def load_tests(
 ) -> unittest.TestSuite:
     tests.addTest(
         unittest.FunctionTestCase(
-            test_evidence_verifier_detects_subject_and_current_input_drift
+            test_evidence_verifier_detects_head_and_current_input_drift
         )
     )
     tests.addTest(
@@ -183,7 +201,12 @@ def load_tests(
     )
     tests.addTest(
         unittest.FunctionTestCase(
-            test_evidence_verifier_selects_the_closest_matching_subject
+            test_evidence_verifier_requires_one_matching_record
+        )
+    )
+    tests.addTest(
+        unittest.FunctionTestCase(
+            test_evidence_manifest_schema_rejects_missing_required_provenance
         )
     )
     return tests

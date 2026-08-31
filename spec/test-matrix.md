@@ -55,4 +55,4 @@ relationships:
 | TC-010 | Missing input identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
 | TC-011 | Missing nested schema identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
 | TC-012 | Missing output identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-013 | Evidence input drift is rejected | Integration | P0 | FR-009 | ✅ implemented |
+| TC-013 | Evidence tree, schema, outputs, and unique-record selection are enforced | Integration | P0 | FR-009 | ✅ implemented |

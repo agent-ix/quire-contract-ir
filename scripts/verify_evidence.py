@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify retained PGM-01 outputs and their exact subject inputs."""
+"""Verify retained PGM-01 outputs and the exact committed candidate tree."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from jsonschema import Draft7Validator, FormatChecker
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -19,7 +21,8 @@ REVISION = re.compile(r"^[0-9a-f]{40}$")
 CHECKSUM_LINE = re.compile(r"^([0-9a-f]{64})  (.+)$")
 BlobReader = Callable[[str, Path], bytes]
 WorktreeReader = Callable[[Path], bytes]
-InputSetReader = Callable[[str], set[Path]]
+InputSetReader = Callable[[], set[Path]]
+EVIDENCE_SCHEMA = Path("schemas/pgm01-evidence-v1.schema.json")
 
 
 class EvidenceError(ValueError):
@@ -50,16 +53,16 @@ def read_subject_blob(revision: str, path: Path) -> bytes:
     return result.stdout
 
 
-def read_subject_inputs(revision: str) -> set[Path]:
+def read_head_inputs() -> set[Path]:
     result = subprocess.run(
-        ["git", "ls-tree", "-r", "-z", "--name-only", revision],
+        ["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"],
         cwd=ROOT,
         check=False,
         capture_output=True,
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise EvidenceError(f"cannot enumerate subject tree {revision}: {detail}")
+        raise EvidenceError(f"cannot enumerate current HEAD tree: {detail}")
     paths = set()
     for raw_path in result.stdout.split(b"\0"):
         if not raw_path:
@@ -68,7 +71,7 @@ def read_subject_inputs(revision: str) -> set[Path]:
         if path.parts[0] != "evidence":
             paths.add(path)
     if not paths:
-        raise EvidenceError("subject tree contains no non-evidence inputs")
+        raise EvidenceError("current HEAD tree contains no non-evidence inputs")
     return paths
 
 
@@ -82,9 +85,9 @@ def read_worktree_file(path: Path) -> bytes:
 # Implements: FR-009
 def verify_input_checksums(
     manifest: dict[str, Any],
-    subject_reader: BlobReader = read_subject_blob,
+    head_reader: BlobReader = read_subject_blob,
     worktree_reader: WorktreeReader = read_worktree_file,
-    input_set_reader: InputSetReader = read_subject_inputs,
+    input_set_reader: InputSetReader = read_head_inputs,
 ) -> int:
     revision = manifest.get("subjectRevision")
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
@@ -102,19 +105,20 @@ def verify_input_checksums(
         if path in normalized_checksums:
             raise EvidenceError(f"duplicate normalized input path: {path}")
         normalized_checksums[path] = expected
-    required_inputs = input_set_reader(revision)
+    required_inputs = input_set_reader()
     if set(normalized_checksums) != required_inputs:
         missing = sorted(str(path) for path in required_inputs - set(normalized_checksums))
         extra = sorted(str(path) for path in set(normalized_checksums) - required_inputs)
         raise EvidenceError(
-            f"inputChecksums do not cover the subject tree; missing={missing}, extra={extra}"
+            f"inputChecksums do not cover the current HEAD tree; "
+            f"missing={missing}, extra={extra}"
         )
     for path, expected in normalized_checksums.items():
-        subject_actual = sha256(subject_reader(revision, path))
-        if subject_actual != expected:
+        head_actual = sha256(head_reader("HEAD", path))
+        if head_actual != expected:
             raise EvidenceError(
-                f"subject input checksum mismatch for {path}: "
-                f"expected {expected}, got {subject_actual}"
+                f"HEAD input checksum mismatch for {path}: "
+                f"expected {expected}, got {head_actual}"
             )
         worktree_actual = sha256(worktree_reader(path))
         if worktree_actual != expected:
@@ -123,6 +127,33 @@ def verify_input_checksums(
                 f"expected {expected}, got {worktree_actual}"
             )
     return len(normalized_checksums)
+
+
+def validate_manifest_schema(manifest: dict[str, Any]) -> None:
+    identity = manifest.get("schemaIdentity")
+    if not isinstance(identity, dict):
+        raise EvidenceError("schemaIdentity must be an object")
+    if identity.get("path") != EVIDENCE_SCHEMA.as_posix():
+        raise EvidenceError(f"schemaIdentity.path must be {EVIDENCE_SCHEMA}")
+    try:
+        schema_bytes = (ROOT / EVIDENCE_SCHEMA).read_bytes()
+        schema = json.loads(schema_bytes)
+    except (OSError, json.JSONDecodeError) as error:
+        raise EvidenceError(f"cannot load evidence schema: {error}") from error
+    if identity.get("sha256") != sha256(schema_bytes):
+        raise EvidenceError("evidence schema identity digest mismatch")
+    try:
+        Draft7Validator.check_schema(schema)
+    except Exception as error:
+        raise EvidenceError(f"invalid evidence schema: {error}") from error
+    errors = sorted(
+        Draft7Validator(schema, format_checker=FormatChecker()).iter_errors(manifest),
+        key=lambda error: (list(error.absolute_path), error.message),
+    )
+    if errors:
+        first = errors[0]
+        location = "/".join(str(part) for part in first.absolute_path) or "<root>"
+        raise EvidenceError(f"evidence manifest schema violation at {location}: {first.message}")
 
 
 def parse_external_checksum_lines(lines: list[str]) -> dict[Path, str]:
@@ -204,6 +235,7 @@ def verify_record(record: Path) -> tuple[int, int, str]:
         raise EvidenceError(f"cannot load evidence manifest {manifest_path}: {error}") from error
     if not isinstance(manifest, dict):
         raise EvidenceError("evidence manifest must be an object")
+    validate_manifest_schema(manifest)
     revision = manifest.get("subjectRevision")
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
         raise EvidenceError("subjectRevision must be a full lowercase Git revision")
@@ -216,55 +248,32 @@ def verify_record(record: Path) -> tuple[int, int, str]:
     return output_count, input_count, revision
 
 
-def subject_distance(revision: str) -> int:
-    ancestor = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", revision, "HEAD"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-    )
-    if ancestor.returncode != 0:
-        raise EvidenceError(f"evidence subject is not an ancestor of HEAD: {revision}")
-    result = subprocess.run(
-        ["git", "rev-list", "--count", f"{revision}..HEAD"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise EvidenceError(f"cannot measure evidence subject distance: {revision}")
-    return int(result.stdout.strip())
-
-
-def choose_closest_match(
-    matches: list[tuple[Path, int, int, int]],
+def choose_unique_match(
+    matches: list[tuple[Path, int, int]],
 ) -> tuple[Path, int, int]:
-    minimum = min(match[3] for match in matches)
-    closest = [match for match in matches if match[3] == minimum]
-    if len(closest) != 1:
-        names = ", ".join(match[0].name for match in closest)
-        raise EvidenceError(f"multiple equally current evidence records match: {names}")
-    record, outputs, inputs, _distance = closest[0]
-    return record, outputs, inputs
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        names = ", ".join(match[0].name for match in matches)
+        raise EvidenceError(f"multiple current evidence records match: {names}")
+    raise EvidenceError("no evidence record matches the current candidate")
 
 
 def select_current_record() -> tuple[Path, int, int]:
-    matches: list[tuple[Path, int, int, int]] = []
+    matches: list[tuple[Path, int, int]] = []
     failures = []
     for manifest_path in sorted((ROOT / "evidence").glob("pgm-01-*/manifest.json")):
         record = manifest_path.parent
         try:
-            outputs, inputs, revision = verify_record(record)
-            distance = subject_distance(revision)
+            outputs, inputs, _revision = verify_record(record)
         except EvidenceError as error:
             failures.append(f"{record.name}: {error}")
         else:
-            matches.append((record, outputs, inputs, distance))
-    if matches:
-        return choose_closest_match(matches)
-    detail = "; ".join(failures) if failures else "no records found"
-    raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
+            matches.append((record, outputs, inputs))
+    if not matches:
+        detail = "; ".join(failures) if failures else "no records found"
+        raise EvidenceError(f"no evidence record matches the current candidate: {detail}")
+    return choose_unique_match(matches)
 
 
 def main() -> int:
@@ -287,7 +296,7 @@ def main() -> int:
         return 1
     print(
         f"PGM-01 evidence {record.name}: {outputs}/{outputs} retained outputs and "
-        f"{inputs}/{inputs} subject/current inputs matched"
+        f"{inputs}/{inputs} HEAD/worktree inputs matched"
     )
     return 0
 
