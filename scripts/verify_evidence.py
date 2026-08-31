@@ -236,7 +236,9 @@ def parse_external_checksums(path: Path) -> dict[Path, str]:
 
 
 # Implements: FR-009
-def load_evidence_corrections() -> dict[str, list[str]]:
+def load_evidence_corrections(
+    head_reader: BlobReader = read_subject_blob,
+) -> dict[str, list[str]]:
     correction_paths = sorted((ROOT / "evidence/corrections").glob("COR-*.json"))
     if not correction_paths:
         return {}
@@ -275,6 +277,13 @@ def load_evidence_corrections() -> dict[str, list[str]]:
         entries = parse_external_checksums(checksum_path)
         if entries != {relative: sha256(payload)}:
             raise EvidenceError(f"evidence correction checksum mismatch: {relative}")
+        checksum_relative = checksum_path.relative_to(ROOT)
+        if payload != head_reader("HEAD", relative):
+            raise EvidenceError(f"evidence correction differs from HEAD: {relative}")
+        if checksum_path.read_bytes() != head_reader("HEAD", checksum_relative):
+            raise EvidenceError(
+                f"evidence correction checksum differs from HEAD: {checksum_relative}"
+            )
         for claim in correction["affectedClaims"]:
             affected = safe_record_name(claim["record"])
             if not (ROOT / "evidence" / affected / "manifest.json").is_file():

@@ -220,6 +220,12 @@ def test_evidence_verifier_enforces_append_only_correction() -> None:
     if corrections != {"pgm-01-568bd05": ["COR-001"]}:
         raise AssertionError(f"unexpected enforced corrections: {corrections}")
     assert_evidence_error(
+        "differs from HEAD",
+        lambda: load_evidence_corrections(
+            head_reader=lambda _revision, _path: b"simultaneously tampered evidence"
+        ),
+    )
+    assert_evidence_error(
         "record has an append-only correction",
         lambda: verify_record(ROOT / "evidence/pgm-01-568bd05"),
     )

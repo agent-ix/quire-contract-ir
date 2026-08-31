@@ -154,7 +154,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
         with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
             verify_evidence.EvidenceError, "checksum mismatch"
         ):
-            verify_evidence.load_evidence_corrections()
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes()
+            )
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -170,7 +172,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
         with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
             verify_evidence.EvidenceError, "unavailable record"
         ):
-            verify_evidence.load_evidence_corrections()
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes()
+            )
 
     traversal = json.loads(json.dumps(base))
     traversal["affectedClaims"][0]["record"] = "../pgm-01-abcdef0"
@@ -187,7 +191,9 @@ def test_evidence_corrections_fail_closed_on_identity_integrity_and_target() -> 
         with patch.object(verify_evidence, "ROOT", root), unittest.TestCase().assertRaisesRegex(
             verify_evidence.EvidenceError, "schema violation"
         ):
-            verify_evidence.load_evidence_corrections()
+            verify_evidence.load_evidence_corrections(
+                head_reader=lambda _revision, path: (root / path).read_bytes()
+            )
 
 
 def load_tests(
