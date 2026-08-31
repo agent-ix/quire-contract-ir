@@ -23,3 +23,4 @@ rewriting either affected immutable record.
 | ID | Severity | Summary | Refs |
 |---|---|---|---|
 | FND-005 | low | Cross-platform golden evidence is correctly open until canonicalization exists; it is not claimed by the foundation. | MP-001, AA-001 |
+| FND-010 | low | The correction was initially documentary only; it is resolved because the verifier now fails closed on corrected records and authenticates the correction schema, checksum, target, and negative fixture. | FR-009-AC-4, TC-022, COR-001 |
