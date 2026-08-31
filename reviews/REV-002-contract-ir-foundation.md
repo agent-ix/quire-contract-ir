@@ -40,3 +40,6 @@ minted.
 | FND-R05 | medium | The correction schema had no owning requirement or negative corpus. | FR-009 owns the schema; a manifest-complete positive/negative correction corpus is executed by the Python gate. |
 | FND-R06 | low | NFR-004 verification omitted TC-022. | The verification section now includes TC-020 through TC-022. |
 | FND-R07 | low | StR-003 coverage omitted its declared TC-016 verification. | TM-002 now lists TC-016, TC-018, and TC-020. |
+| FND-R08 | medium | Correction enforcement and integrity failure branches lacked direct negative tests. | TC-022 now executes affected-record rejection plus checksum-mismatch, dangling-target, and malformed-record failures. |
+| FND-R09 | low | The correction fixture manifest did not prove it listed every correction fixture. | The corpus test now requires exact equality between declared and discovered valid/invalid fixtures. |
+| FND-R10 | low | An affected record name could contain path traversal and evade the record-name comparison. | The schema restricts affected records to `pgm-01-<seven hex>` and the loader additionally enforces a one-component safe relative name. |

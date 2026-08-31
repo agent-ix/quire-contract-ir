@@ -30,7 +30,7 @@
         "additionalProperties": false,
         "required": ["record", "claim", "location"],
         "properties": {
-          "record": {"type": "string", "minLength": 1},
+          "record": {"type": "string", "pattern": "^pgm-01-[0-9a-f]{7}$"},
           "claim": {"type": "string", "minLength": 1},
           "location": {"type": "string", "format": "uri"}
         }

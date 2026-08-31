@@ -21,6 +21,7 @@ from scripts.verify_evidence import (
     load_evidence_corrections,
     verify_input_checksums,
     verify_output_entries,
+    verify_record,
 )
 
 
@@ -206,6 +207,10 @@ def test_evidence_verifier_enforces_append_only_correction() -> None:
     corrections = load_evidence_corrections()
     if corrections != {"pgm-01-568bd05": ["COR-001"]}:
         raise AssertionError(f"unexpected enforced corrections: {corrections}")
+    assert_evidence_error(
+        "record has an append-only correction",
+        lambda: verify_record(ROOT / "evidence/pgm-01-568bd05"),
+    )
 
 
 def load_tests(

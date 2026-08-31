@@ -251,6 +251,11 @@ def load_evidence_corrections() -> dict[str, list[str]]:
             raise EvidenceError(f"evidence correction checksum mismatch: {relative}")
         for claim in correction["affectedClaims"]:
             affected = claim["record"]
+            affected_path = safe_relative_path(affected)
+            if len(affected_path.parts) != 1:
+                raise EvidenceError(
+                    f"evidence correction {record_id} has invalid record name {affected}"
+                )
             if not (ROOT / "evidence" / affected / "manifest.json").is_file():
                 raise EvidenceError(
                     f"evidence correction {record_id} names unavailable record {affected}"

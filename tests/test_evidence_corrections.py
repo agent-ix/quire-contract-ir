@@ -35,6 +35,13 @@ class EvidenceCorrectionTests(unittest.TestCase):
         validator = Draft7Validator(schema, format_checker=FormatChecker())
 
         self.assertEqual(manifest["schema"], SCHEMA.relative_to(ROOT).as_posix())
+        declared = {fixture["path"] for fixture in manifest["fixtures"]}
+        available = {RECORD.relative_to(ROOT).as_posix()}
+        available.update(
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "corpus/evidence-corrections/invalid").glob("*.json")
+        )
+        self.assertEqual(declared, available)
         for fixture in manifest["fixtures"]:
             payload = json.loads((ROOT / fixture["path"]).read_text(encoding="utf-8"))
             self.assertEqual(not bool(list(validator.iter_errors(payload))), fixture["valid"])
