@@ -77,6 +77,11 @@ diagnostic_codes! {
     NonBooleanClauseRoot => "non_boolean_clause_root",
     PotentiallyUndefined => "potentially_undefined",
     ExpressionTooLarge => "expression_too_large",
+    UnsupportedSchemaVersion => "unsupported_schema_version",
+    UnregisteredMigration => "unregistered_migration",
+    CanonicalizationResourceExhausted => "canonicalization_resource_exhausted",
+    DuplicateArtifactTrace => "duplicate_artifact_trace",
+    StaleTraceDigest => "stale_trace_digest",
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -359,6 +364,7 @@ pub struct SchemaVersion {
 
 impl SchemaVersion {
     pub const V1_0: Self = Self { major: 1, minor: 0 };
+    pub const V1_1: Self = Self { major: 1, minor: 1 };
 
     pub fn new(major: u16, minor: u16) -> Result<Self, Diagnostic> {
         if major == 0 {
@@ -1217,6 +1223,16 @@ fn with_optional_span(diagnostic: Diagnostic, span: Option<&SourceSpan>) -> Diag
 impl ContractPackage<ReferenceBody> {
     /// Parses the issue #6 JSON representation without reducing semantic failures to text.
     pub fn from_json_str(input: &str) -> Result<Self, Vec<Diagnostic>> {
+        let preflight: VersionPreflight = serde_json::from_str(input).map_err(|error| {
+            vec![Diagnostic::error(
+                DiagnosticCode::InvalidWireFormat,
+                error.to_string(),
+                "document",
+            )]
+        })?;
+        preflight
+            .validate()
+            .map_err(|diagnostic| vec![diagnostic])?;
         let wire: WirePackage = serde_json::from_str(input).map_err(|error| {
             vec![Diagnostic::error(
                 DiagnosticCode::InvalidWireFormat,
@@ -1225,6 +1241,30 @@ impl ContractPackage<ReferenceBody> {
             )]
         })?;
         wire.validate()
+    }
+}
+
+#[derive(Deserialize)]
+struct VersionPreflight {
+    schema_version: WireSchemaVersion,
+}
+
+impl VersionPreflight {
+    fn validate(self) -> Result<SchemaVersion, Diagnostic> {
+        let version = self.schema_version.validate()?;
+        match (version.major(), version.minor()) {
+            (1, 0 | 1) => Ok(version),
+            (1, _) => Err(Diagnostic::error(
+                DiagnosticCode::UnregisteredMigration,
+                "schema minor has no registered migration",
+                "schema_version",
+            )),
+            (_, _) => Err(Diagnostic::error(
+                DiagnosticCode::UnsupportedSchemaVersion,
+                "schema major is unsupported",
+                "schema_version.major",
+            )),
+        }
     }
 }
 

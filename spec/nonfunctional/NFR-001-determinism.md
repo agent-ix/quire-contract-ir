@@ -39,3 +39,8 @@ The public Rust library, JSON interface, corpus runner, and golden fixtures.
 
 Golden fixtures, seeded repetition, and canonicalization property tests (TC-017,
 TC-019).
+
+Issue #9 pins the canonical profile, byte grammar, domain-separated SHA-256
+inputs, structural row ordering, and same-process repetition in TC-017. The
+complete twice-run corpus and Linux/macOS/Windows comparison remain TC-019 work
+after the issue #10 corpus exists; no CI run is required or claimed by issue #9.

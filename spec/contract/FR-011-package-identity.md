@@ -26,7 +26,10 @@ downstream citation.
 
 ## Behavior
 
-The v0.1 wire schema version is `1.0`; crate version `0.1.0` is independent.
+Issue #6 introduced wire schema version `1.0`; FR-017 makes `1.1` current and
+retains `1.0` only as the source of its registered migration. Crate version
+`0.1.0` is independent. This requirement does not freeze the current schema
+version or authorize an unregistered migration.
 Identity validation rejects empty namespaces, malformed identifiers, a zero
 schema major, zero source or requirement revisions, duplicate requirement identifiers, and
 references to a different package. Changing a requirement revision changes every derived downstream

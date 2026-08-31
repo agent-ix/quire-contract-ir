@@ -73,6 +73,16 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `potentially_undefined` | A partial-operation obligation is not statically discharged; diagnostic includes mandatory `obligation_kind` (`option_presence`, `non_zero_divisor`, `index_in_bounds`, or `checked_range`) | partial-operation span |
 | `expression_too_large` | Expression exceeds 10000 nodes or depth 256 | first node crossing the limit |
 
+## Issue 9 Codes
+
+| Code | Condition | Required location |
+|---|---|---|
+| `unsupported_schema_version` | Wire preflight reads a nonzero schema major other than 1 | `schema_version.major` path; no semantic span |
+| `unregistered_migration` | Major 1 minor is not 0/1, or a requested migration edge is not the registered 1.0-to-1.1 edge | `schema_version` or migration request path |
+| `canonicalization_resource_exhausted` | Canonical byte allocation cannot be reserved without exceeding host resources | canonicalized object path; source span when the object has one |
+| `duplicate_artifact_trace` | A later artifact trace repeats an artifact ID in one classification input | later trace span |
+| `stale_trace_digest` | A deep trace's requirement digest differs from the resolved current requirement digest | digest-token span |
+
 ## Application Guidance
 
 Public diagnostics contain a code, closed severity `error`, message, semantic
@@ -107,6 +117,15 @@ Within one node the issue #8 precedence above selects the primary code. State
 observation policy follows resolved-value lookup and precedes operand typing.
 Declaration-environment diagnostics precede expression diagnostics and follow
 stored declaration/field/variant/parameter order.
+
+Issue #9 wire precedence is JSON/top-level structure, schema-version numeric
+grammar, unsupported major, unregistered minor/migration edge, then semantic
+package interpretation. Canonicalization accepts validated values only and
+performs no diagnostic recovery; resource exhaustion produces no partial bytes
+or digest. Coverage precedence per trace is duplicate artifact ID,
+cross-package target, missing requirement, stale revision, then deep-digest
+mismatch. Coverage diagnostics retain authored trace order even though report
+rows sort structurally.
 
 ## Dependencies
 
