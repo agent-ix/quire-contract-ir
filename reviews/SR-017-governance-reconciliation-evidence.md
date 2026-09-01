@@ -27,6 +27,14 @@ records or prototype output as independent approval evidence.
 | FND-207 | high | Resolved: the old policy allowed readers to infer that migrating retained history into a current envelope was required. The mapping is now read-only and explicitly lossy. | PGM-01-R09, FR-009-AC-5 |
 | FND-208 | medium | Resolved: prototype controls and prototype architecture were not separated. The inventory now preserves adversarial/domain cases while rejecting execution, verdict, authority, and retention behavior. | PGM-01-R11, FR-021-AC-4 |
 
+## Gate Disposition
+
+This is a pre-implementation specification gate over the delta committed as
+`e99358f`. Its PASS authorizes TASK-011 implementation only; it does not
+authorize issue disposition, merge, migration, or release. TC-023 through
+TC-028 and the final code-review/gap-analysis findings remain owned by
+TASK-011/TASK-012 until independently closed.
+
 ## Verdict
 
 **PASS for specification** — evidence claims remain source-attributed and no

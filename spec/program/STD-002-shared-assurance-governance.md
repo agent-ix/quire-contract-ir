@@ -1,3 +1,14 @@
+---
+id: STD-002
+title: "Shared assurance governance reconciliation"
+type: Standard
+code: shared-assurance-governance-v1
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/PGM-01
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/issues/38
+    type: references
+---
 # Shared assurance governance reconciliation
 
 This document records the reviewed disposition for
@@ -25,9 +36,10 @@ development time only after their common-work release gate passes.
 
 Existing PGM-01 records, external checksums, corrections, and schemas remain
 immutable inputs. `tests/fixtures/historical-pgm01-files.sha256` locks every
-historical record, checksum, correction, and schema byte present when this
-reconciliation was accepted; additions do not rewrite the locked files. The
-local verifier continues to authenticate the original representation.
+historical record, checksum, correction, and PGM-01 domain/evidence/correction
+schema byte present when this reconciliation was accepted. Additions require a
+new lock entry but do not rewrite an accepted byte. The local verifier continues
+to authenticate the original representation.
 
 The compatibility implementation is the explicit read-only, lossy mapping
 owned by [Engineering Assurance #5](https://github.com/agent-ix/engineering-assurance/issues/5)
@@ -44,9 +56,14 @@ The required repository state after this gate is:
 
 | Issue | Disposition | Boundary |
 |---|---|---|
-| [`#1`](https://github.com/agent-ix/quire-contract-ir/issues/1) | reconciled | Replace the future-integration deferral with the exact shared ownership and dependency order. |
-| [`#7`](https://github.com/agent-ix/quire-contract-ir/issues/7) | re-scoped | Keep open only as a post-release inventory of conditional catalog and adapter opportunities; authorize no migration. |
-| [`#20`](https://github.com/agent-ix/quire-contract-ir/issues/20) | superseded and closed | Preserve reusable threats and domain cases; reject the proposed component architecture in favor of [Engineering Assurance #7](https://github.com/agent-ix/engineering-assurance/issues/7). |
+| [`#1`](https://github.com/agent-ix/quire-contract-ir/issues/1) | reconciled | The future-integration deferral is replaced with the exact shared ownership and dependency order. |
+| [`#7`](https://github.com/agent-ix/quire-contract-ir/issues/7) | re-scoped | Open only as a post-release inventory of conditional catalog and adapter opportunities; authorizes no migration. |
+| [`#20`](https://github.com/agent-ix/quire-contract-ir/issues/20) | superseded and closed | Reusable threats and domain cases are preserved; the proposed component architecture is rejected in favor of [Engineering Assurance #7](https://github.com/agent-ix/engineering-assurance/issues/7). |
+
+The exact inspected states, timestamps, body digests, and #20 closure-comment
+identity are retained in
+`tests/fixtures/campaign-issue-dispositions-v1.json`. That receipt is a bounded
+snapshot; it does not claim that later GitHub edits are observable offline.
 
 ## Legacy prototype inventory
 

@@ -9,10 +9,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MATRICES = (ROOT / "spec/test-matrix.md", ROOT / "spec/contract-test-matrix.md")
+STATUS_DOCUMENTS = (
+    ROOT / "spec/test-matrix.md",
+    ROOT / "spec/contract-test-matrix.md",
+    ROOT / "spec/program/PGM-01-governance.md",
+)
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
 RUST_TEST = re.compile(r"#\[test\]\s*fn\s+tc_(\d{3})(?:_|\b)")
+POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 
 
 def rows(document: str) -> list[list[str]]:
@@ -21,7 +26,12 @@ def rows(document: str) -> list[list[str]]:
         if not line.startswith("|") or set(line.replace("|", "").strip()) <= {"-"}:
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if cells and cells[0] not in {"Test ID", "Functional Req", "Stakeholder Req"}:
+        if cells and cells[0] not in {
+            "ID",
+            "Test ID",
+            "Functional Req",
+            "Stakeholder Req",
+        }:
             parsed.append(cells)
     return parsed
 
@@ -84,18 +94,33 @@ def validate_documents(documents: list[str], executable: set[str]) -> list[str]:
         for test_id in sorted(references):
             if not summaries.get(test_id, "").startswith("✅"):
                 failures.append(f"{row[0]} is complete but {test_id} is not complete")
+    for row in parsed:
+        if not row or not POLICY_AC.fullmatch(row[0]):
+            continue
+        references = referenced_tests(" ".join(row[1:]))
+        if not references:
+            failures.append(f"{row[0]} cites no test")
+        for test_id in sorted(references):
+            if not summaries.get(test_id, "").startswith("✅"):
+                failures.append(f"{row[0]} cites incomplete or unknown {test_id}")
+            elif test_id not in executable:
+                failures.append(f"{row[0]} cites non-executable {test_id}")
     return failures
 
 
 def main() -> int:
     failures = validate_documents(
-        [path.read_text(encoding="utf-8") for path in MATRICES], executable_tests()
+        [path.read_text(encoding="utf-8") for path in STATUS_DOCUMENTS],
+        executable_tests(),
     )
     if failures:
         for failure in failures:
             print(f"matrix status error: {failure}", file=sys.stderr)
         return 1
-    print("matrix status census: every ✅ row resolves to completed executable tests")
+    print(
+        "matrix status census: every ✅ row and PGM acceptance citation "
+        "resolves to completed executable tests"
+    )
     return 0
 
 

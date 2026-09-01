@@ -49,11 +49,11 @@ retention authority.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-021-AC-1 | Every shared responsibility appears once with one authoritative owner. | Test (TC-023) |
-| FR-021-AC-2 | Domain repositories own producers/results, published crates have no Quire/Quoin runtime dependency, and both Quire and Quoin are explicitly non-executing. | Test (TC-025) |
+| FR-021-AC-1 | Every shared responsibility appears once with one authoritative owner. | Inspection (TC-023) |
+| FR-021-AC-2 | Domain repositories own producers/results, published crates have no Quire/Quoin runtime dependency, and both Quire and Quoin are explicitly non-executing. | Inspection (TC-025) |
 | FR-021-AC-3 | Issue #1 no longer defers integration architecture; issue #7 is re-scoped and #20 is closed as superseded with replacement-epic links. | Inspection (TC-026) |
-| FR-021-AC-4 | The legacy prototype inventory preserves adversarial/domain cases and rejects executor/profile/verdict/authority/retention behavior. | Test (TC-027) |
-| FR-021-AC-5 | No campaign document prescribes a conflicting common envelope, executor, or evidence-retention owner. | Static (TC-028) |
+| FR-021-AC-4 | The legacy prototype inventory preserves adversarial/domain cases and rejects executor/profile/verdict/authority/retention behavior. | Inspection (TC-027) |
+| FR-021-AC-5 | No campaign document prescribes a conflicting common envelope, executor, or evidence-retention owner. | Inspection (TC-028) |
 
 ## Dependencies
 

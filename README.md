@@ -21,7 +21,7 @@ The canonical cross-repository governance contract is
 domain-result provenance, shared assurance ownership, release ordering, and the
 qualification boundary for the eight repositories in the contract-derived
 verification program. The reviewed
-[shared-assurance reconciliation](docs/shared-assurance-governance.md) records
+[shared-assurance reconciliation](spec/program/STD-002-shared-assurance-governance.md) records
 the campaign issue and legacy-prototype dispositions.
 
 Domain tools and project-native systems execute verification and own their

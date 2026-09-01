@@ -21,6 +21,6 @@ pull request, decide that evidence is sufficient, create a source-release tag,
 or claim validation, accreditation, or certification for a consuming project.
 The exact ownership and compatibility rules are normative in
 [`PGM-01`](spec/program/PGM-01-governance.md); the linked
-[reconciliation record](docs/shared-assurance-governance.md) explains the
+[reconciliation record](spec/program/STD-002-shared-assurance-governance.md) explains the
 common-work sequence. Quire and Quoin remain non-executing development-time
 boundaries, not runtime dependencies or a shared producer runner.

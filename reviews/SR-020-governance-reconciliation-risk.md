@@ -26,6 +26,14 @@ new runtime, store, schema family, workflow engine, or migration mechanism.
 | FND-213 | high | Resolved: adopting the prototype would add a universal runner, central profile, aggregate verdict, authority index, and ninth retention implementation. These surfaces are explicitly rejected. | PGM-01-R11, FR-021 behavior |
 | FND-214 | medium | Resolved: immediate mandatory adoption would depend on unreleased CLIs. The historical path remains governed until exact shared releases are pinned. | PGM-01-R09, FR-009 behavior |
 
+## Gate Disposition
+
+This is a pre-implementation specification gate over the delta committed as
+`e99358f`. Its PASS authorizes TASK-011 implementation only; it does not
+authorize issue disposition, merge, migration, or release. TC-023 through
+TC-028 and the final code-review/gap-analysis findings remain owned by
+TASK-011/TASK-012 until independently closed.
+
 ## Verdict
 
 **PASS for specification** — complexity is bounded to documentation,

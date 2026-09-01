@@ -22,7 +22,7 @@ relationships:
 | FR-008 | FR-008-AC-1 through FR-008-AC-4 | TC-005 through TC-012, TC-023 | ✅ covered |
 | FR-009 | FR-009-AC-1 through FR-009-AC-6 | TC-004, TC-006, TC-013, TC-022, TC-024, TC-025 | ✅ covered |
 | FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
-| FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | 🚧 planned |
+| FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | ✅ covered |
 
 ## Stakeholder Requirement Coverage
 
@@ -57,9 +57,9 @@ relationships:
 | TC-011 | Missing nested schema identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
 | TC-012 | Missing output identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
 | TC-013 | Evidence tree, schema, outputs, and unique-record selection are enforced | Integration | P0 | FR-009 | ✅ implemented |
-| TC-023 | Shared responsibility registry has exactly one owner per responsibility | Static | P0 | FR-008, FR-021 | ✅ implemented |
+| TC-023 | Shared responsibility registry has exactly one owner per responsibility | Inspection | P0 | FR-008, FR-021 | ✅ implemented |
 | TC-024 | Historical PGM-01 records remain byte-identical and explicitly lossy | Integration | P0 | FR-009 | ✅ implemented |
-| TC-025 | Domain/result ownership, non-execution, and runtime independence agree | Static | P0 | FR-009, FR-021 | ✅ implemented |
-| TC-026 | Campaign issues #1/#7/#20 record reconciled linked dispositions | Inspection | P0 | FR-021 | 🚧 planned |
-| TC-027 | Prototype inventory preserves threat/domain cases and rejects its architecture | Static | P0 | FR-021 | ✅ implemented |
-| TC-028 | Campaign documents contain no conflicting executor/envelope/retention prescription | Static | P0 | FR-021 | ✅ implemented |
+| TC-025 | Domain/result ownership, non-execution, and runtime independence agree | Inspection | P0 | FR-009, FR-021 | ✅ implemented |
+| TC-026 | Campaign issues #1/#7/#20 record reconciled linked dispositions | Inspection | P0 | FR-021 | ✅ implemented |
+| TC-027 | Prototype inventory preserves threat/domain cases and rejects its architecture | Inspection | P0 | FR-021 | ✅ implemented |
+| TC-028 | Campaign documents contain no conflicting executor/envelope/retention prescription | Inspection | P0 | FR-021 | ✅ implemented |

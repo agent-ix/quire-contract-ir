@@ -43,7 +43,7 @@ A deterministic validation report with a Boolean validity result and structured 
 | FR-008-AC-1 | Both valid fixtures pass the published schema and every invalid fixture fails with its declared code. | Test (TC-005) |
 | FR-008-AC-2 | Mutating any probed nested required-field set or identity format causes the conformance gate to fail. | Test (TC-005) |
 | FR-008-AC-3 | Tool, input, schema, backend, output, and provenance identity omissions have targeted negative evidence. | Test (TC-007) |
-| FR-008-AC-4 | Governance classifies the schema as a producer-owned domain result and assigns execution, static definitions, retention/audit, and human decisions to distinct owners. | Test (TC-023) |
+| FR-008-AC-4 | Governance classifies the schema as a producer-owned domain result and assigns execution, static definitions, retention/audit, and human decisions to distinct owners. | Inspection (TC-023) |
 
 ## Dependencies
 

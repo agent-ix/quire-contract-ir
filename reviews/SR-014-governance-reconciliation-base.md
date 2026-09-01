@@ -27,6 +27,14 @@ PGM-01 evidence history as a read-only compatibility surface.
 | FND-201 | high | Resolved: PGM-01 described its domain-derivation record as a common evidence envelope and its local verifier as shared retention architecture. | PGM-01-R01, PGM-01-R08, PGM-01-R09 |
 | FND-202 | medium | Resolved: no single table assigned static definitions, execution, results, retention/audit/reporting, decisions, and campaign policy to exact owners. | PGM-01-R07, FR-021-AC-1 |
 
+## Gate Disposition
+
+This is a pre-implementation specification gate over the delta committed as
+`e99358f`. Its PASS authorizes TASK-011 implementation only; it does not
+authorize issue disposition, merge, migration, or release. TC-023 through
+TC-028 and the final code-review/gap-analysis findings remain owned by
+TASK-011/TASK-012 until independently closed.
+
 ## Verdict
 
 **PASS for specification** — the corrected ownership boundary is complete;

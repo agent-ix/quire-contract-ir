@@ -39,6 +39,13 @@ TASK-010 specification and all-dimension review
 - Add TC-023..TC-028 and keep hosted CI manual-dispatch only.
 - Modify none of the eight migration repositories.
 
+## Identifier Disposition
+
+An unpushed, superseded `issue-20-shared-evidence` worktree also used
+`PLAN-003`. Issue #20 is now closed and that branch is not a merge source. This
+reviewed plan is the sole `PLAN-003` entering `main`; the separate user worktree
+is preserved read-only rather than deleted or rewritten.
+
 ## Exit Criteria
 
 All three tasks are done; every FR-008/FR-009/FR-021 criterion resolves to a

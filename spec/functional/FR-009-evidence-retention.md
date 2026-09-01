@@ -60,7 +60,7 @@ plus a separately attributed ix-flow release decision.
 | FR-009-AC-3 | Evidence verification rejects incomplete, committed-added, or untracked input coverage; false or drifted input digests; output/checksum drift; unsafe paths; schema-invalid manifests; and ambiguous record selection without depending on source-revision ancestry. It distinguishes invalid available evidence (exit 1) from unavailable evidence (exit 3). | Test (TC-013) |
 | FR-009-AC-4 | A schema-valid, checksum-authenticated correction makes the verifier reject the affected review-pass record; malformed, unauthenticated, and dangling corrections fail closed. | Test (TC-022) |
 | FR-009-AC-5 | Historical PGM-01 records remain byte-identical and readable through an explicit lossy mapping; no missing field or legacy verdict is synthesized. | Test (TC-024) |
-| FR-009-AC-6 | New retention/audit and human-decision references name Quoin and ix-flow while both Quire and Quoin remain non-executing. | Test (TC-025) |
+| FR-009-AC-6 | New retention/audit and human-decision references name Quoin and ix-flow while both Quire and Quoin remain non-executing. | Inspection (TC-025) |
 
 ## Dependencies
 
