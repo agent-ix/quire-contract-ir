@@ -1,20 +1,22 @@
 ---
 id: FR-008
-title: "Validate the common evidence envelope"
+title: "Validate domain derivation provenance"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/PGM-01
     type: references
 ---
-# FR-008: Validate the common evidence envelope
+# FR-008: Validate domain derivation provenance
 
 ## Description
 
-The repository shall publish and execute the Draft 7 evidence-envelope contract exactly as specified by PGM-01-R08.
+The repository shall validate its historical v0.1 domain-derivation record
+without claiming a common evidence envelope, execution authority, or retention
+authority, exactly as specified by PGM-01-R08.
 
 ## Inputs
 
-The published schema, corpus manifest, and candidate derivation/evidence envelopes.
+The published schema, corpus manifest, and candidate domain-derivation records.
 
 ## Outputs
 
@@ -28,6 +30,11 @@ A deterministic validation report with a Boolean validity result and structured 
 - Mutation probes weaken producer, backend, output, and provenance requirements and must be detected by the corpus gate.
 - Format probes reject malformed RFC 3339 timestamps, repository URIs, and artifact URI references.
 - The Python runtime, jsonschema package, and its RFC 3339/RFC 3986 format validators are exact declared dependencies; the gate fails closed if a required checker is unavailable.
+- The record remains producer-owned structured output. Quire supplies static
+  definition references only, and Quoin may retain or audit the explicit record
+  without invoking its producer.
+- The schema and validator are historical compatibility surfaces, not a generic
+  stdout scraper, universal runner, evidence store, or parallel result family.
 
 ## Acceptance Criteria
 
@@ -36,6 +43,7 @@ A deterministic validation report with a Boolean validity result and structured 
 | FR-008-AC-1 | Both valid fixtures pass the published schema and every invalid fixture fails with its declared code. | Test (TC-005) |
 | FR-008-AC-2 | Mutating any probed nested required-field set or identity format causes the conformance gate to fail. | Test (TC-005) |
 | FR-008-AC-3 | Tool, input, schema, backend, output, and provenance identity omissions have targeted negative evidence. | Test (TC-007) |
+| FR-008-AC-4 | Governance classifies the schema as a producer-owned domain result and assigns execution, static definitions, retention/audit, and human decisions to distinct owners. | Test (TC-023) |
 
 ## Dependencies
 
