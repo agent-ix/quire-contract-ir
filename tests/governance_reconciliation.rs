@@ -158,7 +158,11 @@ fn production_dependency_violations(manifest: &str) -> Vec<String> {
             continue;
         }
         if let Some((key, _)) = compact.split_once('=') {
-            if forbidden.contains(&key.trim_matches('"')) {
+            // A dotted key names the dependency in its first segment, so
+            // `quoin.version = "1"` and `quoin.git = "..."` must be rejected
+            // exactly like the bare `quoin = "1"` form.
+            let dependency = key.split('.').next().unwrap_or(key).trim_matches('"');
+            if forbidden.contains(&dependency) {
                 violations.push(line.to_owned());
                 continue;
             }
@@ -172,6 +176,56 @@ fn production_dependency_violations(manifest: &str) -> Vec<String> {
     }
 
     violations
+}
+
+const OBSOLETE_PRESCRIPTIONS: [&str; 6] = [
+    "The common evidence envelope identity is `quire.derivation-evidence/v1`.",
+    "### PGM-01-R08 — common derivation and evidence envelope",
+    "When actual deployment differs from the primary class, the evidence envelope shall declare the deployed role",
+    "Candidate evidence shall be immutable, revision-scoped, content-addressed, and retained with a manifest",
+    "- the common PGM-01 evidence envelope is used for generated and analysis artifacts;",
+    "# FR-008: Validate the common evidence envelope",
+];
+
+/// Strips the quotation regions of a review artifact: Markdown blockquote lines
+/// and fenced code blocks. A review must be able to cite the policy it removed.
+fn without_quotations(document: &str) -> String {
+    let mut prescriptive = String::new();
+    let mut in_fence = false;
+    for line in document.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || trimmed.starts_with('>') {
+            continue;
+        }
+        prescriptive.push_str(line);
+        prescriptive.push('\n');
+    }
+    prescriptive
+}
+
+/// Reports obsolete prescriptions carried as live policy by a campaign document.
+///
+/// `reviews/**` is the one exception, and only inside a quotation: a blockquote
+/// line or a fenced code block is a citation of removed policy. Everywhere else
+/// — and elsewhere in a review artifact — the prescription is rejected however
+/// it is written. See `CONTRIBUTING.md`, "Quoting removed campaign policy".
+fn campaign_prescription_violations(relative: &str, document: &str) -> Vec<String> {
+    let quoting_allowed = relative.starts_with("reviews/");
+    let inspected = if quoting_allowed {
+        without_quotations(document)
+    } else {
+        document.to_owned()
+    };
+    let inspected = normalized(&inspected);
+    OBSOLETE_PRESCRIPTIONS
+        .iter()
+        .filter(|obsolete| inspected.contains(&normalized(obsolete)))
+        .map(|obsolete| (*obsolete).to_owned())
+        .collect()
 }
 
 fn is_lower_sha256(value: &str) -> bool {
@@ -310,6 +364,10 @@ fn tc_025_preserves_domain_ownership_nonexecution_and_runtime_independence() {
         "[target.'cfg(unix)'.dependencies.assurance]\npackage=\"quire-rs\"",
         "[workspace.dependencies]\nassurance={package=\"quoin\"}",
         "[dependencies]\nassurance={git=\"https://example.invalid/repo#rev\",package=\"quoin\"}",
+        "[dependencies]\nquoin.version = \"1\"",
+        "[dependencies]\nquoin.git = \"https://example.invalid/quoin.git\"",
+        "[build-dependencies]\nquire-rs.workspace = true",
+        "[target.'cfg(unix)'.dependencies]\n'quire'.version = \"1\"",
     ] {
         assert!(
             !production_dependency_violations(mutation).is_empty(),
@@ -321,14 +379,102 @@ fn tc_025_preserves_domain_ownership_nonexecution_and_runtime_independence() {
         Vec::<String>::new(),
         "a TOML comment must not create a false dependency"
     );
+    assert_eq!(
+        production_dependency_violations(
+            "[dependencies]\nserde.version = \"1\"\nserde.features = [\"derive\"]"
+        ),
+        Vec::<String>::new(),
+        "a non-Quoin dotted dependency key must not be reported"
+    );
+}
+
+/// Reads a body retained beside the disposition receipt and asserts that its
+/// bytes still hash to the digest the receipt recorded.
+///
+/// This proves fixture integrity only: it shows the retained bytes are the
+/// bytes that were inspected at `observedAt`. It does not re-observe GitHub.
+fn retained_body(receipt: &serde_json::Value, node: &serde_json::Value, label: &str) -> String {
+    let relative = node["bodyPath"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{label} must record a retained bodyPath"));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(relative);
+    let bytes = fs::read(&path)
+        .unwrap_or_else(|error| panic!("retained body {relative} is unreadable: {error}"));
+    let actual = format!("{:x}", Sha256::digest(&bytes));
+    let expected = node["bodySha256"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{label} must record a bodySha256"));
+    assert_eq!(
+        actual, expected,
+        "retained body {relative} no longer matches the receipt digest"
+    );
+    assert!(is_lower_sha256(expected));
+    assert!(
+        receipt["serialization"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("SHA-256 of UTF-8 body bytes")),
+        "the receipt must state the digest serialization it retains"
+    );
+    String::from_utf8(bytes).unwrap_or_else(|error| panic!("{relative} must be UTF-8: {error}"))
+}
+
+/// Asserts the receipt's marker fields against the retained body bytes, so the
+/// markers are enforced rather than decorative.
+fn assert_markers(node: &serde_json::Value, body: &str, label: &str) {
+    let body = normalized(body);
+    let required = node["requiredMarkers"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{label} must record requiredMarkers"));
+    assert!(!required.is_empty(), "{label} requiredMarkers must be set");
+    for marker in required {
+        let marker = marker.as_str().expect("markers are text");
+        assert!(
+            body.contains(&normalized(marker)),
+            "{label} retained body is missing required marker: {marker}"
+        );
+    }
+    for marker in node["absentMarkers"].as_array().unwrap_or(&Vec::new()) {
+        let marker = marker.as_str().expect("markers are text");
+        assert!(
+            !body.contains(&normalized(marker)),
+            "{label} retained body still contains absent marker: {marker}"
+        );
+    }
 }
 
 /// Tracing: TC-026.
 /// FR-021-AC-3.
+///
+/// Scope: this test is an offline fixture-integrity check. It proves that the
+/// retained bodies are the bytes recorded by the receipt and that the receipt's
+/// markers hold in those bytes. It does not query GitHub and is not a live
+/// GitHub oracle; the correspondence between these bytes and live repository
+/// state was established once, by live inspection at `observedAt`.
 #[test]
-fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
+fn tc_026_binds_the_retained_campaign_disposition_bytes() {
     let receipt: serde_json::Value =
         serde_json::from_str(DISPOSITION_RECEIPT).expect("disposition receipt must be JSON");
+
+    let proves = receipt["proves"]
+        .as_array()
+        .expect("receipt must state what it proves offline");
+    let does_not_prove = receipt["doesNotProve"]
+        .as_array()
+        .expect("receipt must state what it does not prove offline");
+    assert!(proves.iter().all(|claim| claim
+        .as_str()
+        .is_some_and(|claim| claim.starts_with("Offline:"))));
+    assert!(does_not_prove.iter().any(|claim| claim
+        .as_str()
+        .is_some_and(|claim| claim.contains("not a live GitHub oracle"))));
+    assert!(receipt["limitations"]
+        .as_array()
+        .expect("receipt must record limitations")
+        .iter()
+        .any(|claim| claim.as_str().is_some_and(|claim| claim
+            .contains("do not re-establish that those bytes are the live GitHub state"))));
     assert_eq!(
         receipt["schemaVersion"],
         "quire.campaign-issue-dispositions/v1"
@@ -368,9 +514,13 @@ fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
         assert_eq!(issue["updatedAt"], updated_at);
         assert_eq!(issue["url"], url);
         assert_eq!(issue["bodySha256"], digest);
-        assert!(is_lower_sha256(digest));
-        assert!(!issue["requiredMarkers"].as_array().unwrap().is_empty());
-        assert!(!issue["absentMarkers"].as_array().unwrap().is_empty());
+        let label = format!("issue #{number}");
+        let body = retained_body(&receipt, issue, &label);
+        assert_markers(issue, &body, &label);
+        assert!(
+            !issue["absentMarkers"].as_array().unwrap().is_empty(),
+            "{label} must record at least one absent marker"
+        );
     }
 
     let issue20 = issues
@@ -406,14 +556,10 @@ fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
         comment_digest,
         "481f2e028177b3103d4d18d5b01cb70d3821c7452b957cb1fcd7fe90122dc874"
     );
-    assert!(is_lower_sha256(comment_digest));
-    assert_eq!(
-        issue20["closureComment"]["requiredMarkers"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
-    );
+    let comment = &issue20["closureComment"];
+    let comment_body = retained_body(&receipt, comment, "issue #20 closure comment");
+    assert_markers(comment, &comment_body, "issue #20 closure comment");
+    assert_eq!(comment["requiredMarkers"].as_array().unwrap().len(), 3);
 
     for link in [
         "https://github.com/agent-ix/quire-contract-ir/issues/1",
@@ -473,14 +619,6 @@ fn tc_027_separates_preserved_cases_from_rejected_architecture() {
 /// FR-021-AC-5.
 #[test]
 fn tc_028_removes_conflicting_campaign_prescriptions() {
-    let obsolete_prescriptions = [
-        "The common evidence envelope identity is `quire.derivation-evidence/v1`.",
-        "### PGM-01-R08 — common derivation and evidence envelope",
-        "When actual deployment differs from the primary class, the evidence envelope shall declare the deployed role",
-        "Candidate evidence shall be immutable, revision-scoped, content-addressed, and retained with a manifest",
-        "- the common PGM-01 evidence envelope is used for generated and analysis artifacts;",
-        "# FR-008: Validate the common evidence envelope",
-    ];
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut documents = vec![root.join("README.md"), root.join("CONTRIBUTING.md")];
     for directory in ["spec", "plan", "docs", "reviews"] {
@@ -502,15 +640,46 @@ fn tc_028_removes_conflicting_campaign_prescriptions() {
     for path in documents {
         let document = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-        let document = normalized(&document);
-        for obsolete in obsolete_prescriptions {
-            assert!(
-                !document.contains(obsolete),
-                "{} retains obsolete prescription: {obsolete}",
-                repository_relative(root, &path)
-            );
-        }
+        let relative = repository_relative(root, &path);
+        assert_eq!(
+            campaign_prescription_violations(&relative, &document),
+            Vec::<String>::new(),
+            "{relative} retains an obsolete prescription as live policy"
+        );
     }
+
+    // The quoting rule is normative in CONTRIBUTING.md and enforced here.
+    assert!(CONTRIBUTING.contains("## Quoting removed campaign policy"));
+    assert!(normalized(CONTRIBUTING)
+        .contains("In `reviews/**` only, a removed prescription may appear inside a quotation"));
+    assert!(normalized(CONTRIBUTING).contains("Quoting does not exempt governed campaign content."));
+
+    let obsolete = OBSOLETE_PRESCRIPTIONS[0];
+    let blockquote = format!("# SR-999 review\n\nThe removed text was:\n\n> {obsolete}\n");
+    let fenced = format!("# SR-999 review\n\nThe removed text was:\n\n```text\n{obsolete}\n```\n");
+    let unquoted = format!("# SR-999 review\n\n{obsolete}\n");
+    for (relative, document) in [
+        ("reviews/SR-999-example.md", &blockquote),
+        ("reviews/SR-999-example.md", &fenced),
+    ] {
+        assert_eq!(
+            campaign_prescription_violations(relative, document),
+            Vec::<String>::new(),
+            "a review artifact must be able to quote a removed prescription"
+        );
+    }
+    for (relative, document) in [
+        ("reviews/SR-999-example.md", &unquoted),
+        ("spec/program/PGM-01-governance.md", &blockquote),
+        ("spec/program/PGM-01-governance.md", &unquoted),
+        ("README.md", &unquoted),
+    ] {
+        assert!(
+            !campaign_prescription_violations(relative, document).is_empty(),
+            "{relative} must still reject an active obsolete prescription"
+        );
+    }
+
     assert!(README.contains("Quire and Quoin are non-executing"));
     assert!(CONTRIBUTING.contains("not runtime dependencies or a shared producer runner"));
     assert!(RECONCILIATION.contains("The eight migration issues are not part of this gate"));
