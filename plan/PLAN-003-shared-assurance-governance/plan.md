@@ -2,7 +2,7 @@
 id: PLAN-003
 title: "Reconcile shared assurance governance"
 type: Plan
-status: active
+status: done
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/38
     type: references

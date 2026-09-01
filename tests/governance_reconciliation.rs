@@ -189,20 +189,35 @@ const OBSOLETE_PRESCRIPTIONS: [&str; 6] = [
 
 /// Strips the quotation regions of a review artifact: Markdown blockquote lines
 /// and fenced code blocks. A review must be able to cite the policy it removed.
+///
+/// An unterminated fence is not a quotation. Its lines are restored, so a
+/// stray opening fence cannot exempt the remainder of a document.
 fn without_quotations(document: &str) -> String {
     let mut prescriptive = String::new();
+    let mut fenced = String::new();
     let mut in_fence = false;
     for line in document.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            if in_fence {
+                fenced.clear();
+            }
             in_fence = !in_fence;
             continue;
         }
-        if in_fence || trimmed.starts_with('>') {
+        if in_fence {
+            fenced.push_str(line);
+            fenced.push('\n');
+            continue;
+        }
+        if trimmed.starts_with('>') {
             continue;
         }
         prescriptive.push_str(line);
         prescriptive.push('\n');
+    }
+    if in_fence {
+        prescriptive.push_str(&fenced);
     }
     prescriptive
 }
@@ -668,8 +683,10 @@ fn tc_028_removes_conflicting_campaign_prescriptions() {
             "a review artifact must be able to quote a removed prescription"
         );
     }
+    let unterminated_fence = format!("# SR-999 review\n\n```text\n{obsolete}\n");
     for (relative, document) in [
         ("reviews/SR-999-example.md", &unquoted),
+        ("reviews/SR-999-example.md", &unterminated_fence),
         ("spec/program/PGM-01-governance.md", &blockquote),
         ("spec/program/PGM-01-governance.md", &unquoted),
         ("README.md", &unquoted),
