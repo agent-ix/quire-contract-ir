@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "quire.campaign-issue-dispositions/v1",
+  "repository": "agent-ix/quire-contract-ir",
+  "observedAt": "2026-09-01T17:04:02Z",
+  "serialization": "SHA-256 of UTF-8 body bytes emitted by `gh api <resource> --jq .body`, including its trailing newline",
+  "issues": [
+    {
+      "number": 1,
+      "title": "EPIC: Contract-derived verification and temporal assurance v0.1",
+      "state": "open",
+      "updatedAt": "2026-09-01T17:03:52Z",
+      "url": "https://github.com/agent-ix/quire-contract-ir/issues/1",
+      "bodySha256": "f668c2395ffcaf1e7d8586b5e9b67609dc17bc3f0d22dbea4c32c07859ea56a1",
+      "requiredMarkers": [
+        "## Relationship to shared assurance",
+        "Shared integration is common work governed by",
+        "Published runtime and domain crates do not acquire runtime dependencies on Quire or Quoin."
+      ],
+      "absentMarkers": [
+        "## Relationship to Quoin and Quire",
+        "The crates are intentionally independent projects. They publish stable library, CLI, schema, and evidence boundaries that Quoin and Quire may integrate later."
+      ]
+    },
+    {
+      "number": 7,
+      "title": "Inventory post-release Quire/Quoin catalog and adapter opportunities",
+      "state": "open",
+      "updatedAt": "2026-09-01T17:03:54Z",
+      "url": "https://github.com/agent-ix/quire-contract-ir/issues/7",
+      "bodySha256": "a0ce9ded6604bc510fdb9060e39691bdd235845d095e9039636f389459c27c09",
+      "requiredMarkers": [
+        "This issue does not define shared ownership, execute producers, or authorize repository migrations.",
+        "No item proposes a universal runner, generic stdout scraper, common evidence envelope, aggregate verdict, authority index, or parallel retention store.",
+        "Engineering Assurance #10 reviewed migration contract"
+      ],
+      "absentMarkers": [
+        "Inventory future Quoin and Quire integration work without changing existing repositories."
+      ]
+    },
+    {
+      "number": 20,
+      "title": "PGM-02: Repeatable assurance tooling — converge eight per-repo script trees onto one tested, reproducible component",
+      "state": "closed",
+      "stateReason": "not_planned",
+      "updatedAt": "2026-09-01T17:04:02Z",
+      "closedAt": "2026-09-01T17:04:02Z",
+      "url": "https://github.com/agent-ix/quire-contract-ir/issues/20",
+      "closureComment": {
+        "id": 5497534831,
+        "author": "kreneskyp",
+        "createdAt": "2026-09-01T17:03:55Z",
+        "url": "https://github.com/agent-ix/quire-contract-ir/issues/20#issuecomment-5497534831",
+        "bodySha256": "481f2e028177b3103d4d18d5b01cb70d3821c7452b957cb1fcd7fe90122dc874",
+        "requiredMarkers": [
+          "Closed as superseded by",
+          "It rejects the proposed generic executor, central profile, aggregate verdict, authority index, adoption command, parallel result family, and retention component.",
+          "No migration is authorized by this closure."
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "This is an offline inspection receipt, not a live GitHub-state gate.",
+    "A later issue edit requires a new reviewed receipt before a future claim relies on the changed state."
+  ]
+}

@@ -20,8 +20,9 @@ named human release authority records a bounded exception under PGM-01-R09.
 ### PGM-01-R01 — schema compatibility
 
 - Every serialized boundary shall carry a non-empty schema identity and an
-  explicit major wire version. The common evidence envelope identity is
-  `quire.derivation-evidence/v1`.
+  explicit major wire version. `quire.derivation-evidence/v1` is the program's
+  historical domain-derivation result identity; it is not a common evidence
+  envelope or retention schema.
 - A consumer shall reject an unknown major version and shall not guess,
   silently migrate, or reinterpret it. A migration shall be explicit,
   versioned, tested, and recorded as a derivation.
@@ -124,24 +125,42 @@ decision open.
 | `quire-contract-ir`; schemas and corpus | direct development tool | Defines inputs and identities; not shipped as generated customer runtime. |
 | `quire-contract-runtime` | linked runtime | Linked code is inside the consuming software boundary and needs target-project verification. |
 | `quire-contract-codegen` | direct development tool | Generator stays outside runtime; emitted oracle/proptest/Kani Rust is linked runtime. |
-| Codegen maps and derivation records | analysis/evidence tool | Inform assurance; never self-approve a result. |
-| `quire-analyze`; consistency/implication reports | analysis/evidence tool | Conclusions identify solver/configuration and preserve non-conclusive states. |
+| Codegen maps and derivation records | analysis/evidence tool | Domain-producer results identify the generating tool and may be retained by Quoin; they never self-approve. |
+| `quire-analyze`; consistency/implication reports | analysis/evidence tool | Domain-producer results identify solver/configuration and preserve non-conclusive states. |
 | Z3 and cvc5 integrations | external engine adapter | The engine binary, adapter, encoding, configuration, and result are separate identities. |
 | `tl-syntax` | linked runtime | May be linked into consuming evaluators or monitors; use is project-scoped. |
 | `tl-parse` | direct development tool | Parsed output is a derivation; deployment of the parser changes the project boundary. |
-| `tl-rewrite`; rewrite proof records | analysis/evidence tool | Rewrites retain source/output/profile identity and do not establish semantic preservation alone. |
-| `tl-mltl`; reference evaluation reports | analysis/evidence tool | Reference results support comparison but do not accredit a production monitor. |
+| `tl-rewrite`; rewrite proof records | analysis/evidence tool | Domain results retain source/output/profile identity and do not establish semantic preservation alone. |
+| `tl-mltl`; reference evaluation reports | analysis/evidence tool | Domain results support comparison but do not accredit a production monitor. |
 | R2U2/C2PO integrations and monitor inputs | external engine adapter | External engine/version/configuration and adapter identity are mandatory. |
 
-When actual deployment differs from the primary class, the evidence envelope
-shall declare the deployed role and the consuming project shall reassess the
-boundary. Classification does not confer qualification.
+When actual deployment differs from the primary class, the authoritative
+domain result shall declare the deployed role and the consuming project shall
+reassess the boundary. Classification does not confer qualification.
 
-### PGM-01-R08 — common derivation and evidence envelope
+The shared responsibility assignment is exact:
 
-Every generated, transformed, analyzed, proved, tested, monitored, or packaged
-artifact shall have a record conforming to
-`schemas/derivation-evidence-envelope-v1.schema.json`. The record shall identify:
+| Responsibility | Authoritative owner | Boundary |
+|---|---|---|
+| Static verification definitions, obligations, relations, and locators | Quire | Parses and exports only; does not invoke producers. |
+| Verification execution | Contract or temporal domain producer | Invoked by the operator or project-native build/test system. |
+| Structured domain result and diagnostic | Originating contract or temporal producer | Preserves its native result states and domain semantics. |
+| Evidence intake, retained bytes, integrity, audit, and report views | Quoin | Consumes explicit structured inputs; does not invoke producers. |
+| Human approval, rejection, revision, and workflow state | ix-flow | Retains attributed decisions; tools do not infer them. |
+| Cross-repository campaign policy and release order | PGM-01 | Governs boundaries without becoming a runner or evidence store. |
+
+Published runtime and domain crates shall not acquire runtime dependencies on
+Quire or Quoin. Development-time export, validation, intake, audit, and report
+commands may use exact pinned releases without linking them into customer
+software. Quire and Quoin are explicitly non-executing.
+
+### PGM-01-R08 — domain derivation provenance and structured results
+
+For the v0.1 campaign, every generated, transformed, analyzed, proved, tested,
+monitored, or packaged domain artifact shall have a producer-owned derivation
+record conforming to `schemas/derivation-evidence-envelope-v1.schema.json`.
+That record is a historical interoperability format for structured domain
+results, not a universal evidence envelope. It shall identify:
 
 - envelope schema and record identity;
 - producer name, version, source revision, executable digest, and invocation;
@@ -161,30 +180,45 @@ exact bytes stored or transferred. A transformation with no external backend
 uses `kind: none` with a reason; omission is never equivalent to none. An
 extension key must be a reverse-DNS name and must not change core-field meaning.
 
-The published Draft 7 schema is the normative validation boundary. The
-conformance report uses `UNSUPPORTED_SCHEMA`, `MISSING_PRODUCER`,
+The record reports only its originating producer's execution and domain result.
+Quoin may retain the record or exact output bytes and cite them from an audit or
+report; it shall not copy their fields into a second generic result family.
+Quire may link static definition identity but shall not execute the producer.
+
+The published Draft 7 schema remains the normative validation boundary for
+these historical v0.1 domain records. The conformance report uses
+`UNSUPPORTED_SCHEMA`, `MISSING_PRODUCER`,
 `MISSING_INPUTS`, `MISSING_SCHEMA_IDENTITY`, `MISSING_BACKEND`,
 `MISSING_OUTPUTS`, and `INVALID_DIGEST` for those targeted conditions; every
 other Draft 7 failure is `SCHEMA_VIOLATION`. Error order is deterministic by
 instance path then schema message.
 
-### PGM-01-R09 — evidence retention and release record
+### PGM-01-R09 — historical records, assurance handoff, and release decision
 
-Candidate evidence shall be immutable, revision-scoped, content-addressed, and retained with a
-manifest containing source revision, collection time, commands, tool/dependency
-identities, environment, individual outcomes, limitations, and checksums. A
-rerun is a new record at `evidence/pgm-01-<short-source-revision>/`. Failed and
-skipped measurements remain visible. A checksum file outside that directory
-covers its manifest and every retained output without self-reference. The
-manifest conforms to the checked-in `quire.pgm01-evidence/v1` schema and pins
-that schema by path and SHA-256 digest. Release verification compares the
-complete non-evidence `HEAD` tree with the recorded input set so squash-merged
-records remain verifiable and later added files cannot escape coverage.
+Existing `evidence/pgm-01-<short-source-revision>/` records, their external
+checksum files, corrections, and the `quire.pgm01-evidence/v1` schema are
+immutable historical inputs. The local verifier shall continue to authenticate
+and read them, distinguish invalid from unavailable, and reject retracted or
+ambiguous records. It shall never rewrite them into a newer schema or treat an
+absent historical field as known. Engineering Assurance owns the explicit
+read-only compatibility mapping.
 
-The human release record shall identify the candidate and evidence manifest,
-open gaps and accepted exceptions, decision (`approve`, `reject`, or `defer`),
-rationale, owner `@kreneskyp`, timestamp, and authorized tag. Absence of that
-record means no release decision. CI success is evidence, not approval.
+For new shared-assurance adoption, an operator or project-native system invokes
+the domain producer and supplies its structured result to Quoin. Quoin owns
+retention, integrity checks, audit, and report views; Quire supplies only static
+definition references; ix-flow owns any human decision. Until the exact shared
+releases are available and pinned, the existing PGM-01 v1 mechanism may remain
+as a governed compatibility path for a candidate, but it is not architectural
+precedent for a shared executor, central profile, authority index, or parallel
+retention store. Failed, skipped, unavailable, inconclusive, stale, suspect,
+vacuous, tampered, and unreadable states remain explicit.
+
+The human release decision shall identify the exact candidate, authoritative
+record references, open gaps and accepted exceptions, decision (`approve`,
+`reject`, or `defer`), rationale, owner `@kreneskyp`, timestamp, and authorized
+tag. It is retained as an ix-flow decision event once that pinned path is
+adopted; historical release records remain readable in place. Absence of a
+decision means no release decision. CI success is evidence, not approval.
 
 ### PGM-01-R10 — qualification and accreditation boundary
 
@@ -197,6 +231,36 @@ environment, hazards, evidence, independent review, and named decision
 authority. Claims shall state that bounded context and shall not inherit a
 program release decision by implication.
 
+### PGM-01-R11 — campaign reconciliation and legacy prototype disposition
+
+The program epic's former statement that Quire and Quoin integration is outside
+the campaign is superseded. Shared static-definition export, result intake,
+retention, audit, reporting, and human-decision integration are common-work
+dependencies governed by [Engineering Assurance #7](https://github.com/agent-ix/engineering-assurance/issues/7). Domain repositories
+still own their producers and structured results, and their published crates
+remain runtime-independent from Quire and Quoin.
+
+[`quire-contract-ir#7`](https://github.com/agent-ix/quire-contract-ir/issues/7)
+is re-scoped to a post-release inventory of conditional Quire/Quoin
+catalog and adapter opportunities. It does not defer ownership decisions or
+authorize repository migrations. [`quire-contract-ir#20`](https://github.com/agent-ix/quire-contract-ir/issues/20)
+is superseded by the common-work
+gates: its repeatability and fail-closed threat cases remain valuable, while
+its proposed shared executor, central execution profile, evidence authority
+index, and retention component are rejected.
+
+The standalone `quire-evidence` prototype is not an adopted component. Preserve
+as technology-independent adversarial fixtures: checksum/reseal tampering,
+fabricated or contradictory success, tool shadowing and identity drift,
+historical profile/parameter drift, deletion/retraction ambiguity, exact
+resource ceilings, descendant timeout containment, distinct unavailable and
+failed outcomes, and mutations that must turn a domain oracle red. Preserve as
+domain cases: contract validation/canonicalization, property/proof/vacuity
+results, SMT non-conclusive results, and temporal parse/rewrite/evaluation
+results. Do not preserve its generic command executor, execution profile,
+overall verdict aggregation, authority index, repository adoption command, or
+retention layout.
+
 ## Acceptance Criteria
 
 | ID | Criterion | Verification |
@@ -208,6 +272,7 @@ program release decision by implication.
 | PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-003 |
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
-| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted. | TC-005 through TC-012 |
-| PGM-01-R09-AC-1 | Evidence cannot silently replace the human decision. | Policy inspection; TC-004 |
+| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted from a domain derivation result. | TC-005 through TC-012 |
+| PGM-01-R09-AC-1 | Historical records remain readable without rewrite and automated records cannot replace the human decision. | Policy inspection; TC-004, TC-024 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |
+| PGM-01-R11-AC-1 | Every shared responsibility has one owner; issue #7/#20 and the legacy prototype have explicit linked dispositions. | TC-023, TC-025 through TC-028 |
