@@ -62,8 +62,21 @@ The required repository state after this gate is:
 
 The exact inspected states, timestamps, body digests, and #20 closure-comment
 identity are retained in
-`tests/fixtures/campaign-issue-dispositions-v1.json`. That receipt is a bounded
-snapshot; it does not claim that later GitHub edits are observable offline.
+`tests/fixtures/campaign-issue-dispositions-v1.json`, and the inspected bodies
+themselves are retained verbatim under `tests/fixtures/campaign-bodies/`.
+
+The scope of that receipt, and of TC-026 which checks it, is exact:
+
+- Proven offline: each retained body still hashes to the digest the receipt
+  records, and every `requiredMarkers` entry occurs — and every `absentMarkers`
+  entry does not occur — in those retained bytes. This is fixture integrity.
+- Not proven offline: that the live GitHub issues, comments, states, or
+  timestamps still match. That correspondence was established once, by live
+  inspection at the recorded `observedAt`, and is not re-observed by any test.
+
+The duplicated constants in TC-026 are therefore an integrity binding, not a
+live GitHub oracle. A later issue edit requires a new reviewed receipt and
+newly retained bytes before any claim relies on the changed state.
 
 ## Legacy prototype inventory
 

@@ -43,6 +43,10 @@ retention authority.
 - Historical records and corrections remain governed and readable in place.
 - Prototype threat cases may become domain-specific fixtures.
 - The campaign SHALL NOT adopt the prototype executor, profile, aggregate verdict, authority index, adoption command, or retention model.
+- A review artifact under `reviews/**` MAY quote a removed prescription inside a
+  Markdown blockquote or fenced code block; quoted text is a citation and not a
+  prescription. Elsewhere in a review, and anywhere in other governed campaign
+  content, an obsolete prescription is rejected however it is written.
 - The eight repository migration issues remain outside this governance ticket.
 
 ## Acceptance Criteria
@@ -51,7 +55,7 @@ retention authority.
 |---|---|---|
 | FR-021-AC-1 | Every shared responsibility appears once with one authoritative owner. | Inspection (TC-023) |
 | FR-021-AC-2 | Domain repositories own producers/results, published crates have no Quire/Quoin runtime dependency, and both Quire and Quoin are explicitly non-executing. | Inspection (TC-025) |
-| FR-021-AC-3 | Issue #1 no longer defers integration architecture; issue #7 is re-scoped and #20 is closed as superseded with replacement-epic links. | Inspection (TC-026) |
+| FR-021-AC-3 | Issue #1 no longer defers integration architecture; issue #7 is re-scoped and #20 is closed as superseded with replacement-epic links, as established by live inspection at the receipt's `observedAt` and retained verbatim. | Inspection (TC-026, offline integrity over the retained inspected bytes) |
 | FR-021-AC-4 | The legacy prototype inventory preserves adversarial/domain cases and rejects executor/profile/verdict/authority/retention behavior. | Inspection (TC-027) |
 | FR-021-AC-5 | No campaign document prescribes a conflicting common envelope, executor, or evidence-retention owner. | Inspection (TC-028) |
 
