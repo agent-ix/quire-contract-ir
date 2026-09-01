@@ -21,8 +21,9 @@ relationships:
 ```text
 TASK-010 specification and all-dimension review
   -> TASK-011 campaign documents, dispositions, and TC-023..TC-028
-    -> TASK-012 code review, gap analysis, issue feedback, and merge
-      -> Quire CLI #74 and Quoin CLI #322
+    -> TASK-012 review remediation and local closure gates
+      -> closing gap analysis and authorized admin merge
+        -> Quire CLI #74 and Quoin CLI #322
 ```
 
 ## Plan Delta

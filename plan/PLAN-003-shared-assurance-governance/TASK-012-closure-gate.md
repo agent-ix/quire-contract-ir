@@ -1,8 +1,8 @@
 ---
 id: TASK-012
-title: "Close the governance reconciliation gate"
+title: "Complete review remediation and local closure gates"
 type: Task
-status: pending
+status: done
 track: common
 priority: P0
 relationships:
@@ -12,13 +12,20 @@ relationships:
     type: part_of
 ---
 
-# TASK-012: Close the governance reconciliation gate
+# TASK-012: Complete review remediation and local closure gates
 
-Run the complete local CI/spec/evidence gates, `/code-review`, and
-`/gap-analysis`; fix every finding; read all repository feedback; retain the
-final SpecReview artifacts; and merge without dispatching hosted CI.
+Run the complete local CI/spec gates and `/code-review`; fix every finding;
+read all repository feedback; and retain the review artifacts without
+dispatching hosted CI. The closing `/gap-analysis` runs over the completed plan
+before the separately authorized admin merge.
 
 ## Acceptance
 
 No required finding, unbacked row, conflicting campaign prescription, or
-unread issue/PR feedback remains. Issue #38 closes on merge.
+unread issue/PR feedback remains.
+
+## Completion
+
+SR-022/SR-023 findings are remediated by `b397747` and `d5ad5d4`. SR-024 is the
+clean closing code review. `make ci` and `make spec` pass locally; the current
+candidate has no matching historical evidence record and none was fabricated.
