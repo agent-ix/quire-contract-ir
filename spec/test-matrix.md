@@ -60,6 +60,6 @@ relationships:
 | TC-023 | Shared responsibility registry has exactly one owner per responsibility | Inspection | P0 | FR-008, FR-021 | ✅ implemented |
 | TC-024 | Historical PGM-01 records remain byte-identical and explicitly lossy | Integration | P0 | FR-009 | ✅ implemented |
 | TC-025 | Domain/result ownership, non-execution, and runtime independence agree | Inspection | P0 | FR-009, FR-021 | ✅ implemented |
-| TC-026 | Campaign issues #1/#7/#20 record reconciled linked dispositions | Inspection | P0 | FR-021 | ✅ implemented |
+| TC-026 | Retained #1/#7/#20 disposition bytes match the reviewed receipt and its markers | Inspection | P0 | FR-021 | ✅ implemented |
 | TC-027 | Prototype inventory preserves threat/domain cases and rejects its architecture | Inspection | P0 | FR-021 | ✅ implemented |
-| TC-028 | Campaign documents contain no conflicting executor/envelope/retention prescription | Inspection | P0 | FR-021 | ✅ implemented |
+| TC-028 | Campaign documents state no conflicting executor/envelope/retention prescription, quoted review citations excepted | Inspection | P0 | FR-021 | ✅ implemented |

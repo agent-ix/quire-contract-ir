@@ -3,6 +3,15 @@
   "repository": "agent-ix/quire-contract-ir",
   "observedAt": "2026-09-01T17:04:02Z",
   "serialization": "SHA-256 of UTF-8 body bytes emitted by `gh api <resource> --jq .body`, including its trailing newline",
+  "provenance": "Live GitHub inspection performed at observedAt. Each recorded body was retained verbatim at bodyPath, relative to this file's directory.",
+  "proves": [
+    "Offline: each retained body file still hashes to its recorded bodySha256, so the retained bytes are the bytes that were inspected.",
+    "Offline: every requiredMarker occurs, and every absentMarker does not occur, in those retained bytes."
+  ],
+  "doesNotProve": [
+    "That the live GitHub issue, comment, state, or timestamp still matches this receipt. That correspondence was established only by the live inspection at observedAt.",
+    "That any state recorded here remains current. This receipt is not a live GitHub oracle."
+  ],
   "issues": [
     {
       "number": 1,
@@ -11,6 +20,7 @@
       "updatedAt": "2026-09-01T17:03:52Z",
       "url": "https://github.com/agent-ix/quire-contract-ir/issues/1",
       "bodySha256": "f668c2395ffcaf1e7d8586b5e9b67609dc17bc3f0d22dbea4c32c07859ea56a1",
+      "bodyPath": "campaign-bodies/issue-1.md",
       "requiredMarkers": [
         "## Relationship to shared assurance",
         "Shared integration is common work governed by",
@@ -28,6 +38,7 @@
       "updatedAt": "2026-09-01T17:03:54Z",
       "url": "https://github.com/agent-ix/quire-contract-ir/issues/7",
       "bodySha256": "a0ce9ded6604bc510fdb9060e39691bdd235845d095e9039636f389459c27c09",
+      "bodyPath": "campaign-bodies/issue-7.md",
       "requiredMarkers": [
         "This issue does not define shared ownership, execute producers, or authorize repository migrations.",
         "No item proposes a universal runner, generic stdout scraper, common evidence envelope, aggregate verdict, authority index, or parallel retention store.",
@@ -51,6 +62,7 @@
         "createdAt": "2026-09-01T17:03:55Z",
         "url": "https://github.com/agent-ix/quire-contract-ir/issues/20#issuecomment-5497534831",
         "bodySha256": "481f2e028177b3103d4d18d5b01cb70d3821c7452b957cb1fcd7fe90122dc874",
+        "bodyPath": "campaign-bodies/comment-5497534831.md",
         "requiredMarkers": [
           "Closed as superseded by",
           "It rejects the proposed generic executor, central profile, aggregate verdict, authority index, adoption command, parallel result family, and retention component.",
@@ -61,6 +73,7 @@
   ],
   "limitations": [
     "This is an offline inspection receipt, not a live GitHub-state gate.",
+    "The retained digests bind this receipt to the retained bytes. They do not re-establish that those bytes are the live GitHub state.",
     "A later issue edit requires a new reviewed receipt before a future claim relies on the changed state."
   ]
 }
