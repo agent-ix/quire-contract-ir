@@ -80,13 +80,45 @@ fn repository_relative(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+fn toml_code_before_comment(line: &str) -> String {
+    let mut code = String::new();
+    let mut in_basic_string = false;
+    let mut in_literal_string = false;
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            code.push(character);
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' if in_basic_string => {
+                code.push(character);
+                escaped = true;
+            }
+            '"' if !in_literal_string => {
+                code.push(character);
+                in_basic_string = !in_basic_string;
+            }
+            '\'' if !in_basic_string => {
+                code.push(character);
+                in_literal_string = !in_literal_string;
+            }
+            '#' if !in_basic_string && !in_literal_string => break,
+            _ => code.push(character),
+        }
+    }
+    code
+}
+
 fn production_dependency_violations(manifest: &str) -> Vec<String> {
     let forbidden = ["quire", "quire-rs", "quoin"];
     let mut in_production_dependencies = false;
     let mut violations = Vec::new();
 
     for raw_line in manifest.lines() {
-        let line = raw_line.split('#').next().unwrap_or_default().trim();
+        let code = toml_code_before_comment(raw_line);
+        let line = code.trim();
         if line.is_empty() {
             continue;
         }
@@ -277,12 +309,18 @@ fn tc_025_preserves_domain_ownership_nonexecution_and_runtime_independence() {
         "[build-dependencies]\nassurance = { package = 'quire' }",
         "[target.'cfg(unix)'.dependencies.assurance]\npackage=\"quire-rs\"",
         "[workspace.dependencies]\nassurance={package=\"quoin\"}",
+        "[dependencies]\nassurance={git=\"https://example.invalid/repo#rev\",package=\"quoin\"}",
     ] {
         assert!(
             !production_dependency_violations(mutation).is_empty(),
             "dependency mutation escaped inspection: {mutation}"
         );
     }
+    assert_eq!(
+        production_dependency_violations("[dependencies]\nserde=\"1\" # package=\"quoin\""),
+        Vec::<String>::new(),
+        "a TOML comment must not create a false dependency"
+    );
 }
 
 /// Tracing: TC-026.
@@ -307,22 +345,28 @@ fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
             1,
             "open",
             "EPIC: Contract-derived verification and temporal assurance v0.1",
+            "2026-09-01T17:03:52Z",
+            "https://github.com/agent-ix/quire-contract-ir/issues/1",
             "f668c2395ffcaf1e7d8586b5e9b67609dc17bc3f0d22dbea4c32c07859ea56a1",
         ),
         (
             7,
             "open",
             "Inventory post-release Quire/Quoin catalog and adapter opportunities",
+            "2026-09-01T17:03:54Z",
+            "https://github.com/agent-ix/quire-contract-ir/issues/7",
             "a0ce9ded6604bc510fdb9060e39691bdd235845d095e9039636f389459c27c09",
         ),
     ];
-    for (number, state, title, digest) in expected {
+    for (number, state, title, updated_at, url, digest) in expected {
         let issue = issues
             .iter()
             .find(|issue| issue["number"] == number)
             .unwrap_or_else(|| panic!("missing issue #{number} receipt"));
         assert_eq!(issue["state"], state);
         assert_eq!(issue["title"], title);
+        assert_eq!(issue["updatedAt"], updated_at);
+        assert_eq!(issue["url"], url);
         assert_eq!(issue["bodySha256"], digest);
         assert!(is_lower_sha256(digest));
         assert!(!issue["requiredMarkers"].as_array().unwrap().is_empty());
@@ -335,9 +379,26 @@ fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
         .expect("missing issue #20 receipt");
     assert_eq!(issue20["state"], "closed");
     assert_eq!(issue20["stateReason"], "not_planned");
+    assert_eq!(
+        issue20["title"],
+        "PGM-02: Repeatable assurance tooling — converge eight per-repo script trees onto one tested, reproducible component"
+    );
+    assert_eq!(
+        issue20["url"],
+        "https://github.com/agent-ix/quire-contract-ir/issues/20"
+    );
+    assert_eq!(issue20["updatedAt"], "2026-09-01T17:04:02Z");
     assert_eq!(issue20["closedAt"], "2026-09-01T17:04:02Z");
     assert_eq!(issue20["closureComment"]["id"], 5_497_534_831_u64);
     assert_eq!(issue20["closureComment"]["author"], "kreneskyp");
+    assert_eq!(
+        issue20["closureComment"]["createdAt"],
+        "2026-09-01T17:03:55Z"
+    );
+    assert_eq!(
+        issue20["closureComment"]["url"],
+        "https://github.com/agent-ix/quire-contract-ir/issues/20#issuecomment-5497534831"
+    );
     let comment_digest = issue20["closureComment"]["bodySha256"]
         .as_str()
         .expect("closure comment digest must be text");
@@ -346,6 +407,13 @@ fn tc_026_authenticates_the_inspected_campaign_issue_dispositions() {
         "481f2e028177b3103d4d18d5b01cb70d3821c7452b957cb1fcd7fe90122dc874"
     );
     assert!(is_lower_sha256(comment_digest));
+    assert_eq!(
+        issue20["closureComment"]["requiredMarkers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
 
     for link in [
         "https://github.com/agent-ix/quire-contract-ir/issues/1",
