@@ -18,7 +18,7 @@ security_critical: false
 
 ## Purpose
 
-This specification owns PGM-01 and the versioned semantic contract substrate
+This specification owns PGM-01, the shared-assurance ownership boundary, and the versioned semantic contract substrate
 for the contract-derived verification program. Downstream code generation and
 analysis consume this model and shall not invent parallel identity, expression,
 or canonicalization semantics.
@@ -29,7 +29,8 @@ or canonicalization semantics.
 
 - Wire-schema and crate compatibility, dependency pins, and release order.
 - Licensing, third-party provenance, clean-room grammar, and contribution rules.
-- Tool and artifact classification, evidence identity, and release authority.
+- Tool and artifact classification, domain-result provenance, historical
+  compatibility, shared assurance ownership, and release authority.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
@@ -38,27 +39,32 @@ or canonicalization semantics.
 ### Out of Scope
 
 - Runtime, code generation, solver, parser, rewrite, or evaluator behavior.
+- A universal producer runner, common evidence envelope/store, or parallel
+  human-decision mechanism.
+- The eight downstream repository migrations.
 - A validation, accreditation, certification, or release decision.
 
 ## System Overview
 
 ### System Description
 
-PGM-01 is the repository-independent governance boundary. The semantic contract
+PGM-01 is the repository-independent governance boundary. It assigns static
+definition export to Quire, domain execution/results to native producers,
+retention/audit/reporting to Quoin, and human decisions to ix-flow. The semantic contract
 IR is a versioned, implementation-language-independent model whose Rust API,
 JSON representation, diagnostics, canonical encoding, and conformance corpus
-share one normative specification.
+share one normative specification. Quire and Quoin remain non-executing.
 
 ### Intended Users
 
-Workstream authors consume the policy by reference. Tool authors emit the
-envelope. Reviewers verify compatibility, provenance, and evidence limitations.
+Workstream authors consume the policy by reference. Domain tools emit native
+structured results. Reviewers verify compatibility, provenance, and evidence limitations.
 The named human release owner decides whether an exact candidate may be tagged.
 
 ## Requirements Architecture
 
-The canonical policy owns PGM-01-R01 through PGM-01-R10. Discrete requirements
-FR-001 through FR-010 provide traceable artifact identities without redefining
+The canonical policy owns PGM-01-R01 through PGM-01-R11. Discrete requirements
+FR-001 through FR-010 and FR-021 provide traceable artifact identities without redefining
 that policy. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, and NFR-001 through

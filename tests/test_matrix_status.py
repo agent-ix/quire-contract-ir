@@ -29,3 +29,24 @@ class MatrixStatusTests(unittest.TestCase):
             validate_documents([no_test], set()),
             ["NFR-001 is complete but references no test"],
         )
+
+    def test_rejects_policy_acceptance_citation_without_executable_test(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-3."""
+        matrix = """
+| Test ID | Title | Type | Priority | Traces To | Status |
+|---|---|---|---|---|---|
+| TC-026 | dispositions | Inspection | P0 | FR-021 | ✅ implemented |
+"""
+        policy = """
+| ID | Criterion | Verification |
+|---|---|---|
+| PGM-01-R11-AC-1 | dispositions are linked | TC-026 |
+"""
+        self.assertEqual(
+            validate_documents([matrix, policy], set()),
+            [
+                "TC-026 is complete but has no executable test",
+                "PGM-01-R11-AC-1 cites non-executable TC-026",
+            ],
+        )
+        self.assertEqual(validate_documents([matrix, policy], {"TC-026"}), [])

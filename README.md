@@ -18,8 +18,17 @@ testing, provenance, and human release gates as every other contribution.
 
 The canonical cross-repository governance contract is
 [`PGM-01`](spec/program/PGM-01-governance.md). It defines compatibility,
-provenance, evidence identity, release ordering, and the qualification boundary
-for the eight repositories in the contract-derived verification program.
+domain-result provenance, shared assurance ownership, release ordering, and the
+qualification boundary for the eight repositories in the contract-derived
+verification program. The reviewed
+[shared-assurance reconciliation](spec/program/STD-002-shared-assurance-governance.md) records
+the campaign issue and legacy-prototype dispositions.
+
+Domain tools and project-native systems execute verification and own their
+structured results. Quire exports static definitions, Quoin consumes explicit
+results for retention/audit/reporting, and ix-flow records attributed human
+decisions. Quire and Quoin are non-executing, and neither is a runtime
+dependency of this crate.
 
 ## License
 
