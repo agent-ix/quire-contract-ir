@@ -143,34 +143,47 @@ def artifact_digest_mismatches(pins: dict[str, Any]) -> list[str]:
     return mismatches
 
 
-def mirror_references() -> list[str]:
-    """Report any requirement or config that names the internal mirror.
+def mirror_references(pins: dict[str, Any]) -> list[str]:
+    """Report any place a dependency could actually be resolved from the mirror.
 
-    The accepted matrix forbids it in any requirement, pin, lockfile, or
-    `.npmrc`: the mirror is unreachable from CI and lags the public registry, so
-    a pin that names it can neither be installed nor believed.
+    The accepted matrix forbids the internal mirror in any requirement, pin,
+    lockfile, or `.npmrc`: it is unreachable from CI and lags the public
+    registry, so a pin that names it can neither be installed nor believed.
+
+    The scan is over *resolvable* declarations, not over every byte of every
+    file. `assurance/pins.json` states the rule in prose and would otherwise
+    match its own text, and a check that had to exempt a sentence by substring
+    would be one a future author could evade by rewording. So the pins file is
+    read as JSON and only the two fields that name something installable are
+    inspected.
     """
-    offenders = []
+    offenders: list[str] = []
     for name in (
         "requirements-assurance.txt",
         "requirements-governance.txt",
-        "assurance/pins.json",
         ".npmrc",
         "Cargo.lock",
+        "Cargo.toml",
+        "package.json",
     ):
         path = ROOT / name
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(text.splitlines(), start=1):
-            stripped = line.strip()
-            if FORBIDDEN_REGISTRY not in stripped:
-                continue
-            # The rule itself is stated in prose in the pins file; a sentence
-            # forbidding the mirror is not a use of the mirror.
-            if '"registry"' in stripped or "must not appear" in stripped:
-                continue
-            offenders.append(f"{name}:{number}: {stripped}")
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+        ):
+            if FORBIDDEN_REGISTRY in line:
+                offenders.append(f"{name}:{number}: {line.strip()}")
+
+    engineering_assurance = pins["engineering_assurance"]
+    resolvable = [("requirement", engineering_assurance.get("requirement", ""))]
+    resolvable += [
+        ("consumed_artifacts[].path", artifact["path"])
+        for artifact in engineering_assurance["consumed_artifacts"]
+    ]
+    for field, value in resolvable:
+        if FORBIDDEN_REGISTRY in str(value):
+            offenders.append(f"assurance/pins.json:{field}: {value}")
     return offenders
 
 
@@ -194,7 +207,7 @@ def classify() -> dict[str, Any]:
     }
     classifications = classify_all(matrix, observed)
     mismatches = artifact_digest_mismatches(pins)
-    offenders = mirror_references()
+    offenders = mirror_references(pins)
     versions_ok = accepted(classifications) and not mismatches and not offenders
     acceptance = matrix["accepted"]
     return {

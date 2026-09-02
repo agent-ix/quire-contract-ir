@@ -440,7 +440,7 @@ def run(
         )
 
     # --- pass: the real producer output, sealed, retained, and discharged ----
-    status, sealed_conformance, detail = chain.seal_attestation(
+    _, sealed_conformance, detail = chain.seal_attestation(
         attestation_id="quire-contract-ir/issue-39/conformance",
         proof_id="PROOF-conformance",
         output=conformance,
@@ -451,8 +451,10 @@ def run(
     if sealed_conformance is None:
         raise ChainError(f"sealing the conformance attestation failed: {detail}")
     intake_status, intake_detail = chain.intake(sealed_conformance, conformance)
+    if intake_status != 0 or not isinstance(intake_detail, dict):
+        raise ChainError(f"retaining the conformance result failed: {intake_detail}")
 
-    status, sealed_export, detail = chain.seal_attestation(
+    _, sealed_export, detail = chain.seal_attestation(
         attestation_id="quire-contract-ir/issue-39/quire-static-export",
         proof_id="PROOF-quire-static-export",
         output=quire_export,
@@ -462,7 +464,9 @@ def run(
     )
     if sealed_export is None:
         raise ChainError(f"sealing the static-export attestation failed: {detail}")
-    export_intake_status, _ = chain.intake(sealed_export, quire_export)
+    export_intake_status, export_detail = chain.intake(sealed_export, quire_export)
+    if export_intake_status != 0:
+        raise ChainError(f"retaining the static export failed: {export_detail}")
 
     retained = Path(intake_detail["directory"]) / "output.bin"
     record_scenario(
@@ -518,12 +522,25 @@ def run(
             [
                 {
                     "proof_id": proof_id,
-                    "report_digest": sha256_bytes(proof_id.encode("utf-8")),
-                    "report": {"findings": [], "healthy": obligations, "unevaluated": []},
+                    # The digest of the report bytes themselves, canonically
+                    # serialized. A stand-in constant here would be a fabricated
+                    # identity in the one place identity is the whole point.
+                    "report_digest": sha256_bytes(
+                        json.dumps(report, sort_keys=True, separators=(",", ":")).encode(
+                            "utf-8"
+                        )
+                    ),
+                    "report": report,
                 }
-                for proof_id, obligations in (
-                    ("PROOF-conformance", ["FR-022-AC-2"]),
-                    ("PROOF-quire-static-export", ["FR-022-AC-3"]),
+                for proof_id, report in (
+                    (
+                        "PROOF-conformance",
+                        {"findings": [], "healthy": ["FR-022-AC-2"], "unevaluated": []},
+                    ),
+                    (
+                        "PROOF-quire-static-export",
+                        {"findings": [], "healthy": ["FR-022-AC-3"], "unevaluated": []},
+                    ),
                 )
             ]
         ),
@@ -559,7 +576,7 @@ def run(
         "the receipt keeps them apart instead of reading an absent audit as a clean one.",
     )
 
-    verify_status, verify_detail = chain.verify_receipt(baseline_receipt)
+    verify_status, _ = chain.verify_receipt(baseline_receipt)
     record_scenario(
         "re-verify-the-sealed-receipt",
         "pass",
@@ -567,7 +584,7 @@ def run(
         {"exit": verify_status, "outcome": baseline_receipt["outcome"]},
         "Re-verification checks the receipt still hashes to its own digest and still "
         "reads incomplete. Exit 1 is the receipt's own outcome being reported, not a "
-        f"failure to verify it. {verify_detail[:0]}",
+        "failure to verify it.",
     )
 
     forged = copy.deepcopy(baseline_receipt)
@@ -594,7 +611,9 @@ def run(
         )
         if sealed is None:
             raise ChainError(f"sealing the {result} attestation failed: {detail}")
-        chain.intake(sealed, quire_export)
+        retain_status, retain_detail = chain.intake(sealed, quire_export)
+        if retain_status != 0:
+            raise ChainError(f"retaining the {result} attestation failed: {retain_detail}")
         status, receipt, _ = chain.receipt(
             {
                 "PROOF-conformance": sealed_conformance["digest"],
@@ -641,7 +660,9 @@ def run(
     )
     if sealed_failed is None:
         raise ChainError(f"sealing the failed attestation failed: {detail}")
-    chain.intake(sealed_failed, failed_run)
+    retain_status, retain_detail = chain.intake(sealed_failed, failed_run)
+    if retain_status != 0:
+        raise ChainError(f"retaining the failed attestation failed: {retain_detail}")
     status, failed_receipt, _ = chain.receipt(
         {
             "PROOF-conformance": sealed_failed["digest"],
@@ -683,7 +704,9 @@ def run(
     )
     if sealed_stale is None:
         raise ChainError(f"sealing the stale attestation failed: {detail}")
-    chain.intake(sealed_stale, conformance)
+    retain_status, retain_detail = chain.intake(sealed_stale, conformance)
+    if retain_status != 0:
+        raise ChainError(f"retaining the stale attestation failed: {retain_detail}")
     status, stale_receipt, _ = chain.receipt(
         {"PROOF-conformance": sealed_stale["digest"]}, decisions_absent
     )
@@ -713,14 +736,14 @@ def run(
     if sealed_tamper is None:
         raise ChainError(f"sealing the tamper attestation failed: {detail}")
     tampered_output.write_bytes(quire_export.read_bytes() + b"\n")
-    tamper_status, tamper_detail = chain.intake(sealed_tamper, tampered_output)
+    tamper_status, _ = chain.intake(sealed_tamper, tampered_output)
     record_scenario(
         "retained-bytes-changed-after-sealing",
         "tampered",
         {"retained": False},
         {"retained": tamper_status == 0},
         "A sealed digest that contradicts the bytes it names is refused and nothing is "
-        f"retained. {tamper_detail[:0]}",
+        "retained.",
     )
 
     # --- controls: the same step with the good input, so no negative result
