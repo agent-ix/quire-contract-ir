@@ -177,13 +177,19 @@ fn production_dependency_violations(manifest: &str) -> Vec<String> {
     violations
 }
 
-const OBSOLETE_PRESCRIPTIONS: [&str; 6] = [
+const OBSOLETE_PRESCRIPTIONS: [&str; 8] = [
     "The common evidence envelope identity is `quire.derivation-evidence/v1`.",
     "### PGM-01-R08 — common derivation and evidence envelope",
     "When actual deployment differs from the primary class, the evidence envelope shall declare the deployed role",
     "Candidate evidence shall be immutable, revision-scoped, content-addressed, and retained with a manifest",
     "- the common PGM-01 evidence envelope is used for generated and analysis artifacts;",
     "# FR-008: Validate the common evidence envelope",
+    // Withdrawn with PGM-01-R08. The rule itself required every domain artifact
+    // to carry a record in the deleted envelope schema, and FR-008 was the
+    // discrete requirement that carried it. Both prescriptions are banned by
+    // their own exact wording so neither can return by being pasted back.
+    "record conforming to `schemas/derivation-evidence-envelope-v1.schema.json`",
+    "# FR-008: Validate domain derivation provenance",
 ];
 
 /// Strips the quotation regions of a review artifact: Markdown blockquote lines
@@ -250,7 +256,6 @@ fn is_lower_sha256(value: &str) -> bool {
 }
 
 /// Tracing: TC-023.
-/// FR-008-AC-4.
 /// FR-021-AC-1.
 #[test]
 fn tc_023_assigns_each_shared_responsibility_exactly_once() {

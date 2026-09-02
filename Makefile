@@ -12,9 +12,9 @@ PYTHON ?= python3
 QUIRE ?= quire
 QUOIN ?= quoin
 
-# The shared-assurance lane runs in its own interpreter. engineering-assurance
-# declares jsonschema>=4.23 and the PGM-01 Draft 7 governance lane pins 3.2.0;
-# both are right for their own job, so they get one environment each.
+# The shared-assurance lane runs in its own interpreter so its pinned
+# engineering-assurance distribution cannot collide with anything installed
+# system-wide.
 ASSURANCE_VENV ?= .venv-assurance
 ASSURANCE_PYTHON ?= $(ASSURANCE_VENV)/bin/python
 
@@ -29,7 +29,6 @@ help:
 	@echo "  make fmt              - Format with rustfmt"
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
-	@echo "  make governance       - Validate PGM-01 schema and corpus"
 	@echo "  make unit             - Run the Python test suite"
 	@echo "  make corpus           - Run and census the published conformance corpus"
 	@echo "  make check-corpus     - Alias for corpus (ecosystem-compatible name)"
@@ -42,7 +41,7 @@ help:
 	@echo "  make assurance        - pins + assurance-chain"
 	@echo "  make assurance-record - Transcribe a conformance run into the Quoin evidence store"
 	@echo "  make release-check    - Run every local release gate"
-	@echo "  make test             - Validate governance and run cargo test"
+	@echo "  make test             - Run the Python suite and cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make msrv             - Check all targets with Rust 1.75"
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
@@ -65,12 +64,6 @@ fmt-check:
 .PHONY: lint
 lint:
 	$(CARGO) clippy --all-targets -- -D warnings
-
-.PHONY: governance
-governance:
-	$(PYTHON) scripts/validate_governance.py --check-runtime
-	$(PYTHON) scripts/validate_governance.py
-	$(PYTHON) scripts/validate_governance.py --mutation-probes
 
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.
@@ -97,8 +90,8 @@ spec:
 	$(PYTHON) scripts/validate_matrix_status.py
 
 .PHONY: test
-test: governance unit
-	QUIRE_GOVERNANCE_PYTHON=$(PYTHON) $(CARGO) test -- --include-ignored
+test: unit
+	$(CARGO) test -- --include-ignored
 
 .PHONY: build
 build:
