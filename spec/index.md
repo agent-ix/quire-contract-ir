@@ -64,8 +64,8 @@ The named human release owner decides whether an exact candidate may be tagged.
 ## Requirements Architecture
 
 The canonical policy owns PGM-01-R01 through PGM-01-R11. Discrete requirements
-FR-001 through FR-010 and FR-021 provide traceable artifact identities without redefining
-that policy. TM-001 maps them to automated tests or retained inspection.
+FR-001 through FR-010, FR-021, and FR-022 provide traceable artifact identities
+without redefining that policy. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, and NFR-001 through
 NFR-004 define the v0.1 semantic substrate. STD-001 is the stable diagnostic

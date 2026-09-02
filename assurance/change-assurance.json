@@ -1,0 +1,255 @@
+{
+  "schema_version": "quire-contract-ir.change-assurance-declaration/v1",
+  "purpose": "What this repository states about the change under issue #39, in the shape Quoin's FR-063 record requires. Quoin owns the record schema, its digest, and its retention; this file is the author's statement that gets sealed into one.",
+  "derived_fields": [
+    "subject.base_revision and impact_snapshot.revision come from the candidate revision the caller names.",
+    "source_connections[].digest is read from the bytes at the declared path in `sources`.",
+    "proof_obligations[].configuration_digest is read from the bytes at that proof's declared `configuration` path.",
+    "impact_snapshot.digest is read from the bytes of the Quire static export.",
+    "Nothing else is filled in, defaulted, or discovered. A field this file does not state is a validation failure at seal time, which is the behaviour that makes the record a statement rather than a guess."
+  ],
+  "sources": {
+    "FR-022": "spec/functional/FR-022-shared-assurance-intake.md",
+    "FR-009": "spec/functional/FR-009-evidence-retention.md",
+    "PGM-01": "spec/program/PGM-01-governance.md",
+    "TM-001": "spec/test-matrix.md",
+    "corpus-manifest": "corpus/contract-v0.1/manifest.json",
+    "assurance-pins": "assurance/pins.json"
+  },
+  "record": {
+    "record_id": "quire-contract-ir/issue-39",
+    "revision": 1,
+    "parent_digest": null,
+    "subject": {
+      "repository": "agent-ix/quire-contract-ir",
+      "scope": [
+        "spec/functional/FR-022-shared-assurance-intake.md",
+        "spec/functional/FR-009-evidence-retention.md",
+        "spec/program/PGM-01-governance.md",
+        "scripts/pgm01_compatibility_view.py",
+        "scripts/check_shared_pins.py",
+        "scripts/assurance_chain.py",
+        "Makefile"
+      ]
+    },
+    "source_connections": [
+      {
+        "source_id": "FR-022",
+        "kind": "requirement"
+      },
+      {
+        "source_id": "FR-009",
+        "kind": "requirement"
+      },
+      {
+        "source_id": "PGM-01",
+        "kind": "architecture"
+      },
+      {
+        "source_id": "TM-001",
+        "kind": "test"
+      },
+      {
+        "source_id": "corpus-manifest",
+        "kind": "test"
+      },
+      {
+        "source_id": "assurance-pins",
+        "kind": "other"
+      }
+    ],
+    "impact_snapshot": {
+      "identity": "quire-static-export",
+      "completeness": "complete",
+      "truncated": false,
+      "gaps": []
+    },
+    "definition": {
+      "requirements": [
+        {
+          "id": "FR-022-AC-1",
+          "statement": "Every shared component is classified against the accepted matrix, an unobservable component is unknown, and a drifted consumed artifact digest fails closed.",
+          "source_ids": [
+            "FR-022",
+            "assurance-pins"
+          ]
+        },
+        {
+          "id": "FR-022-AC-2",
+          "statement": "The native conformance result reaches Quoin through the declared contract-conformance adapter, an empty run is refused, and no verdict is read from a console stream.",
+          "source_ids": [
+            "FR-022",
+            "corpus-manifest"
+          ]
+        },
+        {
+          "id": "FR-022-AC-3",
+          "statement": "Quire's static export is retained by digest through change-assurance intake, and neither Quire nor Quoin invokes the producer.",
+          "source_ids": [
+            "FR-022",
+            "PGM-01"
+          ]
+        },
+        {
+          "id": "FR-022-AC-4",
+          "statement": "Every immutable legacy record maps read-only with its source digest preserved, and unreadable, unsupported, and tampered inputs each keep their own outcome.",
+          "source_ids": [
+            "FR-022",
+            "FR-009"
+          ]
+        },
+        {
+          "id": "FR-022-AC-5",
+          "statement": "Each required result state has a demonstrated case and none collapses into another.",
+          "source_ids": [
+            "FR-022",
+            "TM-001"
+          ]
+        },
+        {
+          "id": "FR-022-AC-6",
+          "statement": "Removing or weakening any load-bearing check turns its gate red.",
+          "source_ids": [
+            "FR-022",
+            "TM-001"
+          ]
+        }
+      ],
+      "preservation_constraints": [
+        {
+          "id": "PRESERVE-legacy-bytes",
+          "statement": "Every file under evidence/ stays byte-identical to its pre-migration state; the migration reads that history and never rewrites it.",
+          "source_ids": [
+            "FR-009"
+          ]
+        },
+        {
+          "id": "PRESERVE-domain-producer",
+          "statement": "The contract model, typed expressions, definedness, canonical bytes and digests, conformance corpus, and semantic diagnostics are unchanged by this migration.",
+          "source_ids": [
+            "corpus-manifest"
+          ]
+        },
+        {
+          "id": "PRESERVE-runtime-independence",
+          "statement": "Published contract crates acquire no runtime dependency on Quire or Quoin; the shared components stay development-time only.",
+          "source_ids": [
+            "PGM-01"
+          ]
+        },
+        {
+          "id": "PRESERVE-manual-ci",
+          "statement": "Every hosted workflow remains manual-dispatch only; no trigger changes.",
+          "source_ids": [
+            "PGM-01"
+          ]
+        }
+      ],
+      "proof_obligations": [
+        {
+          "proof_id": "PROOF-conformance",
+          "statement": "The published contract conformance corpus replays with every fixture matching at this candidate revision.",
+          "obligation_ids": [
+            "FR-022-AC-2"
+          ],
+          "evidence_kind": "Conformance",
+          "command": {
+            "argv": [
+              "cargo",
+              "run",
+              "--quiet",
+              "--bin",
+              "quire-contract-conformance",
+              "--",
+              "run",
+              "--manifest",
+              "corpus/contract-v0.1/manifest.json"
+            ],
+            "working_directory": "."
+          },
+          "tool_identity": "quire-contract-conformance",
+          "configuration": "corpus/contract-v0.1/manifest.json"
+        },
+        {
+          "proof_id": "PROOF-quire-static-export",
+          "statement": "Quire exports this repository's static obligations, symbols, and relations without invoking any producer.",
+          "obligation_ids": [
+            "FR-022-AC-3"
+          ],
+          "evidence_kind": "Static",
+          "command": {
+            "argv": [
+              "quire",
+              "coverage",
+              "--scope",
+              ".",
+              "--json"
+            ],
+            "working_directory": "."
+          },
+          "tool_identity": "quire",
+          "configuration": "spec/index.md"
+        },
+        {
+          "proof_id": "PROOF-legacy-compatibility",
+          "statement": "Every retained PGM-01 record and declared negative fixture maps to its expected read-only outcome with no byte of the evidence tree moved.",
+          "obligation_ids": [
+            "FR-022-AC-4",
+            "FR-022-AC-5"
+          ],
+          "evidence_kind": "Static",
+          "command": {
+            "argv": [
+              "python3",
+              "scripts/pgm01_compatibility_view.py",
+              "--json"
+            ],
+            "working_directory": "."
+          },
+          "tool_identity": "quire-contract-ir/pgm01_compatibility_view",
+          "configuration": "tests/fixtures/legacy-compat/expectations.json"
+        },
+        {
+          "proof_id": "PROOF-msrv",
+          "statement": "Every target builds under the declared MSRV with the locked dependency set.",
+          "obligation_ids": [
+            "FR-022-AC-1"
+          ],
+          "evidence_kind": "Static",
+          "command": {
+            "argv": [
+              "rustup",
+              "run",
+              "1.75.0",
+              "cargo",
+              "check",
+              "--locked",
+              "--all-targets"
+            ],
+            "working_directory": "."
+          },
+          "tool_identity": "cargo",
+          "configuration": "rust-toolchain.toml"
+        }
+      ],
+      "unknowns": [
+        {
+          "id": "UNKNOWN-ea-acceptance-not-in-a-release",
+          "statement": "The engineering-assurance v0.2.0 tag records acceptance state pending_human_acceptance. The named human's acceptance landed on main after the tag and no v0.2.1 was cut, so the matrix gate's acceptance condition is satisfiable only from a branch head. The two artifacts this repository consumes are byte-identical at the tag and at main, so what this repository reads is the released pin; the acceptance record is the part that is not in a release. Filed as agent-ix/engineering-assurance#20.",
+          "disposition": "open",
+          "owner": "agent-ix/engineering-assurance"
+        },
+        {
+          "id": "UNKNOWN-human-decision-absent",
+          "statement": "No ix-flow decision event exists for this candidate. Only the named human release authority can create one, so the verification receipt for this record is incomplete by construction rather than by defect.",
+          "disposition": "open",
+          "owner": "@kreneskyp"
+        }
+      ]
+    },
+    "review_workflow": {
+      "run_id": "quire-contract-ir-issue-39",
+      "decision_event_kind": "change_assurance.review_decided"
+    }
+  }
+}

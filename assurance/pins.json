@@ -1,0 +1,32 @@
+{
+  "schema_version": "quire-contract-ir.assurance-pins/v1",
+  "purpose": "The Engineering Assurance release this repository adopts, and the digests of the artifacts it actually reads from that release. Component version pins are NOT restated here: the packaged compatibility matrix is their authority and a second copy would drift from it.",
+  "engineering_assurance": {
+    "version": "0.2.0",
+    "release": "git tag v0.2.0 of agent-ix/engineering-assurance",
+    "release_form": "source distribution; npm publication is refused by design, so the tag is the released artifact",
+    "requirement": "requirements-assurance.txt",
+    "consumed_artifacts": [
+      {
+        "path": "verification_semantics.py",
+        "sha256": "af9f92fcec60463fe3e9398a5ce0c1acde76b738816b10baf1b94e123c9b50bc",
+        "why": "map_pgm01_bytes is the FR-010 read-only compatibility mapping this repository reads its immutable PGM-01 history through."
+      },
+      {
+        "path": "schemas/pgm01-compatibility-view-v1.schema.json",
+        "sha256": "317294d04e430f26612a6c7cbde937e06d9e655585a59de1f1e4a0dd66855ca6",
+        "why": "The shape every mapped view is validated against. Also recorded in the accepted compatibility matrix, so a drift here is visible from either side."
+      },
+      {
+        "path": "compatibility-matrix.json",
+        "why": "The authority on which component versions are pinned. Deliberately carries no digest here: it is expected to advance as the matrix is re-accepted, and pinning its bytes locally would make this repository a second acceptance authority."
+      }
+    ]
+  },
+  "matrix_authority": "engineering_assurance/compatibility-matrix.json in the installed distribution. scripts/check_shared_pins.py observes the local toolchain and delegates every verdict to engineering_assurance.compatibility.",
+  "registry": "Every npm component resolves from the public npm registry (registry.npmjs.org). The internal npm.ix mirror must not appear in any requirement, pin, lockfile, or .npmrc, and is not an oracle for whether a release landed.",
+  "known_drift": [
+    "The v0.2.0 tag records acceptance state 'pending_human_acceptance' and its compatibility module has no human_acceptance_recorded predicate at all: both landed on engineering-assurance main after the tag (48daacd, ae50e13) and no v0.2.1 was cut. The acceptance gate is therefore satisfiable only from that branch head, which is the one thing FR-012-AC-1 says a pin may not be. The named human's acceptance is genuine and attributed in that repository; what is missing is a release carrying it. Filed as agent-ix/engineering-assurance#20.",
+    "The two artifacts this repository consumes -- verification_semantics.py and pgm01-compatibility-view-v1.schema.json -- are byte-identical at v0.2.0 and at main, so the read-only mapping this repository depends on IS the released pin. scripts/check_shared_pins.py reports the acceptance state it finds and gates only on the local toolchain, so neither an absent field nor a branch head is read as an approval."
+  ]
+}

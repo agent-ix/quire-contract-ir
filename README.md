@@ -30,6 +30,31 @@ results for retention/audit/reporting, and ix-flow records attributed human
 decisions. Quire and Quoin are non-executing, and neither is a runtime
 dependency of this crate.
 
+## Shared assurance
+
+```bash
+make assurance-inputs   # the native producers run here, and only here
+make assurance          # pins, legacy compatibility, and the Quoin chain
+```
+
+`make assurance-inputs` runs the contract conformance runner and `quire
+coverage`. Everything after it consumes files that already exist. The shared
+components are reached at the accepted released pins, classified against
+Engineering Assurance's own compatibility matrix rather than against a second
+copy of it kept here; `assurance/pins.json` records which release is adopted and
+the digests of the artifacts read from it.
+
+The ten immutable records under `evidence/` are history. They are read through
+Engineering Assurance's read-only compatibility mapping, which reports `lossy`,
+`incompatible`, or `unreadable` rather than synthesizing a field a legacy record
+never carried, and they are never written to again. `schemas/README.md` explains
+which schemas are live, which are historical, and which are frozen.
+
+The assurance lane installs into its own interpreter (`make assurance-env`,
+`.venv-assurance`). It is separate from the PGM-01 Draft 7 governance lane on
+purpose: that lane pins `jsonschema==3.2.0` and Engineering Assurance declares
+4.x, and neither is bent to fit the other.
+
 ## License
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your

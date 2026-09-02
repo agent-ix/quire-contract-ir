@@ -325,6 +325,45 @@ fn tc_024_locks_historical_bytes_and_requires_lossy_read_only_mapping() {
         "historical lock must cover every evidence file and PGM-01 schema"
     );
 
+    // The two generic PGM-01 schemas are frozen, not deleted: every retained
+    // manifest names one of them by path and digest, so removing the file would
+    // break a reference inside bytes this migration must leave readable. What
+    // makes the freeze real is that nothing validates against them any more —
+    // the family removed was the verifier, and a gate that started reading one
+    // again would be that family returning under another name.
+    let mut collected = Vec::new();
+    collect_files(&root.join("scripts"), &mut collected);
+    // Sources only. `__pycache__` holds compiled bytecode a subprocess import
+    // leaves behind; it is not authored text and is not valid UTF-8.
+    let scripts = collected
+        .into_iter()
+        .filter(|path| {
+            matches!(
+                path.extension().and_then(|value| value.to_str()),
+                Some("py" | "sh" | "txt")
+            )
+        })
+        .collect::<Vec<_>>();
+    let frozen = [
+        "pgm01-evidence-v1.schema.json",
+        "evidence-correction-v1.schema.json",
+    ];
+    for path in &scripts {
+        let source = fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+        for schema in frozen {
+            assert!(
+                !source.contains(schema),
+                "{} references the frozen schema {schema}; nothing may validate against it",
+                repository_relative(root, path)
+            );
+        }
+    }
+    assert!(
+        scripts.len() > 3,
+        "the script census is unexpectedly small to make this claim"
+    );
+
     let policy = normalized(POLICY);
     let reconciliation = normalized(RECONCILIATION);
     assert!(policy.contains("explicit read-only compatibility mapping"));
