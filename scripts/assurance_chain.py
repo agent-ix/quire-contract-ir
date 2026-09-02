@@ -331,6 +331,34 @@ def adapter_probes(scratch: Path, conformance: Path, revision: str) -> list[dict
         encoding="utf-8",
     )
 
+    # One named edit to the real producer stream: its SECOND row is truncated
+    # mid-object so those bytes cannot be decoded, and every other row is left
+    # exactly as the runner emitted it.
+    #
+    # The surviving rows are the point, and the shape is deliberate. If only the
+    # bad row were present, an adapter that silently DROPPED undecodable rows
+    # rather than refusing them would leave an empty stream, exit non-zero for
+    # "no conformance rows", and look identical to a refusal. Keeping 98 good
+    # rows means a dropped row leaves a perfectly valid run that transcribes and
+    # exits 0 — so "dropped rather than refused" fails loudly instead of passing
+    # as a `malformed` demonstration it never made.
+    #
+    # This is also why the refusal is checked before intake rather than after:
+    # after the adapter, a refused row and a failed row are both just a non-zero
+    # exit, which is exactly where `malformed` would collapse into `fail`.
+    rows = conformance.read_text(encoding="utf-8").splitlines()
+    if len(rows) < 3:
+        raise ChainError(
+            f"the conformance stream has {len(rows)} row(s); the malformed probe needs "
+            "a row to corrupt and surviving rows either side of it, or a dropped row "
+            "would be indistinguishable from a refused one"
+        )
+    truncated = rows[1][: len(rows[1]) // 2]
+    malformed = scratch / "malformed.jsonl"
+    malformed.write_text(
+        "\n".join([rows[0], truncated, *rows[2:]]) + "\n", encoding="utf-8"
+    )
+
     cases = [
         ("accepts-the-real-run", conformance, 0, "the producer's own stream is transcribed"),
         (
@@ -344,6 +372,14 @@ def adapter_probes(scratch: Path, conformance: Path, revision: str) -> list[dict
             wrong_protocol,
             1,
             "a stream that does not declare the runner's protocol is not the runner's output",
+        ),
+        (
+            "refuses-a-malformed-stream",
+            malformed,
+            1,
+            "one row of a real 99-row producer stream is truncated mid-object; the "
+            "adapter must refuse the undecodable bytes rather than drop the row and "
+            "transcribe the 98 that still parse",
         ),
     ]
     probes = []
@@ -823,7 +859,15 @@ def run(
         "conformance_protocol": CONFORMANCE_PROTOCOL,
         "scenarios": scenarios,
         "adapter_probes": probes,
-        "states_demonstrated": sorted({scenario["demonstrates"] for scenario in scenarios}),
+        # Filtered by `matched`, exactly as `adapter_probes` is. A scenario that
+        # produced the wrong outcome must not still contribute its state name:
+        # the state was not demonstrated, it was attempted. This is fail-closed
+        # today only because an unmatched scenario also drives `matched` false,
+        # and relying on that indirection would make the field readers trust
+        # weaker than the field they read.
+        "states_demonstrated": sorted(
+            {scenario["demonstrates"] for scenario in scenarios if scenario["matched"]}
+        ),
         "matched": all(scenario["matched"] for scenario in scenarios)
         and all(probe["matched"] for probe in probes)
         and all(control["matched"] for control in controls),

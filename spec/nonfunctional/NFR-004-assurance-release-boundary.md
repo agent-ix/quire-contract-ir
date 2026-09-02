@@ -36,9 +36,21 @@ workflow.
 | NFR-004-AC-1 | Cargo publication is disabled, both license texts are present, and CI has no automatic trigger. | Test (TC-014) |
 | NFR-004-AC-2 | The five assurance artifacts name decision, system, component, measurement, failure, evidence, and human-owner boundaries. | Test (TC-020) |
 | NFR-004-AC-3 | The implementation plan keeps dependency-blocked children pending and records every composite-review dimension. | Test (TC-021) |
-| NFR-004-AC-4 | A contradicted retained review claim is append-only corrected to inconclusive without rewriting the original record. | Test (TC-022) |
+
+### Retired criteria
+
+`NFR-004-AC-4` required a contradicted retained review claim to be append-only
+corrected to `inconclusive` without rewriting the original record. Its subject
+was `evidence/corrections/COR-001-pr12-code-review.json` and the retained record
+it corrected. Both are deleted under the pre-stable release of the
+evidence-preservation constraint decided by the repository owner on 2026-09-02
+([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)).
+The correction and the claim it superseded went together, so the criterion is
+retired rather than reassigned to a surviving artifact: nothing else in this
+repository is a contradicted retained review claim. The identifier is not
+reused.
 
 ## Verification
 
-Foundation inspection, retained evidence, and named human sufficiency decision
-(TC-014, TC-020 through TC-022).
+Foundation inspection and named human sufficiency decision
+(TC-014, TC-020, TC-021).

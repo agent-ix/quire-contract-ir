@@ -32,23 +32,26 @@ Quire and Quoin are non-executing. Published runtime and domain crates have no
 runtime dependency on either tool. Exact released CLI pins may be used at
 development time only after their common-work release gate passes.
 
-## Historical compatibility
+## Historical compatibility — released for the pre-stable phase
 
-Existing PGM-01 records, external checksums, corrections, and schemas remain
-immutable inputs. `tests/fixtures/historical-pgm01-files.sha256` locks every
-historical record, checksum, correction, and PGM-01 domain/evidence/correction
-schema byte present when this reconciliation was accepted. Additions require a
-new lock entry but do not rewrite an accepted byte. The local verifier continues
-to authenticate the original representation.
+This section previously held the PGM-01 records, external checksums,
+corrections and schemas as immutable inputs, locked byte-for-byte by
+`tests/fixtures/historical-pgm01-files.sha256` and read through the explicit
+read-only, lossy mapping owned by
+[Engineering Assurance #5](https://github.com/agent-ix/engineering-assurance/issues/5).
 
-The compatibility implementation is the explicit read-only, lossy mapping
-owned by [Engineering Assurance #5](https://github.com/agent-ix/engineering-assurance/issues/5)
-and merged at
-[`ee4db6f`](https://github.com/agent-ix/engineering-assurance/commit/ee4db6fc9c22544d8c8bfc8f0b97fe097835c029).
-It returns source-field references and limitations. It does not mutate source
-bytes, synthesize missing producer/configuration/decision fields, or turn a
-legacy intake or merge-readiness label into a successful check or human
-decision.
+That worked. Every one of this repository's ten retained records mapped
+successfully — outcome `lossy`, source digest preserved, zero bytes moved — and
+this was the only repository in the eight-repository campaign for which it did;
+the other seven hold envelopes the mapping refuses outright.
+
+The repository owner released the preservation constraint for the pre-stable
+phase on 2026-09-02, recorded in
+[engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7).
+The records, the lock, the census that read them, and the two schemas frozen
+only because those records named them by digest are deleted. No byte was
+rewritten on the way out and no claim that they still verify anything survives
+them. The constraint re-applies unchanged at the move toward stable releases.
 
 ## Campaign issue dispositions
 

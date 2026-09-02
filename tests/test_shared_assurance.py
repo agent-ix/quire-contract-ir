@@ -1,7 +1,7 @@
 """Gates for the pinned shared-assurance path (FR-022).
 
-Each test runs the real thing. The compatibility view and the pin classifier
-need `engineering-assurance`, which lives in its own interpreter because the
+Each test runs the real thing. The pin classifier needs
+`engineering-assurance`, which lives in its own interpreter because the
 PGM-01 Draft 7 lane pins jsonschema 3.2.0 and Engineering Assurance declares
 4.x; these tests invoke that interpreter rather than importing across the two.
 
@@ -30,9 +30,40 @@ ASSURANCE_PYTHON = Path(
 CONFORMANCE_RESULT = ROOT / "target/assurance/conformance.jsonl"
 QUIRE_EXPORT = ROOT / "target/assurance/quire-static-export.json"
 
-# Every state the migration contract requires this repository to demonstrate,
-# and the gate that demonstrates it. A state with no home here is a state
-# nobody showed.
+# Every state this repository demonstrates, and the gate that demonstrates it.
+# A state with no home here is a state nobody showed.
+#
+# This table was measured against the pre-deletion tree, per state, before the
+# retained `evidence/` records were removed — not by asking whether the union of
+# all sources still reached twelve. The measurement:
+#
+#   chain          pass fail unavailable not-computed partial stale tampered
+#   adapter        vacuous
+#   compatibility  unsupported inconclusive malformed suspect
+#
+# Four states named `compatibility` as their home, so the census the owner
+# released on 2026-09-02 (agent-ix/engineering-assurance#7) was the only place
+# they were declared. Each was then checked individually against the surviving
+# path rather than written off:
+#
+# - `unsupported` and `malformed` were not actually demonstrated by the census.
+#   They were unconditional string literals in its set, bound to nothing, so
+#   they read as demonstrated on every run whatever happened. Both now name an
+#   adapter probe and are satisfied only when that probe matched: the existing
+#   `refuses-a-foreign-protocol` for `unsupported`, and a new refusal of a
+#   stream whose bytes do not parse for `malformed`. The two refusals are kept
+#   distinguishable by a separate test, because three refusals that all exit 1
+#   would be three states collapsed into one.
+# - `inconclusive` moves to `governance`, where TC-006 has always validated a
+#   live solver fixture that keeps an inconclusive result inconclusive.
+# - `suspect` is a real loss and is recorded as one below rather than rehomed.
+#   It meant "a retained record an append-only correction names". With no
+#   retained records and no corrections there is nothing in this repository that
+#   is suspect, and inventing a stand-in would be the collapse this table exists
+#   to prevent.
+#
+# Note the homes are looked up per state, not unioned. A state whose home stops
+# demonstrating it fails this test rather than being quietly covered by another.
 REQUIRED_STATES = {
     "pass": "chain",
     "fail": "chain",
@@ -41,11 +72,19 @@ REQUIRED_STATES = {
     "partial": "chain",
     "stale": "chain",
     "tampered": "chain",
-    "unsupported": "compatibility",
-    "inconclusive": "compatibility",
-    "malformed": "compatibility",
-    "suspect": "compatibility",
     "vacuous": "adapter",
+    "unsupported": "adapter",
+    "malformed": "adapter",
+    "inconclusive": "governance",
+}
+
+# `suspect` had exactly one demonstrator, the retained correction record naming
+# a retained evidence record, and both are deleted. It is listed here so the
+# loss is a declared fact with a test behind it rather than a silent absence,
+# and so that a future author who restores a suspect case has to move it.
+LOST_STATES = {
+    "suspect": "demonstrated only by evidence/corrections/ naming a retained "
+    "PGM-01 record; both are deleted and nothing replaced them",
 }
 
 _CACHE: dict[str, Any] = {}
@@ -80,15 +119,6 @@ def pin_report() -> dict[str, Any]:
         _CACHE["pins"] = json.loads(completed.stdout)
         _CACHE["pins_exit"] = completed.returncode
     return _CACHE["pins"]
-
-
-def compatibility_report() -> dict[str, Any]:
-    if "compatibility" not in _CACHE:
-        completed = run_assurance("scripts/pgm01_compatibility_view.py", "--json")
-        if completed.returncode != 0:
-            raise AssertionError(f"the compatibility census failed: {completed.stderr}")
-        _CACHE["compatibility"] = json.loads(completed.stdout)
-    return _CACHE["compatibility"]
 
 
 def chain_report() -> dict[str, Any]:
@@ -245,6 +275,29 @@ def test_the_domain_result_reaches_quoin_through_the_declared_adapter() -> None:
         1,
         "a stream that does not declare the runner's protocol is not the runner's output",
     )
+    # The malformed probe hands the adapter a real 99-row producer stream with
+    # one row truncated mid-object. Two distinct defects are being caught, and
+    # both are named rather than folded into "exit non-zero":
+    malformed = probes["refuses-a-malformed-stream"]
+    detail = " ".join(malformed["detail"]).lower()
+    assert_false(
+        malformed["exit"] == 0,
+        "the adapter transcribed a stream containing undecodable bytes, which means "
+        "it dropped the bad row and kept the 98 that parse. A dropped row is not a "
+        "refused one, and this probe would otherwise report a `malformed` "
+        "demonstration the adapter never made",
+    )
+    assert_equal(
+        malformed["exit"],
+        1,
+        "undecodable bytes must be refused, not crash the adapter",
+    )
+    assert_true(
+        "is not json" in detail,
+        "the refusal must name the decode failure specifically. A non-zero exit "
+        "alone cannot tell `malformed` apart from `fail`, which is where it "
+        f"collapses, and 'mentions json somewhere' is not the same claim: {detail!r}",
+    )
 
 
 def test_no_verdict_is_read_from_a_console_stream() -> None:
@@ -309,67 +362,134 @@ def test_the_chain_refuses_to_run_a_producer() -> None:
         )
 
 
-def test_every_immutable_record_maps_read_only_and_keeps_its_digest() -> None:
-    """TC-032. Trace: TC-032, FR-009-AC-5, FR-022-AC-4."""
-    report = compatibility_report()
-    assert_equal(
-        report["evidence_bytes_moved"], [], "reading history must not write to it"
-    )
-    assert_equal(report["drifted_derivations"], [], "a fixture is not its declared derivation")
-    historical = [case for case in report["cases"] if case["kind"] == "historical"]
-    assert_equal(len(historical), 10, "every retained PGM-01 record must be read")
-    for case in historical:
-        assert_equal(case["outcome"], "lossy", f"{case['case']} outcome")
-        assert_true(case["digest_preserved"], f"{case['case']} lost its source digest")
-        assert_true(
-            case["unmapped_fields"] > 0,
-            f"{case['case']} claims a complete mapping of a record that has no "
-            "producer version, no configuration digest, and no decision event",
+def governance_report() -> dict[str, Any]:
+    """The live PGM-01 Draft 7 corpus run, in its own interpreter.
+
+    This is the domain governance lane, not the shared-assurance lane, so it
+    runs on the repository's declared Python rather than `.venv-assurance`.
+    """
+    if "governance" not in _CACHE:
+        completed = subprocess.run(
+            ["python3", "scripts/validate_governance.py", "--json"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        if completed.returncode != 0:
+            raise AssertionError(f"the governance corpus failed: {completed.stderr}")
+        _CACHE["governance"] = json.loads(completed.stdout)
+    return _CACHE["governance"]
 
 
-def test_unreadable_unsupported_and_tampered_keep_their_own_outcome() -> None:
-    """TC-032. Trace: TC-032, FR-022-AC-4."""
-    outcomes = {case["case"]: case["outcome"] for case in compatibility_report()["cases"]}
-    assert_equal(outcomes["derived-tampered"], "incompatible", "a tampered record")
-    assert_equal(outcomes["unsupported-schema"], "incompatible", "an unknown schema major")
-    assert_equal(outcomes["malformed-v1"], "unreadable", "a malformed record")
-    assert_equal(outcomes["unreadable-truncated"], "unreadable", "bytes that are not JSON")
-    assert_equal(
-        outcomes["derived-not-computed"],
-        "unreadable",
-        "PGM-01 v1 has no not-computed status and the mapping must refuse one rather "
-        "than invent a translation",
+def demonstrated_states() -> dict[str, set[str]]:
+    """What each home actually demonstrates on this run, by home.
+
+    Both the "every required state has one" check and the "a lost state has not
+    quietly acquired one" check read this same map. That is deliberate: if the
+    lost-state check built its own view of what is demonstrated, the two could
+    disagree, and the disagreement would be invisible.
+    """
+    chain = chain_report()
+    matched_probes = {
+        probe["probe"] for probe in chain["adapter_probes"] if probe["matched"]
+    }
+    governance = governance_report()
+    # Validity alone is not the demonstration, so validity alone is not what is
+    # checked: a fixture that validated but had been edited to a conclusive
+    # status would prove nothing here, and `result.status` is an open enum in
+    # the schema, so the schema would not stop that edit. The fixture's own
+    # bytes are read and its status asserted.
+    solver = json.loads(
+        (ROOT / "corpus/governance/valid/solver-analysis.json").read_text(encoding="utf-8")
     )
-    assert_equal(
-        outcomes["correction-record-is-not-an-evidence-record"],
-        "incompatible",
-        "a correction record is not a PGM-01 evidence record and is not read as one",
+    inconclusive_shown = solver["result"]["status"] == "inconclusive" and any(
+        case["path"].endswith("solver-analysis.json") and case["valid"] and case["matched"]
+        for case in governance["cases"]
     )
+    return {
+        "chain": set(chain["states_demonstrated"]),
+        "adapter": {
+            state
+            for state, probe in (
+                ("vacuous", "refuses-a-vacuous-run"),
+                ("unsupported", "refuses-a-foreign-protocol"),
+                ("malformed", "refuses-a-malformed-stream"),
+            )
+            if probe in matched_probes
+        },
+        "governance": {"inconclusive"} if inconclusive_shown else set(),
+    }
 
 
 def test_every_required_state_has_a_demonstrated_case() -> None:
     """TC-033. Trace: TC-033, FR-022-AC-5."""
-    chain = chain_report()
-    compatibility = compatibility_report()
-    demonstrated = {
-        "chain": set(chain["states_demonstrated"]),
-        "compatibility": {
-            "unsupported",
-            "malformed",
-            *(state for case in compatibility["cases"] for state in case["mapped_states"]),
-            *({"suspect"} if compatibility["suspect_demonstrated"] else set()),
-        },
-        "adapter": {
-            "vacuous"
-            for probe in chain["adapter_probes"]
-            if probe["probe"] == "refuses-a-vacuous-run" and probe["matched"]
-        },
-    }
+    demonstrated = demonstrated_states()
     missing = [
         state for state, home in REQUIRED_STATES.items() if state not in demonstrated[home]
     ]
     assert_equal(missing, [], f"states with no demonstrated case: {missing}")
+
+
+def test_the_adapter_refusals_stay_distinguishable_from_one_another() -> None:
+    """TC-033. Trace: TC-033, FR-022-AC-5."""
+    # `vacuous`, `unsupported` and `malformed` are all demonstrated by an
+    # adapter refusal, and all three refusals exit 1. Exit code alone therefore
+    # cannot tell them apart, and three states that cannot be told apart are
+    # three states collapsed into one — which is the half of FR-022-AC-5 that
+    # says none may be satisfied by another's outcome. The adapter records the
+    # refusal it actually made, so that is what gets compared.
+    probes = {probe["probe"]: probe for probe in chain_report()["adapter_probes"]}
+    details = {
+        state: " ".join(probes[probe]["detail"]).strip()
+        for state, probe in (
+            ("vacuous", "refuses-a-vacuous-run"),
+            ("unsupported", "refuses-a-foreign-protocol"),
+            ("malformed", "refuses-a-malformed-stream"),
+        )
+    }
+    for state, detail in details.items():
+        assert_true(detail, f"the {state} refusal recorded no reason to distinguish it by")
+    distinct = set(details.values())
+    assert_equal(
+        len(distinct),
+        len(details),
+        f"adapter refusals are indistinguishable, so their states collapse: {details}",
+    )
+
+
+def test_a_lost_state_stays_declared_lost_rather_than_quietly_covered() -> None:
+    """TC-033. Trace: TC-033, FR-022-AC-5."""
+    # `suspect` lost its only demonstrator with the retained evidence.
+    #
+    # An earlier version of this test compared the two hand-maintained tables and
+    # nothing else. It could not fail on the scenario its own comment promised to
+    # catch: injecting `suspect` into a home's demonstrated set, while leaving
+    # both tables untouched, left it green. It checked the bookkeeping and not
+    # the world. The table checks are kept — they catch things the observed-set
+    # check cannot — and the missing one is added.
+    overlap = sorted(set(LOST_STATES) & set(REQUIRED_STATES))
+    assert_equal(overlap, [], f"a state cannot be both demonstrated and lost: {overlap}")
+    assert_true(LOST_STATES, "the record of what the deletion cost must not be emptied")
+    for state, why in LOST_STATES.items():
+        assert_true(why.strip(), f"{state} is recorded as lost with no reason")
+
+    # The part the table comparison could not see: whether any home has actually
+    # started demonstrating a state still declared lost. If one has, that is not
+    # a free win — it means something is being credited to `suspect` without
+    # anyone saying what demonstrates it, which is exactly the collapse
+    # FR-022-AC-5 forbids. Read from the same map the required-state check uses.
+    observed: set[str] = set()
+    for states in demonstrated_states().values():
+        observed |= states
+    covered = sorted(set(LOST_STATES) & observed)
+    assert_equal(
+        covered,
+        [],
+        f"a state declared lost is being demonstrated after all: {covered}. Move it "
+        "out of LOST_STATES into REQUIRED_STATES and name the demonstrator, rather "
+        "than letting it be covered silently",
+    )
 
 
 def test_no_non_success_state_collapses_into_another() -> None:
@@ -415,18 +535,6 @@ def test_the_human_decision_is_absent_and_is_not_synthesized() -> None:
     assert_equal(
         unknowns["UNKNOWN-human-decision-absent"]["owner"], "@kreneskyp", "the owner"
     )
-
-
-def test_weakening_the_compatibility_census_turns_it_red() -> None:
-    """TC-034. Trace: TC-034, FR-022-AC-6."""
-    completed = run_assurance(
-        "scripts/pgm01_compatibility_view.py", "--mutation-probes", "--json"
-    )
-    assert_equal(completed.returncode, 0, completed.stderr)
-    report = json.loads(completed.stdout)
-    assert_true(len(report["probes"]) >= 6, "too few probes to call this tested")
-    escaped = [probe["name"] for probe in report["probes"] if not probe["detected"]]
-    assert_equal(escaped, [], f"mutation probes escaped the census: {escaped}")
 
 
 def test_every_negative_result_is_paired_with_a_positive_control() -> None:
