@@ -8,14 +8,9 @@
     "requirement": "requirements-assurance.txt",
     "consumed_artifacts": [
       {
-        "path": "verification_semantics.py",
-        "sha256": "af9f92fcec60463fe3e9398a5ce0c1acde76b738816b10baf1b94e123c9b50bc",
-        "why": "map_pgm01_bytes is the FR-010 read-only compatibility mapping this repository reads its immutable PGM-01 history through."
-      },
-      {
-        "path": "schemas/pgm01-compatibility-view-v1.schema.json",
-        "sha256": "317294d04e430f26612a6c7cbde937e06d9e655585a59de1f1e4a0dd66855ca6",
-        "why": "The shape every mapped view is validated against. Also recorded in the accepted compatibility matrix, so a drift here is visible from either side."
+        "path": "compatibility.py",
+        "sha256": "62829251d7697d279364eeb2395a1e86a81ef116703c4b89ec754f701475f654",
+        "why": "load_matrix, classify_all and accepted are the authority scripts/check_shared_pins.py delegates every version verdict to. This digest is the file as the v0.2.0 tag carries it; the module on engineering-assurance main differs, so a pin that matched main would not be a pin on the release."
       },
       {
         "path": "compatibility-matrix.json",
@@ -27,6 +22,9 @@
   "registry": "Every npm component resolves from the public npm registry (registry.npmjs.org). The internal npm.ix mirror must not appear in any requirement, pin, lockfile, or .npmrc, and is not an oracle for whether a release landed.",
   "known_drift": [
     "The v0.2.0 tag records acceptance state 'pending_human_acceptance' and its compatibility module has no human_acceptance_recorded predicate at all: both landed on engineering-assurance main after the tag (48daacd, ae50e13) and no v0.2.1 was cut. The acceptance gate is therefore satisfiable only from that branch head, which is the one thing FR-012-AC-1 says a pin may not be. The named human's acceptance is genuine and attributed in that repository; what is missing is a release carrying it. Filed as agent-ix/engineering-assurance#20.",
-    "The two artifacts this repository consumes -- verification_semantics.py and pgm01-compatibility-view-v1.schema.json -- are byte-identical at v0.2.0 and at main, so the read-only mapping this repository depends on IS the released pin. scripts/check_shared_pins.py reports the acceptance state it finds and gates only on the local toolchain, so neither an absent field nor a branch head is read as an approval."
+    "scripts/check_shared_pins.py reports the acceptance state it finds and gates only on the local toolchain, so neither an absent field nor a branch head is read as an approval."
+  ],
+  "retired_pins": [
+    "verification_semantics.py (af9f92fc...) and schemas/pgm01-compatibility-view-v1.schema.json (317294d0...) were pinned because scripts/pgm01_compatibility_view.py read this repository's retained PGM-01 history through map_pgm01_bytes. The owner released the pre-stable evidence-preservation constraint on 2026-09-02 (agent-ix/engineering-assurance#7), the retained records and their reader are deleted, and nothing here consumes either artifact any more. They were removed rather than left in place: a pin on a file no gate reads makes 'the artifacts it actually reads' false, and a digest check that never runs against a live consumer is a green light nobody earned. compatibility.py replaces them so the digest-drift check still binds to something this repository genuinely imports."
   ]
 }

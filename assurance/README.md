@@ -23,9 +23,11 @@ the moment it lands — which is precisely what left the deleted verifier red on
 store is retained is a deployment decision. What is proven on every invocation
 is the path, not a snapshot of one run of it.
 
-`evidence/` is the other thing that is not in here: ten immutable PGM-01 records
-and one append-only correction, frozen, read through Engineering Assurance's
-compatibility mapping and never written to again.
+`evidence/` used to be the other thing that is not in here: ten immutable
+PGM-01 records and one append-only correction. They are deleted under the
+pre-stable release of the preservation constraint
+([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7),
+decided by the repository owner 2026-09-02). Nothing local replaced them.
 
 ## What derives what
 
@@ -39,7 +41,7 @@ sealed record a statement somebody made rather than a shape a tool filled in.
 
 ```bash
 make assurance-inputs   # the native producers run here, and only here
-make assurance          # pins, legacy compatibility, and the Quoin chain
+make assurance          # pins and the Quoin chain
 ```
 
 The order matters and the split is the point. `assurance-inputs` runs the

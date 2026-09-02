@@ -22,7 +22,7 @@ assumptions:
     status: open
     review_by: "2026-12-31T00:00:00Z"
   - id: assumption-toolchain-reproduction
-    statement: retained tool and environment identities remain obtainable for independent reproduction
+    statement: tool and environment identities remain obtainable for independent reproduction from the Quoin evidence store a run is recorded into, not from this repository, which retains none for the pre-stable phase
     owner: kreneskyp
     status: open
     review_by: "2026-12-31T00:00:00Z"
@@ -69,8 +69,14 @@ evidence cannot do so later.
 
 ## Challenges
 
-The semantic implementation, schemas, and corpus are now present and their
-child evidence is retained. Cross-platform golden comparison remains deferred
+The semantic implementation, schemas, and corpus are now present. Their child
+evidence is no longer retained: the repository owner released the
+evidence-preservation constraint for the pre-stable phase on 2026-09-02
+(agent-ix/engineering-assurance#7) and this repository's retained records are
+deleted. Nothing in this argument rests on them, and none is restated as
+though it still verified. Retention returns as a support for this claim at the
+move toward stable releases, which is before any source-release candidate is
+selected. Cross-platform golden comparison remains deferred
 while automatic CI is intentionally off; independent downstream execution and
 the exact human source decision also remain absent. REV-007 carries these
 limitations into the Wave 4 decision without treating them as Wave 1

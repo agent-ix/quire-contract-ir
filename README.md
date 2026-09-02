@@ -34,7 +34,7 @@ dependency of this crate.
 
 ```bash
 make assurance-inputs   # the native producers run here, and only here
-make assurance          # pins, legacy compatibility, and the Quoin chain
+make assurance          # pins and the Quoin chain
 ```
 
 `make assurance-inputs` runs the contract conformance runner and `quire
@@ -42,13 +42,20 @@ coverage`. Everything after it consumes files that already exist. The shared
 components are reached at the accepted released pins, classified against
 Engineering Assurance's own compatibility matrix rather than against a second
 copy of it kept here; `assurance/pins.json` records which release is adopted and
-the digests of the artifacts read from it.
+the digest of the artifact read from it. The packaged compatibility matrix is
+deliberately not digest-pinned there, and says why in the file.
 
-The ten immutable records under `evidence/` are history. They are read through
-Engineering Assurance's read-only compatibility mapping, which reports `lossy`,
-`incompatible`, or `unreadable` rather than synthesizing a field a legacy record
-never carried, and they are never written to again. `schemas/README.md` explains
-which schemas are live, which are historical, and which are frozen.
+This repository held ten immutable PGM-01 records under `evidence/`, read
+through Engineering Assurance's read-only compatibility mapping. It was the only
+repository in the eight-repository campaign for which that mapping worked: all
+ten mapped `lossy` with their source digests preserved and no byte moved. The
+repository owner released the evidence-preservation constraint for the
+pre-stable phase on 2026-09-02
+([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)),
+and the records, their reader, and the schemas frozen only for their sake are
+deleted. Nothing was rewritten on the way out and no claim here rests on them.
+`schemas/README.md` explains which schemas are live and why.
+The constraint re-applies at the move toward stable releases.
 
 The assurance lane installs into its own interpreter (`make assurance-env`,
 `.venv-assurance`). It is separate from the PGM-01 Draft 7 governance lane on

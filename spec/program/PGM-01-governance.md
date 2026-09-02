@@ -195,15 +195,26 @@ instance path then schema message.
 
 ### PGM-01-R09 — historical records, assurance handoff, and release decision
 
-Existing `evidence/pgm-01-<short-source-revision>/` records, their external
-checksum files, corrections, and the `quire.pgm01-evidence/v1` schema are
-immutable historical inputs and a closed set. A reader shall never rewrite them
-into a newer schema or treat an absent historical field as known. Engineering
-Assurance owns the explicit read-only compatibility mapping, and that mapping is
-the only sanctioned way to read them; a repository shall not carry a local
-verifier, envelope, manifest, or retention authority over them, because a second
-authority over immutable bytes is exactly the parallel evidence family this
-campaign removes.
+**Amended 2026-09-02 by the repository owner.** This rule previously held the
+`evidence/pgm-01-<short-source-revision>/` records, their external checksum
+files, corrections, and the `quire.pgm01-evidence/v1` schema as immutable
+historical inputs and a closed set, readable only through Engineering
+Assurance's explicit read-only compatibility mapping. The owner released that
+preservation constraint for the pre-stable phase, on the ground that this is
+early-development output; the decision and its exact scope are recorded in
+[engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)
+under "Preservation constraint released for the pre-stable phase". This
+repository's retained records, its compatibility census, and the schemas frozen
+only because those records named them are accordingly deleted. Nothing was
+rewritten, backdated, or re-sealed on the way out, and no claim that they still
+verify anything survives them.
+
+The rest of the rule is unchanged and still binding. A repository shall not
+carry a local verifier, envelope, manifest, or retention authority over
+evidence, because a second authority over evidence bytes is exactly the parallel
+evidence family this campaign removes. The preservation constraint itself
+re-applies unchanged at the move toward stable releases, and evidence retained
+from that point is immutable.
 
 For shared-assurance adoption, an operator or project-native system invokes the
 domain producer and supplies its structured result to Quoin. Quoin owns
@@ -219,12 +230,12 @@ The human release decision shall identify the exact candidate, authoritative
 record references, open gaps and accepted exceptions, decision (`approve`,
 `reject`, or `defer`), rationale, owner `@kreneskyp`, timestamp, and authorized
 tag. It is retained as an ix-flow decision event once that pinned path is
-adopted; historical release records remain readable in place. Absence of a
-decision means no release decision. CI success is evidence, not approval.
+adopted. Absence of a decision means no release decision. CI success is
+evidence, not approval.
 
 ### PGM-01-R10 — qualification and accreditation boundary
 
-The crates, schemas, corpora, adapters, and retained evidence provide reusable
+The crates, schemas, corpora, and adapters provide reusable
 qualification support only. Their release does **not** validate or accredit a
 tool for a consuming project and does not certify a system under NASA, DO-178C,
 ISO 26262, IEC 61508, or any other regime. Any validation or accreditation is
@@ -275,7 +286,7 @@ retention layout.
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
 | PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted from a domain derivation result. | TC-005 through TC-012 |
-| PGM-01-R09-AC-1 | Historical records remain readable without rewrite and automated records cannot replace the human decision. | Policy inspection; TC-004, TC-024 |
-| PGM-01-R09-AC-2 | Immutable history is read only through the shared read-only mapping, the shared components are reached at accepted released pins, and every non-success state stays distinct. | TC-029, TC-032, TC-033 |
+| PGM-01-R09-AC-1 | An automated record cannot replace the human decision. | Policy inspection; TC-004 |
+| PGM-01-R09-AC-2 | The shared components are reached at accepted released pins and every non-success state the surviving path covers stays distinct. | TC-029, TC-033 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |
 | PGM-01-R11-AC-1 | Every shared responsibility has one owner; issue #7/#20 and the legacy prototype have explicit linked dispositions. | TC-023, TC-025 through TC-028 |

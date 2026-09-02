@@ -50,4 +50,5 @@ on published types and bytes, not internal modules.
 - Canonicalization ambiguity: controlled by golden bytes and property tests.
 - Partial-operation unsoundness: controlled by definedness rules and negative fixtures.
 - Orphan false coverage: controlled by exact revision identities and separate class.
-- External module/tool drift: controlled by exact pins and retained evidence.
+- External module/tool drift: controlled by exact pins, digest-checked against
+  the released Engineering Assurance artifact this repository consumes.

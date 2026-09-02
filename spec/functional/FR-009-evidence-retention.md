@@ -1,47 +1,43 @@
 ---
 id: FR-009
-title: "Preserve historical evidence and delegate current assurance records"
+title: "Delegate current assurance records to Quoin and ix-flow"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/PGM-01
     type: references
 ---
-# FR-009: Preserve historical evidence and delegate current assurance records
+# FR-009: Delegate current assurance records to Quoin and ix-flow
 
 ## Description
 
-The governance contract shall keep historical revision-scoped records readable
-without rewrite and delegate new retention/audit and human decisions to Quoin
-and ix-flow respectively, exactly as specified by PGM-01-R09.
+The governance contract shall delegate new retention/audit and human decisions
+to Quoin and ix-flow respectively, exactly as specified by PGM-01-R09.
 
 ## Inputs
 
-Immutable historical bytes or an explicit structured domain result, exact
-producer identities, limitations, authoritative record references, and a human
-decision subject.
+An explicit structured domain result, exact producer identities, limitations,
+authoritative record references, and a human decision subject.
 
 ## Outputs
 
-A read-only historical compatibility view or Quoin-retained evidence reference,
-plus a separately attributed ix-flow release decision.
+A Quoin-retained evidence reference plus a separately attributed ix-flow
+release decision.
 
 ## Behavior
 
-- The `evidence/pgm-01-<short-sha>/` records, their external checksum files,
-  the `evidence/corrections/` bytes, and the schemas those records name are
-  closed historical inputs. Nothing writes to them, nothing appends to them, and
-  no new record joins them.
-- Those bytes are read only through the Engineering Assurance read-only
-  compatibility mapping, which preserves the source digest and reports `lossy`,
-  `incompatible`, or `unreadable` rather than synthesizing an absent field.
-- Historical manifests, checksums, corrections, and source bytes are never
-  rewritten into a new common schema; unknown fields remain unknown.
+- This repository retains no revision-scoped evidence records of its own. The
+  `evidence/` tree that held them, its external checksum files, its corrections
+  and the schemas those records named are deleted, under the pre-stable release
+  of the preservation constraint decided by the repository owner on 2026-09-02
+  and recorded in
+  [engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7).
+  Nothing replaces them: no new local record, envelope, verifier or retention
+  authority is introduced in their place.
+- No claim in this repository rests on those records. They were read and not
+  rewritten for the duration of the migration, and they are now gone; nothing
+  here asserts that a deleted record still verifies anything.
 - Inconclusive, failed, skipped, and unavailable results remain explicit and
-  distinct in the mapped view; CI success does not approve a release.
-- The append-only `quire.evidence-correction/v1` record that supersedes a false
-  claim remains readable in place. It is history, not an active gate: the
-  correction bytes are locked and the claim it corrects is a documented fact
-  about a merged candidate, not an input to a current decision.
+  distinct wherever they are produced; CI success does not approve a release.
 - Current retention, integrity checking, and audit belong to Quoin, which
   accepts an already-produced structured domain result and never executes its
   producer. Quire exports static definitions without execution. ix-flow owns the
@@ -56,11 +52,21 @@ plus a separately attributed ix-flow release decision.
 |---|---|---|
 | FR-009-AC-1 | The solver fixture remains semantically `inconclusive` after successful schema validation. | Test (TC-006) |
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
-| FR-009-AC-4 | The append-only correction record and the claim it supersedes remain byte-identical and readable without a repository-local verifier enforcing them. | Test (TC-022) |
-| FR-009-AC-5 | Historical PGM-01 records remain byte-identical and readable through an explicit lossy mapping; no missing field or legacy verdict is synthesized. | Test (TC-024, TC-032) |
 | FR-009-AC-6 | New retention/audit and human-decision references name Quoin and ix-flow while both Quire and Quoin remain non-executing. | Inspection (TC-025) |
 
 ### Retired criteria
+
+`FR-009-AC-4` required the append-only correction record and the claim it
+supersedes to remain byte-identical and readable. `FR-009-AC-5` required
+historical PGM-01 records to remain byte-identical and readable through an
+explicit lossy mapping. Both criteria were about the retained `evidence/` tree.
+The repository owner released the evidence-preservation constraint for the
+pre-stable phase on 2026-09-02 (see
+[engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7),
+"Preservation constraint released for the pre-stable phase"), the tree is
+deleted, and both criteria are retired rather than restated more weakly: there
+is no retained record left to be byte-identical to, and no claim here survives
+that depends on one. Neither identifier is reused.
 
 `FR-009-AC-3` required a repository-local release verifier to enumerate the
 `HEAD` tree, match input checksums, and select exactly one current record. That

@@ -38,9 +38,8 @@ help:
 	@echo "  make assurance-env    - Create the pinned shared-assurance interpreter"
 	@echo "  make assurance-inputs - Run the native producers the shared path consumes"
 	@echo "  make pins             - Classify the shared toolchain against the accepted matrix"
-	@echo "  make compat-view      - Read immutable PGM-01 history through the shared mapping"
 	@echo "  make assurance-chain  - Seal, retain, receipt, and re-verify through Quoin"
-	@echo "  make assurance        - pins + compat-view + assurance-chain"
+	@echo "  make assurance        - pins + assurance-chain"
 	@echo "  make assurance-record - Transcribe a conformance run into the Quoin evidence store"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Validate governance and run cargo test"
@@ -138,11 +137,6 @@ assurance-inputs:
 pins: assurance-env
 	$(ASSURANCE_PYTHON) scripts/check_shared_pins.py
 
-.PHONY: compat-view
-compat-view: assurance-env
-	$(ASSURANCE_PYTHON) scripts/pgm01_compatibility_view.py
-	$(ASSURANCE_PYTHON) scripts/pgm01_compatibility_view.py --mutation-probes
-
 .PHONY: assurance-chain
 assurance-chain: assurance-inputs
 	$(PYTHON) scripts/assurance_chain.py \
@@ -151,7 +145,7 @@ assurance-chain: assurance-inputs
 		--quire-export $(QUIRE_EXPORT)
 
 .PHONY: assurance
-assurance: pins compat-view assurance-chain
+assurance: pins assurance-chain
 
 # Operator target, and the only one that writes outside target/. It transcribes
 # a conformance run into the Quoin evidence store under spec/evidence/, keyed by

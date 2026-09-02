@@ -29,8 +29,8 @@ or canonicalization semantics.
 
 - Wire-schema and crate compatibility, dependency pins, and release order.
 - Licensing, third-party provenance, clean-room grammar, and contribution rules.
-- Tool and artifact classification, domain-result provenance, historical
-  compatibility, shared assurance ownership, and release authority.
+- Tool and artifact classification, domain-result provenance, shared assurance
+  ownership, and release authority.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
