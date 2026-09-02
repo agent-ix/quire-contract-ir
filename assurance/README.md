@@ -16,6 +16,13 @@ transcribed run into the Quoin evidence store the tool itself lays out. This
 directory holds only inputs a human or agent authored, so that a reviewer can
 read what was claimed separately from what was measured.
 
+Neither store is committed, and that is a decision rather than an oversight. A
+record naming a revision, stored in a commit that changes the revision, is stale
+the moment it lands — which is precisely what left the deleted verifier red on
+`main`, where no retained record's subject tree still matched `HEAD`. Where a
+store is retained is a deployment decision. What is proven on every invocation
+is the path, not a snapshot of one run of it.
+
 `evidence/` is the other thing that is not in here: ten immutable PGM-01 records
 and one append-only correction, frozen, read through Engineering Assurance's
 compatibility mapping and never written to again.

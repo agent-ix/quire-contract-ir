@@ -153,8 +153,20 @@ assurance-chain: assurance-inputs
 .PHONY: assurance
 assurance: pins compat-view assurance-chain
 
-# Operator target. This one writes into the repository's own Quoin evidence
-# store, so it is run when a candidate is prepared rather than on every gate.
+# Operator target, and the only one that writes outside target/. It transcribes
+# a conformance run into the Quoin evidence store under spec/evidence/, keyed by
+# the commit it ran at.
+#
+# That output is deliberately not committed. A record naming a revision, stored
+# in a commit that changes the revision, is stale the moment it lands — which is
+# exactly the failure that left the deleted verifier red on main. Where the
+# store is retained is a deployment decision; a run recorded here is retained by
+# whatever runs it. What every gate proves on every invocation is the path
+# itself, in `make assurance-chain`.
+#
+# Note the honest `bound: 0`: this repository declares no suite registry, so the
+# run is transcribed and binds no obligation. Transcription working and binding
+# nothing are different facts, and quoin reports them separately.
 .PHONY: assurance-record
 assurance-record: assurance-inputs
 	$(QUOIN) evidence record \
