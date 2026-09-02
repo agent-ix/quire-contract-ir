@@ -13,9 +13,8 @@ make spec           # validate and cover all Quire artifacts
 make assurance-env  # create the pinned shared-assurance interpreter
 make assurance-inputs # run the native producers the shared path consumes
 make pins           # classify the shared toolchain against the accepted matrix
-make compat-view    # read immutable PGM-01 history through the shared mapping
 make assurance-chain # seal, retain, receipt, and re-verify through Quoin
-make assurance      # pins + compat-view + assurance-chain
+make assurance      # pins + assurance-chain
 make assurance-record # transcribe a conformance run into the Quoin evidence store
 make release-check  # run all local release gates
 make test           # governance validation + cargo test
@@ -40,9 +39,11 @@ Producers run natively, in `make assurance-inputs` and nowhere else. Quire
 exports static facts and Quoin transcribes, retains, audits, and reports bytes
 it is handed; neither runs anything. No gate reads a verdict from stdout or
 stderr — a verdict recovered from console text is a verdict the producer never
-made. `evidence/` is frozen history read through Engineering Assurance's
-read-only mapping. Only `@kreneskyp` records a decision, so a receipt that reads
-`incomplete` for `decision_missing` is correct rather than broken.
+made. This repository retains no `evidence/` tree; the owner released the
+preservation constraint for the pre-stable phase on 2026-09-02
+(engineering-assurance#7) and it was deleted rather than carried forward. Only
+`@kreneskyp` records a decision, so a receipt that reads `incomplete` for
+`decision_missing` is correct rather than broken.
 
 ## Safety scaffolding
 

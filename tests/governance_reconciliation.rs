@@ -10,7 +10,6 @@ const POLICY: &str = include_str!("../spec/program/PGM-01-governance.md");
 const RECONCILIATION: &str = include_str!("../spec/program/STD-002-shared-assurance-governance.md");
 const README: &str = include_str!("../README.md");
 const CONTRIBUTING: &str = include_str!("../CONTRIBUTING.md");
-const HISTORICAL_LOCK: &str = include_str!("fixtures/historical-pgm01-files.sha256");
 const DISPOSITION_RECEIPT: &str = include_str!("fixtures/campaign-issue-dispositions-v1.json");
 
 fn normalized(document: &str) -> String {
@@ -284,93 +283,6 @@ fn tc_023_assigns_each_shared_responsibility_exactly_once() {
         ),
     ];
     assert_eq!(actual, expected);
-}
-
-/// Tracing: TC-024.
-/// FR-009-AC-5.
-#[test]
-fn tc_024_locks_historical_bytes_and_requires_lossy_read_only_mapping() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut locked = BTreeSet::new();
-    for line in HISTORICAL_LOCK.lines().filter(|line| !line.is_empty()) {
-        let (expected, relative) = line
-            .split_once("  ")
-            .expect("historical lock rows use sha256sum format");
-        assert!(
-            locked.insert(relative.to_owned()),
-            "duplicate historical path: {relative}"
-        );
-        let bytes = fs::read(root.join(relative)).unwrap_or_else(|error| {
-            panic!("locked historical input {relative} is unreadable: {error}")
-        });
-        let actual = format!("{:x}", Sha256::digest(bytes));
-        assert_eq!(actual, expected, "historical bytes changed: {relative}");
-    }
-    let mut historical_paths = Vec::new();
-    collect_files(&root.join("evidence"), &mut historical_paths);
-    let mut expected = historical_paths
-        .iter()
-        .map(|path| repository_relative(root, path))
-        .collect::<BTreeSet<_>>();
-    expected.extend(
-        [
-            "schemas/derivation-evidence-envelope-v1.schema.json",
-            "schemas/evidence-correction-v1.schema.json",
-            "schemas/pgm01-evidence-v1.schema.json",
-        ]
-        .map(str::to_owned),
-    );
-    assert_eq!(
-        locked, expected,
-        "historical lock must cover every evidence file and PGM-01 schema"
-    );
-
-    // The two generic PGM-01 schemas are frozen, not deleted: every retained
-    // manifest names one of them by path and digest, so removing the file would
-    // break a reference inside bytes this migration must leave readable. What
-    // makes the freeze real is that nothing validates against them any more —
-    // the family removed was the verifier, and a gate that started reading one
-    // again would be that family returning under another name.
-    let mut collected = Vec::new();
-    collect_files(&root.join("scripts"), &mut collected);
-    // Sources only. `__pycache__` holds compiled bytecode a subprocess import
-    // leaves behind; it is not authored text and is not valid UTF-8.
-    let scripts = collected
-        .into_iter()
-        .filter(|path| {
-            matches!(
-                path.extension().and_then(|value| value.to_str()),
-                Some("py" | "sh" | "txt")
-            )
-        })
-        .collect::<Vec<_>>();
-    let frozen = [
-        "pgm01-evidence-v1.schema.json",
-        "evidence-correction-v1.schema.json",
-    ];
-    for path in &scripts {
-        let source = fs::read_to_string(path)
-            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-        for schema in frozen {
-            assert!(
-                !source.contains(schema),
-                "{} references the frozen schema {schema}; nothing may validate against it",
-                repository_relative(root, path)
-            );
-        }
-    }
-    assert!(
-        scripts.len() > 3,
-        "the script census is unexpectedly small to make this claim"
-    );
-
-    let policy = normalized(POLICY);
-    let reconciliation = normalized(RECONCILIATION);
-    assert!(policy.contains("explicit read-only compatibility mapping"));
-    assert!(policy.contains("never rewrite them into a newer schema"));
-    assert!(policy.contains("treat an absent historical field as known"));
-    assert!(reconciliation.contains("explicit read-only, lossy mapping"));
-    assert!(reconciliation.contains("does not mutate source bytes, synthesize missing"));
 }
 
 /// Tracing: TC-025.

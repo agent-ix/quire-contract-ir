@@ -57,7 +57,11 @@ later revision.
 Material scenarios are semantic drift between independent lowerings, false
 coverage from stale identities, silent undefined behavior, and unstable
 canonical digests. Controls are deterministic validation, independent schema
-fixtures, golden digests, orphan classification, review, and retained evidence.
+fixtures, golden digests, orphan classification, and review. Retained evidence
+is not among them for the pre-stable phase: the repository owner released that
+constraint on 2026-09-02 (agent-ix/engineering-assurance#7) and this
+repository's retained records are deleted. It returns as a control at the move
+toward stable releases.
 
 ## Evidence Policy
 
