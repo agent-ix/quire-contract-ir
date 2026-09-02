@@ -160,7 +160,6 @@ def mirror_references(pins: dict[str, Any]) -> list[str]:
     offenders: list[str] = []
     for name in (
         "requirements-assurance.txt",
-        "requirements-governance.txt",
         ".npmrc",
         "Cargo.lock",
         "Cargo.toml",

@@ -1,13 +1,10 @@
 # The shared assurance lane (FR-022). Install this in its OWN environment.
 #
-# It is deliberately separate from requirements-governance.txt. That file pins
-# the PGM-01 Draft 7 validator lane to jsonschema 3.2.0 and validate_governance.py
-# fails closed if it finds any other version. engineering-assurance declares
-# jsonschema>=4.23,<5. Both are correct for their own job and neither may be
-# bent to fit the other, so they get one environment each:
-#
-#   make assurance-env    -> .venv-assurance, this file
-#   pip install -r requirements-governance.txt (system/venv) -> the Draft 7 lane
+# `make assurance-env` builds .venv-assurance from this file. It stays a separate
+# environment so the pinned distribution and its transitive jsonschema>=4.23,<5
+# requirement cannot collide with anything installed system-wide. The Draft 7
+# governance lane that used to be the other half of this split is deleted with
+# PGM-01-R08.
 #
 # The pin is the accepted release from agent-ix/engineering-assurance#8, which
 # publishes engineering-assurance as a source distribution: the git tag IS the

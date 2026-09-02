@@ -1,9 +1,8 @@
 """Gates for the pinned shared-assurance path (FR-022).
 
 Each test runs the real thing. The pin classifier needs
-`engineering-assurance`, which lives in its own interpreter because the
-PGM-01 Draft 7 lane pins jsonschema 3.2.0 and Engineering Assurance declares
-4.x; these tests invoke that interpreter rather than importing across the two.
+`engineering-assurance`, which lives in its own pinned interpreter; these tests
+invoke that interpreter rather than importing across the two environments.
 
 A missing assurance interpreter fails these tests. It does not skip them: a
 gate that quietly stands down when its dependency is absent reports the same
@@ -54,8 +53,13 @@ QUIRE_EXPORT = ROOT / "target/assurance/quire-static-export.json"
 #   stream whose bytes do not parse for `malformed`. The two refusals are kept
 #   distinguishable by a separate test, because three refusals that all exit 1
 #   would be three states collapsed into one.
-# - `inconclusive` moves to `governance`, where TC-006 has always validated a
-#   live solver fixture that keeps an inconclusive result inconclusive.
+# - `inconclusive` moved to `governance`, where TC-006 validated a live solver
+#   fixture that kept an inconclusive result inconclusive. PGM-01-R08 was then
+#   withdrawn and that corpus, its schema and its validator were deleted, so the
+#   demonstrator it had just been rehomed onto is gone. It is recorded as lost
+#   below rather than moved a second time: nothing else in this repository
+#   produces an inconclusive result, and binding it to a neighbouring outcome is
+#   the collapse this table exists to prevent.
 # - `suspect` is a real loss and is recorded as one below rather than rehomed.
 #   It meant "a retained record an append-only correction names". With no
 #   retained records and no corrections there is nothing in this repository that
@@ -75,16 +79,18 @@ REQUIRED_STATES = {
     "vacuous": "adapter",
     "unsupported": "adapter",
     "malformed": "adapter",
-    "inconclusive": "governance",
 }
 
-# `suspect` had exactly one demonstrator, the retained correction record naming
-# a retained evidence record, and both are deleted. It is listed here so the
-# loss is a declared fact with a test behind it rather than a silent absence,
-# and so that a future author who restores a suspect case has to move it.
+# Each of these had exactly one demonstrator and lost it. They are listed here so
+# the loss is a declared fact with a test behind it rather than a silent absence,
+# and so that a future author who restores a case has to move it.
 LOST_STATES = {
     "suspect": "demonstrated only by evidence/corrections/ naming a retained "
     "PGM-01 record; both are deleted and nothing replaced them",
+    "inconclusive": "demonstrated only by the solver fixture in "
+    "corpus/governance/, validated by TC-006 against the derivation-evidence "
+    "envelope schema; the schema, the validator and the corpus are deleted with "
+    "the withdrawal of PGM-01-R08 and nothing replaced them",
 }
 
 _CACHE: dict[str, Any] = {}
@@ -362,26 +368,6 @@ def test_the_chain_refuses_to_run_a_producer() -> None:
         )
 
 
-def governance_report() -> dict[str, Any]:
-    """The live PGM-01 Draft 7 corpus run, in its own interpreter.
-
-    This is the domain governance lane, not the shared-assurance lane, so it
-    runs on the repository's declared Python rather than `.venv-assurance`.
-    """
-    if "governance" not in _CACHE:
-        completed = subprocess.run(
-            ["python3", "scripts/validate_governance.py", "--json"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if completed.returncode != 0:
-            raise AssertionError(f"the governance corpus failed: {completed.stderr}")
-        _CACHE["governance"] = json.loads(completed.stdout)
-    return _CACHE["governance"]
-
-
 def demonstrated_states() -> dict[str, set[str]]:
     """What each home actually demonstrates on this run, by home.
 
@@ -394,19 +380,6 @@ def demonstrated_states() -> dict[str, set[str]]:
     matched_probes = {
         probe["probe"] for probe in chain["adapter_probes"] if probe["matched"]
     }
-    governance = governance_report()
-    # Validity alone is not the demonstration, so validity alone is not what is
-    # checked: a fixture that validated but had been edited to a conclusive
-    # status would prove nothing here, and `result.status` is an open enum in
-    # the schema, so the schema would not stop that edit. The fixture's own
-    # bytes are read and its status asserted.
-    solver = json.loads(
-        (ROOT / "corpus/governance/valid/solver-analysis.json").read_text(encoding="utf-8")
-    )
-    inconclusive_shown = solver["result"]["status"] == "inconclusive" and any(
-        case["path"].endswith("solver-analysis.json") and case["valid"] and case["matched"]
-        for case in governance["cases"]
-    )
     return {
         "chain": set(chain["states_demonstrated"]),
         "adapter": {
@@ -418,7 +391,6 @@ def demonstrated_states() -> dict[str, set[str]]:
             )
             if probe in matched_probes
         },
-        "governance": {"inconclusive"} if inconclusive_shown else set(),
     }
 
 
@@ -460,7 +432,8 @@ def test_the_adapter_refusals_stay_distinguishable_from_one_another() -> None:
 
 def test_a_lost_state_stays_declared_lost_rather_than_quietly_covered() -> None:
     """TC-033. Trace: TC-033, FR-022-AC-5."""
-    # `suspect` lost its only demonstrator with the retained evidence.
+    # `suspect` lost its only demonstrator with the retained evidence, and
+    # `inconclusive` lost its only demonstrator with the governance corpus.
     #
     # An earlier version of this test compared the two hand-maintained tables and
     # nothing else. It could not fail on the scenario its own comment promised to
@@ -476,7 +449,7 @@ def test_a_lost_state_stays_declared_lost_rather_than_quietly_covered() -> None:
 
     # The part the table comparison could not see: whether any home has actually
     # started demonstrating a state still declared lost. If one has, that is not
-    # a free win — it means something is being credited to `suspect` without
+    # a free win — it means something is being credited to a lost state without
     # anyone saying what demonstrates it, which is exactly the collapse
     # FR-022-AC-5 forbids. Read from the same map the required-state check uses.
     observed: set[str] = set()
