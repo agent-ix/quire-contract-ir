@@ -111,6 +111,15 @@
       "expected_outcome": "incompatible",
       "requires_states": [],
       "why": "A real retained file, read as itself. The append-only correction is a quire.evidence-correction/v1 record, not a PGM-01 evidence record, and the mapping refuses to read it as one rather than mapping whichever fields happen to overlap."
+    },
+    {
+      "id": "adversarial-correction-is-refused-the-same-way",
+      "kind": "unsupported",
+      "root": "repository",
+      "file": "corpus/evidence-corrections/invalid/missing-finding-refs.json",
+      "expected_outcome": "incompatible",
+      "requires_states": [],
+      "why": "The adversarial correction fixture, preserved and re-pointed at the official boundary. Its defect used to be caught by a repository-local Draft 7 gate over a generic evidence schema, which is the family this migration removes. Read through the shared mapping it is refused for a better reason: it is not a PGM-01 evidence record at all, so no field of it is interpreted and the missing findingRefs never gets the chance to matter."
     }
   ]
 }

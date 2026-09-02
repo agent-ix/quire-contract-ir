@@ -42,7 +42,6 @@ help:
 	@echo "  make assurance-chain  - Seal, retain, receipt, and re-verify through Quoin"
 	@echo "  make assurance        - pins + compat-view + assurance-chain"
 	@echo "  make assurance-record - Transcribe a conformance run into the Quoin evidence store"
-	@echo "  make evidence-verify  - Pre-migration fallback verifier (removed in the deletion commit)"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Validate governance and run cargo test"
 	@echo "  make build            - Release build"
@@ -97,18 +96,6 @@ spec:
 	$(QUIRE) validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --summary
 	$(QUIRE) coverage --scope . --strict
 	$(PYTHON) scripts/validate_matrix_status.py
-
-# The pre-migration fallback, kept until the shared path is proven at the same
-# candidate revision. It exits 1 on origin/main today: every retained record is
-# rejected because its subject tree differs from HEAD, which is what happens to
-# a whole-tree retention model two squash merges after its last record was
-# minted. Removed in the deletion commit, which is separate and last.
-.PHONY: evidence-verify
-evidence-verify:
-	$(PYTHON) scripts/verify_evidence.py
-
-.PHONY: verify-evidence
-verify-evidence: evidence-verify
 
 .PHONY: test
 test: governance unit
