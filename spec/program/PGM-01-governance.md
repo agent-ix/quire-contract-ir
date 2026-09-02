@@ -20,9 +20,10 @@ named human release authority records a bounded exception under PGM-01-R09.
 ### PGM-01-R01 — schema compatibility
 
 - Every serialized boundary shall carry a non-empty schema identity and an
-  explicit major wire version. `quire.derivation-evidence/v1` is the program's
-  historical domain-derivation result identity; it is not a common evidence
-  envelope or retention schema.
+  explicit major wire version. Each identity belongs to the domain artifact it
+  describes; the program declares no common evidence envelope or retention
+  schema, and the withdrawn `quire.derivation-evidence/v1` identity is not
+  reused (see PGM-01-R08).
 - A consumer shall reject an unknown major version and shall not guess,
   silently migrate, or reinterpret it. A migration shall be explicit,
   versioned, tested, and recorded as a derivation.
@@ -156,42 +157,38 @@ software. Quire and Quoin are explicitly non-executing.
 
 ### PGM-01-R08 — domain derivation provenance and structured results
 
-For the v0.1 campaign, every generated, transformed, analyzed, proved, tested,
-monitored, or packaged domain artifact shall have a producer-owned derivation
-record conforming to `schemas/derivation-evidence-envelope-v1.schema.json`.
-That record is a historical interoperability format for structured domain
-results, not a universal evidence envelope. It shall identify:
+**Withdrawn 2026-09-02 by the repository owner.** This rule previously required
+every generated, transformed, analyzed, proved, tested, monitored, or packaged
+domain artifact to carry a producer-owned derivation record in a published
+Draft 7 envelope schema, validated here by a repository-local Draft 7 corpus and
+its mutation probes. That envelope was the same deprecated pre-stable format as
+the retained records deleted under PGM-01-R09, and it is withdrawn on the same
+ground and under the same decision, recorded in
+[engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)
+under "Preservation constraint released for the pre-stable phase". The schema,
+its validator, its fixture corpus, the discrete requirement FR-008 that carried
+it, and the test cases TC-005 through TC-012 that drove it are deleted. Nothing
+replaces them: no successor envelope, no second result family, and no local
+validator is introduced in their place.
 
-- envelope schema and record identity;
-- producer name, version, source revision, executable digest, and invocation;
-- every material input's role, URI, schema identity/version/digest, and content
-  digest;
-- the backend as either an explicitly justified `none` or a named engine/tool
-  with version, executable digest, and configuration digest;
-- every output's role, URI, media type, schema identity/version/digest, and
-  content digest;
-- parameter, dependency, environment, repository, contribution-method, and
-  candidate identities; and
-- a typed result that preserves `inconclusive`, `unsupported`, `rejected`,
-  `timed-out`, `pending`, and `error` rather than converting them to success.
+What survives is not a weaker version of the rule but the part that never
+depended on the envelope. A domain producer still owns its own structured
+result and its own diagnostics. SHA-256 remains the v1 digest algorithm, and
+digests are lowercase hexadecimal over the exact bytes stored or transferred.
+Quoin may retain a producer's result or its exact output bytes and cite them
+from an audit or report; it shall not copy their fields into a second generic
+result family. Quire may link static definition identity but shall not execute
+the producer.
 
-SHA-256 is the v1 digest algorithm. Digests are lowercase hexadecimal over the
-exact bytes stored or transferred. A transformation with no external backend
-uses `kind: none` with a reason; omission is never equivalent to none. An
-extension key must be a reverse-DNS name and must not change core-field meaning.
-
-The record reports only its originating producer's execution and domain result.
-Quoin may retain the record or exact output bytes and cite them from an audit or
-report; it shall not copy their fields into a second generic result family.
-Quire may link static definition identity but shall not execute the producer.
-
-The published Draft 7 schema remains the normative validation boundary for
-these historical v0.1 domain records. The conformance report uses
-`UNSUPPORTED_SCHEMA`, `MISSING_PRODUCER`,
-`MISSING_INPUTS`, `MISSING_SCHEMA_IDENTITY`, `MISSING_BACKEND`,
-`MISSING_OUTPUTS`, and `INVALID_DIGEST` for those targeted conditions; every
-other Draft 7 failure is `SCHEMA_VIOLATION`. Error order is deterministic by
-instance path then schema message.
+This repository's own live structured result is the conformance runner's
+`quire.contract.conformance-jsonl/v1` stream over
+`corpus/contract-v0.1/manifest.json`, which reaches Quoin through the declared
+adapter under [FR-022](../functional/FR-022-shared-assurance-intake.md). Its
+wire form and its corpus manifest are described by
+`schemas/contract-package-reference-v1.schema.json` and
+`schemas/contract-conformance-manifest-v1.schema.json`, which are domain
+contracts owned here rather than an evidence envelope, and are unaffected by
+this withdrawal.
 
 ### PGM-01-R09 — historical records, assurance handoff, and release decision
 
@@ -278,14 +275,13 @@ retention layout.
 
 | ID | Criterion | Verification |
 |---|---|---|
-| PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | TC-008; policy inspection TC-001 |
+| PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | Policy inspection TC-001 |
 | PGM-01-R02-AC-1 | Exact release and qualification pins are mandatory. | Policy inspection; TC-001 |
 | PGM-01-R03-AC-1 | All eight repositories have a topological source-tag rule. | TC-002 |
 | PGM-01-R04-AC-1 | Generated and third-party material has explicit license provenance. | Policy inspection; TC-003 |
 | PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-003 |
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
-| PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted from a domain derivation result. | TC-005 through TC-012 |
 | PGM-01-R09-AC-1 | An automated record cannot replace the human decision. | Policy inspection; TC-004 |
 | PGM-01-R09-AC-2 | The shared components are reached at accepted released pins and every non-success state the surviving path covers stays distinct. | TC-029, TC-033 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |

@@ -1,6 +1,6 @@
 {
   "schema_version": "quire-contract-ir.change-assurance-declaration/v1",
-  "purpose": "What this repository states about its shared-assurance path, in the shape Quoin's FR-063 record requires. Quoin owns the record schema, its digest, and its retention; this file is the author's statement that gets sealed into one. Originally authored for issue #39 and amended on 2026-09-02 when the repository owner released the evidence-preservation constraint for the pre-stable phase (agent-ix/engineering-assurance#7): the legacy-compatibility obligation, its acceptance criterion, and the preservation constraint over evidence/ were removed because the records they were about are deleted. This file is sealed on every chain run, so it is corrected here rather than only in the specification and the README.",
+  "purpose": "What this repository states about its shared-assurance path, in the shape Quoin's FR-063 record requires. Quoin owns the record schema, its digest, and its retention; this file is the author's statement that gets sealed into one. Originally authored for issue #39 and amended on 2026-09-02 when the repository owner released the evidence-preservation constraint for the pre-stable phase (agent-ix/engineering-assurance#7): the legacy-compatibility obligation, its acceptance criterion, and the preservation constraint over evidence/ were removed because the records they were about are deleted. Amended again when PGM-01-R08 was withdrawn under the same decision: the derivation-evidence envelope schema, its Draft 7 validator and its fixture corpus are deleted, so the inconclusive result state lost its only demonstrator and is declared lost alongside suspect. This file is sealed on every chain run, so it is corrected here rather than only in the specification and the README.",
   "derived_fields": [
     "subject.base_revision and impact_snapshot.revision come from the candidate revision the caller names.",
     "source_connections[].digest is read from the bytes at the declared path in `sources`.",
@@ -86,7 +86,7 @@
         },
         {
           "id": "FR-022-AC-5",
-          "statement": "Each of the eleven demonstrated result states has a named demonstrator, none collapses into another, and suspect stays declared lost rather than quietly covered.",
+          "statement": "Each of the ten demonstrated result states has a named demonstrator, none collapses into another, and suspect and inconclusive stay declared lost rather than quietly covered.",
           "source_ids": [
             "FR-022",
             "TM-001"

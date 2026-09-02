@@ -63,14 +63,14 @@ producer.
   assembled with no decision recorded is `incomplete`, and that is the honest
   outcome, not a failure of the path.
 - `pass`, `fail`, `unavailable`, `not-computed`, `partial`, `stale`,
-  `tampered`, `vacuous`, `unsupported`, `malformed`, and `inconclusive` each
-  have a demonstrated case, and no case is satisfied by another's outcome. A
+  `tampered`, `vacuous`, `unsupported`, and `malformed` each have a
+  demonstrated case, and no case is satisfied by another's outcome. A
   state's demonstrator is named per state, not pooled: a state whose named
   demonstrator stops showing it fails the gate rather than being covered by a
   neighbour.
-- `suspect` has no demonstrated case in this repository and is declared as
-  lost rather than reassigned. It is not satisfied by any other state's
-  outcome.
+- `suspect` and `inconclusive` have no demonstrated case in this repository and
+  are declared as lost rather than reassigned. Neither is satisfied by any other
+  state's outcome.
 - Mutation probes weaken each load-bearing check in turn; a probe that leaves
   the gate green is itself a failure.
 
@@ -81,7 +81,7 @@ producer.
 | FR-022-AC-1 | Every shared component is classified against the accepted matrix, an unobservable component is `unknown`, and a drifted consumed artifact digest fails closed. | Test (TC-029) |
 | FR-022-AC-2 | The native conformance result reaches Quoin through the declared adapter; an empty run, a foreign protocol, and a stream carrying undecodable bytes are each refused and each names its own reason; and no verdict is read from a console stream. | Test (TC-030) |
 | FR-022-AC-3 | Quire's static export is retained by digest through change-assurance intake, and neither Quire nor Quoin invokes the producer. | Test (TC-031) |
-| FR-022-AC-5 | Each of the eleven demonstrated result states has a named demonstrator, none collapses into another, and `suspect` stays declared lost rather than quietly covered. | Test (TC-033) |
+| FR-022-AC-5 | Each of the ten demonstrated result states has a named demonstrator, none collapses into another, and `suspect` and `inconclusive` stay declared lost rather than quietly covered. | Test (TC-033) |
 | FR-022-AC-6 | Removing or weakening any load-bearing check turns its gate red. | Test (TC-034) |
 
 ### Retired criteria
@@ -123,8 +123,8 @@ written off:
   strengthening rather than a like-for-like move.
 - `malformed` was the same unconditional literal, demonstrated by nothing. It
   is now bound to a new adapter refusal of a stream whose bytes do not parse.
-- `inconclusive` is demonstrated by TC-006, which validates a live solver
-  fixture in the domain governance corpus and requires its inconclusive result
+- `inconclusive` was demonstrated by TC-006, which validated a live solver
+  fixture in the domain governance corpus and required its inconclusive result
   to stay inconclusive.
 - `suspect` is a genuine loss. It meant "a retained record that an append-only
   correction names". With no retained records and no corrections, nothing in
@@ -132,9 +132,17 @@ written off:
   lost with a test asserting it stays recorded, so restoring it requires saying
   what demonstrates it.
 
-Eleven of the twelve states therefore keep a named demonstrator and one is
-declared lost. `suspect` will need a demonstrated case before this repository
-moves toward a stable release.
+**Amended again when PGM-01-R08 was withdrawn.** The `quire.derivation-evidence/v1`
+envelope schema, `scripts/validate_governance.py` and the `corpus/governance/`
+fixtures are deleted with that rule. TC-006 went with them, so `inconclusive`
+lost the demonstrator it had just been rehomed onto and joins `suspect` as a
+declared loss. It was not moved a second time: no other component in this
+repository produces an inconclusive result, and binding the state to a
+neighbouring outcome is exactly the collapse this table exists to prevent.
+
+Ten of the twelve states therefore keep a named demonstrator and two are
+declared lost. `suspect` and `inconclusive` will each need a demonstrated case
+before this repository moves toward a stable release.
 
 **What "demonstrated" means here, stated plainly because the phrase reads
 stronger than it is.** It means each state was produced by the component that

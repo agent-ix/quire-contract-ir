@@ -54,13 +54,14 @@ pre-stable phase on 2026-09-02
 ([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)),
 and the records, their reader, and the schemas frozen only for their sake are
 deleted. Nothing was rewritten on the way out and no claim here rests on them.
-`schemas/README.md` explains which schemas are live and why.
+The same decision withdraws PGM-01-R08, so the derivation-evidence envelope
+schema, its Draft 7 validator, its fixture corpus and its pinned Python lane are
+deleted too. `schemas/README.md` explains which schemas are live and why.
 The constraint re-applies at the move toward stable releases.
 
 The assurance lane installs into its own interpreter (`make assurance-env`,
-`.venv-assurance`). It is separate from the PGM-01 Draft 7 governance lane on
-purpose: that lane pins `jsonschema==3.2.0` and Engineering Assurance declares
-4.x, and neither is bent to fit the other.
+`.venv-assurance`) so its pinned `engineering-assurance` distribution cannot
+collide with anything installed system-wide.
 
 ## License
 

@@ -50,11 +50,20 @@ release decision.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-009-AC-1 | The solver fixture remains semantically `inconclusive` after successful schema validation. | Test (TC-006) |
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
 | FR-009-AC-6 | New retention/audit and human-decision references name Quoin and ix-flow while both Quire and Quoin remain non-executing. | Inspection (TC-025) |
 
 ### Retired criteria
+
+`FR-009-AC-1` required the solver fixture in the PGM-01 governance corpus to
+remain semantically `inconclusive` after successful schema validation. That
+corpus, its envelope schema and its validator are deleted with the withdrawal of
+PGM-01-R08, so there is no fixture left to hold a status. This retirement has a
+cost and it is stated rather than absorbed: the solver fixture was the only
+demonstrator of the `inconclusive` result state anywhere in this repository, so
+`inconclusive` joins `suspect` as a declared loss under
+[FR-022](./FR-022-shared-assurance-intake.md) rather than being quietly covered
+by a neighbouring state. The identifier is not reused.
 
 `FR-009-AC-4` required the append-only correction record and the claim it
 supersedes to remain byte-identical and readable. `FR-009-AC-5` required

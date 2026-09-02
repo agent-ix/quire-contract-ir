@@ -12,15 +12,14 @@ relationships:
 
 | Functional Req | Acceptance Criteria | Test Cases | Coverage Status |
 |---|---|---|---|
-| FR-001 | FR-001-AC-1, FR-001-AC-2 | TC-008, TC-001 | ✅ covered |
+| FR-001 | FR-001-AC-2 | TC-001 | ✅ covered |
 | FR-002 | FR-002-AC-1 | TC-001 | ✅ covered |
 | FR-003 | FR-003-AC-1 | TC-002 | ✅ covered |
 | FR-004 | FR-004-AC-1 | TC-003 | ✅ covered |
 | FR-005 | FR-005-AC-1 | TC-003 | ✅ covered |
 | FR-006 | FR-006-AC-1 | TC-004 | ✅ covered |
 | FR-007 | FR-007-AC-1 | TC-002 | ✅ covered |
-| FR-008 | FR-008-AC-1 through FR-008-AC-4 | TC-005 through TC-012, TC-023 | ✅ covered |
-| FR-009 | FR-009-AC-1, FR-009-AC-2, FR-009-AC-6 | TC-004, TC-006, TC-025 | ✅ covered |
+| FR-009 | FR-009-AC-2, FR-009-AC-6 | TC-004, TC-025 | ✅ covered |
 | FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
 | FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | ✅ covered |
 | FR-022 | FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
@@ -29,18 +28,21 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
 |---|---|---|---|
-| Issue #3 deliverables | FR-001 through FR-009 | TC-001 through TC-012 | ✅ covered |
-| Issue #3 acceptance | FR-008, FR-010 | TC-003, TC-005 through TC-012 | ✅ covered |
+| Issue #3 deliverables | FR-001 through FR-007, FR-009 | TC-001 through TC-004 | ✅ covered |
+| Issue #3 acceptance | FR-010 | TC-003 | ✅ covered |
 | Issue #1 human ownership | FR-006, FR-009 | TC-004 and protected-branch API | ✅ covered |
 | Issue #39 shared assurance migration | FR-009, FR-022 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
 
 ## Non-Functional Requirement Coverage
 
-| Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
-|---|---|---|---|
-| Deterministic schema validation | Draft 7 corpus plus mutation probes | TC-005 through TC-012 | ✅ covered |
-| Reviewable provenance | schema inspection and valid fixtures | TC-005, TC-006 | ✅ covered |
-| No silent identity omission | targeted negative fixtures | TC-007 through TC-012 | ✅ covered |
+All three rows in this section — deterministic schema validation, reviewable
+provenance, and no silent identity omission — were verified solely by the
+PGM-01 Draft 7 corpus and its mutation probes over
+`schemas/derivation-evidence-envelope-v1.schema.json`. That schema, its
+validator and its fixtures are deleted with the withdrawal of PGM-01-R08, so the
+rows are removed rather than left asserting over an empty population. The
+substrate's own non-functional requirements are covered by TM-002; see
+[`contract-test-matrix.md`](contract-test-matrix.md).
 
 ## Test Case Summary
 
@@ -50,15 +52,7 @@ relationships:
 | TC-002 | Eight repositories and release classes are complete | Inspection | P0 | FR-003, FR-007 | ✅ implemented |
 | TC-003 | License, clean-room, agent, and boundary rules exist | Inspection | P0 | FR-004, FR-005, FR-010 | ✅ implemented |
 | TC-004 | CODEOWNER and human-only decision gate agree | Inspection | P0 | FR-006, FR-009 | ✅ implemented |
-| TC-005 | Generated-artifact envelope is accepted | Integration | P0 | FR-008 | ✅ implemented |
-| TC-006 | External-engine envelope retains inconclusive status | Integration | P0 | FR-008, FR-009 | ✅ implemented |
-| TC-007 | Missing backend identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-008 | Invalid digest and unknown schema are rejected | Integration | P0 | FR-001, FR-008 | ✅ implemented |
-| TC-009 | Missing producer/tool/provenance identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-010 | Missing input identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-011 | Missing nested schema identity is rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-012 | Missing output identities are rejected | Integration | P0 | FR-008 | ✅ implemented |
-| TC-023 | Shared responsibility registry has exactly one owner per responsibility | Inspection | P0 | FR-008, FR-021 | ✅ implemented |
+| TC-023 | Shared responsibility registry has exactly one owner per responsibility | Inspection | P0 | FR-021 | ✅ implemented |
 | TC-025 | Domain/result ownership, non-execution, and runtime independence agree | Inspection | P0 | FR-009, FR-021 | ✅ implemented |
 | TC-026 | Retained #1/#7/#20 disposition bytes match the reviewed receipt and its markers | Inspection | P0 | FR-021 | ✅ implemented |
 | TC-027 | Prototype inventory preserves threat/domain cases and rejects its architecture | Inspection | P0 | FR-021 | ✅ implemented |

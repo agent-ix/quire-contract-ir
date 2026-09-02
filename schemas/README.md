@@ -1,7 +1,8 @@
 # Schemas
 
-Three files, two classes, and the difference between them is what the shared
-assurance migration turned on.
+Two files, one class. What is here is what this repository's own domain
+artifacts are shaped like; every generic evidence schema the campaign once
+carried is deleted.
 
 ## Domain output — live, written against, owned here
 
@@ -15,73 +16,45 @@ describes a contract package or a conformance corpus is not a generic evidence
 family, and the migration contract says so in as many words. They stay, they are
 validated against, and they evolve with the contract model.
 
-## Domain derivation record — live, historical interoperability
-
-| File | Describes |
-| --- | --- |
-| `derivation-evidence-envelope-v1.schema.json` | The v0.1 domain-derivation record: which producer, which inputs, which backend, which outputs, and a typed result that keeps `inconclusive`, `unsupported`, `rejected`, `timed-out`, `pending`, and `error` apart from success. |
-
-`scripts/validate_governance.py` and `corpus/governance/` are its gate, and both
-are `KEEP` in the accepted migration decision table. FR-008 classifies the
-record as producer-owned structured output and the schema as a historical
-compatibility surface — not an evidence store, not a universal runner, and not a
-parallel result family. Quoin may retain and audit such a record; it does not
-own its shape, because the shape is a domain producer's own.
-
-## Deleted — the frozen historical pair
+## Deleted — the evidence schemas
 
 `pgm01-evidence-v1.schema.json` and `evidence-correction-v1.schema.json` were
-frozen rather than deleted by the migration. Nothing validated against them; the
-verifier that had was the repository-local retention and integrity authority the
-migration removed. They stayed because every one of the ten retained manifests
-under `evidence/` carried
+frozen rather than deleted by the shared-assurance migration, because every one
+of the ten retained manifests under `evidence/` named one of them by path and
+digest as the shape it was written to. Deleting a file while immutable records
+had to resolve a reference to it would have broken bytes the migration was
+required to leave untouched.
 
-```json
-"schemaIdentity": {
-  "path": "schemas/pgm01-evidence-v1.schema.json",
-  "sha256": "..."
-}
-```
+`derivation-evidence-envelope-v1.schema.json` outlived that round. It was live
+at the time — `scripts/validate_governance.py` loaded it and validated
+`corpus/governance/` against it on every `make governance` — so it was kept, and
+correctly so on the evidence then available. It was still the same deprecated
+pre-stable evidence format, and the rule that required it, PGM-01-R08, is now
+withdrawn on the same ground and under the same decision as the retained records
+themselves
+([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)).
+The schema, its validator, its fourteen fixtures, the `make governance` target
+and the pinned Draft 7 Python lane are deleted together, because a validator
+with nothing left to validate is not a gate.
 
-— an immutable record naming the file, by path and digest, as the shape it was
-written to. Deleting it while those records had to stay readable would have
-broken a reference inside bytes the migration was required to leave untouched.
+All three are gone. Nothing replaces them: no successor envelope, no second
+result family, no local validator.
 
-That constraint is gone. The repository owner released evidence preservation for
-the pre-stable phase on 2026-09-02
-([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)),
-the records that named these schemas are deleted, and with no record left to
-resolve a reference from, the reason to keep them went with them. Both files are
-deleted. Neither was live: they were proved dead before removal by grepping
-`src/`, `scripts/`, `tests/`, `corpus/` and `assurance/` for each filename and
-for `include_str!`/`include_bytes!`. There were four hits — the retained records
-themselves, the legacy-compat fixtures, the `TC-024` freeze test, and
-`corpus/evidence-corrections/manifest.json`, which named
-`evidence-correction-v1.schema.json` as its `"schema"` but had no runner behind
-it. All four are deleted in the same change.
+## Why the two above stayed
 
-The three schemas above stayed, and each was checked the same way rather than
-assumed:
+Each was checked by grepping for its filename and `$id` across `src/`,
+`scripts/`, `tests/`, `corpus/` and `spec/`, and then by mutation — editing the
+file and watching a gate go red — rather than by reading its name:
 
-- `contract-conformance-manifest-v1.schema.json` — `src/conformance.rs:25`
-  names its `$id`; `tests/conformance.rs` reads its bytes;
-  `corpus/contract-v0.1/manifest.json` and
-  `scripts/generate_conformance_corpus.py` both reference it. Live.
-- `contract-package-reference-v1.schema.json` — named by
+- `contract-conformance-manifest-v1.schema.json` — `src/conformance.rs:25` names
+  its `$id`; `tests/conformance.rs` reads its bytes and compares them against the
+  published corpus copy; `corpus/contract-v0.1/manifest.json` names it with a
+  digest; `scripts/generate_conformance_corpus.py` regenerates it. Live.
+- `contract-package-reference-v1.schema.json` — `src/conformance.rs:23` names its
+  `$id`; `tests/conformance.rs:209` compiles it and validates every canonical
+  package fixture against it; named with a digest by
   `corpus/contract-v0.1/manifest.json` and regenerated by
   `scripts/generate_conformance_corpus.py`. Live.
-- `derivation-evidence-envelope-v1.schema.json` — `scripts/validate_governance.py:21`
-  loads it as `SCHEMA_PATH` and validates every fixture in `corpus/governance/`
-  against it on every `make governance`, which `make test` and `make ci` both
-  run. A live validator, and named by a schema family rather than by what it
-  validates: deleting it on the strength of "evidence" in its filename would
-  have turned the governance corpus into an unvalidated directory.
 
-This file has no `.sha256` sidecar, and the byte lock it used to have — the
-`TC-024` historical lock — went with the retained records. That is deliberate
-rather than an oversight. The other two live schemas carry sidecars because
-`scripts/generate_conformance_corpus.py` regenerates them as part of the corpus
-it owns. What freezes this one is behavioural and stronger than a digest:
-`validate_governance.py --mutation-probes` weakens the schema seven different
-ways on every `make governance` and requires the corpus gate to go red each
-time. A digest lock catches an edit; the probes catch an edit that matters.
+Both carry a `.sha256` sidecar, regenerated with the corpus they belong to, and
+`make corpus-repro` compares the bytes.
