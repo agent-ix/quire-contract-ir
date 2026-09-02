@@ -197,21 +197,23 @@ instance path then schema message.
 
 Existing `evidence/pgm-01-<short-source-revision>/` records, their external
 checksum files, corrections, and the `quire.pgm01-evidence/v1` schema are
-immutable historical inputs. The local verifier shall continue to authenticate
-and read them, distinguish invalid from unavailable, and reject retracted or
-ambiguous records. It shall never rewrite them into a newer schema or treat an
-absent historical field as known. Engineering Assurance owns the explicit
-read-only compatibility mapping.
+immutable historical inputs and a closed set. A reader shall never rewrite them
+into a newer schema or treat an absent historical field as known. Engineering
+Assurance owns the explicit read-only compatibility mapping, and that mapping is
+the only sanctioned way to read them; a repository shall not carry a local
+verifier, envelope, manifest, or retention authority over them, because a second
+authority over immutable bytes is exactly the parallel evidence family this
+campaign removes.
 
-For new shared-assurance adoption, an operator or project-native system invokes
-the domain producer and supplies its structured result to Quoin. Quoin owns
+For shared-assurance adoption, an operator or project-native system invokes the
+domain producer and supplies its structured result to Quoin. Quoin owns
 retention, integrity checks, audit, and report views; Quire supplies only static
-definition references; ix-flow owns any human decision. Until the exact shared
-releases are available and pinned, the existing PGM-01 v1 mechanism may remain
-as a governed compatibility path for a candidate, but it is not architectural
-precedent for a shared executor, central profile, authority index, or parallel
-retention store. Failed, skipped, unavailable, inconclusive, stale, suspect,
-vacuous, tampered, and unreadable states remain explicit.
+definition references; ix-flow owns any human decision. The shared components
+are reached at the exact released pins the accepted compatibility matrix
+records; a branch head, a bare revision, or a floating tag is not a pin. Failed,
+skipped, unavailable, not-computed, inconclusive, partial, stale, suspect,
+vacuous, tampered, unsupported, and unreadable states remain explicit and
+distinct from one another.
 
 The human release decision shall identify the exact candidate, authoritative
 record references, open gaps and accepted exceptions, decision (`approve`,
@@ -274,5 +276,6 @@ retention layout.
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
 | PGM-01-R08-AC-1 | Tool, input, schema, backend, and output identities cannot be omitted from a domain derivation result. | TC-005 through TC-012 |
 | PGM-01-R09-AC-1 | Historical records remain readable without rewrite and automated records cannot replace the human decision. | Policy inspection; TC-004, TC-024 |
+| PGM-01-R09-AC-2 | Immutable history is read only through the shared read-only mapping, the shared components are reached at accepted released pins, and every non-success state stays distinct. | TC-029, TC-032, TC-033 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |
 | PGM-01-R11-AC-1 | Every shared responsibility has one owner; issue #7/#20 and the legacy prototype have explicit linked dispositions. | TC-023, TC-025 through TC-028 |

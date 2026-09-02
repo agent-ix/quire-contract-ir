@@ -1,0 +1,125 @@
+{
+  "schema_version": "quire-contract-ir.legacy-compat-expectations/v1",
+  "purpose": "The declared negative cases for the read-only PGM-01 compatibility view. Every fixture is ONE named edit to a real retained record, so a reader can tell a found record from a constructed one without reading a diff.",
+  "source": {
+    "path": "evidence/pgm-01-02568b1/manifest.json",
+    "sha256": "9d80da2cc897059ccdc64904bcdc7b0683f27ae667e03941800c3587112dc93d",
+    "serialization": "json.dumps(document, indent=2) + two newlines, which reproduces the source bytes exactly"
+  },
+  "why_derived": "The ten retained PGM-01 records in this repository are all v1 and carry only pass, skipped, and inconclusive. There is no failed, unavailable, not-computed, malformed, unsupported, or tampered record anywhere in the history, so each of those cases is constructed from real bytes by a single named edit rather than written from imagination.",
+  "cases": [
+    {
+      "id": "derived-failed",
+      "kind": "failed",
+      "file": "derived-failed.json",
+      "derivation": {
+        "pointer": "/checks/0/status",
+        "from": "pass",
+        "to": "fail"
+      },
+      "expected_outcome": "lossy",
+      "requires_states": ["failed"],
+      "why": "A failed legacy check maps to failed and stays failed; it is not rounded to an error or dropped."
+    },
+    {
+      "id": "derived-unavailable",
+      "kind": "unavailable",
+      "file": "derived-unavailable.json",
+      "derivation": {
+        "pointer": "/checks/0/status",
+        "from": "pass",
+        "to": "unavailable"
+      },
+      "expected_outcome": "lossy",
+      "requires_states": ["unavailable"],
+      "why": "Unavailable is neither passed nor failed. A check that could not run is not a check that ran and failed, and the mapping keeps them apart."
+    },
+    {
+      "id": "derived-not-computed",
+      "kind": "not_computed",
+      "file": "derived-not-computed.json",
+      "derivation": {
+        "pointer": "/checks/0/status",
+        "from": "pass",
+        "to": "not-computed"
+      },
+      "expected_outcome": "unreadable",
+      "requires_states": [],
+      "why": "PGM-01 v1 has no not-computed status. The mapping refuses the record rather than inventing a translation for a state the schema never had, and that refusal is the expected result, not a defect."
+    },
+    {
+      "id": "derived-tampered",
+      "kind": "tampered",
+      "file": "derived-tampered.json",
+      "derivation": {
+        "pointer": "/checks/2/status",
+        "from": "inconclusive",
+        "to": "pass"
+      },
+      "bind_digest": "9d80da2cc897059ccdc64904bcdc7b0683f27ae667e03941800c3587112dc93d",
+      "expected_outcome": "incompatible",
+      "requires_states": [],
+      "why": "The classic tamper: an inconclusive check edited to read as a pass, presented under the digest of the record it was made from. Binding the expected digest is what turns it from a readable record into a refused one, and no field of the altered source is interpreted."
+    },
+    {
+      "id": "unsupported-schema",
+      "kind": "unsupported",
+      "file": "unsupported-schema.json",
+      "derivation": {
+        "pointer": "/schemaVersion",
+        "from": "quire.pgm01-evidence/v1",
+        "to": "quire.pgm01-evidence/v3"
+      },
+      "expected_outcome": "incompatible",
+      "requires_states": [],
+      "why": "An unknown schema major is refused rather than guessed at, read as empty, or reinterpreted as the current one."
+    },
+    {
+      "id": "malformed-v1",
+      "kind": "malformed",
+      "file": "malformed-v1.json",
+      "derivation": {
+        "pointer": "/collector",
+        "from": {
+          "method": "agent-assisted local verification",
+          "implementation": "scripts/validate_governance.py and scripts/verify_evidence.py",
+          "implementationRevision": "02568b11d146af5b34e4d908d9aab48e0a7ddbd4"
+        },
+        "to": "an implementation name, not an object"
+      },
+      "expected_outcome": "unreadable",
+      "requires_states": [],
+      "why": "A record that declares the right schema and does not have its shape is malformed, not empty. The mapping reports which field is wrong instead of skipping it."
+    },
+    {
+      "id": "unreadable-truncated",
+      "kind": "unreadable",
+      "file": "unreadable.json",
+      "derivation": {
+        "operation": "truncate",
+        "bytes": 512
+      },
+      "expected_outcome": "unreadable",
+      "requires_states": [],
+      "why": "Bytes that are not JSON are unreadable. No legacy field is interpreted and nothing is recovered from the prefix that did parse."
+    },
+    {
+      "id": "correction-record-is-not-an-evidence-record",
+      "kind": "unsupported",
+      "root": "repository",
+      "file": "evidence/corrections/COR-001-pr12-code-review.json",
+      "expected_outcome": "incompatible",
+      "requires_states": [],
+      "why": "A real retained file, read as itself. The append-only correction is a quire.evidence-correction/v1 record, not a PGM-01 evidence record, and the mapping refuses to read it as one rather than mapping whichever fields happen to overlap."
+    },
+    {
+      "id": "adversarial-correction-is-refused-the-same-way",
+      "kind": "unsupported",
+      "root": "repository",
+      "file": "corpus/evidence-corrections/invalid/missing-finding-refs.json",
+      "expected_outcome": "incompatible",
+      "requires_states": [],
+      "why": "The adversarial correction fixture, preserved and re-pointed at the official boundary. Its defect used to be caught by a repository-local Draft 7 gate over a generic evidence schema, which is the family this migration removes. Read through the shared mapping it is refused for a better reason: it is not a PGM-01 evidence record at all, so no field of it is interpreted and the missing findingRefs never gets the chance to matter."
+    }
+  ]
+}
