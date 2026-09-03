@@ -750,13 +750,21 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
         "[".repeat(MAX_WIRE_JSON_DEPTH as usize + 1),
         "]".repeat(MAX_WIRE_JSON_DEPTH as usize + 1)
     );
-    for document in [at_wire_depth, over_wire_depth] {
-        let failure =
-            catch_unwind(|| ContractPackage::from_json_str(&document, ValidationOptions::strict()))
-                .expect("wire-depth package decoding panicked")
-                .unwrap_err();
-        assert_eq!(failure[0].code, DiagnosticCode::InvalidWireFormat);
-    }
+    let at_limit = catch_unwind(|| {
+        ContractPackage::from_json_str(&at_wire_depth, ValidationOptions::strict())
+    })
+    .expect("at-limit wire package decoding panicked")
+    .unwrap_err();
+    assert_eq!(at_limit[0].code, DiagnosticCode::InvalidWireFormat);
+    assert_eq!(at_limit[0].path, "document");
+
+    let over_limit = catch_unwind(|| {
+        ContractPackage::from_json_str(&over_wire_depth, ValidationOptions::strict())
+    })
+    .expect("over-limit wire package decoding panicked")
+    .unwrap_err();
+    assert_eq!(over_limit[0].code, DiagnosticCode::InvalidWireFormat);
+    assert_eq!(over_limit[0].path, "document.nesting");
 
     let owner = RequirementRef::new(
         PackageId::new("agent-ix/conformance").unwrap(),

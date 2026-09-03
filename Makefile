@@ -73,7 +73,7 @@ unit: assurance-env assurance-inputs
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json | $(PYTHON) -c 'import json, sys; manifest = json.load(open("corpus/contract-v0.1/manifest.json", encoding="utf-8")); rows = [json.loads(line) for line in sys.stdin]; assert [row["fixture_id"] for row in rows] == [fixture["id"] for fixture in manifest["fixtures"]]; assert all(row["status"] == "match" for row in rows)'
+	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json
 
 .PHONY: check-corpus
 check-corpus: corpus

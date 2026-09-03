@@ -131,7 +131,11 @@ The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `artifact.stale`, `artifact.duplicate`, and `artifact.digest_mismatch`.
 The decoder registry also includes `wire.depth.maximum` and
 `wire.depth.over_maximum`; raw-text package probes exercise exactly 576 and 577
-levels without requiring the manifest decoder to materialize the nested value.
+levels without requiring the manifest decoder to materialize the nested value. The at-limit probe
+must reach ordinary package-shape decoding at `document`; the over-limit probe must be rejected by
+the pre-decode nesting guard at `document.nesting`. This distinction keeps the wire-depth cliff
+observable even though both deliberately shape-invalid probe documents share the
+`invalid_wire_format` code.
 
 Expectations contain only fields meaningful for their operation. Valid results
 carry no diagnostics; invalid results carry the exact authored-order diagnostic

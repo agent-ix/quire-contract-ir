@@ -396,7 +396,7 @@
       "input": "inputs/package-wire-depth-over.json",
       "input_sha256": "5d752edac0835f8030891df9ac498084f97ef077e22842d47715d53ab3297cf5",
       "expectation": "expectations/package-wire-depth-over.json",
-      "expectation_sha256": "955a3676d127e08cb908506e942f76a56bc5d734d2b01f84a239cd2ef96e48a0",
+      "expectation_sha256": "eefa3a792a42d216231530a2bc6d09a8a64bc218f577ed65c8d4e1024486eabe",
       "covers": [
         "boundary:wire.depth.over_maximum",
         "diagnostic:invalid_wire_format",
