@@ -47,7 +47,7 @@ help:
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
 	@echo "  make deny             - cargo deny check licenses"
 	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
-	@echo "  make ci               - All CI gates locally"
+	@echo "  make ci               - All local release gates"
 
 # =============================================================================
 # Format / Lint / Test
@@ -73,7 +73,7 @@ unit: assurance-env assurance-inputs
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json | $(PYTHON) -c 'import json, sys; manifest = json.load(open("corpus/contract-v0.1/manifest.json", encoding="utf-8")); rows = [json.loads(line) for line in sys.stdin]; assert [row["fixture_id"] for row in rows] == [fixture["id"] for fixture in manifest["fixtures"]]; assert all(row["status"] == "match" for row in rows)'
+	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json
 
 .PHONY: check-corpus
 check-corpus: corpus
@@ -151,9 +151,11 @@ assurance: pins assurance-chain
 # whatever runs it. What every gate proves on every invocation is the path
 # itself, in `make assurance-chain`.
 #
-# Note the honest `bound: 0`: this repository declares no suite registry, so the
-# run is transcribed and binds no obligation. Transcription working and binding
-# nothing are different facts, and quoin reports them separately.
+# Until agent-ix/quoin#331 is released and pinned, the honest result remains
+# `bound: 0`: this repository now declares its suite and each producer row's
+# trace ids, but Quoin 0.23.1's contract-conformance adapter drops those ids.
+# Transcription working and binding nothing are different facts, and Quoin
+# reports them separately.
 .PHONY: assurance-record
 assurance-record: assurance-inputs
 	$(QUOIN) evidence record \
@@ -186,7 +188,7 @@ audit-unsafe:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test corpus corpus-repro deny audit-unsafe assurance
+ci: fmt-check lint test corpus corpus-repro spec msrv deny audit-unsafe assurance
 
 .PHONY: release-check
-release-check: ci spec
+release-check: ci

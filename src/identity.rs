@@ -1239,7 +1239,7 @@ impl ContractPackage<ReferenceBody> {
             return Err(vec![Diagnostic::error(
                 DiagnosticCode::InvalidWireFormat,
                 "JSON nesting exceeds decode limit",
-                "document",
+                "document.nesting",
             )]);
         }
         let preflight: VersionPreflight = parse_json_stack_safe(input).map_err(|error| {

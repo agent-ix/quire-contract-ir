@@ -201,9 +201,25 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .filter(|row| !row.is_empty())
         .map(|row| serde_json::from_slice::<Value>(row).unwrap())
         .collect::<Vec<_>>();
-    let fixture_count = read_json(&manifest)["fixtures"].as_array().unwrap().len();
+    let manifest_value = read_json(&manifest);
+    let fixtures = manifest_value["fixtures"].as_array().unwrap();
+    let fixture_count = fixtures.len();
     assert_eq!(rows.len(), fixture_count);
     assert!(rows.iter().all(|row| row["status"] == "match"));
+    for (row, fixture) in rows.iter().zip(fixtures) {
+        assert_eq!(row["fixture_id"], fixture["id"]);
+        assert_eq!(row["trace_ids"], fixture["trace_ids"]);
+        assert!(!row["trace_ids"].as_array().unwrap().is_empty());
+    }
+    let trace_ids = fixtures
+        .iter()
+        .flat_map(|fixture| fixture["trace_ids"].as_array().unwrap())
+        .map(|value| value.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        trace_ids,
+        BTreeSet::from(["TC-015", "TC-016", "TC-017", "TC-018"])
+    );
 
     let package_schema_value =
         read_json(&root.join("schemas/contract-package-reference-v1.schema.json"));
@@ -211,7 +227,6 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .with_draft(Draft::Draft7)
         .compile(&package_schema_value)
         .unwrap();
-    let manifest_value = read_json(&manifest);
     let coverage_fixtures = manifest_value["fixtures"]
         .as_array()
         .unwrap()
@@ -294,6 +309,7 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
 }
 
 /// Tracing: TC-018, FR-018-AC-2, FR-020-AC-2.
+/// StR-003-VC-1.
 /// FR-018-AC-2.
 /// FR-020-AC-2.
 #[test]
@@ -540,9 +556,28 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     );
 
     let mut manifest = baseline.clone();
+    manifest["fixtures"][0]["trace_ids"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    write_json(&controls.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "invalid_manifest"
+    );
+
+    let mut manifest = baseline.clone();
     let covers = manifest["fixtures"][0]["covers"].as_array_mut().unwrap();
     covers.push(json!("boundary:not-registered"));
     covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+    write_json(&controls.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "invalid_manifest"
+    );
+
+    let mut manifest = baseline.clone();
+    manifest["fixtures"][0]["trace_ids"] = json!([]);
     write_json(&controls.manifest(), &manifest);
     assert_eq!(
         error_code(&run_manifest(&controls.manifest())),
@@ -716,13 +751,21 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
         "[".repeat(MAX_WIRE_JSON_DEPTH as usize + 1),
         "]".repeat(MAX_WIRE_JSON_DEPTH as usize + 1)
     );
-    for document in [at_wire_depth, over_wire_depth] {
-        let failure =
-            catch_unwind(|| ContractPackage::from_json_str(&document, ValidationOptions::strict()))
-                .expect("wire-depth package decoding panicked")
-                .unwrap_err();
-        assert_eq!(failure[0].code, DiagnosticCode::InvalidWireFormat);
-    }
+    let at_limit = catch_unwind(|| {
+        ContractPackage::from_json_str(&at_wire_depth, ValidationOptions::strict())
+    })
+    .expect("at-limit wire package decoding panicked")
+    .unwrap_err();
+    assert_eq!(at_limit[0].code, DiagnosticCode::InvalidWireFormat);
+    assert_eq!(at_limit[0].path, "document");
+
+    let over_limit = catch_unwind(|| {
+        ContractPackage::from_json_str(&over_wire_depth, ValidationOptions::strict())
+    })
+    .expect("over-limit wire package decoding panicked")
+    .unwrap_err();
+    assert_eq!(over_limit[0].code, DiagnosticCode::InvalidWireFormat);
+    assert_eq!(over_limit[0].path, "document.nesting");
 
     let owner = RequirementRef::new(
         PackageId::new("agent-ix/conformance").unwrap(),

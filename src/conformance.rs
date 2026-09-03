@@ -248,6 +248,7 @@ struct Fixture {
     expectation: String,
     expectation_sha256: String,
     covers: Vec<String>,
+    trace_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -286,6 +287,7 @@ pub struct FixtureResult {
     operation: ConformanceOperation,
     status: FixtureStatus,
     mismatch_kinds: Vec<&'static str>,
+    trace_ids: Vec<String>,
     actual: Value,
     tool: ToolIdentity,
 }
@@ -706,6 +708,7 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                     FixtureStatus::Mismatch
                 },
                 mismatch_kinds,
+                trace_ids: loaded.fixture.trace_ids,
                 actual,
                 tool: tool.clone(),
             })
@@ -1146,6 +1149,15 @@ fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), R
                 "coverage tokens are not sorted and unique",
             ));
         }
+        if fixture.trace_ids.is_empty()
+            || fixture.trace_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(RunnerError::new(
+                RunnerErrorCode::InvalidManifest,
+                "fixtures.trace_ids",
+                "trace IDs must be non-empty, sorted, and unique",
+            ));
+        }
         covered.extend(fixture.covers.iter().cloned());
     }
     if covered.into_iter().collect::<Vec<_>>() != inventory {
@@ -1245,7 +1257,7 @@ fn observe_structural_boundaries(
     output: &mut BTreeSet<String>,
 ) {
     let mut record = |token: &'static str| {
-        if structural_boundary_observed(token, succeeded, diagnostic_codes) {
+        if structural_boundary_observed(token, actual, succeeded, diagnostic_codes) {
             output.insert(token.to_owned());
         }
     };
@@ -1461,9 +1473,16 @@ fn observe_structural_boundaries(
 
 fn structural_boundary_observed(
     token: &str,
+    actual: &Value,
     succeeded: bool,
     diagnostics: &BTreeSet<&str>,
 ) -> bool {
+    if token == "boundary:wire.depth.maximum" {
+        return has_diagnostic_at(actual, "invalid_wire_format", "document");
+    }
+    if token == "boundary:wire.depth.over_maximum" {
+        return has_diagnostic_at(actual, "invalid_wire_format", "document.nesting");
+    }
     let required_diagnostic = match token {
         "boundary:collection.minimum" => Some("unbounded_collection"),
         "boundary:collection.declared_out_of_range"
@@ -1481,12 +1500,21 @@ fn structural_boundary_observed(
         "boundary:schema.unregistered_minor" => Some("unregistered_migration"),
         "boundary:schema.unknown_major" => Some("unsupported_schema_version"),
         "boundary:source_span.reversed" => Some("invalid_source_span"),
-        "boundary:wire.depth.maximum" | "boundary:wire.depth.over_maximum" => {
-            Some("invalid_wire_format")
-        }
         _ => None,
     };
     required_diagnostic.map_or(succeeded, |code| diagnostics.contains(code))
+}
+
+fn has_diagnostic_at(actual: &Value, code: &str, path: &str) -> bool {
+    actual
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .is_some_and(|diagnostics| {
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.get("code").and_then(Value::as_str) == Some(code)
+                    && diagnostic.get("path").and_then(Value::as_str) == Some(path)
+            })
+        })
 }
 
 fn has_authored_set_out_of_order(input: &Value) -> bool {
