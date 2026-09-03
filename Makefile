@@ -47,7 +47,7 @@ help:
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
 	@echo "  make deny             - cargo deny check licenses"
 	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
-	@echo "  make ci               - All CI gates locally"
+	@echo "  make ci               - All local release gates"
 
 # =============================================================================
 # Format / Lint / Test
@@ -188,7 +188,7 @@ audit-unsafe:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test corpus corpus-repro deny audit-unsafe assurance
+ci: fmt-check lint test corpus corpus-repro spec msrv deny audit-unsafe assurance
 
 .PHONY: release-check
-release-check: ci spec
+release-check: ci
