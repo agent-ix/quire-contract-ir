@@ -45,8 +45,8 @@ canonicalization profile identities.
 
 ## Outputs
 
-JSON Lines results containing fixture ID, validity, ordered diagnostics,
-canonical digest, dependency identities, tool identity, and exit classification.
+JSON Lines results containing fixture ID, manifest-declared Test Case trace IDs, validity, ordered
+diagnostics, canonical digest, dependency identities, tool identity, and exit classification.
 
 ## Behavior
 
@@ -60,8 +60,8 @@ or a default manifest.
 For a valid manifest, standard output contains exactly one compact JSON object
 and newline per fixture in manifest order. No banner or progress text appears.
 Each result contains protocol, corpus ID, fixture ID, operation, closed status
-`match` or `mismatch`, unique mismatch kinds in fixed registry order, actual structured result,
-and tool identity: crate version, package-schema path/digest, canonical profile,
+`match` or `mismatch`, unique mismatch kinds in fixed registry order, the fixture's exact sorted
+`trace_ids`, actual structured result, and tool identity: crate version, package-schema path/digest, canonical profile,
 and runner protocol. Mismatch kinds are `validity`, `diagnostics`,
 `canonical_bytes`, `canonical_digest`, `dependencies`, `migration_receipt`, and
 `coverage`. A fixture with several drifts retains all applicable kinds once in
@@ -106,7 +106,7 @@ and exits 0 without reading a manifest.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` per authored fixture, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
+| FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with the exact non-empty manifest trace ids per authored fixture, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
 | FR-020-AC-2 | Process fixtures pin exit 1 with all seven mismatch kinds in fixed order and exit 2 for all six closed operational codes; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
 
 ## Dependencies

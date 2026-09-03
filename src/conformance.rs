@@ -248,6 +248,7 @@ struct Fixture {
     expectation: String,
     expectation_sha256: String,
     covers: Vec<String>,
+    trace_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -286,6 +287,7 @@ pub struct FixtureResult {
     operation: ConformanceOperation,
     status: FixtureStatus,
     mismatch_kinds: Vec<&'static str>,
+    trace_ids: Vec<String>,
     actual: Value,
     tool: ToolIdentity,
 }
@@ -706,6 +708,7 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                     FixtureStatus::Mismatch
                 },
                 mismatch_kinds,
+                trace_ids: loaded.fixture.trace_ids,
                 actual,
                 tool: tool.clone(),
             })
@@ -1144,6 +1147,15 @@ fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), R
                 RunnerErrorCode::InvalidManifest,
                 "fixtures.covers",
                 "coverage tokens are not sorted and unique",
+            ));
+        }
+        if fixture.trace_ids.is_empty()
+            || fixture.trace_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(RunnerError::new(
+                RunnerErrorCode::InvalidManifest,
+                "fixtures.trace_ids",
+                "trace IDs must be non-empty, sorted, and unique",
             ));
         }
         covered.extend(fixture.covers.iter().cloned());

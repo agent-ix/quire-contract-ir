@@ -201,9 +201,25 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .filter(|row| !row.is_empty())
         .map(|row| serde_json::from_slice::<Value>(row).unwrap())
         .collect::<Vec<_>>();
-    let fixture_count = read_json(&manifest)["fixtures"].as_array().unwrap().len();
+    let manifest_value = read_json(&manifest);
+    let fixtures = manifest_value["fixtures"].as_array().unwrap();
+    let fixture_count = fixtures.len();
     assert_eq!(rows.len(), fixture_count);
     assert!(rows.iter().all(|row| row["status"] == "match"));
+    for (row, fixture) in rows.iter().zip(fixtures) {
+        assert_eq!(row["fixture_id"], fixture["id"]);
+        assert_eq!(row["trace_ids"], fixture["trace_ids"]);
+        assert!(!row["trace_ids"].as_array().unwrap().is_empty());
+    }
+    let trace_ids = fixtures
+        .iter()
+        .flat_map(|fixture| fixture["trace_ids"].as_array().unwrap())
+        .map(|value| value.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        trace_ids,
+        BTreeSet::from(["TC-015", "TC-016", "TC-017", "TC-018"])
+    );
 
     let package_schema_value =
         read_json(&root.join("schemas/contract-package-reference-v1.schema.json"));
@@ -211,7 +227,6 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .with_draft(Draft::Draft7)
         .compile(&package_schema_value)
         .unwrap();
-    let manifest_value = read_json(&manifest);
     let coverage_fixtures = manifest_value["fixtures"]
         .as_array()
         .unwrap()
@@ -540,9 +555,28 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     );
 
     let mut manifest = baseline.clone();
+    manifest["fixtures"][0]["trace_ids"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    write_json(&controls.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "invalid_manifest"
+    );
+
+    let mut manifest = baseline.clone();
     let covers = manifest["fixtures"][0]["covers"].as_array_mut().unwrap();
     covers.push(json!("boundary:not-registered"));
     covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+    write_json(&controls.manifest(), &manifest);
+    assert_eq!(
+        error_code(&run_manifest(&controls.manifest())),
+        "invalid_manifest"
+    );
+
+    let mut manifest = baseline.clone();
+    manifest["fixtures"][0]["trace_ids"] = json!([]);
     write_json(&controls.manifest(), &manifest);
     assert_eq!(
         error_code(&run_manifest(&controls.manifest())),

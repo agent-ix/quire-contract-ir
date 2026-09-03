@@ -17,7 +17,9 @@ Canonical byte files intentionally have no terminal newline. The checked-in
 manifest does not try to contain its own commit identity.
 
 The manifest contains targeted construct, diagnostic, obligation, operation,
-and exact-boundary fixtures. The runner derives observable coverage from each
+and exact-boundary fixtures. Every fixture also declares the TC-015 through TC-018 verification
+targets it contributes to, and the runner copies those ids unchanged into its structured row. The
+runner derives observable coverage from each
 fixture's declarative input and actual result and rejects an unobserved
 `covers` token before comparing expectations. Large exact-edge fixtures are
 reproducibly authored by `scripts/generate_conformance_corpus.py`; the script

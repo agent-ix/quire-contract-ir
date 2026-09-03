@@ -151,9 +151,11 @@ assurance: pins assurance-chain
 # whatever runs it. What every gate proves on every invocation is the path
 # itself, in `make assurance-chain`.
 #
-# Note the honest `bound: 0`: this repository declares no suite registry, so the
-# run is transcribed and binds no obligation. Transcription working and binding
-# nothing are different facts, and quoin reports them separately.
+# Until agent-ix/quoin#331 is released and pinned, the honest result remains
+# `bound: 0`: this repository now declares its suite and each producer row's
+# trace ids, but Quoin 0.23.1's contract-conformance adapter drops those ids.
+# Transcription working and binding nothing are different facts, and Quoin
+# reports them separately.
 .PHONY: assurance-record
 assurance-record: assurance-inputs
 	$(QUOIN) evidence record \

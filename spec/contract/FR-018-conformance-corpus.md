@@ -76,8 +76,11 @@ collection, record, and quantifier variant. It is an unvalidated wire model;
 conversion invokes the same public constructors and checker as the Rust API.
 Fixture IDs never select constructors, expected results, or special behavior.
 
-Every fixture names one input path, one expectation path, its operation, and a
-non-empty sorted unique `covers` array. Coverage tokens are the closed forms
+Every fixture names one input path, one expectation path, its operation, a
+non-empty sorted unique `covers` array, and a non-empty sorted unique `trace_ids` array. The trace
+ids select TC-015 through TC-018 according to the fixture operation and are copied unchanged into
+the structured result. Quire, rather than this manifest, owns the Test Case-to-acceptance-criterion
+relationships. Coverage tokens are the closed forms
 `construct:<registered-tag>`, `diagnostic:<STD-001-code>`,
 `obligation:<DefinednessObligationKind>`, `boundary:<registered-boundary>`, and
 `operation:<operation>`. The repository
@@ -157,7 +160,7 @@ determinism for this implementation, not independent semantic correctness.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-018-AC-1 | The manifest-schema, exact inventory equality, and positive/negative fixtures prove every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; duplicate, unknown, unsafe-path, oversize, profile/digest-drift, and one-past-limit manifests fail before execution. | Test (TC-018) |
+| FR-018-AC-1 | The manifest-schema, exact inventory equality, non-empty trace targets, and positive/negative fixtures prove every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; duplicate, unknown, unsafe-path, oversize, profile/digest-drift, and one-past-limit manifests fail before execution. | Test (TC-018) |
 | FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
 | FR-018-AC-3 | Per-family observation rules reject every unobserved claim, cross-domain artifact claim, stale fixture/canonical digest, aggregate-byte overflow, and disabled corpus lane; raw package probes pin unknown-member rejection and exact/one-past wire depth; the portable generator reproduces the complete checked-in corpus byte-for-byte in scratch space. | Test (TC-018) |
 

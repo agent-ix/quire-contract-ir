@@ -22,6 +22,13 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "corpus" / "contract-v0.1"
 
+TRACE_IDS_BY_OPERATION = {
+    "package": ["TC-015", "TC-017", "TC-018"],
+    "expression": ["TC-016", "TC-017", "TC-018"],
+    "migration": ["TC-017", "TC-018"],
+    "coverage": ["TC-017", "TC-018"],
+}
+
 
 def default_runner() -> pathlib.Path:
     target = pathlib.Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
@@ -485,6 +492,7 @@ def generate(corpus: pathlib.Path, runner: pathlib.Path, update_root_sidecars: b
             "expectation": f"expectations/{case['id']}.json",
             "expectation_sha256": digest(expectation_path),
             "covers": case["covers"],
+            "trace_ids": TRACE_IDS_BY_OPERATION[case["operation"]],
         })
 
     inventory = json.loads((corpus / "inventory.json").read_text())
