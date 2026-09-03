@@ -36,4 +36,5 @@ temporary specification/test tree, observes failure with no symbol, then success
 - `quire coverage --scope . --strict`: exit 0; no unbacked row or contradicted status; all seven
   stakeholder criteria and NFR-004-AC-5 are backed.
 
-Full clean-head verification remains required. No hosted workflow was dispatched.
+The final stacked candidate passed the complete local `release-check`; see REV-013. No hosted
+workflow was dispatched.

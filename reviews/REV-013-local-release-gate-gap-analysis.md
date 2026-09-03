@@ -33,5 +33,15 @@ deleted repository-local verifier. No hosted workflow was changed or dispatched.
 
 ## Verification
 
-Full exact-head local verification is required after this review artifact and the composition change
-are committed. Hosted CI is excluded.
+The complete local `make release-check` passed on the committed composition change:
+
+- formatting and Clippy with warnings denied;
+- 17/17 Python/shared-assurance tests and 30/30 Rust tests plus doc tests;
+- 99/99 native conformance fixtures and byte-for-byte corpus regeneration;
+- 109/109 Quire documents grammar-clean, strict coverage exit 0, and a clean matrix-status census;
+- exact Rust 1.75 all-target check, license policy, and unsafe audit;
+- all accepted shared pins, 10/10 assurance scenarios, 4/4 adapter probes, and 4/4 paired controls.
+
+The known `status-column-matches-nothing` diagnostic remains an upstream module-contract blocker
+tracked by program issue #21 and `spec-artifacts-process` PR #77; the repository's independent
+matrix-status census still fails closed for completed rows. No hosted workflow was dispatched.

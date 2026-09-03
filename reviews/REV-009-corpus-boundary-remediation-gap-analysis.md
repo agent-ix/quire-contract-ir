@@ -38,7 +38,7 @@ Make target delegates directly to the domain runner and no longer contains a sec
 - In an isolated scratch clone and Cargo target, replacing `json_nesting_exceeds` with unconditional
   `false` makes the runner exit 2 because `package-wire-depth-over` no longer observes its declared
   `boundary:wire.depth.over_maximum` token.
-- Full clean-head native, specification, MSRV, and shared-assurance verification remains required
-  after the candidate commit.
+- The final stacked candidate passed the complete local `release-check`, including native,
+  specification, exact-Rust-1.75, supply-chain, and shared-assurance gates; see REV-013.
 
 No hosted workflow was dispatched or changed.

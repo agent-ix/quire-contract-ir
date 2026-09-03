@@ -37,7 +37,8 @@ demonstrates nonzero bindings.
 | FND-302 | high | Closed locally: the manifest schema requires a non-empty unique closed Test Case set, the runner additionally requires sorted order, and empty/reordered controls fail. | FR-018-AC-1, TC-018 | missing-requirement |
 | FND-303 | medium | Closed locally: results name TC-015 through TC-018 and rely on Quire's existing criterion targets instead of copying acceptance criteria into a second graph. | PGM-01-R09, SUR-001 | wrong-requirement |
 | FND-304 | medium | Closed locally: complete regeneration changed only manifest/schema identities and added trace metadata; 99 semantic expectations and canonical byte files remain unchanged. | FR-018-AC-3, TC-018 | implementation-bug-despite-evidence |
-| FND-305 | medium | Open process gate: full clean-head local verification and independent exact-head review remain required before landing. | PLAN-005, issue #44 | correct-requirement-no-evidence |
+| FND-305 | medium | Closed locally: the final stacked candidate passes the complete local release gate; see REV-013. | PLAN-005, issue #44 | correct-requirement-no-evidence |
+| FND-306 | medium | Open process gate: independent exact-head review remains required before landing. | PLAN-005, issue #44 | correct-requirement-no-evidence |
 
 ## Verification performed
 
@@ -50,5 +51,7 @@ demonstrates nonzero bindings.
 - In a temporary clone of the clean committed candidate, Quoin 0.23.1 records all 99 rows but
   reports `bound: []`, `suspect: []`, and `unmatched: []`; this independently reproduces FND-301
   without writing an evidence store into the source tree.
+- The final stacked candidate passes `make release-check`; REV-013 records the gate composition and
+  result.
 
 No hosted workflow was dispatched.
