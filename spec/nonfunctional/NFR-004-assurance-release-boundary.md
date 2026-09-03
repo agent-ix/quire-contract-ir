@@ -36,6 +36,7 @@ workflow.
 | NFR-004-AC-1 | Cargo publication is disabled, both license texts are present, and CI has no automatic trigger. | Test (TC-014) |
 | NFR-004-AC-2 | The five assurance artifacts name decision, system, component, measurement, failure, evidence, and human-owner boundaries. | Test (TC-020) |
 | NFR-004-AC-3 | The implementation plan keeps dependency-blocked children pending and records every composite-review dimension. | Test (TC-021) |
+| NFR-004-AC-5 | Every completed matrix row and PGM acceptance citation resolves to a completed test case with a declared test symbol; the status validator's real-tree failure path is exercised. Criterion-to-symbol backing remains Quire's responsibility. | Test (TC-021) |
 
 ### Retired criteria
 

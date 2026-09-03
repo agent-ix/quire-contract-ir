@@ -309,6 +309,7 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
 }
 
 /// Tracing: TC-018, FR-018-AC-2, FR-020-AC-2.
+/// StR-003-VC-1.
 /// FR-018-AC-2.
 /// FR-020-AC-2.
 #[test]
