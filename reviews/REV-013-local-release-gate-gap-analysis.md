@@ -45,3 +45,5 @@ The complete local `make release-check` passed on the committed composition chan
 The known `status-column-matches-nothing` diagnostic remains an upstream module-contract blocker
 tracked by program issue #21 and `spec-artifacts-process` PR #77; the repository's independent
 matrix-status census still fails closed for completed rows. No hosted workflow was dispatched.
+Full exact-head local verification is required after this review artifact and the composition change
+are committed. Hosted CI is excluded.
