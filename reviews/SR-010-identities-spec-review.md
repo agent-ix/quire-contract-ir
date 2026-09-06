@@ -2,7 +2,7 @@
 id: SR-010
 title: "Issue 6 identity and anchoring specification review"
 type: SpecReview
-analysis: architecture-evaluation
+analysis: spec-correctness
 scope: "FR-011, FR-012, STD-001, NFR-002, TM-002, TC-015, TASK-006"
 review_set: subset
 relationships:

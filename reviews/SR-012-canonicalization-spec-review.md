@@ -2,7 +2,7 @@
 id: SR-012
 title: "Issue 9 canonicalization, migration, and coverage specification review"
 type: SpecReview
-analysis: architecture-evaluation
+analysis: spec-correctness
 scope: "FR-011, FR-016, FR-017, STD-001, NFR-001, NFR-003, TM-002, TC-017, TASK-008"
 review_set: subset
 relationships:

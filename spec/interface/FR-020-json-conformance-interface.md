@@ -2,7 +2,6 @@
 id: FR-020
 title: "Expose versioned JSON and conformance-runner interfaces"
 type: FR
-object: interface
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-002
     type: traces_to

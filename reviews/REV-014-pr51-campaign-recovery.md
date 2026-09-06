@@ -37,6 +37,7 @@ review on PR 51; this account does not replace them.
 | FND-1410 | low | Matrix census remains declared-symbol evidence only. Native tools execute the tests; neither this census nor the trace registry claims complete criterion proof or release sufficiency. | IR51-13 | wrong-requirement |
 | FND-1411 | high | Independent review found operation-insensitive ownership: package reference bodies claimed typed-expression criteria and artifact diagnostics claimed semantic-reference criteria. Followup qualifies registry entries by operation and tests both false attributions plus healthy expression/package/coverage controls. | FR-018; independent campaign review | wrong-requirement |
 | FND-1412 | high | Initial recovery commit 5e01fbd omitted the tested runner source from staging. Independent exact-commit inspection caught this; b3f8f1b includes it. Acceptance must use the complete followup chain, not the first commit or a dirty-tree test claim. | PR 51 recovery | correct-requirement-no-evidence |
+| FND-1413 | medium | Full exact-module validation found six unsupported authored metadata declarations: policy was not an archetype and five reviews used an undeclared analysis category. The governance document now uses the existing Standard type and a stable code; reviews use spec-correctness. Two interface FRs drop undeclared optional object classifiers. All eight document bodies, IDs, criteria and review findings remain unchanged. No module vocabulary was widened. | NFR-004; canonical specification validation | correct-requirement-no-evidence |
 
 ## Verification
 
@@ -66,3 +67,30 @@ trace, Python ordering and Make-control scope. The reviewer reran the focused
 schema/mismatch Rust tests and Python ordering/orchestration tests. After the
 operation-qualified followup, the full five-test conformance suite passes again;
 independent followup review and campaign-wide gates remain pending.
+
+### Exact-module integration checkpoint: 2026-09-06
+
+CLI `ff638b9802178aa62c757aab914cf0288c1cbe67` with engine
+`d3bc2baff191c9521f1064480a56c8dc0bd1c7fa` is independently reviewed and its
+canonical CI passes. Its explicit module roots for this checkpoint are process
+`e6ea5151b59a55d7ce0d43f1581cbe276f750e04`, ISO
+`a60ee12d735976081849f60a38d603fb5494b015`, and released engineering-assurance
+`8ea16ce240934aa2c31c1cc3f781b7eb0f8c73ba`. Root arguments name each module's
+actual manifest directory, not a parent checkout or installed default set.
+
+The full binder-tree validation before FND-1413's correction reported six
+structural failures and two unknown-object advisories. Inspection found six
+real unsupported authored declarations out of six structural findings, not
+six bad rules. Corrected metadata in this recovery tree validates all110
+documents with zero structural or grammar failures. The two unknown-object
+advisories are gone; intrinsic duplicate-module-declaration advisories remain.
+Twelve native foundation/governance/reconciliation tests and the completed
+matrix census pass; no test expectation or normative body changed.
+
+The binder tree before this metadata correction separately passed strict
+coverage with102/109 rows backed, zero unbacked-row findings and zero status
+lies. That is not an all-criteria verification claim: seven bare implemented
+statuses are undeclared, fifteen diagnostics and twelve unmatched tags remain,
+including uncatalogued NFR measurement methods. These residual findings are
+retained for separate authored-method/trace review, not suppressed or counted
+as proof. Shared assurance acceptance/release gates remain open.
