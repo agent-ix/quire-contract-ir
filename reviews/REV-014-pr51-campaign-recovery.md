@@ -110,3 +110,12 @@ TC-015/016/017 pass with locked offline Cargo. The proposed cell-only correction
 recognizes existing evidence; it does not prove complete criterion semantics or
 cross-platform qualification. Remaining NFR-method and source-tag diagnostics
 stay visible and outside this repair.
+
+The seven-cell correction passes the same native error-severity command with
+zero undeclared statuses. Recovery-tree totals remain exactly 96/103 backed and
+77 criteria; all diagnostic and unmatched-tag records are unchanged. These are
+recovery-tree measurements, distinct from the binder's earlier 102/109 and 82
+criteria. Three native Python matrix controls and the real-tree status census
+pass. Independent review accepted the literal vocabulary correction after
+checking mappings, existing tests and unchanged planned/partial qualifications.
+No production code, test expectation, criterion or module declaration changed.
