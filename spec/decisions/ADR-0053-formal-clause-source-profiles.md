@@ -35,7 +35,7 @@ The proposed profile names below are not registered or published identities.
 | Recommendation | OCL 2.4-based non-temporal bounded profile first |
 | Later sequence | FRETish/tl-* temporal profile, then SysML/KerML invariant/import profile; separate qualification gates |
 | Human decision, timestamp, rationale | Not recorded |
-| Independent review | Pending coordinator review |
+| Independent review | Coordinator proposal review complete; source implication-vacuity gap explicitly retained; native language correspondence remains unqualified |
 | Implementation, native parser qualification, hosted CI | Not performed or authorized by this packet |
 
 ## Context

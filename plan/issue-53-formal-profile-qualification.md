@@ -1,3 +1,13 @@
+---
+id: PLAN-006
+title: "Proposed formal-profile qualification checklist for issue #53"
+type: Plan
+status: proposed
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/ADR-0053
+    type: references
+---
+
 # Issue #53: proposed profile qualification checklist
 
 This is a specification-only companion to
