@@ -61,8 +61,6 @@
       ],
       "trace_ids": [
         "FR-012-AC-2",
-        "FR-012-AC-5",
-        "FR-014-AC-6",
         "FR-018-AC-1"
       ]
     },
@@ -1631,7 +1629,6 @@
         "operation:coverage"
       ],
       "trace_ids": [
-        "FR-012-AC-3",
         "FR-017-AC-2",
         "FR-018-AC-1"
       ]
@@ -1649,7 +1646,6 @@
         "operation:coverage"
       ],
       "trace_ids": [
-        "FR-012-AC-3",
         "FR-017-AC-2",
         "FR-018-AC-1"
       ]
@@ -1667,7 +1663,6 @@
         "operation:coverage"
       ],
       "trace_ids": [
-        "FR-012-AC-3",
         "FR-017-AC-2",
         "FR-018-AC-1"
       ]

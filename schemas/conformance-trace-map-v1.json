@@ -25,6 +25,12 @@
   },
   {
     "trace_ids": ["FR-012-AC-3"],
+    "operations": ["package", "expression", "migration"],
+    "covers": ["boundary:revision.stale", "diagnostic:cross_package_reference", "diagnostic:malformed_reference", "diagnostic:orphaned_clause_reference", "diagnostic:orphaned_requirement_reference", "diagnostic:stale_requirement_revision"]
+  },
+  {
+    "trace_ids": ["FR-017-AC-2"],
+    "operations": ["coverage"],
     "covers": ["boundary:revision.stale", "diagnostic:cross_package_reference", "diagnostic:malformed_reference", "diagnostic:orphaned_clause_reference", "diagnostic:orphaned_requirement_reference", "diagnostic:stale_requirement_revision"]
   },
   {
@@ -33,6 +39,12 @@
   },
   {
     "trace_ids": ["FR-012-AC-5", "FR-014-AC-6"],
+    "operations": ["expression"],
+    "covers": ["construct:dependency.kind.enum_variant", "construct:dependency.kind.field", "construct:dependency.kind.input", "construct:dependency.kind.pure_function", "construct:dependency.kind.state"]
+  },
+  {
+    "trace_ids": ["FR-012-AC-2"],
+    "operations": ["package"],
     "covers": ["construct:dependency.kind.enum_variant", "construct:dependency.kind.field", "construct:dependency.kind.input", "construct:dependency.kind.pure_function", "construct:dependency.kind.state"]
   },
   {

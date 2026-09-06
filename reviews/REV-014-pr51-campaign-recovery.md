@@ -35,6 +35,8 @@ review on PR 51; this account does not replace them.
 | FND-1408 | medium | Norm explicitly excludes shape-invalid wire-depth probes from semantic-success boundaries. Manual hosted workflow is named/documented as an unqualified subset with provisioning limitations. No dispatch. | IR51-08; IR51-09 | wrong-requirement |
 | FND-1409 | low | Help no longer claims a removed census. Independent literal-depth mixed object/array controls include escaped strings with 1200 delimiters and distinguish document from document.nesting. Manifest fixtures require minItems 1. | IR51-10; IR51-11; IR51-12 | correct-requirement-no-evidence |
 | FND-1410 | low | Matrix census remains declared-symbol evidence only. Native tools execute the tests; neither this census nor the trace registry claims complete criterion proof or release sufficiency. | IR51-13 | wrong-requirement |
+| FND-1411 | high | Independent review found operation-insensitive ownership: package reference bodies claimed typed-expression criteria and artifact diagnostics claimed semantic-reference criteria. Followup qualifies registry entries by operation and tests both false attributions plus healthy expression/package/coverage controls. | FR-018; independent campaign review | wrong-requirement |
+| FND-1412 | high | Initial recovery commit 5e01fbd omitted the tested runner source from staging. Independent exact-commit inspection caught this; b3f8f1b includes it. Acceptance must use the complete followup chain, not the first commit or a dirty-tree test claim. | PR 51 recovery | correct-requirement-no-evidence |
 
 ## Verification
 
@@ -58,3 +60,9 @@ unbacked under that engine and structured diagnostics remain. Current exact modu
 selection, CLI engine update, Quoin trace-preservation integration, pinned shared
 assurance, MSRV, independent candidate review and full release-check remain gates.
 Nothing here claims that a corpus fixture proves all conjuncts of its criterion.
+
+Independent review of b3f8f1b found no other blocker within the requested schema,
+trace, Python ordering and Make-control scope. The reviewer reran the focused
+schema/mismatch Rust tests and Python ordering/orchestration tests. After the
+operation-qualified followup, the full five-test conformance suite passes again;
+independent followup review and campaign-wide gates remain pending.

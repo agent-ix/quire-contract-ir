@@ -276,6 +276,24 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         find_fixture("package-invalid-namespace")["trace_ids"],
         json!(["FR-011-AC-3", "FR-018-AC-1"])
     );
+    assert_eq!(
+        find_fixture("package-reference")["trace_ids"],
+        json!(["FR-012-AC-2", "FR-018-AC-1"])
+    );
+    assert_eq!(
+        find_fixture("expression-value-input")["trace_ids"],
+        json!(["FR-012-AC-5", "FR-014-AC-4", "FR-014-AC-6", "FR-018-AC-1"])
+    );
+    for id in [
+        "coverage-cross-package",
+        "coverage-missing",
+        "coverage-stale",
+    ] {
+        assert_eq!(
+            find_fixture(id)["trace_ids"],
+            json!(["FR-017-AC-2", "FR-018-AC-1"])
+        );
+    }
 
     let package_schema_value =
         read_json(&root.join("schemas/contract-package-reference-v1.schema.json"));
@@ -602,6 +620,35 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
 
     let controls = Scratch::corpus();
     let baseline = read_json(&controls.manifest());
+
+    for (id, false_target) in [
+        ("package-reference", "FR-012-AC-5"),
+        ("expression-value-input", "FR-012-AC-2"),
+        ("coverage-cross-package", "FR-012-AC-3"),
+        ("coverage-missing", "FR-012-AC-3"),
+        ("coverage-stale", "FR-012-AC-3"),
+    ] {
+        let mut manifest = baseline.clone();
+        let fixture = manifest["fixtures"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|fixture| fixture["id"] == id)
+            .unwrap();
+        let mut targets = fixture["trace_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|target| target.as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        targets.insert(false_target.to_owned());
+        fixture["trace_ids"] = json!(targets.into_iter().collect::<Vec<_>>());
+        write_json(&controls.manifest(), &manifest);
+        let output = run_manifest(&controls.manifest());
+        assert_eq!(error_code(&output), "invalid_manifest");
+        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(error["path"], format!("fixtures.{id}.trace_ids"));
+    }
 
     // A valid criterion identifier still cannot be attached to an unrelated fixture.
     for targets in [

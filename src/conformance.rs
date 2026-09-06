@@ -1129,9 +1129,12 @@ pub fn hex_digest(bytes: &[u8]) -> String {
 struct TraceGroup {
     covers: Vec<String>,
     trace_ids: Vec<String>,
+    operations: Option<Vec<ConformanceOperation>>,
 }
 
-fn trace_registry() -> Result<BTreeMap<String, Vec<String>>, RunnerError> {
+type TraceRegistry = BTreeMap<(String, String), Vec<String>>;
+
+fn trace_registry() -> Result<TraceRegistry, RunnerError> {
     let invalid = || {
         RunnerError::new(
             RunnerErrorCode::InvalidManifest,
@@ -1150,13 +1153,31 @@ fn trace_registry() -> Result<BTreeMap<String, Vec<String>>, RunnerError> {
         {
             return Err(invalid());
         }
-        for cover in group.covers {
-            if registry.insert(cover, group.trace_ids.clone()).is_some() {
-                return Err(invalid());
+        let operations = group
+            .operations
+            .unwrap_or_else(|| ConformanceOperation::ALL.to_vec());
+        if operations.is_empty() {
+            return Err(invalid());
+        }
+        for operation in operations {
+            for cover in &group.covers {
+                if registry
+                    .insert(
+                        (operation.as_str().to_owned(), cover.clone()),
+                        group.trace_ids.clone(),
+                    )
+                    .is_some()
+                {
+                    return Err(invalid());
+                }
             }
         }
     }
-    if registry.keys().cloned().collect::<Vec<_>>() != expected_inventory() {
+    let tokens = registry
+        .keys()
+        .map(|(_, token)| token.clone())
+        .collect::<BTreeSet<_>>();
+    if tokens.into_iter().collect::<Vec<_>>() != expected_inventory() {
         return Err(invalid());
     }
     Ok(registry)
@@ -1197,15 +1218,20 @@ fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), R
                 "trace IDs must be non-empty, sorted, and unique",
             ));
         }
-        let expected_traces = fixture
-            .covers
-            .iter()
-            .filter_map(|token| trace_registry.get(token))
-            .flatten()
-            .cloned()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut expected_traces = BTreeSet::new();
+        for token in &fixture.covers {
+            let targets = trace_registry
+                .get(&(fixture.operation.as_str().to_owned(), token.clone()))
+                .ok_or_else(|| {
+                    RunnerError::new(
+                        RunnerErrorCode::InvalidManifest,
+                        format!("fixtures.{}.trace_ids", fixture.id),
+                        "coverage token has no criterion owner for this operation",
+                    )
+                })?;
+            expected_traces.extend(targets.iter().cloned());
+        }
+        let expected_traces = expected_traces.into_iter().collect::<Vec<_>>();
         if fixture.trace_ids != expected_traces {
             return Err(RunnerError::new(
                 RunnerErrorCode::InvalidManifest,

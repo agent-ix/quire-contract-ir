@@ -81,9 +81,12 @@ Fixture IDs never select constructors, expected results, or special behavior.
 Every fixture names one input path, one expectation path, its operation, a
 non-empty sorted unique `covers` array, and a non-empty sorted unique `trace_ids` array. The trace
 IDs are acceptance-criterion targets derived from the fixture's observed coverage
-tokens using the owned `schemas/conformance-trace-map-v1.json` registry. Every
-inventory token has exactly one registry entry, which may name several relevant
-criteria. The fixture must declare exactly the sorted unique union of those
+tokens and operation using the owned `schemas/conformance-trace-map-v1.json`
+registry. Every inventory token has an owner; each applicable operation/token
+pair has exactly one entry, which may name several relevant criteria. In
+particular, reference-body dependencies do not claim typed-expression criteria,
+and artifact orphan diagnostics do not claim semantic-reference resolution.
+Unmapped operation/token pairs fail. The fixture must declare exactly the sorted unique union of those
 targets; arbitrary, missing, or operation-wide substituted targets fail before
 execution. Results copy the validated targets unchanged. A trace identifies a
 relevant observation, not proof that every conjunct of that criterion passed;
