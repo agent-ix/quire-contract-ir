@@ -2,7 +2,7 @@
 id: SR-011
 title: "Issue 8 type, expression, and definedness specification review"
 type: SpecReview
-analysis: architecture-evaluation
+analysis: gap-analysis
 scope: "FR-013, FR-014, FR-015, STD-001, NFR-002, TM-002, TC-016, TASK-007"
 review_set: subset
 relationships:
