@@ -39,6 +39,7 @@ review on PR 51; this account does not replace them.
 | FND-1412 | high | Initial recovery commit 5e01fbd omitted the tested runner source from staging. Independent exact-commit inspection caught this; b3f8f1b includes it. Acceptance must use the complete followup chain, not the first commit or a dirty-tree test claim. | PR 51 recovery | correct-requirement-no-evidence |
 | FND-1413 | medium | Full exact-module validation found six unsupported authored metadata declarations: policy was not an archetype and five reviews used an undeclared analysis category. The governance document now uses the existing Standard type and a stable code; reviews use spec-correctness. Two interface FRs drop undeclared optional object classifiers. All eight document bodies, IDs, criteria and review findings remain unchanged. No module vocabulary was widened. | NFR-004; canonical specification validation | correct-requirement-no-evidence |
 | FND-1414 | medium | Independent review of c521aaa found spec-correctness is defined by process FR-002 for implementation-against-spec review, not these pre-implementation specification reviews. Followup uses base for SR-009's architecture review and gap-analysis for SR-010 through SR-013's specification findings/dispositions. This corrects FND-1413's initial classification without changing any original review body. | process FR-002; independent metadata review | wrong-requirement |
+| FND-1415 | medium | Banked before repair: seven FR-011 through FR-017 matrix rows spell their status as bare implemented, outside the exact process module's declared emoji-prefix vocabulary. Their cited TC-015/016/017 tests are implemented and execute successfully. Correct only those status cells to the existing declared implemented spelling; do not change planned TC-019, NFR qualification statements, methods, criteria or expectations. | NFR-004-AC-5; functional-coverage | correct-requirement-no-evidence |
 
 ## Verification
 
@@ -95,3 +96,26 @@ statuses are undeclared, fifteen diagnostics and twelve unmatched tags remain,
 including uncatalogued NFR measurement methods. These residual findings are
 retained for separate authored-method/trace review, not suppressed or counted
 as proof. Shared assurance acceptance/release gates remain open.
+
+### Authored coverage-status bank
+
+At recovery `c3b481309b9da51aa1cd82a0a252d24ff14c7683`, the same exact
+CLI/engine and three module roots above report seven undeclared statuses for
+FR-011 through FR-017. Native coverage with `--strict --severity
+coverage:undeclared-status=error` exits 1; no finding is filtered. The existing
+process vocabulary owns `complete: ["✅"]`, and its functional table grammar
+requires an emoji prefix. The adjacent implemented rows already use that form.
+All fourteen native identity, expression and canonicalization tests backing
+TC-015/016/017 pass with locked offline Cargo. The proposed cell-only correction
+recognizes existing evidence; it does not prove complete criterion semantics or
+cross-platform qualification. Remaining NFR-method and source-tag diagnostics
+stay visible and outside this repair.
+
+The seven-cell correction passes the same native error-severity command with
+zero undeclared statuses. Recovery-tree totals remain exactly 96/103 backed and
+77 criteria; all diagnostic and unmatched-tag records are unchanged. These are
+recovery-tree measurements, distinct from the binder's earlier 102/109 and 82
+criteria. Three native Python matrix controls and the real-tree status census
+pass. Independent review accepted the literal vocabulary correction after
+checking mappings, existing tests and unchanged planned/partial qualifications.
+No production code, test expectation, criterion or module declaration changed.
