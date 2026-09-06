@@ -49,6 +49,7 @@ LGPL-3.0-or-later per its README, not the unqualified EPL-2.0 assumption.
 | One package split into many clauses | Aggregate limit unchanged, no per-clause budget multiplication | FR-019 complete-input bound |
 | Nested quantifier product 4096 / 4097 | Eligible / frontend cost refusal, subject to independently checked visit budget | Proposed stricter profile bound; FR-014 finite quantifier |
 | Same semantics with reordered declaration source / semantic field or profile change | Canonical identity stable for order-only change / semantic or derivation identity changes as appropriate | FR-016 canonical bytes; profile provenance |
+| One authored OCL implication lowered to total or/not / zero IR Implication nodes | Source implication-vacuity unavailable/deferred, never a vacuity pass inferred from zero probes | FR-014 operator identity; source/IR/codegen correspondence |
 
 These are proposed oracle obligations, not executable fixtures and not a
 statement that all expected-positive examples already pass the existing IR
@@ -86,3 +87,15 @@ each native language representation before the compiler owner implements it.
 No current release/test-matrix row is promoted by this packet. Direction
 approval and technical fixture success remain separate from human evidence
 sufficiency and release approval under PGM-01.
+
+## Cross-lane review disposition
+
+The coordinator identified that total-or lowering erases the IR Implication
+nodes used by the current codegen vacuity census. ADR-0053 now explicitly
+withholds source-level implication-vacuity claims under that lowering. A later
+source-to-IR/probe correspondence, or independently reviewed preservation of
+IR Implication for pure independently defined operands, needs an independent
+source population and retained source-clause/profile provenance. No semantics
+were changed to obtain probes; source-profile admission still forbids importing
+antecedent guard facts into a partial operand. This review finding is addressed
+as a named qualification gap, not presented as implemented vacuity support.

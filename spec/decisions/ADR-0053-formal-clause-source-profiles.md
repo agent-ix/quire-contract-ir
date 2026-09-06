@@ -228,6 +228,25 @@ in this first subset rather than borrowing a short-circuit proof. Broadening
 to safe conditional equivalence requires a separate reviewed correspondence
 rule and differential fixtures. The same restriction applies inside quantifiers.
 
+**Cross-lane consequence: source implication vacuity is unavailable under this
+initial lowering.** Total `or(not(left), right)` contains no IR Implication
+node, so the current codegen implication census cannot see that authored
+implication. Zero IR implication probes is not evidence of zero source
+implications, a covered source antecedent, or a vacuity-free source clause.
+The frontend/coverage handoff must retain the source clause and profile
+provenance and report source-level implication-vacuity support as
+unavailable/deferred, not pass or silently not-applicable.
+
+Before claiming that support, separately review either an exact source-to-IR
+implication/probe correspondence or preservation of the IR Implication variant
+for pure operands independently proved defined under incoming facts. The latter
+must not gain acceptance by borrowing the IR variant's antecedent guard facts:
+source-profile admission still checks each operand independently. Bank the
+source implication population independently of rendered/generated probes and
+qualify its mapping through clause identity, source spans, profile identity,
+and derived expression identity. Do not alter semantics merely to manufacture
+probes. Neither alternative is selected or implemented by this ADR.
+
 An OCL parser accepting a larger language does not enlarge this subset. Its AST
 must pass an explicit allowlist/type/binding check before any IR is emitted.
 No normative OCL grammar or upstream implementation is copied into this packet.
