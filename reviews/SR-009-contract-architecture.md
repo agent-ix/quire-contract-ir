@@ -2,7 +2,7 @@
 id: SR-009
 title: "Architecture evaluation of the contract IR v0.1 foundation"
 type: SpecReview
-analysis: spec-correctness
+analysis: base
 scope: "AD-001, CAC-001, public interface requirements"
 review_set: subset
 relationships:

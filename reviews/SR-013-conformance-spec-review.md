@@ -2,7 +2,7 @@
 id: SR-013
 title: "Issue 10 schema, corpus, and conformance interface specification review"
 type: SpecReview
-analysis: spec-correctness
+analysis: gap-analysis
 scope: "FR-011 through FR-020, STD-001, NFR-001 through NFR-004, TM-002, TC-018, TASK-009"
 review_set: subset
 relationships:
