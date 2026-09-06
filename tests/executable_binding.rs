@@ -42,7 +42,7 @@ fn decode(value: &Value) -> Result<BoundPackage, Vec<quire_contract_ir::Diagnost
 /// FR-023-AC-1
 /// FR-023-AC-5
 #[test]
-fn tc035_public_consumer_preserves_complete_population() {
+fn tc_035_public_consumer_preserves_complete_population() {
     let value = projection();
     let bound = decode(&value).unwrap();
     // This authored fixture census is independent of the binding array's length.
@@ -88,7 +88,7 @@ fn tc035_public_consumer_preserves_complete_population() {
 /// TC-035
 /// FR-023-AC-2
 #[test]
-fn tc035_refuses_invalid_binding_population_and_context() {
+fn tc_035_refuses_invalid_binding_population_and_context() {
     let original = projection();
     let mut cases = Vec::new();
     let mut missing = original.clone();
@@ -138,7 +138,7 @@ fn tc035_refuses_invalid_binding_population_and_context() {
 /// TC-035
 /// FR-023-AC-3
 #[test]
-fn tc035_identity_is_order_independent_and_semantically_sensitive() {
+fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
     let original = projection();
     let digest = decode(&original).unwrap().digest();
     let mut reordered = original.clone();
@@ -152,7 +152,7 @@ fn tc035_identity_is_order_independent_and_semantically_sensitive() {
 /// FR-023-AC-4
 /// FR-023-AC-5
 #[test]
-fn tc035_strict_wire_boundary() {
+fn tc_035_strict_wire_boundary() {
     let original = projection();
     for pointer in [
         "",
@@ -250,7 +250,7 @@ fn duplicate_member_json(value: &Value, path: &[&str], member: &str) -> String {
 /// FR-023-AC-4
 /// FR-023-AC-5
 #[test]
-fn tc035_recursive_duplicate_members_cannot_be_erased_by_value_decoding() {
+fn tc_035_recursive_duplicate_members_cannot_be_erased_by_value_decoding() {
     let original = minimal_projection(1);
     assert!(decode(&original).is_ok());
     for (path, member) in [
@@ -340,7 +340,7 @@ fn declarations(value: &mut Value, count: usize, option_layers: usize) {
 /// FR-023-AC-2
 /// FR-023-AC-3
 #[test]
-fn tc035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
+fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
     let mut valid = minimal_projection(1);
     declarations(&mut valid, 1, 0);
     let expression = &mut valid["bindings"][0]["expression"];
@@ -385,7 +385,7 @@ fn tc035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
 /// FR-023-AC-1
 /// FR-023-AC-3
 #[test]
-fn tc035_declaration_semantics_change_identity_without_changing_expression() {
+fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
     let mut original = minimal_projection(1);
     declarations(&mut original, 1, 0);
     let before = decode(&original).unwrap();
@@ -406,7 +406,7 @@ fn tc035_declaration_semantics_change_identity_without_changing_expression() {
 /// TC-035
 /// FR-023-AC-3
 #[test]
-fn tc035_bound_digest_matches_an_independently_written_canonical_envelope() {
+fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
     use quire_contract_ir::CanonicalProfile;
     let bound = decode(&projection()).unwrap();
     let quote = |text: &str| serde_json::to_string(text).unwrap();
@@ -470,7 +470,7 @@ fn tc035_bound_digest_matches_an_independently_written_canonical_envelope() {
 /// FR-023-AC-1
 /// FR-023-AC-2
 #[test]
-fn tc035_informational_and_empty_packages_do_not_invent_executable_clauses() {
+fn tc_035_informational_and_empty_packages_do_not_invent_executable_clauses() {
     let mut information = projection();
     information["bindings"] = json!([]);
     information["package"]["requirements"][0]["clauses"]
@@ -497,7 +497,7 @@ fn tc035_informational_and_empty_packages_do_not_invent_executable_clauses() {
 /// TC-035
 /// FR-023-AC-4
 #[test]
-fn tc035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
+fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
     // Each declaration contributes a declaration and its Boolean type; each
     // expression adds its expected type and literal node. These populations
     // are authored independently of the binder's internal counter.
@@ -530,7 +530,7 @@ fn tc035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
 /// TC-035
 /// FR-023-AC-4
 #[test]
-fn tc035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() {
+fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() {
     for (leaves, accepted) in [(5000, true), (5001, false)] {
         let mut value = minimal_projection(1);
         let literal = value["bindings"][0]["expression"]["expression"].clone();
@@ -569,7 +569,7 @@ fn tc035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() {
 /// TC-035
 /// FR-023-AC-5
 #[test]
-fn tc035_normative_schema_is_checked_independently_of_binder() {
+fn tc_035_normative_schema_is_checked_independently_of_binder() {
     let schema: Value = serde_json::from_str(include_str!(
         "../schemas/contract-executable-projection-v1.schema.json"
     ))
@@ -623,7 +623,7 @@ fn tc035_normative_schema_is_checked_independently_of_binder() {
 /// TC-035
 /// FR-023-AC-4
 #[test]
-fn tc035_depth_limits_do_not_abort_the_process() {
+fn tc_035_depth_limits_do_not_abort_the_process() {
     const CHILD: &str = "QUIRE_BINDING_DEPTH_CONTROL";
     if let Ok(control) = std::env::var(CHILD) {
         if control.starts_with("wire:") {
@@ -691,7 +691,7 @@ fn tc035_depth_limits_do_not_abort_the_process() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "tc035_depth_limits_do_not_abort_the_process",
+                "tc_035_depth_limits_do_not_abort_the_process",
                 "--nocapture",
             ])
             .env(CHILD, control)
