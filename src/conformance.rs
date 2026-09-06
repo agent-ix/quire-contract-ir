@@ -1124,6 +1124,44 @@ pub fn hex_digest(bytes: &[u8]) -> String {
     output
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TraceGroup {
+    covers: Vec<String>,
+    trace_ids: Vec<String>,
+}
+
+fn trace_registry() -> Result<BTreeMap<String, Vec<String>>, RunnerError> {
+    let invalid = || {
+        RunnerError::new(
+            RunnerErrorCode::InvalidManifest,
+            "trace_registry",
+            "the built-in coverage-to-criterion registry is invalid",
+        )
+    };
+    let groups: Vec<TraceGroup> =
+        serde_json::from_str(include_str!("../schemas/conformance-trace-map-v1.json"))
+            .map_err(|_| invalid())?;
+    let mut registry = BTreeMap::new();
+    for group in groups {
+        if group.covers.is_empty()
+            || group.trace_ids.is_empty()
+            || group.trace_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(invalid());
+        }
+        for cover in group.covers {
+            if registry.insert(cover, group.trace_ids.clone()).is_some() {
+                return Err(invalid());
+            }
+        }
+    }
+    if registry.keys().cloned().collect::<Vec<_>>() != expected_inventory() {
+        return Err(invalid());
+    }
+    Ok(registry)
+}
+
 fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), RunnerError> {
     if inventory != expected_inventory() {
         return Err(RunnerError::new(
@@ -1132,6 +1170,7 @@ fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), R
             "inventory differs from public registries",
         ));
     }
+    let trace_registry = trace_registry()?;
     let mut seen_ids = HashSet::new();
     let mut covered = BTreeSet::new();
     for fixture in &manifest.fixtures {
@@ -1156,6 +1195,22 @@ fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), R
                 RunnerErrorCode::InvalidManifest,
                 "fixtures.trace_ids",
                 "trace IDs must be non-empty, sorted, and unique",
+            ));
+        }
+        let expected_traces = fixture
+            .covers
+            .iter()
+            .filter_map(|token| trace_registry.get(token))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if fixture.trace_ids != expected_traces {
+            return Err(RunnerError::new(
+                RunnerErrorCode::InvalidManifest,
+                format!("fixtures.{}.trace_ids", fixture.id),
+                "trace IDs differ from coverage-token criterion owners",
             ));
         }
         covered.extend(fixture.covers.iter().cloned());
