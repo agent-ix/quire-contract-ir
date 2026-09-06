@@ -14,7 +14,7 @@ relationships:
 
 # REV-014: PR 51 campaign recovery
 
-## Scope
+## Summary
 
 This is the implementing coordinator's measured account, not an independent
 review or a human release decision. Base: `9b9102c3806e9cda0ed70312f4f6c23a211f6fbf`.
@@ -23,7 +23,7 @@ review on PR 51; this account does not replace them.
 
 ## Findings
 
-| ID | Severity | Disposition | Refs | Escape Cause |
+| ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
 | FND-1401 | high | Implemented native Make scheduling/failure controls across every declared lane, with omitted-dependency, global ignore, recipe-prefix and swallowed-exit mutations. Doubles test orchestration only, never domain verdicts. | IR51-01; NFR-004-AC-6 | correct-requirement-no-evidence |
 | FND-1402 | high | Open integration prerequisite: the installed Quire strict gate exits zero despite structured status-column/denominator findings. Corrected authored functional matrix headers; CLI owner must implement and test strict policy. No console-parsing workaround. | IR51-02; quire-cli FR-017 | correct-requirement-no-evidence |
