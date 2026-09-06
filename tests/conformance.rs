@@ -106,6 +106,41 @@ fn error_code(output: &Output) -> String {
     error["code"].as_str().unwrap().to_owned()
 }
 
+/// TC-018. FR-018-AC-1.
+#[test]
+fn tc_018_normative_manifest_schema_rejects_shape_mutations() {
+    let schema =
+        read_json(&repository().join("schemas/contract-conformance-manifest-v1.schema.json"));
+    let validator = JSONSchema::options()
+        .with_draft(Draft::Draft7)
+        .compile(&schema)
+        .unwrap();
+    let baseline = read_json(&corpus().join("manifest.json"));
+    assert!(validator.is_valid(&baseline));
+    let mut mutations = Vec::new();
+    let mut missing = baseline.clone();
+    missing.as_object_mut().unwrap().remove("fixtures");
+    mutations.push(missing);
+    let mut empty = baseline.clone();
+    empty["fixtures"] = json!([]);
+    mutations.push(empty);
+    let mut unknown = baseline.clone();
+    unknown["unknown"] = json!(true);
+    mutations.push(unknown);
+    let mut operation = baseline.clone();
+    operation["fixtures"][0]["operation"] = json!("unknown");
+    mutations.push(operation);
+    let mut digest = baseline.clone();
+    digest["fixtures"][0]["input_sha256"] = json!("not-a-digest");
+    mutations.push(digest);
+    let mut trace = baseline;
+    trace["fixtures"][0]["trace_ids"] = json!([]);
+    mutations.push(trace);
+    for mutation in mutations {
+        assert!(!validator.is_valid(&mutation), "schema accepted {mutation}");
+    }
+}
+
 /// Tracing: TC-018, FR-018-AC-1, FR-018-AC-3, FR-019-AC-1, FR-020-AC-1.
 /// TC-019.
 /// FR-018-AC-1.
@@ -216,9 +251,30 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
         .flat_map(|fixture| fixture["trace_ids"].as_array().unwrap())
         .map(|value| value.as_str().unwrap())
         .collect::<BTreeSet<_>>();
+    let trace_map = read_json(&root.join("schemas/conformance-trace-map-v1.json"));
+    let mapped_ids = trace_map
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| group["trace_ids"].as_array().unwrap())
+        .map(|value| value.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(trace_ids, mapped_ids);
+    let requirements = fs::read_dir(root.join("spec/contract"))
+        .unwrap()
+        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for target in &trace_ids {
+        assert!(
+            requirements.contains(&format!("| {target} |")),
+            "registry target {target} must name an authored acceptance criterion"
+        );
+    }
+    let find_fixture = |id: &str| fixtures.iter().find(|fixture| fixture["id"] == id).unwrap();
     assert_eq!(
-        trace_ids,
-        BTreeSet::from(["TC-015", "TC-016", "TC-017", "TC-018"])
+        find_fixture("package-invalid-namespace")["trace_ids"],
+        json!(["FR-011-AC-3", "FR-018-AC-1"])
     );
 
     let package_schema_value =
@@ -547,6 +603,30 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     let controls = Scratch::corpus();
     let baseline = read_json(&controls.manifest());
 
+    // A valid criterion identifier still cannot be attached to an unrelated fixture.
+    for targets in [
+        json!(["FR-016-AC-2"]),
+        json!(["FR-018-AC-1"]),
+        json!(["FR-011-AC-3", "FR-016-AC-2", "FR-018-AC-1"]),
+    ] {
+        let mut manifest = baseline.clone();
+        let fixture = manifest["fixtures"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|fixture| fixture["id"] == "package-invalid-namespace")
+            .unwrap();
+        fixture["trace_ids"] = targets;
+        write_json(&controls.manifest(), &manifest);
+        let output = run_manifest(&controls.manifest());
+        assert_eq!(error_code(&output), "invalid_manifest");
+        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(
+            error["path"],
+            "fixtures.package-invalid-namespace.trace_ids"
+        );
+    }
+
     let mut manifest = baseline.clone();
     manifest["fixtures"][1]["id"] = manifest["fixtures"][0]["id"].clone();
     write_json(&controls.manifest(), &manifest);
@@ -845,6 +925,26 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
         over_collection[0].code,
         DiagnosticCode::SemanticInputTooLarge
     );
+}
+
+/// TC-018. FR-018-AC-3.
+#[test]
+fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
+    // Independent authored counts, not the producer's scanner or depth constant.
+    // The object contributes one level; its escaped string contributes none.
+    let quoted =
+        serde_json::to_string(&format!("\\\"{}{}", "[".repeat(600), "}".repeat(600))).unwrap();
+    for (arrays, expected_path) in [(575, "document"), (576, "document.nesting")] {
+        let document = format!(
+            "{}{{\"text\":{quoted}}}{}",
+            "[".repeat(arrays),
+            "]".repeat(arrays)
+        );
+        let diagnostics =
+            ContractPackage::from_json_str(&document, ValidationOptions::strict()).unwrap_err();
+        assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat);
+        assert_eq!(diagnostics[0].path, expected_path);
+    }
 }
 
 fn walk_files(root: &Path) -> Vec<PathBuf> {

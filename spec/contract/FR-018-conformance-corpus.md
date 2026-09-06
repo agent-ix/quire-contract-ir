@@ -42,6 +42,8 @@ The conformance schema exposes the named subschemas `#/definitions/manifest`,
 corresponding `*Expectation` subschema for each operation. The runner selects
 the input and expectation subschemas from the declared operation before any
 semantic conversion; every object forbids unknown fields.
+The published schema root is exercised against the actual manifest and negative
+manifest mutations, independently of the runner's typed decoding.
 
 The manifest declares corpus identity, exact package-schema path and digest,
 exact conformance-schema path and digest, exact inventory path and digest,
@@ -78,9 +80,15 @@ Fixture IDs never select constructors, expected results, or special behavior.
 
 Every fixture names one input path, one expectation path, its operation, a
 non-empty sorted unique `covers` array, and a non-empty sorted unique `trace_ids` array. The trace
-ids select TC-015 through TC-018 according to the fixture operation and are copied unchanged into
-the structured result. Quire, rather than this manifest, owns the Test Case-to-acceptance-criterion
-relationships. Coverage tokens are the closed forms
+IDs are acceptance-criterion targets derived from the fixture's observed coverage
+tokens using the owned `schemas/conformance-trace-map-v1.json` registry. Every
+inventory token has exactly one registry entry, which may name several relevant
+criteria. The fixture must declare exactly the sorted unique union of those
+targets; arbitrary, missing, or operation-wide substituted targets fail before
+execution. Results copy the validated targets unchanged. A trace identifies a
+relevant observation, not proof that every conjunct of that criterion passed;
+Quire owns criterion identity and static relationships, and the wider test suite
+still owns criteria not exercised by this corpus. Coverage tokens are the closed forms
 `construct:<registered-tag>`, `diagnostic:<STD-001-code>`,
 `obligation:<DefinednessObligationKind>`, `boundary:<registered-boundary>`, and
 `operation:<operation>`. The repository
@@ -104,7 +112,8 @@ Coverage claims are observations, not trusted fixture declarations.
 `operation:` is observed only by selecting that declared operation;
 `diagnostic:` and `obligation:` are observed only in the actual structured
 diagnostic result; and `construct:` requires semantic success plus the named
-wire/result construct. A valid minimum, maximum, normalization, revision,
+wire/result construct. Except for the deliberately shape-invalid wire-depth
+probes specified below, a valid minimum, maximum, normalization, revision,
 schema, canonical-order, or depth boundary requires semantic success and its
 exact structural predicate. An invalid boundary requires both its exact
 structural predicate and the owning actual diagnostic. Artifact boundaries are

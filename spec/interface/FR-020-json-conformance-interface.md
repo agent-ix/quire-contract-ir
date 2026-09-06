@@ -45,7 +45,7 @@ canonicalization profile identities.
 
 ## Outputs
 
-JSON Lines results containing fixture ID, manifest-declared Test Case trace IDs, validity, ordered
+JSON Lines results containing fixture ID, manifest-declared and coverage-validated criterion trace IDs, validity, ordered
 diagnostics, canonical digest, dependency identities, tool identity, and exit classification.
 
 ## Behavior

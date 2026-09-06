@@ -30,7 +30,7 @@ help:
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
 	@echo "  make unit             - Run the Python test suite"
-	@echo "  make corpus           - Run and census the published conformance corpus"
+	@echo "  make corpus           - Run the native published conformance corpus"
 	@echo "  make check-corpus     - Alias for corpus (ecosystem-compatible name)"
 	@echo "  make corpus-repro     - Regenerate the corpus in scratch space and compare bytes"
 	@echo "  make spec             - Validate and cover all Quire artifacts"
@@ -164,7 +164,7 @@ assurance-record: assurance-inputs
 		--commit $(REVISION) \
 		--tool "quire-contract-conformance $(shell $(CARGO) run --quiet --bin quire-contract-conformance -- --version | cut -d' ' -f2)" \
 		--adapter contract-conformance \
-		--kind Conformance \
+		--kind Integration \
 		--results $(CONFORMANCE_RESULT)
 
 # =============================================================================
