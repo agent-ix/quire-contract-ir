@@ -593,6 +593,18 @@ fn canonicalize(
     })
 }
 
+/// Serialize a separately versioned envelope without assigning an existing
+/// canonical kind. Key order must not depend on downstream serde_json features.
+pub(crate) fn canonical_envelope_bytes(
+    value: &Value,
+    maximum_bytes: u64,
+    path: &str,
+) -> Result<Vec<u8>, Diagnostic> {
+    let mut writer = CanonicalWriter::new(maximum_bytes, path, None);
+    writer.write_value(value)?;
+    Ok(writer.finish())
+}
+
 fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
