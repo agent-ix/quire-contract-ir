@@ -36,6 +36,7 @@ fn tc_014_baseline_is_dual_licensed_manual_only_and_unpublished() {
 /// Tracing: TC-020
 /// TC-020.
 /// Implements: StR-003.
+/// StR-003-VC-2.
 /// Implements: NFR-004.
 /// NFR-004-AC-2.
 #[test]

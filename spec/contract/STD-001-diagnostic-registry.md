@@ -28,7 +28,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | Code | Condition | Required location |
 |---|---|---|
 | `invalid_package_namespace` | Empty or malformed package namespace | package identity path |
-| `invalid_wire_format` | JSON syntax, closed wire shape, or the 576-level wire-nesting limit prevents decoding | document path |
+| `invalid_wire_format` | JSON syntax or closed wire shape prevents decoding, or the 576-level wire-nesting limit is exceeded | document path; `document.nesting` identifies pre-decode depth refusal |
 | `invalid_schema_version` | Zero schema major; schema minor zero is valid | schema-version path |
 | `invalid_identifier` | Empty or malformed source-document, requirement, clause, anchor, or dependency-path-segment identifier | offending identity path |
 | `invalid_requirement_revision` | Zero or non-increasing requirement revision | requirement revision path |

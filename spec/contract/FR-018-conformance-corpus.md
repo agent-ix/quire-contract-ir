@@ -42,6 +42,8 @@ The conformance schema exposes the named subschemas `#/definitions/manifest`,
 corresponding `*Expectation` subschema for each operation. The runner selects
 the input and expectation subschemas from the declared operation before any
 semantic conversion; every object forbids unknown fields.
+The published schema root is exercised against the actual manifest and negative
+manifest mutations, independently of the runner's typed decoding.
 
 The manifest declares corpus identity, exact package-schema path and digest,
 exact conformance-schema path and digest, exact inventory path and digest,
@@ -76,8 +78,20 @@ collection, record, and quantifier variant. It is an unvalidated wire model;
 conversion invokes the same public constructors and checker as the Rust API.
 Fixture IDs never select constructors, expected results, or special behavior.
 
-Every fixture names one input path, one expectation path, its operation, and a
-non-empty sorted unique `covers` array. Coverage tokens are the closed forms
+Every fixture names one input path, one expectation path, its operation, a
+non-empty sorted unique `covers` array, and a non-empty sorted unique `trace_ids` array. The trace
+IDs are acceptance-criterion targets derived from the fixture's observed coverage
+tokens and operation using the owned `schemas/conformance-trace-map-v1.json`
+registry. Every inventory token has an owner; each applicable operation/token
+pair has exactly one entry, which may name several relevant criteria. In
+particular, reference-body dependencies do not claim typed-expression criteria,
+and artifact orphan diagnostics do not claim semantic-reference resolution.
+Unmapped operation/token pairs fail. The fixture must declare exactly the sorted unique union of those
+targets; arbitrary, missing, or operation-wide substituted targets fail before
+execution. Results copy the validated targets unchanged. A trace identifies a
+relevant observation, not proof that every conjunct of that criterion passed;
+Quire owns criterion identity and static relationships, and the wider test suite
+still owns criteria not exercised by this corpus. Coverage tokens are the closed forms
 `construct:<registered-tag>`, `diagnostic:<STD-001-code>`,
 `obligation:<DefinednessObligationKind>`, `boundary:<registered-boundary>`, and
 `operation:<operation>`. The repository
@@ -101,7 +115,8 @@ Coverage claims are observations, not trusted fixture declarations.
 `operation:` is observed only by selecting that declared operation;
 `diagnostic:` and `obligation:` are observed only in the actual structured
 diagnostic result; and `construct:` requires semantic success plus the named
-wire/result construct. A valid minimum, maximum, normalization, revision,
+wire/result construct. Except for the deliberately shape-invalid wire-depth
+probes specified below, a valid minimum, maximum, normalization, revision,
 schema, canonical-order, or depth boundary requires semantic success and its
 exact structural predicate. An invalid boundary requires both its exact
 structural predicate and the owning actual diagnostic. Artifact boundaries are
@@ -128,7 +143,11 @@ The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `artifact.stale`, `artifact.duplicate`, and `artifact.digest_mismatch`.
 The decoder registry also includes `wire.depth.maximum` and
 `wire.depth.over_maximum`; raw-text package probes exercise exactly 576 and 577
-levels without requiring the manifest decoder to materialize the nested value.
+levels without requiring the manifest decoder to materialize the nested value. The at-limit probe
+must reach ordinary package-shape decoding at `document`; the over-limit probe must be rejected by
+the pre-decode nesting guard at `document.nesting`. This distinction keeps the wire-depth cliff
+observable even though both deliberately shape-invalid probe documents share the
+`invalid_wire_format` code.
 
 Expectations contain only fields meaningful for their operation. Valid results
 carry no diagnostics; invalid results carry the exact authored-order diagnostic
@@ -157,7 +176,7 @@ determinism for this implementation, not independent semantic correctness.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-018-AC-1 | The manifest-schema, exact inventory equality, and positive/negative fixtures prove every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; duplicate, unknown, unsafe-path, oversize, profile/digest-drift, and one-past-limit manifests fail before execution. | Test (TC-018) |
+| FR-018-AC-1 | The manifest-schema, exact inventory equality, non-empty trace targets, and positive/negative fixtures prove every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; duplicate, unknown, unsafe-path, oversize, profile/digest-drift, and one-past-limit manifests fail before execution. | Test (TC-018) |
 | FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
 | FR-018-AC-3 | Per-family observation rules reject every unobserved claim, cross-domain artifact claim, stale fixture/canonical digest, aggregate-byte overflow, and disabled corpus lane; raw package probes pin unknown-member rejection and exact/one-past wire depth; the portable generator reproduces the complete checked-in corpus byte-for-byte in scratch space. | Test (TC-018) |
 

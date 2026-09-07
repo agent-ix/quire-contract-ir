@@ -117,6 +117,8 @@ fn diagnostic_code<T: std::fmt::Debug>(
 
 /// Tracing: TC-015
 /// TC-015.
+/// StR-001-VC-1.
+/// StR-001-VC-2.
 /// FR-011-AC-1.
 /// FR-011-AC-2.
 /// FR-011-AC-3.

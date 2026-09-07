@@ -74,6 +74,8 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
 }
 
 /// Tracing: TC-017.
+/// StR-001-VC-2.
+/// StR-002-VC-1.
 /// FR-016-AC-1.
 /// FR-016-AC-2.
 /// FR-016-AC-3.
@@ -217,6 +219,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
 }
 
 /// Tracing: TC-017.
+/// StR-002-VC-2.
 /// FR-016-AC-1.
 #[test]
 fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {

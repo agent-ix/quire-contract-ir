@@ -1,4 +1,9 @@
-name: CI
+# Manual subset only: format, lint, test and licenses/unsafe checks.
+# Not equivalent to local make release-check: spec, corpus/reproduction, MSRV
+# and the complete pinned shared-assurance qualification are not hosted here.
+# The test target also needs externally provisioned Quire/Quoin/shared pins;
+# this workflow does not presently provision that complete toolchain.
+name: Manual Rust subset (not release qualification)
 
 on:
   workflow_dispatch:

@@ -56,6 +56,8 @@ producer.
 - A sealed attestation binds one already-produced result file to the reviewed
   record, the candidate revision, and the declared result; the retained output
   digest and size are the only fields derived from those bytes.
+  Attestation and receipt construction before record sealing raises an explicit
+  chain error before invoking Quoin, including with Python optimization enabled.
 - A verification receipt is assembled only from explicitly named inputs. An
   unattested proof, an absent human decision, and a stale candidate binding stay
   their own outcomes and are never resolved into a pass.

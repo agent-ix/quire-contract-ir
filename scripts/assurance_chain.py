@@ -207,7 +207,8 @@ class Chain:
         tool_version: str,
         revision: str | None = None,
     ) -> tuple[int, dict[str, Any] | None, str]:
-        assert self.record_digest is not None, "seal the record before an attestation"
+        if self.record_digest is None:
+            raise ChainError("seal the record before an attestation")
         body = attestation_body(
             attestation_id=attestation_id,
             record_digest=self.record_digest,
@@ -254,7 +255,8 @@ class Chain:
     def receipt(
         self, selections: dict[str, str], decisions: Path, audits: Path | None = None
     ) -> tuple[int, dict[str, Any] | None, str]:
-        assert self.record_digest is not None
+        if self.record_digest is None:
+            raise ChainError("seal the record before a receipt")
         arguments = [
             "change-assurance",
             "receipt",

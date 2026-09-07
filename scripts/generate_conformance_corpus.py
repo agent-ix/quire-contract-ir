@@ -22,6 +22,18 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "corpus" / "contract-v0.1"
 
+def trace_ids(operation: str, covers: list[str]) -> list[str]:
+    groups = json.loads((ROOT / "schemas/conformance-trace-map-v1.json").read_text())
+    registry = {}
+    for group in groups:
+        for context in group.get("operations", ["package", "expression", "migration", "coverage"]):
+            for token in group["covers"]:
+                key = (context, token)
+                if key in registry:
+                    raise ValueError(f"duplicate trace-map key: {key}")
+                registry[key] = group["trace_ids"]
+    return sorted({target for token in covers for target in registry[(operation, token)]})
+
 
 def default_runner() -> pathlib.Path:
     target = pathlib.Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
@@ -485,6 +497,7 @@ def generate(corpus: pathlib.Path, runner: pathlib.Path, update_root_sidecars: b
             "expectation": f"expectations/{case['id']}.json",
             "expectation_sha256": digest(expectation_path),
             "covers": case["covers"],
+            "trace_ids": trace_ids(case["operation"], case["covers"]),
         })
 
     inventory = json.loads((corpus / "inventory.json").read_text())
