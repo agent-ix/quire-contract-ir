@@ -21,7 +21,7 @@ make build          # release build
 make clean          # cargo clean and drop the assurance workspace
 make deny           # cargo deny check licenses
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
-make ci             # fmt-check + lint + test + corpus + corpus-repro + deny + audit-unsafe + assurance
+make ci             # all local release gates, including spec, MSRV, and shared assurance
 ```
 
 The test target requires the Python declared by `.python-version`.

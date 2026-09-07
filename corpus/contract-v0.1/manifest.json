@@ -6,7 +6,7 @@
   },
   "conformance_schema": {
     "path": "schemas/contract-conformance-manifest-v1.schema.json",
-    "sha256": "63fe642ebe7e7f49acf59094a8edaa488b96b13806886f0af2779629900bdb75"
+    "sha256": "bf420bb8a2fb0f4650b258119e20f0dd97257ec5dc4dc65187833c66331e5cba"
   },
   "inventory": {
     "path": "inventory.json",
@@ -37,6 +37,14 @@
         "construct:reference_body.composite",
         "construct:reference_body.literal",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-1",
+        "FR-012-AC-2",
+        "FR-012-AC-4",
+        "FR-012-AC-6",
+        "FR-016-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -50,6 +58,10 @@
         "construct:dependency.kind.input",
         "construct:reference_body.reference",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -62,6 +74,10 @@
       "covers": [
         "diagnostic:invalid_package_namespace",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -75,6 +91,10 @@
         "boundary:schema.zero_major",
         "diagnostic:invalid_schema_version",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -87,6 +107,10 @@
       "covers": [
         "diagnostic:invalid_identifier",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -99,6 +123,10 @@
       "covers": [
         "diagnostic:invalid_requirement_revision",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -111,6 +139,10 @@
       "covers": [
         "diagnostic:invalid_source_revision",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -124,6 +156,10 @@
         "boundary:source_span.reversed",
         "diagnostic:invalid_source_span",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -136,6 +172,10 @@
       "covers": [
         "diagnostic:duplicate_requirement",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -148,6 +188,10 @@
       "covers": [
         "diagnostic:duplicate_clause",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-011-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -160,6 +204,11 @@
       "covers": [
         "diagnostic:floating_executable_clause",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-1",
+        "FR-012-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -172,6 +221,10 @@
       "covers": [
         "diagnostic:informational_clause_anchored",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -184,6 +237,10 @@
       "covers": [
         "diagnostic:incompatible_clause_anchor",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -196,6 +253,10 @@
       "covers": [
         "diagnostic:cross_package_reference",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -208,6 +269,10 @@
       "covers": [
         "diagnostic:malformed_reference",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -221,6 +286,10 @@
         "boundary:revision.stale",
         "diagnostic:stale_requirement_revision",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -233,6 +302,10 @@
       "covers": [
         "diagnostic:orphaned_requirement_reference",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -245,6 +318,10 @@
       "covers": [
         "diagnostic:orphaned_clause_reference",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-012-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -258,6 +335,10 @@
         "boundary:canonical.resource_failure",
         "diagnostic:canonicalization_resource_exhausted",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-016-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -270,6 +351,9 @@
       "covers": [
         "diagnostic:invalid_wire_format",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-018-AC-1"
       ]
     },
     {
@@ -283,6 +367,10 @@
         "boundary:wire.depth.maximum",
         "diagnostic:invalid_wire_format",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-018-AC-1",
+        "FR-018-AC-3"
       ]
     },
     {
@@ -291,11 +379,15 @@
       "input": "inputs/package-wire-depth-over.json",
       "input_sha256": "5d752edac0835f8030891df9ac498084f97ef077e22842d47715d53ab3297cf5",
       "expectation": "expectations/package-wire-depth-over.json",
-      "expectation_sha256": "955a3676d127e08cb908506e942f76a56bc5d734d2b01f84a239cd2ef96e48a0",
+      "expectation_sha256": "eefa3a792a42d216231530a2bc6d09a8a64bc218f577ed65c8d4e1024486eabe",
       "covers": [
         "boundary:wire.depth.over_maximum",
         "diagnostic:invalid_wire_format",
         "operation:package"
+      ],
+      "trace_ids": [
+        "FR-018-AC-1",
+        "FR-018-AC-3"
       ]
     },
     {
@@ -315,6 +407,12 @@
         "construct:expression.boolean_literal",
         "construct:type.boolean",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-3",
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -328,6 +426,11 @@
         "construct:expression.integer_literal",
         "construct:type.integer",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -342,6 +445,11 @@
         "construct:expression.rational_literal",
         "construct:type.rational",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -356,6 +464,12 @@
         "construct:expression.text_literal",
         "construct:type.text",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-016-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -370,6 +484,13 @@
         "construct:expression.enum_literal",
         "construct:type.enum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-012-AC-5",
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-014-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -383,6 +504,11 @@
         "construct:expression.option_none",
         "construct:type.option",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -395,6 +521,10 @@
       "covers": [
         "construct:expression.option_some",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -409,6 +539,13 @@
         "construct:expression.record_literal",
         "construct:type.record",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-012-AC-5",
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-014-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -422,6 +559,11 @@
         "construct:expression.collection_literal",
         "construct:type.collection",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -435,6 +577,12 @@
         "construct:dependency.kind.input",
         "construct:expression.value_reference",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-012-AC-5",
+        "FR-014-AC-4",
+        "FR-014-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -447,6 +595,11 @@
       "covers": [
         "construct:dependency.kind.state",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-012-AC-5",
+        "FR-014-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -459,6 +612,10 @@
       "covers": [
         "construct:expression.field_access",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -471,6 +628,10 @@
       "covers": [
         "construct:expression.is_present",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -483,6 +644,10 @@
       "covers": [
         "construct:expression.unwrap",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -495,6 +660,10 @@
       "covers": [
         "construct:expression.length",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -507,6 +676,10 @@
       "covers": [
         "construct:expression.index",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -520,6 +693,12 @@
         "construct:dependency.kind.pure_function",
         "construct:expression.call",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-012-AC-5",
+        "FR-014-AC-4",
+        "FR-014-AC-6",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -532,6 +711,10 @@
       "covers": [
         "construct:expression.numeric",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -544,6 +727,10 @@
       "covers": [
         "construct:expression.numeric_negate",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -556,6 +743,10 @@
       "covers": [
         "construct:expression.compare",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -568,6 +759,10 @@
       "covers": [
         "construct:expression.boolean_not",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -580,6 +775,10 @@
       "covers": [
         "construct:expression.boolean",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -593,6 +792,10 @@
         "construct:expression.local_reference",
         "construct:expression.quantifier",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-4",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -605,6 +808,10 @@
       "covers": [
         "construct:execution.post",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -617,6 +824,10 @@
       "covers": [
         "construct:execution.initialization",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -629,6 +840,10 @@
       "covers": [
         "construct:execution.handler",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -641,6 +856,9 @@
       "covers": [
         "diagnostic:invalid_wire_format",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-018-AC-1"
       ]
     },
     {
@@ -653,6 +871,10 @@
       "covers": [
         "diagnostic:orphaned_value_reference",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -665,6 +887,10 @@
       "covers": [
         "diagnostic:orphaned_function_reference",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -677,6 +903,10 @@
       "covers": [
         "diagnostic:invalid_state_observation",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -689,6 +919,10 @@
       "covers": [
         "diagnostic:invalid_scope",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -701,6 +935,10 @@
       "covers": [
         "diagnostic:arity_mismatch",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -713,6 +951,10 @@
       "covers": [
         "diagnostic:ill_typed_expression",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -725,6 +967,10 @@
       "covers": [
         "diagnostic:result_type_mismatch",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -737,6 +983,10 @@
       "covers": [
         "diagnostic:non_boolean_clause_root",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -749,6 +999,10 @@
       "covers": [
         "diagnostic:collection_bound_exceeded",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -761,6 +1015,10 @@
       "covers": [
         "diagnostic:orphaned_type_reference",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -773,6 +1031,10 @@
       "covers": [
         "diagnostic:duplicate_type_declaration",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -785,6 +1047,10 @@
       "covers": [
         "diagnostic:duplicate_value_declaration",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -797,6 +1063,10 @@
       "covers": [
         "diagnostic:duplicate_function_declaration",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -809,6 +1079,10 @@
       "covers": [
         "diagnostic:duplicate_field",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -821,6 +1095,10 @@
       "covers": [
         "diagnostic:duplicate_variant",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -833,6 +1111,10 @@
       "covers": [
         "diagnostic:duplicate_parameter",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -845,6 +1127,10 @@
       "covers": [
         "diagnostic:empty_enum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -858,6 +1144,11 @@
         "boundary:integer.out_of_range",
         "diagnostic:invalid_numeric_bounds",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -871,6 +1162,11 @@
         "boundary:collection.minimum",
         "diagnostic:unbounded_collection",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -883,6 +1179,10 @@
       "covers": [
         "diagnostic:recursive_type",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -896,6 +1196,10 @@
         "diagnostic:potentially_undefined",
         "obligation:non_zero_divisor",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-015-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -909,6 +1213,10 @@
         "diagnostic:potentially_undefined",
         "obligation:option_presence",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-015-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -922,6 +1230,10 @@
         "diagnostic:potentially_undefined",
         "obligation:index_in_bounds",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-015-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -935,6 +1247,10 @@
         "diagnostic:potentially_undefined",
         "obligation:checked_range",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-015-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -950,6 +1266,11 @@
         "boundary:integer.minimum",
         "boundary:rational.maximum_denominator",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -963,6 +1284,11 @@
         "boundary:rational.zero_denominator",
         "diagnostic:invalid_numeric_bounds",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -976,6 +1302,10 @@
         "boundary:collection.declared_out_of_range",
         "diagnostic:invalid_numeric_bounds",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -988,6 +1318,10 @@
       "covers": [
         "boundary:text.maximum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1001,6 +1335,10 @@
         "boundary:text.over_maximum",
         "diagnostic:text_bound_exceeded",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1013,6 +1351,10 @@
       "covers": [
         "boundary:expression.nodes.maximum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1026,6 +1368,10 @@
         "boundary:expression.nodes.over_maximum",
         "diagnostic:expression_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1038,6 +1384,10 @@
       "covers": [
         "boundary:type.depth.maximum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1051,6 +1401,10 @@
         "boundary:type.depth.over_maximum",
         "diagnostic:semantic_input_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1064,6 +1418,10 @@
         "boundary:type.depth.over_maximum",
         "diagnostic:semantic_input_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1076,6 +1434,10 @@
       "covers": [
         "boundary:expression.depth.maximum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-014-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1089,6 +1451,11 @@
         "boundary:expression.depth.over_maximum",
         "diagnostic:semantic_input_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-014-AC-5",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1103,6 +1470,11 @@
         "boundary:semantic.nodes.maximum",
         "boundary:semantic_collection.maximum",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1116,6 +1488,10 @@
         "boundary:semantic.nodes.over_maximum",
         "diagnostic:semantic_input_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1130,6 +1506,11 @@
         "boundary:semantic_collection.over_maximum",
         "diagnostic:semantic_input_too_large",
         "operation:expression"
+      ],
+      "trace_ids": [
+        "FR-013-AC-1",
+        "FR-013-AC-3",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1143,6 +1524,11 @@
         "boundary:schema.1_0",
         "construct:migration.reference_body_1_0_to_1_1",
         "operation:migration"
+      ],
+      "trace_ids": [
+        "FR-011-AC-1",
+        "FR-017-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1156,6 +1542,10 @@
         "boundary:schema.unregistered_minor",
         "diagnostic:unregistered_migration",
         "operation:migration"
+      ],
+      "trace_ids": [
+        "FR-017-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1169,6 +1559,10 @@
         "boundary:schema.unknown_major",
         "diagnostic:unsupported_schema_version",
         "operation:migration"
+      ],
+      "trace_ids": [
+        "FR-017-AC-1",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1182,6 +1576,10 @@
         "construct:artifact.depth.shallow",
         "construct:coverage.class.shallow",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1195,6 +1593,10 @@
         "construct:artifact.depth.deep",
         "construct:coverage.class.deep",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1207,6 +1609,10 @@
       "covers": [
         "construct:coverage.class.uncovered",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1221,6 +1627,10 @@
         "construct:coverage.class.orphaned",
         "diagnostic:cross_package_reference",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1234,6 +1644,10 @@
         "boundary:artifact.missing",
         "diagnostic:orphaned_requirement_reference",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1247,6 +1661,10 @@
         "boundary:artifact.stale",
         "diagnostic:stale_requirement_revision",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1260,6 +1678,10 @@
         "boundary:artifact.digest_mismatch",
         "diagnostic:stale_trace_digest",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     },
     {
@@ -1273,6 +1695,10 @@
         "boundary:artifact.duplicate",
         "diagnostic:duplicate_artifact_trace",
         "operation:coverage"
+      ],
+      "trace_ids": [
+        "FR-017-AC-2",
+        "FR-018-AC-1"
       ]
     }
   ]

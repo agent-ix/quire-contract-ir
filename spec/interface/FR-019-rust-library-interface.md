@@ -2,7 +2,6 @@
 id: FR-019
 title: "Expose a stable Rust semantic-model interface"
 type: FR
-object: interface
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-001
     type: traces_to

@@ -4,7 +4,7 @@
   "diagnostics": [
     {
       "code": "invalid_wire_format",
-      "path": "document",
+      "path": "document.nesting",
       "severity": "error"
     }
   ],

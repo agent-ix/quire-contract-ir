@@ -1,7 +1,8 @@
 ---
 id: PGM-01
 title: "Cross-repository governance and evidence policy"
-type: policy
+type: Standard
+code: contract-program-governance-v1
 ---
 # PGM-01: Cross-repository governance and evidence policy
 

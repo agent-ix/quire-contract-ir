@@ -20,13 +20,13 @@ relationships:
 
 | Functional Req | Acceptance Criteria | Test Cases | Coverage Status |
 |---|---|---|---|
-| FR-011 | FR-011-AC-1 through FR-011-AC-3 | TC-015 | implemented |
-| FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | implemented |
-| FR-013 | FR-013-AC-1 through FR-013-AC-4 | TC-016 | implemented |
-| FR-014 | FR-014-AC-1 through FR-014-AC-6 | TC-016 | implemented |
-| FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | implemented |
-| FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | implemented |
-| FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | implemented |
+| FR-011 | FR-011-AC-1 through FR-011-AC-3 | TC-015 | ✅ implemented |
+| FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | ✅ implemented |
+| FR-013 | FR-013-AC-1 through FR-013-AC-4 | TC-016 | ✅ implemented |
+| FR-014 | FR-014-AC-1 through FR-014-AC-6 | TC-016 | ✅ implemented |
+| FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | ✅ implemented |
+| FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | ✅ implemented |
+| FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | ✅ implemented |
 | FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
 | FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
@@ -57,4 +57,4 @@ relationships:
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned across issues #8–#10 |
 | TC-020 | Five assurance artifacts declare boundaries, evidence, failures, and owner | Inspection | P0 | StR-003, NFR-004 | ✅ implemented |
-| TC-021 | Composite review and dependency DAG preserve spec-first child gates | Inspection | P0 | NFR-004 | ✅ implemented |
+| TC-021 | Composite review and dependency DAG preserve spec-first child gates; Python matrix and native orchestration controls enforce AC-5/6 | Inspection | P0 | NFR-004 | ✅ implemented |

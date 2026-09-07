@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import re
 import sys
@@ -10,9 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATUS_DOCUMENTS = (
-    ROOT / "spec/test-matrix.md",
-    ROOT / "spec/contract-test-matrix.md",
-    ROOT / "spec/program/PGM-01-governance.md",
+    Path("spec/test-matrix.md"),
+    Path("spec/contract-test-matrix.md"),
+    Path("spec/program/PGM-01-governance.md"),
 )
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
@@ -108,10 +109,15 @@ def validate_documents(documents: list[str], executable: set[str]) -> list[str]:
     return failures
 
 
-def main() -> int:
+# Implements: NFR-004-AC-5.
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=ROOT)
+    arguments = parser.parse_args(argv)
+    root = arguments.root.resolve()
     failures = validate_documents(
-        [path.read_text(encoding="utf-8") for path in STATUS_DOCUMENTS],
-        executable_tests(),
+        [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS],
+        executable_tests(root),
     )
     if failures:
         for failure in failures:
@@ -119,7 +125,7 @@ def main() -> int:
         return 1
     print(
         "matrix status census: every ✅ row and PGM acceptance citation "
-        "resolves to completed executable tests"
+        "resolves to a completed test case with a declared test symbol"
     )
     return 0
 
