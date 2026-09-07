@@ -106,6 +106,7 @@ fn tc_020_assurance_packet_names_boundaries_evidence_failures_and_owner() {
 /// TC-021.
 /// Implements: NFR-004.
 /// NFR-004-AC-3.
+/// NFR-004-AC-5.
 #[test]
 fn tc_021_plan_and_review_preserve_the_spec_first_dependency_gate() {
     let plan = read("plan/PLAN-002-contract-ir-v01/plan.md");
