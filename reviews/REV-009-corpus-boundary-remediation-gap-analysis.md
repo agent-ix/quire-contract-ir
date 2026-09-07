@@ -40,5 +40,7 @@ Make target delegates directly to the domain runner and no longer contains a sec
   `boundary:wire.depth.over_maximum` token.
 - The final stacked candidate passed the complete local `release-check`, including native,
   specification, exact-Rust-1.75, supply-chain, and shared-assurance gates; see REV-013.
+- Full clean-head native, specification, MSRV, and shared-assurance verification remains required
+  after the candidate commit.
 
 No hosted workflow was dispatched or changed.

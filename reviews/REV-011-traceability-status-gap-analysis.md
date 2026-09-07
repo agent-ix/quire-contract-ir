@@ -38,3 +38,4 @@ temporary specification/test tree, observes failure with no symbol, then success
 
 The final stacked candidate passed the complete local `release-check`; see REV-013. No hosted
 workflow was dispatched.
+Full clean-head verification remains required. No hosted workflow was dispatched.
