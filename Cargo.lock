@@ -491,6 +491,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "sha2",
+ "stacker",
 ]
 
 [[package]]

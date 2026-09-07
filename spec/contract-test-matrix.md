@@ -30,6 +30,7 @@ relationships:
 | FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
 | FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
+| FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 
 ## Non-Functional Requirement Coverage
 
@@ -58,3 +59,4 @@ relationships:
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned across issues #8–#10 |
 | TC-020 | Five assurance artifacts declare boundaries, evidence, failures, and owner | Inspection | P0 | StR-003, NFR-004 | ✅ implemented |
 | TC-021 | Composite review and dependency DAG preserve spec-first child gates; Python matrix and native orchestration controls enforce AC-5/6 | Inspection | P0 | NFR-004 | ✅ implemented |
+| TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |

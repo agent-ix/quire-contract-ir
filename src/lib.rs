@@ -1,5 +1,6 @@
 //! Versioned, implementation-language-independent semantic contract model.
 
+mod binding;
 mod canonical;
 mod conformance;
 mod coverage;
@@ -8,6 +9,7 @@ mod identity;
 mod limits;
 mod wire;
 
+pub use binding::*;
 pub use canonical::*;
 pub use conformance::{
     expected_inventory, hex_digest, run_manifest, ConformanceOperation, FixtureResult,
