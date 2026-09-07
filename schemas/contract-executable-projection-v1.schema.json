@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-executable-projection-v1.schema.json",
+  "title": "Quire Contract IR derived executable projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "package", "bindings"],
+  "properties": {
+    "format": { "const": "quire.contract.executable-projection/v1" },
+    "package": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-package-reference-v1.schema.json" },
+    "bindings": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clause", "expression"],
+        "properties": {
+          "clause": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json#/definitions/clauseRef" },
+          "expression": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json#/definitions/expressionInput" }
+        }
+      }
+    }
+  }
+}

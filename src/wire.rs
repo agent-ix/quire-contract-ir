@@ -572,60 +572,80 @@ impl WireExpression {
     }
 }
 
-pub(crate) fn execute_expression(input: Value) -> Value {
-    let request: ExpressionInput = match serde_json::from_value(input) {
-        Ok(request) => request,
-        Err(_) => return invalid(vec![wire_type_error("expression")]),
-    };
-    if let Err(diagnostic) = preflight(&request) {
-        return invalid(vec![diagnostic]);
+pub(crate) struct CheckedExpression {
+    pub environment: DeclarationEnvironment,
+    pub expression: crate::TypedExpression,
+    pub semantic_nodes: u32,
+}
+
+pub(crate) fn check_expression_input(
+    input: Value,
+    binding: Option<(&RequirementRef, &ExecutionPoint)>,
+) -> Result<CheckedExpression, Vec<Diagnostic>> {
+    let request: ExpressionInput =
+        serde_json::from_value(input).map_err(|_| vec![wire_type_error("expression")])?;
+    let semantic_nodes = one(preflight(&request))?;
+    if let Some((owner, anchor)) = binding {
+        if &request.owner != owner {
+            return Err(vec![Diagnostic::error(
+                DiagnosticCode::MalformedReference,
+                "expression declaration owner differs from the bound clause owner",
+                "expression.owner",
+            )]);
+        }
+        if &request.execution_point != anchor {
+            return Err(vec![Diagnostic::error(
+                DiagnosticCode::IncompatibleClauseAnchor,
+                "expression execution point differs from the bound clause anchor",
+                "expression.execution_point",
+            )]);
+        }
+        if !request.clause_root || !matches!(&request.expected_type, WireValueType::Boolean) {
+            return Err(vec![Diagnostic::error(
+                DiagnosticCode::NonBooleanClauseRoot,
+                "a bound executable expression requires a Boolean clause root",
+                "expression.clause_root",
+            )]);
+        }
     }
-    let types = match request
+    let types = request
         .types
         .into_iter()
         .map(WireTypeDeclaration::validate)
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(types) => types,
-        Err(diagnostics) => return invalid(diagnostics),
-    };
-    let values = match request
+        .collect::<Result<Vec<_>, _>>()?;
+    let values = one(request
         .values
         .into_iter()
         .map(WireValueDeclaration::validate)
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(values) => values,
-        Err(diagnostic) => return invalid(vec![diagnostic]),
-    };
-    let functions = match request
+        .collect::<Result<Vec<_>, _>>())?;
+    let functions = request
         .functions
         .into_iter()
         .map(WireFunctionDeclaration::validate)
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(functions) => functions,
-        Err(diagnostics) => return invalid(diagnostics),
-    };
-    let environment = match DeclarationEnvironment::new(request.owner, types, values, functions) {
-        Ok(environment) => environment,
-        Err(diagnostics) => return invalid(diagnostics),
-    };
-    let expression = match request.expression.validate() {
-        Ok(expression) => expression,
-        Err(diagnostic) => return invalid(vec![diagnostic]),
-    };
-    let expected = match request.expected_type.validate() {
-        Ok(expected) => expected,
-        Err(diagnostic) => return invalid(vec![diagnostic]),
-    };
-    let typed = match environment.check_expression(
+        .collect::<Result<Vec<_>, _>>()?;
+    let environment = DeclarationEnvironment::new(request.owner, types, values, functions)?;
+    let expression = one(request.expression.validate())?;
+    let expected = one(request.expected_type.validate())?;
+    let expression = environment.check_expression(
         &expression,
         &expected,
         &request.execution_point,
         request.clause_root,
-    ) {
-        Ok(typed) => typed,
+    )?;
+    Ok(CheckedExpression {
+        environment,
+        expression,
+        semantic_nodes,
+    })
+}
+
+pub(crate) fn execute_expression(input: Value) -> Value {
+    let CheckedExpression {
+        environment,
+        expression: typed,
+        ..
+    } = match check_expression_input(input, None) {
+        Ok(checked) => checked,
         Err(diagnostics) => return invalid(diagnostics),
     };
     let declaration = match environment.canonical_declaration(CanonicalProfile::V1) {
@@ -675,7 +695,7 @@ fn one<T>(result: Result<T, Diagnostic>) -> Result<T, Vec<Diagnostic>> {
     result.map_err(|diagnostic| vec![diagnostic])
 }
 
-fn preflight(request: &ExpressionInput) -> Result<(), Diagnostic> {
+fn preflight(request: &ExpressionInput) -> Result<u32, Diagnostic> {
     if [
         request.types.len(),
         request.values.len(),
@@ -740,7 +760,7 @@ fn preflight(request: &ExpressionInput) -> Result<(), Diagnostic> {
             _ => {}
         }
     }
-    Ok(())
+    Ok(nodes)
 }
 
 fn add_collection(length: usize, path: &'static str) -> Result<(), Diagnostic> {
