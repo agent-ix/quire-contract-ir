@@ -40,12 +40,14 @@ The proposed profile names below are not registered or published identities.
 
 ## Context
 
-TypeSpec remains the structural schema source. A frontend consumes resolved,
-compiled **domain content** from filament-core-data #36, not raw Markdown,
-runtime Rust types, or envelope-only `SemanticObject` records. Module-owned
-`FieldDecl`, `TypeRef`, operation, bound, and identity declarations must describe
-the values a clause names. A field that merely says `int` or `Dict[str, Any]`
-does not supply that environment.
+Archetype schema definition and datatype generation remain outside
+formalization. A specification-language frontend consumes its own validated
+source declarations and, only where a clause needs them, an explicitly reviewed
+formal projection of relevant archetype schema facts. Generated Rust layouts,
+an internal Filament reader, or an envelope-only `SemanticObject` record do not
+supply that environment. The formal declarations must explicitly describe the
+bounded values a clause names; a field that merely says `int`,
+`Dict[str, Any]`, or a generated host-language type is insufficient.
 
 Quire extracts static authored declarations. The contract frontend parses and
 types its selected language, binds compiled declarations, and submits explicit
@@ -56,7 +58,9 @@ language runtime, or producer invocation is added to Quire or Quoin.
 FR-014 has no temporal expression node and FR-013 has no identity-bearing object
 reference or recursive record type. A source notation does not create either
 capability. Temporal syntax must go through a separately specified tl-* bridge;
-object navigation remains gated by #54's reference/type-environment contract.
+object navigation remains gated by a separately specified Contract IR
+reference/population contract. ADR-0054 establishes that archetype generation
+does not supply that formal semantics implicitly.
 
 ## Decision proposed for approval
 
@@ -129,9 +133,9 @@ or named profile parameter; a backend's native width is not an authored bound.
 | Calls | First profile admits no user-defined calls, recursion, reflection, I/O, or ambient extension library. Declared pure calls may be added only after their executable semantics, qualification pins, and bound/definedness contracts are supplied. A signature alone is not an evaluator. | FR-013 pure-function declarations; FR-014 exact call signature; FR-015 call-result bounds |
 | Result | Exactly a statically defined Boolean root. No nullable Boolean, partial result, exception recovery, or truthiness coercion. | FR-014 Boolean clause root; FR-015 obligations |
 
-### Separate #54 reference and bounds decision
+### Reference and bounds decision
 
-The current #54 acceptance example, `parent: ConfigVersion[0..1]` with an
+The corrected #54 example, `parent: ConfigVersion[0..1]` with an
 Integer having only `min 1`, is not implementable by inserting an optional
 recursive record into FR-013: the record graph must be acyclic and a minimum
 alone is not a finite integer bound. Record this as a design gate, not a
@@ -176,7 +180,8 @@ application state. Parameters are declared IR inputs observed at `current`.
 A result, if used, is an explicitly declared post-only input of the operation's
 result type; exposing it in a precondition or invariant is a binding error.
 The exact parameter/result visibility and snapshot roles must be checked by the
-#54 adapter, since the generic IR input declaration does not encode operations.
+specification-language frontend or a separately reviewed formal projection,
+since the generic IR input declaration does not encode operations.
 Missing signatures, omitted anchors, mismatched operations, `@pre` on a
 parameter, and cross-observation guard reuse refuse (FR-012 anchor compatibility,
 FR-014 observation policy, FR-015 exact-subject facts).

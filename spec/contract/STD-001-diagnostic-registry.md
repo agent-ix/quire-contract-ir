@@ -136,7 +136,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-019 extend or consume this semantic registry
-  without renaming issue #6 codes. FR-020 defines separate
+- **Downstream**: FR-013 through FR-019 and FR-023 extend or consume this
+  semantic registry without renaming issue #6 codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.
