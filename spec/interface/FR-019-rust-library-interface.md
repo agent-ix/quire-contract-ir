@@ -29,7 +29,8 @@ invariants:
   - untrusted input has no public panic path
   - no downstream engine type appears in the public contract
 compatibility:
-  msrv: Rust 1.75
+  supported-rust-minimum: Rust 1.98.1
+  qualification-rust: Rust 1.98.1
   licensing: MIT OR Apache-2.0
   publication: disabled pending a later human release decision
 ```
@@ -100,8 +101,8 @@ occurs before recursive validation, canonicalization, migration, or coverage.
 The first node, depth, or collection path crossing a limit returns
 `semantic_input_too_large` and no partial semantic result. Public decode,
 validate, canonicalize, migrate, and classify calls return without panic for
-the complete negative corpus. Rust 1.75 builds the library, runner, and tests
-with default features; the crate remains `publish = false`.
+the complete negative corpus. Exact Rust 1.98.1 builds the library, runner, and
+tests with default features under NFR-005; the crate remains `publish = false`.
 
 ## Acceptance Criteria
 
