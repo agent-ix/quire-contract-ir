@@ -180,7 +180,7 @@
             "argv": [
               "rustup",
               "run",
-              "1.75.0",
+              "1.98.1",
               "cargo",
               "check",
               "--locked",

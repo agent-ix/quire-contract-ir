@@ -48,10 +48,12 @@ the exact required compiler-adjacent tools and embedded targets.
 
 ## Known non-compatibility findings
 
-The current lockfile's vulnerable `idna 0.4.0` and `time 0.3.36` dependencies,
-and downstream shared-assurance matrix disagreement for `ix-flow`, remain real
-findings. They do not demonstrate Rust 1.98.1 incompatibility and shall be
-tracked/remediated without reverting the compiler.
+The `idna 0.4.0` and `time 0.3.36` vulnerabilities observed during
+specification review were supply-chain findings, not Rust 1.98.1
+incompatibilities. The implementation candidate updates their locked
+resolutions within the existing dependency constraints. Downstream
+shared-assurance matrix disagreement for `ix-flow` remains separate and shall
+not cause a compiler reversion.
 
 ## Verification
 

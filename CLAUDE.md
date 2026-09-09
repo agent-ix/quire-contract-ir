@@ -19,9 +19,9 @@ make release-check  # run all local release gates
 make test           # Python suite + cargo test
 make build          # release build
 make clean          # cargo clean and drop the assurance workspace
-make deny           # cargo deny check licenses
+make deny           # all cargo-deny policy checks
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
-make ci             # all local release gates, including spec, MSRV, and shared assurance
+make ci             # all local release gates, including spec, exact Rust, and shared assurance
 ```
 
 The test target requires the Python declared by `.python-version`.
@@ -46,11 +46,12 @@ preservation constraint for the pre-stable phase on 2026-09-02
 
 Backported from `agent-ix/ecaz`:
 
-- `clippy.toml` pins MSRV to `1.75` and caps cognitive complexity / arg count
+- `Cargo.toml`, `rust-toolchain.toml`, and `clippy.toml` pin the supported
+  minimum and qualification compiler to exact Rust `1.98.1`.
 - `deny.toml` allow-lists licenses and denies unknown registries/git sources
 - `scripts/check_unsafe_comments.sh` runs in CI and locally via `make audit-unsafe`. Every `unsafe {` block must have a `// SAFETY:` comment within the 3 preceding lines, or be listed in `scripts/unsafe_comment_baseline.txt`. Update the baseline with `bash scripts/check_unsafe_comments.sh --update-baseline`.
-- `rustfmt.toml` uses 100-char width and `StdExternalCrate` import grouping. CI fails on drift.
-- `rust-toolchain.toml` pins to stable + rustfmt + clippy.
+- `rustfmt.toml` uses stable-channel 100-character formatting. CI fails on drift.
+- `rust-toolchain.toml` pins exact Rust `1.98.1` + rustfmt + clippy.
 
 ## Layout
 
