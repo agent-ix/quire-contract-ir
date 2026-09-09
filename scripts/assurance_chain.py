@@ -645,7 +645,7 @@ def run(
             output=quire_export,
             media_type="application/json",
             result=result,
-            tool_version="1.75.0",
+            tool_version="1.98.1",
         )
         if sealed is None:
             raise ChainError(f"sealing the {result} attestation failed: {detail}")

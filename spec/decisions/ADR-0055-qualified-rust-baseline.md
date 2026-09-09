@@ -1,24 +1,25 @@
 ---
 id: ADR-0055
-title: "Proposed Rust 1.98.1 qualification and compatibility baseline"
+title: "Rust 1.98.1 qualification and compatibility baseline"
 type: ADR
-status: proposed
+status: accepted
 owner: kreneskyp
 relationships:
   - target: ix://agent-ix/quire-contract-ir/PGM-01
     type: depends_on
 ---
-# ADR-0055: Proposed Rust 1.98.1 qualification and compatibility baseline
+# ADR-0055: Rust 1.98.1 qualification and compatibility baseline
 
 ## Status
 
-**Proposed; owner decision absent.** This records the correction requested
-during issue #54 inspection. The repository's Rust 1.75 pin originated in its
+**Accepted by the owner on 2026-09-08.** This records the correction requested
+during issue #54 inspection and confirmed for implementation after the base
+specification review. The repository's Rust 1.75 pin originated in its
 initial scaffold and has no recorded consumer, target, or tool justification.
 Existing use is evidence of propagation, not evidence that the decision is
 correct.
 
-## Decision proposed for approval
+## Decision
 
 Use exact Rust **1.98.1** as both the initial supported minimum and the exact
 qualification toolchain for this pre-release crate. Pin the same version in
@@ -73,9 +74,10 @@ compatibility decision; Contract IR does not promise their old floor for them.
 The broader ecosystem's copied 1.75 pins require a governed audit and must not
 be bulk-changed without repository-specific target/tool checks.
 
-The vulnerable transitive dependencies are a separate supply-chain defect and
-remain release-relevant even after the compiler migration. Passing on 1.98.1
-does not waive them.
+The vulnerable transitive dependencies observed during specification review
+are a separate supply-chain defect. The implementation candidate updates their
+locked resolutions within the existing dependency constraints; passing on
+1.98.1 would not by itself have waived them.
 
 ## Rejected alternatives
 
