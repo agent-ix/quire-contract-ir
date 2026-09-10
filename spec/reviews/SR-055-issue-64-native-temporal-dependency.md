@@ -1,63 +1,48 @@
 ---
-id: SR-038
+id: SR-055
 title: "Dependency review of issue 64 native temporal TL correspondence"
 type: SpecReview
 analysis: dependency
-scope: "StR-001, FR-012, FR-023, FR-025, issues 52/57/63/64"
+scope: "FR-025, FR-026, issues 52/57/63/64, and external native/TL authorities"
 review_set: all
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-025
+  - target: ix://agent-ix/quire-contract-ir/FR-026
     type: reviews
 ---
-# SR-038: Dependency review of issue 64
+# SR-055: Dependency review of issue 64
 
 ## Summary
 
-The dependency lens separates semantic enablement from the bridge and its
-downstream exporter. The graph is acyclic; FR-025 remains correctly parked
-until the predicate and reviewed-profile authorities exist.
+The dependency review separates semantic authorities from Contract IR bridge
+work at exact snapshot `558c4dccbed3128922517e2ec49cf6779817e9b6`.
+FR-026 is specification-complete but implementation-blocked. Its branch is
+stacked on FR-025/#66, while broader M0 release work remains an independent
+admission hold.
 
 ## Findings
 
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
-| FND-381 | medium | **Closed:** the draft did not distinguish parent coordination (#52) from downstream FRETish consumption (#57). Both are now explicit references, and #57 is expressly not a prerequisite. | FR-025 relationships and Dependencies | missing-requirement |
-| FND-382 | high | **Closed:** unfinished issue #63 could have been treated as a soft dependency with a temporary Boolean mapping. FR-025 now makes it a hard prerequisite and defines unsupported-without-fallback behavior until it is reviewed. | FR-025 Behavior/Dependencies; issue #63 | missing-requirement |
+| FND-6431 | high | **Fixed:** the dependency list omitted native result, progress, closure, completeness, observation, clock, capture, and correction authorities. FR-026 now names the relevant quire-specification requirements and requires their accepted public contracts/readers. | FR-026 relationships and Dependencies; quire-specification FR-061/094/110/112/113 | missing-requirement |
+| FND-6432 | high | **Fixed:** internal TL Rust types could have been mistaken for public immutable contracts. FR-026 now requires selected formula, semantic, trace, evaluator-request, evaluator-report, and normalized-result contracts/readers; branch heads and copied schemas do not satisfy admission. | FR-026 Inputs and Dependencies; tl-syntax FR-003/004; tl-mltl FR-001/003/007 | missing-requirement |
+| FND-6433 | medium | **Controlled:** #65 depends on FR-025/#66 and must remain stacked until #66 is independently reviewed and merged. The exact snapshot has #66 head `de101b9` as an ancestor; publication must retarget #65 to that branch before review. | quire-contract-ir #65/#66; FR-026 Dependencies | correct-requirement-no-evidence |
+| FND-6434 | medium | **Controlled:** mergeable M0 heads, dependent rebases, v0.1 epics, and tags remain outside this specification PR. FR-026/TC-039 stays planned and cannot be represented as implementation or release closure while those admission rules remain open. | TM-002 FR-026/TC-039; TL v0.1 release lane | correct-requirement-no-evidence |
 
-## Classification
+## Dependency Order
 
-| Requirement or authority | Class | Rationale |
-|---|---|---|
-| StR-001 | feature need | Requires one identity-preserving semantic contract for downstream lowerings. |
-| FR-012 | enablement | Supplies stable clause, anchor, and source-span identity. |
-| FR-023 | enablement | Supplies the complete immutable BoundClause population. |
-| issue #63 | enablement | Must supply total-Boolean predicate and proposition-map identity. |
-| reviewed native temporal profile | enablement | Owns the source temporal meaning and clock/history/closure rules. |
-| versioned TL profiles and evaluator | enablement | Own the candidate target meaning evaluated by correspondence tests. |
-| FR-025 | cross-component enablement | Owns the public correspondence decision and join identity. |
-| issue #57 | downstream feature | Generates FRETish output only after FR-025 is available. |
+1. Independently review and land #66/FR-025.
+2. Accept the native temporal, result, observation, clock, capture, progress,
+   completeness, correction, and availability contracts/readers.
+3. Publish immutable TL formula, semantic, trace, request, evaluator-report,
+   and normalized-result contracts/readers.
+4. Implement FR-026 and execute TC-039 against those exact selections.
+5. Consume the bridge from issue #57's output-only FRETish mapping.
 
-## Dependency Graph
-
-`FR-012 -> FR-023 -> FR-025`, `issue #63 -> FR-025`, `reviewed native
-temporal profile -> FR-025`, and `versioned TL profiles/evaluator -> FR-025 ->
-issue #57`. Issue #52 coordinates the chain but does not replace a semantic
-prerequisite.
-
-## Topological Order
-
-1. Retain FR-012 and FR-023 as completed Contract IR foundations.
-2. Review and accept issue #63 and the coherent native temporal profile; pin
-   exact TL profile/evaluator revisions.
-3. Implement FR-025 and TC-038 against those exact inputs.
-4. Review and implement the issue #57 output mapping, if still selected.
-
-## Cycles
-
-None. The native profile declares the meaning consumed by FR-025; it does not
-depend on the Contract IR implementation to define that meaning.
+Issue #52 coordinates integration but supplies no missing semantic authority.
+Ticket existence, a draft PR, a Rust type, or agreeing prose does not satisfy a
+dependency.
 
 ## Result
 
-**PASS with implementation parked at step 2.** Ticket existence, a merged draft,
-or matching formula text does not satisfy a prerequisite.
+**PASS with implementation parked.** The dependency graph and resume
+conditions are explicit; no missing authority is inferred as coverage.

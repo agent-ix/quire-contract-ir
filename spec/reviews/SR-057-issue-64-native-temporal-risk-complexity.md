@@ -1,53 +1,41 @@
 ---
-id: SR-040
+id: SR-057
 title: "Risk and complexity review of issue 64 native temporal TL correspondence"
 type: SpecReview
 analysis: risk-complexity
-scope: "FR-025 and its external semantic authorities"
+scope: "FR-026 and its external semantic authorities"
 review_set: all
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-025
+  - target: ix://agent-ix/quire-contract-ir/FR-026
     type: reviews
 ---
-# SR-040: Risk and complexity review of issue 64
+# SR-057: Risk and complexity review of issue 64
 
 ## Summary
 
-FR-025 is technically high-risk because it claims semantic equivalence across
-repositories and profiles. Volatility is medium because issue #63 and later TL
-profiles are unfinished; exact identities and fail-closed versioning bound that
-volatility.
+FR-026 remains high technical risk because it claims exact semantic
+correspondence across independently versioned native and TL contracts. Snapshot
+`558c4dc` bounds that risk with immutable identities, authority-bound positions
+and progress, closed support tables, explicit correction relations, and
+fail-closed admission.
 
 ## Findings
 
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
-| FND-401 | high | **Closed as a specification risk:** formula equality could masquerade as semantic equivalence across different clocks, closure rules, captures, or evaluators. The bridge now binds all dimensions and TC-038 includes differential and mutation probes plus the one-position discriminator. | FR-025 Behavior; FR-025-AC-1/3/7 | missing-requirement |
-| FND-402 | medium | **Closed as a volatility control:** unfinished predicate and future TL profile work could silently broaden support. Unknown or unavailable profiles now return unsupported, and each later profile requires a new reviewed identity. | FR-025 Behavior/Dependencies | missing-requirement |
+| FND-6451 | high | **Mitigated:** equal formula bytes or equal Booleans could mask different clock, capture, history, position, closure, or settlement semantics. The correspondence and join now bind exact content revisions and TC-039 carries semantic discriminators and one-axis mutations. | FR-026 Formula construction; Valuation; Progress and result joining; TC-039 | missing-requirement |
+| FND-6452 | high | **Mitigated:** a foreign or replayed valuation/progress assertion could settle the wrong scope. Observation positions are injectively bound to FR-025 evaluation identities, and progress binds clock, subject, both scopes, source set, interval, and history boundary. | FR-026 Valuation; Public v1 records | missing-requirement |
+| FND-6453 | medium | **Mitigated:** late contradictions could silently restamp settled history. Selected views distinguish original, superseding, and invalidating relations and validate predecessor, corrected input, and contradicted premise while retaining old bytes. | FR-026 Progress, closure and result joining | missing-requirement |
+| FND-6454 | medium | **Controlled:** the state space across profiles, positions, bounds, contracts, result axes, and corrections is large. Closed enums, deterministic precedence, 94 allocated cause codes, two operation diagnostics, and a bounded TC-039 corpus constrain implementation. | FR-026 Public v1 records and cause allocation; TC-039 | missing-requirement |
 
 ## Risk Register
 
-| Req | Tech Risk | Volatility | Drivers | Mitigation |
-|---|---|---|---|---|
-| FR-025 | high | medium | cross-repository semantic equivalence; clock and closure distinctions; external issue #63 and TL profiles | exact versioned identities; closed support table; fail-closed decisions; differential, boundary, and mutation tests; dependency-ordered implementation |
-
-## Top Hazards
-
-1. A clock or closure mismatch yields the same formula bytes but different
-   truth; the correspondence tuple and discriminator prevent admission.
-2. A non-total or stale predicate becomes a proposition; issue #63 is a hard
-   gate and no fallback exists.
-3. An incomplete closed observation is treated as false extension; FR-025 now
-   requires complete closure and TC-038 tests the transition.
-
-## Failure-Domain Cross-Check
-
-SR-036 closes identity, purity, and incomplete-closure gaps. No graph traversal,
-concurrency, network protocol, cryptographic primitive, or hard performance SLA
-is introduced by the specification.
+| Req | Technical risk | Volatility | Primary control |
+|---|---|---|---|
+| FR-026 | high | medium | immutable public selections, authority-bound identities, exact differential vectors, fail-closed readers, dependency-ordered implementation |
 
 ## Result
 
-**PASS after mitigation in the specification.** High technical risk remains a
-reason for dependency-ordered differential implementation, not permission to
-prototype around the review gate.
+**PASS after specification mitigation.** High risk remains a reason to require
+the planned differential and mutation evidence, not permission to prototype
+around a missing authority.
