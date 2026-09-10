@@ -118,7 +118,13 @@ be used outside those exact allocations.
 | `predicate_map_rejected` | The real proposition-map strict reader rejects the generated document | proposition-map field/path |
 | `predicate_catalog_map_mismatch` | Catalog/map population, proposition ID/name, signal domain, ordinal, or binding join differs | first unequal joined field |
 | `predicate_projection_resource_exhausted` | Projection allocation/reservation fails without a partial artifact | projection resource path |
-| `predicate_producer_unavailable` | Exact producer or source-result contract cannot be reached | producer/result-availability field |
+| `predicate_availability_contract_unsupported` | A well-formed availability contract selection is not in the admitted v1 domain | availability-contract field and raw discriminator |
+| `predicate_availability_contract_unavailable` | The selected accepted availability contract or its public strict reader cannot be reached | availability-contract field |
+| `predicate_source_result_contract_unsupported` | A well-formed source-result contract selection is not in the admitted v1 domain | source-result-contract field and raw discriminator |
+| `predicate_source_result_contract_unavailable` | The selected accepted source-result contract or its public strict reader cannot be reached | source-result-contract field |
+| `predicate_source_result_mapping_unsupported` | A well-formed source-result mapping selection is not in the admitted v1 domain | source-result-mapping field and raw discriminator |
+| `predicate_source_result_mapping_unavailable` | The selected accepted source-result mapping or its public strict reader cannot be reached | source-result-mapping field |
+| `predicate_producer_unavailable` | The verified availability assertion classifies the exact producer or required result contract as unavailable | producer/result-availability field |
 | `predicate_result_not_yet_observed` | Authority-verified availability assertion says the required producer result is not yet observed, regardless of observation state | result-availability field |
 | `predicate_execution_unsupported` | Source predicate execution is `unsupported` | predicate-execution field |
 | `predicate_execution_refused` | Source predicate execution is `refused` | predicate-execution field |
