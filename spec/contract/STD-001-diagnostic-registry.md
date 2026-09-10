@@ -206,7 +206,7 @@ cannot be used outside those allocations.
 | `temporal_formula_rejected` | The real selected TL formula strict reader rejects the generated formula | narrowest rejected formula field |
 | `temporal_trace_rejected` | The real selected TL trace strict reader rejects the generated complete valuation trace | narrowest rejected trace field |
 | `temporal_request_rejected` | The real selected TL request strict reader rejects the generated formula/trace request | narrowest rejected request field |
-| `temporal_identity_conflict` | Unequal subject, clock, observation, formula, trace or request content claims one identity | conflicting identity and related candidate |
+| `temporal_identity_conflict` | Unequal subject, clock, observation, capture, formula, trace or request content claims one identity | conflicting identity and related candidate |
 | `temporal_availability_contract_unsupported` | A well-formed result-availability contract selection is outside the admitted v1 domain | availability-contract field and raw discriminator |
 | `temporal_availability_contract_unavailable` | The selected accepted availability contract or public strict reader cannot be reached | availability-contract field |
 | `temporal_availability_contract_conflict` | Unequal result-availability contract definitions claim one selected identity | availability-contract identity and related candidate |

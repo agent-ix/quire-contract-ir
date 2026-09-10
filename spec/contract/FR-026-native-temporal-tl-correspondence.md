@@ -245,14 +245,19 @@ the following fields for each prefix `native` and `tl`:
 `<prefix>_prior_result_ref`, `<prefix>_contradicted_premise_ref`, and
 `<prefix>_corrected_input_ref`.
 
-Result, progress and completeness references are producer-owned nonempty
-identities; revisions are positive u64; their digests are lowercase SHA-256
-over the exact supplied bytes. The closed result-relation values are
+Result references are producer-owned nonempty identities. Progress and
+completeness references are nonempty identities owned and authenticated by the
+authorities selected in their adjacent embedded contracts; a result producer
+shall not mint or restamp them. Revisions are positive u64 and digests are
+lowercase SHA-256 over the exact supplied authority or result bytes. The closed
+result-relation values are
 `original`, `superseding`, and `invalidating`. An original result has empty
 prior-result, contradicted-premise, and corrected-input references. A
-superseding result has nonempty prior-result and corrected-input references;
-an invalidating result additionally has a nonempty contradicted-premise
-reference. No non-original relation may omit its direct predecessor.
+superseding result has nonempty prior-result and corrected-input references and
+an empty contradicted-premise reference. An invalidating result has nonempty
+prior-result, contradicted-premise, and corrected-input references. Thus the
+contradicted-premise reference is nonempty if and only if the relation is
+`invalidating`, and no non-original relation may omit its direct predecessor.
 Each field ending in `_progress_contract` or `_completeness_contract` is the
 exact embedded `ContractSelection` authenticated by the selected result reader
 for the adjacent assertion. The bridge shall admit each embedded selection and
@@ -381,7 +386,7 @@ The bridge shall use this closed STD-001 cause allocation:
 | `temporal_formula_rejected` | `formula` | `refused` |
 | `temporal_trace_rejected` | `trace` | `refused` |
 | `temporal_request_rejected` | `request` | `refused` |
-| `temporal_identity_conflict` | `native-subject`, `clock`, `observation`, `formula`, `trace` or `request` | `conflict` |
+| `temporal_identity_conflict` | `native-subject`, `clock`, `observation`, `capture`, `formula`, `trace` or `request` | `conflict` |
 | `temporal_availability_contract_unsupported` | `availability-contract` | `unsupported` |
 | `temporal_availability_contract_unavailable` | `availability-contract` | `unavailable` |
 | `temporal_availability_contract_conflict` | `availability-contract` | `conflict` |
