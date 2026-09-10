@@ -187,7 +187,7 @@ cannot be used outside those allocations.
 | `temporal_activation_inactive` | A caller requests evaluation for an authoritatively inactive temporal scope | activation field |
 | `temporal_activation_mismatch` | Activation identity is stale or unequal | activation field |
 | `temporal_capture_incomplete` | A required immutable capture is not yet available | capture field |
-| `temporal_capture_mismatch` | Capture-environment identity or content is stale or unequal | capture field |
+| `temporal_capture_mismatch` | Capture binding is stale or foreign by identity, revision or expected digest; unequal content claiming the same identity is instead `temporal_identity_conflict` | first stale or foreign capture field |
 | `temporal_formula_contract_unsupported` | A well-formed TL formula contract selection is outside the admitted v1 domain | formula-contract field and raw discriminator |
 | `temporal_formula_contract_unavailable` | The selected accepted TL formula contract or public strict reader cannot be reached | formula-contract field |
 | `temporal_formula_contract_conflict` | Unequal TL formula contract definitions claim one selected identity | formula-contract identity and related candidate |
