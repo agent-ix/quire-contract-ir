@@ -133,8 +133,9 @@ records use compact
 UTF-8 JSON, Unicode-scalar object-key order, FR-016 scalar rules, sorted distinct
 fact-reference arrays, and the exact observation-fact/completeness shapes below.
 The local reference is supplied outside the hashed record and shall be
-recomputed before any valuation decision. It shall not replace, restamp or
-claim authority for `source_result_ref`.
+recomputed before any result-bearing post-contract-admission valuation
+decision. It shall not replace, restamp or claim authority for
+`source_result_ref`.
 
 The public projection-set decision profile shall be
 `quire.contract.native-predicate-projection-decision/v1`. Its admitted tagged
