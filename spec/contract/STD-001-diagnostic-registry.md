@@ -16,13 +16,15 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-025
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-026
+    type: references
 ---
 # STD-001: Contract IR v0.1 diagnostic code registry
 
 ## Description
 
 This registry owns the stable machine-readable diagnostic codes introduced by
-issues #6 through #10 and #63. Implementations may add human context but shall not parse
+issues #6 through #10, #63 and #64. Implementations may add human context but shall not parse
 or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 ## Issue 6 Codes
@@ -141,6 +143,67 @@ be used outside those exact allocations.
 | `predicate_supersession_invalid` | Direct predecessor is absent, self-referential, same-revision, wrong-subject, or digest-inconsistent | prior-result field |
 | `predicate_valuation_resource_exhausted` | Valuation allocation/reservation fails without a partial decision | valuation resource path |
 
+## Issue 64 Codes
+
+These codes are the closed `code` vocabulary for FR-026 projection and result
+join causes. FR-026 fixes every allowed `(code, dimension, kind)` tuple; a code
+cannot be used outside those allocations.
+
+| Code | Condition | Required location |
+|---|---|---|
+| `invalid_native_temporal_bridge` | A selected input strict reader rejects a v1 input, or a projection/result request or decision violates its strict tagged shape, UTF-8, enum, byte, depth, count or string bound | narrowest rejected public field path |
+| `temporal_native_contract_unsupported` | A well-formed native temporal contract selection is outside the admitted v1 domain | native-contract field and raw discriminator |
+| `temporal_native_contract_unavailable` | The selected accepted native temporal contract or public strict reader cannot be reached | native-contract field |
+| `temporal_native_contract_conflict` | Unequal native temporal contract definitions claim one current identity | native-contract identity and related candidate |
+| `temporal_subject_mismatch` | Native subject identity, revision, digest, model, source span or tree identity is stale or unequal | first unequal native-subject field |
+| `temporal_predicate_projection_incomplete` | A required checked leaf has no admitted FR-025 correspondence yet | exact native `holds` leaf |
+| `temporal_predicate_projection_unsupported` | A well-formed FR-025 projection contract selection is outside the admitted v1 domain | predicate-projection field and raw discriminator |
+| `temporal_predicate_projection_unavailable` | The exact admitted FR-025 projection decision cannot be reached | predicate-projection field |
+| `temporal_predicate_projection_mismatch` | Predicate/proposition population, identity or parent-subject binding is stale or unequal | first unequal predicate-projection field |
+| `temporal_profile_unsupported` | A well-formed native temporal profile is outside the closed v1 support table | temporal-profile field and raw discriminator |
+| `temporal_operator_unsupported` | A well-formed native temporal operator is outside the closed future-core mapping | operator span and raw discriminator |
+| `temporal_interval_invalid` | A temporal interval is negative, fractional, inverted, unbounded or exceeds `u32::MAX` | interval span |
+| `temporal_clock_incomplete` | A required fixed-sample clock component or sample is not yet available | clock/sample field |
+| `temporal_clock_contract_unsupported` | A well-formed clock contract selection is outside the admitted v1 domain | clock-contract field and raw discriminator |
+| `temporal_clock_unavailable` | The selected accepted clock contract or clock binding cannot be reached | clock field |
+| `temporal_clock_mismatch` | Clock identity, epoch, period, unit or sample-position mapping is stale or unequal | first unequal clock field |
+| `temporal_observation_incomplete` | The observation is closed-incomplete or required observation/history is not yet complete | observation field |
+| `temporal_observation_contract_unsupported` | A well-formed observation contract selection is outside the admitted v1 domain | observation-contract field and raw discriminator |
+| `temporal_observation_contract_unavailable` | The selected accepted observation contract or public strict reader cannot be reached | observation-contract field |
+| `temporal_observation_mismatch` | Observation identity, revision, state or immutable content is stale or unequal | first unequal observation field |
+| `temporal_activation_mismatch` | Activation identity is stale or unequal | activation field |
+| `temporal_capture_incomplete` | A required immutable capture is not yet available | capture field |
+| `temporal_capture_mismatch` | Capture-environment identity or content is stale or unequal | capture field |
+| `temporal_formula_contract_unsupported` | A well-formed TL formula contract selection is outside the admitted v1 domain | formula-contract field and raw discriminator |
+| `temporal_formula_contract_unavailable` | The selected accepted TL formula contract or public strict reader cannot be reached | formula-contract field |
+| `temporal_semantic_contract_unsupported` | A well-formed TL semantic contract selection is outside the closed v1 support table | semantic-contract field and raw discriminator |
+| `temporal_semantic_contract_unavailable` | The selected accepted TL semantic contract or public strict reader cannot be reached | semantic-contract field |
+| `temporal_evaluator_contract_unsupported` | A well-formed TL evaluator contract selection is outside the admitted v1 domain | evaluator-contract field and raw discriminator |
+| `temporal_evaluator_contract_unavailable` | The selected accepted TL evaluator contract or public strict reader cannot be reached | evaluator-contract field |
+| `temporal_formula_rejected` | The real selected TL formula strict reader rejects the generated formula | narrowest rejected formula field |
+| `temporal_identity_conflict` | Unequal formula, correspondence or subject content claims one identity | conflicting identity and related candidate |
+| `temporal_availability_contract_unsupported` | A well-formed result-availability contract selection is outside the admitted v1 domain | availability-contract field and raw discriminator |
+| `temporal_availability_contract_unavailable` | The selected accepted availability contract or public strict reader cannot be reached | availability-contract field |
+| `temporal_native_result_contract_unsupported` | A well-formed native-result contract selection is outside the admitted v1 domain | native-result-contract field and raw discriminator |
+| `temporal_native_result_contract_unavailable` | The selected accepted native-result contract or public strict reader cannot be reached | native-result-contract field |
+| `temporal_tl_result_contract_unsupported` | A well-formed TL-result contract selection is outside the admitted v1 domain | TL-result-contract field and raw discriminator |
+| `temporal_tl_result_contract_unavailable` | The selected accepted TL-result contract or public strict reader cannot be reached | TL-result-contract field |
+| `temporal_native_result_unavailable` | The verified availability assertion classifies the native producer or result as unavailable | native result availability field |
+| `temporal_tl_result_unavailable` | The verified availability assertion classifies the TL producer or result as unavailable | TL result availability field |
+| `temporal_native_result_incomplete` | The available native result reports incomplete progress | native progress field |
+| `temporal_tl_result_incomplete` | The available TL result reports incomplete progress | TL progress field |
+| `temporal_native_result_failed` | The available native result reports failed execution | native progress field |
+| `temporal_tl_result_failed` | The available TL result reports failed execution | TL progress field |
+| `temporal_native_result_refused` | The available native result reports refused execution | native progress field |
+| `temporal_tl_result_refused` | The available TL result reports refused execution | TL progress field |
+| `temporal_result_binding_mismatch` | An available result claims a stale or unequal correspondence, formula, trace, observation or semantic profile | first unequal binding field |
+| `temporal_result_identity_conflict` | Unequal available result content claims one producer-owned result identity | conflicting result identity and related candidate |
+| `temporal_progress_mismatch` | Available native and TL progress values cannot agree under the exact join table | progress fields |
+| `temporal_closure_mismatch` | Result progress is inconsistent with the immutable observation state | observation-state/progress field |
+| `temporal_supersession_invalid` | Direct predecessor is absent, self-referential, same-revision, wrong-subject or digest-inconsistent | predecessor field |
+| `temporal_projection_resource_exhausted` | Formula/correspondence allocation fails without a partial artifact | projection resource path |
+| `temporal_result_join_resource_exhausted` | Result-join allocation fails without a partial decision | result-join resource path |
+
 ## Application Guidance
 
 Public diagnostics contain a code, closed severity `error`, message, semantic
@@ -188,7 +251,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-019, FR-023, and FR-025 extend or consume this
+- **Downstream**: FR-013 through FR-019, FR-023, FR-025, and FR-026 extend or consume this
   semantic registry without renaming issue #6 codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.
