@@ -11,7 +11,7 @@ outputs: [validated semantic package or ordered diagnostics, dependency sets, ca
 invariants: [no validated value bypasses schema and semantic checks, every executable clause has an anchor, every partial operation has a proven definedness condition, orphaned artifacts never contribute covered status]
 failure_behaviors: [reject unsupported versions, reject malformed or ill-typed input, report potential undefined operations, report stale or missing references, fail the runner on expectation mismatch]
 version_pins:
-  rust: "1.75 minimum; stable toolchain recorded per candidate"
+  rust: "supported-rust-minimum=1.98.1; qualification-rust=1.98.1"
   serde: "exact Cargo.lock resolution"
   serde_json: "exact Cargo.lock resolution"
   sha2: "exact Cargo.lock resolution"

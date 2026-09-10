@@ -793,7 +793,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
 
     let mut deeply_nested = vec![b'['; 60_000];
     deeply_nested.push(b'0');
-    deeply_nested.extend(std::iter::repeat(b']').take(60_000));
+    deeply_nested.extend(std::iter::repeat_n(b']', 60_000));
     fs::write(controls.manifest(), &deeply_nested).unwrap();
     assert_eq!(
         error_code(&run_manifest(&controls.manifest())),
@@ -857,9 +857,9 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     let mut deeply_nested_package = String::from(
         r#"{"id":"agent-ix/depth","schema_version":{"major":1,"minor":1},"source":{"document":"depth","revision":1},"requirements":[],"ignored":"#,
     );
-    deeply_nested_package.extend(std::iter::repeat('[').take(2_048));
+    deeply_nested_package.extend(std::iter::repeat_n('[', 2_048));
     deeply_nested_package.push('0');
-    deeply_nested_package.extend(std::iter::repeat(']').take(2_048));
+    deeply_nested_package.extend(std::iter::repeat_n(']', 2_048));
     deeply_nested_package.push('}');
     let deep_decode = catch_unwind(|| {
         ContractPackage::from_json_str(&deeply_nested_package, ValidationOptions::strict())
