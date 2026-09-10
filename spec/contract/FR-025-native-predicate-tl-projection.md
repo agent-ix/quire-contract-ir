@@ -382,9 +382,10 @@ The closed projection-set cause dimensions, in required output order, shall be
 `predicate`, `population`, `catalog`, and `proposition-map`.
 
 The closed valuation cause dimensions, in required output order, shall be
-`correspondence`, `producer`, `observation`, `predicate-execution`, `anchor`,
-`capture`, `model`, `population`, `completeness`, `deciding-facts`, `result`,
-and `supersession`.
+`correspondence`, `availability-contract`, `source-result-contract`,
+`source-result-mapping`, `producer`, `observation`, `predicate-execution`,
+`anchor`, `capture`, `model`, `population`, `completeness`, `deciding-facts`,
+`result`, and `supersession`.
 
 Causes within one dimension shall sort by stable diagnostic code, rejected
 identity, presence of `raw_discriminator`, and raw UTF-8 discriminator bytes.
@@ -414,6 +415,12 @@ The bridge shall use the following closed STD-001 code allocation:
 | `predicate_catalog_rejected` | `catalog` | `refused` |
 | `predicate_map_rejected` | `proposition-map` | `refused` |
 | `predicate_catalog_map_mismatch` | `proposition-map` | `refused` |
+| `predicate_availability_contract_unsupported` | `availability-contract` | `unsupported` |
+| `predicate_availability_contract_unavailable` | `availability-contract` | `unavailable` |
+| `predicate_source_result_contract_unsupported` | `source-result-contract` | `unsupported` |
+| `predicate_source_result_contract_unavailable` | `source-result-contract` | `unavailable` |
+| `predicate_source_result_mapping_unsupported` | `source-result-mapping` | `unsupported` |
+| `predicate_source_result_mapping_unavailable` | `source-result-mapping` | `unavailable` |
 | `predicate_producer_unavailable` | `producer` | `unavailable` |
 | `predicate_result_not_yet_observed` | `observation` | `incomplete` |
 | `predicate_execution_unsupported` | `predicate-execution` | `unsupported` |
@@ -440,12 +447,14 @@ contract as `unavailable`, stale/mismatched semantic input or target-reader
 rejection as `refused`, and
 unequal content claiming one identity as `conflict`.
 
-The valuation decision shall classify an unknown producer/evaluation profile
-or source execution `unsupported` as `unsupported`, an absent producer/result
-contract as `unavailable`, stale/mismatched semantic input or refused source
-execution as `refused`, a contradicted deciding fact as `conflict`, incomplete
-deciding facts or resource-incomplete execution as
-`incomplete`, and failed source execution as `failed`.
+The valuation decision shall classify an unknown well-formed availability,
+source-result or mapping contract, producer/evaluation profile, or source
+execution `unsupported` as `unsupported`; an accepted but unreachable
+availability, source-result or mapping contract or absent producer as
+`unavailable`; stale/mismatched semantic input or refused source execution as
+`refused`; a contradicted deciding fact as `conflict`; incomplete deciding
+facts or resource-incomplete execution as `incomplete`; and failed source
+execution as `failed`.
 
 When causes from multiple decision kinds coexist, a projection-set decision shall select one kind by the precedence `conflict`, `refused`, `unsupported`,
 `unavailable`, `admitted`.
@@ -499,6 +508,8 @@ identity and bound validation, from the first matching row downward:
 |---|---|
 | a deciding fact is `contradicted` | `conflict`, no value |
 | stale/wrong semantic identity, impossible axis combination, or typed result not exact Boolean/equal truth | `refused`, no value |
+| selected availability, source-result or mapping contract is unknown but well formed | `unsupported`, no value; one exact contract-specific cause |
+| selected accepted availability, source-result or mapping contract or its public strict reader is unreachable | `unavailable`, no value; one exact contract-specific cause |
 | predicate execution `unsupported` or evaluation profile is unknown but well formed | `unsupported`, no value |
 | predicate execution `refused` | `refused`, no value |
 | predicate execution `failed` | `failed`, no value |
@@ -557,7 +568,7 @@ not one representative per row:
 | Definition identity | one accepted native checked-leaf/parent-subject/source/profile/model/typed-expression tuple | mutate every `PredicateRef` member independently; equal display text in another model, clause or inline `holds` leaf |
 | Population mapping | reordered selected population produces identical contiguous IDs, names, catalog/map bytes and `projection_set_ref` | zero, duplicate-equal, duplicate-conflicting, smaller valid selection, added member, 10,000 and 10,001 predicates; unequal proposition/signal populations, IDs or names; non-Boolean signal or non-bijective binding; issue #64 formula occurrence missing from the selected set |
 | Evaluation environment | exact anchor, invocation, immutable capture and observation produces a value | wrong or stale anchor/invocation/capture/model/population/observation identity; mutable capture substitution |
-| Completeness/support | missing, incomplete or contradicted fact outside completed support preserves value plus typed gap | the same mutation inside support removes the value; unavailable producer, unsupported/refused/failed/resource-incomplete execution and absent contract each retain their distinct non-value kind |
+| Completeness/support | missing, incomplete or contradicted fact outside completed support preserves value plus typed gap | the same mutation inside support removes the value; mutate availability, source-result and mapping selections independently through unknown-well-formed and accepted-unreachable controls; unavailable producer, unsupported/refused/failed/resource-incomplete execution and absent contract each retain their distinct non-value kind |
 | Revision/conflict | corrected result supplies an exact immutable predecessor, uses a successor revision and retains prior bytes | absent or digest-mismatched predecessor, self-reference, same-revision predecessor, or result replay against a changed subject are refused; a contradicted deciding fact conflicts; no claim of ambient graph validation |
 | Boundary purity | public strict TL readers accept the emitted catalog and map | private wire import, source parsing, evaluator callback, ambient lookup or unknown target/profile version |
 
@@ -568,7 +579,7 @@ not one representative per row:
 | FR-025-AC-1 | Every admitted predicate maps bijectively and deterministically to one Boolean signal and proposition in both target documents; input permutation preserves IDs, names, exact bytes and `projection_set_ref`, while omission/addition changes the selected-population identity. | Test (TC-038) |
 | FR-025-AC-2 | `PredicateRef` and every valuation bind the authority-verified checked leaf and parent native subject plus exact source/profile, clause/span, binding requirements, model/declaration/expression, anchor/invocation, capture, observation, completeness, deciding-fact and producer identities; each one-axis mutation prevents reuse. | Test (TC-038) |
 | FR-025-AC-3 | Only completed predicate execution with exact native truth and an equal Boolean typed value produces `valued(true)` or `valued(false)`; every non-Boolean kind, unavailable truth, non-completed execution, malformed or wrong-subject result exposes no Boolean and is never coerced. | Test (TC-038) |
-| FR-025-AC-4 | Resource-incomplete execution, not-yet-observed results or missing deciding facts yield `incomplete`; absent producers/contracts yield `unavailable`; unknown well-formed profiles/constructs yield `unsupported`; failed execution yields `failed`; refused, invalid or stale bindings yield `refused`; a contradicted deciding fact yields `conflict`; no non-valued kind exposes a TL valuation. | Test (TC-038) |
+| FR-025-AC-4 | Resource-incomplete execution, not-yet-observed results or missing deciding facts yield `incomplete`; an accepted-unreachable availability/source-result/mapping contract or absent producer yields `unavailable`; an unknown well-formed selection/profile/construct yields `unsupported`; failed execution yields `failed`; refused, invalid or stale bindings yield `refused`; a contradicted deciding fact yields `conflict`; every contract selection is mutated independently and no non-valued kind exposes a TL valuation. | Test (TC-038) |
 | FR-025-AC-5 | A missing, incomplete or contradicted fact outside an exact deciding-fact set preserves the settled Boolean plus its typed completeness gap, while the same mutation inside the set removes the Boolean and produces `incomplete` or `conflict` according to status. | Test (TC-038) |
 | FR-025-AC-6 | Valid predicate and deciding-fact populations at 10,000 and every constructible valid document at or below 67,108,864 bytes are admitted; 10,001 items or 67,108,865 input bytes, duplicate/conflicting identities, invalid supersession, non-Boolean signals, non-bijective bindings, allocation failure and target-reader rejection expose no partial catalog or map. | Test (TC-038) |
 | FR-025-AC-7 | Repeated equal inputs are structurally equal; a correction requires an exact immutable direct predecessor plus a distinct successor observation/result revision; self-reference, wrong-subject or same-revision predecessor is `refused`, a contradicted deciding fact is `conflict`, and every prior byte remains unchanged. | Test (TC-038) |
