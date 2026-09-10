@@ -19,7 +19,17 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-093
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-094
+    type: depends_on
   - target: ix://agent-ix/quire-specification/FR-095
+    type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-061
+    type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-110
+    type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-112
+    type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-113
     type: depends_on
   - target: ix://agent-ix/tl-syntax/FR-004
     type: depends_on
@@ -46,7 +56,8 @@ relationships:
 
 When an authority-verified native Quire temporal subject is selected for TL
 evaluation, Contract IR shall either construct one exact internal TL formula
-and correspondence or return a typed fail-closed decision without a formula.
+with its valuation set, trace, evaluator request and correspondence, or return
+a typed fail-closed decision without any usable evaluator artifact.
 
 Native Quire remains the sole editable formal-clause language. TL documents are
 derived internal representation and evaluator inputs. This bridge parses no TL
@@ -68,20 +79,34 @@ The bridge profile is
 - The exact admitted FR-025 projection decision bytes, its
   `projection_set_ref`, target signal-catalog/proposition-map selections, and
   one `PredicateRef`/`PropositionId` correspondence for every inline
-  `holds(expr)` occurrence in the temporal tree.
+  `holds(expr)` occurrence in the temporal tree. For every admitted observation
+  position and every proposition required by the formula, the exact admitted
+  FR-025 valued-decision bytes and `result_projection_ref`; any non-valued
+  decision remains a typed projection gap rather than an omitted false value.
 - Exact `ContractSelection` values for `tl-syntax.formula/v1`, the selected TL
-  semantic profile, and the public tl-mltl evaluator/report contract.
+  semantic profile, `tl-mltl.trace/v1`, `tl-mltl.command/v1`, and the public
+  tl-mltl evaluator/report contract.
 - Exact clock and observation `ContractSelection` values; authority-verified
   clock-binding and observation bytes; observation identity, revision and
   digest;
-  activation identity; immutable capture-environment identity; and observation
-  state `open`, `closed-complete` or `closed-incomplete`.
+  activation identity and state `active`, `inactive` or `unknown`; immutable
+  capture-environment identity; and observation state `open`, `closed-complete`
+  or `closed-incomplete`.
 - For result joining, an exact result-availability contract selection and
   authority-verified assertion bytes, identity, revision and digest; exact
   native-result and TL-result contract selections; and, for each result that
   assertion classifies `available`, immutable result bytes, producer-owned
   identity, revision and digest plus the exact trace identity and
-  correspondence reference it claims.
+  correspondence reference it claims; and, when either result names a direct
+  predecessor, that predecessor's immutable bytes, identity, revision and
+  digest. The exact authority-owned progress and completeness assertion bytes
+  named by each available result, together with their embedded immutable
+  contract selections, are also supplied and validated through those selected
+  public readers. Each available result's selected public
+  view supplies assessment execution, independent decision-scope and
+  surrounding-execution progress/closure, truth, settlement basis, exact
+  decision support, completeness and direct predecessor identity; none is
+  inferred from the Boolean value or file position.
 
 Each `ContractSelection` uses the exact five-string FR-025 shape `contract`,
 `package_version`, `repository`, immutable `revision`, and lowercase 64-hex
@@ -89,20 +114,22 @@ Each `ContractSelection` uses the exact five-string FR-025 shape `contract`,
 wire type is not an accepted selection.
 
 Each supplied or generated document contains at most 67,108,864 bytes and
-semantic depth 256. The native temporal tree and node-correspondence array each
-contain at most 10,000 entries. Every interval satisfies
+semantic depth 256. Each native temporal tree, node-correspondence array,
+observation-position array, valuation-set array and decision-support array
+contains at most 10,000 entries. Every interval satisfies
 `0 <= lower <= upper <= 4294967295`; the upper bound is the TL `u32::MAX`, not
 an unbounded sentinel.
 
 ## Outputs
 
 - A `TemporalProjectionDecision` with kind `admitted`, `incomplete`,
-  `unavailable`, `unsupported`, `refused` or `conflict`.
+  `unavailable`, `unsupported`, `failed`, `refused` or `conflict`.
 - An admitted decision contains the exact derived formula document and bytes,
-  `formula_ref`, ordered node correspondences, `correspondence_ref`, and no
-  causes. Every other kind contains no formula, formula reference, node
-  correspondence or usable evaluator request and has a nonempty ordered cause
-  set.
+  `formula_ref`, ordered node correspondences, complete valuation-set identity,
+  exact TL trace and evaluator-request documents and identities,
+  `correspondence_ref`, and no causes. Every other kind contains none of those
+  admitted-only fields or a usable evaluator request and has a nonempty ordered
+  cause set.
 - A `TemporalResultJoinDecision` for an admitted correspondence with kind
   `agreement`, `incomplete`, `unavailable`, `unsupported`, `failed`, `refused`
   or `conflict`.
@@ -115,23 +142,42 @@ qualification claim, accreditation statement or release decision.
 
 ## Public v1 records
 
-Every `TemporalProjectionDecision` contains exactly `format`, `kind`,
-`bridge_contract`, `native_contract`, `native_subject_ref`,
-`native_subject_revision`, `native_subject_digest`,
-`predicate_projection_contract`, `projection_set_ref`, `clock_contract`,
-`clock_ref`, `observation_contract`, `observation_ref`,
-`observation_revision`, `observation_digest`, `observation_state`,
-`activation_ref`, `capture_ref`,
-`target_formula_contract`,
-`target_semantic_contract`, `target_evaluator_contract`, and `causes`.
+Every `TemporalProjectionDecision` contains exactly the base fields `format`,
+`kind`, `bridge_contract`, `native_contract`,
+`predicate_projection_contract`, `clock_contract`, `observation_contract`,
+`target_formula_contract`, `target_semantic_contract`,
+`target_trace_contract`, `target_request_contract`,
+`target_evaluator_contract`, and `causes`.
 `format` is `quire.contract.native-temporal-projection-decision/v1`.
 `bridge_contract` is the literal bridge profile from the Description; every
 other field ending in `_contract` is its exact `ContractSelection` input.
 
+A projection contract-admission-failure shape has kind `unsupported`,
+`unavailable` or `conflict`, contains exactly the base fields, and has causes
+only in `native-contract`, `predicate-projection-contract`, `clock-contract`,
+`observation-contract`, `formula-contract`, `semantic-contract`,
+`trace-contract`, `request-contract` or `evaluator-contract`. It omits all
+subject, observation, valuation and generated fields because an unadmitted
+reader cannot authenticate them.
+
+Every post-contract-admission projection additionally contains exactly
+`native_subject_ref`, `native_subject_revision`, `native_subject_digest`,
+`projection_set_ref`, `clock_ref`, `observation_ref`, `observation_revision`,
+`observation_digest`, `observation_state`, `activation_ref`, `activation_state`,
+and `capture_ref`. Only `active` can be admitted; `unknown` is incomplete and a
+request to evaluate an authoritatively `inactive` scope is refused without a
+formula or trace.
+
+Native-subject and observation revisions are positive u64. Their digests are
+lowercase SHA-256 over the exact bytes accepted by their selected strict
+readers.
+
 An admitted projection additionally contains exactly `formula_document`,
-`formula_ref`, `node_correspondences`, and `correspondence_ref`. Every
-non-admitted projection omits those four members and uses only the projection
-cause dimensions allocated below.
+`formula_ref`, `node_correspondences`, `valuation_set_ref`, `trace_document`,
+`trace_ref`, `evaluator_request_document`, `evaluator_request_ref`, and
+`correspondence_ref`. Every other post-contract-admission projection omits
+those nine members and uses only the projection cause dimensions allocated
+below.
 
 Each node correspondence contains exactly `native_node_ref`,
 `native_expression_span`, `tl_node_id`, and `predicate_ref`.
@@ -141,7 +187,8 @@ offsets in this correspondence. Generated TL nodes omit their optional u32
 diagnostic span; truncating or re-parenting a native span is forbidden.
 
 Every `TemporalResultJoinDecision` contains exactly the base fields `format`,
-`kind`, `correspondence_ref`, `formula_ref`, `trace_ref`, `observation_ref`,
+`kind`, `correspondence_ref`, `formula_ref`, `trace_ref`,
+`evaluator_request_ref`, `observation_ref`,
 `observation_contract`, `observation_revision`, `observation_digest`,
 `observation_state`,
 `availability_contract`,
@@ -168,37 +215,72 @@ contains only the base and post-contract-admission fields. It does not
 fabricate a result identity, progress value or Boolean.
 
 When both results are available, the decision additionally contains exactly
-`native_result_ref`, `native_result_revision`, `native_result_digest`,
-`tl_result_ref`, `tl_result_revision`, `tl_result_digest`, `native_progress`,
-and `tl_progress`. Result references are producer-owned nonempty identities,
-revisions are positive u64, and digests are lowercase SHA-256 over the exact
-supplied bytes. The selected public readers shall validate those bytes before
-the result-bearing decision is constructed.
+the following fields for each prefix `native` and `tl`:
+`<prefix>_result_ref`, `<prefix>_result_revision`,
+`<prefix>_result_digest`, `<prefix>_assessment_execution`,
+`<prefix>_decision_scope_progress_ref`,
+`<prefix>_decision_scope_progress_revision`,
+`<prefix>_decision_scope_progress_digest`,
+`<prefix>_decision_scope_closure`, `<prefix>_execution_progress_ref`,
+`<prefix>_execution_progress_revision`, `<prefix>_execution_progress_digest`,
+`<prefix>_execution_closure`,
+`<prefix>_truth`, `<prefix>_settlement_basis`,
+`<prefix>_decision_support_refs`, `<prefix>_completeness_ref`,
+`<prefix>_completeness_revision`, `<prefix>_completeness_digest`,
+`<prefix>_completeness`, and `<prefix>_prior_result_ref`.
 
-The closed progress values are `final-true`, `final-false`, `pending`,
-`incomplete`, `failed`, and `refused`. The closed comparison
-values are `equal-final`, `equal-pending`, `not-compared`, and `mismatch`.
+Result, progress and completeness references are producer-owned nonempty
+identities; revisions are positive u64; their digests are lowercase SHA-256
+over the exact supplied bytes. A prior-result reference is either empty or a
+nonempty identity.
+Decision-support arrays are sorted, distinct, contain at most 10,000 nonempty
+identities and name only facts admitted through the correspondence. The
+selected public readers shall validate the exact result bytes before the
+result-bearing decision is constructed.
+
+The closed assessment-execution values are `completed`,
+`resource-incomplete`, `unsupported`, `failed`, and `refused`. The closed
+closure values are `open`, `closed-complete`, and `closed-incomplete`. The
+closed truth values are `true`, `false`, `pending`, and `unavailable`. The
+closed settlement bases are `closed-scope`, `decisive-witness`,
+`decisive-counterexample`, `unsettled`, and `unavailable`. The closed
+completeness values are `complete`, `incomplete`, and `contradicted`. These
+axes are independent fields and shall not be derived from each other. The
+closed comparison values are `equal-final`, `equal-pending`, `not-compared`,
+and `mismatch`.
 Only `agreement` with `equal-final` additionally contains exactly one JSON
 Boolean `value`. Every other shape omits `value`.
+
+A `completed` assessment with final truth shall carry `closed-scope`,
+`decisive-witness` or `decisive-counterexample` under the rules below. A
+`completed` assessment with `pending` shall carry `unsettled` on an open
+decision scope. Any non-completed assessment shall carry truth `unavailable`
+and settlement basis `unavailable`. Contradicted completeness is never a
+healthy completed view. Any other execution/truth/settlement/closure
+combination is internally invalid and is refused before producer comparison.
 
 Each cause contains exactly `dimension`, `code`, and `rejected_ref`, plus
 `raw_discriminator` only for an unknown well-formed selection or profile.
 The closed projection dimensions, in output order, are `native-contract`,
-`native-subject`, `predicate-projection`, `temporal-profile`, `operator`,
-`interval`, `clock`, `observation-contract`, `observation`, `activation`, `capture`,
-`formula-contract`, `semantic-contract`, `evaluator-contract`, and `formula`.
+`predicate-projection-contract`, `clock-contract`, `observation-contract`,
+`formula-contract`, `semantic-contract`, `trace-contract`, `request-contract`,
+`evaluator-contract`, `native-subject`, `predicate-projection`,
+`temporal-profile`, `operator`, `interval`, `clock`, `observation`, `activation`,
+`capture`, `formula`, `trace`, and `request`.
 The closed result-join dimensions, in output order, are
-`availability-contract`, `native-result-contract`, `tl-result-contract`,
-`native-result`, `tl-result`, `correspondence`, `formula`, `trace`,
-`observation`, `semantic-profile`, `progress`, `closure`, and `supersession`.
+`availability-contract`, `availability`, `native-result-contract`,
+`tl-result-contract`, `native-result`, `tl-result`, `correspondence`, `formula`,
+`trace`, `request`, `observation`, `semantic-profile`, `progress`, `closure`,
+and `supersession`.
 A projection shall not contain a result-join-only cause and a result join shall
 not contain a projection-only cause. Causes sort by their applicable closed
 dimension order, then code, rejected identity, presence of
-`raw_discriminator`, and raw UTF-8 discriminator bytes. Unknown well-formed semantic domains are
+`raw_discriminator`, and raw UTF-8 discriminator bytes. Unknown well-formed
+semantic domains are
 `unsupported`; accepted but unreachable contracts are `unavailable`; missing
 runtime observations/history are `incomplete`; stale or mismatched identities
-in an otherwise validly shaped document are `refused`; unequal content claiming one identity or unequal
-conclusive native/TL results are `conflict`.
+in an otherwise validly shaped document are `refused`; unequal content claiming
+one identity or unequal conclusive native/TL results are `conflict`.
 
 Identity, profile and present rejected-reference strings contain 1 through
 1,024 UTF-8 bytes; absence of a rejected identity is the empty
@@ -219,20 +301,28 @@ The bridge shall use this closed STD-001 cause allocation:
 | `temporal_native_contract_conflict` | `native-contract` | `conflict` |
 | `temporal_subject_mismatch` | `native-subject` | `refused` |
 | `temporal_predicate_projection_incomplete` | `predicate-projection` | `incomplete` |
-| `temporal_predicate_projection_unsupported` | `predicate-projection` | `unsupported` |
+| `temporal_predicate_projection_contract_unsupported` | `predicate-projection-contract` | `unsupported` |
+| `temporal_predicate_projection_contract_unavailable` | `predicate-projection-contract` | `unavailable` |
 | `temporal_predicate_projection_unavailable` | `predicate-projection` | `unavailable` |
+| `temporal_predicate_projection_unsupported` | `predicate-projection` | `unsupported` |
+| `temporal_predicate_projection_failed` | `predicate-projection` | `failed` |
+| `temporal_predicate_projection_refused` | `predicate-projection` | `refused` |
+| `temporal_predicate_projection_conflict` | `predicate-projection` | `conflict` |
 | `temporal_predicate_projection_mismatch` | `predicate-projection` | `refused` |
 | `temporal_profile_unsupported` | `temporal-profile` | `unsupported` |
 | `temporal_operator_unsupported` | `operator` | `unsupported` |
 | `temporal_interval_invalid` | `interval` | `refused` |
 | `temporal_clock_incomplete` | `clock` | `incomplete` |
-| `temporal_clock_contract_unsupported` | `clock` | `unsupported` |
+| `temporal_clock_contract_unsupported` | `clock-contract` | `unsupported` |
+| `temporal_clock_contract_unavailable` | `clock-contract` | `unavailable` |
 | `temporal_clock_unavailable` | `clock` | `unavailable` |
 | `temporal_clock_mismatch` | `clock` | `refused` |
 | `temporal_observation_incomplete` | `observation` | `incomplete` |
 | `temporal_observation_contract_unsupported` | `observation-contract` | `unsupported` |
 | `temporal_observation_contract_unavailable` | `observation-contract` | `unavailable` |
 | `temporal_observation_mismatch` | `observation` | `refused` |
+| `temporal_activation_incomplete` | `activation` | `incomplete` |
+| `temporal_activation_inactive` | `activation` | `refused` |
 | `temporal_activation_mismatch` | `activation` | `refused` |
 | `temporal_capture_incomplete` | `capture` | `incomplete` |
 | `temporal_capture_mismatch` | `capture` | `refused` |
@@ -242,10 +332,18 @@ The bridge shall use this closed STD-001 cause allocation:
 | `temporal_semantic_contract_unavailable` | `semantic-contract` | `unavailable` |
 | `temporal_evaluator_contract_unsupported` | `evaluator-contract` | `unsupported` |
 | `temporal_evaluator_contract_unavailable` | `evaluator-contract` | `unavailable` |
+| `temporal_trace_contract_unsupported` | `trace-contract` | `unsupported` |
+| `temporal_trace_contract_unavailable` | `trace-contract` | `unavailable` |
+| `temporal_request_contract_unsupported` | `request-contract` | `unsupported` |
+| `temporal_request_contract_unavailable` | `request-contract` | `unavailable` |
 | `temporal_formula_rejected` | `formula` | `refused` |
-| `temporal_identity_conflict` | `formula` | `conflict` |
+| `temporal_trace_rejected` | `trace` | `refused` |
+| `temporal_request_rejected` | `request` | `refused` |
+| `temporal_identity_conflict` | `native-subject`, `clock`, `observation`, `formula`, `trace` or `request` | `conflict` |
 | `temporal_availability_contract_unsupported` | `availability-contract` | `unsupported` |
 | `temporal_availability_contract_unavailable` | `availability-contract` | `unavailable` |
+| `temporal_availability_assertion_mismatch` | `availability` | `refused` |
+| `temporal_availability_assertion_conflict` | `availability` | `conflict` |
 | `temporal_native_result_contract_unsupported` | `native-result-contract` | `unsupported` |
 | `temporal_native_result_contract_unavailable` | `native-result-contract` | `unavailable` |
 | `temporal_tl_result_contract_unsupported` | `tl-result-contract` | `unsupported` |
@@ -254,11 +352,15 @@ The bridge shall use this closed STD-001 cause allocation:
 | `temporal_tl_result_unavailable` | `tl-result` | `unavailable` |
 | `temporal_native_result_incomplete` | `native-result` | `incomplete` |
 | `temporal_tl_result_incomplete` | `tl-result` | `incomplete` |
+| `temporal_native_result_unsupported` | `native-result` | `unsupported` |
+| `temporal_tl_result_unsupported` | `tl-result` | `unsupported` |
 | `temporal_native_result_failed` | `native-result` | `failed` |
 | `temporal_tl_result_failed` | `tl-result` | `failed` |
 | `temporal_native_result_refused` | `native-result` | `refused` |
 | `temporal_tl_result_refused` | `tl-result` | `refused` |
-| `temporal_result_binding_mismatch` | `correspondence`, `formula`, `trace`, `observation` or `semantic-profile` | `refused` |
+| `temporal_native_result_contradicted` | `native-result` | `conflict` |
+| `temporal_tl_result_contradicted` | `tl-result` | `conflict` |
+| `temporal_result_binding_mismatch` | `correspondence`, `formula`, `trace`, `request`, `observation` or `semantic-profile` | `refused` |
 | `temporal_result_identity_conflict` | `native-result` or `tl-result` | `conflict` |
 | `temporal_progress_mismatch` | `progress` | `conflict` |
 | `temporal_closure_mismatch` | `closure` | `refused` |
@@ -272,7 +374,7 @@ unadmitted availability or result reader yields a base-only `unsupported` or
 `unavailable` join without trusting assertion/result fields. After admission,
 every post-contract-admission join contains the verified assertion fields.
 
-Projection kind precedence is `conflict`, `refused`, `unsupported`,
+Projection kind precedence is `conflict`, `refused`, `failed`, `unsupported`,
 `unavailable`, `incomplete`, `admitted`. Result-join kind precedence is
 `conflict`, `refused`, `failed`, `unsupported`, `unavailable`, `incomplete`,
 `agreement`. Each decision retains every cause at its selected or lower
@@ -329,7 +431,7 @@ is the `formula_ref` construction above, not a digest of displayed prose.
 
 Closed-trace `eventually[1,2]` over proposition 7 is 202 UTF-8 bytes and has
 `formula_ref`
-`f408207cf312e5c387741885e343381f16c9b29bfa4c2a02f58632ffad17a861`:
+`f83fe8b808deb9a8a4af8ece6f2bc51f2fe3d6b5e10e1270f5fda189dcc456b3`:
 
 ```json
 {"nodes":[{"kind":"proposition","proposition":7},{"interval":{"end":2,"start":1},"kind":"future","operand":0}],"root":1,"schema_version":"tl-syntax.formula/v1","semantic_profile":"mltl.closed-trace/v1"}
@@ -337,7 +439,7 @@ Closed-trace `eventually[1,2]` over proposition 7 is 202 UTF-8 bytes and has
 
 Changing only that formula's semantic profile to online-prefix produces 203
 UTF-8 bytes and `formula_ref`
-`6f894f388c80dc2e54ee29c8ff833bc017efc502aa1bf2d7bcfc87c8ad35df5c`:
+`41c91a141defa84acd1964ac0204603baf06d8a8b0aa5a28c41deeb08ec56465`:
 
 ```json
 {"nodes":[{"kind":"proposition","proposition":7},{"interval":{"end":2,"start":1},"kind":"future","operand":0}],"root":1,"schema_version":"tl-syntax.formula/v1","semantic_profile":"mltl.online-prefix/v1"}
@@ -345,20 +447,68 @@ UTF-8 bytes and `formula_ref`
 
 Closed-trace proposition 7 `until[1,2]` proposition 8 is 247 UTF-8 bytes and
 has `formula_ref`
-`a8f2b5894964123635284ac0d87c0e831439dcd7a60be87947237576dc08544e`:
+`a73f37d68c56854b8ea87b56e33407cf63da20b02aea568d0e98ef55c2346132`:
 
 ```json
 {"nodes":[{"kind":"proposition","proposition":7},{"kind":"proposition","proposition":8},{"interval":{"end":2,"start":1},"kind":"until","left":0,"right":1}],"root":2,"schema_version":"tl-syntax.formula/v1","semantic_profile":"mltl.closed-trace/v1"}
 ```
 
-The canonical correspondence tuple contains exactly `activation_ref`,
+## Valuation, trace and evaluator request
+
+After formula construction, the bridge shall verify a complete rectangular
+valuation population: exactly one admitted FR-025 `valued` decision for every
+ordered observation position and every proposition occurring in the formula.
+It shall reject a duplicate, missing, foreign-observation, wrong-revision,
+wrong-predicate or wrong-proposition cell. Unused FR-025 projection
+correspondences require no valuation cell and do not enter the TL trace.
+Position zero is the native temporal evaluation/activation anchor; later
+positions follow the exact event or sample order selected by `clock_ref`.
+Pre-anchor history does not enter this future-only request.
+
+The canonical valuation-set array sorts first by zero-based position and then
+by numeric `proposition_id`. Each element contains exactly `position`,
+`position_ref`, `predicate_ref`, `proposition_id`, `result_projection_ref`, and
+JSON Boolean `value`. `position_ref` is the exact observation-authority
+identity for that position. `valuation_set_ref` is lowercase SHA-256 over
+`quire-contract-ir`, one zero byte,
+`quire.contract.native-temporal-valuation-set/v1`, one zero byte, and the
+compact FR-016 canonical JSON array bytes.
+
+The bridge shall construct one exact selected `tl-mltl.trace/v1` document. Its
+public fields are `schemaVersion`, `traceId`, `closed`, and `instants`.
+`schemaVersion` is `tl-mltl.trace/v1`; `traceId` is the exact
+`observation_ref`; `closed` is false for `open` and true for
+`closed-complete`; and `instants[i]` is the ascending array of exactly those
+formula proposition IDs whose complete valuation-set cell at position `i` is
+true. A false proposition is omitted only after its explicit false cell has
+been verified. The TL evaluator verdict time is exactly zero. A
+`closed-incomplete` observation yields no trace.
+
+The selected trace public strict reader shall accept the generated bytes.
+`trace_ref` is lowercase SHA-256 over `quire-contract-ir`, one zero byte,
+`quire.contract.tl-trace-artifact/v1`, one zero byte, and the compact FR-016
+canonical trace bytes.
+
+The bridge shall then construct one exact selected `tl-mltl.command/v1`
+evaluation request with public fields `schemaVersion`, `operation`,
+`formulaId`, `formula`, and `trace`. Their values are respectively
+`tl-mltl.command/v1`, `evaluate`, `formula_ref`, the exact formula document,
+and the exact trace document. No analyze, mapping or ambient CLI option is
+admitted. The selected request public strict reader shall accept the generated
+bytes. `evaluator_request_ref` uses the same digest construction with domain
+`quire.contract.tl-evaluator-request-artifact/v1` and the compact FR-016
+canonical request bytes.
+
+The canonical correspondence tuple contains exactly `activation_ref`, `activation_state`,
 `bridge_contract`, `capture_ref`, `clock_contract`, `clock_ref`, `formula_ref`,
+`evaluator_request_ref`,
 `native_contract`, `native_subject_ref`, `native_subject_revision`,
 `native_subject_digest`, `observation_contract`, `observation_ref`,
 `observation_revision`, `observation_digest`, `observation_state`,
 `predicate_projection_contract`,
 `projection_set_ref`, `target_evaluator_contract`, `target_formula_contract`,
-and `target_semantic_contract`. It uses compact FR-016 canonical JSON and the
+`target_request_contract`, `target_semantic_contract`, `target_trace_contract`,
+`trace_ref`, and `valuation_set_ref`. It uses compact FR-016 canonical JSON and the
 same digest construction with profile
 `quire.contract.native-temporal-correspondence-ref/v1`.
 
@@ -401,11 +551,21 @@ it shall not call the semantic domain `unsupported`.
 ## Progress, closure and result joining
 
 When observation state is `open`, the bridge shall admit only an online-prefix
-request. A native or TL result may be final early only if every permitted
-continuation preserves it; otherwise its progress is `pending`.
+request. A result may carry final truth while its decision scope remains open
+only with `decisive-witness` for true or `decisive-counterexample` for false,
+an exact complete decision-support set, and the selected profile's proof that
+every admitted continuation preserves it. Otherwise an open decision scope has
+truth `pending` and settlement basis `unsettled`.
+A decision scope independently proven `closed-complete` by its exact progress
+authority may instead settle with `closed-scope` while the surrounding
+observation/execution remains open; this does not change the request's
+online-prefix profile or close the surrounding axis.
 
 When observation state is `closed-complete`, the bridge shall admit only a
-closed-trace request and shall refuse a `pending` result as inconsistent.
+closed-trace request. Its decision scope is `closed-complete`; a final truth
+uses settlement basis `closed-scope`. A `pending` truth or `unsettled` basis in
+that internally closed result is refused rather than compared with the other
+producer.
 
 When observation state is `closed-incomplete`, the bridge shall emit no
 evaluator request and shall return `incomplete` even if a target evaluator
@@ -414,27 +574,46 @@ could manufacture a Boolean by false extension.
 When both result documents are available, the bridge shall verify them with
 their selected public strict readers before constructing a result-bearing join
 decision. Each available result shall bind the exact
-`correspondence_ref`, `formula_ref`, `trace_ref`, observation identity/revision
-and semantic profile. The bridge shall preserve producer-owned result identities
-and shall not restamp either result.
+`correspondence_ref`, `formula_ref`, `trace_ref`, `evaluator_request_ref`,
+observation identity/revision/digest, verdict time zero and semantic profile.
+The bridge shall preserve producer-owned result identities and shall not
+restamp either result.
+
+For a healthy comparison, both normalized result views shall bind the same
+decision-scope and surrounding-execution progress identities/revisions,
+closure values, settlement basis, canonical decision-support identities,
+completeness identity/state, and admitted observation facts. The two closure
+axes remain independent: a completed decision scope does not close the
+surrounding execution. Global completeness may remain `incomplete` without
+removing a final truth only when every fact in the exact decision-support set
+is complete; the gap remains in both result views and any downstream adequacy
+decision.
 
 The result join mapping is exact:
 
 | Verified state | Required join |
 |---|---|
-| open; both progress values are the same final Boolean | `agreement` / `equal-final` with that Boolean |
-| open; both are `pending` | `agreement` / `equal-pending`, no Boolean |
-| closed-complete; both are the same final Boolean | `agreement` / `equal-final` with that Boolean |
-| either available result reports `incomplete` | `incomplete` / `not-compared`, no Boolean |
+| both completed views carry the same final truth and the same valid `closed-scope` or matching decisive settlement/support premises | `agreement` / `equal-final` with that Boolean and empty causes |
+| both completed views carry `pending` on an open decision scope with `unsettled` basis and equal progress/completeness premises | `agreement` / `equal-pending`, no Boolean and empty causes |
 | either required result/producer is unavailable | `unavailable` / `not-compared`, no Boolean |
-| either execution failed | `failed` / `not-compared`, no Boolean |
-| either execution reports `refused`, or a validly shaped result is stale, wrong-profile or wrong-subject | `refused` / `not-compared`, no Boolean |
-| unequal final Booleans, final versus pending, or unequal content claiming one identity | `conflict` / `mismatch`, no Boolean |
+| either assessment execution is `unsupported` | `unsupported` / `not-compared`, no Boolean |
+| either assessment execution is `resource-incomplete`, or truth is unavailable because its exact decision support is incomplete | `incomplete` / `not-compared`, no Boolean |
+| either assessment execution is `failed` | `failed` / `not-compared`, no Boolean |
+| either assessment execution is `refused`; a validly shaped result is stale, wrong-profile or wrong-subject; or an internal truth/settlement/closure combination is invalid, including closed-complete plus pending | `refused` / `not-compared`, no Boolean |
+| either result reports contradicted completeness/progress/closure, unequal content claims one result identity, or two otherwise valid views disagree on final truth, open final-versus-pending, progress, either closure axis, settlement, support or completeness | `conflict` / `mismatch`, no Boolean |
 
-Late data may supersede an open observation/result under a new revision and
-direct-predecessor identity. It shall not rewrite immutable prior bytes or a
-closed observation. Global result-graph validation remains with the result
-authority; this pure join validates only the supplied direct predecessor.
+Every non-agreement join has a nonempty cause set from its exact allocated
+dimensions. A structurally invalid result fails its selected strict reader and
+returns `invalid_native_temporal_bridge` before any join decision; it is not a
+typed semantic disagreement.
+
+Late data may supersede an open observation/result under a new observation and
+result revision plus an exact same-producer direct-predecessor identity. The
+bridge shall validate the supplied predecessor bytes, identity, digest,
+subject, producer and strictly earlier revision before accepting that edge. It
+shall not rewrite immutable prior bytes or a closed observation. Global
+result-graph validation remains with the result authority; this pure join
+validates only each supplied direct predecessor.
 
 The bridge shall operate only on supplied validated immutable values. It shall
 not parse native or TL text, evaluate a predicate or temporal formula, read
@@ -446,12 +625,17 @@ Java, Node, Electron or new Python semantic path.
 - FR-025 supplies the admitted predicate/signal/proposition population and is a
   hard prerequisite. A hardcoded proposition, Boolean default or formula-text
   name is forbidden while that projection is unavailable.
-- `agent-ix/quire-specification#15` must publish accepted FR-048/090/091/093/095
-  definitions plus a public source-bound temporal-subject reader and native
-  result contract. The current draft is not an accepted implementation input.
-- The exact tl-syntax formula schema/reader and tl-mltl evaluator/report contract
-  must be selected by immutable revisions and public schema digests. A Rust
-  implementation type without a published contract does not satisfy admission.
+- `agent-ix/quire-specification#15` must publish accepted
+  FR-048/061/090/091/093/094/095/110/112/113 definitions plus public
+  source-bound temporal-subject, clock/observation/progress/completeness,
+  result-availability and native-result contracts and strict readers. The
+  current draft is not an accepted implementation input.
+- Exact public tl-syntax formula/semantic contracts and tl-mltl
+  trace/evaluator-request/evaluator-report contracts and strict readers must be
+  selected by immutable revisions and public schema digests. The selected
+  result view must expose the independent axes required above. A Rust type,
+  branch head or copied schema without a published contract does not satisfy
+  admission.
 - FR-012 supplies local clause/source identities. FR-023 remains the separate
   whole-clause common-expression projection and is not the temporal-tree source.
 - Issue #52 owns native integration coordination. Issue #57 consumes this
@@ -464,11 +648,11 @@ Java, Node, Electron or new Python semantic path.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-026-AC-1 | Left-to-right postorder construction maps every native future-core node occurrence to the exact primitive TL node, assigns contiguous operand-before-consumer IDs without deduplication, binds every `holds(expr)` to its FR-025 proposition, and passes the selected public formula reader. | Test (TC-039) |
-| FR-026-AC-2 | Exact formula bytes and `formula_ref` change for every semantic tree/profile/proposition mutation but not for source-only display changes; `correspondence_ref` additionally changes for every source, subject, predicate projection, clock, observation, activation, capture or target-contract mutation. | Test (TC-039) |
+| FR-026-AC-1 | Left-to-right postorder construction maps every native future-core node occurrence to the exact primitive TL node, assigns contiguous operand-before-consumer IDs without deduplication, binds every `holds(expr)` to its FR-025 proposition, constructs a complete per-position valuation set and exact TL trace/evaluation request, and passes every selected public reader. | Test (TC-039) |
+| FR-026-AC-2 | Exact formula bytes and `formula_ref` change for every semantic tree/profile/proposition mutation but not for source-only display changes; valuation, trace and request identities change for their exact input mutations; `correspondence_ref` additionally changes for every source, subject, predicate projection/value, clock, observation, activation, capture or target-contract mutation. | Test (TC-039) |
 | FR-026-AC-3 | Event-position and exact fixed-sample false-extension requests admit only their matching open-prefix or closed-complete target; timestamped finite-window, past/mixed time, unknown profiles and a changed until lower-bound convention return `unsupported` with no formula. | Test (TC-039) |
 | FR-026-AC-4 | Every interval at `0 <= a <= b <= u32::MAX`, including zero width and `u32::MAX`, preserves inclusive bounds; negative, fractional, inverted, unbounded or larger bounds refuse before construction without partial nodes. | Test (TC-039) |
-| FR-026-AC-5 | Open, closed-complete and closed-incomplete remain distinct from native/TL progress and result kind: equal early-final and equal-pending pairs agree as specified, closed-complete pending refuses, runtime gaps are incomplete/unavailable rather than unsupported, and no non-final join exposes a Boolean. | Test (TC-039) |
-| FR-026-AC-6 | Both real result readers reject stale formula/correspondence/trace/observation/profile identities; equal final results agree, final/pending or Boolean disagreement conflicts, failure remains failed, and direct supersession preserves prior bytes without claiming global graph validation. | Test (TC-039) |
+| FR-026-AC-5 | Observation state, assessment execution, decision-scope progress/closure, surrounding-execution progress/closure, truth, settlement basis, deciding-fact identities, completeness and join kind remain independently encoded: valid equal settled and pending pairs agree, closed-complete pending refuses, runtime gaps are incomplete/unavailable rather than unsupported, and no non-final join exposes a Boolean. | Test (TC-039) |
+| FR-026-AC-6 | Both real result readers reject stale formula/correspondence/trace/request/observation/profile identities and impossible axis combinations; equal final results with equal valid settlement and deciding-fact premises agree, open final/pending or Boolean/axis disagreement conflicts, unsupported/incomplete/failed/refused/contradicted execution retains its distinct kind, and each same-producer direct supersession validates its supplied predecessor while preserving prior bytes without claiming global graph validation. | Test (TC-039) |
 | FR-026-AC-7 | A one-position `always[0,1] p` vector and `p until[1,2] q` lower-bound vector distinguish finite-window and wrong-until semantics from the admitted false-extension profiles. | Test (TC-039) |
-| FR-026-AC-8 | Missing leaf mappings, duplicate/non-tree nodes, target-reader rejection, count/depth/byte/allocation failure, unaccepted contracts and every closed-dimension mismatch return a deterministic non-admitted decision or operation diagnostic with no partial formula, parser/evaluator invocation or alternate authored TL/FRETish surface; unused FR-025 correspondences remain harmless but still change `projection_set_ref` and correspondence identity. | Test (TC-039) |
+| FR-026-AC-8 | Missing leaf/position valuations, duplicate/non-tree nodes, target formula/trace/request/result-reader rejection, count/depth/byte/allocation failure, unaccepted contracts and every closed-dimension mismatch return a deterministic non-admitted decision or operation diagnostic with no partial artifact, parser/evaluator invocation or alternate authored TL/FRETish surface; unused FR-025 correspondences remain harmless but still change `projection_set_ref` and correspondence identity. | Test (TC-039) |
