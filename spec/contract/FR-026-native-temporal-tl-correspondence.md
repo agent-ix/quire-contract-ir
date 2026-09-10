@@ -221,8 +221,24 @@ When either result availability is `unavailable`, the decision kind is
 contains only the base and post-contract-admission fields. It does not
 fabricate a result identity, progress value or Boolean.
 
-When both results are available, the decision additionally contains exactly
-the following fields for each prefix `native` and `tl`:
+When both results are available and their selected outer result readers accept
+the exact bytes, but any embedded progress or completeness contract is
+unsupported, unavailable or conflicting, an embedded-contract-admission-failure
+shape additionally contains exactly `<prefix>_result_ref`,
+`<prefix>_result_revision`, `<prefix>_result_digest`,
+`<prefix>_decision_scope_progress_contract`,
+`<prefix>_execution_progress_contract`, and
+`<prefix>_completeness_contract` for each prefix `native` and `tl`. These are
+the outer-reader-authenticated identity and selection claims. The decision
+kind is the precedence-selected embedded contract failure, comparison is
+`not-compared`, causes are nonempty only in `progress` or `completeness`, and
+the shape omits every progress/completeness assertion identity or state,
+closure, truth, settlement, support, correction field and Boolean because its
+owning reader was not admitted.
+
+When both results and every embedded contract are available and admitted, the
+decision additionally contains exactly the following fields for each prefix
+`native` and `tl`:
 `<prefix>_result_ref`, `<prefix>_result_revision`,
 `<prefix>_result_digest`, `<prefix>_assessment_execution`,
 `<prefix>_decision_scope_progress_contract`,
@@ -673,6 +689,7 @@ The result join mapping is exact:
 | both completed views carry the same final truth and the same valid `closed-scope` or matching decisive settlement/support premises | `agreement` / `equal-final` with that Boolean and empty causes |
 | both completed views carry `pending` on an open decision scope with `unsettled` basis and equal progress/completeness premises | `agreement` / `equal-pending`, no Boolean and empty causes |
 | either required result/producer is unavailable | `unavailable` / `not-compared`, no Boolean |
+| an embedded progress or completeness contract is unsupported, unavailable or conflicting after both outer result readers authenticate its selection claim | matching precedence-selected kind / `not-compared`, trusted-subset shape and no Boolean |
 | either assessment execution is `unsupported` | `unsupported` / `not-compared`, no Boolean |
 | either assessment execution is `resource-incomplete`, or truth is unavailable because its exact decision support is incomplete | `incomplete` / `not-compared`, no Boolean |
 | either assessment execution is `failed` | `failed` / `not-compared`, no Boolean |
