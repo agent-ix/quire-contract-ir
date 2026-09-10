@@ -89,10 +89,12 @@ alternative predicate authoring surface.
   The operation returns the complete derived Boolean signal-catalog and
   proposition-map documents as separately bounded sibling artifacts; every
   other kind returns neither artifact and retains an ordered nonempty cause set.
-- A `PredicateValuationDecision` for one correspondence and exact observation
-  with kind `valued`, `incomplete`, `unavailable`, `unsupported`, `failed`,
-  `refused` or `conflict`. Only `valued` contains exactly one Boolean value;
-  it also contains the ordered completeness gaps outside its deciding-fact set.
+- A `PredicateValuationDecision` for one correspondence and the three supplied
+  contract selections, with kind `valued`, `incomplete`, `unavailable`,
+  `unsupported`, `failed`, `refused` or `conflict`. A contract-admission failure
+  stops before observation binding; every post-contract-admission decision binds
+  one exact observation. Only `valued` contains exactly one Boolean value; it
+  also contains the ordered completeness gaps outside its deciding-fact set.
 - Every non-admitted or non-valued decision contains a nonempty ordered set of
   typed causes. Each cause retains the exact rejected identity when one exists
   and the bounded raw discriminator when an unknown profile or construct caused
@@ -483,13 +485,19 @@ reader rejects either generated artifact or any generated signal/binding is
 non-Boolean or non-bijective.
 It shall release no catalog, map, digest, or correspondence from that attempt.
 
-A `PredicateValuationDecision` shall bind the `PredicateRef`,
-`projection_set_ref`, proposition/signal identities, source result contract,
-source result and local projection identities, producer profile, observation
-revision, predicate execution, anchor/snapshot/invocation, capture environment,
-model/population, completeness and deciding-fact identities. It shall preserve
-predicate execution, native truth and completeness as independent axes instead
-of folding one axis into another.
+Every `PredicateValuationDecision` shall bind the `PredicateRef`,
+`projection_set_ref`, proposition/signal identities, availability contract,
+source-result contract, source-result mapping and producer profile.
+
+Every post-contract-admission decision shall additionally bind the verified
+availability assertion, observation revision/state/classification,
+anchor/snapshot/invocation, capture environment and model/population identities.
+
+Every result-bearing post-contract-admission decision shall additionally bind
+source-result and local-projection identities, predicate execution, native
+truth, completeness and deciding-fact identities. It shall preserve predicate
+execution, native truth and completeness as independent axes instead of folding
+one axis into another.
 
 The closed predicate-execution values shall be `completed`, `unsupported`,
 `refused`, `failed`, and `resource-incomplete`.
@@ -601,7 +609,7 @@ not one representative per row:
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-025-AC-1 | Every admitted predicate maps bijectively and deterministically to one Boolean signal and proposition in both target documents; input permutation preserves IDs, names, exact bytes and `projection_set_ref`, while omission/addition changes the selected-population identity. | Test (TC-038) |
-| FR-025-AC-2 | `PredicateRef` and every valuation bind the authority-verified checked leaf and parent native subject plus exact source/profile, clause/span, binding requirements, model/declaration/expression, anchor/invocation, capture, observation, completeness, deciding-fact and producer identities; each one-axis mutation prevents reuse. | Test (TC-038) |
+| FR-025-AC-2 | `PredicateRef` binds the authority-verified checked leaf and parent subject plus exact source/profile, clause/span, binding-requirements and model/declaration/expression identities; every valuation binds its admitted correspondence and three supplied contract selections; every post-contract-admission decision additionally binds exact availability/observation/anchor/invocation/capture/model/population identities; every result-bearing decision also binds exact result/execution/truth/completeness/deciding-fact identities; each applicable one-axis mutation prevents reuse. | Test (TC-038) |
 | FR-025-AC-3 | Only completed predicate execution with exact native truth and an equal Boolean typed value produces `valued(true)` or `valued(false)`; every non-Boolean kind, unavailable truth, non-completed execution, malformed or wrong-subject result exposes no Boolean and is never coerced. | Test (TC-038) |
 | FR-025-AC-4 | Resource-incomplete execution, not-yet-observed results or missing deciding facts yield `incomplete`; an accepted-unreachable availability/source-result/mapping contract or absent producer yields `unavailable`; an unknown well-formed selection/profile/construct yields `unsupported`; failed execution yields `failed`; refused, invalid or stale bindings yield `refused`; a contradicted deciding fact yields `conflict`; every contract selection is mutated independently and no non-valued kind exposes a TL valuation. | Test (TC-038) |
 | FR-025-AC-5 | A missing, incomplete or contradicted fact outside an exact deciding-fact set preserves the settled Boolean plus its typed completeness gap, while the same mutation inside the set removes the Boolean and produces `incomplete` or `conflict` according to status. | Test (TC-038) |
