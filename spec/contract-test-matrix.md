@@ -31,7 +31,7 @@ relationships:
 | FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
-| FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | 🚧 planned; blocked on an accepted native profile/source contract and implementation routing |
+| FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | 🚧 planned; blocked on an accepted native checked-leaf/source-result/availability contract set, published TL signal-catalog schema/reader, and implementation routing |
 
 ## Non-Functional Requirement Coverage
 
@@ -64,7 +64,7 @@ relationships:
 | TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |
 | TC-036 | Exact Rust baseline declarations, stable-release trigger, and time-bounded older-version exception policy agree | Integration | P0 | NFR-005-AC-1, NFR-005-AC-4, NFR-005-AC-5, NFR-005-AC-6, NFR-002-AC-2 | ✅ implemented |
 | TC-037 | Compiler, targets, formatting, lint, safety, supply-chain and repository-specific tools execute and classify failures correctly | Integration | P0 | NFR-005-AC-2, NFR-005-AC-3, NFR-005-AC-6 | ✅ implemented |
-| TC-038 | Native predicate projections bind exact total-Boolean values to deterministic TL signals/propositions or expose a typed non-value state | Property | P0 | FR-025-AC-1, FR-025-AC-2, FR-025-AC-3, FR-025-AC-4, FR-025-AC-5, FR-025-AC-6, FR-025-AC-7, FR-025-AC-8 | 🚧 planned; blocked on accepted native and tl-syntax contracts |
+| TC-038 | Native predicate projections bind exact total-Boolean values to deterministic TL signals/propositions or expose a typed non-value state | Property | P0 | FR-025-AC-1, FR-025-AC-2, FR-025-AC-3, FR-025-AC-4, FR-025-AC-5, FR-025-AC-6, FR-025-AC-7, FR-025-AC-8 | 🚧 planned; blocked on accepted native checked-leaf/source-result/availability contracts and a published TL signal-catalog schema/reader |
 
 ## Coverage Design
 
