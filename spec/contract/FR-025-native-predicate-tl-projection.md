@@ -146,24 +146,37 @@ It contains none of the admitted-only fields.
 
 The public valuation decision profile shall be
 `quire.contract.native-predicate-valuation-decision/v1`. Every tagged shape
-contains exactly `format`, `kind`, `predicate_ref`, `projection_set_ref`,
+starts with exactly the base fields `format`, `kind`, `predicate_ref`, `projection_set_ref`,
 `proposition_id`, `signal_id`, `source_result_contract`,
-`source_result_mapping`, `producer_profile`, `observation_revision`,
+`source_result_mapping`, `producer_profile`, `availability_contract`, and
+`causes`.
+
+A contract-admission-failure shape has kind `unsupported` or `unavailable`, a
+nonempty cause set containing only `availability-contract`,
+`source-result-contract` or `source-result-mapping` causes, and exactly the base
+fields. It omits assertion, observation and result-derived fields because no
+unadmitted reader or mapping can authenticate them.
+
+Every post-contract-admission shape additionally contains exactly
+`observation_revision`,
 `anchor_ref`, `snapshot_ref`, `invocation_ref`, `capture_ref`, `model_ref`,
-`population_ref`, `availability_contract`, `availability_assertion_ref`,
+`population_ref`, `availability_assertion_ref`,
 `availability_assertion_revision`, `availability_assertion_digest`,
-`observation_state`, `result_availability`, and `causes`.
+`observation_state`, and `result_availability`.
 
 `availability_contract` shall be a `ContractSelection`; assertion revision is
 positive u64 and the assertion digest is lowercase 64-hex. The selected
 authority's public strict reader shall validate the exact assertion bytes and
 verify its identity, revision, digest, observation state and result-availability
-classification before the bridge constructs a valuation decision.
+classification before the bridge constructs any post-contract-admission
+valuation decision. This prerequisite does not apply to the exact
+contract-admission-failure shape.
 
 The `unavailable` shape with `producer-unavailable` or `contract-unavailable`,
 and the `incomplete` shape with `not-yet-observed`, shall contain only the
-common fields and a nonempty cause set because no producer result exists. Every
-shape with `available` shall additionally contain exactly `source_result_ref`,
+post-contract-admission fields and a nonempty cause set because no producer
+result exists. Every post-contract-admission shape with `available` shall
+additionally contain exactly `source_result_ref`,
 `result_projection_ref`,
 `predicate_execution`, `native_truth`, `completeness`, `deciding_fact_refs`,
 `completeness_gaps`, and `prior_result_ref`. The `valued` shape shall also
@@ -501,15 +514,26 @@ The bridge shall execute that selected mapping and compare every derived field
 before computing `result_projection_ref`; caller-supplied projected axes cannot
 replace or override the extracted values.
 
-The bridge shall apply the following total valuation mapping after structural,
-identity and bound validation, from the first matching row downward:
+When structural validation and admitted-correspondence lookup succeed, the
+bridge shall admit the three selected contracts and their public readers before
+parsing an availability assertion or source result.
+
+When any selection is unknown but well formed or any accepted selection/reader
+is unreachable, the bridge shall return the exact contract-admission-failure
+shape. The bridge shall select `unsupported` for an unknown-well-formed
+selection and otherwise select `unavailable`. The decision shall retain the
+independently applicable contract-specific causes in closed dimension order.
+Caller-claimed assertion or result fields cannot alter this stage and shall not
+be copied into its output.
+
+When all three contracts are admitted, the bridge shall apply the following
+total post-contract-admission valuation mapping after assertion, identity and
+bound validation, from the first matching row downward:
 
 | Input condition | Required decision |
 |---|---|
 | a deciding fact is `contradicted` | `conflict`, no value |
 | stale/wrong semantic identity, impossible axis combination, or typed result not exact Boolean/equal truth | `refused`, no value |
-| selected availability, source-result or mapping contract is unknown but well formed | `unsupported`, no value; one exact contract-specific cause |
-| selected accepted availability, source-result or mapping contract or its public strict reader is unreachable | `unavailable`, no value; one exact contract-specific cause |
 | predicate execution `unsupported` or evaluation profile is unknown but well formed | `unsupported`, no value |
 | predicate execution `refused` | `refused`, no value |
 | predicate execution `failed` | `failed`, no value |
@@ -568,7 +592,7 @@ not one representative per row:
 | Definition identity | one accepted native checked-leaf/parent-subject/source/profile/model/typed-expression tuple | mutate every `PredicateRef` member independently; equal display text in another model, clause or inline `holds` leaf |
 | Population mapping | reordered selected population produces identical contiguous IDs, names, catalog/map bytes and `projection_set_ref` | zero, duplicate-equal, duplicate-conflicting, smaller valid selection, added member, 10,000 and 10,001 predicates; unequal proposition/signal populations, IDs or names; non-Boolean signal or non-bijective binding; issue #64 formula occurrence missing from the selected set |
 | Evaluation environment | exact anchor, invocation, immutable capture and observation produces a value | wrong or stale anchor/invocation/capture/model/population/observation identity; mutable capture substitution |
-| Completeness/support | missing, incomplete or contradicted fact outside completed support preserves value plus typed gap | the same mutation inside support removes the value; mutate availability, source-result and mapping selections independently through unknown-well-formed and accepted-unreachable controls; unavailable producer, unsupported/refused/failed/resource-incomplete execution and absent contract each retain their distinct non-value kind |
+| Completeness/support | missing, incomplete or contradicted fact outside completed support preserves value plus typed gap | the same mutation inside support removes the value; pair caller-claimed `available` independently with unknown-well-formed and accepted-unreachable availability, source-result and mapping selections and require the base-only contract-admission shape; unavailable producer, unsupported/refused/failed/resource-incomplete execution and absent contract each retain their distinct non-value kind |
 | Revision/conflict | corrected result supplies an exact immutable predecessor, uses a successor revision and retains prior bytes | absent or digest-mismatched predecessor, self-reference, same-revision predecessor, or result replay against a changed subject are refused; a contradicted deciding fact conflicts; no claim of ambient graph validation |
 | Boundary purity | public strict TL readers accept the emitted catalog and map | private wire import, source parsing, evaluator callback, ambient lookup or unknown target/profile version |
 
