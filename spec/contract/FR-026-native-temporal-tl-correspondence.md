@@ -317,6 +317,9 @@ semantic domains are
 runtime observations/history are `incomplete`; stale or mismatched identities
 in an otherwise validly shaped document are `refused`; unequal content claiming
 one identity or unequal conclusive native/TL results are `conflict`.
+In particular, `temporal_capture_mismatch` applies only to a stale or foreign
+capture identity, revision or expected digest. Unequal capture content claiming
+the same identity uses `temporal_identity_conflict` and kind `conflict`.
 
 Identity, profile and present rejected-reference strings contain 1 through
 1,024 UTF-8 bytes; absence of a rejected identity is the empty
