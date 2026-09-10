@@ -13,10 +13,12 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-016
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/FR-023
-    type: depends_on
   - target: ix://agent-ix/quire-specification/FR-019
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-048
+    type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-095
+    type: references
   - target: ix://agent-ix/tl-syntax/FR-007
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/issues/52
@@ -45,9 +47,15 @@ alternative predicate authoring surface.
 - An exact accepted native-language/profile definition identity, revision and
   digest, plus the source-document identity, revision, digest, clause span and
   predicate-expression span.
-- The FR-012 `ClauseRef`, FR-023 `BoundClause`, model/declaration-closure
-  identity, canonical declaration identity, canonical typed-expression
-  identity and the native evaluation/definedness profile identities.
+- The selected native contract's authority-verified source-bound checked-leaf
+  record and exact bytes. Its public strict reader must bind a
+  `source_leaf_ref` and parent `source_subject_ref` to the FR-012 `ClauseRef`,
+  source/clause/expression spans, binding-requirements identity,
+  model/declaration-closure identity, canonical declaration identity,
+  canonical typed-expression identity, Boolean expected type and native
+  evaluation/definedness profile identities. This record represents either an
+  inline native temporal `holds(expr)` leaf or an admitted whole-clause Boolean
+  leaf without manufacturing a standalone `BoundClause` for inline syntax.
 - An explicit finite population of distinct checked predicate definitions
   selected by the caller. This formula-independent bridge does not claim that
   the set covers every atom in a temporal formula.
@@ -226,17 +234,23 @@ admission, then the bridge shall return respectively
 
 ## Behavior
 
-The bridge shall accept only a validated FR-023 `BoundClause` whose clause root
-and expected type are Boolean and whose FR-015 definedness obligations are
-discharged under the exact declaration/evaluation profiles. A Boolean-looking
-text fragment, unlinked syntax tree, display name or self-asserted `total` flag
-is invalid input, and the bridge shall refuse it.
+The bridge shall accept only an authority-verified source-bound checked-leaf
+record under the selected native contract. The selected contract's public
+strict reader shall verify its exact bytes, `source_leaf_ref`, parent
+`source_subject_ref`, clause and expression locations, binding requirements,
+typed-expression/declaration/model identities, Boolean expected type and
+discharged FR-015-equivalent definedness obligations under the exact native
+profiles. An inline `holds(expr)` remains a leaf of its authoritative native
+temporal subject; the bridge shall not turn it into or require a fabricated
+standalone FR-023 `BoundClause`. A Boolean-looking text fragment, unlinked
+syntax tree, display name or self-asserted `total` flag is invalid input, and
+the bridge shall refuse it.
 
 The canonical `PredicateRef` tuple shall contain exactly these members:
 
 | Member | Exact value shape |
 |---|---|
-| `bound_package_ref` | lowercase 64-hex FR-023 bound identity |
+| `binding_requirements_ref` | lowercase 64-hex identity of the native subject's checked current-input/capture/environment requirements |
 | `bridge_profile` | `quire.contract.native-predicate-tl-projection/v1` |
 | `clause_ref` | object `{"clause":<string>,"requirement":{"package":<string>,"requirement":<string>,"revision":<positive-u64>}}` |
 | `clause_span` | exact source-span object defined below |
@@ -250,6 +264,8 @@ The canonical `PredicateRef` tuple shall contain exactly these members:
 | `model_ref` | lowercase 64-hex model-closure digest |
 | `native_definition` | object with exactly string members `digest`, `identity`, `revision`; `digest` is lowercase 64-hex |
 | `source` | object with exactly `digest`, `document`, `revision`; `digest` is lowercase 64-hex and `revision` is a positive JSON integer |
+| `source_leaf_ref` | lowercase 64-hex identity verified by the selected native checked-leaf contract |
+| `source_subject_ref` | lowercase 64-hex identity of the authoritative parent native temporal or whole-clause subject |
 
 Each exact source-span object shall contain `end` and `start`.
 
@@ -335,34 +351,34 @@ rules and digest construction as `PredicateRef`, replacing the profile with
 `quire.contract.native-predicate-projection-set/v1`. A caller-supplied
 identifier shall not replace this content computation.
 
-The normative synthetic `PredicateRef` preimage below contains 1,287 JSON bytes
+The normative synthetic `PredicateRef` preimage below contains 1,467 JSON bytes
 and has digest
-`4c00c1f5bb2956bbf22116fda146164774b893544bdd41d8ef0996f7130441da`:
+`7665979d03dbfe1fa8a3b6243d1b7cefc805bc56199bf40aff0dddb618647db8`:
 
 ```json
-{"bound_package_ref":"0000000000000000000000000000000000000000000000000000000000000000","bridge_profile":"quire.contract.native-predicate-tl-projection/v1","clause_ref":{"clause":"c","requirement":{"package":"p","requirement":"r","revision":1}},"clause_span":{"end":{"byte_offset":1,"column":2,"line":1,"source":{"document":"s","revision":1}},"start":{"byte_offset":0,"column":1,"line":1,"source":{"document":"s","revision":1}}},"declaration_closure_ref":"1111111111111111111111111111111111111111111111111111111111111111","declaration_ref":"2222222222222222222222222222222222222222222222222222222222222222","definedness_profile":"d/v1","evaluation_profile":"e/v1","expected_type":"boolean","expression_ref":"3333333333333333333333333333333333333333333333333333333333333333","expression_span":{"end":{"byte_offset":1,"column":2,"line":1,"source":{"document":"s","revision":1}},"start":{"byte_offset":0,"column":1,"line":1,"source":{"document":"s","revision":1}}},"model_ref":"4444444444444444444444444444444444444444444444444444444444444444","native_definition":{"digest":"5555555555555555555555555555555555555555555555555555555555555555","identity":"n/v1","revision":"1"},"source":{"digest":"6666666666666666666666666666666666666666666666666666666666666666","document":"s","revision":1}}
+{"binding_requirements_ref":"0000000000000000000000000000000000000000000000000000000000000000","bridge_profile":"quire.contract.native-predicate-tl-projection/v1","clause_ref":{"clause":"c","requirement":{"package":"p","requirement":"r","revision":1}},"clause_span":{"end":{"byte_offset":1,"column":2,"line":1,"source":{"document":"s","revision":1}},"start":{"byte_offset":0,"column":1,"line":1,"source":{"document":"s","revision":1}}},"declaration_closure_ref":"1111111111111111111111111111111111111111111111111111111111111111","declaration_ref":"2222222222222222222222222222222222222222222222222222222222222222","definedness_profile":"d/v1","evaluation_profile":"e/v1","expected_type":"boolean","expression_ref":"3333333333333333333333333333333333333333333333333333333333333333","expression_span":{"end":{"byte_offset":1,"column":2,"line":1,"source":{"document":"s","revision":1}},"start":{"byte_offset":0,"column":1,"line":1,"source":{"document":"s","revision":1}}},"model_ref":"4444444444444444444444444444444444444444444444444444444444444444","native_definition":{"digest":"5555555555555555555555555555555555555555555555555555555555555555","identity":"n/v1","revision":"1"},"source":{"digest":"6666666666666666666666666666666666666666666666666666666666666666","document":"s","revision":1},"source_leaf_ref":"7777777777777777777777777777777777777777777777777777777777777777","source_subject_ref":"8888888888888888888888888888888888888888888888888888888888888888"}
 ```
 
 The normative synthetic projection-set preimage below contains 1,362 JSON
 bytes and pins canonicalization only; it does not claim that the candidate
 contracts are accepted. It has digest
-`34494a2e4ef77adbc015a56f8170011ca164288217d7778894d983f92ad28ce4`:
+`61a882228690bde7dadc335aa40e718941d837e9d6a408b1323f8ef449e15b21`:
 
 ```json
-{"bridge_profile":"quire.contract.native-predicate-tl-projection/v1","correspondences":[{"predicate_ref":"4c00c1f5bb2956bbf22116fda146164774b893544bdd41d8ef0996f7130441da","proposition_id":0,"proposition_name":"quire-predicate/4c00c1f5bb2956bbf22116fda146164774b893544bdd41d8ef0996f7130441da","signal_id":0,"signal_name":"quire-predicate/4c00c1f5bb2956bbf22116fda146164774b893544bdd41d8ef0996f7130441da"}],"native_contract":{"contract":"n/v1","package_version":"1-draft.2","repository":"agent-ix/quire-specification","revision":"19bbf7a2036168a5f14dddd946f696707dc45fde","schema_digest":"1111111111111111111111111111111111111111111111111111111111111111"},"proposition_map_ref":"7777777777777777777777777777777777777777777777777777777777777777","proposition_map_target":{"contract":"tl-syntax.proposition-map/v1","package_version":"0.1.0","repository":"agent-ix/tl-syntax","revision":"7fb0fe32f6ba4ef2606d120ddbe5858965d4fb5a","schema_digest":"3333333333333333333333333333333333333333333333333333333333333333"},"signal_catalog_ref":"8888888888888888888888888888888888888888888888888888888888888888","signal_catalog_target":{"contract":"tl-syntax.signal-catalog/v1","package_version":"0.1.0","repository":"agent-ix/tl-syntax","revision":"7fb0fe32f6ba4ef2606d120ddbe5858965d4fb5a","schema_digest":"4444444444444444444444444444444444444444444444444444444444444444"}}
+{"bridge_profile":"quire.contract.native-predicate-tl-projection/v1","correspondences":[{"predicate_ref":"7665979d03dbfe1fa8a3b6243d1b7cefc805bc56199bf40aff0dddb618647db8","proposition_id":0,"proposition_name":"quire-predicate/7665979d03dbfe1fa8a3b6243d1b7cefc805bc56199bf40aff0dddb618647db8","signal_id":0,"signal_name":"quire-predicate/7665979d03dbfe1fa8a3b6243d1b7cefc805bc56199bf40aff0dddb618647db8"}],"native_contract":{"contract":"n/v1","package_version":"1-draft.2","repository":"agent-ix/quire-specification","revision":"19bbf7a2036168a5f14dddd946f696707dc45fde","schema_digest":"1111111111111111111111111111111111111111111111111111111111111111"},"proposition_map_ref":"7777777777777777777777777777777777777777777777777777777777777777","proposition_map_target":{"contract":"tl-syntax.proposition-map/v1","package_version":"0.1.0","repository":"agent-ix/tl-syntax","revision":"7fb0fe32f6ba4ef2606d120ddbe5858965d4fb5a","schema_digest":"3333333333333333333333333333333333333333333333333333333333333333"},"signal_catalog_ref":"8888888888888888888888888888888888888888888888888888888888888888","signal_catalog_target":{"contract":"tl-syntax.signal-catalog/v1","package_version":"0.1.0","repository":"agent-ix/tl-syntax","revision":"7fb0fe32f6ba4ef2606d120ddbe5858965d4fb5a","schema_digest":"4444444444444444444444444444444444444444444444444444444444444444"}}
 ```
 
 The normative synthetic result-projection preimage below contains 2,177 JSON
 bytes and likewise pins canonicalization without claiming contract acceptance.
 Its digest is
-`5a3f258eae637981192fc3e972c14575147fe987375f1dea7940a5c2318aa46b`:
+`d874712fa02dd23714b12a6c0de74d284033e46456c5264d350cc771ec9f00e2`:
 
 ```json
-{"anchor_ref":"1111111111111111111111111111111111111111111111111111111111111111","boolean_value":true,"capture_ref":"2222222222222222222222222222222222222222222222222222222222222222","completeness":{"assertion_ref":"3333333333333333333333333333333333333333333333333333333333333333","boundary_ref":"4444444444444444444444444444444444444444444444444444444444444444","population_ref":"80021974474700b6540898d07c66c3bb2213904a277c03c4088951d4366d0998","state":"complete"},"deciding_fact_refs":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"format":"quire.contract.native-predicate-result-projection/v1","invocation_ref":"5555555555555555555555555555555555555555555555555555555555555555","model_ref":"6666666666666666666666666666666666666666666666666666666666666666","native_truth":"true","observation_facts":[{"fact_ref":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"available"}],"observation_revision":1,"population_ref":"80021974474700b6540898d07c66c3bb2213904a277c03c4088951d4366d0998","predicate_execution":"completed","predicate_ref":"4c00c1f5bb2956bbf22116fda146164774b893544bdd41d8ef0996f7130441da","prior_result_ref":"","producer_profile":"producer/v1","snapshot_ref":"7777777777777777777777777777777777777777777777777777777777777777","source_result_contract":{"contract":"quire.protocol.result/v1-draft.1","package_version":"1-draft.1","repository":"agent-ix/quire-specification","revision":"19bbf7a2036168a5f14dddd946f696707dc45fde","schema_digest":"717ee2a2c3615026af3c1789dd1c28fc62d90189ce0343d2d561776b9543a6e3"},"source_result_digest":"9999999999999999999999999999999999999999999999999999999999999999","source_result_mapping":{"contract":"quire.contract.native-predicate-result-mapping/v1","package_version":"0.1.0","repository":"agent-ix/quire-contract-ir","revision":"69dc1a3e85adcfabaaed35875887ea5f508f58a0","schema_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"source_result_ref":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","source_result_revision":1,"value_kind":"boolean","value_ref":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+{"anchor_ref":"1111111111111111111111111111111111111111111111111111111111111111","boolean_value":true,"capture_ref":"2222222222222222222222222222222222222222222222222222222222222222","completeness":{"assertion_ref":"3333333333333333333333333333333333333333333333333333333333333333","boundary_ref":"4444444444444444444444444444444444444444444444444444444444444444","population_ref":"80021974474700b6540898d07c66c3bb2213904a277c03c4088951d4366d0998","state":"complete"},"deciding_fact_refs":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"format":"quire.contract.native-predicate-result-projection/v1","invocation_ref":"5555555555555555555555555555555555555555555555555555555555555555","model_ref":"6666666666666666666666666666666666666666666666666666666666666666","native_truth":"true","observation_facts":[{"fact_ref":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"available"}],"observation_revision":1,"population_ref":"80021974474700b6540898d07c66c3bb2213904a277c03c4088951d4366d0998","predicate_execution":"completed","predicate_ref":"7665979d03dbfe1fa8a3b6243d1b7cefc805bc56199bf40aff0dddb618647db8","prior_result_ref":"","producer_profile":"producer/v1","snapshot_ref":"7777777777777777777777777777777777777777777777777777777777777777","source_result_contract":{"contract":"quire.protocol.result/v1-draft.1","package_version":"1-draft.1","repository":"agent-ix/quire-specification","revision":"19bbf7a2036168a5f14dddd946f696707dc45fde","schema_digest":"717ee2a2c3615026af3c1789dd1c28fc62d90189ce0343d2d561776b9543a6e3"},"source_result_digest":"9999999999999999999999999999999999999999999999999999999999999999","source_result_mapping":{"contract":"quire.contract.native-predicate-result-mapping/v1","package_version":"0.1.0","repository":"agent-ix/quire-contract-ir","revision":"69dc1a3e85adcfabaaed35875887ea5f508f58a0","schema_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"source_result_ref":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","source_result_revision":1,"value_kind":"boolean","value_ref":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
 ```
 
 The closed projection-set cause dimensions, in required output order, shall be
-`native-contract`, `target-contract`, `source`, `bound-clause`, `model`,
+`native-contract`, `target-contract`, `source`, `checked-leaf`, `model`,
 `predicate`, `population`, `catalog`, and `proposition-map`.
 
 The closed valuation cause dimensions, in required output order, shall be
@@ -389,7 +405,7 @@ The bridge shall use the following closed STD-001 code allocation:
 | `predicate_evaluation_profile_unsupported` | `result` | `unsupported` |
 | `predicate_construct_unsupported` | `predicate` | `unsupported` |
 | `predicate_source_mismatch` | `source` | `refused` |
-| `predicate_bound_clause_mismatch` | `bound-clause` | `refused` |
+| `predicate_checked_leaf_mismatch` | `checked-leaf` | `refused` |
 | `predicate_model_mismatch` | `model` | `refused` |
 | `predicate_population_invalid` | `population` | `refused` |
 | `predicate_native_contract_conflict` | `native-contract` | `conflict` |
@@ -409,7 +425,7 @@ The bridge shall use the following closed STD-001 code allocation:
 | `predicate_capture_mismatch` | `capture` | `refused` |
 | `predicate_valuation_population_mismatch` | `population` | `refused` |
 | `predicate_completeness_incomplete` | `deciding-facts` | `incomplete` |
-| `predicate_completeness_conflict` | first contradicted deciding-facts dimension | `conflict` |
+| `predicate_completeness_conflict` | `deciding-facts` | `conflict` |
 | `predicate_result_type_mismatch` | `result` | `refused` |
 | `predicate_result_stale` | `result` | `refused` |
 | `predicate_supersession_invalid` | `supersession` | `refused` |
@@ -427,8 +443,8 @@ unequal content claiming one identity as `conflict`.
 The valuation decision shall classify an unknown producer/evaluation profile
 or source execution `unsupported` as `unsupported`, an absent producer/result
 contract as `unavailable`, stale/mismatched semantic input or refused source
-execution as `refused`, a contradicted deciding fact or retained result premise
-as `conflict`, incomplete deciding facts or resource-incomplete execution as
+execution as `refused`, a contradicted deciding fact as `conflict`, incomplete
+deciding facts or resource-incomplete execution as
 `incomplete`, and failed source execution as `failed`.
 
 When causes from multiple decision kinds coexist, a projection-set decision shall select one kind by the precedence `conflict`, `refused`, `unsupported`,
@@ -481,7 +497,7 @@ identity and bound validation, from the first matching row downward:
 
 | Input condition | Required decision |
 |---|---|
-| a deciding fact or a retained result premise is `contradicted` | `conflict`, no value |
+| a deciding fact is `contradicted` | `conflict`, no value |
 | stale/wrong semantic identity, impossible axis combination, or typed result not exact Boolean/equal truth | `refused`, no value |
 | predicate execution `unsupported` or evaluation profile is unknown but well formed | `unsupported`, no value |
 | predicate execution `refused` | `refused`, no value |
@@ -538,11 +554,11 @@ not one representative per row:
 | Class | Positive control | Required discriminators |
 |---|---|---|
 | Boolean admission | completed checked literal/comparison/guarded optional predicate yields exact `true` or `false` | direct integer/rational/text/enum/record/option/collection value; nullable/error/unavailable truth; unsupported/refused/failed/resource-incomplete execution; impossible cross-axis combinations; self-asserted total flag |
-| Definition identity | one accepted source/profile/BoundClause/model/typed-expression tuple | mutate every `PredicateRef` member independently; equal display text in another model or clause |
+| Definition identity | one accepted native checked-leaf/parent-subject/source/profile/model/typed-expression tuple | mutate every `PredicateRef` member independently; equal display text in another model, clause or inline `holds` leaf |
 | Population mapping | reordered selected population produces identical contiguous IDs, names, catalog/map bytes and `projection_set_ref` | zero, duplicate-equal, duplicate-conflicting, smaller valid selection, added member, 10,000 and 10,001 predicates; unequal proposition/signal populations, IDs or names; non-Boolean signal or non-bijective binding; issue #64 formula occurrence missing from the selected set |
 | Evaluation environment | exact anchor, invocation, immutable capture and observation produces a value | wrong or stale anchor/invocation/capture/model/population/observation identity; mutable capture substitution |
 | Completeness/support | missing, incomplete or contradicted fact outside completed support preserves value plus typed gap | the same mutation inside support removes the value; unavailable producer, unsupported/refused/failed/resource-incomplete execution and absent contract each retain their distinct non-value kind |
-| Revision/conflict | corrected result supplies an exact immutable predecessor, uses a successor revision and retains prior bytes | absent or digest-mismatched predecessor, self-reference, same-revision predecessor, or result replay against a changed subject are refused; contradicted completeness conflicts; no claim of ambient graph validation |
+| Revision/conflict | corrected result supplies an exact immutable predecessor, uses a successor revision and retains prior bytes | absent or digest-mismatched predecessor, self-reference, same-revision predecessor, or result replay against a changed subject are refused; a contradicted deciding fact conflicts; no claim of ambient graph validation |
 | Boundary purity | public strict TL readers accept the emitted catalog and map | private wire import, source parsing, evaluator callback, ambient lookup or unknown target/profile version |
 
 ## Acceptance Criteria
@@ -550,12 +566,12 @@ not one representative per row:
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-025-AC-1 | Every admitted predicate maps bijectively and deterministically to one Boolean signal and proposition in both target documents; input permutation preserves IDs, names, exact bytes and `projection_set_ref`, while omission/addition changes the selected-population identity. | Test (TC-038) |
-| FR-025-AC-2 | `PredicateRef` and every valuation bind exact source/profile, clause/span, BoundClause, model/declaration/expression, anchor/invocation, capture, observation, completeness, deciding-fact and producer identities; each one-axis mutation prevents reuse. | Test (TC-038) |
+| FR-025-AC-2 | `PredicateRef` and every valuation bind the authority-verified checked leaf and parent native subject plus exact source/profile, clause/span, binding requirements, model/declaration/expression, anchor/invocation, capture, observation, completeness, deciding-fact and producer identities; each one-axis mutation prevents reuse. | Test (TC-038) |
 | FR-025-AC-3 | Only completed predicate execution with exact native truth and an equal Boolean typed value produces `valued(true)` or `valued(false)`; every non-Boolean kind, unavailable truth, non-completed execution, malformed or wrong-subject result exposes no Boolean and is never coerced. | Test (TC-038) |
-| FR-025-AC-4 | Resource-incomplete execution, not-yet-observed results or missing deciding facts yield `incomplete`; absent producers/contracts yield `unavailable`; unknown well-formed profiles/constructs yield `unsupported`; failed execution yields `failed`; refused, invalid or stale bindings yield `refused`; a contradicted deciding fact/premise yields `conflict`; no non-valued kind exposes a TL valuation. | Test (TC-038) |
+| FR-025-AC-4 | Resource-incomplete execution, not-yet-observed results or missing deciding facts yield `incomplete`; absent producers/contracts yield `unavailable`; unknown well-formed profiles/constructs yield `unsupported`; failed execution yields `failed`; refused, invalid or stale bindings yield `refused`; a contradicted deciding fact yields `conflict`; no non-valued kind exposes a TL valuation. | Test (TC-038) |
 | FR-025-AC-5 | A missing, incomplete or contradicted fact outside an exact deciding-fact set preserves the settled Boolean plus its typed completeness gap, while the same mutation inside the set removes the Boolean and produces `incomplete` or `conflict` according to status. | Test (TC-038) |
 | FR-025-AC-6 | Valid predicate and deciding-fact populations at 10,000 and every constructible valid document at or below 67,108,864 bytes are admitted; 10,001 items or 67,108,865 input bytes, duplicate/conflicting identities, invalid supersession, non-Boolean signals, non-bijective bindings, allocation failure and target-reader rejection expose no partial catalog or map. | Test (TC-038) |
-| FR-025-AC-7 | Repeated equal inputs are structurally equal; a correction requires an exact immutable direct predecessor plus a distinct successor observation/result revision; self-reference, wrong-subject or same-revision predecessor is `refused`, a contradicted retained premise is `conflict`, and every prior byte remains unchanged. | Test (TC-038) |
+| FR-025-AC-7 | Repeated equal inputs are structurally equal; a correction requires an exact immutable direct predecessor plus a distinct successor observation/result revision; self-reference, wrong-subject or same-revision predecessor is `refused`, a contradicted deciding fact is `conflict`, and every prior byte remains unchanged. | Test (TC-038) |
 | FR-025-AC-8 | Real public tl-syntax strict readers accept both positive documents, and the Contract IR join rejects population, ID, name, domain or binding disagreement without private wire imports, evaluator invocation or an authored TL/FRETish predicate surface; issue #64 separately proves formula-occurrence completeness. | Test (TC-038) |
 
 ## Dependencies
@@ -563,12 +579,17 @@ not one representative per row:
 - [FR-012](./FR-012-anchors-clauses-dependencies.md),
   [FR-014](./FR-014-expression-semantics.md),
   [FR-015](./FR-015-definedness.md),
-  [FR-016](./FR-016-canonicalization-digests.md) and
-  [FR-023](./FR-023-executable-projection-binding.md) supply the accepted local
-  identity, canonical-byte rules, typing, definedness and binding foundations.
-- `agent-ix/quire-specification#15` must merge an exact reviewed native profile
-  and source/correspondence contract. The current stacked candidate is not a
-  released dependency and cannot satisfy implementation admission.
+  [FR-016](./FR-016-canonicalization-digests.md) supply the accepted local
+  identity, canonical-byte rules, typing and definedness foundations. FR-023
+  remains the whole-clause executable-projection contract; it is not an
+  authority for an inline native temporal predicate leaf.
+- `agent-ix/quire-specification#15` must merge exact reviewed FR-048 native
+  temporal binding and FR-095 correspondence definitions plus a public
+  source-bound checked-leaf contract and strict reader. That contract must
+  preserve each inline `holds(expr)` leaf under its parent native subject and
+  expose every checked-leaf field consumed above. The current stacked candidate
+  describes the leaf semantics but does not yet publish this reader contract;
+  it is not a released dependency and cannot satisfy implementation admission.
 - An observation authority must publish an accepted result-availability
   assertion contract and strict reader, and the native result owner must publish
   an accepted source-result contract plus deterministic projection mapping.
@@ -580,7 +601,10 @@ not one representative per row:
   contract. Because tl-syntax is currently unpublished, an accepted target
   release means an immutable reviewed repository commit plus the exact public
   schema digests and Cargo package version; a branch name or `current` alias is
-  insufficient. Issue #64 consumes this requirement, binds a generated formula
+  insufficient. In particular, target admission is blocked until
+  `tl-syntax.signal-catalog/v1` has a canonical published schema artifact whose
+  exact bytes ground `ContractSelection.schema_digest`; an implementation-only
+  Rust/Serde shape is not that artifact. Issue #64 consumes this requirement, binds a generated formula
   to the selected proposition population, and refuses any missing occurrence.
   Issue #57 remains output-only and is not a prerequisite.
 - This requirement specifies the pure bridge boundary and conformance vectors.

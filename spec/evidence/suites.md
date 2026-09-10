@@ -33,6 +33,7 @@ SUITE-005 through SUITE-008 are planned identities only and are not current
 evidence. They separate generative semantic properties, an independently
 written canonical-byte oracle, public-reader integration, and deterministic
 resource-failure injection. They remain
-blocked until the accepted native source/profile contract and compatible
-released tl-syntax catalog reader are selected; a mock or copied schema cannot
-make it available.
+blocked until accepted native checked-leaf, source-result/mapping and
+result-availability authority contracts plus a compatible released tl-syntax
+catalog schema/reader are selected; a mock or copied schema cannot make it
+available.

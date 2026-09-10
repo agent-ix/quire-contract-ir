@@ -108,7 +108,7 @@ be used outside those exact allocations.
 | `predicate_evaluation_profile_unsupported` | A well-formed evaluation profile is not in the admitted v1 domain | evaluation profile field and raw discriminator |
 | `predicate_construct_unsupported` | A well-formed checked predicate construct is outside the admitted bridge domain | predicate reference |
 | `predicate_source_mismatch` | Source identity/revision/digest/span does not match the checked predicate | source or span field |
-| `predicate_bound_clause_mismatch` | Bound package/clause/declaration/expression identity is stale or unequal | bound-clause field |
+| `predicate_checked_leaf_mismatch` | Checked-leaf/parent-subject/clause/binding/declaration/expression identity is stale or unequal | first unequal checked-leaf field |
 | `predicate_model_mismatch` | Model/declaration-closure identity is stale or unequal | model field |
 | `predicate_population_invalid` | Selected predicate population is empty, duplicate, non-distinct, internally inconsistent with its declared members, or over the Contract IR limit; it does not mean formula-atom incompleteness | predicate population |
 | `predicate_native_contract_conflict` | Unequal native contract definitions claim one current contract identity | native contract identity and related candidate |
@@ -119,7 +119,7 @@ be used outside those exact allocations.
 | `predicate_catalog_map_mismatch` | Catalog/map population, proposition ID/name, signal domain, ordinal, or binding join differs | first unequal joined field |
 | `predicate_projection_resource_exhausted` | Projection allocation/reservation fails without a partial artifact | projection resource path |
 | `predicate_producer_unavailable` | Exact producer or source-result contract cannot be reached | producer/result-availability field |
-| `predicate_result_not_yet_observed` | Reachable open observation has no producer result yet | result-availability field |
+| `predicate_result_not_yet_observed` | Authority-verified availability assertion says the required producer result is not yet observed, regardless of observation state | result-availability field |
 | `predicate_execution_unsupported` | Source predicate execution is `unsupported` | predicate-execution field |
 | `predicate_execution_refused` | Source predicate execution is `refused` | predicate-execution field |
 | `predicate_execution_failed` | Source predicate execution is `failed` | predicate-execution field |
@@ -129,7 +129,7 @@ be used outside those exact allocations.
 | `predicate_capture_mismatch` | Capture-environment identity is stale or unequal | capture field |
 | `predicate_valuation_population_mismatch` | Observation population identity does not equal the canonical fact population | population field |
 | `predicate_completeness_incomplete` | A deciding fact is missing/incomplete or native truth is unavailable on that premise | completeness or deciding-fact field |
-| `predicate_completeness_conflict` | A deciding fact or another retained result premise is contradicted; an unrelated outside-set contradiction remains a typed gap | contradicted deciding-fact/premise field |
+| `predicate_completeness_conflict` | A deciding fact is contradicted; an outside-set contradiction remains a typed gap | contradicted deciding-fact field |
 | `predicate_result_type_mismatch` | Value kind/payload is non-Boolean or disagrees with native truth | value-kind/value field |
 | `predicate_result_stale` | Source result/profile/subject identity is stale or unequal | first stale result field |
 | `predicate_supersession_invalid` | Direct predecessor is absent, self-referential, same-revision, wrong-subject, or digest-inconsistent | prior-result field |
