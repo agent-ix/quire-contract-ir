@@ -1,44 +1,47 @@
 ---
-id: SR-036
+id: SR-053
 title: "Failure-domain review of issue 64 native temporal TL correspondence"
 type: SpecReview
 analysis: failure-domain
-scope: "FR-025 and TC-038"
+scope: "FR-026, STD-001, and TC-039"
 review_set: all
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-025
+  - target: ix://agent-ix/quire-contract-ir/FR-026
     type: reviews
 ---
-# SR-036: Failure-domain review of issue 64
+# SR-053: Failure-domain review of issue 64
 
 ## Summary
 
-The review probed identity confusion, external execution, invalid and unknown
-inputs, incomplete topology, and state-transition boundaries. Three gaps were
-closed without adding runtime or evaluator ownership to Contract IR.
+The failure-domain review challenged identity authority, missing valuations,
+partial traces, progress/closure confusion, contradictory results, and late
+supersession at exact snapshot `558c4dc`. Four material gaps were fixed without
+moving evaluation or observation ownership into Contract IR.
 
 ## Findings
 
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
-| FND-361 | high | **Closed:** equal formula bytes or Boolean outcomes could have reused a projection after a material source/model/profile/capture change. The correspondence reference now names every identity dimension and mutation invalidates the decision. | FR-025 Behavior; FR-025-AC-7/8 | missing-requirement |
-| FND-362 | medium | **Closed:** the draft did not explicitly rule out bridge callbacks, ambient lookup, state reads, or evaluator invocation. Inputs are now validated immutable values; unknown profiles fail closed and invalid inputs return existing diagnostics before decision construction. | FR-025 Inputs, Behavior | missing-requirement |
-| FND-363 | high | **Closed:** a closed but incomplete observation could have been sent to a closed-trace evaluator and converted into a Boolean by false extension. FR-025 now requires complete closure and otherwise returns unsupported with the affected closure/history dimension. | FR-025 capability table and closure rule; FR-025-AC-6 | missing-requirement |
+| FND-6411 | high | **Fixed:** a caller-claimed `trace_ref` was not derived from an authority-complete per-position valuation population. FR-026 now requires a rectangular set of admitted FR-025 valued decisions and content-addresses the exact generated trace and request. | FR-026 Inputs; Valuation, trace and evaluator request; FR-026-AC-1/2/8 | missing-requirement |
+| FND-6412 | high | **Fixed:** the old join flattened execution, decision scope, closure, truth, settlement, support, and completeness into one progress value. The public record and exact join table now preserve and validate each independent axis. | FR-026 Public v1 records; Progress, closure and result joining; FR-026-AC-5/6 | missing-requirement |
+| FND-6413 | high | **Fixed:** supersession named only a prior reference and could not prove immutable same-producer ancestry. The join now requires and validates the direct predecessor bytes, identity, revision, digest, subject, and producer while expressly declining global graph authority. | FR-026 Inputs; Progress, closure and result joining | missing-requirement |
+| FND-6414 | high | **Fixed:** all three formula golden digests had been computed with two literal backslash-zero bytes. The corrected vectors use actual zero-byte domain separators and reproduce independently. | FR-026 Formula construction and identity | wrong-requirement |
 
 ## Failure-Domain Result
 
-- There is no extension hook or user-supplied callback in the bridge.
-- The correspondence key is structural, immutable, and includes source,
-  semantic, observation, TL, evaluator, proposition-map, and supported-formula
-  identity.
-- The bridge performs no user logic; predicate evaluation and TL evaluation
-  remain external typed inputs/consumers.
-- No graph traversal is introduced. Existing FR-023 aggregate size/depth/count
-  limits bound the supplied clause and predicate population.
-- Missing issue #63 capability, history, captures, closure completeness, or TL
-  profile support is visible and never converted to false, true, or omission.
+- A missing, duplicate, foreign, stale, non-Boolean, or non-valued proposition
+  cell cannot become an omitted false signal.
+- Contract admission precedes interpretation of subject, observation,
+  availability, and result bytes; failed admission exposes only base fields.
+- Closed-incomplete observations produce no evaluator request. Closed-complete
+  pending results and impossible execution/truth/settlement combinations are
+  refused before producer comparison.
+- Open early-final truth requires a continuation-stable decisive basis and
+  complete exact decision support.
+- Late data creates new immutable revisions and a validated direct-predecessor
+  edge; no prior object is rewritten.
 
 ## Result
 
-**PASS after remediation.** No open failure-domain finding authorizes
-implementation before the dependency gates recorded by SR-038.
+**PASS after remediation.** No open failure-domain finding permits fallback,
+fabricated values, or implementation before the dependency gates in SR-055.
