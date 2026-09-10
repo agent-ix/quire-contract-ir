@@ -1,65 +1,47 @@
 ---
-id: SR-041
+id: SR-058
 title: "Scope-boundary review of issue 64 native temporal TL correspondence"
 type: SpecReview
 analysis: scope-boundary
-scope: "FR-025, issues 52/57/63/64, and TL semantic-profile boundary"
+scope: "FR-026, issues 52/57/63/64, native authorities, and TL authorities"
 review_set: all
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-025
+  - target: ix://agent-ix/quire-contract-ir/FR-026
     type: reviews
 ---
-# SR-041: Scope-boundary review of issue 64
+# SR-058: Scope-boundary review of issue 64
 
 ## Summary
 
-The scope review assigns the correspondence record to Contract IR while leaving
-authored language, predicates, observations, temporal evaluation, exports,
-evidence, and release decisions with their existing owners. Two ambiguity
-paths were closed.
+The scope review assigns deterministic projection and result joining to
+Contract IR while leaving authored syntax, semantic evaluation, observations,
+progress, evidence, and release authority with their owners. Snapshot
+`558c4dc` contains no alternate authored language or foreign runtime path.
 
 ## Findings
 
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
-| FND-411 | high | **Closed:** the earlier ADR could still be read as permitting a FRETish authored source. FR-025 explicitly makes native Quire the sole authored clause authority and issue #57 output-only. | ADR-0053; FR-025 Description/Dependencies | wrong-requirement |
-| FND-412 | medium | **Closed:** the draft named an evaluator input without saying whether Contract IR invokes it or reads observations. FR-025 now operates purely on validated immutable values and emits no execution verdict. | FR-025 Inputs/Outputs | missing-requirement |
-
-## In-Scope Responsibilities
-
-- Define the v1 supported/unsupported correspondence decision and its exact
-  structural join identity.
-- Compare every declared semantic/provenance dimension in a deterministic order.
-- Admit only exact current TL correspondence and return explicit unsupported or
-  existing validation diagnostics otherwise.
-
-## External Dependencies
-
-| Dependency | Assumed or Guaranteed | Contract |
-|---|---|---|
-| Native Quire frontend/profile | assumed as source authority; correspondence checked | reviewed native profile identity plus TC-038 vectors |
-| Issue #63 predicate projection | guaranteed at the consumed boundary | issue #63 reviewed contract and future TC-038 integration |
-| Observation/clock authority | assumed valid, identity consistency checked | native profile and supplied immutable observation identities |
-| TL syntax/profile/evaluator | guaranteed for admitted correspondence | exact revisions plus independent differential TC-038 corpus |
-| FRETish exporter | downstream only | issue #57; no authored-input authority |
+| FND-6461 | high | **Fixed:** the earlier roadmap could be read as permitting authored TL or FRETish input. FR-026 makes native Quire the sole editable formal-clause source; TL is internal and issue #57 is output-only. | FR-026 Description and Dependencies; ADR-0053 | wrong-requirement |
+| FND-6462 | high | **Fixed:** consuming TL trace/request/result contracts could imply evaluator ownership. Contract IR constructs derived artifacts and joins supplied results but does not parse TL, evaluate a predicate/formula, read runtime state, invoke plugins, or access a network. | FR-026 Outputs; purity boundary | missing-requirement |
+| FND-6463 | medium | **Fixed:** progress, completeness, clock, capture, and correction semantics were partially shared. Their authorities now publish and authenticate assertions; FR-026 only verifies exact bindings and correspondence. | FR-026 Inputs, Public v1 records, Dependencies | wrong-requirement |
 
 ## Responsibility Allocation
 
-| Requirement | Owning component | Class |
-|---|---|---|
-| StR-001 | Contract IR specification | core |
-| FR-012 | Contract IR identity model | core |
-| FR-023 | Contract IR executable binder | core |
-| FR-025 | Contract IR temporal correspondence boundary | core |
-| issue #63 | Contract IR predicate bridge | core |
-| native temporal meaning | native Quire frontend/specification | external semantic authority |
-| formula syntax and evaluation | TL repositories | external semantic authority |
-| issue #57 mapping | FRETish output exporter | downstream feature |
+| Responsibility | Owner |
+|---|---|
+| Authored temporal clause and native meaning | Quire specification/frontend |
+| Predicate projection and total Boolean values | Contract IR FR-025 |
+| Observation, clock, capture, progress, completeness, corrections | Native owning authorities and public readers |
+| TL formula/semantic/trace/request/evaluator/result contracts | tl-syntax and tl-mltl |
+| Exact projection and cross-result join | Contract IR FR-026 |
+| FRETish rendering | issue #57 output-only consumer |
+| Evidence retention and release decisions | Quoin/Engineering Assurance and release owners |
 
-Quoin evidence retention, ix-flow human decisions, runtime state acquisition,
-and source-release authority remain out of scope.
+Any first-party production or qualification logic added for FR-026 must be
+Rust. No Java, Node, Electron, or new Python semantic path is admitted.
 
 ## Result
 
-**PASS after remediation.** No responsibility is left shared or unallocated in
-the reviewed bridge boundary.
+**PASS after remediation.** Responsibilities are allocated without creating a
+second source language or duplicating semantic and evidence authorities.
