@@ -31,9 +31,10 @@ floating stable, absent, inconsistent, unaccepted, and unbounded-hold mutations.
 
 **CONDITIONAL.** No Rust 1.98.1 compiler, target, code-quality, dependency, or
 traceability finding remains open. The repository's full release gate remains
-red on its pre-existing shared Quoin/Quire assurance integration; that failure
-is reproduced and kept separate from compiler compatibility. External review
-and owner release authority remain required.
+red on the separately disclosed `ix-flow 0.2.3` disagreement with the exact
+`0.0.4` matrix pin and pending human acceptance; that failure is reproduced and
+kept separate from compiler compatibility. External review and owner release
+authority remain required.
 
 ## Findings
 
