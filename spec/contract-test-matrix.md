@@ -12,7 +12,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023 through FR-025 | TC-015 through TC-018, TC-035, TC-038, TC-039 | existing rows implemented; FR-024/TC-039 and FR-025/TC-038 planned |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025, FR-026 | TC-015 through TC-018, TC-035, TC-038, TC-039 | existing rows implemented; FR-025/TC-038 and FR-026/TC-039 planned |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020 | ✅ implemented |
 
@@ -32,7 +32,7 @@ relationships:
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | 🚧 planned; blocked on an accepted native checked-leaf/source-result/availability contract set, published TL signal-catalog schema/reader, and implementation routing |
-| FR-024 | FR-024-AC-1 through FR-024-AC-7 | TC-039 | 🚧 planned; blocked by issue #63 and a reviewed native temporal profile |
+| FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | 🚧 planned; blocked by issue #63 and a reviewed native temporal profile |
 
 ## Non-Functional Requirement Coverage
 
@@ -66,7 +66,7 @@ relationships:
 | TC-036 | Exact Rust baseline declarations, stable-release trigger, and time-bounded older-version exception policy agree | Integration | P0 | NFR-005-AC-1, NFR-005-AC-4, NFR-005-AC-5, NFR-005-AC-6, NFR-002-AC-2 | ✅ implemented |
 | TC-037 | Compiler, targets, formatting, lint, safety, supply-chain and repository-specific tools execute and classify failures correctly | Integration | P0 | NFR-005-AC-2, NFR-005-AC-3, NFR-005-AC-6 | ✅ implemented |
 | TC-038 | Native predicate projections bind exact total-Boolean values to deterministic TL signals/propositions or expose a typed non-value state | Property | P0 | FR-025-AC-1, FR-025-AC-2, FR-025-AC-3, FR-025-AC-4, FR-025-AC-5, FR-025-AC-6, FR-025-AC-7, FR-025-AC-8 | 🚧 planned; blocked on accepted native checked-leaf/source-result/availability contracts and a published TL signal-catalog schema/reader |
-| TC-039 | Native temporal projections correspond exactly to supported TL profiles or fail closed | Integration | P0 | FR-024 | 🚧 planned; blocked by issue #63 and a reviewed native temporal profile |
+| TC-039 | Native temporal projections correspond exactly to supported TL profiles or fail closed | Integration | P0 | FR-026 | 🚧 planned; blocked by issue #63 and a reviewed native temporal profile |
 
 ## Coverage Design
 
@@ -75,4 +75,4 @@ relationships:
 | TC-036 cases | Coverage, error, edge | exact 1.98.1 in each applicable surface; mutations to 1.75, 1.85, floating `stable`, absent declarations and inconsistent minimum/qualification values; newer-stable event inside/outside seven days; adopted, justified-hold, expired-hold and inherited-pin dispositions |
 | TC-037 cases | Coverage, error, edge | all-target test/build, warning-denied Clippy, 1.98.1 rustfmt, unsafe audit, cargo-deny/audit, and each declared target/tool; distinguish pass, launch/protocol/compiler incompatibility, formatting change, new lint, dependency vulnerability and shared-assurance rejection |
 | TC-038 cases | Coverage, permutation, boundary, error, transition, edge | both Boolean values; every non-Boolean/non-final result kind; every identity axis; input-order permutations; complete/duplicate/omitted/conflicting populations; predicate/fact 10,000/10,001 and byte bounds; inside/outside deciding-fact loss; every cause and precedence; every projection/valuation state; correction/supersession/conflict; independently authored canonical preimage/digest goldens; deterministic allocation failpoints; real public tl-syntax reader/join failures; source/parser/evaluator purity guards |
-| TC-039 cases | Coverage, error, edge | closed/open event-position differential corpus; exact fixed-sample mapping; one-position false-extension discriminator; timestamped, finite-window and past-time refusals; non-total predicates; capture, anchor, history, silence, closure, late-data and supersession cases; mutation of every correspondence identity and semantic dimension |
+| TC-039 cases | Coverage, error, edge | closed/open event-position differential corpus for every admitted operator; interval boundaries `a=0`, `a=b`, witness at each endpoint, witness absent, horizon beyond closure, and empty/one/multiple positions; exact fixed-sample mapping; one-position false-extension discriminator; timestamped, finite-window and past-time refusals; issue #63 unavailable plus non-total predicates; capture, anchor, history, silence, closure, late-data and supersession transitions; unknown profiles and invalid input; structural record round trip; repeated-input identity; mutation of every correspondence identity and semantic dimension |

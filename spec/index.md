@@ -78,7 +78,7 @@ generation from optional formal type projection, while ADR-0055 separates and
 pins the supported Rust minimum and qualification compiler. TM-002 maps the
 substrate to staged verification.
 
-FR-024 specifies a planned native-temporal-to-TL correspondence boundary beyond
+FR-025 specifies a planned native-temporal-to-TL correspondence boundary beyond
 the implemented v0.1 substrate. It does not make TL a user-authored Quire
 language and does not claim implementation before its declared dependencies are
 accepted.
@@ -92,4 +92,4 @@ accepted.
 - [Contract IR test matrix](contract-test-matrix.md).
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
 - [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
-- [Native temporal to TL correspondence](contract/FR-024-native-temporal-tl-correspondence.md).
+- [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
