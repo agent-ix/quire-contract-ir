@@ -44,7 +44,7 @@ and owner release authority remain required.
 | FND-1509 | medium | **FIXED:** warning-denied Clippy 1.98.1 found `chunks_exact_to_as_chunks` in digest parsing and three `manual_repeat_n` cases in adversarial fixtures. Each was migrated idiomatically; no allow attribute or warning downgrade was added. | `src/canonical.rs:88`; `tests/conformance.rs`; NFR-005-AC-2 | correct-requirement-no-evidence |
 | FND-1510 | high | **FIXED:** the release composite ran license-only cargo-deny and omitted cargo-audit. Executing the real advisory gate reproduced vulnerable `idna 0.4.0` and `time 0.3.36`. Their transitive lock resolutions are now `idna 1.1.0` and `time 0.3.55`; full cargo-deny and cargo-audit pass and are wired into local and hosted gates. | `Makefile`; `.github/workflows/ci.yml`; `Cargo.lock`; NFR-005-AC-3 | correct-requirement-no-evidence |
 | FND-1511 | medium | **FIXED:** marking TC-036/TC-037 complete exposed duplicate test-id rows in the coverage-design table; the matrix census treated the later prose rows as the canonical status and rejected both tests as incomplete. The case-design labels no longer impersonate test-summary rows, and the positive plus mutation-backed traced tests resolve. | `spec/contract-test-matrix.md`; `tests/toolchain_policy.rs`; `scripts/validate_matrix_status.py` | correct-requirement-no-evidence |
-| FND-1512 | high | **OPEN, external to this compiler change:** the full 21-test Python suite has 9 shared-assurance failures. The pinned Quoin path reports that it cannot determine installed `quire 0.31.0` even though that version exceeds its stated 0.21.0 floor; repeated retained-chain scenarios can consequently fail before emitting the audited receipt. This blocks `make ci`/`make release-check` but is not a Rust 1.98.1 incompatibility. Shared capability ownership remains Engineering Assurance #59, with consumer migration in quire-research #60. | `tests/test_shared_assurance.py`; `scripts/assurance_chain.py`; NFR-005 known non-compatibility findings | correct-requirement-no-evidence |
+| FND-1512 | high | **CORRECTED:** the earlier 9-failure attribution was an under-provisioned-environment result, not a Quire compatibility defect. With the pinned CLIs present, `quire 0.31.0` and Quoin classify as compatible and the suite is 20 passed / 1 failed. The remaining failure is the already-disclosed `ix-flow 0.2.3` disagreement with the exact `0.0.4` matrix pin, while the matrix remains `pending_human_acceptance`. Ownership stays with the matrix entry and the required human decision; it is not assigned to Engineering Assurance #59 or quire-research #60. | `tests/test_shared_assurance.py`; `scripts/check_shared_pins.py`; NFR-005 known non-compatibility findings | correct-requirement-no-evidence |
 
 ## Exact implementation-commit gates
 
@@ -62,7 +62,7 @@ and owner release authority remain required.
 | `make audit-unsafe` | pass; no unsafe change |
 | focused Python orchestration/matrix/ordering suites | 7 passed |
 | `make spec` | pass; 119/119 grammar-clean, contract matrix 11/11 backed; inherited ambient diagnostics remain visible |
-| full Python/shared-assurance suite | **9 failed, 12 passed** for FND-1512 |
+| full Python/shared-assurance suite | **20 passed, 1 failed** when fully provisioned; the remaining `ix-flow` matrix disagreement and pending human acceptance are disclosed by NFR-005 |
 | hosted manual workflow | not dispatched; external review pending |
 
 ## Rust checklist result
@@ -82,5 +82,5 @@ and owner release authority remain required.
 
 This review demonstrates compiler/tool compatibility and records the unrelated
 red shared-assurance path. It does not approve the pull request, synthesize a
-human decision, dispatch hosted qualification, publish the crate, or waive
-FND-1512.
+human decision, dispatch hosted qualification, publish the crate, or waive the
+remaining `ix-flow` matrix disagreement.

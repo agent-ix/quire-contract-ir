@@ -67,10 +67,31 @@ impl PolicySurface {
                 failures.push("Make compiler declaration");
             }
         }
-        if self.workflow.matches("toolchain: 1.98.1").count() != 2
-            || self.workflow.contains("rust-toolchain@stable")
+        let hosted_toolchains: Vec<&str> = self
+            .workflow
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("toolchain: "))
+            .collect();
+        if hosted_toolchains.is_empty()
+            || hosted_toolchains
+                .iter()
+                .any(|toolchain| *toolchain != RUST_VERSION)
         {
             failures.push("hosted compiler declaration");
+        }
+        let mutable_action = self
+            .workflow
+            .lines()
+            .map(str::trim)
+            .map(|line| line.strip_prefix("- ").unwrap_or(line))
+            .filter_map(|line| line.strip_prefix("uses: "))
+            .filter_map(|action| action.split_once('@').map(|(_, revision)| revision))
+            .map(|revision| revision.split_whitespace().next().unwrap_or_default())
+            .any(|revision| {
+                revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
+        if mutable_action {
+            failures.push("hosted action pin");
         }
         if !self
             .component_assurance
@@ -146,6 +167,14 @@ fn tc_036_exact_supported_and_qualification_rust_policy_agree() {
         .workflow
         .replacen("toolchain: 1.98.1", "toolchain: stable", 1);
     mutations.push(("floating hosted compiler", mutated));
+
+    let mut mutated = policy.clone();
+    mutated.workflow = mutated.workflow.replacen(
+        "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "actions/checkout@v4",
+        1,
+    );
+    mutations.push(("mutable hosted action", mutated));
 
     let mut mutated = policy.clone();
     mutated.component_assurance = mutated
