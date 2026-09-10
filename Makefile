@@ -11,6 +11,10 @@ CARGO ?= cargo
 PYTHON ?= python3
 QUIRE ?= quire
 QUOIN ?= quoin
+RUSTUP ?= rustup
+
+SUPPORTED_RUST_MINIMUM := 1.98.1
+QUALIFICATION_RUST := 1.98.1
 
 # The shared-assurance lane runs in its own interpreter so its pinned
 # engineering-assurance distribution cannot collide with anything installed
@@ -43,9 +47,10 @@ help:
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run the Python suite and cargo test"
 	@echo "  make build            - Release build"
-	@echo "  make msrv             - Check all targets with Rust 1.75"
+	@echo "  make supported-rust   - Check all targets with the exact supported minimum"
+	@echo "  make qualification-rust - Test all targets with the exact qualification compiler"
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
-	@echo "  make deny             - cargo deny check licenses"
+	@echo "  make deny             - Run all cargo-deny policy checks"
 	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
 	@echo "  make ci               - All local release gates"
 
@@ -63,7 +68,7 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy --all-targets -- -D warnings
+	$(CARGO) clippy --locked --all-targets -- -D warnings
 
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.
@@ -73,14 +78,14 @@ unit: assurance-env assurance-inputs
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json
+	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json
 
 .PHONY: check-corpus
 check-corpus: corpus
 
 .PHONY: corpus-repro
 corpus-repro:
-	$(CARGO) build --quiet --bin quire-contract-conformance
+	$(CARGO) build --locked --quiet --bin quire-contract-conformance
 	$(PYTHON) scripts/generate_conformance_corpus.py --check
 
 .PHONY: spec
@@ -91,15 +96,19 @@ spec:
 
 .PHONY: test
 test: unit
-	$(CARGO) test -- --include-ignored
+	$(CARGO) test --locked -- --include-ignored
 
 .PHONY: build
 build:
-	$(CARGO) build --release
+	$(CARGO) build --locked --release
 
-.PHONY: msrv
-msrv:
-	rustup run 1.75.0 $(CARGO) check --locked --all-targets
+.PHONY: supported-rust
+supported-rust:
+	$(RUSTUP) run $(SUPPORTED_RUST_MINIMUM) $(CARGO) check --locked --all-targets
+
+.PHONY: qualification-rust
+qualification-rust:
+	$(RUSTUP) run $(QUALIFICATION_RUST) $(CARGO) test --locked --all-targets
 
 .PHONY: clean
 clean:
@@ -123,7 +132,7 @@ assurance-env: $(ASSURANCE_PYTHON)
 .PHONY: assurance-inputs
 assurance-inputs:
 	mkdir -p $(ASSURANCE_DIR)
-	$(CARGO) run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json > $(CONFORMANCE_RESULT)
+	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json > $(CONFORMANCE_RESULT)
 	$(QUIRE) coverage --scope . --json > $(QUIRE_EXPORT)
 
 .PHONY: pins
@@ -162,7 +171,7 @@ assurance-record: assurance-inputs
 		--repo . \
 		--suite SUITE-001 \
 		--commit $(REVISION) \
-		--tool "quire-contract-conformance $(shell $(CARGO) run --quiet --bin quire-contract-conformance -- --version | cut -d' ' -f2)" \
+		--tool "quire-contract-conformance $(shell $(CARGO) run --locked --quiet --bin quire-contract-conformance -- --version | cut -d' ' -f2)" \
 		--adapter contract-conformance \
 		--kind Integration \
 		--results $(CONFORMANCE_RESULT)
@@ -173,7 +182,7 @@ assurance-record: assurance-inputs
 
 .PHONY: deny
 deny:
-	$(CARGO) deny check licenses
+	$(CARGO) deny check
 
 .PHONY: cargo-audit
 cargo-audit:
@@ -188,7 +197,7 @@ audit-unsafe:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test corpus corpus-repro spec msrv deny audit-unsafe assurance
+ci: fmt-check lint test corpus corpus-repro spec supported-rust qualification-rust deny cargo-audit audit-unsafe assurance
 
 .PHONY: release-check
 release-check: ci
