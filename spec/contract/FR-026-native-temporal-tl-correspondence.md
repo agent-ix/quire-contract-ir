@@ -94,7 +94,10 @@ The bridge profile is
   `anchor_ref`, `snapshot_ref`, and `invocation_ref`;
   activation identity and state `active`, `inactive` or `unknown`; immutable
   capture-environment identity, revision and digest; and observation state
-  `open`, `closed-complete` or `closed-incomplete`.
+  `open`, `closed-complete` or `closed-incomplete`. `observation_state` is the
+  surrounding-execution closure authenticated by the selected observation
+  reader: complete execution versus open prefix for the whole observed run.
+  It is not a decision-scope closure.
 - For result joining, an exact result-availability contract selection and
   authority-verified assertion bytes, identity, revision and digest; exact
   native-result and TL-result contract selections; and, for each result that
@@ -495,10 +498,12 @@ partial document. Formula construction shall use public tl-syntax constructors
 and readers and shall not import private wire structs.
 
 The formula document contains exactly `schema_version`, `semantic_profile`,
-`root`, and `nodes` under the selected `tl-syntax.formula/v1` contract. The
-selected observation state determines the profile: `open` requires
-`mltl.online-prefix/v1`; `closed-complete` requires
-`mltl.closed-trace/v1`; `closed-incomplete` admits neither evaluator request.
+`root`, and `nodes` under the selected `tl-syntax.formula/v1` contract.
+`observation_state`, the surrounding-execution closure, is the only
+semantic-profile selector: `open` requires `mltl.online-prefix/v1`;
+`closed-complete` requires `mltl.closed-trace/v1`; `closed-incomplete` admits
+neither evaluator request. A decision-scope closure, progress assertion,
+settlement basis or final truth shall not select or change the profile.
 
 The bridge shall serialize the formula as compact UTF-8 JSON using the target
 contract's public field names and FR-016 Unicode-scalar key ordering, escaping
@@ -668,6 +673,10 @@ their selected public strict readers before constructing a result-bearing join
 decision. Each available result shall bind the exact
 `correspondence_ref`, `formula_ref`, `trace_ref`, `evaluator_request_ref`,
 observation identity/revision/digest, verdict time zero and semantic profile.
+Each available result's `<prefix>_execution_closure` shall equal the admitted
+`observation_state`; an unequal value is refused with
+`temporal_closure_mismatch` before producer comparison, and no
+`<prefix>_decision_scope_closure` value is compared with `observation_state`.
 The bridge shall preserve producer-owned result identities and shall not
 restamp either result.
 
@@ -748,7 +757,7 @@ Java, Node, Electron or new Python semantic path.
 |---|---|---|
 | FR-026-AC-1 | Left-to-right postorder construction maps every native future-core node occurrence to the exact primitive TL node, assigns contiguous operand-before-consumer IDs without deduplication, binds every `holds(expr)` to its FR-025 proposition, constructs a complete position-authority-bound valuation set and exact TL trace/evaluation request, rejects cell replay/swapping, and passes every selected public reader. | Test (TC-039) |
 | FR-026-AC-2 | Exact formula bytes and `formula_ref` change for every semantic tree/profile/proposition mutation but not for source-only display changes; valuation, trace and request identities change for their exact input mutations; `correspondence_ref` additionally changes for every source, subject, predicate projection/value, clock/capture content revision, observation position, activation or target-contract mutation. | Test (TC-039) |
-| FR-026-AC-3 | Event-position and exact fixed-sample false-extension requests admit only their matching open-prefix or closed-complete target; timestamped finite-window, past/mixed time, unknown profiles and a changed until lower-bound convention return `unsupported` with no formula. | Test (TC-039) |
+| FR-026-AC-3 | Event-position and exact fixed-sample false-extension requests admit only their matching open-prefix or closed-complete target, selected only by `observation_state` as surrounding-execution closure, so an open observation with a `closed-complete` decision scope still selects `mltl.online-prefix/v1` and a result whose `<prefix>_execution_closure` differs from `observation_state` refuses with `temporal_closure_mismatch`; timestamped finite-window, past/mixed time, unknown profiles and a changed until lower-bound convention return `unsupported` with no formula. | Test (TC-039) |
 | FR-026-AC-4 | Every interval at `0 <= a <= b <= u32::MAX`, including zero width and `u32::MAX`, preserves inclusive bounds; negative, fractional, inverted, unbounded or larger bounds refuse before construction without partial nodes. | Test (TC-039) |
 | FR-026-AC-5 | Observation state, assessment execution, decision-scope progress/closure, surrounding-execution progress/closure, truth, settlement basis, deciding-fact identities, completeness and join kind remain independently encoded: valid equal settled and pending pairs agree, closed-complete pending refuses, runtime gaps are incomplete/unavailable rather than unsupported, and no non-final join exposes a Boolean. | Test (TC-039) |
 | FR-026-AC-6 | Both real result readers reject stale formula/correspondence/trace/request/observation/profile identities, foreign progress clock/subject/scope/source/boundary bindings and impossible axis combinations; equal final results with equal contracts, progress, settlement and deciding-fact premises agree, open final/pending or Boolean/axis disagreement conflicts, unsupported/incomplete/failed/refused/contradicted execution retains its distinct kind, and each same-producer superseding or invalidating relation validates its predecessor, corrected input and any contradicted premise while preserving prior bytes without claiming global graph validation. | Test (TC-039) |

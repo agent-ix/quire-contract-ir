@@ -236,7 +236,7 @@ cannot be used outside those allocations.
 | `temporal_progress_contract_unavailable` | An embedded accepted progress contract or public strict reader cannot be reached | progress-contract field |
 | `temporal_progress_contract_conflict` | Unequal progress contract definitions claim one selected identity | progress-contract identity and related candidate |
 | `temporal_progress_mismatch` | Available native and TL progress values cannot agree under the exact join table | progress fields |
-| `temporal_closure_mismatch` | Result progress is inconsistent with the immutable observation state | observation-state/progress field |
+| `temporal_closure_mismatch` | Result progress or surrounding-execution closure is inconsistent with the immutable observation state | observation-state/progress or execution-closure field |
 | `temporal_result_closure_disagreement` | Otherwise valid native and TL views disagree on decision-scope or surrounding-execution closure | first unequal closure field |
 | `temporal_truth_mismatch` | Otherwise valid native and TL views disagree on final truth or final-versus-pending state | truth fields |
 | `temporal_settlement_mismatch` | Otherwise valid native and TL views disagree on settlement basis | settlement-basis fields |
