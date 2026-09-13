@@ -34,6 +34,8 @@ or canonicalization semantics.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
+- The planned versioned projection from native Quire temporal clauses to exact,
+  supported TL semantic profiles.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 
 ### Out of Scope
@@ -69,12 +71,17 @@ and FR-022 provide traceable artifact identities without redefining that policy.
 FR-008 carried the withdrawn R08 derivation-evidence envelope and is deleted
 with it; the identifier is not reused. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
-workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, and FR-025,
-alongside NFR-001 through NFR-005, define the v0.1 semantic substrate. STD-001
-is the stable diagnostic code registry. ADR-0054 separates archetype datatype
-generation from optional formal type projection, while ADR-0055 separates and
-pins the supported Rust minimum and qualification compiler. TM-002 maps the
-substrate to staged verification.
+workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
+FR-026, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
+STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
+datatype generation from optional formal type projection, while ADR-0055
+separates and pins the supported Rust minimum and qualification compiler.
+TM-002 maps the substrate to staged verification.
+
+FR-026 specifies a planned native-temporal-to-TL correspondence boundary beyond
+the implemented v0.1 substrate. It does not make TL a user-authored Quire
+language and does not claim implementation before its declared dependencies are
+accepted.
 
 ## References
 
@@ -85,3 +92,4 @@ substrate to staged verification.
 - [Contract IR test matrix](contract-test-matrix.md).
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
 - [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
+- [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
