@@ -14,13 +14,15 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-015
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-025
+    type: references
 ---
 # STD-001: Contract IR v0.1 diagnostic code registry
 
 ## Description
 
 This registry owns the stable machine-readable diagnostic codes introduced by
-issues #6 through #10. Implementations may add human context but shall not parse
+issues #6 through #10 and #63. Implementations may add human context but shall not parse
 or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 ## Issue 6 Codes
@@ -89,6 +91,56 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 |---|---|---|
 | `semantic_input_too_large` | A complete operation exceeds 25000 semantic nodes, recursive semantic depth 256, or 10000 entries in any semantic collection | first node, depth, or collection path crossing the limit; source span when present |
 
+## Issue 63 Codes
+
+These codes are also the closed `code` vocabulary for FR-025 decision causes.
+Each allowed `(code, dimension, kind)` tuple is fixed by FR-025; a code cannot
+be used outside those exact allocations.
+
+| Code | Condition | Required location |
+|---|---|---|
+| `invalid_native_predicate_projection` | A v1 request/result/decision record violates its strict tagged shape, UTF-8, enum, byte, depth, count, or string bound | narrowest rejected public field path |
+| `predicate_native_contract_unavailable` | The exact accepted native contract is absent | native contract selection |
+| `predicate_target_contract_unavailable` | An exact required tl-syntax contract is absent | target contract selection |
+| `predicate_native_profile_unsupported` | A well-formed native profile is not in the admitted v1 domain | native profile field and raw discriminator |
+| `predicate_target_profile_unsupported` | A well-formed target profile is not in the admitted v1 domain | target profile field and raw discriminator |
+| `predicate_producer_profile_unsupported` | A well-formed producer profile is not in the admitted v1 domain | producer profile field and raw discriminator |
+| `predicate_evaluation_profile_unsupported` | A well-formed evaluation profile is not in the admitted v1 domain | evaluation profile field and raw discriminator |
+| `predicate_construct_unsupported` | A well-formed checked predicate construct is outside the admitted bridge domain | predicate reference |
+| `predicate_source_mismatch` | Source identity/revision/digest/span does not match the checked predicate | source or span field |
+| `predicate_checked_leaf_mismatch` | Checked-leaf/parent-subject/clause/binding/declaration/expression identity is stale or unequal | first unequal checked-leaf field |
+| `predicate_model_mismatch` | Model/declaration-closure identity is stale or unequal | model field |
+| `predicate_population_invalid` | Selected predicate population is empty, duplicate, non-distinct, internally inconsistent with its declared members, or over the Contract IR limit; it does not mean formula-atom incompleteness | predicate population |
+| `predicate_native_contract_conflict` | Unequal native contract definitions claim one current contract identity | native contract identity and related candidate |
+| `predicate_target_contract_conflict` | Unequal target definitions claim one current contract identity | target contract identity and related candidate |
+| `predicate_identity_conflict` | Unequal predicate content claims one `PredicateRef` | conflicting predicate identity and related candidate |
+| `predicate_catalog_rejected` | The real signal-catalog strict reader rejects the generated document | catalog field/path |
+| `predicate_map_rejected` | The real proposition-map strict reader rejects the generated document | proposition-map field/path |
+| `predicate_catalog_map_mismatch` | Catalog/map population, proposition ID/name, signal domain, ordinal, or binding join differs | first unequal joined field |
+| `predicate_projection_resource_exhausted` | Projection allocation/reservation fails without a partial artifact | projection resource path |
+| `predicate_availability_contract_unsupported` | A well-formed availability contract selection is not in the admitted v1 domain | availability-contract field and raw discriminator |
+| `predicate_availability_contract_unavailable` | The selected accepted availability contract or its public strict reader cannot be reached | availability-contract field |
+| `predicate_source_result_contract_unsupported` | A well-formed source-result contract selection is not in the admitted v1 domain | source-result-contract field and raw discriminator |
+| `predicate_source_result_contract_unavailable` | The selected accepted source-result contract or its public strict reader cannot be reached | source-result-contract field |
+| `predicate_source_result_mapping_unsupported` | A well-formed source-result mapping selection is not in the admitted v1 domain | source-result-mapping field and raw discriminator |
+| `predicate_source_result_mapping_unavailable` | The selected accepted source-result mapping or its public strict reader cannot be reached | source-result-mapping field |
+| `predicate_producer_unavailable` | The verified availability assertion classifies the exact producer or required result contract as unavailable | producer/result-availability field |
+| `predicate_result_not_yet_observed` | Authority-verified availability assertion says the required producer result is not yet observed, regardless of observation state | result-availability field |
+| `predicate_execution_unsupported` | Source predicate execution is `unsupported` | predicate-execution field |
+| `predicate_execution_refused` | Source predicate execution is `refused` | predicate-execution field |
+| `predicate_execution_failed` | Source predicate execution is `failed` | predicate-execution field |
+| `predicate_execution_incomplete` | Source predicate execution is `resource-incomplete` | predicate-execution field |
+| `predicate_observation_mismatch` | Observation/result identity or revision is stale or unequal | observation field |
+| `predicate_anchor_mismatch` | Anchor/snapshot/invocation identity is stale or unequal | first unequal anchor field |
+| `predicate_capture_mismatch` | Capture-environment identity is stale or unequal | capture field |
+| `predicate_valuation_population_mismatch` | Observation population identity does not equal the canonical fact population | population field |
+| `predicate_completeness_incomplete` | A deciding fact is missing/incomplete or native truth is unavailable on that premise | completeness or deciding-fact field |
+| `predicate_completeness_conflict` | A deciding fact is contradicted; an outside-set contradiction remains a typed gap | contradicted deciding-fact field |
+| `predicate_result_type_mismatch` | Value kind/payload is non-Boolean or disagrees with native truth | value-kind/value field |
+| `predicate_result_stale` | Source result/profile/subject identity is stale or unequal | first stale result field |
+| `predicate_supersession_invalid` | Direct predecessor is absent, self-referential, same-revision, wrong-subject, or digest-inconsistent | prior-result field |
+| `predicate_valuation_resource_exhausted` | Valuation allocation/reservation fails without a partial decision | valuation resource path |
+
 ## Application Guidance
 
 Public diagnostics contain a code, closed severity `error`, message, semantic
@@ -136,7 +188,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-019 and FR-023 extend or consume this
+- **Downstream**: FR-013 through FR-019, FR-023, and FR-025 extend or consume this
   semantic registry without renaming issue #6 codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.
