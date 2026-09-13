@@ -1,19 +1,36 @@
 ---
 id: PLAN-006
-title: "Proposed formal-profile qualification checklist for issue #53"
+title: "Accepted source-profile decision and mapping qualification allocation"
 type: Plan
-status: proposed
+status: done
 relationships:
   - target: ix://agent-ix/quire-contract-ir/ADR-0053
     type: references
 ---
 
-# Issue #53: proposed profile qualification checklist
+# Issue #53: accepted source-profile disposition
 
-This is a specification-only companion to
+This is the specification-only disposition companion to
 [ADR-0053](../spec/decisions/ADR-0053-formal-clause-source-profiles.md).
-Every item is pending; no parser run, tool qualification, proof, or owner
-decision is recorded by checking in this document.
+The owner decision is complete: native Quire is the sole editable source and
+the external notations are output mappings. The historical discriminating
+corpus remains useful input to those mapping tickets, but it is not a pending
+external-parser gate for issue #53.
+
+## Completed decision allocation
+
+- [x] Select native Quire (`ix:native`) as the sole editable source authority.
+- [x] Separate language/profile meaning from Contract-IR and backend capability.
+- [x] Preserve the bounded admission, source, anchor, reference and resource
+  constraints without giving the first-party frontend an exemption.
+- [x] Reclassify OCL 2.4, SysML v2/KerML and FRETish as Rust-emitted FS06 mapping
+  targets with explicit preserved/conditional/unrepresented/refused results.
+- [x] Retain ConfigVersion's minimum-only bound and parent relationship as an
+  unresolved model/reference gate; do not approximate either.
+- [x] Allocate coverage-state work to #58 and mapping implementation to #55–#57.
+
+Native implementation and mapping qualification remain in their owning tickets;
+they are not incomplete subtasks of this completed decision plan.
 
 ## Input provenance
 
@@ -33,7 +50,11 @@ files failed; successful GitHub content API reads supplied their actual bytes.
 The pinned SysML license correction is a concrete finding: stable 2025-09 is
 LGPL-3.0-or-later per its README, not the unqualified EPL-2.0 assumption.
 
-## Proposed discriminating corpus, before lowering implementation
+## Preserved mapping discriminators
+
+The table below is the original candidate corpus. Read OCL, FRETish and SysML
+rows as output-mapping preservation/refusal cases, never as authorization for
+another source frontend or foreign-runtime test dependency.
 
 | Pair/control | Expected distinction | Owning protected construct |
 |---|---|---|
@@ -61,38 +82,27 @@ LGPL-3.0-or-later per its README, not the unqualified EPL-2.0 assumption.
 | Same semantics with reordered declaration source / semantic field or profile change | Canonical identity stable for order-only change / semantic or derivation identity changes as appropriate | FR-016 canonical bytes; profile provenance |
 | One authored OCL implication lowered to total or/not / zero IR Implication nodes | Source implication-vacuity unavailable/deferred, never a vacuity pass inferred from zero probes | FR-014 operator identity; source/IR/codegen correspondence |
 
-These are proposed oracle obligations, not executable fixtures and not a
-statement that all expected-positive examples already pass the existing IR
-definedness checker. An independent reviewer must adjudicate the boundary and
-each native language representation before the compiler owner implements it.
+These are preserved candidate controls, not executable fixtures and not a
+statement that all expected-positive examples pass the existing IR or any
+output mapping. Each owning implementation ticket must select the applicable
+native source case, expected mapping/loss result and independent oracle before
+claiming support.
 
-## Sequencing and exact gates
+## Accepted allocation and remaining external work
 
-1. Owner records direction and any bound/subset amendments on #53; independent
-   review resolves language semantics and source-authority ambiguities.
-2. #54 defines exact compiled model/name/bound/operation/presence/reference
-   bindings. Scalar acyclic work does not require publication of every native
-   kernel language target; unresolved referenced objects remain explicit gaps.
-3. For each selected external candidate, retain exact source/binary/JAR/library
-   hashes, runtime and transitive lock, origin/license inventory, adapter API and
-   actual invocation. Missing artifacts or ambiguous licensing block use; a
-   source tag and product version alone are insufficient.
-4. Independently bank positive and negative source cases and expected typed IR
-   or explicit refusals. Keep oracle expectation ownership separate from the
-   lowering implementation; record native diagnostic and source-span behavior.
-5. #55 qualifies OCL parsing/type binding and semantic correspondence,
-   including the tool's OCL-2.5 library versus the proposed OCL-2.4 subset,
-   null/invalid and evaluation order. Resource/timeout/stack failures remain
-   distinct from language or semantic rejection.
-6. #57 and the tl-* owner settle time units, interval endpoints, trigger
-   observations, horizon completeness, native FRET formula translation, and
-   pinned evaluator witnesses. No stripping LAST or claiming ft-fin is MLTL.
-7. #56 qualifies the later SysML profile against exact stable libraries and
-   the selected headless adapter. A Maven build is not a validation result.
-8. #58 runs with the first frontend and reports every criterion's formalization
-   disposition and exact clause address. Reconcile its historical shared-envelope
-   language with PGM-01's current native-result/Quoin retention boundary before
-   writing a schema; do not revive the withdrawn generic evidence envelope.
+1. Quire Specification FS01 freezes the native charter/profile decision and
+   preserves historical definition identities; FS02–FS05 own their named model,
+   semantic and interchange contracts.
+2. ADR-0054 remains accepted and #54 remains closed. A later reference/graph
+   implementation uses a separately versioned identity-preserving contract;
+   no UUID cast or recursive-record substitution is permitted.
+3. #55–#57 specify and implement Rust output mappings. They retain the useful
+   candidate pins as research provenance but do not execute foreign runtimes for
+   first-party qualification without a new owner decision.
+4. Independent mapping corpora compare native source meaning with the emitted
+   artifact and its loss report. Parser acceptance is never the oracle.
+5. #58 reports every criterion's formalization disposition and exact clause
+   address using the native source authority and current PGM-01 result boundary.
 
 No current release/test-matrix row is promoted by this packet. Direction
 approval and technical fixture success remain separate from human evidence
