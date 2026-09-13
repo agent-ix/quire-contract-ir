@@ -60,8 +60,8 @@ another source frontend or foreign-runtime test dependency.
 |---|---|---|
 | P1 version 0 / version 1 | False / true over the declared synthetic [0,10000] domain | FR-013 numeric bounds; FR-014 comparison |
 | P2 pre=4,post=5 / pre=4,post=4 | False / true; no full-immutability claim | FR-012 post anchor; FR-014 state observation |
-| P3 response at tick 3 / first response tick 4 | True / false in a complete [0,3] window | Future #57 tl-* profile, not a new FR-014 operator |
-| P3 short trace / complete trace | Incomplete / evaluated; native FRET LAST behavior retained for comparison | Future temporal completeness contract |
+| P3 response at tick 3 / first response tick 4 | True / false in a complete [0,3] native window | Native temporal contract plus #57 FRETish mapping, not a new FR-014 operator |
+| P3 short trace / complete trace | Incomplete / evaluated; FRET `LAST` behavior remains a mapping-loss discriminator | Native temporal completeness and #57 mapping contract |
 | Same P1 text with unbounded int / explicit finite type | Refuse / typeable | FR-013 bounds |
 | Wrong operation or absent anchor / exact operation and anchor | Refuse / bindable | FR-012 anchor; FR-014 observations |
 | Post value guarded by pre-state fact / matching observed subject | No cross-observation proof; any partial acceptance requires an explicit later correspondence rule | FR-015 exact-subject guard facts |
@@ -80,7 +80,7 @@ another source frontend or foreign-runtime test dependency.
 | One package split into many clauses | Aggregate limit unchanged, no per-clause budget multiplication | FR-019 complete-input bound |
 | Nested quantifier product 4096 / 4097 | Eligible / frontend cost refusal, subject to independently checked visit budget | Proposed stricter profile bound; FR-014 finite quantifier |
 | Same semantics with reordered declaration source / semantic field or profile change | Canonical identity stable for order-only change / semantic or derivation identity changes as appropriate | FR-016 canonical bytes; profile provenance |
-| One authored OCL implication lowered to total or/not / zero IR Implication nodes | Source implication-vacuity unavailable/deferred, never a vacuity pass inferred from zero probes | FR-014 operator identity; source/IR/codegen correspondence |
+| One authored native implication mapped to OCL total or/not / zero IR Implication nodes | Source implication-vacuity unavailable/deferred, never a vacuity pass inferred from zero probes | FR-014 operator identity; source/IR/codegen correspondence |
 
 These are preserved candidate controls, not executable fixtures and not a
 statement that all expected-positive examples pass the existing IR or any
