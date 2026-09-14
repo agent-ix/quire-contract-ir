@@ -2,7 +2,7 @@
 id: TASK-020
 title: "FR-026 closing implementation review"
 type: Task
-status: in_progress
+status: done
 track: A
 priority: P0
 relationships:
@@ -21,9 +21,9 @@ Complete the required code, Rust, and gap reviews; fix every finding; rerun the 
 
 ## Subtasks
 
-- [ ] **Review code and Rust boundaries.** Audit implementation/test alignment, public API, errors, panics, conversions, resource bounds, and owner seams.
-- [ ] **Audit trace completeness.** Reconcile PLAN-006, TM-002, FR-026, TC-039, and the production surface.
-- [ ] **Close findings and gates.** Record validated review artifacts and rerun every required local gate before merge.
+- [x] **Review code and Rust boundaries.** Audit implementation/test alignment, public API, errors, panics, conversions, resource bounds, and owner seams.
+- [x] **Audit trace completeness.** Reconcile PLAN-006, TM-002, FR-026, TC-039, and the production surface.
+- [x] **Close findings and gates.** Record validated review artifacts and rerun every required local gate before merge.
 
 ## Deliverables
 

@@ -2,7 +2,7 @@
 id: PLAN-006
 title: "Implement native temporal-to-TL correspondence"
 type: Plan
-status: active
+status: done
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-026
     type: references
@@ -52,7 +52,7 @@ FR-026 requires canonical identities, closed typed decisions, bounded work, exac
 ### Verification
 
 - [x] **Rust gates**: workspace tests, warning-denied all-feature Clippy, rustfmt, release build, unsafe audit, and cargo-deny.
-- [ ] **Closing review gate**: `/code-review`, `/rust-review`, and `/gap-analysis` yield no unresolved finding before merge.
+- [x] **Closing review gate**: `/code-review`, `/rust-review`, and `/gap-analysis` yield no unresolved finding before merge.
 
 ## Remaining Work
 
@@ -78,7 +78,7 @@ The shared owner boundaries made this a deliberately serial critical path; no in
 | TASK-017 | A | FR-026 | TC-039 | done |
 | TASK-018 | A | FR-026 | TC-039 | done |
 | TASK-019 | A | FR-026 | TC-039 | done |
-| TASK-020 | A | FR-026 | TC-039 | in_progress |
+| TASK-020 | A | FR-026 | TC-039 | done |
 
 ## Coordination Rules
 
