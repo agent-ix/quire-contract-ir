@@ -9,5 +9,6 @@
 
 pub mod bridge;
 pub mod predicate;
+pub mod temporal;
 
 pub use quire_contract_model::*;

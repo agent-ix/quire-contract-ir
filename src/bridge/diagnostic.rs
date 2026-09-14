@@ -9,13 +9,22 @@ pub enum BridgeErrorCode {
     PredicateProjectionResourceExhausted,
     /// Predicate valuation could not complete within selected resources.
     PredicateValuationResourceExhausted,
+    /// A temporal bridge document is malformed, noncanonical, or mismatched.
+    InvalidNativeTemporalBridge,
+    /// Temporal projection could not complete within selected resources.
+    TemporalProjectionResourceExhausted,
+    /// Temporal result join could not complete within selected resources.
+    TemporalResultJoinResourceExhausted,
 }
 
 impl BridgeErrorCode {
-    const ALL: [Self; 3] = [
+    const ALL: [Self; 6] = [
         Self::InvalidNativePredicateProjection,
         Self::PredicateProjectionResourceExhausted,
         Self::PredicateValuationResourceExhausted,
+        Self::InvalidNativeTemporalBridge,
+        Self::TemporalProjectionResourceExhausted,
+        Self::TemporalResultJoinResourceExhausted,
     ];
 
     /// Returns every stable operation code.
@@ -31,6 +40,9 @@ impl BridgeErrorCode {
             Self::InvalidNativePredicateProjection => "invalid_native_predicate_projection",
             Self::PredicateProjectionResourceExhausted => "predicate_projection_resource_exhausted",
             Self::PredicateValuationResourceExhausted => "predicate_valuation_resource_exhausted",
+            Self::InvalidNativeTemporalBridge => "invalid_native_temporal_bridge",
+            Self::TemporalProjectionResourceExhausted => "temporal_projection_resource_exhausted",
+            Self::TemporalResultJoinResourceExhausted => "temporal_result_join_resource_exhausted",
         }
     }
 }
