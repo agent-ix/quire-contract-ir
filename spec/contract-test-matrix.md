@@ -32,7 +32,7 @@ relationships:
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | ✅ implemented against immutable QSL `4f404454`, Quire Observation `9ac80e93`, Quire Protocol `36af8d7b`, and tl-syntax `842d8255` owner revisions |
-| FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | 🚧 planned; blocked on accepted FR-025, native temporal/observation/progress/completeness/result contracts and public TL formula/semantic/trace/request/evaluator/result contracts |
+| FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | 🚧 in progress; projection is implemented against accepted FR-025 and current observation/TL owners, while formula-wide join awaits QSL FR-052 native request/result owner contracts |
 | FR-027 | FR-027-AC-1 through FR-027-AC-6 | TC-040 | 🚧 planned; blocked on merged FR-025/FR-026 owners and exact nine-repository campaign revisions |
 | FR-028 | FR-028-AC-1 through FR-028-AC-5 | TC-041 | ✅ implemented architecture enablement |
 
