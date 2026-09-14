@@ -1,4 +1,5 @@
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -91,6 +92,73 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         Some(0)
     );
 
+    let packages = workspace["packages"]
+        .as_array()
+        .expect("workspace packages must be an array");
+    let names: BTreeMap<_, _> = packages
+        .iter()
+        .map(|package| {
+            (
+                package["id"].as_str().expect("package id must be a string"),
+                package["name"]
+                    .as_str()
+                    .expect("package name must be a string"),
+            )
+        })
+        .collect();
+    let resolve = workspace["resolve"]
+        .as_object()
+        .expect("workspace resolve must be an object");
+    let root_id = resolve["root"]
+        .as_str()
+        .expect("workspace root id must be a string");
+    let nodes: BTreeMap<_, _> = resolve["nodes"]
+        .as_array()
+        .expect("workspace resolve nodes must be an array")
+        .iter()
+        .map(|node| {
+            (
+                node["id"]
+                    .as_str()
+                    .expect("resolve node id must be a string"),
+                node,
+            )
+        })
+        .collect();
+    let mut production = BTreeSet::new();
+    let mut pending = vec![root_id];
+    while let Some(package_id) = pending.pop() {
+        if !production.insert(package_id) {
+            continue;
+        }
+        let node = nodes
+            .get(package_id)
+            .expect("every production package must have a resolve node");
+        for dependency in node["deps"]
+            .as_array()
+            .expect("resolved dependencies must be an array")
+        {
+            let is_normal = dependency["dep_kinds"]
+                .as_array()
+                .expect("dependency kinds must be an array")
+                .iter()
+                .any(|kind| kind["kind"].is_null());
+            if is_normal {
+                pending.push(
+                    dependency["pkg"]
+                        .as_str()
+                        .expect("dependency package id must be a string"),
+                );
+            }
+        }
+    }
+    assert!(production
+        .iter()
+        .all(|id| names[id] != "quire-spec-language"));
+    assert!(bridge_dependencies.iter().any(|dependency| {
+        dependency["name"] == "quire-spec-language" && dependency["kind"] == "dev"
+    }));
+
     let workspace_members = workspace["workspace_members"]
         .as_array()
         .expect("workspace members must be an array");
@@ -176,6 +244,40 @@ fn tc_041_existing_contract_ir_imports_build_through_the_model_package_alias() {
     assert!(
         output.status.success(),
         "aliased model consumer failed to build: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[trace("TC-041", "FR-028-AC-3", "FR-028-AC-4", "FR-028-AC-5")]
+#[test]
+fn tc_041_bridge_and_real_qsl_owner_api_compose_without_a_cycle() {
+    let repository = root();
+    let manifest = repository.join("tests/fixtures/bridge-qsl-consumer/Cargo.toml");
+    let composition = metadata(&manifest);
+    let qsl = package(&composition, "quire-spec-language");
+    let qsl_source = qsl["source"]
+        .as_str()
+        .expect("QSL composition dependency must retain its immutable git source");
+    assert!(qsl_source.contains("440d56f88cf9db2b72a580b1d74e13c78c551263"));
+    let bridge = package(&composition, "quire-contract-ir");
+    assert_eq!(bridge["source"], Value::Null);
+
+    let output = Command::new(env!("CARGO"))
+        .args([
+            "check",
+            "--locked",
+            "--offline",
+            "--all-targets",
+            "--manifest-path",
+        ])
+        .arg(&manifest)
+        .arg("--target-dir")
+        .arg(repository.join("target/tc-041-bridge-qsl"))
+        .output()
+        .expect("bridge and QSL composition check must start");
+    assert!(
+        output.status.success(),
+        "bridge and QSL owner APIs failed to compose: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+
+[package]
+name = "bridge-qsl-consumer"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.1"
+publish = false
+
+[dependencies]
+quire-contract-ir = { path = "../../.." }
+quire-spec-language = { git = "https://github.com/agent-ix/quire-spec-language", rev = "440d56f88cf9db2b72a580b1d74e13c78c551263", default-features = false }

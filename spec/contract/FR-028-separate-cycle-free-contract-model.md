@@ -66,7 +66,7 @@ callback, trait-object validator, wire mirror, trust flag or local owner parser.
 |---|---|---|
 | FR-028-AC-1 | Cargo metadata for every production feature combination is acyclic and contains no owner or TL dependency reachable from `quire-contract-model`. | Test (TC-041) |
 | FR-028-AC-2 | The existing Contract IR public API, schemas, canonical bytes, identities, diagnostics and conformance corpus are byte/result identical through `quire-contract-ir` compatibility re-exports. | Test (TC-041) |
-| FR-028-AC-3 | QSL builds unchanged source imports against the pinned `quire-contract-model` package alias, while the bridge package imports the real QSL owner API without a Cargo cycle. | Test (TC-041) |
+| FR-028-AC-3 | QSL builds unchanged source imports against the pinned `quire-contract-model` package alias, while a locked composition build imports both the compatibility bridge and the real QSL owner API without a Cargo cycle. FR-025 owns adding that API as a production bridge dependency when its remaining owners are available. | Test (TC-041) |
 | FR-028-AC-4 | Default, all-feature and minimum-version builds prove that no optional, dev or historical dependency leaks into the production graph. | Test (TC-041) |
 | FR-028-AC-5 | The split introduces no copied owner wire type, public validation constructor, callback, trait object, trust flag or local QSL/observation/protocol/TL parser. | Test (TC-041) |
 
@@ -79,4 +79,6 @@ IF-008.
 
 ## Status
 
-Proposed architecture enablement for `tl-syntax#52/#64`.
+Implemented for `quire-contract-ir#73` as the architecture enablement for
+`tl-syntax#52/#64`; production owner integration remains allocated to FR-025
+and FR-026.
