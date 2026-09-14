@@ -47,7 +47,7 @@ impl TargetSelection {
                 "quire.checked-predicate/v1",
                 "0.2.0",
                 "agent-ix/quire-spec-language",
-                "4f404454b3d5cfb78dfdc468c76de85c199191e5",
+                "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07",
                 BridgeDigest::raw(
                     quire_spec_language::protocol_artifact::checked_predicate::SCHEMA_BYTES,
                 ),

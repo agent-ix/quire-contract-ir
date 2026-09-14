@@ -34,8 +34,8 @@ or canonicalization semantics.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
-- The implemented checked-predicate projection and planned temporal-clause
-  projection from native Quire contracts to exact supported TL profiles.
+- The implemented checked-predicate and temporal-clause compatibility bridges
+  from native Quire contracts to exact supported TL profiles.
 - The bounded, non-authoritative export of the exact temporal-ecosystem
   component/object/interface/contract/evidence graph.
 - The cycle-free semantic-model package and compatibility bridge boundary.

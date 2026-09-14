@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "agent-ix-baseline-producer"
 version = "0.0.0"
-source = "git+https://github.com/agent-ix/filament-core-data?rev=f79e5a641b3eac702642282ad6cc84dd48d280dc#f79e5a641b3eac702642282ad6cc84dd48d280dc"
+source = "git+https://github.com/agent-ix/filament-core-data?rev=404288282402d60de007295ccbafa960532b955e#404288282402d60de007295ccbafa960532b955e"
 dependencies = [
  "serde",
  "serde_json",
@@ -688,6 +688,7 @@ dependencies = [
  "sha2",
  "stacker",
  "thiserror",
+ "tl-mltl",
  "tl-syntax",
 ]
 
@@ -730,7 +731,7 @@ dependencies = [
 [[package]]
 name = "quire-protocol"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-protocol?rev=36af8d7bb4753ea89f020fe1e5080cef21879b65#36af8d7bb4753ea89f020fe1e5080cef21879b65"
+source = "git+https://github.com/agent-ix/quire-protocol?rev=34d1752e6c5f789a52ccf115b0694eedd96cdd46#34d1752e6c5f789a52ccf115b0694eedd96cdd46"
 dependencies = [
  "jsonschema",
  "quire-observation",
@@ -742,7 +743,7 @@ dependencies = [
 [[package]]
 name = "quire-spec-language"
 version = "0.2.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?rev=4f404454b3d5cfb78dfdc468c76de85c199191e5#4f404454b3d5cfb78dfdc468c76de85c199191e5"
+source = "git+https://github.com/agent-ix/quire-spec-language?rev=f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07#f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07"
 dependencies = [
  "agent-ix-baseline-producer",
  "logos",
@@ -1010,6 +1011,18 @@ checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
 dependencies = [
  "displaydoc",
  "zerovec",
+]
+
+[[package]]
+name = "tl-mltl"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/tl-mltl?rev=22862189ac4eb515ab84928faec25b2eac47d835#22862189ac4eb515ab84928faec25b2eac47d835"
+dependencies = [
+ "quire-observation",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tl-syntax",
 ]
 
 [[package]]

@@ -24,10 +24,32 @@ use quire_spec_language::protocol_artifact::{checked_predicate, temporal_subject
 use super::v2_handoff;
 
 pub struct Fixture {
-    pub predicate: checked_predicate::ValidatedCheckedPredicate,
+    predicates: Vec<checked_predicate::ValidatedCheckedPredicate>,
     temporal: temporal_subject::ValidatedTemporalSubject,
     decision: ScopeViews,
     surrounding: ScopeViews,
+}
+
+impl Fixture {
+    pub fn predicate(&self) -> &checked_predicate::ValidatedCheckedPredicate {
+        self.predicates.first().expect("fixture checked predicate")
+    }
+
+    #[allow(
+        dead_code,
+        reason = "shared fixture; only the FR-026 test binary consumes every temporal leaf"
+    )]
+    pub fn predicates(&self) -> &[checked_predicate::ValidatedCheckedPredicate] {
+        &self.predicates
+    }
+
+    #[allow(
+        dead_code,
+        reason = "shared fixture; only the FR-026 test binary consumes the temporal owner view"
+    )]
+    pub fn temporal(&self) -> &temporal_subject::ValidatedTemporalSubject {
+        &self.temporal
+    }
 }
 
 struct ScopeViews {
@@ -41,6 +63,14 @@ struct ScopeViews {
 }
 
 pub fn fixture() -> Fixture {
+    fixture_for_temporal(0)
+}
+
+#[allow(
+    dead_code,
+    reason = "shared fixture; FR-026 selects multiple published temporal declarations"
+)]
+pub fn fixture_for_temporal(temporal_ordinal: usize) -> Fixture {
     let loaded = v2_handoff::Handoff::load().expect("published v2 handoff");
     let declarations = loaded.declarations();
     let inventories = loaded.inventories(&declarations);
@@ -48,34 +78,48 @@ pub fn fixture() -> Fixture {
     let admitted = quire_protocol::admit_and_link_v2(loaded.offer(), &expected, loaded.limits())
         .into_result()
         .expect("strict v2 package");
-    let (predicate_declaration, predicate_root) = checked_leaf(&admitted);
-    let predicate_selection =
-        checked_predicate::ClauseSelection::new(predicate_declaration, predicate_root);
-    let predicate_document = checked_predicate::derive(
-        &admitted,
-        predicate_selection.clone(),
-        checked_predicate::Limits::default(),
-    )
-    .into_result()
-    .expect("checked predicate document");
-    let predicate = checked_predicate::read(
-        predicate_document.bytes(),
-        &admitted,
-        predicate_selection,
-        checked_predicate::Limits::default(),
-    )
-    .into_result()
-    .expect("checked predicate view");
     let temporal_declaration = admitted
         .inherited()
         .declarations
         .iter()
-        .position(|declaration| matches!(declaration.body, w::Body::Temporal { .. }))
-        .and_then(|index| u32::try_from(index).ok())
+        .enumerate()
+        .filter(|(_, declaration)| matches!(declaration.body, w::Body::Temporal { .. }))
+        .nth(temporal_ordinal)
+        .and_then(|(index, _)| u32::try_from(index).ok())
         .expect("temporal declaration");
+    fixture_from_package(&admitted, temporal_declaration)
+}
+
+#[allow(
+    dead_code,
+    reason = "shared fixture; FR-026 authors targeted temporal owner packages"
+)]
+pub fn fixture_from_package(admitted: &v2::AdmittedPackage, temporal_declaration: u32) -> Fixture {
+    let predicates = temporal_checked_leaves(admitted, temporal_declaration)
+        .into_iter()
+        .map(|(predicate_declaration, predicate_root)| {
+            let predicate_selection =
+                checked_predicate::ClauseSelection::new(predicate_declaration, predicate_root);
+            let predicate_document = checked_predicate::derive(
+                admitted,
+                predicate_selection.clone(),
+                checked_predicate::Limits::default(),
+            )
+            .into_result()
+            .expect("checked predicate document");
+            checked_predicate::read(
+                predicate_document.bytes(),
+                admitted,
+                predicate_selection,
+                checked_predicate::Limits::default(),
+            )
+            .into_result()
+            .expect("checked predicate view")
+        })
+        .collect();
     let temporal_selection = temporal_subject::DeclarationSelection::new(temporal_declaration);
     let temporal_document = temporal_subject::derive(
-        &admitted,
+        admitted,
         temporal_selection,
         temporal_subject::Limits::default(),
     )
@@ -83,14 +127,14 @@ pub fn fixture() -> Fixture {
     .expect("temporal subject document");
     let temporal = temporal_subject::read(
         temporal_document.bytes(),
-        &admitted,
+        admitted,
         temporal_selection,
         temporal_subject::Limits::default(),
     )
     .into_result()
     .expect("temporal subject view");
     Fixture {
-        predicate,
+        predicates,
         temporal,
         decision: scope_views("decision"),
         surrounding: scope_views("surrounding"),
@@ -126,6 +170,78 @@ pub fn validated_result_with(
         Limits::owner_max(),
     )
     .expect("strict result reader")
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(
+    dead_code,
+    reason = "shared fixture; only the FR-026 test binary constructs temporal result axes"
+)]
+pub fn validated_result_for_temporal<'a>(
+    fixture: &'a Fixture,
+    decision_progress: &'a authority::progress::View,
+    decision_closure: &'a authority::closure::View,
+    surrounding_progress: &'a authority::progress::View,
+    surrounding_closure: &'a authority::closure::View,
+    completeness: &'a authority::completeness::View,
+    observation_identity: &'a str,
+    truth: Truth,
+) -> result::ValidatedResult {
+    validated_result_for_temporal_predicate(
+        fixture,
+        fixture.predicate(),
+        decision_progress,
+        decision_closure,
+        surrounding_progress,
+        surrounding_closure,
+        completeness,
+        observation_identity,
+        truth,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn validated_result_for_temporal_predicate<'a>(
+    fixture: &'a Fixture,
+    checked_predicate: &'a checked_predicate::ValidatedCheckedPredicate,
+    decision_progress: &'a authority::progress::View,
+    decision_closure: &'a authority::closure::View,
+    surrounding_progress: &'a authority::progress::View,
+    surrounding_closure: &'a authority::closure::View,
+    completeness: &'a authority::completeness::View,
+    observation_identity: &'a str,
+    truth: Truth,
+) -> result::ValidatedResult {
+    let mut input = base_input_for(fixture, checked_predicate);
+    input.axes = AxisInputs {
+        decision_scope_progress: decision_progress,
+        decision_scope_closure: decision_closure,
+        surrounding_execution_progress: surrounding_progress,
+        surrounding_execution_closure: surrounding_closure,
+    };
+    input.completeness = completeness;
+    input.truth = truth;
+    input.settlement.basis = match (decision_closure.payload().state(), truth) {
+        (_, Truth::Unavailable) => SettlementBasis::Unavailable,
+        (_, Truth::Pending) => SettlementBasis::Unsettled,
+        (OpenClosed::Open, Truth::Satisfied) => SettlementBasis::DecisiveWitness,
+        (OpenClosed::Open, Truth::Violated) => SettlementBasis::DecisiveCounterexample,
+        (OpenClosed::Closed, Truth::Satisfied | Truth::Violated) => SettlementBasis::ClosedScope,
+    };
+    input.settlement.supporting_fact_identities = vec![observation_identity.to_owned()];
+    input.settlement.supporting_progress_identities =
+        vec![decision_progress.identity().as_str().to_owned()];
+    input.decision_support[0].observation_identity = observation_identity.to_owned();
+    let document = result::produce(input.clone(), Limits::owner_max()).expect("temporal result");
+    result::read(
+        document.bytes(),
+        result::Expected {
+            input,
+            enclosing_digest: document.digest(),
+        },
+        Limits::owner_max(),
+    )
+    .expect("temporal result strict reader")
 }
 
 pub fn validated_result_with_outside_gap(
@@ -243,36 +359,42 @@ pub fn availability(
     .expect("availability strict reader")
 }
 
-fn checked_leaf(package: &v2::AdmittedPackage) -> (u32, w::Handle) {
+fn temporal_checked_leaves(
+    package: &v2::AdmittedPackage,
+    temporal_declaration: u32,
+) -> Vec<(u32, w::Handle)> {
     package
         .inherited()
         .declarations
         .iter()
         .enumerate()
         .find_map(|(index, declaration)| {
-            let root = match &declaration.body {
-                w::Body::Predicate { root, .. } | w::Body::State { root, .. } => root.clone(),
-                w::Body::Temporal { .. } => declaration.temporal.iter().find_map(|node| {
-                    if let w::TemporalOperation::Holds { value } = &node.operation {
-                        Some(value.clone())
-                    } else {
-                        None
-                    }
-                })?,
-                w::Body::Protocol {
-                    controls, finish, ..
-                } => controls
-                    .iter()
-                    .find_map(|control| {
-                        if let w::ControlOperation::Check { value, .. } = &control.operation {
-                            Some(value.clone())
-                        } else {
-                            None
+            (u32::try_from(index).ok()? == temporal_declaration).then_some(())?;
+            let roots = match &declaration.body {
+                w::Body::Temporal { activation, .. } => {
+                    let mut roots = declaration
+                        .temporal
+                        .iter()
+                        .filter_map(|node| match &node.operation {
+                            w::TemporalOperation::Holds { value } => Some(value.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if let w::Activation::Each {
+                        guard: w::Nullable(Some(guard)),
+                        ..
+                    } = activation
+                    {
+                        if !roots.contains(guard) {
+                            roots.push(guard.clone());
                         }
-                    })
-                    .unwrap_or_else(|| finish.constraint.clone()),
+                    }
+                    roots
+                }
+                _ => return None,
             };
-            Some((u32::try_from(index).ok()?, root))
+            let declaration = u32::try_from(index).ok()?;
+            Some(roots.into_iter().map(|root| (declaration, root)).collect())
         })
         .expect("checked Boolean leaf")
 }
@@ -589,6 +711,13 @@ fn global_premises() -> Vec<GlobalPremise> {
 }
 
 fn base_input<'a>(fixture: &'a Fixture) -> Input<'a> {
+    base_input_for(fixture, fixture.predicate())
+}
+
+fn base_input_for<'a>(
+    fixture: &'a Fixture,
+    checked_predicate: &'a checked_predicate::ValidatedCheckedPredicate,
+) -> Input<'a> {
     let observation_identity = fixture
         .decision
         .completeness_complete
@@ -600,7 +729,7 @@ fn base_input<'a>(fixture: &'a Fixture) -> Input<'a> {
         .to_owned();
     let premises = global_premises();
     Input {
-        checked_predicate: &fixture.predicate,
+        checked_predicate,
         temporal_subject: &fixture.temporal,
         axes: AxisInputs {
             decision_scope_progress: &fixture.decision.progress_closed,
