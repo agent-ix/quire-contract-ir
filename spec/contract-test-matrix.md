@@ -12,7 +12,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-028 | TC-015 through TC-018, TC-035, TC-038 through TC-041 | existing rows, FR-025, FR-026, and FR-028 implemented; FR-027 planned |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-028 | TC-015 through TC-018, TC-035, TC-038 through TC-041 | existing rows and FR-025 through FR-028 implemented |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020 | ✅ implemented |
 
@@ -33,7 +33,7 @@ relationships:
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, and tl-syntax `842d8255` owner revisions |
 | FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, tl-syntax `842d8255`, and tl-mltl `22862189` owner revisions |
-| FR-027 | FR-027-AC-1 through FR-027-AC-6 | TC-040 | 🚧 planned; blocked on merged FR-025/FR-026 owners and exact nine-repository campaign revisions |
+| FR-027 | FR-027-AC-1 through FR-027-AC-6 | TC-040 | ✅ implemented against the exact nine-repository Task-011 manifest, immutable schema digests, and merged FR-025/FR-026 owner path |
 | FR-028 | FR-028-AC-1 through FR-028-AC-5 | TC-041 | ✅ implemented architecture enablement |
 
 ## Non-Functional Requirement Coverage
@@ -50,7 +50,7 @@ relationships:
 
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
-| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | issue #6 through #10 and TC-038/TC-039 bridge codes implemented; TC-040 planned |
+| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | issue #6 through #10 and TC-038 through TC-040 closed code catalogs implemented |
 
 ## Test Case Summary
 
@@ -69,7 +69,7 @@ relationships:
 | TC-037 | Compiler, targets, formatting, lint, safety, supply-chain and repository-specific tools execute and classify failures correctly | Integration | P0 | NFR-005-AC-2, NFR-005-AC-3, NFR-005-AC-6 | ✅ implemented |
 | TC-038 | Native predicate projections bind exact total-Boolean values to deterministic TL signals/propositions or expose a typed non-value state | Property | P0 | FR-025-AC-1, FR-025-AC-2, FR-025-AC-3, FR-025-AC-4, FR-025-AC-5, FR-025-AC-6, FR-025-AC-7, FR-025-AC-8 | ✅ implemented with real owner views/readers, deterministic goldens, strict re-readers, fail-closed identity/join checks, non-value preservation, corrections, and resource failpoints |
 | TC-039 | Native temporal projections correspond exactly to supported TL profiles or fail closed | Integration | P0 | FR-026-AC-1, FR-026-AC-2, FR-026-AC-3, FR-026-AC-4, FR-026-AC-5, FR-026-AC-6, FR-026-AC-7, FR-026-AC-8, STD-001 | ✅ implemented with complete owner-checked leaf populations, sibling native/TL request construction, strict projection/join readback, independent future/past owner evaluation, exact event/fixed-sample mapping, timestamp refusal, correction lineage, 23 independent contract axes, and bounded no-partial-output failures |
-| TC-040 | Export and strict-read the bounded non-authoritative ecosystem model | Property | P0 | FR-027-AC-1, FR-027-AC-2, FR-027-AC-3, FR-027-AC-4, FR-027-AC-5, FR-027-AC-6, STD-001 | 🚧 planned; blocked on exact merged campaign revisions |
+| TC-040 | Export and strict-read the bounded non-authoritative ecosystem model | Property | P0 | FR-027-AC-1, FR-027-AC-2, FR-027-AC-3, FR-027-AC-4, FR-027-AC-5, FR-027-AC-6, STD-001 | ✅ implemented with exact campaign selection, immutable schemas, typed graph/topology refusal, deterministic export/re-export, every resource cliff, non-authoritative proposals, and the real owner bridge path |
 | TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | ✅ implemented architecture enablement |
 
 ## Coverage Design

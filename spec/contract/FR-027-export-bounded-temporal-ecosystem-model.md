@@ -127,4 +127,5 @@ and non-authority boundary are defined by `tl-syntax` IF-006 and ADR-003.
 
 ## Status
 
-Proposed complete Task-011 model-export contract for `tl-syntax#52/#64`.
+Implemented by PLAN-007 and TC-040 for `quire-contract-ir#74`, the Contract IR
+allocation of `tl-syntax` PLAN-010 Task-011.

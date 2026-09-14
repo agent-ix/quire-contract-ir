@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/temporal-ecosystem-manifest-v1.schema.json",
+  "title": "Quire temporal ecosystem manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "schema_digest", "campaign", "nodes", "edges", "gaps"],
+  "properties": {
+    "profile": { "const": "quire.contract.temporal-ecosystem-manifest/v1" },
+    "schema_digest": { "$ref": "#/definitions/digest" },
+    "campaign": { "$ref": "#/definitions/text" },
+    "nodes": { "type": "array", "maxItems": 60265, "uniqueItems": true, "items": { "$ref": "#/definitions/node" } },
+    "edges": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "#/definitions/edge" } },
+    "gaps": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/definitions/gap" } }
+  },
+  "definitions": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "package_version", "repository", "revision", "schema_digest"],
+      "properties": {
+        "contract": { "$ref": "#/definitions/text" },
+        "package_version": { "$ref": "#/definitions/text" },
+        "repository": { "$ref": "#/definitions/text" },
+        "revision": { "$ref": "#/definitions/revision" },
+        "schema_digest": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "node": {
+      "oneOf": [
+        { "$ref": "#/definitions/repository" },
+        { "$ref": "#/definitions/component" },
+        { "$ref": "#/definitions/revisionedObject" },
+        { "$ref": "#/definitions/revisionedInterface" },
+        { "$ref": "#/definitions/contract" },
+        { "$ref": "#/definitions/requirement" },
+        { "$ref": "#/definitions/test" },
+        { "$ref": "#/definitions/review" }
+      ]
+    },
+    "repository": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "repository" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "component" }, "identity": { "$ref": "#/definitions/text" } }
+    },
+    "revisionedObject": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "object" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "revisionedInterface": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "interface" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "contract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "selection"],
+      "properties": { "kind": { "const": "contract" }, "identity": { "$ref": "#/definitions/text" }, "selection": { "$ref": "#/definitions/selection" } }
+    },
+    "requirement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "requirement" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "test": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "test" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "identity", "revision"],
+      "properties": { "kind": { "const": "review" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "source", "target"],
+      "properties": {
+        "kind": { "enum": ["owns", "runtime-dependency", "normative-reference", "consumes", "verifies"] },
+        "source": { "$ref": "#/definitions/text" },
+        "target": { "$ref": "#/definitions/text" }
+      }
+    },
+    "gap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "requirement", "description"],
+      "properties": {
+        "identity": { "$ref": "#/definitions/text" },
+        "requirement": { "$ref": "#/definitions/text" },
+        "description": { "$ref": "#/definitions/text" }
+      }
+    }
+  }
+}

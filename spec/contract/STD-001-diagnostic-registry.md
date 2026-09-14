@@ -248,6 +248,24 @@ cannot be used outside those allocations.
 | `temporal_supersession_invalid` | Correction relation, direct predecessor, contradicted premise or corrected input is absent, self-referential, same-revision, wrong-subject, wrong-producer or digest-inconsistent | narrowest relation/predecessor/premise/input field |
 | `temporal_projection_resource_exhausted` | Formula, valuation, trace, request or correspondence allocation fails without a partial artifact | projection resource path |
 | `temporal_result_join_resource_exhausted` | Result-join allocation fails without a partial decision | result-join resource path |
+| `ecosystem_invalid_document` | A manifest or model is malformed, noncanonical, contains trailing data, or violates its closed shape | narrowest document field |
+| `ecosystem_resource_exhausted` | Manifest, graph, model, identity or proposal work exceeds one selected byte/depth/string/population/work/allocation ceiling | resource path |
+| `ecosystem_contract_mismatch` | Manifest/model profile or immutable schema digest differs from the selected v1 contract | contract field |
+| `ecosystem_campaign_mismatch` | Campaign identity or exact selected manifest byte digest differs | campaign or manifest-digest field |
+| `ecosystem_repository_set_mismatch` | Repository identities are not the closed nine-repository ecosystem | repository population |
+| `ecosystem_moving_revision` | A repository, semantic node, evidence node or contract selection does not name an exact selected lowercase merged revision | revision field |
+| `ecosystem_duplicate_node` | One global node identity occurs more than once | duplicate node identity |
+| `ecosystem_duplicate_edge` | One typed source/target edge occurs more than once | duplicate edge tuple |
+| `ecosystem_duplicate_gap` | One unresolved gap occurs more than once | duplicate gap identity |
+| `ecosystem_population_out_of_order` | Nodes, edges or gaps are not in their contract-defined canonical order | first out-of-order item |
+| `ecosystem_dangling_edge` | An edge endpoint or gap requirement is absent | absent endpoint identity |
+| `ecosystem_ill_typed_edge` | A relation's endpoint kinds, repository owner or contract selection do not agree | first invalid relation |
+| `ecosystem_self_edge` | A forbidden relation points from a node to itself | self-edge identity |
+| `ecosystem_ownership_incomplete` | A non-repository node lacks its repository owner, a repository lacks a component, or an executable contract lacks its component owner | unowned node |
+| `ecosystem_multiple_owners` | A node has multiple repository owners or an executable contract has multiple component owners | multiply owned node |
+| `ecosystem_dependency_cycle` | Ownership/runtime prerequisite topology contains a cycle | topological-order projection |
+| `ecosystem_graph_mismatch` | A model count, node, edge, gap, adjacency, topology, manifest identity or effective limit differs from complete re-export | first unequal model field |
+| `ecosystem_identity_mismatch` | The claimed identity differs from the exact identity-omitted canonical model preimage | identity field |
 
 ## Application Guidance
 
@@ -296,7 +314,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-019, FR-023, FR-025, and FR-026 extend or consume this
+- **Downstream**: FR-013 through FR-019, FR-023, and FR-025 through FR-027 extend or consume this
   semantic registry without renaming issue #6 codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.

@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bridge;
+pub mod ecosystem_model;
 pub mod predicate;
 pub mod temporal;
 

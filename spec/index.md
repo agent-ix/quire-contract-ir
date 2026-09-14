@@ -83,10 +83,11 @@ separates and pins the supported Rust minimum and qualification compiler.
 TM-002 maps the substrate to staged verification.
 
 FR-025 implements the checked-predicate-to-Boolean-signal correspondence;
-FR-026 specifies the planned native-temporal correspondence boundary. FR-027 adds observational model export and
+FR-026 implements the native-temporal correspondence boundary. FR-027
+implements bounded non-authoritative observational model export, and
 FR-028 makes the owner/bridge dependency graph implementable without a Cargo
-cycle. None makes TL a user-authored Quire language or claims implementation
-before its declared dependencies are accepted.
+cycle. None makes TL a user-authored Quire language or grants model output
+authority over owner inputs, execution, evidence acceptance, or release.
 
 ## References
 
