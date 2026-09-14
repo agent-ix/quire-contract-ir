@@ -12,7 +12,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025, FR-026 | TC-015 through TC-018, TC-035, TC-038, TC-039 | existing rows implemented; FR-025/TC-038 and FR-026/TC-039 planned |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-028 | TC-015 through TC-018, TC-035, TC-038 through TC-041 | existing rows implemented; FR-025 through FR-028 planned |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020 | ✅ implemented |
 
@@ -33,6 +33,8 @@ relationships:
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | 🚧 planned; blocked on an accepted native checked-leaf/source-result/availability contract set, published TL signal-catalog schema/reader, and implementation routing |
 | FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | 🚧 planned; blocked on accepted FR-025, native temporal/observation/progress/completeness/result contracts and public TL formula/semantic/trace/request/evaluator/result contracts |
+| FR-027 | FR-027-AC-1 through FR-027-AC-6 | TC-040 | 🚧 planned; blocked on merged FR-025/FR-026 owners and exact nine-repository campaign revisions |
+| FR-028 | FR-028-AC-1 through FR-028-AC-5 | TC-041 | 🚧 planned architecture enablement; required before QSL and Contract IR form a production cycle |
 
 ## Non-Functional Requirement Coverage
 
@@ -48,7 +50,7 @@ relationships:
 
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
-| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038, TC-039 | issue #6 through #10 codes implemented; issue #63/64 codes and TC-038/039 planned |
+| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | issue #6 through #10 codes implemented; bridge/model codes and TC-038 through TC-040 planned |
 
 ## Test Case Summary
 
@@ -67,6 +69,8 @@ relationships:
 | TC-037 | Compiler, targets, formatting, lint, safety, supply-chain and repository-specific tools execute and classify failures correctly | Integration | P0 | NFR-005-AC-2, NFR-005-AC-3, NFR-005-AC-6 | ✅ implemented |
 | TC-038 | Native predicate projections bind exact total-Boolean values to deterministic TL signals/propositions or expose a typed non-value state | Property | P0 | FR-025-AC-1, FR-025-AC-2, FR-025-AC-3, FR-025-AC-4, FR-025-AC-5, FR-025-AC-6, FR-025-AC-7, FR-025-AC-8 | 🚧 planned; blocked on accepted native checked-leaf/source-result/availability contracts and a published TL signal-catalog schema/reader |
 | TC-039 | Native temporal projections correspond exactly to supported TL profiles or fail closed | Integration | P0 | FR-026-AC-1, FR-026-AC-2, FR-026-AC-3, FR-026-AC-4, FR-026-AC-5, FR-026-AC-6, FR-026-AC-7, FR-026-AC-8, STD-001 | 🚧 planned; blocked on accepted FR-025, native temporal/observation/progress/completeness/result contracts and public TL formula/semantic/trace/request/evaluator/result contracts |
+| TC-040 | Export and strict-read the bounded non-authoritative ecosystem model | Property | P0 | FR-027-AC-1, FR-027-AC-2, FR-027-AC-3, FR-027-AC-4, FR-027-AC-5, FR-027-AC-6, STD-001 | 🚧 planned; blocked on exact merged campaign revisions |
+| TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | 🚧 planned architecture enablement |
 
 ## Coverage Design
 
@@ -76,3 +80,5 @@ relationships:
 | TC-037 cases | Coverage, error, edge | all-target test/build, warning-denied Clippy, 1.98.1 rustfmt, unsafe audit, cargo-deny/audit, and each declared target/tool; distinguish pass, launch/protocol/compiler incompatibility, formatting change, new lint, dependency vulnerability and shared-assurance rejection |
 | TC-038 cases | Coverage, permutation, boundary, error, transition, edge | both Boolean values; every non-Boolean/non-final result kind; every identity axis; input-order permutations; complete/duplicate/omitted/conflicting populations; predicate/fact 10,000/10,001 and byte bounds; inside/outside deciding-fact loss; every cause and precedence; every projection/valuation state; correction/supersession/conflict; independently authored canonical preimage/digest goldens; deterministic allocation failpoints; real public tl-syntax reader/join failures; source/parser/evaluator purity guards |
 | TC-039 cases | Coverage, boundary, error, transition, edge | closed/open event-position differential corpus for every admitted operator; interval boundaries `a=0`, `a=b`, `b=u32::MAX`, witness at each endpoint, witness absent, horizon beyond closure, and empty/one/multiple positions; exact fixed-sample mapping; one-position false-extension and until-lower-bound discriminators; timestamped, finite-window and past-time refusals; complete rectangular FR-025 per-position valuations plus cell replay/swapping, wrong position-to-anchor/snapshot/invocation binding, incomplete/unavailable/unsupported/failed/refused/conflicting cells and unused correspondences; exact TL trace/request construction with explicit false cells omitted only after verification; capture, clock, sample, history, silence, observation closure, late-data and superseding/invalidating direct-predecessor transitions; assessment execution, both progress/closure axes, truth, settlement basis, decision support and completeness mutated independently, including foreign clock/subject/scope/source/interval/history bindings and missing facts inside/outside settled support; every embedded and top-level contract selection and result-availability assertion mutated independently, including identity conflicts; one/both producer unavailable without fabricated result fields; every projection/result kind, cause, ordering and precedence; strict tagged-shape round trip and invalid-input refusal; 10,000/10,001 node/correspondence/position/valuation/support and byte/depth/string/cause bounds; deterministic allocation failpoints; real selected formula/trace/request/result readers; all three corrected independent canonical formula preimage/digest vectors; repeated-input identity and mutation of every formula/valuation/trace/request/correspondence/result binding dimension; parser/evaluator/ambient/network/foreign-runtime purity guards |
+| TC-040 cases | Coverage, permutation, boundary, error, topology, authority | exact nine-repository graph and every input permutation; independent node, edge, revision, schema and relation mutations; duplicate/dangling/multiple-owner/ill-typed/self/cyclic edges; exact and one-over byte/depth/string/node-kind/edge/work bounds; deterministic allocation failpoints; model re-export byte equality; constructor privacy; compile-time absence of authority/evaluator/parser/network/plugin inputs; proposal remains unaccepted until a distinct reviewed owner revision is selected |
+| TC-041 cases | Coverage, compatibility, dependency, feature, edge | Cargo metadata cycle check for default/all/minimum features; model package owner/TL dependency absence; root-package compatibility imports; existing schema/canonical/digest/diagnostic/corpus equality; QSL dependency-key alias build; bridge-to-QSL owner API build; dev/historical pin isolation; compile-fail probes for public owner constructors, callbacks, trait validators, trust flags and copied owner wire types |
