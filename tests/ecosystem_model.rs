@@ -38,7 +38,7 @@ const TL_REWRITE: &str = "c416951281c34e2b9d30187d401605f30f34a18b";
 const QSL: &str = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07";
 const QOBS: &str = "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc";
 const QPROTOCOL: &str = "34d1752e6c5f789a52ccf115b0694eedd96cdd46";
-const QCI: &str = "4da7c1d172d232735a9e53514e811a9512c8228f";
+const QCI: &str = "0c450731626f40fd90c99e787cc0f7f5e053904c";
 const CAMPAIGN: &str = "agent-ix/tl-syntax#52/PLAN-010/Task-011";
 
 fn repository_revisions() -> [(&'static str, &'static str); 9] {
