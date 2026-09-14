@@ -659,9 +659,17 @@ dependencies = [
  "ix-trace-rs",
  "jsonschema",
  "quire-contract-model 0.1.0",
+ "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=53cc03c639e2e26528132d34d96dc56449df78e8)",
+ "quire-observation",
+ "quire-protocol",
  "quire-spec-language",
+ "serde",
  "serde_json",
+ "serde_stacker",
  "sha2",
+ "stacker",
+ "thiserror",
+ "tl-syntax",
 ]
 
 [[package]]
@@ -679,7 +687,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-model"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?rev=942950a6619e24a51f4ea68abd8b77b8335ed4a2#942950a6619e24a51f4ea68abd8b77b8335ed4a2"
+source = "git+https://github.com/agent-ix/quire-contract-ir?rev=53cc03c639e2e26528132d34d96dc56449df78e8#53cc03c639e2e26528132d34d96dc56449df78e8"
 dependencies = [
  "jsonschema",
  "serde",
@@ -687,16 +695,39 @@ dependencies = [
  "serde_stacker",
  "sha2",
  "stacker",
+]
+
+[[package]]
+name = "quire-observation"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-observation?rev=9ac80e93f4b68a2c7d5a337f9a448ad10de798fc#9ac80e93f4b68a2c7d5a337f9a448ad10de798fc"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "quire-protocol"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-protocol?rev=36af8d7bb4753ea89f020fe1e5080cef21879b65#36af8d7bb4753ea89f020fe1e5080cef21879b65"
+dependencies = [
+ "jsonschema",
+ "quire-observation",
+ "quire-spec-language",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "quire-spec-language"
 version = "0.2.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?rev=440d56f88cf9db2b72a580b1d74e13c78c551263#440d56f88cf9db2b72a580b1d74e13c78c551263"
+source = "git+https://github.com/agent-ix/quire-spec-language?rev=4f404454b3d5cfb78dfdc468c76de85c199191e5#4f404454b3d5cfb78dfdc468c76de85c199191e5"
 dependencies = [
  "agent-ix-baseline-producer",
  "logos",
- "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=942950a6619e24a51f4ea68abd8b77b8335ed4a2)",
+ "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=53cc03c639e2e26528132d34d96dc56449df78e8)",
  "serde",
  "serde_json",
  "sha2",
@@ -960,6 +991,16 @@ checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
 dependencies = [
  "displaydoc",
  "zerovec",
+]
+
+[[package]]
+name = "tl-syntax"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/tl-syntax?rev=842d82553f045eb69a7f38745756d968254fc25e#842d82553f045eb69a7f38745756d968254fc25e"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -171,5 +171,11 @@ the Contract IR identity, type and canonical foundations.
 
 ## Status
 
-Accepted semantic intent from `quire-contract-ir#63`; reconciled owner-interface
-contract for implementation issue `#70` and epic `tl-syntax#52`.
+Implemented for `quire-contract-ir#70` and `tl-syntax#52` against immutable QSL
+`4f404454b3d5cfb78dfdc468c76de85c199191e5`, Quire Observation
+`9ac80e93f4b68a2c7d5a337f9a448ad10de798fc`, Quire Protocol
+`36af8d7bb4753ea89f020fe1e5080cef21879b65`, and tl-syntax
+`842d82553f045eb69a7f38745756d968254fc25e` owner revisions. TC-038 traces all
+eight acceptance criteria through real owner inputs, strict readers, negative
+identity/join cases, deterministic goldens, corrections, and bounded failure
+paths.

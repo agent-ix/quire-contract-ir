@@ -152,12 +152,33 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             }
         }
     }
-    assert!(production
-        .iter()
-        .all(|id| names[id] != "quire-spec-language"));
-    assert!(bridge_dependencies.iter().any(|dependency| {
-        dependency["name"] == "quire-spec-language" && dependency["kind"] == "dev"
-    }));
+    for (owner, revision) in [
+        (
+            "quire-observation",
+            "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc",
+        ),
+        ("quire-protocol", "36af8d7bb4753ea89f020fe1e5080cef21879b65"),
+        (
+            "quire-spec-language",
+            "4f404454b3d5cfb78dfdc468c76de85c199191e5",
+        ),
+        ("tl-syntax", "842d82553f045eb69a7f38745756d968254fc25e"),
+    ] {
+        assert!(
+            production.iter().any(|id| names[id] == owner),
+            "implemented FR-025 bridge must compile against production owner {owner}"
+        );
+        let dependency = bridge_dependencies
+            .iter()
+            .find(|dependency| dependency["name"] == owner && dependency["kind"] == Value::Null)
+            .unwrap_or_else(|| panic!("bridge lacks production owner {owner}"));
+        assert!(
+            dependency["source"]
+                .as_str()
+                .is_some_and(|source| source.contains(revision)),
+            "production owner {owner} is not pinned to {revision}"
+        );
+    }
 
     let workspace_members = workspace["workspace_members"]
         .as_array()
@@ -258,7 +279,7 @@ fn tc_041_bridge_and_real_qsl_owner_api_compose_without_a_cycle() {
     let qsl_source = qsl["source"]
         .as_str()
         .expect("QSL composition dependency must retain its immutable git source");
-    assert!(qsl_source.contains("440d56f88cf9db2b72a580b1d74e13c78c551263"));
+    assert!(qsl_source.contains("4f404454b3d5cfb78dfdc468c76de85c199191e5"));
     let bridge = package(&composition, "quire-contract-ir");
     assert_eq!(bridge["source"], Value::Null);
 

@@ -34,8 +34,8 @@ or canonicalization semantics.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
-- The planned versioned projection from native Quire temporal clauses to exact,
-  supported TL semantic profiles.
+- The implemented checked-predicate projection and planned temporal-clause
+  projection from native Quire contracts to exact supported TL profiles.
 - The bounded, non-authoritative export of the exact temporal-ecosystem
   component/object/interface/contract/evidence graph.
 - The cycle-free semantic-model package and compatibility bridge boundary.
@@ -82,8 +82,8 @@ datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
 TM-002 maps the substrate to staged verification.
 
-FR-025 and FR-026 specify planned native-to-TL correspondence boundaries beyond
-the implemented v0.1 substrate. FR-027 adds observational model export and
+FR-025 implements the checked-predicate-to-Boolean-signal correspondence;
+FR-026 specifies the planned native-temporal correspondence boundary. FR-027 adds observational model export and
 FR-028 makes the owner/bridge dependency graph implementable without a Cargo
 cycle. None makes TL a user-authored Quire language or claims implementation
 before its declared dependencies are accepted.
