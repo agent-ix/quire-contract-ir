@@ -2,7 +2,7 @@
 id: PLAN-007
 title: "Close the temporal ecosystem and export its bounded model"
 type: Plan
-status: active
+status: complete
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-027
     type: references
@@ -23,7 +23,7 @@ relationships:
 
 - [x] **FR-025/Task-006**: Native predicate projection is merged.
 - [x] **FR-026/Task-007**: Native temporal correspondence and result joining are merged.
-- [ ] **PLAN-010 Task-011 QCI allocation**: Execute the public owner path end to end, publish the model, reconcile all status, and close every review finding.
+- [x] **PLAN-010 Task-011 QCI allocation**: Execute the public owner path end to end, publish the model, reconcile all status, and close every review finding.
 
 ## Dependency Graph
 
@@ -65,8 +65,8 @@ All work is Rust, deterministic and caller-lowerable beneath owner maxima. Untru
 
 ### Verification
 
-- [ ] Workspace tests, warning-denied all-feature Clippy/rustdoc, rustfmt, release build, unsafe/stub audit, cargo-deny and cargo-audit.
-- [ ] `/code-review`, `/rust-review`, `/gap-analysis`, and `/spec-architecture-evaluation` have no unresolved finding before merge.
+- [x] Workspace tests, warning-denied all-feature Clippy/rustdoc, rustfmt, release build, unsafe/stub audit, cargo-deny and cargo-audit.
+- [x] `/code-review`, `/rust-review`, `/gap-analysis`, and `/spec-architecture-evaluation` have no unresolved finding before merge.
 
 ## Remaining Work
 
@@ -92,7 +92,7 @@ The graph and document layers have a strict semantic dependency. Tests may be au
 | TASK-021 | G | FR-027 | TC-040 | done |
 | TASK-022 | G | FR-027 | TC-040 | done |
 | TASK-023 | G | FR-027 | TC-040 | done |
-| TASK-024 | G | FR-027, Task-011 | TC-040 and integration | in_progress |
+| TASK-024 | G | FR-027, Task-011 | TC-040 and integration | done |
 
 ## Coordination Rules
 
