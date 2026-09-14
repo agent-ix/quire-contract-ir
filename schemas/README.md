@@ -1,6 +1,6 @@
 # Schemas
 
-Two files, one class. What is here is what this repository's own domain
+Four contracts, one class. What is here is what this repository's own domain
 artifacts are shaped like; every generic evidence schema the campaign once
 carried is deleted.
 
@@ -10,6 +10,8 @@ carried is deleted.
 | --- | --- |
 | `contract-conformance-manifest-v1.schema.json` | The conformance corpus manifest: which fixtures exist, what each one covers, and the digests that identify them. |
 | `contract-package-reference-v1.schema.json` | The serialized contract package wire form. |
+| `temporal-ecosystem-manifest-v1.schema.json` | Exact nine-repository campaign selections, semantic nodes, typed edges, and unresolved gaps admitted by FR-027. |
+| `temporal-ecosystem-model-v1.schema.json` | The deterministic bounded non-authoritative model exported and strict-read by FR-027. |
 
 These describe *this repository's own domain artifacts*. A schema that
 describes a contract package or a conformance corpus is not a generic evidence

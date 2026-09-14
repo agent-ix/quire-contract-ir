@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-ix.github.io/quire-contract-ir/schemas/temporal-ecosystem-model-v1.schema.json",
+  "title": "Quire bounded temporal ecosystem model v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "schema_digest", "identity", "manifest_identity", "campaign", "limits", "counts", "nodes", "edges", "gaps", "adjacency", "topological_order"],
+  "properties": {
+    "profile": { "const": "quire.contract.temporal-ecosystem-model/v1" },
+    "schema_digest": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
+    "identity": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
+    "manifest_identity": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
+    "campaign": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/text" },
+    "limits": { "$ref": "#/definitions/limits" },
+    "counts": { "$ref": "#/definitions/counts" },
+    "nodes": { "type": "array", "maxItems": 60265, "uniqueItems": true, "items": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/node" } },
+    "edges": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/edge" } },
+    "gaps": { "type": "array", "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/gap" } },
+    "adjacency": { "type": "array", "maxItems": 60265, "items": { "$ref": "#/definitions/adjacency" } },
+    "topological_order": { "type": "array", "maxItems": 60265, "uniqueItems": true, "items": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/text" } }
+  },
+  "definitions": {
+    "u64": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifest_bytes", "model_bytes", "json_depth", "string_bytes", "repositories", "components", "objects", "interfaces", "contracts", "requirements", "tests", "reviews", "gaps", "edges", "visited_work", "allocation_bytes"],
+      "properties": {
+        "manifest_bytes": { "$ref": "#/definitions/u64" }, "model_bytes": { "$ref": "#/definitions/u64" },
+        "json_depth": { "$ref": "#/definitions/u64" }, "string_bytes": { "$ref": "#/definitions/u64" },
+        "repositories": { "$ref": "#/definitions/u64" }, "components": { "$ref": "#/definitions/u64" },
+        "objects": { "$ref": "#/definitions/u64" }, "interfaces": { "$ref": "#/definitions/u64" },
+        "contracts": { "$ref": "#/definitions/u64" }, "requirements": { "$ref": "#/definitions/u64" },
+        "tests": { "$ref": "#/definitions/u64" }, "reviews": { "$ref": "#/definitions/u64" },
+        "gaps": { "$ref": "#/definitions/u64" }, "edges": { "$ref": "#/definitions/u64" },
+        "visited_work": { "$ref": "#/definitions/u64" }, "allocation_bytes": { "$ref": "#/definitions/u64" }
+      }
+    },
+    "counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repositories", "components", "objects", "interfaces", "contracts", "requirements", "tests", "reviews", "gaps", "edges"],
+      "properties": {
+        "repositories": { "$ref": "#/definitions/u64" }, "components": { "$ref": "#/definitions/u64" },
+        "objects": { "$ref": "#/definitions/u64" }, "interfaces": { "$ref": "#/definitions/u64" },
+        "contracts": { "$ref": "#/definitions/u64" }, "requirements": { "$ref": "#/definitions/u64" },
+        "tests": { "$ref": "#/definitions/u64" }, "reviews": { "$ref": "#/definitions/u64" },
+        "gaps": { "$ref": "#/definitions/u64" }, "edges": { "$ref": "#/definitions/u64" }
+      }
+    },
+    "adjacentEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "enum": ["owns", "runtime-dependency", "normative-reference", "consumes", "verifies"] },
+        "target": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/text" }
+      }
+    },
+    "adjacency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "edges"],
+      "properties": {
+        "source": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/text" },
+        "edges": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/definitions/adjacentEdge" } }
+      }
+    }
+  }
+}

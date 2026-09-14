@@ -17,11 +17,13 @@ The cycle-free `quire-contract-model` crate owns unvalidated wire values,
 validated semantic values, identity and source-span types, type/definedness
 checking, dependency derivation, canonicalization, digests, version migration,
 and coverage classification. The root `quire-contract-ir` compatibility bridge
-re-exports that model and constructs checked-predicate and temporal
+re-exports that model, constructs checked-predicate and temporal
 correspondences only from constructor-private QSL, Quire Observation, Quire
-Protocol, tl-syntax, and tl-mltl owner views. The conformance runner and fixtures
-remain in the root package. Downstream generators, runtimes, solvers, Quoin,
-build infrastructure, and human release decisions remain outside.
+Protocol, tl-syntax, and tl-mltl owner views, and exports a bounded descriptive
+ecosystem model from an exact externally selected manifest. The conformance
+runner and fixtures remain in the root package. Downstream generators,
+runtimes, solvers, Quoin, build infrastructure, ambient repository discovery,
+and human release decisions remain outside.
 
 ## Views
 
@@ -33,6 +35,7 @@ validated package + artifact traces -> shallow/deep/uncovered/orphaned coverage
 checked owner views -> predicate projection -> explicit Boolean valuation
 checked temporal + observations + valuations -> sibling native/TL requests
 validated native/TL formula results -> structural correspondence join
+exact campaign manifest -> typed graph -> descriptive model + strict re-export
 schema + corpus manifest + fixtures -> process runner -> JSON Lines results
 ```
 
@@ -53,6 +56,9 @@ on published types and bytes, not internal modules.
   free of QSL, observation, protocol, TL, and self dependencies.
 - Construct and strict-read owner artifacts without parsing or evaluating an
   owner language inside Contract IR; preserve typed non-values at every join.
+- Keep ecosystem-model output observational: it may describe exact owner,
+  dependency and evidence links or seed a proposal, but cannot become an owner
+  admission, evaluator, evidence-acceptance or release-decision input.
 - Keep `publish = false` through the human v0.1 decision.
 
 ## Risks
@@ -65,5 +71,11 @@ on published types and bytes, not internal modules.
   the released Engineering Assurance artifact this repository consumes.
 - Owner-contract drift: controlled by exact revision/schema selections,
   constructor-private inputs, composition tests, and strict re-derivation.
+- Campaign repository revisions identify evidence snapshots; executable
+  contract selections independently pin immutable publication revisions from
+  the same repository and need not equal the later evidence snapshot.
 - Native/TL semantic disagreement: retained as a typed conflict rather than
   repaired, coerced, or hidden behind either owner's result vocabulary.
+- Self-model authority confusion: controlled by exact external manifest
+  selection, constructor-private checked views, absent acceptance fields, and
+  no conversion from model/proposal output into executable owner inputs.
