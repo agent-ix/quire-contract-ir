@@ -12,7 +12,7 @@ pub const OWNER_MAX: BridgeLimits = BridgeLimits {
     allocation_bytes: usize::MAX,
 };
 
-/// Caller-selected ceilings, always clamped to [`OWNER_MAX`].
+/// Caller-selected ceilings, always clamped to the bridge's owner maxima.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BridgeLimits {
     /// Maximum bytes in one bridge input or output document.
