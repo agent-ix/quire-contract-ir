@@ -58,6 +58,8 @@ pub struct PredicateDefinition {
     owner_document_digest: BridgeDigest,
     parent_kind: String,
     declaration: u32,
+    leaf_declaration: u32,
+    leaf_index: u32,
     package_identity: String,
     source_identity: String,
     source_revision: String,
@@ -152,6 +154,8 @@ impl PredicateDefinition {
             owner_document_digest,
             parent_kind,
             declaration: checked.declaration(),
+            leaf_declaration: checked.leaf().declaration,
+            leaf_index: checked.leaf().index,
             package_identity: checked.package_artifact().identity.clone(),
             source_identity: source.native.identity.clone(),
             source_revision: source.native.revision.clone(),
@@ -191,6 +195,18 @@ impl PredicateDefinition {
     #[must_use]
     pub const fn declaration(&self) -> u32 {
         self.declaration
+    }
+
+    /// Returns the declaration owning the exact checked Boolean leaf.
+    #[must_use]
+    pub const fn leaf_declaration(&self) -> u32 {
+        self.leaf_declaration
+    }
+
+    /// Returns the value-table index of the exact checked Boolean leaf.
+    #[must_use]
+    pub const fn leaf_index(&self) -> u32 {
+        self.leaf_index
     }
 
     /// Returns the selected compiled-package artifact identity.

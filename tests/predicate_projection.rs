@@ -98,16 +98,16 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .map(|value| value.predicate_ref().to_string())
             .collect::<Vec<_>>(),
         [
-            "038ddfda7b689130d45ced1d2ef6b4eaa1f6450cd25e053c5fe74c877b8bc9ce",
-            "14b0d6e62a8319088d4021933b1a184896ef9b632860168f329ebe8a05bfe06a",
-            "427edd30095035f7b6002c7d64f7e8dd6442bace9a59e60d8fa862bc0aaf7d53",
-            "6c8d7edaaf555f6b089f9bd94b4bc93c663ebb34c51ef2d1def97a73173c0fbb",
-            "6e8bfe49e3930c74e28ef6432b09360ac6f4510226245e917c5604fc7e31367d",
-            "9e934e31f9ee6e60c5981877f62b36ecb2407259b34eebe78b875c167c632e99",
-            "c7628ffca180c75f3c04d5e8fea97b930dd6e9b06c12986e3801f535810cdc00",
-            "c816faa7d2c01fb3ff8cf85c1cefd2a78517d6d65d28c83ef224e5bfc14693fe",
-            "ebe845d6a1c9b56c46176f5a29a4c5b12ed5f7fb87efda3be412ed898c4bb209",
-            "f1890b8842cfe4da6e50981e042f81d65239a05fffb83119505824f346d3c0e8",
+            "04fd63a816df34198f089601fc4b2ae2e15af76eb48d39cdd73208987536eb0a",
+            "0ff5a3025b98ae5e669dd2cd7301f65329ae6bdd1818bf619fa7be7b6bc0177e",
+            "3875ee8e4166e24707b0fa0429d6ceef6f9ec65340e61b276dbd03041209e8df",
+            "3d5b7ec1edc684e7cf49c88efae8ca10ee5119cad4a7dc57cb1c9cbdccddee2a",
+            "633ae632bd9d8c63e568ad5bd663a93a45d9690bbf20849174dba078f23f6caf",
+            "cb18c3857c438268b0d78a7b9c17d71466d87fc42ea8593d4daa4b40ca07f2aa",
+            "ce606b129fb4bae82945528ee0d62eaea2339c8d6926373d16f9edc4a149ddcc",
+            "d7037367a0b4ac974accbf39271e6f900897c163e364e9a710c1fc4d463a84f9",
+            "d8bce5911d67a26b837c60f11ad5e61b2bbc38cd313a3854482e62b9c24ba2be",
+            "fa98fda6b7b6e816be9901c2b8b13486f09cfca2923d80e163b8962a3aafe68c",
         ]
     );
     assert_eq!(
@@ -116,7 +116,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .signal_catalog_ref()
             .expect("signal ref")
             .to_string(),
-        "db8ca6ce7763b57995b7cce3d8d417891e1b1ba11142dd6d9a3f72c043918273"
+        "e9c7360b2b317b5c241fd5c0a0183f6cad444ef5dbfea0749af5910b75794ad4"
     );
     assert_eq!(
         projected
@@ -124,7 +124,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .proposition_map_ref()
             .expect("map ref")
             .to_string(),
-        "82a47e1e6f8eac65dcd2107c4907abe993888d9036c8f0d995f9e55dc57c91ea"
+        "56cf8b003df542e7ba1c755076a880676914dc965c45b4355d08c0792758ccc9"
     );
     assert_eq!(
         projected
@@ -132,7 +132,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .projection_ref()
             .expect("projection ref")
             .to_string(),
-        "67843b668e488b9dc3ef57b26efa6f6b4c154bc033e3cd0709bb70f11bfb4a03"
+        "039297db0d590cba792aaf0f617d0e139a8721e8eb019c5e603861a736a4453d"
     );
 
     let catalog = tl_syntax::SignalCatalogDocument::from_json_bytes(
@@ -364,7 +364,7 @@ fn tc_038_owner_schema_and_selection_digests_are_exact() {
     let current = TargetSelection::current();
     assert_eq!(
         current.native().revision(),
-        "4f404454b3d5cfb78dfdc468c76de85c199191e5"
+        "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07"
     );
     assert_eq!(
         current.signal_catalog().revision(),

@@ -19,7 +19,7 @@ use quire_protocol::result::{Limits as ResultLimits, SettlementBasis, Truth};
 fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -61,7 +61,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .result_contract()
             .expect("result selection")
             .revision(),
-        "36af8d7bb4753ea89f020fe1e5080cef21879b65"
+        "34d1752e6c5f789a52ccf115b0694eedd96cdd46"
     );
     assert_eq!(
         decision
@@ -75,7 +75,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .mapping_contract()
             .expect("mapping selection")
             .revision(),
-        "36af8d7bb4753ea89f020fe1e5080cef21879b65"
+        "34d1752e6c5f789a52ccf115b0694eedd96cdd46"
     );
     assert_eq!(
         decision
@@ -127,7 +127,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
 fn tc_038_owner_non_values_remain_distinct_and_never_coerce_to_boolean() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -170,7 +170,7 @@ fn tc_038_owner_non_values_remain_distinct_and_never_coerce_to_boolean() {
 fn tc_038_mapped_execution_non_values_preserve_closed_precedence() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -261,7 +261,7 @@ fn tc_038_mapped_execution_non_values_preserve_closed_precedence() {
 fn tc_038_cross_wired_availability_refuses_the_mapped_result() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -299,7 +299,7 @@ fn tc_038_cross_wired_availability_refuses_the_mapped_result() {
 fn tc_038_valuation_allocation_failpoint_exposes_no_boolean_or_partial_bytes() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -343,7 +343,7 @@ fn tc_038_valuation_allocation_failpoint_exposes_no_boolean_or_partial_bytes() {
 fn tc_038_incomplete_or_contradicted_facts_outside_deciding_set_preserve_value_as_gaps() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -390,7 +390,7 @@ fn tc_038_incomplete_or_contradicted_facts_outside_deciding_set_preserve_value_a
 fn tc_038_direct_correction_is_bound_and_predecessor_bytes_remain_immutable() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
@@ -437,7 +437,7 @@ fn tc_038_direct_correction_is_bound_and_predecessor_bytes_remain_immutable() {
 fn tc_038_valuation_reader_rejects_hostile_bytes_and_wrong_identity() {
     let projection_owner = result_fixture::fixture();
     let projection = project(
-        std::slice::from_ref(&projection_owner.predicate),
+        std::slice::from_ref(projection_owner.predicate()),
         TargetSelection::current(),
         BridgeLimits::default(),
     )
