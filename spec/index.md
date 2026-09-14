@@ -36,11 +36,15 @@ or canonicalization semantics.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
 - The planned versioned projection from native Quire temporal clauses to exact,
   supported TL semantic profiles.
+- The bounded, non-authoritative export of the exact temporal-ecosystem
+  component/object/interface/contract/evidence graph.
+- The cycle-free semantic-model package and compatibility bridge boundary.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 
 ### Out of Scope
 
-- Runtime, code generation, solver, parser, rewrite, or evaluator behavior.
+- Native/TL source parsing, semantic evaluation, rewriting, code generation,
+  solver execution or production monitoring.
 - A universal producer runner, common evidence envelope/store, or parallel
   human-decision mechanism.
 - The eight downstream repository migrations.
@@ -72,16 +76,17 @@ FR-008 carried the withdrawn R08 derivation-evidence envelope and is deleted
 with it; the identifier is not reused. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
-FR-026, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
+FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
 TM-002 maps the substrate to staged verification.
 
-FR-026 specifies a planned native-temporal-to-TL correspondence boundary beyond
-the implemented v0.1 substrate. It does not make TL a user-authored Quire
-language and does not claim implementation before its declared dependencies are
-accepted.
+FR-025 and FR-026 specify planned native-to-TL correspondence boundaries beyond
+the implemented v0.1 substrate. FR-027 adds observational model export and
+FR-028 makes the owner/bridge dependency graph implementable without a Cargo
+cycle. None makes TL a user-authored Quire language or claims implementation
+before its declared dependencies are accepted.
 
 ## References
 
@@ -93,3 +98,5 @@ accepted.
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
 - [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
+- [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
+- [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
