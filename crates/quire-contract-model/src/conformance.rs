@@ -1142,9 +1142,10 @@ fn trace_registry() -> Result<TraceRegistry, RunnerError> {
             "the built-in coverage-to-criterion registry is invalid",
         )
     };
-    let groups: Vec<TraceGroup> =
-        serde_json::from_str(include_str!("../schemas/conformance-trace-map-v1.json"))
-            .map_err(|_| invalid())?;
+    let groups: Vec<TraceGroup> = serde_json::from_str(include_str!(
+        "../../../schemas/conformance-trace-map-v1.json"
+    ))
+    .map_err(|_| invalid())?;
     let mut registry = BTreeMap::new();
     for group in groups {
         if group.covers.is_empty()

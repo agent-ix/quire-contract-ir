@@ -1,6 +1,6 @@
 # quire-contract-ir
 
-Versioned semantic contract model and canonical representation for assurance tooling.
+Cycle-free semantic contract model and compatibility bridge for assurance tooling.
 
 ## Commands
 
@@ -56,9 +56,17 @@ Backported from `agent-ix/ecaz`:
 ## Layout
 
 ```
-src/lib.rs             # crate root
+crates/quire-contract-model/ # cycle-free semantic substrate and sole model source
+src/lib.rs             # compatibility bridge and model API re-export
+src/bin/               # compatibility-package conformance runner
 tests/integration.rs   # end-to-end tests
+tests/fixtures/        # compile fixtures, including the dependency-key alias proof
 benches/               # criterion benchmarks (opt-in; add criterion to dev-deps)
 spec/                  # requirements artifacts (from /spec-create-spec)
 scripts/               # local tooling
 ```
+
+`quire-contract-model` must not acquire QSL, observation, protocol, TL, or
+`quire-contract-ir` dependencies. Owner integrations belong in the root bridge
+package so the production graph remains acyclic. All Cargo gates must use
+`--workspace`; a root-package-only result is incomplete.

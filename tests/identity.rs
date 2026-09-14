@@ -476,8 +476,12 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
             *code
         );
     }
+    let implemented_registry = REGISTRY
+        .split_once("## Issue 63 Codes")
+        .map(|(implemented, _)| implemented)
+        .expect("STD-001 must keep the planned bridge codes in their own section");
     assert_eq!(
-        REGISTRY
+        implemented_registry
             .lines()
             .filter(|line| line.starts_with("| `"))
             .count(),

@@ -20,7 +20,7 @@ use crate::{
 
 pub const EXECUTABLE_PROJECTION_FORMAT: &str = "quire.contract.executable-projection/v1";
 pub const EXECUTABLE_PROJECTION_SCHEMA: &str =
-    include_str!("../schemas/contract-executable-projection-v1.schema.json");
+    include_str!("../../../schemas/contract-executable-projection-v1.schema.json");
 /// Domain-separated canonical identity profile; not a producer attestation.
 pub const BOUND_IDENTITY_PROFILE: &str = "quire.contract.bound-identity/v1";
 
@@ -371,11 +371,11 @@ fn validate_schema(value: &Value) -> Result<(), Vec<Diagnostic>> {
     let schema: Value = serde_json::from_str(EXECUTABLE_PROJECTION_SCHEMA)
         .map_err(|_| invalid("invalid embedded projection schema"))?;
     let package: Value = serde_json::from_str(include_str!(
-        "../schemas/contract-package-reference-v1.schema.json"
+        "../../../schemas/contract-package-reference-v1.schema.json"
     ))
     .map_err(|_| invalid("invalid embedded package schema"))?;
     let conformance: Value = serde_json::from_str(include_str!(
-        "../schemas/contract-conformance-manifest-v1.schema.json"
+        "../../../schemas/contract-conformance-manifest-v1.schema.json"
     ))
     .map_err(|_| invalid("invalid embedded expression schema"))?;
     let compiled = jsonschema::JSONSchema::options()

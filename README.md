@@ -1,6 +1,22 @@
 # Quire Contract IR
 
-Versioned semantic contract model and canonical representation for assurance tooling.
+Cycle-free semantic contract model and compatibility bridge for assurance tooling.
+
+## Workspace architecture
+
+This repository contains two Rust packages with one-way production dependencies:
+
+- `quire-contract-model` owns the stable semantic model, canonicalization,
+  diagnostics, wire checks, limits, bindings, and conformance behavior. Owner
+  crates depend on this package without depending on the Contract IR bridge.
+- `quire-contract-ir` preserves the existing crate name and publicly re-exports
+  the complete model API. Native owner integrations are added only to this
+  downstream bridge package.
+
+Cargo dependency aliases let existing `quire_contract_ir` source imports select
+the `quire-contract-model` package where an owner crate needs the cycle-free
+substrate. The package split changes no schema, canonical byte, identity,
+diagnostic, or conformance outcome.
 
 ## Build
 
@@ -19,7 +35,7 @@ testing, provenance, and human release gates as every other contribution.
 The canonical cross-repository governance contract is
 [`PGM-01`](spec/program/PGM-01-governance.md). It defines compatibility,
 domain-result provenance, shared assurance ownership, release ordering, and the
-qualification boundary for the eight repositories in the contract-derived
+qualification boundary for the repositories in the contract-derived
 verification program. The reviewed
 [shared-assurance reconciliation](spec/program/STD-002-shared-assurance-governance.md) records
 the campaign issue and legacy-prototype dispositions.

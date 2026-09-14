@@ -68,7 +68,7 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy --locked --all-targets -- -D warnings
+	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
 
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.
@@ -96,19 +96,19 @@ spec:
 
 .PHONY: test
 test: unit
-	$(CARGO) test --locked -- --include-ignored
+	$(CARGO) test --locked --workspace --all-targets -- --include-ignored
 
 .PHONY: build
 build:
-	$(CARGO) build --locked --release
+	$(CARGO) build --locked --workspace --release
 
 .PHONY: supported-rust
 supported-rust:
-	$(RUSTUP) run $(SUPPORTED_RUST_MINIMUM) $(CARGO) check --locked --all-targets
+	$(RUSTUP) run $(SUPPORTED_RUST_MINIMUM) $(CARGO) check --locked --workspace --all-targets
 
 .PHONY: qualification-rust
 qualification-rust:
-	$(RUSTUP) run $(QUALIFICATION_RUST) $(CARGO) test --locked --all-targets
+	$(RUSTUP) run $(QUALIFICATION_RUST) $(CARGO) test --locked --workspace --all-targets
 
 .PHONY: clean
 clean:
