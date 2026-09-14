@@ -5,4 +5,9 @@
 //! their source and type identity while owner integrations remain downstream
 //! of the cycle-free model package.
 
+#![forbid(unsafe_code)]
+
+pub mod bridge;
+pub mod predicate;
+
 pub use quire_contract_model::*;
