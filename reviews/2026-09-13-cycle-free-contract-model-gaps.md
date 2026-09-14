@@ -48,6 +48,9 @@ remains.
 - Changed production behaviors inventoried: model package ownership,
   compatibility re-export and package-graph composition. Untraced changed
   behaviors: 0. Source stubs: 0. Test stubs: 0.
+- Repository-wide structural validation passes after reconciling the inherited
+  PGM-01 TestMatrix header labels with the installed archetype; no matrix
+  assertion is being waived for promotion.
 - Semantic review: not separately selected. SR-534's required code/Rust review
   evaluated FR-028 intent, test assertions and the exact exercised Cargo graph.
 

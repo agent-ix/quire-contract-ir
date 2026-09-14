@@ -64,6 +64,9 @@ downstream-independence and toolchain-reproduction assumptions remain open.
   version without weakening unknown-source denial.
 - Corrected stale matrix states/headers and the Python orchestration assertion
   that still expected root-only Cargo gates.
+- Reconciled the two inherited PGM-01 matrix headers with the installed
+  TestMatrix archetype and removed obsolete, unmatched cargo-deny allowances;
+  the final promotion gate is structurally clean and warning-free.
 
 ## Rust review
 
@@ -90,11 +93,11 @@ downstream-independence and toolchain-reproduction assumptions remain open.
 | release workspace build | pass |
 | native conformance corpus | pass |
 | corpus regeneration/reproducibility | pass |
-| `cargo deny check` | pass; only inherited unmatched-allow warnings |
+| `cargo deny check` | pass; no findings or unmatched-allow warnings |
 | `cargo audit` | pass; 131 locked dependencies scanned |
 | unsafe-comment audit | pass |
 | native orchestration controls | pass; 3 tests |
-| changed FR-028/TestMatrix structural validation | pass with Quire 0.32.0 |
+| repository-wide spec/plan/review structural validation | pass with Quire 0.32.0 |
 
 The combined `make test` qualification wrapper additionally ran 20 passing
 Python tests and stopped only on its inherited Quire 0.31.0 compatibility pin;
