@@ -225,11 +225,11 @@ fn tc_036_exact_supported_and_qualification_rust_policy_agree() {
 fn tc_037_release_gate_executes_exact_compiler_and_required_tools() {
     let makefile = read("Makefile");
     for operation in [
-        "$(RUSTUP) run $(SUPPORTED_RUST_MINIMUM) $(CARGO) check --locked --all-targets",
-        "$(RUSTUP) run $(QUALIFICATION_RUST) $(CARGO) test --locked --all-targets",
+        "$(RUSTUP) run $(SUPPORTED_RUST_MINIMUM) $(CARGO) check --locked --workspace --all-targets",
+        "$(RUSTUP) run $(QUALIFICATION_RUST) $(CARGO) test --locked --workspace --all-targets",
         "$(CARGO) fmt --all -- --check",
-        "$(CARGO) clippy --locked --all-targets -- -D warnings",
-        "$(CARGO) build --locked --release",
+        "$(CARGO) clippy --locked --workspace --all-targets -- -D warnings",
+        "$(CARGO) build --locked --workspace --release",
         "$(CARGO) deny check",
         "$(CARGO) audit",
         "bash scripts/check_unsafe_comments.sh",
