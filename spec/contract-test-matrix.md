@@ -12,7 +12,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-034 | TC-015 through TC-018, TC-035, TC-038 through TC-043 | bounded-Kani implemented through TC-042; output-mapping foundation FR-032–FR-034/TC-043 planned under #95 |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-034 | TC-015 through TC-018, TC-035, TC-038 through TC-043 | ✅ bounded-Kani and target-neutral output-mapping foundation implemented through TC-043; target-specific output correspondence remains excluded |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020 | ✅ implemented |
 
@@ -38,9 +38,9 @@ relationships:
 | FR-029 | FR-029-AC-1 through FR-029-AC-3 | TC-042 | ✅ implemented through PRs #87/#88 |
 | FR-030 | FR-030-AC-1 through FR-030-AC-3 | TC-042 | ✅ implemented through PRs #88–#91 |
 | FR-031 | FR-031-AC-1 through FR-031-AC-3 | TC-042 | ✅ implemented through native replay PR #92 and codegen corpus PR #47 |
-| FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | 🚧 planned under #95; no target mapper credited |
-| FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | 🚧 planned under #95; no preservation default or partial record claim |
-| FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | 🚧 planned under #95; no generated package credited |
+| FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
+| FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
+| FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
 
 ## Non-Functional Requirement Coverage
 
@@ -78,7 +78,7 @@ relationships:
 | TC-040 | Export and strict-read the bounded non-authoritative ecosystem model | Property | P0 | FR-027-AC-1, FR-027-AC-2, FR-027-AC-3, FR-027-AC-4, FR-027-AC-5, FR-027-AC-6, STD-001 | ✅ implemented with exact campaign selection, immutable schemas, typed graph/topology refusal, deterministic export/re-export, every resource cliff, non-authoritative proposals, and the real owner bridge path |
 | TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | ✅ implemented architecture enablement |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall, module dispatch, provenance, and native counterexample replay conform | Integration | P0 | FR-029, FR-030, FR-031 | ✅ implemented across shared, arithmetic, graph, collection and native-replay suites; integrated codegen corpus at `73c82ad` |
-| TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | 🚧 planned under #95; target-specific OCL/SysML/FRETish semantics excluded |
+| TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | ✅ implemented in `tests/output_mapping.rs` and model overflow tests; target-specific OCL/SysML/FRETish semantics excluded |
 
 ## Coverage Design
 

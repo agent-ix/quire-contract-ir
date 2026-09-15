@@ -1,15 +1,20 @@
 //! TC-043 exercises the target-neutral FS06 output-mapping foundation.
 
+use ix_trace_rs::trace;
 use quire_contract_ir::{
-    map_admitted_request, AdmittedMappingObligation, AdmittedMappingRequest, BoundPackage,
-    ClauseId, ClauseRef, MappingCancellation, MappingCandidate, MappingCause, MappingCondition,
-    MappingDependencyKind, MappingDependencyRef, MappingDisposition, MappingLimits,
-    MappingRequestError, MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget,
-    ModelSourceSelection, NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState,
-    OutputByteRegion, OutputCapability, OutputMapper, OutputMappingProfile, PackageId,
+    assemble_output_package, map_admitted_request, map_admitted_request_controlled,
+    AdmittedMappingObligation, AdmittedMappingRequest, BoundPackage, ClauseId, ClauseRef,
+    GeneratorBytesDigest, MappingAllocationPoint, MappingCancellation, MappingCancellationToken,
+    MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
+    MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
+    MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
+    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverBytesDigest,
+    ObserverDependencySetDigest, ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion,
+    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
     ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
     RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
-    SourceFactState, EXECUTABLE_PROJECTION_FORMAT,
+    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
+    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
 
@@ -56,6 +61,24 @@ fn projection() -> Value {
 fn bound_package() -> BoundPackage {
     BoundPackage::from_json_bytes(&serde_json::to_vec(&projection()).expect("projection bytes"))
         .expect("strict bound package")
+}
+
+fn nested_bound_package() -> BoundPackage {
+    let mut value = projection();
+    for binding in value["bindings"].as_array_mut().expect("bindings") {
+        let owner = binding["expression"]["owner"].clone();
+        let execution_point = binding["expression"]["execution_point"].clone();
+        let mut nested: Value = serde_json::from_str(include_str!(
+            "../corpus/contract-v0.1/inputs/expression-boolean-not.json"
+        ))
+        .expect("nested Boolean expression fixture");
+        nested["owner"] = owner;
+        nested["execution_point"] = execution_point;
+        nested["clause_root"] = json!(true);
+        binding["expression"] = nested;
+    }
+    BoundPackage::from_json_bytes(&serde_json::to_vec(&value).expect("nested projection bytes"))
+        .expect("strict nested bound package")
 }
 
 fn digest(seed: u8) -> [u8; 32] {
@@ -136,6 +159,7 @@ fn admit(
 }
 
 /// Tracing: TC-043, FR-032-AC-1, FR-032-AC-2, FR-032-AC-3.
+#[trace("TC-043", "FR-032-AC-1", "FR-032-AC-2", "FR-032-AC-3")]
 #[test]
 fn tc_043_profiles_admit_only_exact_fs06_values() {
     let ocl = ocl_profile();
@@ -231,6 +255,7 @@ fn tc_043_profiles_admit_only_exact_fs06_values() {
 }
 
 /// Tracing: TC-043, FR-032-AC-1, FR-032-AC-3, FR-032-AC-4.
+#[trace("TC-043", "FR-032-AC-1", "FR-032-AC-3", "FR-032-AC-4")]
 #[test]
 fn tc_043_request_admission_preserves_exact_ordered_inputs() {
     let package = bound_package();
@@ -259,6 +284,7 @@ fn tc_043_request_admission_preserves_exact_ordered_inputs() {
 }
 
 /// Tracing: TC-043, FR-032-AC-2, NFR-060.
+#[trace("TC-043", "FR-032-AC-2")]
 #[test]
 fn tc_043_request_admission_refuses_population_and_resource_mutations() {
     let package = bound_package();
@@ -437,9 +463,34 @@ fn tc_043_request_admission_refuses_population_and_resource_mutations() {
         NativeSourceSelection::new("", "rev-native", SourceBytesDigest::from_bytes(digest(2)))
             .is_err()
     );
+
+    let nested = nested_bound_package();
+    let nested_request = admit(
+        &nested,
+        requested(&nested),
+        ocl_profile(),
+        MappingLimits::new(64 * 1024, 2, 4, 2, 4_096, 2, 64 * 1024)
+            .expect("exact nested-expression limits"),
+    )
+    .expect("exact nested-expression boundary");
+    assert_eq!(nested_request.expression_nodes(), 4);
+    assert_eq!(nested_request.nesting_depth(), 2);
+    assert_eq!(
+        admit(
+            &nested,
+            requested(&nested),
+            ocl_profile(),
+            MappingLimits::new(64 * 1024, 2, 4, 1, 4_096, 2, 64 * 1024)
+                .expect("one-short depth limit"),
+        )
+        .expect_err("nesting-depth overage accepted")
+        .code(),
+        MappingRequestErrorCode::NestingDepthLimitExceeded
+    );
 }
 
 /// Tracing: TC-043, FR-032-AC-3, FR-032-AC-4.
+#[trace("TC-043", "FR-032-AC-3", "FR-032-AC-4")]
 #[test]
 fn tc_043_request_equality_is_semantic_and_ambient_free() {
     let package = bound_package();
@@ -550,6 +601,7 @@ fn candidate(
 }
 
 /// Tracing: TC-043, FR-033-AC-2, FR-033-AC-4, FR-033-AC-5.
+#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4", "FR-033-AC-5")]
 #[test]
 fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
     let package = bound_package();
@@ -585,6 +637,15 @@ fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
             .map(ProtocolAdequacyRef::state),
         Some(ProtocolAdequacyState::Demonstrated)
     );
+    candidate(
+        identity.clone(),
+        SourceFactState::Pending,
+        MappingDisposition::Unrepresented,
+        b"",
+        vec![],
+        vec![cause("source-pending")],
+    )
+    .expect("valid pending unrepresented candidate");
     candidate(
         identity.clone(),
         SourceFactState::Incomplete,
@@ -658,6 +719,7 @@ fn tc_043_mapping_candidate_invariants_are_closed_and_non_boolean() {
 }
 
 /// Tracing: TC-043, FR-033-AC-2, FR-033-AC-4, NFR-060.
+#[trace("TC-043", "FR-033-AC-2", "FR-033-AC-4")]
 #[test]
 fn tc_043_candidate_regions_dependencies_and_work_fail_closed() {
     let package = bound_package();
@@ -754,6 +816,28 @@ impl OutputMapper for FixedMapper {
     }
 }
 
+struct OperationalFailureMapper {
+    profile: OutputMappingProfile,
+    invoked: bool,
+}
+
+impl OutputMapper for OperationalFailureMapper {
+    fn profile(&self) -> &OutputMappingProfile {
+        &self.profile
+    }
+
+    fn map_obligation(
+        &mut self,
+        _obligation: &AdmittedMappingObligation,
+        _budget: MappingWorkBudget,
+    ) -> Result<MappingCandidate, MappingRequestError> {
+        self.invoked = true;
+        Err(MappingRequestError::mapper_failed(
+            "deterministic target mapper failure",
+        ))
+    }
+}
+
 fn mapped_record_id(
     request: &AdmittedMappingRequest,
     candidate: MappingCandidate,
@@ -787,6 +871,7 @@ fn one_request(
 }
 
 /// Tracing: TC-043, FR-033-AC-3, FR-033-AC-5.
+#[trace("TC-043", "FR-033-AC-3", "FR-033-AC-5")]
 #[test]
 fn tc_043_record_identity_binds_each_semantic_axis() {
     let package = bound_package();
@@ -1064,6 +1149,8 @@ struct DeterministicMapper {
     override_identity: Option<ClauseRef>,
     override_source_state: Option<SourceFactState>,
     work: u64,
+    prefix: Box<str>,
+    cancel_after_first: Option<MappingCancellationToken>,
 }
 
 impl DeterministicMapper {
@@ -1074,6 +1161,8 @@ impl DeterministicMapper {
             override_identity: None,
             override_source_state: None,
             work: 2,
+            prefix: "-- ".into(),
+            cancel_after_first: None,
         }
     }
 }
@@ -1090,7 +1179,12 @@ impl OutputMapper for DeterministicMapper {
     ) -> Result<MappingCandidate, MappingRequestError> {
         assert!(budget.remaining() > 0);
         self.seen.push(obligation.identity().clone());
-        let fragment = format!("-- {}\n", obligation.identity().clause()).into_bytes();
+        let fragment = format!("{}{}\n", self.prefix, obligation.identity().clause()).into_bytes();
+        if self.seen.len() == 1 {
+            if let Some(token) = &self.cancel_after_first {
+                token.cancel();
+            }
+        }
         MappingCandidate::new(
             self.override_identity
                 .clone()
@@ -1111,6 +1205,7 @@ impl OutputMapper for DeterministicMapper {
 }
 
 /// Tracing: TC-043, FR-033-AC-1, FR-033-AC-3, FR-033-AC-5.
+#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-3", "FR-033-AC-5")]
 #[test]
 fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
     let package = bound_package();
@@ -1146,6 +1241,7 @@ fn tc_043_mapper_dispatch_is_ordered_complete_and_identity_bearing() {
 }
 
 /// Tracing: TC-043, FR-033-AC-1, FR-033-AC-4, NFR-060.
+#[trace("TC-043", "FR-033-AC-1", "FR-033-AC-4")]
 #[test]
 fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
     let package = bound_package();
@@ -1169,6 +1265,18 @@ fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
         MappingRequestErrorCode::TargetProfileMismatch
     );
     assert!(wrong_profile.seen.is_empty());
+
+    let mut failed = OperationalFailureMapper {
+        profile: ocl_profile(),
+        invoked: false,
+    };
+    assert_eq!(
+        map_admitted_request(&request, &mut failed, MappingCancellation::Active)
+            .expect_err("operational mapper failure exposed records")
+            .code(),
+        MappingRequestErrorCode::MapperFailed
+    );
+    assert!(failed.invoked);
 
     let mut cross_wired = DeterministicMapper::new(ocl_profile());
     cross_wired.override_identity = Some(request.obligations()[0].identity().clone());
@@ -1245,4 +1353,434 @@ fn tc_043_mapper_mismatch_cross_wiring_and_exhaustion_refuse_atomically() {
         MappingRequestErrorCode::Cancelled
     );
     assert!(cancelled.seen.is_empty());
+}
+
+/// Tracing: TC-043, FR-033-AC-4, FR-034-AC-3, NFR-060.
+#[trace("TC-043", "FR-033-AC-4", "FR-034-AC-3")]
+#[test]
+fn tc_043_mapping_aggregates_accept_exact_and_refuse_just_over_bounds() {
+    let package = bound_package();
+    let baseline = mapped(&package, limits());
+    let exact_limits = MappingLimits::new(
+        64 * 1024,
+        2,
+        2,
+        1,
+        baseline.mapping_work(),
+        2,
+        baseline.emitted_bytes(),
+    )
+    .expect("exact aggregate limits");
+    let exact = mapped(&package, exact_limits);
+    assert_eq!(exact.mapping_work(), baseline.mapping_work());
+    assert_eq!(exact.emitted_bytes(), baseline.emitted_bytes());
+
+    let short_work = MappingLimits::new(
+        64 * 1024,
+        2,
+        2,
+        1,
+        baseline.mapping_work() - 1,
+        2,
+        baseline.emitted_bytes(),
+    )
+    .expect("one-short work limit");
+    let request = admit(&package, requested(&package), ocl_profile(), short_work)
+        .expect("request within pre-dispatch work minimum");
+    let mut mapper = DeterministicMapper::new(ocl_profile());
+    assert_eq!(
+        map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+            .expect_err("mapping-work overage accepted")
+            .code(),
+        MappingRequestErrorCode::MappingWorkLimitExceeded
+    );
+
+    let short_output = MappingLimits::new(
+        64 * 1024,
+        2,
+        2,
+        1,
+        baseline.mapping_work(),
+        2,
+        baseline.emitted_bytes() - 1,
+    )
+    .expect("one-short emitted-byte limit");
+    let request = admit(&package, requested(&package), ocl_profile(), short_output)
+        .expect("request before target bytes exist");
+    let mut mapper = DeterministicMapper::new(ocl_profile());
+    assert_eq!(
+        map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+            .expect_err("emitted-byte overage accepted")
+            .code(),
+        MappingRequestErrorCode::EmittedBytesLimitExceeded
+    );
+}
+
+fn generator(seed: u8) -> OutputGeneratorIdentity {
+    OutputGeneratorIdentity::new(
+        "agent-ix/quire-contract-ir",
+        "0.1.0",
+        "rev-generator",
+        GeneratorBytesDigest::from_bytes(digest(seed)),
+    )
+    .expect("Rust generator identity")
+}
+
+fn mapped(package: &BoundPackage, limits: MappingLimits) -> quire_contract_ir::CompletedMappings {
+    let request = admit(package, requested(package), ocl_profile(), limits)
+        .expect("admitted mapping request");
+    let mut mapper = DeterministicMapper::new(ocl_profile());
+    map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+        .expect("complete mapped population")
+}
+
+/// Tracing: TC-043, FR-034-AC-1, FR-034-AC-2, FR-034-AC-3.
+#[trace("TC-043", "FR-034-AC-1", "FR-034-AC-2", "FR-034-AC-3")]
+#[test]
+fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
+    let package = bound_package();
+    let mapped = mapped(&package, limits());
+    let generated =
+        assemble_output_package(&mapped, generator(20), &MappingExecutionControl::active())
+            .expect("generated output package");
+    let replay =
+        assemble_output_package(&mapped, generator(20), &MappingExecutionControl::active())
+            .expect("replayed output package");
+
+    assert_eq!(generated, replay);
+    assert_eq!(generated.target_bytes(), b"-- a_assert\n-- b_case\n");
+    assert_eq!(
+        generated.target_bytes_digest(),
+        TargetBytesDigest::digest(generated.target_bytes())
+    );
+    assert_eq!(
+        generated.records().len(),
+        mapped.request().obligations().len()
+    );
+    assert_eq!(generated.records()[0].output_regions()[0].start(), 0);
+    assert_eq!(
+        generated.records()[1].output_regions()[0].start(),
+        b"-- a_assert\n".len() as u64
+    );
+    assert_eq!(generated.limits(), mapped.request().limits());
+    assert_eq!(
+        generated.source_package(),
+        mapped.request().source_package()
+    );
+}
+
+/// Tracing: TC-043, FR-032-AC-1, FR-034-AC-1.
+#[trace("TC-043", "FR-032-AC-1", "FR-034-AC-1")]
+#[test]
+fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_semantics() {
+    let package = bound_package();
+    let profiles = [
+        ocl_profile(),
+        OutputMappingProfile::new(
+            "sysml-kerml",
+            vec!["formal/26-03-02", "formal/26-03-01"],
+            "quire.output.sysml2-kerml1/v1",
+            "1-draft.1",
+            MappingRuleDigest::from_bytes(digest(30)),
+            vec![OutputCapability::Boolean],
+        )
+        .expect("SysML/KerML profile"),
+        OutputMappingProfile::new(
+            "fretish",
+            vec!["v3.1.0"],
+            "quire.output.fretish31/v1",
+            "1-draft.1",
+            MappingRuleDigest::from_bytes(digest(31)),
+            vec![OutputCapability::Boolean],
+        )
+        .expect("FRETish profile"),
+    ];
+
+    for profile in profiles {
+        let request = admit(&package, requested(&package), profile.clone(), limits())
+            .expect("profile-specific request");
+        let mut mapper = DeterministicMapper::new(profile.clone());
+        let mapped = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+            .expect("target-neutral mapper coordination");
+        let generated =
+            assemble_output_package(&mapped, generator(20), &MappingExecutionControl::active())
+                .expect("target-neutral package assembly");
+        assert_eq!(generated.target_profile(), &profile);
+    }
+}
+
+/// Tracing: TC-043, FR-034-AC-1, FR-034-AC-4.
+#[trace("TC-043", "FR-034-AC-1", "FR-034-AC-4")]
+#[test]
+fn tc_043_package_identity_binds_target_generator_source_profile_records_and_limits() {
+    let package = bound_package();
+    let baseline_mapped = mapped(&package, limits());
+    let baseline = assemble_output_package(
+        &baseline_mapped,
+        generator(20),
+        &MappingExecutionControl::active(),
+    )
+    .expect("baseline package");
+
+    let changed_generator = assemble_output_package(
+        &baseline_mapped,
+        generator(21),
+        &MappingExecutionControl::active(),
+    )
+    .expect("changed generator package");
+    assert_ne!(baseline.package_id(), changed_generator.package_id());
+
+    let changed_profile = OutputMappingProfile::new(
+        "ocl",
+        vec!["formal/14-02-03"],
+        "quire.output.ocl24/v1",
+        "1-draft.1",
+        MappingRuleDigest::from_bytes(digest(29)),
+        vec![OutputCapability::Boolean, OutputCapability::BoundedInteger],
+    )
+    .expect("changed profile digest");
+    let changed_profile_request = admit(
+        &package,
+        requested(&package),
+        changed_profile.clone(),
+        limits(),
+    )
+    .expect("changed-profile request");
+    let mut changed_profile_mapper = DeterministicMapper::new(changed_profile);
+    let changed_profile_mapped = map_admitted_request(
+        &changed_profile_request,
+        &mut changed_profile_mapper,
+        MappingCancellation::Active,
+    )
+    .expect("changed-profile mapping");
+    let changed_profile_package = assemble_output_package(
+        &changed_profile_mapped,
+        generator(20),
+        &MappingExecutionControl::active(),
+    )
+    .expect("changed-profile package");
+    assert_ne!(baseline.package_id(), changed_profile_package.package_id());
+
+    let changed_limits = MappingLimits::new(64 * 1024, 33, 1_024, 128, 4_096, 32, 64 * 1024)
+        .expect("changed valid limits");
+    let changed_limits_mapped = mapped(&package, changed_limits);
+    let changed_limits_package = assemble_output_package(
+        &changed_limits_mapped,
+        generator(20),
+        &MappingExecutionControl::active(),
+    )
+    .expect("changed limits package");
+    assert_ne!(baseline.package_id(), changed_limits_package.package_id());
+
+    let request = admit(&package, requested(&package), ocl_profile(), limits())
+        .expect("admitted mapping request");
+    let mut changed_text_mapper = DeterministicMapper::new(ocl_profile());
+    changed_text_mapper.prefix = "// ".into();
+    let changed_text_mapped = map_admitted_request(
+        &request,
+        &mut changed_text_mapper,
+        MappingCancellation::Active,
+    )
+    .expect("changed target text mapping");
+    let changed_text = assemble_output_package(
+        &changed_text_mapped,
+        generator(20),
+        &MappingExecutionControl::active(),
+    )
+    .expect("changed target text package");
+    assert_ne!(
+        baseline.target_bytes_digest(),
+        changed_text.target_bytes_digest()
+    );
+    assert_ne!(baseline.package_id(), changed_text.package_id());
+
+    let (native, model, semantic) = selections();
+    let changed_native = NativeSourceSelection::new(
+        native.identity(),
+        "changed-native-revision",
+        native.digest(),
+    )
+    .expect("changed native selection");
+    let changed_source_request = AdmittedMappingRequest::admit(
+        &package,
+        requested(&package),
+        changed_native,
+        model,
+        semantic,
+        ocl_profile(),
+        limits(),
+        MappingCancellation::Active,
+    )
+    .expect("changed source request");
+    let mut changed_source_mapper = DeterministicMapper::new(ocl_profile());
+    let changed_source_mapped = map_admitted_request(
+        &changed_source_request,
+        &mut changed_source_mapper,
+        MappingCancellation::Active,
+    )
+    .expect("changed source mapping");
+    let changed_source = assemble_output_package(
+        &changed_source_mapped,
+        generator(20),
+        &MappingExecutionControl::active(),
+    )
+    .expect("changed source package");
+    assert_ne!(baseline.package_id(), changed_source.package_id());
+}
+
+/// Tracing: TC-043, FR-034-AC-2, FR-034-AC-3, NFR-060.
+#[trace("TC-043", "FR-034-AC-2", "FR-034-AC-3")]
+#[test]
+fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
+    let package = bound_package();
+    for point in [
+        MappingAllocationPoint::RequestObligations,
+        MappingAllocationPoint::RequestIdentity,
+    ] {
+        let control = MappingExecutionControl::fail_allocation_at(point);
+        let (native, model, semantic) = selections();
+        assert_eq!(
+            AdmittedMappingRequest::admit_controlled(
+                &package,
+                requested(&package),
+                native,
+                model,
+                semantic,
+                ocl_profile(),
+                limits(),
+                &control,
+            )
+            .expect_err("request allocation failure exposed a request")
+            .code(),
+            MappingRequestErrorCode::AllocationFailed
+        );
+    }
+    let (native, model, semantic) = selections();
+    assert_eq!(
+        AdmittedMappingRequest::admit_controlled(
+            &package,
+            requested(&package),
+            native,
+            model,
+            semantic,
+            ocl_profile(),
+            limits(),
+            &MappingExecutionControl::cancelled(),
+        )
+        .expect_err("cancelled controlled admission exposed a request")
+        .code(),
+        MappingRequestErrorCode::Cancelled
+    );
+
+    let mapped = mapped(&package, limits());
+
+    let cancelled = MappingExecutionControl::cancelled();
+    assert_eq!(
+        assemble_output_package(&mapped, generator(20), &cancelled)
+            .expect_err("cancelled assembly emitted a package")
+            .code(),
+        MappingRequestErrorCode::Cancelled
+    );
+    for point in [
+        MappingAllocationPoint::TargetBytes,
+        MappingAllocationPoint::PackageRecords,
+        MappingAllocationPoint::PackageIdentity,
+    ] {
+        let control = MappingExecutionControl::fail_allocation_at(point);
+        assert_eq!(
+            assemble_output_package(&mapped, generator(20), &control)
+                .expect_err("allocation failure emitted a package")
+                .code(),
+            MappingRequestErrorCode::AllocationFailed
+        );
+    }
+
+    let token = MappingCancellationToken::new();
+    let control = MappingExecutionControl::with_token(token.clone());
+    let request = admit(&package, requested(&package), ocl_profile(), limits())
+        .expect("admitted mapping request");
+    let mut cancelling_mapper = DeterministicMapper::new(ocl_profile());
+    cancelling_mapper.cancel_after_first = Some(token);
+    assert_eq!(
+        map_admitted_request_controlled(&request, &mut cancelling_mapper, &control)
+            .expect_err("mid-mapping cancellation exposed records")
+            .code(),
+        MappingRequestErrorCode::Cancelled
+    );
+    assert_eq!(cancelling_mapper.seen.len(), 1);
+
+    for point in [
+        MappingAllocationPoint::MappingRecords,
+        MappingAllocationPoint::MappingFragments,
+        MappingAllocationPoint::MappingRegions,
+    ] {
+        let control = MappingExecutionControl::fail_allocation_at(point);
+        let mut mapper = DeterministicMapper::new(ocl_profile());
+        assert_eq!(
+            map_admitted_request_controlled(&request, &mut mapper, &control)
+                .expect_err("mapping allocation failure exposed records")
+                .code(),
+            MappingRequestErrorCode::AllocationFailed
+        );
+    }
+}
+
+fn observer() -> StructuralObserverIdentity {
+    StructuralObserverIdentity::new(
+        "agent-ix/observer",
+        "example-parser",
+        "1.0.0",
+        "rev-observer",
+        ObserverBytesDigest::from_bytes(digest(22)),
+        ObserverInvocationDigest::from_bytes(digest(23)),
+        ObserverDependencySetDigest::from_bytes(digest(24)),
+        "Apache-2.0",
+    )
+    .expect("qualified observer")
+}
+
+/// Tracing: TC-043, FR-034-AC-4, FR-034-AC-5, NFR-061.
+#[trace("TC-043", "FR-034-AC-4", "FR-034-AC-5")]
+#[test]
+fn tc_043_structural_observations_are_downstream_and_package_immutable() {
+    let package = bound_package();
+    let mapped = mapped(&package, limits());
+    let generated =
+        assemble_output_package(&mapped, generator(20), &MappingExecutionControl::active())
+            .expect("generated package");
+    let package_id = generated.package_id();
+    let bytes = generated.target_bytes().to_vec();
+    let records = generated.records().to_vec();
+
+    let accepted = StructuralObservationRef::accepted(
+        &generated,
+        observer(),
+        ObserverResultDigest::from_bytes(digest(25)),
+    );
+    let refused = StructuralObservationRef::refused(
+        &generated,
+        StructuralObserverIdentity::new(
+            "agent-ix/observer",
+            "example-parser",
+            "2.0.0",
+            "rev-observer-new",
+            ObserverBytesDigest::from_bytes(digest(26)),
+            ObserverInvocationDigest::from_bytes(digest(27)),
+            ObserverDependencySetDigest::from_bytes(digest(28)),
+            "proprietary-observation-rights",
+        )
+        .expect("changed observer identity"),
+        cause("observer-rights-unavailable"),
+    );
+    assert_eq!(accepted.package_id(), package_id);
+    assert_eq!(accepted.outcome(), StructuralObservationOutcome::Accepted);
+    assert_eq!(refused.package_id(), package_id);
+    assert_eq!(refused.outcome(), StructuralObservationOutcome::Refused);
+    assert_eq!(generated.package_id(), package_id);
+    assert_eq!(generated.target_bytes(), bytes);
+    assert_eq!(generated.records(), records);
+    let serialized = serde_json::to_string(&generated).expect("serializable package");
+    for excluded in ["observer", "timestamp", "locale", "display", "path"] {
+        assert!(!serialized.contains(excluded));
+    }
 }

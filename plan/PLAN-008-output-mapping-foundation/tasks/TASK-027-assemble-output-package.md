@@ -2,7 +2,7 @@
 id: TASK-027
 title: "Assemble the output package atomically"
 type: Task
-status: not_started
+status: in_progress
 track: H
 priority: P0
 relationships:
@@ -27,10 +27,10 @@ fault/cancellation atomicity, and the unchanged-head promotion gate for #95.
 
 ## Subtasks
 
-- [ ] Assemble fragments and shift/validate regions with checked arithmetic.
-- [ ] Verify complete record/order/profile/generator/digest/limit identity before exposure.
-- [ ] Prove deterministic replay, mutation sensitivity, and ambient/observer independence.
-- [ ] Inject cancellation, allocation, mapper, record, region, overflow, and resource failures.
+- [x] Assemble fragments and shift/validate regions with checked arithmetic.
+- [x] Verify complete record/order/profile/generator/digest/limit identity before exposure.
+- [x] Prove deterministic replay, mutation sensitivity, and ambient/observer independence.
+- [x] Inject cancellation, allocation, mapper, record, region, overflow, and resource failures.
 - [ ] Complete TC-043 traces, matrix/plan status, Rust review, gap analysis, and local gates.
 
 ## Deliverables
@@ -42,3 +42,7 @@ fault/cancellation atomicity, and the unchanged-head promotion gate for #95.
 ## Notes
 
 - One PR closes #95; target-specific mappers remain outside this task.
+- Implementation is Green locally on 2026-09-15: 15 integration cases and one
+  checked-overflow unit case cover atomic admission, mapping, assembly, package
+  identity, cancellation/fault injection, and downstream observer evidence.
+  PR-time reviews and unchanged-head promotion gates remain.

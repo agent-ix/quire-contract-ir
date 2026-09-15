@@ -7,6 +7,19 @@ description: "Chronological log for Contract IR issue #95."
 
 ## History
 
+* **2026-09-15** — Completed TASK-027 implementation locally. Added monotonic
+  cancellation and deterministic allocation-failure controls across request,
+  mapping, and assembly; explicit operational mapper failure distinct from
+  semantic refusal; immutable generated packages with raw target-byte and
+  SHA-256-over-JCS package identities; revalidated absolute UTF-8 regions; and
+  immutable accepted/refused structural-observer references downstream of
+  package identity. TC-043 now has 15 integration cases plus a checked-overflow
+  model unit case, including all three exact target profiles without claiming
+  target correspondence. Focused and locked workspace/all-target tests,
+  warning-denied workspace/all-target Clippy, rustfmt, the matrix status
+  validator, and Quire's strict coverage census pass with literal
+  `target-codex-backends`; PR-time review remains.
+
 * **2026-09-15** — Completed TASK-026 locally. Added the bounded one-obligation
   `OutputMapper` seam, exact remaining-work grant, closed dependency domains,
   qualified conditions/causes, independently typed FR-245 observation and

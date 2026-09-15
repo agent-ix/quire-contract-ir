@@ -1,6 +1,14 @@
 //! Target-neutral output-mapping admission governed by FR-032 and TC-043.
 
-use std::{collections::BTreeSet, error::Error, fmt};
+use std::{
+    collections::BTreeSet,
+    error::Error,
+    fmt,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use serde::{Serialize, Serializer};
 use serde_json::json;
@@ -19,6 +27,9 @@ pub const OUTPUT_MAPPING_REVISION: &str = "1-draft.1";
 /// Identity version for per-obligation mapping records.
 pub const OUTPUT_MAPPING_RECORD_IDENTITY_VERSION: &str =
     "quire.output.mapping-record-identity/v1-draft.1";
+/// Identity version for immutable generated-output packages.
+pub const GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION: &str =
+    "quire.output.package-identity/v1-draft.1";
 
 macro_rules! raw_digest_type {
     ($name:ident, $doc:literal) => {
@@ -87,6 +98,30 @@ raw_digest_type!(
 raw_digest_type!(
     SourceBytesDigest,
     "Raw SHA-256 digest of exact native, model, or semantic selection bytes."
+);
+raw_digest_type!(
+    GeneratorBytesDigest,
+    "Raw SHA-256 digest of exact Rust generator executable/source bytes."
+);
+raw_digest_type!(
+    TargetBytesDigest,
+    "Raw SHA-256 digest of immutable generated target bytes."
+);
+raw_digest_type!(
+    ObserverBytesDigest,
+    "Raw SHA-256 digest of an optional structural observer executable."
+);
+raw_digest_type!(
+    ObserverInvocationDigest,
+    "Raw SHA-256 digest of an optional structural observer invocation."
+);
+raw_digest_type!(
+    ObserverDependencySetDigest,
+    "Raw SHA-256 digest of an optional observer dependency closure."
+);
+raw_digest_type!(
+    ObserverResultDigest,
+    "Raw SHA-256 digest of exact structural observer result bytes."
 );
 
 fn hex_value(byte: u8) -> u8 {
@@ -169,6 +204,10 @@ mapping_error_codes! {
     ZeroMappingWork => "zero_mapping_work",
     CandidateObligationMismatch => "candidate_obligation_mismatch",
     CandidateSourceStateMismatch => "candidate_source_state_mismatch",
+    MapperFailed => "mapper_failed",
+    InvalidGenerator => "invalid_generator",
+    InvalidObserver => "invalid_observer",
+    PackagePopulationMismatch => "package_population_mismatch",
 }
 
 /// Typed refusal returned before any mapper dispatch or target bytes exist.
@@ -190,6 +229,16 @@ impl MappingRequestError {
             path: path.into(),
             message: message.into(),
         }
+    }
+
+    /// Construct an operational mapper failure. Semantic non-representation
+    /// must instead use an explicit refused or unrepresented candidate.
+    pub fn mapper_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            MappingRequestErrorCode::MapperFailed,
+            "mapper",
+            message.into(),
+        )
     }
 
     /// Stable refusal code.
@@ -1085,6 +1134,116 @@ pub enum MappingCancellation {
     Cancelled,
 }
 
+/// Shared cancellation token checked between every coordinator stage.
+#[derive(Clone, Debug, Default)]
+pub struct MappingCancellationToken(Arc<AtomicBool>);
+
+impl MappingCancellationToken {
+    /// Construct an active token.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Request cancellation. Cancellation is monotonic.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    /// Whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+/// Deterministic allocation boundary used only to qualify all-or-nothing behavior.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MappingAllocationPoint {
+    /// Request obligation population.
+    RequestObligations,
+    /// Request canonical identity material.
+    RequestIdentity,
+    /// Complete mapping record population.
+    MappingRecords,
+    /// Complete mapping fragment population.
+    MappingFragments,
+    /// Absolute region population.
+    MappingRegions,
+    /// Final target byte buffer.
+    TargetBytes,
+    /// Final immutable record population.
+    PackageRecords,
+    /// Package identity material.
+    PackageIdentity,
+}
+
+/// Non-semantic execution controls for cancellation and deterministic fault qualification.
+#[derive(Clone, Debug, Default)]
+pub struct MappingExecutionControl {
+    cancellation: MappingCancellationToken,
+    allocation_failure: Option<MappingAllocationPoint>,
+}
+
+impl MappingExecutionControl {
+    /// Active control with no injected allocation failure.
+    pub fn active() -> Self {
+        Self::default()
+    }
+
+    /// Already-cancelled control.
+    pub fn cancelled() -> Self {
+        let control = Self::active();
+        control.cancellation.cancel();
+        control
+    }
+
+    /// Use a caller-owned monotonic cancellation token.
+    pub fn with_token(cancellation: MappingCancellationToken) -> Self {
+        Self {
+            cancellation,
+            allocation_failure: None,
+        }
+    }
+
+    /// Deterministically inject one allocation failure for local qualification.
+    pub fn fail_allocation_at(point: MappingAllocationPoint) -> Self {
+        Self {
+            cancellation: MappingCancellationToken::new(),
+            allocation_failure: Some(point),
+        }
+    }
+
+    fn from_snapshot(cancellation: MappingCancellation) -> Self {
+        match cancellation {
+            MappingCancellation::Active => Self::active(),
+            MappingCancellation::Cancelled => Self::cancelled(),
+        }
+    }
+
+    fn check_cancelled(&self, path: &'static str) -> Result<(), MappingRequestError> {
+        if self.cancellation.is_cancelled() {
+            Err(MappingRequestError::new(
+                MappingRequestErrorCode::Cancelled,
+                path,
+                "output mapping was cancelled",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn allocate(&self, point: MappingAllocationPoint) -> Result<(), MappingRequestError> {
+        if self.allocation_failure == Some(point) {
+            Err(MappingRequestError::new(
+                MappingRequestErrorCode::AllocationFailed,
+                "mapping.allocation",
+                "deterministic allocation failure",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Exact source-package reference retained by an admitted request.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MappingSourcePackageRef {
@@ -1516,6 +1675,527 @@ impl CompletedMappings {
     }
 }
 
+/// Exact Rust generator identity retained by a generated-output package.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct OutputGeneratorIdentity {
+    owner: Box<str>,
+    version: Box<str>,
+    revision: Box<str>,
+    digest: GeneratorBytesDigest,
+}
+
+impl OutputGeneratorIdentity {
+    /// Construct a bounded, immutable generator identity.
+    pub fn new(
+        owner: impl Into<String>,
+        version: impl Into<String>,
+        revision: impl Into<String>,
+        digest: GeneratorBytesDigest,
+    ) -> Result<Self, MappingRequestError> {
+        let owner = owner.into();
+        let version = version.into();
+        let revision = revision.into();
+        if ![owner.as_str(), version.as_str(), revision.as_str()]
+            .into_iter()
+            .all(valid_selection_member)
+        {
+            return Err(MappingRequestError::new(
+                MappingRequestErrorCode::InvalidGenerator,
+                "generator",
+                "generator owner, version, and revision must be nonempty bounded visible ASCII",
+            ));
+        }
+        Ok(Self {
+            owner: owner.into_boxed_str(),
+            version: version.into_boxed_str(),
+            revision: revision.into_boxed_str(),
+            digest,
+        })
+    }
+
+    /// Generator owner identity.
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    /// Generator release version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Exact immutable generator revision.
+    pub fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    /// Raw digest of the selected generator bytes.
+    pub const fn digest(&self) -> GeneratorBytesDigest {
+        self.digest
+    }
+}
+
+raw_digest_type!(
+    GeneratedOutputPackageId,
+    "Derived SHA-256-over-JCS identity of one immutable generated-output package."
+);
+
+/// Complete immutable target bytes and correspondence records from one request.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct GeneratedOutputPackage {
+    identity_version: &'static str,
+    package_id: GeneratedOutputPackageId,
+    source_package: MappingSourcePackageRef,
+    native_selection: NativeSourceSelection,
+    model_selection: ModelSourceSelection,
+    semantic_selection: SemanticSourceSelection,
+    target_profile: OutputMappingProfile,
+    generator: OutputGeneratorIdentity,
+    target_bytes: Box<[u8]>,
+    target_bytes_digest: TargetBytesDigest,
+    records: Vec<OutputMappingRecord>,
+    limits: MappingLimits,
+}
+
+impl GeneratedOutputPackage {
+    /// Derived package identity over all semantic package inputs.
+    pub const fn package_id(&self) -> GeneratedOutputPackageId {
+        self.package_id
+    }
+
+    /// Exact source-package identity.
+    pub fn source_package(&self) -> &MappingSourcePackageRef {
+        &self.source_package
+    }
+
+    /// Exact native-source selection.
+    pub fn native_selection(&self) -> &NativeSourceSelection {
+        &self.native_selection
+    }
+
+    /// Exact authoritative-model selection.
+    pub fn model_selection(&self) -> &ModelSourceSelection {
+        &self.model_selection
+    }
+
+    /// Exact semantic-profile selection.
+    pub fn semantic_selection(&self) -> &SemanticSourceSelection {
+        &self.semantic_selection
+    }
+
+    /// Exact target profile.
+    pub fn target_profile(&self) -> &OutputMappingProfile {
+        &self.target_profile
+    }
+
+    /// Exact generator identity.
+    pub fn generator(&self) -> &OutputGeneratorIdentity {
+        &self.generator
+    }
+
+    /// Immutable generated target bytes.
+    pub fn target_bytes(&self) -> &[u8] {
+        &self.target_bytes
+    }
+
+    /// Raw digest of the exact generated target bytes.
+    pub const fn target_bytes_digest(&self) -> TargetBytesDigest {
+        self.target_bytes_digest
+    }
+
+    /// Complete ordered mapping records.
+    pub fn records(&self) -> &[OutputMappingRecord] {
+        &self.records
+    }
+
+    /// Exact limits admitted for this generation.
+    pub fn limits(&self) -> &MappingLimits {
+        &self.limits
+    }
+}
+
+#[derive(Serialize)]
+struct GeneratedOutputPackageIdentityMaterial<'a> {
+    identity_version: &'static str,
+    source_package: &'a MappingSourcePackageRef,
+    native_selection: &'a NativeSourceSelection,
+    model_selection: &'a ModelSourceSelection,
+    semantic_selection: &'a SemanticSourceSelection,
+    target_profile: &'a OutputMappingProfile,
+    generator: &'a OutputGeneratorIdentity,
+    target_bytes_digest: TargetBytesDigest,
+    record_ids: &'a [MappingRecordId],
+    limits: &'a MappingLimits,
+}
+
+/// Atomically assemble one deterministic generated-output package.
+pub fn assemble_output_package(
+    completed: &CompletedMappings,
+    generator: OutputGeneratorIdentity,
+    control: &MappingExecutionControl,
+) -> Result<GeneratedOutputPackage, MappingRequestError> {
+    control.check_cancelled("package")?;
+    let request = completed.request();
+    let count = request.obligations().len();
+    if completed.records.len() != count || completed.fragments.len() != count {
+        return Err(MappingRequestError::new(
+            MappingRequestErrorCode::PackagePopulationMismatch,
+            "package.records",
+            "completed mapping population does not match the admitted obligations",
+        ));
+    }
+    for ((record, fragment), obligation) in completed
+        .records
+        .iter()
+        .zip(&completed.fragments)
+        .zip(request.obligations())
+    {
+        if record.source().identity() != obligation.identity()
+            || record.source_state() != obligation.source_state()
+            || record.target_profile() != request.profile()
+            || (fragment.is_empty() && !record.output_regions().is_empty())
+        {
+            return Err(MappingRequestError::new(
+                MappingRequestErrorCode::PackagePopulationMismatch,
+                "package.records",
+                "mapping record, fragment, and admitted obligation disagree",
+            ));
+        }
+    }
+
+    control.allocate(MappingAllocationPoint::TargetBytes)?;
+    let target_capacity = usize::try_from(completed.emitted_bytes).map_err(|_| {
+        MappingRequestError::new(
+            MappingRequestErrorCode::ArithmeticOverflow,
+            "package.target_bytes",
+            "emitted byte count exceeds the platform index range",
+        )
+    })?;
+    let mut target_bytes = Vec::new();
+    target_bytes
+        .try_reserve_exact(target_capacity)
+        .map_err(|_| {
+            MappingRequestError::new(
+                MappingRequestErrorCode::AllocationFailed,
+                "package.target_bytes",
+                "target byte allocation failed",
+            )
+        })?;
+    for fragment in &completed.fragments {
+        control.check_cancelled("package.target_bytes")?;
+        target_bytes.extend_from_slice(fragment);
+    }
+    if target_bytes.len() != target_capacity {
+        return Err(MappingRequestError::new(
+            MappingRequestErrorCode::PackagePopulationMismatch,
+            "package.target_bytes",
+            "assembled target bytes do not match the accounted byte count",
+        ));
+    }
+    let target_text = std::str::from_utf8(&target_bytes).map_err(|_| {
+        MappingRequestError::new(
+            MappingRequestErrorCode::InvalidOutputRegion,
+            "package.target_bytes",
+            "initial FS06 generated target bytes must be UTF-8",
+        )
+    })?;
+    let mut fragment_start = 0_u64;
+    for (record, fragment) in completed.records.iter().zip(&completed.fragments) {
+        let fragment_len = u64::try_from(fragment.len()).map_err(|_| {
+            MappingRequestError::new(
+                MappingRequestErrorCode::ArithmeticOverflow,
+                "package.target_bytes",
+                "fragment byte count exceeds the supported integer range",
+            )
+        })?;
+        let fragment_end = fragment_start.checked_add(fragment_len).ok_or_else(|| {
+            MappingRequestError::new(
+                MappingRequestErrorCode::ArithmeticOverflow,
+                "package.target_bytes",
+                "fragment boundary arithmetic overflowed",
+            )
+        })?;
+        let mut previous_end = fragment_start;
+        for region in record.output_regions() {
+            let start = usize::try_from(region.start()).map_err(|_| {
+                MappingRequestError::new(
+                    MappingRequestErrorCode::ArithmeticOverflow,
+                    "package.records.output_regions.start",
+                    "absolute region start exceeds the platform index range",
+                )
+            })?;
+            let end = usize::try_from(region.end()).map_err(|_| {
+                MappingRequestError::new(
+                    MappingRequestErrorCode::ArithmeticOverflow,
+                    "package.records.output_regions.end",
+                    "absolute region end exceeds the platform index range",
+                )
+            })?;
+            if region.start() < fragment_start
+                || region.start() < previous_end
+                || region.end() > fragment_end
+                || !target_text.is_char_boundary(start)
+                || !target_text.is_char_boundary(end)
+            {
+                return Err(MappingRequestError::new(
+                    MappingRequestErrorCode::InvalidOutputRegion,
+                    "package.records.output_regions",
+                    "absolute regions must be ordered, fragment-local, and UTF-8 aligned",
+                ));
+            }
+            previous_end = region.end();
+        }
+        fragment_start = fragment_end;
+    }
+    let target_bytes_digest = TargetBytesDigest::digest(&target_bytes);
+
+    control.allocate(MappingAllocationPoint::PackageRecords)?;
+    let mut records = Vec::new();
+    records.try_reserve_exact(count).map_err(|_| {
+        MappingRequestError::new(
+            MappingRequestErrorCode::AllocationFailed,
+            "package.records",
+            "package record allocation failed",
+        )
+    })?;
+    records.extend_from_slice(&completed.records);
+
+    control.check_cancelled("package.identity")?;
+    control.allocate(MappingAllocationPoint::PackageIdentity)?;
+    let mut record_ids = Vec::new();
+    record_ids.try_reserve_exact(count).map_err(|_| {
+        MappingRequestError::new(
+            MappingRequestErrorCode::AllocationFailed,
+            "package.identity.record_ids",
+            "package record identity allocation failed",
+        )
+    })?;
+    record_ids.extend(records.iter().map(OutputMappingRecord::record_id));
+    let material = GeneratedOutputPackageIdentityMaterial {
+        identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
+        source_package: request.source_package(),
+        native_selection: request.native_selection(),
+        model_selection: request.model_selection(),
+        semantic_selection: request.semantic_selection(),
+        target_profile: request.profile(),
+        generator: &generator,
+        target_bytes_digest,
+        record_ids: &record_ids,
+        limits: request.limits(),
+    };
+    let value = serde_json::to_value(material).map_err(|_| {
+        MappingRequestError::new(
+            MappingRequestErrorCode::AllocationFailed,
+            "package.identity",
+            "package identity material allocation failed",
+        )
+    })?;
+    let canonical =
+        crate::canonical::canonical_envelope_bytes(&value, u64::MAX, "package.identity").map_err(
+            |_| {
+                MappingRequestError::new(
+                    MappingRequestErrorCode::AllocationFailed,
+                    "package.identity",
+                    "package identity canonicalization failed",
+                )
+            },
+        )?;
+    control.check_cancelled("package.complete")?;
+
+    Ok(GeneratedOutputPackage {
+        identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
+        package_id: GeneratedOutputPackageId::digest(&canonical),
+        source_package: request.source_package().clone(),
+        native_selection: request.native_selection().clone(),
+        model_selection: request.model_selection().clone(),
+        semantic_selection: request.semantic_selection().clone(),
+        target_profile: request.profile().clone(),
+        generator,
+        target_bytes: target_bytes.into_boxed_slice(),
+        target_bytes_digest,
+        records,
+        limits: request.limits().clone(),
+    })
+}
+
+/// Exact structural-observer identity retained only in downstream evidence.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StructuralObserverIdentity {
+    owner: Box<str>,
+    tool: Box<str>,
+    version: Box<str>,
+    revision: Box<str>,
+    executable_digest: ObserverBytesDigest,
+    invocation_digest: ObserverInvocationDigest,
+    dependency_set_digest: ObserverDependencySetDigest,
+    license: Box<str>,
+}
+
+impl StructuralObserverIdentity {
+    /// Construct a complete bounded observer identity.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        owner: impl Into<String>,
+        tool: impl Into<String>,
+        version: impl Into<String>,
+        revision: impl Into<String>,
+        executable_digest: ObserverBytesDigest,
+        invocation_digest: ObserverInvocationDigest,
+        dependency_set_digest: ObserverDependencySetDigest,
+        license: impl Into<String>,
+    ) -> Result<Self, MappingRequestError> {
+        let owner = owner.into();
+        let tool = tool.into();
+        let version = version.into();
+        let revision = revision.into();
+        let license = license.into();
+        if ![
+            owner.as_str(),
+            tool.as_str(),
+            version.as_str(),
+            revision.as_str(),
+            license.as_str(),
+        ]
+        .into_iter()
+        .all(valid_selection_member)
+        {
+            return Err(MappingRequestError::new(
+                MappingRequestErrorCode::InvalidObserver,
+                "observer",
+                "observer identity members must be nonempty bounded visible ASCII",
+            ));
+        }
+        Ok(Self {
+            owner: owner.into_boxed_str(),
+            tool: tool.into_boxed_str(),
+            version: version.into_boxed_str(),
+            revision: revision.into_boxed_str(),
+            executable_digest,
+            invocation_digest,
+            dependency_set_digest,
+            license: license.into_boxed_str(),
+        })
+    }
+
+    /// Observer owner identity.
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    /// Observer tool identity.
+    pub fn tool(&self) -> &str {
+        &self.tool
+    }
+
+    /// Observer release version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// Exact immutable observer revision.
+    pub fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    /// Raw digest of observer executable bytes.
+    pub const fn executable_digest(&self) -> ObserverBytesDigest {
+        self.executable_digest
+    }
+
+    /// Raw digest of the exact observer invocation.
+    pub const fn invocation_digest(&self) -> ObserverInvocationDigest {
+        self.invocation_digest
+    }
+
+    /// Raw digest of the observer dependency closure.
+    pub const fn dependency_set_digest(&self) -> ObserverDependencySetDigest {
+        self.dependency_set_digest
+    }
+
+    /// Exact observer license or rights declaration.
+    pub fn license(&self) -> &str {
+        &self.license
+    }
+}
+
+/// Closed downstream structural-observation outcome.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StructuralObservationOutcome {
+    /// Observer accepted the immutable target bytes.
+    Accepted,
+    /// Observer could not provide an accepted result.
+    Refused,
+}
+
+/// Downstream evidence about an immutable generated package.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StructuralObservationRef {
+    package_id: GeneratedOutputPackageId,
+    observer: StructuralObserverIdentity,
+    outcome: StructuralObservationOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result_digest: Option<ObserverResultDigest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refusal_cause: Option<MappingCause>,
+}
+
+impl StructuralObservationRef {
+    /// Record accepted observer evidence without changing package identity.
+    pub fn accepted(
+        package: &GeneratedOutputPackage,
+        observer: StructuralObserverIdentity,
+        result_digest: ObserverResultDigest,
+    ) -> Self {
+        Self {
+            package_id: package.package_id(),
+            observer,
+            outcome: StructuralObservationOutcome::Accepted,
+            result_digest: Some(result_digest),
+            refusal_cause: None,
+        }
+    }
+
+    /// Record an explicit observer refusal without changing package identity.
+    pub fn refused(
+        package: &GeneratedOutputPackage,
+        observer: StructuralObserverIdentity,
+        refusal_cause: MappingCause,
+    ) -> Self {
+        Self {
+            package_id: package.package_id(),
+            observer,
+            outcome: StructuralObservationOutcome::Refused,
+            result_digest: None,
+            refusal_cause: Some(refusal_cause),
+        }
+    }
+
+    /// Observed immutable package identity.
+    pub const fn package_id(&self) -> GeneratedOutputPackageId {
+        self.package_id
+    }
+
+    /// Exact observer identity.
+    pub fn observer(&self) -> &StructuralObserverIdentity {
+        &self.observer
+    }
+
+    /// Structural observation outcome.
+    pub const fn outcome(&self) -> StructuralObservationOutcome {
+        self.outcome
+    }
+
+    /// Raw observer-result digest for accepted evidence.
+    pub const fn result_digest(&self) -> Option<ObserverResultDigest> {
+        self.result_digest
+    }
+
+    /// Exact refusal cause for refused evidence.
+    pub fn refusal_cause(&self) -> Option<&MappingCause> {
+        self.refusal_cause.as_ref()
+    }
+}
+
 /// Fully validated target-neutral request; construction is atomic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedMappingRequest {
@@ -1546,13 +2226,26 @@ impl AdmittedMappingRequest {
         limits: MappingLimits,
         cancellation: MappingCancellation,
     ) -> Result<Self, MappingRequestError> {
-        if cancellation == MappingCancellation::Cancelled {
-            return Err(MappingRequestError::new(
-                MappingRequestErrorCode::Cancelled,
-                "request",
-                "mapping request was cancelled before admission",
-            ));
-        }
+        let control = MappingExecutionControl::from_snapshot(cancellation);
+        Self::admit_controlled(
+            package, requested, native, model, semantic, profile, limits, &control,
+        )
+    }
+
+    /// Validate and admit a request with monotonic cancellation and qualified
+    /// allocation-failure control. No partially populated request is exposed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_controlled(
+        package: &BoundPackage,
+        requested: Vec<RequestedMappingObligation>,
+        native: NativeSourceSelection,
+        model: ModelSourceSelection,
+        semantic: SemanticSourceSelection,
+        profile: OutputMappingProfile,
+        limits: MappingLimits,
+        control: &MappingExecutionControl,
+    ) -> Result<Self, MappingRequestError> {
+        control.check_cancelled("request")?;
         if requested.is_empty() {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::EmptyObligationSelection,
@@ -1587,6 +2280,7 @@ impl AdmittedMappingRequest {
         )?;
 
         let mut obligations = Vec::new();
+        control.allocate(MappingAllocationPoint::RequestObligations)?;
         obligations
             .try_reserve_exact(requested.len())
             .map_err(|_| {
@@ -1601,6 +2295,7 @@ impl AdmittedMappingRequest {
         let mut expression_nodes = 0_u64;
         let mut nesting_depth = 0_u64;
         for requested_obligation in &requested {
+            control.check_cancelled("request.obligations")?;
             if !seen.insert(requested_obligation.identity.clone()) {
                 return Err(MappingRequestError::new(
                     MappingRequestErrorCode::DuplicateObligation,
@@ -1670,6 +2365,8 @@ impl AdmittedMappingRequest {
             schema_version: package.package().schema_version(),
             digest: package.digest(),
         };
+        control.check_cancelled("request.identity")?;
+        control.allocate(MappingAllocationPoint::RequestIdentity)?;
         let request_material = json!({
             "identity_version": OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
             "source_package": &source_package,
@@ -1788,13 +2485,18 @@ pub fn map_admitted_request<M: OutputMapper>(
     mapper: &mut M,
     cancellation: MappingCancellation,
 ) -> Result<CompletedMappings, MappingRequestError> {
-    if cancellation == MappingCancellation::Cancelled {
-        return Err(MappingRequestError::new(
-            MappingRequestErrorCode::Cancelled,
-            "mapping",
-            "mapping was cancelled before target dispatch",
-        ));
-    }
+    let control = MappingExecutionControl::from_snapshot(cancellation);
+    map_admitted_request_controlled(request, mapper, &control)
+}
+
+/// Invoke one exact-profile mapper with monotonic cancellation and qualified
+/// allocation-failure control. No partial record population is exposed.
+pub fn map_admitted_request_controlled<M: OutputMapper + ?Sized>(
+    request: &AdmittedMappingRequest,
+    mapper: &mut M,
+    control: &MappingExecutionControl,
+) -> Result<CompletedMappings, MappingRequestError> {
+    control.check_cancelled("mapping")?;
     if mapper.profile() != request.profile() {
         return Err(MappingRequestError::new(
             MappingRequestErrorCode::TargetProfileMismatch,
@@ -1805,6 +2507,7 @@ pub fn map_admitted_request<M: OutputMapper>(
 
     let count = request.obligations().len();
     let mut records = Vec::new();
+    control.allocate(MappingAllocationPoint::MappingRecords)?;
     records.try_reserve_exact(count).map_err(|_| {
         MappingRequestError::new(
             MappingRequestErrorCode::AllocationFailed,
@@ -1813,6 +2516,7 @@ pub fn map_admitted_request<M: OutputMapper>(
         )
     })?;
     let mut fragments = Vec::new();
+    control.allocate(MappingAllocationPoint::MappingFragments)?;
     fragments.try_reserve_exact(count).map_err(|_| {
         MappingRequestError::new(
             MappingRequestErrorCode::AllocationFailed,
@@ -1824,6 +2528,14 @@ pub fn map_admitted_request<M: OutputMapper>(
     let mut emitted_bytes = 0_u64;
 
     for obligation in request.obligations() {
+        control.check_cancelled("mapping.dispatch")?;
+        if mapper.profile() != request.profile() {
+            return Err(MappingRequestError::new(
+                MappingRequestErrorCode::TargetProfileMismatch,
+                "mapper.profile",
+                "mapper profile changed after request admission",
+            ));
+        }
         let remaining = request
             .limits()
             .maximum_mapping_work()
@@ -1843,6 +2555,14 @@ pub fn map_admitted_request<M: OutputMapper>(
             ));
         }
         let candidate = mapper.map_obligation(obligation, MappingWorkBudget { remaining })?;
+        control.check_cancelled("mapping.result")?;
+        if mapper.profile() != request.profile() {
+            return Err(MappingRequestError::new(
+                MappingRequestErrorCode::TargetProfileMismatch,
+                "mapper.profile",
+                "mapper profile changed during target dispatch",
+            ));
+        }
         if candidate.obligation() != obligation.identity() {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::CandidateObligationMismatch,
@@ -1891,6 +2611,7 @@ pub fn map_admitted_request<M: OutputMapper>(
             "mapping.emitted_bytes",
         )?;
         let mut absolute_regions = Vec::new();
+        control.allocate(MappingAllocationPoint::MappingRegions)?;
         absolute_regions
             .try_reserve_exact(candidate.local_regions().len())
             .map_err(|_| {
@@ -1916,6 +2637,8 @@ pub fn map_admitted_request<M: OutputMapper>(
         records.push(record);
         emitted_bytes = next_emitted;
     }
+
+    control.check_cancelled("mapping.complete")?;
 
     Ok(CompletedMappings {
         request: request.clone(),
@@ -2046,4 +2769,22 @@ fn classify_unknown(package: &BoundPackage, identity: &ClauseRef) -> MappingRequ
         "request.obligations",
         "obligation does not resolve to an executable clause in the bound package",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MappingRequestErrorCode, OutputByteRegion};
+
+    /// Tracing: TC-043, FR-034-AC-3, NFR-060.
+    #[test]
+    fn tc_043_absolute_region_arithmetic_overflow_refuses() {
+        let region = OutputByteRegion::new(u64::MAX - 1, u64::MAX).expect("valid high region");
+        assert_eq!(
+            region
+                .shifted(1)
+                .expect_err("overflowing absolute region accepted")
+                .code(),
+            MappingRequestErrorCode::ArithmeticOverflow
+        );
+    }
 }

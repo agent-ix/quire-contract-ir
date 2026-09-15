@@ -21,7 +21,7 @@ relationships:
 
 - [x] **FR-032**: Strictly admit one exact source/profile/limit-bound mapping request.
 - [x] **FR-033**: Dispatch every selected obligation once and derive one valid loss record.
-- [ ] **FR-034**: Assemble and expose one deterministic package only after every invariant passes.
+- [x] **FR-034**: Assemble and expose one deterministic package only after every invariant passes.
 
 ### Accepted upstream authority
 
@@ -73,34 +73,34 @@ test mapper and public constructors only.
 
 ### Unit tests
 
-- [ ] Admit all three exact family/profile pairs and reject every missing,
+- [x] Admit all three exact family/profile pairs and reject every missing,
   unknown, cross-family, stale, duplicate, informational, foreign, zero-limit,
   over-limit, and overflowed request input.
-- [ ] Validate each disposition/source-state/condition/cause/output permutation
+- [x] Validate each disposition/source-state/condition/cause/output permutation
   and derive mutation-sensitive record identities.
-- [ ] Charge every request/node/depth/work/record/output boundary with zero,
+- [x] Charge every request/node/depth/work/record/output boundary with zero,
   exact, just-over, and checked-overflow cases.
-- [ ] Validate half-open local and absolute regions, fragment ownership, and UTF-8 boundaries.
+- [x] Validate half-open local and absolute regions, fragment ownership, and UTF-8 boundaries.
 
 ### Integration tests
 
-- [ ] Execute a multi-obligation deterministic mapper in admitted order and
+- [x] Execute a multi-obligation deterministic mapper in admitted order and
   expose exactly one record per obligation.
-- [ ] Replay equal inputs to byte-identical fragments, records, raw digests, and
+- [x] Replay equal inputs to byte-identical fragments, records, raw digests, and
   package identities; mutate every semantic preimage axis independently.
-- [ ] Inject cancellation, mapper refusal, malformed candidates, and deterministic
+- [x] Inject cancellation, mapper refusal, malformed candidates, and deterministic
   allocation failures at request, mapping, and assembly boundaries and observe no package.
-- [ ] Attach absent/accepted/refused observer references and verify package bytes,
+- [x] Attach absent/accepted/refused observer references and verify package bytes,
   records, dispositions, and identities remain unchanged.
-- [ ] Compile the cycle-free model independently and prove no owner/target runtime
+- [x] Compile the cycle-free model independently and prove no owner/target runtime
   or target-specific mapper dependency entered the model crate.
 
 ### Verification
 
-- [ ] TC-043 carries all FR-032–FR-034 trace tags in executable Rust tests.
-- [ ] The repository matrix census reports no implemented row without a resolved test symbol.
+- [x] TC-043 carries all FR-032–FR-034 trace tags in executable Rust tests.
+- [x] The repository matrix census reports no implemented row without a resolved test symbol.
 - [ ] PR-time self `/rust-review` and `/gap-analysis` have no unresolved finding.
-- [ ] Rustfmt, warning-denied workspace/all-target Clippy, and locked workspace
+- [x] Rustfmt, warning-denied workspace/all-target Clippy, and locked workspace
   tests pass on one unchanged head with `target-codex-backends`.
 
 ## Remaining Work
@@ -133,7 +133,7 @@ begins only after #95 merges.
 | --- | --- | --- | --- | --- |
 | TASK-025 | H | FR-032 | TC-043 | done |
 | TASK-026 | H | FR-033 | TC-043 | done |
-| TASK-027 | H | FR-034, issue #95 | TC-043 | not_started |
+| TASK-027 | H | FR-034, issue #95 | TC-043 | in_progress |
 
 ## Coordination Rules
 
