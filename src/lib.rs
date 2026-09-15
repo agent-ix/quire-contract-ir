@@ -9,6 +9,7 @@
 
 pub mod bridge;
 pub mod ecosystem_model;
+pub mod kani;
 pub mod predicate;
 pub mod temporal;
 
