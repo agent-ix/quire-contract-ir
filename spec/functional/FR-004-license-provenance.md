@@ -18,11 +18,11 @@ Program source, reusable templates, generated artifacts, dependencies, and copie
 
 ## Outputs
 
-Dual-licensed program material and a reviewable provenance inventory.
+Licensed program material and a reviewable provenance inventory.
 
 ## Behavior
 
-- Program repositories and templates use `MIT OR Apache-2.0`.
+- `quire-*` program repositories use `AGPL-3.0-or-later`; `tl-*` program repositories use `MIT OR Apache-2.0`.
 - Generated source has an explicit compatible SPDX expression.
 - Unknown, incompatible, or absent third-party licenses block incorporation.
 

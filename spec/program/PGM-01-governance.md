@@ -77,7 +77,8 @@ tag are forbidden.
 
 ### PGM-01-R04 — licensing and third-party provenance
 
-- Every program repository and reusable template is `MIT OR Apache-2.0`.
+- Every `quire-*` program repository is `AGPL-3.0-or-later` (owner decision
+  2026-09-14); the `tl-*` program repositories remain `MIT OR Apache-2.0`.
   Registry publication remains disabled through the v0.1 source review.
 - Generated source defaults to `SPDX-License-Identifier: MIT OR Apache-2.0`.
   A consumer-selected SPDX expression may replace that default only when the

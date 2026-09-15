@@ -31,7 +31,7 @@ invariants:
 compatibility:
   supported-rust-minimum: Rust 1.98.1
   qualification-rust: Rust 1.98.1
-  licensing: MIT OR Apache-2.0
+  licensing: AGPL-3.0-or-later
   publication: disabled pending a later human release decision
 ```
 
