@@ -71,7 +71,8 @@ fn tc_002_classifies_all_repositories_and_orders_tags() {
 fn tc_003_defines_license_clean_room_agent_and_qualification_boundaries() {
     let policy = normalized_policy();
     for phrase in [
-        "MIT OR Apache-2.0",
+        "Every `quire-*` program repository is `AGPL-3.0-or-later`",
+        "the `tl-*` program repositories remain `MIT OR Apache-2.0`",
         "shall not be copied, translated, mechanically transformed",
         "agent-assisted",
         "does **not** validate or accredit",
