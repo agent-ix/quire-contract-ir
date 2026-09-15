@@ -7,6 +7,7 @@
 mod abi;
 mod arithmetic;
 mod dispatch;
+mod objects;
 mod outcome;
 mod profile;
 mod provenance;
@@ -17,6 +18,7 @@ pub use abi::{
 };
 pub use arithmetic::{lower_checked_arithmetic, ArithmeticLowering, CheckedArithmeticRequest};
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
+pub use objects::{lower_reaches, GraphLowering, GraphRequest};
 pub use outcome::{KaniOutcome, KaniOutcomeKind};
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
