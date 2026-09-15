@@ -6,6 +6,7 @@
 
 mod abi;
 mod arithmetic;
+mod collections;
 mod dispatch;
 mod objects;
 mod outcome;
@@ -17,6 +18,7 @@ pub use abi::{
     ValidatedFiniteInput,
 };
 pub use arithmetic::{lower_checked_arithmetic, ArithmeticLowering, CheckedArithmeticRequest};
+pub use collections::{lower_query, CollectionLowering, CollectionQuery, QueryKind};
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
 pub use objects::{lower_reaches, GraphLowering, GraphRequest};
 pub use outcome::{KaniOutcome, KaniOutcomeKind};
