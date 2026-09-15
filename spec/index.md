@@ -80,8 +80,11 @@ with it; the identifier is not reused. TM-001 maps them to automated tests or re
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
 FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
-FR-029 through FR-031 define the proposed bounded-Kani extension boundary; they
-do not claim implementation or qualify unbounded source semantics.
+FR-029 through FR-031 define the bounded-Kani extension boundary implemented by
+Contract IR PRs #88 through #92 and the integrated codegen corpus at
+`73c82ad`. That implementation applies only to its exact selected finite
+profile and does not qualify unbounded source semantics or another Kani/options
+selection.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.

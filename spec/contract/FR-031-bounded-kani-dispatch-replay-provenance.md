@@ -41,3 +41,11 @@ A `counterexample` serializes exact ABI/profile identities, concrete finite popu
 ## Dependencies
 
 FR-029 selects module and artifact ABI versions. FR-030 defines validated inputs and typed non-Boolean outcomes.
+
+## Status
+
+Implemented through Contract IR PRs #88 through #92, with native replay at
+`29c1432`, and qualified against the cycle-free integrated codegen corpus from
+codegen PR #47 at `73c82ad`. The evidence binds its exact Kani executable,
+options, finite inputs and modules; it is not a general proof-engine or release
+claim.

@@ -41,3 +41,10 @@ The harness constrains only values after the ABI has established that the finite
 ## Dependencies
 
 FR-015 defines partial-operation semantics. FR-029 selects the capability and ABI revisions that interpret this boundary.
+
+## Status
+
+Implemented through the shared finite ABI/outcome foundation and three semantic
+lanes in Contract IR PRs #88 through #91 (`e1ad842`, `b5bde5d`, `7a74f0b`,
+`165ae4c`). Invalid, incomplete, unavailable and over-bound inputs retain typed
+non-Boolean outcomes; this status does not claim an undeclared model or domain.
