@@ -2,7 +2,7 @@
 id: TASK-025
 title: "Admit exact output-mapping requests"
 type: Task
-status: in_progress
+status: done
 track: H
 priority: P0
 relationships:
@@ -21,11 +21,11 @@ typed refusal before target dispatch.
 
 ## Subtasks
 
-- [ ] Define bounded domain-separated identity and exact FS06 profile values.
-- [ ] Derive ordered immutable obligation views from executable bound clauses.
-- [ ] Reject missing, duplicate, informational, stale, foreign, cross-family,
+- [x] Define bounded domain-separated identity and exact FS06 profile values.
+- [x] Derive ordered immutable obligation views from executable bound clauses.
+- [x] Reject missing, duplicate, informational, stale, foreign, cross-family,
   unknown, zero-capacity, exceeded, overflowed, and cancelled requests.
-- [ ] Prove request equality and mutation sensitivity without ambient inputs.
+- [x] Prove request equality and mutation sensitivity without ambient inputs.
 
 ## Deliverables
 
@@ -36,3 +36,6 @@ typed refusal before target dispatch.
 
 - This task unblocks TASK-026.
 - The model crate must remain free of QSL, QObs, Protocol, TL, and target runtimes.
+- Completed locally on 2026-09-15: TC-043's four request/profile tests pass,
+  warning-denied workspace/all-target Clippy passes, and the full locked workspace
+  regression passes from the same working tree using `target-codex-backends`.

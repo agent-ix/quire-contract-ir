@@ -19,7 +19,7 @@ relationships:
 
 ### Functional Requirements
 
-- [ ] **FR-032**: Strictly admit one exact source/profile/limit-bound mapping request.
+- [x] **FR-032**: Strictly admit one exact source/profile/limit-bound mapping request.
 - [ ] **FR-033**: Dispatch every selected obligation once and derive one valid loss record.
 - [ ] **FR-034**: Assemble and expose one deterministic package only after every invariant passes.
 
@@ -107,7 +107,7 @@ test mapper and public constructors only.
 
 ### Track H: Common output foundation (serial critical path)
 
-- **H1 = TASK-025** Request/profile admission — Hard; exit: only one exact,
+- **H1 = TASK-025** Request/profile admission — Done; only one exact,
   bounded, ordered request reaches a mapper.
 - **H2 = TASK-026** Mapper/record accounting — Hard; exit: every obligation has
   one invariant-valid, identity-bearing disposition with no default preservation.
@@ -131,7 +131,7 @@ begins only after #95 merges.
 
 | Task | Track | Owns (references) | Verified by (verifies) | Status |
 | --- | --- | --- | --- | --- |
-| TASK-025 | H | FR-032 | TC-043 | in_progress |
+| TASK-025 | H | FR-032 | TC-043 | done |
 | TASK-026 | H | FR-033 | TC-043 | not_started |
 | TASK-027 | H | FR-034, issue #95 | TC-043 | not_started |
 

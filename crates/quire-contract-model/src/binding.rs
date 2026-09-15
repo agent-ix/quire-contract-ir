@@ -27,6 +27,7 @@ pub const BOUND_IDENTITY_PROFILE: &str = "quire.contract.bound-identity/v1";
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BoundClause {
     identity: ClauseRef,
+    source_order: u32,
     kind: ClauseKind,
     anchor: ExecutionPoint,
     source: SourceSpan,
@@ -39,6 +40,10 @@ pub struct BoundClause {
 impl BoundClause {
     pub fn identity(&self) -> &ClauseRef {
         &self.identity
+    }
+    /// Zero-based authored order among executable clauses in the source package.
+    pub const fn source_order(&self) -> u32 {
+        self.source_order
     }
     pub fn kind(&self) -> ClauseKind {
         self.kind
@@ -261,6 +266,23 @@ impl BoundPackage {
                 }
             }
         }
+        let mut authored: Vec<_> = expected.iter().collect();
+        authored.sort_by(|(left_identity, left), (right_identity, right)| {
+            left.source()
+                .cmp(right.source())
+                .then_with(|| left_identity.cmp(right_identity))
+        });
+        let mut source_order = BTreeMap::new();
+        for (index, (identity, _)) in authored.into_iter().enumerate() {
+            let order = u32::try_from(index).map_err(|_| {
+                failure(
+                    DiagnosticCode::SemanticInputTooLarge,
+                    "executable clause order exceeds the supported range",
+                    "projection.package.requirements.clauses",
+                )
+            })?;
+            source_order.insert(identity.clone(), order);
+        }
         informational.sort();
         let mut bound = BTreeMap::new();
         for binding in projection.bindings {
@@ -313,6 +335,13 @@ impl BoundPackage {
             bound.insert(
                 binding.clause.clone(),
                 BoundClause {
+                    source_order: *source_order.get(&binding.clause).ok_or_else(|| {
+                        failure(
+                            DiagnosticCode::OrphanedClauseReference,
+                            "executable binding has no authored source order",
+                            "bindings.clause",
+                        )
+                    })?,
                     identity: binding.clause,
                     kind: clause.kind(),
                     anchor: anchor.clone(),
