@@ -1260,6 +1260,22 @@ impl TypedExpression {
     pub fn dependencies(&self) -> &BTreeSet<DependencyIdentity> {
         &self.dependencies
     }
+
+    /// Maximum one-based nesting depth of the checked expression tree.
+    pub fn nesting_depth(&self) -> u32 {
+        let mut maximum = 0_u32;
+        let mut pending = vec![(self.expression(), 1_u32)];
+        while let Some((expression, depth)) = pending.pop() {
+            maximum = maximum.max(depth);
+            let child_depth = depth.saturating_add(1);
+            pending.extend(
+                children(expression)
+                    .into_iter()
+                    .map(|child| (child, child_depth)),
+            );
+        }
+        maximum
+    }
 }
 
 impl DependencySource for TypedExpression {
