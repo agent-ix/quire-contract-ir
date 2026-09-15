@@ -2,7 +2,7 @@
 id: TASK-026
 title: "Account for every mapped obligation"
 type: Task
-status: not_started
+status: done
 track: H
 priority: P0
 relationships:
@@ -23,10 +23,10 @@ invariants, and derived record identity.
 
 ## Subtasks
 
-- [ ] Invoke only an exact-profile mapper once per obligation in admitted order.
-- [ ] Validate every disposition/source-state/output/condition/cause permutation.
-- [ ] Preserve exact dependencies and separate observation/protocol adequacy references.
-- [ ] Reject malformed, cross-wired, duplicate, unrequested, or over-budget candidates atomically.
+- [x] Invoke only an exact-profile mapper once per obligation in admitted order.
+- [x] Validate every disposition/source-state/output/condition/cause permutation.
+- [x] Preserve exact dependencies and separate observation/protocol adequacy references.
+- [x] Reject malformed, cross-wired, duplicate, unrequested, or over-budget candidates atomically.
 
 ## Deliverables
 
@@ -37,3 +37,7 @@ invariants, and derived record identity.
 ## Notes
 
 - This task unblocks TASK-027 and supplies the seam consumed by #55/#56/#57.
+- Completed locally on 2026-09-15: TC-043 covers the mapper seam, candidate
+  invariants, identity mutation matrix and whole-operation failure behavior;
+  warning-denied workspace/all-target Clippy and the full locked workspace
+  regression pass with `target-codex-backends`.

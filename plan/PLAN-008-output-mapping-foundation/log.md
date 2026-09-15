@@ -7,6 +7,22 @@ description: "Chronological log for Contract IR issue #95."
 
 ## History
 
+* **2026-09-15** — Completed TASK-026 locally. Added the bounded one-obligation
+  `OutputMapper` seam, exact remaining-work grant, closed dependency domains,
+  qualified conditions/causes, independently typed FR-245 observation and
+  FR-246 protocol adequacy references, UTF-8-safe half-open regions, closed
+  FR-269 dispositions, all-or-nothing ordered dispatch, and derived
+  `quire.output.mapping-record-identity/v1-draft.1` SHA-256-over-JCS records.
+  Candidate construction refuses every invalid source-state/output/condition/
+  cause permutation, zero work, duplicate dependencies, malformed UTF-8 or
+  regions; the coordinator refuses cross-profile, cross-obligation,
+  cross-source-state, cancellation, work and emitted-byte failures without a
+  record set. The TC-043 identity matrix independently varies source,
+  dependency, profile, disposition, condition, cause, region, source state and
+  both adequacy domains. Nine focused tests, warning-denied workspace/all-target
+  Clippy and the full locked workspace regression pass with literal
+  `target-codex-backends`. TASK-027 is now runnable.
+
 * **2026-09-15** — Completed TASK-025 locally. Added the cycle-free
   `output_mapping` request/profile foundation, distinct raw rule/source digest
   types, exact native/model/semantic selections, the three accepted FS06

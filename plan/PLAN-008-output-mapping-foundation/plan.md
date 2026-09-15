@@ -20,7 +20,7 @@ relationships:
 ### Functional Requirements
 
 - [x] **FR-032**: Strictly admit one exact source/profile/limit-bound mapping request.
-- [ ] **FR-033**: Dispatch every selected obligation once and derive one valid loss record.
+- [x] **FR-033**: Dispatch every selected obligation once and derive one valid loss record.
 - [ ] **FR-034**: Assemble and expose one deterministic package only after every invariant passes.
 
 ### Accepted upstream authority
@@ -109,7 +109,7 @@ test mapper and public constructors only.
 
 - **H1 = TASK-025** Request/profile admission — Done; only one exact,
   bounded, ordered request reaches a mapper.
-- **H2 = TASK-026** Mapper/record accounting — Hard; exit: every obligation has
+- **H2 = TASK-026** Mapper/record accounting — Done; every obligation has
   one invariant-valid, identity-bearing disposition with no default preservation.
 - **H3 = TASK-027** Atomic package and closure — Hard; exit: deterministic bytes,
   regions, records, identities, resource failures, and observer independence all
@@ -132,7 +132,7 @@ begins only after #95 merges.
 | Task | Track | Owns (references) | Verified by (verifies) | Status |
 | --- | --- | --- | --- | --- |
 | TASK-025 | H | FR-032 | TC-043 | done |
-| TASK-026 | H | FR-033 | TC-043 | not_started |
+| TASK-026 | H | FR-033 | TC-043 | done |
 | TASK-027 | H | FR-034, issue #95 | TC-043 | not_started |
 
 ## Coordination Rules
