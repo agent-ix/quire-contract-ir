@@ -23,9 +23,10 @@ backend shortcut.
 
 ## Inputs
 
-Backend counterexample, package and claim digests, provider run identity, typed
-values, pre-state, selected transition or trace occurrences, model domain, and
-native runtime selection.
+Backend counterexample, immutable backend-result digest, package and claim
+digests, provider run identity, typed values, pre-state, selected transition or
+trace occurrences, reported backend verdict, model domain, and native runtime
+selection.
 
 ## Outputs
 
@@ -36,7 +37,12 @@ decode, domain, unavailable, minimization, or parity-failure outcome.
 
 The replay boundary shall preserve exact value kinds, object and trace
 identities, state anchors, bounds, source maps, profile versions, and run
-lineage. The replay boundary shall serialize exact numbers without narrowing.
+lineage. The replay boundary shall recompute the immutable backend-result digest
+over package, claim, profile, provider run, typed values including IEEE width
+and bits, pre-state, selected occurrences, and reported backend verdict before
+replay. When that digest differs
+from the received result identity, the replay boundary shall return a typed
+integrity failure without native execution. The replay boundary shall serialize exact numbers without narrowing.
 The replay boundary shall preserve IEEE width and bits.
 The replay boundary shall preserve collection occurrence identity in canonical ordering.
 When the replay boundary produces a smaller counterexample candidate, the replay boundary shall create a new revision linked to its parent.
@@ -51,6 +57,7 @@ When decode, domain, or verdicts differ, the replay boundary shall return a type
 | FR-037-AC-2 | A bounded Kani counterexample replays through the same native package and domain with the same verdict. | Test (TC-046) |
 | FR-037-AC-3 | Decode, domain, runtime-availability, or verdict disagreement remains an explicit non-success outcome. | Test (TC-046) |
 | FR-037-AC-4 | Minimization creates linked revisions and retains only valid candidates with preserved backend and native failure. | Test (TC-046) |
+| FR-037-AC-5 | Mutation or substitution of any received counterexample value, state, occurrence, verdict, or identity member fails immutable backend-result verification before replay. | Test (TC-046) |
 
 ## Dependencies
 

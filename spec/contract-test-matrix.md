@@ -43,7 +43,7 @@ relationships:
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
 | FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | 🚧 planned after #99 review; Contract IR #100 owns implementation |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
-| FR-037 | FR-037-AC-1 through FR-037-AC-4 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
+| FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
 
 ## Non-Functional Requirement Coverage
 

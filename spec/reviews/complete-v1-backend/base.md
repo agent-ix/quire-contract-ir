@@ -28,7 +28,7 @@ new acceptance criterion to TC-044, TC-045, or TC-046.
 
 | ID | Severity | Summary | Refs | Escape Cause |
 | --- | --- | --- | --- | --- |
-| FND-601 | low | Closed during review: the two repository TestMatrix artifacts used the obsolete `Status` header and now use the catalog-required `Coverage Status`; no coverage claim changed. | TM-001, TM-002 | wrong-requirement |
+| FND-601 | low | The active module set asserts the `Coverage Status` TestMatrix header. The repository conforms to that active contract; no coverage claim changed. | TM-001, TM-002 | correct-requirement-no-evidence |
 
 ## Checklist Result
 

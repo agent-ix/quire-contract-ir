@@ -19,11 +19,14 @@ minimization lineage for bounded backend results.
 
 Serialize and replay a known bounded counterexample, then independently mutate
 values, IEEE bits, identities, state anchors, bounds, source maps, package/run
-digests, domain membership, decode form, native availability, and verdict.
+digests, immutable backend-result digest, selected occurrence, reported backend
+verdict, domain membership, decode form, and native availability.
 Minimize an accepted failure and a candidate that no longer fails.
 
 ## Expected Results
 
 The accepted case preserves both verdicts and all canonical identities. Every
-mutation remains a typed non-success or parity failure; minimization creates a
-linked revision only for a domain-valid candidate preserving both failures.
+payload or verdict substitution fails immutable-result verification before native
+execution; every other mutation remains a typed non-success or parity failure.
+Minimization creates a linked revision only for a domain-valid candidate
+preserving both failures.
