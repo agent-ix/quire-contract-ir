@@ -12,6 +12,7 @@ mod coverage;
 mod expression;
 mod identity;
 mod limits;
+mod output_mapping;
 mod wire;
 
 pub use binding::*;
@@ -29,3 +30,4 @@ pub use identity::*;
 pub use limits::{
     MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
 };
+pub use output_mapping::*;

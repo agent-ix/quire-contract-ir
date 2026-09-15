@@ -43,6 +43,8 @@ or canonicalization semantics.
 - A versioned bounded-Kani profile boundary for finite checked native clauses,
   including explicit support/refusal/inconclusive capability classification,
   finite input validation, typed outcomes, provenance, and native replay.
+- A target-neutral output-mapping request, per-obligation loss record, bounded
+  mapper seam, atomic generated-package assembler, and downstream observer reference.
 
 ### Out of Scope
 
@@ -85,6 +87,10 @@ Contract IR PRs #88 through #92 and the integrated codegen corpus at
 `73c82ad`. That implementation applies only to its exact selected finite
 profile and does not qualify unbounded source semantics or another Kani/options
 selection.
+FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
+record, and atomic package foundation. They implement accepted QSpec AD-004 and
+FR-120/121/125/269/297/298/299 without implementing any target-specific
+correspondence or admitting generated target text as source.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
@@ -109,6 +115,10 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
 - [Bounded Kani domains and outcomes](contract/FR-030-bounded-kani-domain-and-outcomes.md).
 - [Bounded Kani dispatch, replay, and provenance](contract/FR-031-bounded-kani-dispatch-replay-provenance.md).
+- [Output-mapping request admission](contract/FR-032-admit-output-mapping-request.md).
+- [Per-obligation output accounting](contract/FR-033-account-for-output-obligations.md).
+- [Atomic output package assembly](contract/FR-034-assemble-output-package-atomically.md).
+- [Output-mapping foundation test case](contract/TC-043-output-mapping-foundation.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
 - [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
