@@ -7,6 +7,15 @@ description: "Chronological log for Contract IR issue #95."
 
 ## History
 
+* **2026-09-15** — Closed PLAN-008 locally after PR-time Rust review SR-546
+  repaired the closed FR-299 package preimage, generator SemVer validation,
+  allocation error paths and public observer coverage. Gap analysis SR-547
+  reports 3/3 tasks, 14/14 FR-032–FR-034 criteria and TC-043 fully backed with
+  no scoped reverse-trace or stub gap. The final locked workspace/all-target
+  tests, all-feature warning-denied Clippy, cargo-deny, unsafe audit, Quire
+  coverage and matrix-status census pass; target-specific correspondence stays
+  in #55–#57.
+
 * **2026-09-15** — Completed TASK-027 implementation locally. Added monotonic
   cancellation and deterministic allocation-failure controls across request,
   mapping, and assembly; explicit operational mapper failure distinct from

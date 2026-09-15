@@ -63,6 +63,17 @@ fn bound_package() -> BoundPackage {
         .expect("strict bound package")
 }
 
+fn bound_package_with_id(id: &str) -> BoundPackage {
+    let mut value = projection();
+    value["package"]["id"] = json!(id);
+    for binding in value["bindings"].as_array_mut().expect("bindings") {
+        binding["clause"]["requirement"]["package"] = json!(id);
+        binding["expression"]["owner"]["package"] = json!(id);
+    }
+    BoundPackage::from_json_bytes(&serde_json::to_vec(&value).expect("projection bytes"))
+        .expect("strict renamed bound package")
+}
+
 fn nested_bound_package() -> BoundPackage {
     let mut value = projection();
     for binding in value["bindings"].as_array_mut().expect("bindings") {
@@ -552,7 +563,8 @@ fn dependency(kind: MappingDependencyKind, identity: &str) -> MappingDependencyR
 }
 
 fn region_for(fragment: &[u8]) -> Vec<OutputByteRegion> {
-    vec![OutputByteRegion::new(0, fragment.len() as u64).expect("local output region")]
+    let length = u64::try_from(fragment.len()).expect("test fragment length fits u64");
+    vec![OutputByteRegion::new(0, length).expect("local output region")]
 }
 
 fn candidate(
@@ -1467,6 +1479,7 @@ fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
         generated.source_package(),
         mapped.request().source_package()
     );
+    assert_eq!(generated.generator(), &generator(20));
 }
 
 /// Tracing: TC-043, FR-032-AC-1, FR-034-AC-1.
@@ -1594,24 +1607,14 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     );
     assert_ne!(baseline.package_id(), changed_text.package_id());
 
-    let (native, model, semantic) = selections();
-    let changed_native = NativeSourceSelection::new(
-        native.identity(),
-        "changed-native-revision",
-        native.digest(),
-    )
-    .expect("changed native selection");
-    let changed_source_request = AdmittedMappingRequest::admit(
-        &package,
-        requested(&package),
-        changed_native,
-        model,
-        semantic,
+    let changed_source_package = bound_package_with_id("agent-ix/conformance-mutated");
+    let changed_source_request = admit(
+        &changed_source_package,
+        requested(&changed_source_package),
         ocl_profile(),
         limits(),
-        MappingCancellation::Active,
     )
-    .expect("changed source request");
+    .expect("changed source-package request");
     let mut changed_source_mapper = DeterministicMapper::new(ocl_profile());
     let changed_source_mapped = map_admitted_request(
         &changed_source_request,
@@ -1626,6 +1629,34 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     )
     .expect("changed source package");
     assert_ne!(baseline.package_id(), changed_source.package_id());
+
+    for invalid_version in [
+        "not-semver",
+        "01.0.0",
+        "1.0.0-01",
+        "1.0.0-",
+        "1.0.0+",
+        "1.0.0+build+other",
+    ] {
+        assert_eq!(
+            OutputGeneratorIdentity::new(
+                "agent-ix/quire-contract-ir",
+                invalid_version,
+                "rev-generator",
+                GeneratorBytesDigest::from_bytes(digest(20)),
+            )
+            .expect_err("invalid generator semantic version accepted")
+            .code(),
+            MappingRequestErrorCode::InvalidGenerator
+        );
+    }
+    OutputGeneratorIdentity::new(
+        "agent-ix/quire-contract-ir",
+        "1.2.3-alpha.1+build.5",
+        "rev-generator",
+        GeneratorBytesDigest::from_bytes(digest(20)),
+    )
+    .expect("valid generator semantic version");
 }
 
 /// Tracing: TC-043, FR-034-AC-2, FR-034-AC-3, NFR-060.
@@ -1774,8 +1805,35 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     );
     assert_eq!(accepted.package_id(), package_id);
     assert_eq!(accepted.outcome(), StructuralObservationOutcome::Accepted);
+    assert_eq!(accepted.observer().owner(), "agent-ix/observer");
+    assert_eq!(accepted.observer().tool(), "example-parser");
+    assert_eq!(accepted.observer().version(), "1.0.0");
+    assert_eq!(accepted.observer().revision(), "rev-observer");
+    assert_eq!(
+        accepted.observer().executable_digest(),
+        ObserverBytesDigest::from_bytes(digest(22))
+    );
+    assert_eq!(
+        accepted.observer().invocation_digest(),
+        ObserverInvocationDigest::from_bytes(digest(23))
+    );
+    assert_eq!(
+        accepted.observer().dependency_set_digest(),
+        ObserverDependencySetDigest::from_bytes(digest(24))
+    );
+    assert_eq!(accepted.observer().license(), "Apache-2.0");
+    assert_eq!(
+        accepted.result_digest(),
+        Some(ObserverResultDigest::from_bytes(digest(25)))
+    );
+    assert_eq!(accepted.refusal_cause(), None);
     assert_eq!(refused.package_id(), package_id);
     assert_eq!(refused.outcome(), StructuralObservationOutcome::Refused);
+    assert_eq!(refused.result_digest(), None);
+    assert_eq!(
+        refused.refusal_cause().map(MappingCause::code),
+        Some("observer-rights-unavailable")
+    );
     assert_eq!(generated.package_id(), package_id);
     assert_eq!(generated.target_bytes(), bytes);
     assert_eq!(generated.records(), records);

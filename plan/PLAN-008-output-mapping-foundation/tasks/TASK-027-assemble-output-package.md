@@ -2,7 +2,7 @@
 id: TASK-027
 title: "Assemble the output package atomically"
 type: Task
-status: in_progress
+status: done
 track: H
 priority: P0
 relationships:
@@ -31,7 +31,7 @@ fault/cancellation atomicity, and the unchanged-head promotion gate for #95.
 - [x] Verify complete record/order/profile/generator/digest/limit identity before exposure.
 - [x] Prove deterministic replay, mutation sensitivity, and ambient/observer independence.
 - [x] Inject cancellation, allocation, mapper, record, region, overflow, and resource failures.
-- [ ] Complete TC-043 traces, matrix/plan status, Rust review, gap analysis, and local gates.
+- [x] Complete TC-043 traces, matrix/plan status, Rust review, gap analysis, and local gates.
 
 ## Deliverables
 
@@ -45,4 +45,5 @@ fault/cancellation atomicity, and the unchanged-head promotion gate for #95.
 - Implementation is Green locally on 2026-09-15: 15 integration cases and one
   checked-overflow unit case cover atomic admission, mapping, assembly, package
   identity, cancellation/fault injection, and downstream observer evidence.
-  PR-time reviews and unchanged-head promotion gates remain.
+  PR-time Rust review SR-546 and gap analysis SR-547 pass after all findings
+  were repaired, and the unchanged-head promotion gates pass.

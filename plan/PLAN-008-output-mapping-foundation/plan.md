@@ -2,7 +2,7 @@
 id: PLAN-008
 title: "Implement the target-neutral output-mapping foundation"
 type: Plan
-status: active
+status: done
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-032
     type: references
@@ -99,7 +99,7 @@ test mapper and public constructors only.
 
 - [x] TC-043 carries all FR-032–FR-034 trace tags in executable Rust tests.
 - [x] The repository matrix census reports no implemented row without a resolved test symbol.
-- [ ] PR-time self `/rust-review` and `/gap-analysis` have no unresolved finding.
+- [x] PR-time self `/rust-review` and `/gap-analysis` have no unresolved finding.
 - [x] Rustfmt, warning-denied workspace/all-target Clippy, and locked workspace
   tests pass on one unchanged head with `target-codex-backends`.
 
@@ -111,8 +111,8 @@ test mapper and public constructors only.
   bounded, ordered request reaches a mapper.
 - **H2 = TASK-026** Mapper/record accounting — Done; every obligation has
   one invariant-valid, identity-bearing disposition with no default preservation.
-- **H3 = TASK-027** Atomic package and closure — Hard; exit: deterministic bytes,
-  regions, records, identities, resource failures, and observer independence all
+- **H3 = TASK-027** Atomic package and closure — Done; deterministic bytes,
+  regions, records, identities, resource failures, and observer independence
   pass TC-043 with no partial package.
 
 ## Parallel Execution Summary
@@ -133,7 +133,7 @@ begins only after #95 merges.
 | --- | --- | --- | --- | --- |
 | TASK-025 | H | FR-032 | TC-043 | done |
 | TASK-026 | H | FR-033 | TC-043 | done |
-| TASK-027 | H | FR-034, issue #95 | TC-043 | in_progress |
+| TASK-027 | H | FR-034, issue #95 | TC-043 | done |
 
 ## Coordination Rules
 

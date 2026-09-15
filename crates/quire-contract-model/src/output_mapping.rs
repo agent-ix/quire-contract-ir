@@ -1,4 +1,5 @@
-//! Target-neutral output-mapping admission governed by FR-032 and TC-043.
+//! Target-neutral output-mapping admission, accounting, and atomic assembly
+//! governed by FR-032 through FR-034 and TC-043.
 
 use std::{
     collections::BTreeSet,
@@ -210,7 +211,7 @@ mapping_error_codes! {
     PackagePopulationMismatch => "package_population_mismatch",
 }
 
-/// Typed refusal returned before any mapper dispatch or target bytes exist.
+/// Stable fail-closed error for request admission, mapping, and package assembly.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MappingRequestError {
     code: MappingRequestErrorCode,
@@ -539,6 +540,53 @@ fn valid_selection_member(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
+fn valid_semantic_version(value: &str) -> bool {
+    let (core_and_pre, build) = match value.split_once('+') {
+        Some((core_and_pre, build)) => (core_and_pre, Some(build)),
+        None => (value, None),
+    };
+    if build
+        .is_some_and(|build| build.contains('+') || !build.split('.').all(valid_semver_identifier))
+    {
+        return false;
+    }
+    let (core, pre) = match core_and_pre.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (core_and_pre, None),
+    };
+    let mut numbers = core.split('.');
+    let numeric = |part: Option<&str>| {
+        part.is_some_and(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part == "0" || !part.starts_with('0'))
+        })
+    };
+    if !numeric(numbers.next())
+        || !numeric(numbers.next())
+        || !numeric(numbers.next())
+        || numbers.next().is_some()
+    {
+        return false;
+    }
+    pre.is_none_or(|pre| {
+        !pre.is_empty()
+            && pre.split('.').all(|identifier| {
+                valid_semver_identifier(identifier)
+                    && (!identifier.bytes().all(|byte| byte.is_ascii_digit())
+                        || identifier == "0"
+                        || !identifier.starts_with('0'))
+            })
+    })
+}
+
+fn valid_semver_identifier(identifier: &str) -> bool {
+    !identifier.is_empty()
+        && identifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
 macro_rules! source_selection_type {
     ($name:ident, $doc:literal, $path:literal) => {
         #[doc = $doc]
@@ -620,7 +668,6 @@ pub struct MappingLimits {
 
 impl MappingLimits {
     /// Construct a complete limit set; no zero/default capacity is admitted.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         maximum_request_bytes: u64,
         maximum_obligations: u64,
@@ -1176,6 +1223,21 @@ pub enum MappingAllocationPoint {
     PackageIdentity,
 }
 
+impl MappingAllocationPoint {
+    const fn path(self) -> &'static str {
+        match self {
+            Self::RequestObligations => "request.obligations",
+            Self::RequestIdentity => "request.identity",
+            Self::MappingRecords => "mapping.records",
+            Self::MappingFragments => "mapping.fragments",
+            Self::MappingRegions => "record.output_regions",
+            Self::TargetBytes => "package.target_bytes",
+            Self::PackageRecords => "package.records",
+            Self::PackageIdentity => "package.identity",
+        }
+    }
+}
+
 /// Non-semantic execution controls for cancellation and deterministic fault qualification.
 #[derive(Clone, Debug, Default)]
 pub struct MappingExecutionControl {
@@ -1235,7 +1297,7 @@ impl MappingExecutionControl {
         if self.allocation_failure == Some(point) {
             Err(MappingRequestError::new(
                 MappingRequestErrorCode::AllocationFailed,
-                "mapping.allocation",
+                point.path(),
                 "deterministic allocation failure",
             ))
         } else {
@@ -1324,6 +1386,7 @@ pub struct MappingCandidate {
 
 impl MappingCandidate {
     /// Validate one local mapper result before common accounting.
+    // Every argument is a distinct FR-298 identity axis and must be supplied atomically.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         obligation: ClauseRef,
@@ -1698,11 +1761,12 @@ impl OutputGeneratorIdentity {
         if ![owner.as_str(), version.as_str(), revision.as_str()]
             .into_iter()
             .all(valid_selection_member)
+            || !valid_semantic_version(&version)
         {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::InvalidGenerator,
                 "generator",
-                "generator owner, version, and revision must be nonempty bounded visible ASCII",
+                "generator owner/revision must be bounded visible ASCII and version must be SemVer",
             ));
         }
         Ok(Self {
@@ -1745,9 +1809,6 @@ pub struct GeneratedOutputPackage {
     identity_version: &'static str,
     package_id: GeneratedOutputPackageId,
     source_package: MappingSourcePackageRef,
-    native_selection: NativeSourceSelection,
-    model_selection: ModelSourceSelection,
-    semantic_selection: SemanticSourceSelection,
     target_profile: OutputMappingProfile,
     generator: OutputGeneratorIdentity,
     target_bytes: Box<[u8]>,
@@ -1765,21 +1826,6 @@ impl GeneratedOutputPackage {
     /// Exact source-package identity.
     pub fn source_package(&self) -> &MappingSourcePackageRef {
         &self.source_package
-    }
-
-    /// Exact native-source selection.
-    pub fn native_selection(&self) -> &NativeSourceSelection {
-        &self.native_selection
-    }
-
-    /// Exact authoritative-model selection.
-    pub fn model_selection(&self) -> &ModelSourceSelection {
-        &self.model_selection
-    }
-
-    /// Exact semantic-profile selection.
-    pub fn semantic_selection(&self) -> &SemanticSourceSelection {
-        &self.semantic_selection
     }
 
     /// Exact target profile.
@@ -1817,9 +1863,6 @@ impl GeneratedOutputPackage {
 struct GeneratedOutputPackageIdentityMaterial<'a> {
     identity_version: &'static str,
     source_package: &'a MappingSourcePackageRef,
-    native_selection: &'a NativeSourceSelection,
-    model_selection: &'a ModelSourceSelection,
-    semantic_selection: &'a SemanticSourceSelection,
     target_profile: &'a OutputMappingProfile,
     generator: &'a OutputGeneratorIdentity,
     target_bytes_digest: TargetBytesDigest,
@@ -1973,9 +2016,6 @@ pub fn assemble_output_package(
     let material = GeneratedOutputPackageIdentityMaterial {
         identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
         source_package: request.source_package(),
-        native_selection: request.native_selection(),
-        model_selection: request.model_selection(),
-        semantic_selection: request.semantic_selection(),
         target_profile: request.profile(),
         generator: &generator,
         target_bytes_digest,
@@ -2005,9 +2045,6 @@ pub fn assemble_output_package(
         identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
         package_id: GeneratedOutputPackageId::digest(&canonical),
         source_package: request.source_package().clone(),
-        native_selection: request.native_selection().clone(),
-        model_selection: request.model_selection().clone(),
-        semantic_selection: request.semantic_selection().clone(),
         target_profile: request.profile().clone(),
         generator,
         target_bytes: target_bytes.into_boxed_slice(),
@@ -2032,6 +2069,7 @@ pub struct StructuralObserverIdentity {
 
 impl StructuralObserverIdentity {
     /// Construct a complete bounded observer identity.
+    // NFR-061 requires all eight provenance/rights axes as one indivisible selection.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner: impl Into<String>,
@@ -2215,6 +2253,7 @@ pub struct AdmittedMappingRequest {
 impl AdmittedMappingRequest {
     /// Validate every source, profile, ordering, allocation, cancellation, and
     /// aggregate resource invariant before returning a request.
+    // FR-032 requires every independent selection and control axis before admission.
     #[allow(clippy::too_many_arguments)]
     pub fn admit(
         package: &BoundPackage,
@@ -2234,7 +2273,6 @@ impl AdmittedMappingRequest {
 
     /// Validate and admit a request with monotonic cancellation and qualified
     /// allocation-failure control. No partially populated request is exposed.
-    #[allow(clippy::too_many_arguments)]
     pub fn admit_controlled(
         package: &BoundPackage,
         requested: Vec<RequestedMappingObligation>,
