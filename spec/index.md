@@ -91,6 +91,11 @@ FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific
 correspondence or admitting generated target text as source.
+FR-035 through FR-037 adopt QSpec AD-010 and FR-195 through FR-197 for the
+complete-V1 target-neutral ContractPackage, exact provider negotiation, and
+canonical native replay. They define the producer-before-consumer contract for
+Contract IR #100, runtime #16, codegen #48 through #50, and #101; they do not
+reopen the closed bounded-Kani profile or claim target-specific mapping support.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
@@ -119,6 +124,10 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Per-obligation output accounting](contract/FR-033-account-for-output-obligations.md).
 - [Atomic output package assembly](contract/FR-034-assemble-output-package-atomically.md).
 - [Output-mapping foundation test case](contract/TC-043-output-mapping-foundation.md).
+- [Complete-V1 backend delivery architecture](assurance/AD-003-complete-v1-backend-delivery.md).
+- [Complete-V1 ContractPackage lowering](contract/FR-035-complete-v1-contract-package-lowering.md).
+- [Exact backend negotiation](contract/FR-036-exact-backend-negotiation-and-emission.md).
+- [Canonical backend replay](contract/FR-037-canonical-backend-replay-and-qualification.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
 - [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
