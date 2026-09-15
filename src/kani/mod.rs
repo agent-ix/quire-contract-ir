@@ -5,6 +5,7 @@
 //! symbolic constraint, and preserves every non-success result as non-Boolean.
 
 mod abi;
+mod arithmetic;
 mod dispatch;
 mod outcome;
 mod profile;
@@ -14,6 +15,7 @@ pub use abi::{
     FiniteInput, FiniteObject, FiniteReference, PopulationCompleteness, ResourceBounds,
     ValidatedFiniteInput,
 };
+pub use arithmetic::{lower_checked_arithmetic, ArithmeticLowering, CheckedArithmeticRequest};
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
 pub use outcome::{KaniOutcome, KaniOutcomeKind};
 pub use profile::{
