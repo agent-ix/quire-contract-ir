@@ -41,3 +41,10 @@ The initial profile has separately addressable entries for checked arithmetic an
 ## Dependencies
 
 FR-015 owns native definedness. ADR-0053 owns native source authority and the finite-admission firewall.
+
+## Status
+
+Implemented for the exact `kani-bounded/1` profile through Contract IR PRs #87
+and #88 (`2f9b00b`, `e1ad842`). Target-family support remains limited to the
+closed capability matrix; no scalar or recognized construct implies support for
+another family, unbounded population, Kani version or options selection.
