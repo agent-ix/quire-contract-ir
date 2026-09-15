@@ -1,0 +1,44 @@
+---
+id: TASK-027
+title: "Assemble the output package atomically"
+type: Task
+status: not_started
+track: H
+priority: P0
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/TASK-025
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/TASK-026
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-034
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/issues/95
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/TC-043
+    type: verifies
+---
+# TASK-027: Assemble the output package atomically
+
+## Scope
+
+Implement deterministic fragment assembly, checked absolute regions, raw and
+JCS identity domains, immutable packages, downstream observer references,
+fault/cancellation atomicity, and the unchanged-head promotion gate for #95.
+
+## Subtasks
+
+- [ ] Assemble fragments and shift/validate regions with checked arithmetic.
+- [ ] Verify complete record/order/profile/generator/digest/limit identity before exposure.
+- [ ] Prove deterministic replay, mutation sensitivity, and ambient/observer independence.
+- [ ] Inject cancellation, allocation, mapper, record, region, overflow, and resource failures.
+- [ ] Complete TC-043 traces, matrix/plan status, Rust review, gap analysis, and local gates.
+
+## Deliverables
+
+- Immutable `GeneratedOutputPackage` and downstream `StructuralObservationRef`
+- Complete TC-043 and cycle-free dependency evidence
+- PR-ready #95 tracking and downstream handoff
+
+## Notes
+
+- One PR closes #95; target-specific mappers remain outside this task.
