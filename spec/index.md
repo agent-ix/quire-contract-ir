@@ -40,6 +40,9 @@ or canonicalization semantics.
   component/object/interface/contract/evidence graph.
 - The cycle-free semantic-model package and compatibility bridge boundary.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
+- A versioned bounded-Kani profile boundary for finite checked native clauses,
+  including explicit support/refusal/inconclusive capability classification,
+  finite input validation, typed outcomes, provenance, and native replay.
 
 ### Out of Scope
 
@@ -77,6 +80,8 @@ with it; the identifier is not reused. TM-001 maps them to automated tests or re
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
 FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
+FR-029 through FR-031 define the proposed bounded-Kani extension boundary; they
+do not claim implementation or qualify unbounded source semantics.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
@@ -98,6 +103,9 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Contract IR test matrix](contract-test-matrix.md).
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
 - [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
+- [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
+- [Bounded Kani domains and outcomes](contract/FR-030-bounded-kani-domain-and-outcomes.md).
+- [Bounded Kani dispatch, replay, and provenance](contract/FR-031-bounded-kani-dispatch-replay-provenance.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
 - [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
