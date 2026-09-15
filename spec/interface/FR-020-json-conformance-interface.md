@@ -27,7 +27,7 @@ invariants:
   - operational errors are written to standard error
 compatibility:
   schema: versioned and fail-closed
-  licensing: MIT OR Apache-2.0
+  licensing: AGPL-3.0-or-later
   publication: disabled pending a later human release decision
 ```
 

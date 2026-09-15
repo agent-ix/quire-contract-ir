@@ -14,12 +14,21 @@ fn read(relative: &str) -> String {
 /// Implements: NFR-004.
 /// NFR-004-AC-1.
 #[test]
-fn tc_014_baseline_is_dual_licensed_manual_only_and_unpublished() {
-    let cargo = read("Cargo.toml");
-    assert!(cargo.contains("license = \"MIT OR Apache-2.0\""));
-    assert!(cargo.contains("publish = false"));
-    assert!(root().join("LICENSE-MIT").is_file());
-    assert!(root().join("LICENSE-APACHE").is_file());
+fn tc_014_baseline_is_agpl_licensed_manual_only_and_unpublished() {
+    for manifest in ["Cargo.toml", "crates/quire-contract-model/Cargo.toml"] {
+        let cargo = read(manifest);
+        assert!(
+            cargo.contains("license = \"AGPL-3.0-or-later\""),
+            "{manifest} must declare AGPL-3.0-or-later"
+        );
+        assert!(
+            cargo.contains("publish = false"),
+            "{manifest} must stay unpublished"
+        );
+    }
+    assert!(read("LICENSE").contains("GNU AFFERO GENERAL PUBLIC LICENSE"));
+    assert!(!root().join("LICENSE-MIT").exists());
+    assert!(!root().join("LICENSE-APACHE").exists());
 
     let workflow = read(".github/workflows/ci.yml");
     assert_eq!(workflow.matches("workflow_dispatch:").count(), 1);
