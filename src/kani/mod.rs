@@ -12,6 +12,7 @@ mod objects;
 mod outcome;
 mod profile;
 mod provenance;
+mod replay;
 
 pub use abi::{
     FiniteInput, FiniteObject, FiniteReference, PopulationCompleteness, ResourceBounds,
@@ -26,6 +27,10 @@ pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };
 pub use provenance::{ArtifactIdentity, GeneratorProvenance, ProvenanceError};
+pub use replay::{
+    replay_counterexample, replay_with_native_runtime, CounterexamplePacket, NativeReplayAgreement,
+    ReplayAgreement,
+};
 
 /// First selected bounded Kani profile family.
 pub const PROFILE: &str = "kani-bounded/1";
