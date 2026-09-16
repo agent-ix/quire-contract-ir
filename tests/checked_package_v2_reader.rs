@@ -289,6 +289,52 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         }
     }
 
+    // Literal numbers are integers, in node bodies and diagnostic details. A
+    // fraction is refused by the schema and the reader alike; a whole-valued
+    // float spelling is refused too, as the reader admits integer tokens only.
+    // Where serde_json's `arbitrary_precision` is unified into the build, a
+    // non-integer token already fails the canonical-bytes check, so either
+    // refusal is accepted.
+    let schema = jsonschema::JSONSchema::compile(&fixture("checked-package-v2/schema.json"))
+        .expect("vendored schema compiles");
+    type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
+    let body: Build = Box::new(|literal| {
+        let mut changed = base.clone();
+        changed["semantic_graph"]["nodes"][0]["body"] =
+            json!({"term":"literal","value_kind":"integer","value":literal});
+        refresh_identity(&mut changed);
+        changed
+    });
+    let detail: Build = Box::new(|literal| {
+        let mut changed = base.clone();
+        changed["diagnostics"]["entries"] = json!([{
+            "stage":"type_checking","code":"ill_typed","cause_tag":"invalid-value",
+            "details":[{"term":"literal","value_kind":"integer","value":literal}],"loci":[]
+        }]);
+        changed
+    });
+    let integer_refusals = [
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.body",
+        ),
+        refusal(CheckedPackageRefusalCode::NoncanonicalWire, "document"),
+    ];
+    for build in [body, detail] {
+        let integer = build(json!(-7));
+        assert!(schema.is_valid(&integer));
+        assert!(matches!(
+            read(&integer, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        let fractional = build(json!(1.5));
+        assert!(!schema.is_valid(&fractional));
+        for candidate in [fractional, build(json!(2.0))] {
+            let actual = refused(&candidate, &evidence);
+            assert!(integer_refusals.contains(&actual), "{actual:?}");
+        }
+    }
+
     // A cycle is admitted once every member shares one explicit group.
     let mut grouped = base.clone();
     let first = grouped["semantic_graph"]["nodes"][1]["node_id"].clone();

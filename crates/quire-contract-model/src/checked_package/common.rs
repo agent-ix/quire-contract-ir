@@ -315,10 +315,23 @@ pub(super) fn validate_source_map_entries<'a>(
     Ok(())
 }
 
+/// The literal-value grammar a semantic term is validated against.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TermGrammar {
+    /// Frozen V1: any JSON number is a literal value.
+    V1,
+    /// V2 `SemanticTerm`: a numeric literal value must be an integer token
+    /// within the signed or unsigned 64-bit range. The vendored schema admits
+    /// only `integer` numbers; a fraction, exponent or out-of-range integer is
+    /// refused rather than rounded.
+    V2,
+}
+
 /// Validates one public semantic term, returning its work and reporting every
 /// reference target to `visit`.
 pub(super) fn validate_term(
     value: &Value,
+    grammar: TermGrammar,
     visit: &mut dyn FnMut(&CheckedNodeId),
 ) -> Result<u64, ValidationFailure> {
     let Value::Object(object) = value else {
@@ -340,7 +353,9 @@ pub(super) fn validate_term(
                     .get("value_kind")
                     .and_then(Value::as_str)
                     .is_some_and(is_literal_kind)
-                && object.get("value").is_some_and(is_literal_value) =>
+                && object
+                    .get("value")
+                    .is_some_and(|value| is_literal_value(value, grammar)) =>
         {
             Ok(1)
         }
@@ -375,10 +390,10 @@ pub(super) fn validate_term(
                     .and_then(Value::as_str)
                     .is_some_and(is_operator) =>
         {
-            visit_terms(object.get("arguments"), visit)
+            visit_terms(object.get("arguments"), grammar, visit)
         }
         "aggregate" if exact_members(object, &["term", "members"]) => {
-            visit_terms(object.get("members"), visit)
+            visit_terms(object.get("members"), grammar, visit)
         }
         "binding"
             if exact_members(object, &["term", "name", "value"])
@@ -387,7 +402,7 @@ pub(super) fn validate_term(
                     .and_then(Value::as_str)
                     .is_some_and(is_nonempty) =>
         {
-            validate_term(object.get("value").unwrap_or(&Value::Null), visit)
+            validate_term(object.get("value").unwrap_or(&Value::Null), grammar, visit)
                 .map(|work| work.saturating_add(1))
         }
         _ => Err(ValidationFailure::Refused(
@@ -416,11 +431,15 @@ fn is_literal_kind(value: &str) -> bool {
     )
 }
 
-fn is_literal_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Bool(_) | Value::String(_) | Value::Number(_) | Value::Null
-    )
+fn is_literal_value(value: &Value, grammar: TermGrammar) -> bool {
+    match value {
+        Value::Bool(_) | Value::String(_) | Value::Null => true,
+        Value::Number(number) => match grammar {
+            TermGrammar::V1 => true,
+            TermGrammar::V2 => number.is_i64() || number.is_u64(),
+        },
+        Value::Array(_) | Value::Object(_) => false,
+    }
 }
 
 fn is_operator(value: &str) -> bool {
@@ -449,6 +468,7 @@ fn is_operator(value: &str) -> bool {
 
 fn visit_terms(
     value: Option<&Value>,
+    grammar: TermGrammar,
     visit: &mut dyn FnMut(&CheckedNodeId),
 ) -> Result<u64, ValidationFailure> {
     let Some(Value::Array(values)) = value else {
@@ -458,7 +478,7 @@ fn visit_terms(
         ));
     };
     values.iter().try_fold(1_u64, |work, term| {
-        validate_term(term, visit).map(|child| work.saturating_add(child))
+        validate_term(term, grammar, visit).map(|child| work.saturating_add(child))
     })
 }
 
@@ -571,5 +591,34 @@ pub(super) fn json_depth(value: &Value) -> u64 {
             .unwrap_or(0)
             .saturating_add(1),
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_literal_value, TermGrammar};
+    use serde_json::{json, Number, Value};
+
+    /// Tracing: TC-048, FR-038-AC-2
+    #[test]
+    fn tc_048_v2_literal_numbers_are_integers_and_v1_is_unchanged() {
+        let fractional = Value::Number(Number::from_f64(1.5).expect("finite"));
+        let whole_float = Value::Number(Number::from_f64(2.0).expect("finite"));
+        for (value, v2) in [
+            (json!(7), true),
+            (json!(-7), true),
+            (json!(u64::MAX), true),
+            (json!(true), true),
+            (json!("7"), true),
+            (Value::Null, true),
+            (fractional, false),
+            (whole_float, false),
+            (json!([]), false),
+            (json!({}), false),
+        ] {
+            assert_eq!(is_literal_value(&value, TermGrammar::V2), v2, "V2 {value}");
+            let v1 = !matches!(value, Value::Array(_) | Value::Object(_));
+            assert_eq!(is_literal_value(&value, TermGrammar::V1), v1, "V1 {value}");
+        }
     }
 }

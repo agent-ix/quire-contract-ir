@@ -6,7 +6,7 @@
 //! depends on a sibling request.
 
 use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
-use crate::checked_package::common::{digest_json, validate_term};
+use crate::checked_package::common::{digest_json, validate_term, TermGrammar};
 use crate::checked_package::v1::{CheckedNodeId, CheckedSemanticId, CheckedSourceMapEntry};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -164,7 +164,9 @@ impl CheckedPackageV2 {
             let mut successors = vec![node.semantic_type.clone()];
             successors.extend(node.dependencies.iter().cloned());
             // Admitted bodies are valid terms; only reference targets matter.
-            let _ = validate_term(&node.body, &mut |target| successors.push(target.clone()));
+            let _ = validate_term(&node.body, TermGrammar::V2, &mut |target| {
+                successors.push(target.clone())
+            });
             for successor in successors {
                 if let Some(&next) = index.get(&successor) {
                     if visited.insert(next) {

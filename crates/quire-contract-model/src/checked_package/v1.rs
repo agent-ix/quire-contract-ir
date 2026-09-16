@@ -8,7 +8,7 @@
 use super::common::{
     canonical_value, decode_closed, digest_bytes, digest_json, exceeds, is_digest, is_nonempty,
     validate_locked_artifact, validate_source_map_entries, validate_term, ArtifactDigests, Stop,
-    ValidationFailure, NODE_DOMAIN,
+    TermGrammar, ValidationFailure, NODE_DOMAIN,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -686,7 +686,7 @@ impl CheckedPackage {
                     edges,
                 ));
             }
-            work = work.saturating_add(validate_term(&node.body, &mut |_| ())?);
+            work = work.saturating_add(validate_term(&node.body, TermGrammar::V1, &mut |_| ())?);
             if exceeds(work, limits.work) {
                 return Err(ValidationFailure::Incomplete(
                     CheckedPackageLimit::Work,

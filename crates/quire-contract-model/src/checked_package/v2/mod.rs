@@ -13,8 +13,8 @@ pub use lower::*;
 
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exceeds, is_digest, is_nonempty,
-    validate_locked_artifact, validate_source_map_entries, validate_term, Stop, ValidationFailure,
-    NODE_DOMAIN,
+    validate_locked_artifact, validate_source_map_entries, validate_term, Stop, TermGrammar,
+    ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::v1::{
@@ -847,7 +847,9 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_term(&node.body, &mut |target| targets.push(target.clone()))?;
+        let work = validate_term(&node.body, TermGrammar::V2, &mut |target| {
+            targets.push(target.clone())
+        })?;
         meter.charge(work)?;
         references.push(targets);
         let mut occurrences = BTreeSet::new();
@@ -1076,7 +1078,7 @@ fn validate_diagnostics(
     for entry in &wire.diagnostics.entries {
         for detail in &entry.details {
             let mut resolved = true;
-            let work = validate_term(detail, &mut |target| {
+            let work = validate_term(detail, TermGrammar::V2, &mut |target| {
                 resolved &= nodes.contains(target);
             })?;
             meter.charge(work)?;
