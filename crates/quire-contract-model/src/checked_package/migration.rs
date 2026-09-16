@@ -220,19 +220,37 @@ fn same_artifact(left: &CheckedArtifactRef, right: &CheckedArtifactRef) -> bool 
     left.authority == right.authority && left.identity == right.identity
 }
 
-/// The first artifact whose authority, identity and (for models) export
-/// repeat an earlier entry of the same list.
-fn first_duplicate(artifacts: &[CheckedArtifactRef]) -> Option<&CheckedArtifactRef> {
-    let mut seen = BTreeSet::new();
-    artifacts
-        .iter()
-        .find(|artifact| !seen.insert((&artifact.authority, &artifact.identity, &artifact.export)))
+/// Whether a list's duplicate key includes the artifact's export.
+#[derive(Clone, Copy)]
+enum DuplicateKey {
+    /// Authority and identity: sources, definitions and selections.
+    Artifact,
+    /// Authority, identity and export: one compiled model may export several
+    /// distinct names.
+    ModelExport,
 }
 
-/// Source documents are a set keyed by authority and identity: order carries
-/// no meaning, so two duplicate-free lists match when they hold equal members.
+/// The first artifact that repeats an earlier entry of the same list under
+/// `key`.
+fn first_duplicate<'a>(
+    artifacts: impl IntoIterator<Item = &'a CheckedArtifactRef>,
+    key: DuplicateKey,
+) -> Option<&'a CheckedArtifactRef> {
+    let mut seen = BTreeSet::new();
+    artifacts.into_iter().find(|artifact| {
+        let export = match key {
+            DuplicateKey::Artifact => None,
+            DuplicateKey::ModelExport => artifact.export.as_deref(),
+        };
+        !seen.insert((&artifact.authority, &artifact.identity, export))
+    })
+}
+
+/// Source documents are a set: order and repetition carry no meaning, so two
+/// lists match when every member of each is a member of the other.
 fn same_sources(left: &[CheckedArtifactRef], right: &[CheckedArtifactRef]) -> bool {
-    left.len() == right.len() && left.iter().all(|source| right.contains(source))
+    left.iter().all(|source| right.contains(source))
+        && right.iter().all(|source| left.contains(source))
 }
 
 /// Re-links an admitted V1 package to an admitted V2 package.
@@ -284,16 +302,42 @@ pub fn migrate_checked_package(
         return refused(Code::MigrationInputMissing, Input::DependencySelections);
     };
 
-    // Ambiguous: one artifact named twice within one artifact-list input.
-    let artifact_lists: [(&[CheckedArtifactRef], Input); 3] = [
-        (sources, Input::Sources),
-        (definition_selections, Input::DefinitionSelections),
-        (model_selections, Input::ModelSelections),
+    // Ambiguous: one artifact named twice within one list input.
+    let duplicates = [
+        (
+            first_duplicate(sources, DuplicateKey::Artifact),
+            Input::Sources,
+        ),
+        (
+            first_duplicate(
+                profile_selections.iter().map(|selection| &selection.definition),
+                DuplicateKey::Artifact,
+            ),
+            Input::ProfileSelections,
+        ),
+        (
+            first_duplicate(definition_selections, DuplicateKey::Artifact),
+            Input::DefinitionSelections,
+        ),
+        (
+            first_duplicate(model_selections, DuplicateKey::ModelExport),
+            Input::ModelSelections,
+        ),
+        (
+            first_duplicate(
+                dependency_selections
+                    .iter()
+                    .map(|selection| &selection.definition),
+                DuplicateKey::Artifact,
+            ),
+            Input::DependencySelections,
+        ),
     ];
-    for (artifacts, input) in artifact_lists {
-        if let Some(duplicate) = first_duplicate(artifacts) {
-            return refused_artifact(Code::MigrationInputAmbiguous, input, duplicate);
-        }
+    if let Some((Some(duplicate), input)) = duplicates
+        .into_iter()
+        .find(|(duplicate, _)| duplicate.is_some())
+    {
+        return refused_artifact(Code::MigrationInputAmbiguous, input, duplicate);
     }
 
     // Stale.
@@ -390,4 +434,44 @@ fn relink_nodes(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{first_duplicate, same_sources, DuplicateKey};
+    use crate::checked_package::v1::CheckedArtifactRef;
+    use serde_json::json;
+
+    fn artifact(identity: &str, export: Option<&str>) -> CheckedArtifactRef {
+        let mut value = json!({
+            "authority":"agent-ix","identity":identity,"revision":{"namespace":"git","value":"1"},
+            "digest_domain":"quire.source.bytes/v1","digest":"2".repeat(64)
+        });
+        if let Some(export) = export {
+            value["export"] = json!(export);
+        }
+        serde_json::from_value(value).expect("artifact reference")
+    }
+
+    /// Tracing: TC-049, FR-038-AC-6
+    #[test]
+    fn tc_049_sources_compare_as_sets_in_both_directions() {
+        let (a, b) = (artifact("a", None), artifact("b", None));
+        assert!(!same_sources(&[a.clone(), a.clone()], &[a.clone(), b.clone()]));
+        assert!(!same_sources(&[a.clone(), b.clone()], &[a.clone(), a.clone()]));
+        assert!(same_sources(&[a.clone(), b.clone()], &[b.clone(), a.clone()]));
+        assert!(!same_sources(&[a.clone()], &[a, b]));
+    }
+
+    /// Tracing: TC-049, FR-038-AC-6
+    #[test]
+    fn tc_049_export_distinguishes_only_model_duplicates() {
+        let plain = artifact("a", None);
+        let exported = artifact("a", Some("x"));
+        let list = [plain.clone(), exported.clone()];
+        assert_eq!(first_duplicate(&list, DuplicateKey::Artifact), Some(&exported));
+        assert_eq!(first_duplicate(&list, DuplicateKey::ModelExport), None);
+        let twice = [exported.clone(), exported.clone()];
+        assert_eq!(first_duplicate(&twice, DuplicateKey::ModelExport), Some(&exported));
+    }
 }

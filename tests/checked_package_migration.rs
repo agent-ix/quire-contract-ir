@@ -229,7 +229,27 @@ fn tc_049_migration_refuses_mismatched_targets_and_orders_refusals() {
         "authority":"agent-ix","identity":"example-compiled","revision":{"namespace":"git","value":"1"},
         "digest_domain":"quire.compiled-model.bytes/v1","digest":"8".repeat(64),"export":"Example"
     });
+    let selection = json!({"role":"profile","definition":definition.clone()});
+    let mut source_with_export = nominal_request["reconstruction_inputs"]["sources"][1].clone();
+    let source_identity = source_with_export["identity"]
+        .as_str()
+        .expect("source identity")
+        .to_owned();
+    let mut sources_with_export = nominal_request["reconstruction_inputs"]["sources"].clone();
+    source_with_export["export"] = json!("x");
+    sources_with_export
+        .as_array_mut()
+        .expect("sources")
+        .push(source_with_export);
     let ambiguous_cases = [
+        // Export distinguishes only compiled models; a source named again
+        // with an export is the same source.
+        ("sources", sources_with_export, source_identity.as_str()),
+        (
+            "profile_selections",
+            json!([selection.clone(), selection.clone()]),
+            "example-model",
+        ),
         (
             "definition_selections",
             json!([definition.clone(), definition.clone()]),
@@ -239,6 +259,11 @@ fn tc_049_migration_refuses_mismatched_targets_and_orders_refusals() {
             "model_selections",
             json!([model.clone(), model.clone()]),
             "example-compiled",
+        ),
+        (
+            "dependency_selections",
+            json!([selection.clone(), selection]),
+            "example-model",
         ),
     ];
     for (input, duplicated, identity) in ambiguous_cases {
@@ -256,10 +281,10 @@ fn tc_049_migration_refuses_mismatched_targets_and_orders_refusals() {
         missing["reconstruction_inputs"]
             .as_object_mut()
             .expect("inputs")
-            .remove("dependency_selections");
+            .remove("edition");
         assert_eq!(
             outcome(&nominal.source, &nominal.target, &missing),
-            json!({"outcome":"refused","code":"migration_input_missing","subject":{"input":"dependency_selections"}}),
+            json!({"outcome":"refused","code":"migration_input_missing","subject":{"input":"edition"}}),
             "{input} missing over ambiguous"
         );
     }
