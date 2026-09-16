@@ -504,6 +504,27 @@ fn strict_json_value(input: &[u8]) -> Result<Value, StrictJsonError> {
 
 struct StrictValue(Value);
 
+/// The single member name serde_json uses to hand a number's source text to a
+/// visitor when its `arbitrary_precision` feature is on. Feature unification
+/// can switch that on for this crate without this crate asking for it.
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Converts a number's source text exactly as the default serde_json build
+/// would have visited it: `u64`, then `i64`, then a finite `f64`.
+fn number_from_token<E: serde::de::Error>(text: &str) -> Result<Value, E> {
+    if let Ok(unsigned) = text.parse::<u64>() {
+        return Ok(Value::Number(unsigned.into()));
+    }
+    if let Ok(signed) = text.parse::<i64>() {
+        return Ok(Value::Number(signed.into()));
+    }
+    text.parse::<f64>()
+        .ok()
+        .and_then(serde_json::Number::from_f64)
+        .map(Value::Number)
+        .ok_or_else(|| E::custom("non-finite JSON number"))
+}
+
 impl<'de> Deserialize<'de> for StrictValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -562,6 +583,15 @@ impl<'de> Deserialize<'de> for StrictValue {
                 A: serde::de::MapAccess<'de>,
             {
                 let mut map = Map::new();
+                let Some(first) = access.next_key::<String>()? else {
+                    return Ok(StrictValue(Value::Object(map)));
+                };
+                if first == SERDE_JSON_NUMBER_TOKEN {
+                    let digits = access.next_value::<String>()?;
+                    return number_from_token(&digits).map(StrictValue);
+                }
+                let value = access.next_value::<StrictValue>()?;
+                map.insert(first, value.0);
                 while let Some((key, value)) = access.next_entry::<String, StrictValue>()? {
                     if map.insert(key.clone(), value.0).is_some() {
                         return Err(serde::de::Error::custom(format!(
@@ -596,8 +626,41 @@ pub(super) fn json_depth(value: &Value) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_literal_value, TermGrammar};
+    use super::{canonical_value, is_literal_value, Stop, TermGrammar};
+    use crate::checked_package::v1::{CheckedPackageReadLimits, CheckedPackageRefusalCode};
     use serde_json::{json, Number, Value};
+
+    /// Tracing: TC-048, FR-038-AC-2
+    #[test]
+    fn tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision() {
+        let limits = CheckedPackageReadLimits::bounded();
+        for (bytes, integer) in [
+            (&br#"{"v":1.5}"#[..], false),
+            (br#"{"v":2.0}"#, false),
+            (br#"{"v":-7}"#, true),
+            (br#"{"v":18446744073709551615}"#, true),
+        ] {
+            let value = canonical_value(bytes, limits).expect("canonical number admits");
+            let number = &value["v"];
+            assert!(number.is_number(), "{number}");
+            assert_eq!(
+                is_literal_value(number, TermGrammar::V2),
+                integer,
+                "{}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        // The feature's private member name spelled as data decodes as the
+        // number it names in every build, so it never re-serializes to the
+        // bytes it arrived as and is refused identically.
+        assert_eq!(
+            canonical_value(br#"{"$serde_json::private::Number":"1"}"#, limits),
+            Err(Stop::refused(
+                CheckedPackageRefusalCode::NoncanonicalWire,
+                "document"
+            ))
+        );
+    }
 
     /// Tracing: TC-048, FR-038-AC-2
     #[test]

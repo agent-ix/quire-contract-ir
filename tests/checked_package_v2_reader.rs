@@ -309,9 +309,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     // Literal numbers are integers, in node bodies and diagnostic details. A
     // fraction is refused by the schema and the reader alike; a whole-valued
     // float spelling is refused too, as the reader admits integer tokens only.
-    // Where serde_json's `arbitrary_precision` is unified into the build, a
-    // non-integer token already fails the canonical-bytes check, so either
-    // refusal is accepted.
+    // The refusal is the same whether or not serde_json's
+    // `arbitrary_precision` is unified into the build.
     let schema = jsonschema::JSONSchema::compile(&fixture("checked-package-v2/schema.json"))
         .expect("vendored schema compiles");
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
@@ -330,13 +329,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         }]);
         changed
     });
-    let integer_refusals = [
-        refusal(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body",
-        ),
-        refusal(CheckedPackageRefusalCode::NoncanonicalWire, "document"),
-    ];
+    let integer_refusal = refusal(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "semantic_graph.nodes.body",
+    );
     for build in [body, detail] {
         let integer = build(json!(-7));
         assert!(schema.is_valid(&integer));
@@ -347,8 +343,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         let fractional = build(json!(1.5));
         assert!(!schema.is_valid(&fractional));
         for candidate in [fractional, build(json!(2.0))] {
-            let actual = refused(&candidate, &evidence);
-            assert!(integer_refusals.contains(&actual), "{actual:?}");
+            assert_eq!(refused(&candidate, &evidence), integer_refusal);
         }
     }
 
