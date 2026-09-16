@@ -17,7 +17,9 @@ STATUS_DOCUMENTS = (
 )
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
-RUST_TEST = re.compile(r"#\[test\]\s*fn\s+tc_(\d{3})(?:_|\b)")
+# `#[test]` followed by any further outer attributes (for example `#[trace]`),
+# in either order relative to them, and then the traced function.
+RUST_TEST = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+tc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 
 

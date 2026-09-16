@@ -1,0 +1,9 @@
+{
+  "structural_mutations": [
+    {"id":"unknown-contract-version","pointer":"/contract_version","replacement":"quire.checked-package/v3","outcome":"refused:unknown_contract_version"},
+    {"id":"cross-domain-package-id","pointer":"/package_id/domain","replacement":"quire.source.bytes/v1","outcome":"refused:digest_domain_mismatch"},
+    {"id":"cross-domain-source-digest","pointer":"/lock/sources/0/digest_domain","replacement":"quire.definition.bytes/v1","outcome":"refused:digest_domain_mismatch"},
+    {"id":"unknown-semantic-node-tag","pointer":"/semantic_graph/nodes/0/node_tag","replacement":"future_node","outcome":"refused:unsupported_node_tag"},
+    {"id":"wrong-node-family-form","pointer":"/semantic_graph/nodes/0/semantic_form","replacement":"protocol_clause","outcome":"refused:invalid_semantic_graph"}
+  ]
+}

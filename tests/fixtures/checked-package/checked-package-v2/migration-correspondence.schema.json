@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quire:checked-package-migration-correspondence:v1",
+  "title": "CheckedPackageMigrationCorrespondenceV1",
+  "$ref": "#/$defs/MigrationCorrespondence",
+  "$defs": {
+    "MigrationCorrespondence": {
+      "type": "object",
+      "required": ["version", "source_contract_version", "target_contract_version", "source_package_id", "target_package_id", "reconstruction_inputs", "node_correspondences"],
+      "properties": {
+        "version": {"const": "quire.checked-package-migration-correspondence/v1"},
+        "source_contract_version": {"const": "quire.checked-package/v1"},
+        "target_contract_version": {"const": "quire.checked-package/v2"},
+        "source_package_id": {"$ref": "#/$defs/PackageIdV1"},
+        "target_package_id": {"$ref": "#/$defs/PackageIdV2"},
+        "reconstruction_inputs": {"$ref": "#/$defs/ReconstructionInputs"},
+        "node_correspondences": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/NodeCorrespondence"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "MigrationOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["outcome", "correspondence"],
+          "properties": {
+            "outcome": {"const": "relinked"},
+            "correspondence": {"$ref": "#/$defs/MigrationCorrespondence"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["outcome", "code", "subject"],
+          "properties": {
+            "outcome": {"const": "refused"},
+            "code": {"$ref": "#/$defs/MigrationRefusalCode"},
+            "subject": {"$ref": "#/$defs/MigrationRefusalSubject"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "MigrationRefusalCode": {
+      "enum": ["migration_input_missing", "migration_input_stale", "migration_input_ambiguous", "migration_target_incompatible", "migration_byte_only_reconstruction"]
+    },
+    "MigrationRefusalSubject": {
+      "type": "object",
+      "required": ["input"],
+      "properties": {
+        "input": {"enum": ["reconstruction_inputs", "sources", "edition", "profile_selections", "definition_selections", "model_selections", "dependency_selections", "target_package_id"]},
+        "authority": {"$ref": "#/$defs/Nonempty"},
+        "identity": {"$ref": "#/$defs/Nonempty"}
+      },
+      "dependentRequired": {"authority": ["identity"], "identity": ["authority"]},
+      "additionalProperties": false
+    },
+    "Nonempty": {"type": "string", "minLength": 1},
+    "HexDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "Revision": {
+      "type": "object",
+      "required": ["namespace", "value"],
+      "properties": {
+        "namespace": {"$ref": "#/$defs/Nonempty"},
+        "value": {"$ref": "#/$defs/Nonempty"}
+      },
+      "additionalProperties": false
+    },
+    "PackageIdV1": {
+      "type": "object",
+      "required": ["domain", "algorithm", "digest"],
+      "properties": {
+        "domain": {"const": "quire.package.semantic/v1"},
+        "algorithm": {"const": "sha256"},
+        "digest": {"$ref": "#/$defs/HexDigest"}
+      },
+      "additionalProperties": false
+    },
+    "PackageIdV2": {
+      "type": "object",
+      "required": ["domain", "algorithm", "digest"],
+      "properties": {
+        "domain": {"const": "quire.package.semantic/v2"},
+        "algorithm": {"const": "sha256"},
+        "digest": {"$ref": "#/$defs/HexDigest"}
+      },
+      "additionalProperties": false
+    },
+    "NodeId": {
+      "type": "object",
+      "required": ["domain", "digest"],
+      "properties": {
+        "domain": {"const": "quire.checked-semantic-node/v1"},
+        "digest": {"$ref": "#/$defs/HexDigest"}
+      },
+      "additionalProperties": false
+    },
+    "RawSourceRef": {
+      "type": "object",
+      "required": ["authority", "identity", "revision", "digest_domain", "digest"],
+      "properties": {
+        "authority": {"$ref": "#/$defs/Nonempty"},
+        "identity": {"$ref": "#/$defs/Nonempty"},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "digest_domain": {"const": "quire.source.bytes/v1"},
+        "digest": {"$ref": "#/$defs/HexDigest"}
+      },
+      "additionalProperties": false
+    },
+    "DefinitionRef": {
+      "type": "object",
+      "required": ["authority", "identity", "revision", "digest_domain", "digest"],
+      "properties": {
+        "authority": {"$ref": "#/$defs/Nonempty"},
+        "identity": {"$ref": "#/$defs/Nonempty"},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "digest_domain": {"const": "quire.definition.bytes/v1"},
+        "digest": {"$ref": "#/$defs/HexDigest"}
+      },
+      "additionalProperties": false
+    },
+    "ModelRef": {
+      "type": "object",
+      "required": ["authority", "identity", "revision", "digest_domain", "digest", "export"],
+      "properties": {
+        "authority": {"$ref": "#/$defs/Nonempty"},
+        "identity": {"$ref": "#/$defs/Nonempty"},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "digest_domain": {"const": "quire.compiled-model.bytes/v1"},
+        "digest": {"$ref": "#/$defs/HexDigest"},
+        "export": {"$ref": "#/$defs/Nonempty"}
+      },
+      "additionalProperties": false
+    },
+    "Selection": {
+      "type": "object",
+      "required": ["role", "definition"],
+      "properties": {
+        "role": {"enum": ["language", "edition", "profile", "dependency", "binding_contract", "temporal_profile", "protocol_profile"]},
+        "definition": {"$ref": "#/$defs/DefinitionRef"}
+      },
+      "additionalProperties": false
+    },
+    "ReconstructionInputs": {
+      "type": "object",
+      "required": ["sources", "edition", "profile_selections", "definition_selections", "model_selections", "dependency_selections"],
+      "properties": {
+        "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/RawSourceRef"}},
+        "edition": {"$ref": "#/$defs/Selection"},
+        "profile_selections": {"type": "array", "items": {"$ref": "#/$defs/Selection"}},
+        "definition_selections": {"type": "array", "items": {"$ref": "#/$defs/DefinitionRef"}},
+        "model_selections": {"type": "array", "items": {"$ref": "#/$defs/ModelRef"}},
+        "dependency_selections": {"type": "array", "items": {"$ref": "#/$defs/Selection"}}
+      },
+      "additionalProperties": false
+    },
+    "NodeCorrespondence": {
+      "type": "object",
+      "required": ["ordinal", "source_node_id", "target_node_id", "basis"],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0},
+        "source_node_id": {"$ref": "#/$defs/NodeId"},
+        "target_node_id": {"$ref": "#/$defs/NodeId"},
+        "basis": {"enum": ["relinked-identical", "relinked-rekeyed"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

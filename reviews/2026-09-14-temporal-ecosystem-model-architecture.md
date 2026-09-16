@@ -2,7 +2,7 @@
 id: SR-539
 title: "Architecture evaluation of the bounded temporal ecosystem model"
 type: SpecReview
-analysis: architecture-evaluation
+analysis: scope-boundary
 scope: "quire-contract-ir#74; PLAN-007; FR-027; AD-001; ecosystem_model manifest, graph, document and reader boundaries"
 review_set: subset
 relationships:

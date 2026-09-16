@@ -6,7 +6,7 @@ import pathlib
 import tempfile
 import unittest
 
-from scripts.validate_matrix_status import main, validate_documents
+from scripts.validate_matrix_status import executable_tests, main, validate_documents
 
 
 class MatrixStatusTests(unittest.TestCase):
@@ -91,3 +91,27 @@ class MatrixStatusTests(unittest.TestCase):
             with contextlib.redirect_stdout(stdout):
                 self.assertEqual(main(["--root", str(root)]), 0)
             self.assertIn("declared test symbol", stdout.getvalue())
+
+    def test_rust_test_symbols_accept_either_attribute_order(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-5."""
+        source = """
+/// Tracing: TC-044
+#[test]
+#[trace("TC-044", "FR-035-AC-1")]
+fn tc_044_test_before_trace() {}
+
+#[trace("TC-047", "FR-038-AC-1")]
+#[test]
+fn tc_047_trace_before_test() {}
+
+#[test]
+fn tc_048_plain() {}
+
+#[trace("TC-049", "FR-038-AC-6")]
+fn tc_049_not_a_test() {}
+"""
+        with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
+            root = pathlib.Path(directory)
+            (root / "tests").mkdir()
+            (root / "tests/traced.rs").write_text(source, encoding="utf-8")
+            self.assertEqual(executable_tests(root), {"TC-044", "TC-047", "TC-048"})
