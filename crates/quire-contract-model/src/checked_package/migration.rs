@@ -310,7 +310,9 @@ pub fn migrate_checked_package(
         ),
         (
             first_duplicate(
-                profile_selections.iter().map(|selection| &selection.definition),
+                profile_selections
+                    .iter()
+                    .map(|selection| &selection.definition),
                 DuplicateKey::Artifact,
             ),
             Input::ProfileSelections,
@@ -457,9 +459,18 @@ mod tests {
     #[test]
     fn tc_049_sources_compare_as_sets_in_both_directions() {
         let (a, b) = (artifact("a", None), artifact("b", None));
-        assert!(!same_sources(&[a.clone(), a.clone()], &[a.clone(), b.clone()]));
-        assert!(!same_sources(&[a.clone(), b.clone()], &[a.clone(), a.clone()]));
-        assert!(same_sources(&[a.clone(), b.clone()], &[b.clone(), a.clone()]));
+        assert!(!same_sources(
+            &[a.clone(), a.clone()],
+            &[a.clone(), b.clone()]
+        ));
+        assert!(!same_sources(
+            &[a.clone(), b.clone()],
+            &[a.clone(), a.clone()]
+        ));
+        assert!(same_sources(
+            &[a.clone(), b.clone()],
+            &[b.clone(), a.clone()]
+        ));
         assert!(!same_sources(&[a.clone()], &[a, b]));
     }
 
@@ -469,9 +480,15 @@ mod tests {
         let plain = artifact("a", None);
         let exported = artifact("a", Some("x"));
         let list = [plain.clone(), exported.clone()];
-        assert_eq!(first_duplicate(&list, DuplicateKey::Artifact), Some(&exported));
+        assert_eq!(
+            first_duplicate(&list, DuplicateKey::Artifact),
+            Some(&exported)
+        );
         assert_eq!(first_duplicate(&list, DuplicateKey::ModelExport), None);
         let twice = [exported.clone(), exported.clone()];
-        assert_eq!(first_duplicate(&twice, DuplicateKey::ModelExport), Some(&exported));
+        assert_eq!(
+            first_duplicate(&twice, DuplicateKey::ModelExport),
+            Some(&exported)
+        );
     }
 }

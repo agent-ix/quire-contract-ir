@@ -6,8 +6,11 @@
 //! depends on a sibling request.
 
 use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
-use crate::checked_package::common::{digest_json, validate_term, TermGrammar};
-use crate::checked_package::v1::{CheckedNodeId, CheckedSemanticId, CheckedSourceMapEntry};
+use crate::checked_package::common::{digest_json, validate_term, TermGrammar, ValidationFailure};
+use crate::checked_package::v1::{
+    CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
+    CheckedSourceMapEntry,
+};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -76,6 +79,27 @@ pub enum CompleteLoweringRecordV2 {
     InvalidInput {
         /// Requested key.
         node_id: CheckedNodeId,
+    },
+    /// A reachable node body refused re-validation during the walk. A package
+    /// the V2 reader admitted never yields this; it is reported rather than
+    /// guessed so the work count and closure stay exact.
+    InvalidBody {
+        /// Requested key.
+        node_id: CheckedNodeId,
+        /// Key of the node whose body refused.
+        body_node_id: CheckedNodeId,
+        /// The term validator's refusal.
+        refusal: CheckedPackageRefusal,
+    },
+    /// A reachable node body stopped at a validation limit during the walk.
+    /// Like `InvalidBody`, an admitted package never yields this.
+    BodyIncomplete {
+        /// Requested key.
+        node_id: CheckedNodeId,
+        /// Key of the node whose body stopped.
+        body_node_id: CheckedNodeId,
+        /// The term validator's limit stop.
+        incomplete: CheckedPackageIncomplete,
     },
     /// This request exceeded its work budget.
     Failed {
@@ -164,12 +188,35 @@ impl CheckedPackageV2 {
             };
             let mut successors = vec![node.semantic_type.clone()];
             successors.extend(node.dependencies.iter().cloned());
-            // Admitted bodies are valid terms; the walk reports its term count
-            // and every reference target.
-            let terms = validate_term(&node.body, TermGrammar::V2, &mut |target| {
+            // The walk reports the body's term count and every reference
+            // target; a failure is terminal for this request.
+            let walked = validate_term(&node.body, TermGrammar::V2, &mut |target| {
                 successors.push(target.clone())
-            })
-            .unwrap_or(1);
+            });
+            let terms = match walked {
+                Ok(terms) => terms,
+                Err(ValidationFailure::Refused(code, path)) => {
+                    return CompleteLoweringRecordV2::InvalidBody {
+                        node_id: request.clone(),
+                        body_node_id: node.node_id.clone(),
+                        refusal: CheckedPackageRefusal {
+                            code,
+                            path: path.into(),
+                        },
+                    };
+                }
+                Err(ValidationFailure::Incomplete(limit_kind, limit, consumed)) => {
+                    return CompleteLoweringRecordV2::BodyIncomplete {
+                        node_id: request.clone(),
+                        body_node_id: node.node_id.clone(),
+                        incomplete: CheckedPackageIncomplete {
+                            limit_kind,
+                            limit,
+                            consumed,
+                        },
+                    };
+                }
+            };
             let edges = u64::try_from(successors.len()).unwrap_or(u64::MAX);
             work = work.saturating_add(terms).saturating_add(edges);
             if work > profile.work_limit {
