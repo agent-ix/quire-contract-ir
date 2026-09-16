@@ -7,6 +7,7 @@
 
 mod binding;
 mod canonical;
+mod checked_package;
 mod conformance;
 mod coverage;
 mod expression;
@@ -17,6 +18,7 @@ mod wire;
 
 pub use binding::*;
 pub use canonical::*;
+pub use checked_package::*;
 pub use conformance::{
     expected_inventory, hex_digest, run_manifest, ConformanceOperation, FixtureResult,
     FixtureStatus, RunnerError, RunnerErrorCode, ToolIdentity, ValidationOptions,
