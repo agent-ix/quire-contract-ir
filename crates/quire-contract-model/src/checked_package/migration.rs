@@ -471,7 +471,7 @@ mod tests {
             &[a.clone(), b.clone()],
             &[b.clone(), a.clone()]
         ));
-        assert!(!same_sources(&[a.clone()], &[a, b]));
+        assert!(!same_sources(std::slice::from_ref(&a), &[a.clone(), b]));
     }
 
     /// Tracing: TC-049, FR-038-AC-6
