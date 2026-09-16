@@ -50,6 +50,23 @@ fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPack
     }
 }
 
+/// Replaces every occurrence of `from` inside `value` with `to`.
+fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
+    if value == from {
+        *value = to.clone();
+        return;
+    }
+    match value {
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| replace_everywhere(item, from, to)),
+        Value::Object(members) => members
+            .values_mut()
+            .for_each(|member| replace_everywhere(member, from, to)),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
 fn nominal(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
     refusal(code, NOMINAL_PATH)
 }
@@ -506,6 +523,29 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
         }));
     assert_eq!(*admitted(&excluded).package_id(), recorded);
 
+    // A capability disposition is outside the preimage.
+    let mut disposition = excluded.clone();
+    let report = disposition["capability_report"]
+        .as_array_mut()
+        .expect("report");
+    let future = report.len() - 1;
+    report[future]["disposition"] = json!("unimplemented");
+    assert_eq!(*admitted(&disposition).package_id(), recorded);
+
+    // A raw source digest is outside the preimage: every reference to the
+    // source moves with it, and the caller attests the new bytes digest.
+    let mut source_digest = base.clone();
+    let old_source = base["lock"]["sources"][0].clone();
+    let mut new_source = old_source.clone();
+    new_source["digest"] = json!("5".repeat(64));
+    replace_everywhere(&mut source_digest, &old_source, &new_source);
+    assert_ne!(source_digest["lock"], base["lock"]);
+    assert_eq!(
+        source_digest["identity_preimage"],
+        base["identity_preimage"]
+    );
+    assert_eq!(*admitted(&source_digest).package_id(), recorded);
+
     // Every preimage member changes the identity once re-derived, and is
     // refused as stale when it is not.
     let included: Vec<(&str, Mutation)> = vec![
@@ -517,6 +557,12 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
                     {"feature": COMPLETE_VALUE_FEATURE, "disposition":"available"},
                     {"feature":"quire.extra/v1","disposition":"available"}
                 ]);
+            }),
+        ),
+        (
+            "edition",
+            Box::new(|v| {
+                v["lock"]["edition"]["definition"]["digest"] = json!("8".repeat(64));
             }),
         ),
         (
