@@ -220,10 +220,27 @@ fn same_artifact(left: &CheckedArtifactRef, right: &CheckedArtifactRef) -> bool 
     left.authority == right.authority && left.identity == right.identity
 }
 
+/// The first artifact whose authority, identity and (for models) export
+/// repeat an earlier entry of the same list.
+fn first_duplicate(artifacts: &[CheckedArtifactRef]) -> Option<&CheckedArtifactRef> {
+    let mut seen = BTreeSet::new();
+    artifacts
+        .iter()
+        .find(|artifact| !seen.insert((&artifact.authority, &artifact.identity, &artifact.export)))
+}
+
+/// Source documents are a set keyed by authority and identity: order carries
+/// no meaning, so two duplicate-free lists match when they hold equal members.
+fn same_sources(left: &[CheckedArtifactRef], right: &[CheckedArtifactRef]) -> bool {
+    left.len() == right.len() && left.iter().all(|source| right.contains(source))
+}
+
 /// Re-links an admitted V1 package to an admitted V2 package.
 ///
 /// Checks run in the normative order byte-only, missing, ambiguous, stale,
-/// target-incompatible; only the first failing check is reported.
+/// target-incompatible; only the first failing check is reported. Sources are
+/// compared as a set in both the stale and the target check; selections are
+/// ordered, as they are in the package identity preimage.
 pub fn migrate_checked_package(
     source: &CheckedPackage,
     target: &CheckedPackageV2,
@@ -267,22 +284,20 @@ pub fn migrate_checked_package(
         return refused(Code::MigrationInputMissing, Input::DependencySelections);
     };
 
-    // Ambiguous.
-    let mut seen = BTreeSet::new();
-    if let Some(duplicate) = sources
-        .iter()
-        .find(|source| !seen.insert((&source.authority, &source.identity)))
-    {
-        return refused_artifact(Code::MigrationInputAmbiguous, Input::Sources, duplicate);
+    // Ambiguous: one artifact named twice within one artifact-list input.
+    let artifact_lists: [(&[CheckedArtifactRef], Input); 3] = [
+        (sources, Input::Sources),
+        (definition_selections, Input::DefinitionSelections),
+        (model_selections, Input::ModelSelections),
+    ];
+    for (artifacts, input) in artifact_lists {
+        if let Some(duplicate) = first_duplicate(artifacts) {
+            return refused_artifact(Code::MigrationInputAmbiguous, input, duplicate);
+        }
     }
 
     // Stale.
-    if let Some(stale) = sources.iter().find(|source| {
-        !lock
-            .sources
-            .iter()
-            .any(|locked| same_artifact(source, locked) && locked == *source)
-    }) {
+    if let Some(stale) = sources.iter().find(|source| !lock.sources.contains(source)) {
         return refused_artifact(Code::MigrationInputStale, Input::Sources, stale);
     }
     let checks: [(bool, Input); 5] = [
@@ -344,7 +359,7 @@ fn relink_nodes(
 ) -> Option<Vec<NodeCorrespondence>> {
     let target_lock = target.lock();
     let compatible = request.target_package_id == *target.package_id()
-        && target_lock.sources == inputs.sources
+        && same_sources(&target_lock.sources, &inputs.sources)
         && target_lock.edition == inputs.edition
         && target_lock.profile_selections == inputs.profile_selections
         && target_lock.definition_selections == inputs.definition_selections

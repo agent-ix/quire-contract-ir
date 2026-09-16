@@ -221,6 +221,77 @@ fn tc_049_migration_refuses_mismatched_targets_and_orders_refusals() {
         json!({"outcome":"refused","code":"migration_input_ambiguous","subject":{"input":"sources","authority":"agent-ix","identity":"example-units"}})
     );
 
+    // Every artifact-list input refuses a repeated artifact as ambiguous, after
+    // missing and before stale.
+    let nominal_request = &nominal.outcome["correspondence"];
+    let definition = nominal_request["reconstruction_inputs"]["definition_selections"][0].clone();
+    let model = json!({
+        "authority":"agent-ix","identity":"example-compiled","revision":{"namespace":"git","value":"1"},
+        "digest_domain":"quire.compiled-model.bytes/v1","digest":"8".repeat(64),"export":"Example"
+    });
+    let ambiguous_cases = [
+        (
+            "definition_selections",
+            json!([definition.clone(), definition.clone()]),
+            "example-model",
+        ),
+        (
+            "model_selections",
+            json!([model.clone(), model.clone()]),
+            "example-compiled",
+        ),
+    ];
+    for (input, duplicated, identity) in ambiguous_cases {
+        let mut ambiguous = nominal_request.clone();
+        ambiguous["reconstruction_inputs"][input] = duplicated.clone();
+        ambiguous["reconstruction_inputs"]["edition"]["definition"]["digest"] =
+            json!("7".repeat(64));
+        assert_eq!(
+            outcome(&nominal.source, &nominal.target, &ambiguous),
+            json!({"outcome":"refused","code":"migration_input_ambiguous","subject":{"input":input,"authority":"agent-ix","identity":identity}}),
+            "{input} ambiguous over stale"
+        );
+        let mut missing = nominal_request.clone();
+        missing["reconstruction_inputs"][input] = duplicated;
+        missing["reconstruction_inputs"]
+            .as_object_mut()
+            .expect("inputs")
+            .remove("dependency_selections");
+        assert_eq!(
+            outcome(&nominal.source, &nominal.target, &missing),
+            json!({"outcome":"refused","code":"migration_input_missing","subject":{"input":"dependency_selections"}}),
+            "{input} missing over ambiguous"
+        );
+    }
+    // Two exports of one compiled model are distinct artifacts, not ambiguous;
+    // they are refused only as stale against a lock that selects neither.
+    let mut exports = nominal_request.clone();
+    let mut other_export = model.clone();
+    other_export["export"] = json!("Other");
+    exports["reconstruction_inputs"]["model_selections"] = json!([model, other_export]);
+    assert_eq!(
+        outcome(&nominal.source, &nominal.target, &exports),
+        json!({"outcome":"refused","code":"migration_input_stale","subject":{"input":"model_selections"}})
+    );
+
+    // Sources are a set in both the stale and the target check: reordering
+    // them still relinks, and the receipt records the inputs as supplied.
+    let mut reordered = nominal_request.clone();
+    reordered["reconstruction_inputs"]["sources"]
+        .as_array_mut()
+        .expect("sources")
+        .reverse();
+    let relinked = outcome(&nominal.source, &nominal.target, &reordered);
+    assert_eq!(relinked["outcome"], json!("relinked"));
+    assert_eq!(
+        relinked["correspondence"]["reconstruction_inputs"]["sources"],
+        reordered["reconstruction_inputs"]["sources"]
+    );
+    assert_eq!(
+        relinked["correspondence"]["node_correspondences"],
+        nominal_request["node_correspondences"]
+    );
+
     // Unknown request members are refused at the wire, not ignored.
     let mut unknown = all_request["reconstruction_inputs"].clone();
     unknown["future"] = json!(true);
