@@ -1,0 +1,29 @@
+Vendored QSpec I04 CheckedPackage publication inputs (byte-exact, unmodified).
+
+repository: https://github.com/agent-ix/quire-specification
+commit: 4780a9e6119bb86ffb1322fe0a141ef3905b11ef (merged PR #70, issue #68)
+retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
+verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
+
+Local paths mirror the upstream `proposals/` layout so relative references inside
+`migration-correspondence-vectors.json` (for example
+`../checked-package-v1/fixtures/positive-all-families.json`) resolve unchanged.
+
+sha256                                                            git blob                                  source path
+70dd41b9ec9453350ed9becbc504356cfab3a2e00ba8a300b89c30b8e763cc7d  142addcb00d4a1f014fbcec550b7a383375a830a  proposals/checked-package-v1/fixtures/positive-all-families.json
+3e0cb6d68ff8ce159acdff809c562b14d25793ad8dbef02a6f0ab71f02910079  e5cc866e1f59475180d098c52ba6d2cfb1b5018f  proposals/checked-package-v2/README.md
+5a2d04dd603bfe39e38a0779d2fde7d17ce850e208ca1b9c2bcfbcef142aa60c  8a8579d1393e65faba65c404d1dc4db8736336a7  proposals/checked-package-v2/fixtures/adverse.json
+b8181fd08dcfcf6780fab35c4ef8f8be27bdb09b3ad103725205f1a97019a12f  8ccb5c63faa82af199e92eb374f788cd21f873c5  proposals/checked-package-v2/fixtures/migration-source-nominal-v1.json
+824a56a968a80b89d38f746b087c06868c20cfecd1d9ef20a17bc5836c473e0d  66aeeca2eb5ed1f3ac6731fe0f8250f1147084c7  proposals/checked-package-v2/fixtures/positive-all-families.json
+b6b1f81f33d6b8756f91ac3fefed74e8cb01b85892c4520a072952232e968a47  baddd5bffe94afe70a019c61238e2a37be7ca2b9  proposals/checked-package-v2/fixtures/positive-nominal-identities.json
+f13e17d609507bbeec9e17d787f3d8c140ac4174d7e507452ac68ae8bfca3c70  837f17941b106376b28d4de9ded397cf5e28ceb4  proposals/checked-package-v2/migration-correspondence-vectors.json
+fda2d9450be70d31532722df2ffb902f00add6467eaaea1df5455cfde10dd1b8  d06209217f8ba3438c4fbc64abffe61b5c9c3f5a  proposals/checked-package-v2/migration-correspondence.schema.json
+978f63b9094189a4f480326658a9cc1c009239c5df770f0dc118b632e0b02501  efc929efd8f7f281218909bdc3e2cae02522a8ba  proposals/checked-package-v2/node-identity-preimage.schema.json
+635717d735883c4f33440758376d4958e43340a801ac3b7be055d156f2096244  4a499af8c07b6e036fe0794150a68510b70fdfcb  proposals/checked-package-v2/node-identity-vectors.json
+ed19645f48de0791b436c31597de496a5aa65ca87a787762d48a04994aa064c6  ff409a90e86cd7520a6924fd1a10e490a2e465ce  proposals/checked-package-v2/schema.json
+
+Normative QSpec requirement text read at the same commit (not vendored):
+spec/objects/interfaces/FR-322-checked-package-artifact.md  (blob bfdb1ecb73eededff4cf30707eec6e52a93af600)
+spec/objects/foundation/FR-201-canonical-identity-domain.md (blob 7bdd6dda526e3e621073fefdec7930654ee97506)
+spec/functional/ir-proof/FR-195-lower-complete-contract-ir.md (blob 5600ed4ea40705328bbc50dd850baef7e997d4d4)
+spec/test-cases/TC-217-complete-contract-ir-lowering.md (blob fa298bca721c092c5c56e2399c6ce12c95e76cf6)
