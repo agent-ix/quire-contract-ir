@@ -5,18 +5,21 @@
 //! dependency on the native parser, CST, or QSL's implementation-private
 //! package types.
 
+use super::common::{
+    canonical_value, decode_closed, digest_bytes, digest_json, exceeds, is_digest, is_nonempty,
+    validate_locked_artifact, validate_source_map_entries, validate_term, ArtifactDigests, Stop,
+    TermGrammar, ValidationFailure, NODE_DOMAIN,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
+use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 /// The sole I04 transport version admitted by this reader.
 pub const CHECKED_PACKAGE_V1: &str = "quire.checked-package/v1";
 const IDENTITY_PREIMAGE_V1: &str = "quire.checked-package-id/v1";
 const GRAPH_V1: &str = "quire.checked-semantic-graph/v1";
 const PACKAGE_DOMAIN: &str = "quire.package.semantic/v1";
-const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
 /// Caller-supplied, exact ceilings for a checked-package read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,6 +162,14 @@ impl CheckedPackageReadContext {
     /// Adds immutable bytes under their complete artifact locator.
     pub fn insert(&mut self, locator: CheckedArtifactLocator, bytes: Vec<u8>) {
         self.artifacts.insert(locator, bytes);
+    }
+}
+
+impl ArtifactDigests for CheckedPackageReadContext {
+    fn artifact_digest(&self, locator: &CheckedArtifactLocator) -> Option<Cow<'_, str>> {
+        self.artifacts
+            .get(locator)
+            .map(|bytes| Cow::Owned(digest_bytes(bytes)))
     }
 }
 
@@ -423,48 +434,30 @@ impl CheckedPackage {
         limits: CheckedPackageReadLimits,
         context: &CheckedPackageReadContext,
     ) -> CheckedPackageReadResult {
-        if exceeds(bytes.len(), limits.bytes) {
-            return incomplete(CheckedPackageLimit::Bytes, limits.bytes, bytes.len());
+        match canonical_value(bytes, limits)
+            .and_then(|value| Self::admit_value(value, limits, context))
+        {
+            Ok(package) => CheckedPackageReadResult::Admitted(Box::new(package)),
+            Err(stop) => stop.into(),
         }
-        let value = match strict_json_value(bytes) {
-            Ok(value) => value,
-            Err(StrictJsonError::Duplicate(path)) => {
-                return refused(CheckedPackageRefusalCode::DuplicateMember, path)
-            }
-            Err(StrictJsonError::Syntax) => {
-                return refused(CheckedPackageRefusalCode::MalformedWire, "document")
-            }
-        };
-        let depth = json_depth(&value);
-        if exceeds(depth, limits.depth) {
-            return incomplete(CheckedPackageLimit::Depth, limits.depth, depth);
-        }
-        let canonical = match serde_json::to_vec(&value) {
-            Ok(bytes) => bytes,
-            Err(_) => return refused(CheckedPackageRefusalCode::MalformedWire, "document"),
-        };
-        if canonical.as_slice() != bytes {
-            return refused(CheckedPackageRefusalCode::NoncanonicalWire, "document");
-        }
-        let wire = match serde_json::from_value::<CheckedPackageWire>(value) {
-            Ok(wire) => wire,
-            Err(error) => {
-                let code = if error.to_string().contains("unknown field") {
-                    CheckedPackageRefusalCode::UnknownMember
-                } else {
-                    CheckedPackageRefusalCode::MalformedWire
-                };
-                return refused(code, "document");
-            }
-        };
+    }
+
+    /// Decodes and validates an already canonical V1 value against digest
+    /// evidence. Shared by [`CheckedPackage::read`] and the version dispatcher.
+    pub(super) fn admit_value(
+        value: Value,
+        limits: CheckedPackageReadLimits,
+        context: &dyn ArtifactDigests,
+    ) -> Result<Self, Stop> {
+        let wire = decode_closed::<CheckedPackageWire>(value)?;
         let package = Self { wire };
-        match package.validate(limits, context) {
-            Ok(()) => CheckedPackageReadResult::Admitted(Box::new(package)),
-            Err(ValidationFailure::Refused(code, path)) => refused(code, path),
-            Err(ValidationFailure::Incomplete(kind, limit, consumed)) => {
-                incomplete(kind, limit, consumed)
-            }
-        }
+        package.validate(limits, context)?;
+        Ok(package)
+    }
+
+    /// The exact admitted lock, for migration within this module tree.
+    pub(super) fn lock(&self) -> &CheckedPackageLock {
+        &self.wire.lock
     }
 
     /// Returns the versioned semantic package identity.
@@ -517,7 +510,7 @@ impl CheckedPackage {
     fn validate(
         &self,
         limits: CheckedPackageReadLimits,
-        context: &CheckedPackageReadContext,
+        context: &dyn ArtifactDigests,
     ) -> Result<(), ValidationFailure> {
         if self.wire.contract_version.as_ref() != CHECKED_PACKAGE_V1 {
             return Err(ValidationFailure::Refused(
@@ -578,7 +571,7 @@ impl CheckedPackage {
         Ok(())
     }
 
-    fn validate_lock(&self, context: &CheckedPackageReadContext) -> Result<(), ValidationFailure> {
+    fn validate_lock(&self, context: &dyn ArtifactDigests) -> Result<(), ValidationFailure> {
         let lock = &self.wire.lock;
         if lock.sources.is_empty() || !same_non_graph_lock(&self.wire.identity_preimage, lock) {
             return Err(ValidationFailure::Refused(
@@ -587,9 +580,9 @@ impl CheckedPackage {
             ));
         }
         for source in &lock.sources {
-            self.validate_artifact(source, "quire.source.bytes/v1", context, "lock.sources")?;
+            validate_locked_artifact(source, "quire.source.bytes/v1", context, "lock.sources")?;
         }
-        self.validate_artifact(
+        validate_locked_artifact(
             &lock.edition.definition,
             "quire.definition.bytes/v1",
             context,
@@ -600,7 +593,7 @@ impl CheckedPackage {
             .iter()
             .chain(lock.dependency_selections.iter())
         {
-            self.validate_artifact(
+            validate_locked_artifact(
                 &selection.definition,
                 "quire.definition.bytes/v1",
                 context,
@@ -608,7 +601,7 @@ impl CheckedPackage {
             )?;
         }
         for definition in &lock.definition_selections {
-            self.validate_artifact(
+            validate_locked_artifact(
                 definition,
                 "quire.definition.bytes/v1",
                 context,
@@ -616,7 +609,7 @@ impl CheckedPackage {
             )?;
         }
         for model in &lock.model_selections {
-            self.validate_artifact(
+            validate_locked_artifact(
                 model,
                 "quire.compiled-model.bytes/v1",
                 context,
@@ -629,52 +622,12 @@ impl CheckedPackage {
                 ));
             }
         }
-        self.validate_artifact(
+        validate_locked_artifact(
             &self.wire.diagnostics.catalog,
             "quire.definition.bytes/v1",
             context,
             "diagnostics.catalog",
         )
-    }
-
-    fn validate_artifact(
-        &self,
-        artifact: &CheckedArtifactRef,
-        expected_domain: &str,
-        context: &CheckedPackageReadContext,
-        path: &'static str,
-    ) -> Result<(), ValidationFailure> {
-        if artifact.digest_domain.as_ref() != expected_domain {
-            return Err(ValidationFailure::Refused(
-                CheckedPackageRefusalCode::DigestDomainMismatch,
-                path,
-            ));
-        }
-        if !is_nonempty(&artifact.authority)
-            || !is_nonempty(&artifact.identity)
-            || !is_nonempty(&artifact.revision.namespace)
-            || !is_nonempty(&artifact.revision.value)
-            || !is_digest(&artifact.digest)
-        {
-            return Err(ValidationFailure::Refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                path,
-            ));
-        }
-        let locator = artifact_locator(artifact);
-        let Some(bytes) = context.artifacts.get(&locator) else {
-            return Err(ValidationFailure::Refused(
-                CheckedPackageRefusalCode::StaleDependency,
-                path,
-            ));
-        };
-        if digest_bytes(bytes) != artifact.digest.as_ref() {
-            return Err(ValidationFailure::Refused(
-                CheckedPackageRefusalCode::StaleDependency,
-                path,
-            ));
-        }
-        Ok(())
     }
 
     fn validate_graph(&self, limits: CheckedPackageReadLimits) -> Result<(), ValidationFailure> {
@@ -733,7 +686,7 @@ impl CheckedPackage {
                     edges,
                 ));
             }
-            work = work.saturating_add(validate_term(&node.body)?);
+            work = work.saturating_add(validate_term(&node.body, TermGrammar::V1, &mut |_| ())?);
             if exceeds(work, limits.work) {
                 return Err(ValidationFailure::Incomplete(
                     CheckedPackageLimit::Work,
@@ -774,94 +727,19 @@ impl CheckedPackage {
     fn validate_source_map(
         &self,
         limits: CheckedPackageReadLimits,
-        context: &CheckedPackageReadContext,
+        context: &dyn ArtifactDigests,
     ) -> Result<(), ValidationFailure> {
-        let mut expected = BTreeSet::new();
-        for node in &self.wire.semantic_graph.nodes {
-            for occurrence in &node.occurrences {
-                expected.insert((
-                    node.node_id.clone(),
-                    occurrence.role.clone(),
-                    occurrence.ordinal,
-                ));
-            }
-        }
-        let mut actual = BTreeSet::new();
-        let locked_sources = self
-            .wire
-            .lock
-            .sources
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let mut count = 0_u64;
-        for entry in &self.wire.source_map {
-            count = count.saturating_add(1);
-            if exceeds(count, limits.occurrences) {
-                return Err(ValidationFailure::Incomplete(
-                    CheckedPackageLimit::Occurrences,
-                    limits.occurrences,
-                    count,
-                ));
-            }
-            if entry.regions.is_empty()
-                || !actual.insert((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-            {
-                return Err(ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    "source_map",
-                ));
-            }
-            count = count.saturating_add(u64::try_from(entry.regions.len()).unwrap_or(u64::MAX));
-            if exceeds(count, limits.occurrences) {
-                return Err(ValidationFailure::Incomplete(
-                    CheckedPackageLimit::Occurrences,
-                    limits.occurrences,
-                    count,
-                ));
-            }
-            let mut ranges = BTreeMap::<CheckedArtifactLocator, Vec<(u64, u64)>>::new();
-            for region in &entry.regions {
-                if !locked_sources.contains(&region.source) {
-                    return Err(ValidationFailure::Refused(
-                        CheckedPackageRefusalCode::InvalidSourceMap,
-                        "source_map.regions.source",
-                    ));
-                }
-                self.validate_artifact(
-                    &region.source,
-                    "quire.source.bytes/v1",
-                    context,
-                    "source_map.regions.source",
-                )?;
-                if region.start >= region.end {
-                    return Err(ValidationFailure::Refused(
-                        CheckedPackageRefusalCode::InvalidSourceMap,
-                        "source_map.regions",
-                    ));
-                }
-                ranges
-                    .entry(artifact_locator(&region.source))
-                    .or_default()
-                    .push((region.start, region.end));
-            }
-            for ranges in ranges.values_mut() {
-                ranges.sort_unstable();
-                if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
-                    return Err(ValidationFailure::Refused(
-                        CheckedPackageRefusalCode::InvalidSourceMap,
-                        "source_map.regions",
-                    ));
-                }
-            }
-        }
-        if actual != expected {
-            return Err(ValidationFailure::Refused(
-                CheckedPackageRefusalCode::InvalidSourceMap,
-                "source_map",
-            ));
-        }
-        Ok(())
+        validate_source_map_entries(
+            self.wire
+                .semantic_graph
+                .nodes
+                .iter()
+                .map(|node| (&node.node_id, node.occurrences.as_slice())),
+            &self.wire.source_map,
+            &self.wire.lock.sources,
+            limits,
+            context,
+        )
     }
 
     fn validate_capabilities(&self) -> Result<(), ValidationFailure> {
@@ -949,59 +827,6 @@ pub struct CompleteLoweringResult {
     pub package_id: CheckedSemanticId,
     /// One record per requested node, in request order.
     pub records: Vec<CompleteLoweringRecord>,
-}
-
-enum ValidationFailure {
-    Refused(CheckedPackageRefusalCode, &'static str),
-    Incomplete(CheckedPackageLimit, u64, u64),
-}
-
-fn refused(code: CheckedPackageRefusalCode, path: impl Into<Box<str>>) -> CheckedPackageReadResult {
-    CheckedPackageReadResult::Refused(CheckedPackageRefusal {
-        code,
-        path: path.into(),
-    })
-}
-
-fn incomplete(
-    kind: CheckedPackageLimit,
-    limit: u64,
-    consumed: impl TryInto<u64>,
-) -> CheckedPackageReadResult {
-    CheckedPackageReadResult::Incomplete(CheckedPackageIncomplete {
-        limit_kind: kind,
-        limit,
-        consumed: consumed.try_into().unwrap_or(u64::MAX),
-    })
-}
-
-fn exceeds(consumed: impl TryInto<u64>, limit: u64) -> bool {
-    consumed.try_into().map_or(true, |value| value > limit)
-}
-
-fn is_nonempty(value: &str) -> bool {
-    !value.is_empty()
-}
-fn is_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-fn digest_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-fn digest_json(value: &Value) -> Result<String, serde_json::Error> {
-    serde_json::to_vec(value).map(|bytes| digest_bytes(&bytes))
-}
-fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLocator {
-    CheckedArtifactLocator {
-        authority: value.authority.clone(),
-        identity: value.identity.clone(),
-        revision_namespace: value.revision.namespace.clone(),
-        revision_value: value.revision.value.clone(),
-        domain: value.digest_domain.clone(),
-    }
 }
 
 fn same_non_graph_lock(
@@ -1149,255 +974,5 @@ fn validate_form(tag: &str, form: &str) -> Result<(), ValidationFailure> {
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             "semantic_graph.nodes.semantic_form",
         ))
-    }
-}
-
-fn validate_term(value: &Value) -> Result<u64, ValidationFailure> {
-    let Value::Object(object) = value else {
-        return Err(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body",
-        ));
-    };
-    let Some(Value::String(term)) = object.get("term") else {
-        return Err(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body.term",
-        ));
-    };
-    match term.as_str() {
-        "literal"
-            if exact_members(object, &["term", "value_kind", "value"])
-                && object
-                    .get("value_kind")
-                    .and_then(Value::as_str)
-                    .is_some_and(is_literal_kind)
-                && object.get("value").is_some_and(is_literal_value) =>
-        {
-            Ok(1)
-        }
-        "reference" if exact_members(object, &["term", "target"]) => {
-            let target = object
-                .get("target")
-                .cloned()
-                .ok_or(ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "semantic_graph.nodes.body.target",
-                ))?;
-            let target = serde_json::from_value::<CheckedNodeId>(target).map_err(|_| {
-                ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "semantic_graph.nodes.body.target",
-                )
-            })?;
-            if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
-                Ok(1)
-            } else {
-                Err(ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::DigestDomainMismatch,
-                    "semantic_graph.nodes.body.target",
-                ))
-            }
-        }
-        "application"
-            if exact_members(object, &["term", "operator", "arguments"])
-                && object
-                    .get("operator")
-                    .and_then(Value::as_str)
-                    .is_some_and(is_operator) =>
-        {
-            visit_terms(object.get("arguments"))
-        }
-        "aggregate" if exact_members(object, &["term", "members"]) => {
-            visit_terms(object.get("members"))
-        }
-        "binding"
-            if exact_members(object, &["term", "name", "value"])
-                && object
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(is_nonempty) =>
-        {
-            validate_term(object.get("value").unwrap_or(&Value::Null))
-                .map(|work| work.saturating_add(1))
-        }
-        _ => Err(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body",
-        )),
-    }
-}
-
-fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> bool {
-    object.len() == expected.len() && expected.iter().all(|member| object.contains_key(*member))
-}
-
-fn is_literal_kind(value: &str) -> bool {
-    matches!(
-        value,
-        "boolean"
-            | "integer"
-            | "rational"
-            | "decimal"
-            | "float32_bits"
-            | "float64_bits"
-            | "text"
-            | "enum"
-            | "none"
-    )
-}
-
-fn is_literal_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Bool(_) | Value::String(_) | Value::Number(_) | Value::Null
-    )
-}
-
-fn is_operator(value: &str) -> bool {
-    matches!(
-        value,
-        "call"
-            | "unary"
-            | "binary"
-            | "conditional"
-            | "let"
-            | "quantify"
-            | "collection"
-            | "query"
-            | "convert"
-            | "pre"
-            | "present"
-            | "value"
-            | "deref"
-            | "reaches"
-            | "temporal"
-            | "protocol_control"
-            | "state_transition"
-            | "claim"
-    )
-}
-
-fn visit_terms(value: Option<&Value>) -> Result<u64, ValidationFailure> {
-    let Some(Value::Array(values)) = value else {
-        return Err(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body",
-        ));
-    };
-    values.iter().try_fold(1_u64, |work, term| {
-        validate_term(term).map(|child| work.saturating_add(child))
-    })
-}
-
-#[derive(Debug)]
-enum StrictJsonError {
-    Duplicate(Box<str>),
-    Syntax,
-}
-
-fn strict_json_value(input: &[u8]) -> Result<Value, StrictJsonError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(input);
-    StrictValue::deserialize(&mut deserializer)
-        .map(|value| value.0)
-        .map_err(|error| {
-            error
-                .to_string()
-                .strip_prefix("duplicate JSON member at ")
-                .map_or(StrictJsonError::Syntax, |path| {
-                    StrictJsonError::Duplicate(path.into())
-                })
-        })
-}
-
-struct StrictValue(Value);
-
-impl<'de> Deserialize<'de> for StrictValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct Visitor;
-        impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = StrictValue;
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("strict JSON value")
-            }
-            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Bool(value)))
-            }
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Number(value.into())))
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Number(value.into())))
-            }
-            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                serde_json::Number::from_f64(value)
-                    .map(|number| StrictValue(Value::Number(number)))
-                    .ok_or_else(|| E::custom("non-finite JSON number"))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(StrictValue(Value::String(value.to_owned())))
-            }
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::String(value)))
-            }
-            fn visit_none<E>(self) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Null))
-            }
-            fn visit_unit<E>(self) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Null))
-            }
-            fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                let mut values = Vec::new();
-                while let Some(value) = access.next_element::<StrictValue>()? {
-                    values.push(value.0);
-                }
-                Ok(StrictValue(Value::Array(values)))
-            }
-            fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::MapAccess<'de>,
-            {
-                let mut map = Map::new();
-                while let Some((key, value)) = access.next_entry::<String, StrictValue>()? {
-                    if map.insert(key.clone(), value.0).is_some() {
-                        return Err(serde::de::Error::custom(format!(
-                            "duplicate JSON member at {key}"
-                        )));
-                    }
-                }
-                Ok(StrictValue(Value::Object(map)))
-            }
-        }
-        deserializer.deserialize_any(Visitor)
-    }
-}
-
-fn json_depth(value: &Value) -> u64 {
-    match value {
-        Value::Array(values) => values
-            .iter()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        Value::Object(values) => values
-            .values()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        _ => 1,
     }
 }
