@@ -468,8 +468,9 @@ fn validate_unit_path(
 mod tests {
     use super::*;
 
+    /// Tracing: TC-048, FR-038-AC-5
     #[test]
-    fn integer_and_identifier_grammars_are_exact() {
+    fn tc_048_integer_and_identifier_grammars_are_exact() {
         assert_eq!(integer_magnitude("0"), Some("0"));
         assert_eq!(integer_magnitude("-12"), Some("12"));
         assert_eq!(integer_magnitude("-0"), None);
