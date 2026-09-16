@@ -96,6 +96,9 @@ complete-V1 target-neutral ContractPackage, exact provider negotiation, and
 canonical native replay. They define the producer-before-consumer contract for
 Contract IR #100, runtime #16, codegen #48 through #50, and #101; they do not
 reopen the closed bounded-Kani profile or claim target-specific mapping support.
+FR-038 consumes the QSpec I04 `quire.checked-package/v2` contract through an
+explicit version dispatcher, strict V2 reader, typed V1-to-V2 migration outcome
+and per-item V2 lowering, without widening the frozen FR-035 V1 reader.
 STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
@@ -126,6 +129,7 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Output-mapping foundation test case](contract/TC-043-output-mapping-foundation.md).
 - [Complete-V1 backend delivery architecture](assurance/AD-003-complete-v1-backend-delivery.md).
 - [Complete-V1 ContractPackage lowering](contract/FR-035-complete-v1-contract-package-lowering.md).
+- [CheckedPackage V2 consumption](contract/FR-038-consume-checked-package-v2.md).
 - [Exact backend negotiation](contract/FR-036-exact-backend-negotiation-and-emission.md).
 - [Canonical backend replay](contract/FR-037-canonical-backend-replay-and-qualification.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
