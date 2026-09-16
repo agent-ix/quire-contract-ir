@@ -71,7 +71,7 @@ terminal disposition named by FR-035 or FR-036 and no artifact.
 | Order | Ticket | Owning repository | Required evidence before successor |
 | --- | --- | --- | --- |
 | E00 | Contract IR #99 | quire-contract-ir | AD-003, FR-035–037, TC-044–046, this plan, accepted self review |
-| E01 | Contract IR #100 | quire-contract-ir | complete nodes/lowering tests and per-item records |
+| E01 | Contract IR #100 | quire-contract-ir | ✅ merged #104 (`1baa5af`): strict I04 reader, complete node-family lowering, independent per-item records and TC-044 evidence |
 | E02 | runtime #16 | quire-contract-runtime | exact oracle outcomes over the merged ContractPackage |
 | E03 | codegen #48 | quire-contract-codegen | deterministic oracle artifacts and accounting |
 | E04 | codegen #49 | quire-contract-codegen | exact bounded Kani harnesses and pins |
