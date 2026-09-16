@@ -502,6 +502,11 @@ impl WorkMeter {
         Self { consumed: 0, limit }
     }
 
+    #[cfg(test)]
+    pub(super) const fn consumed(&self) -> u64 {
+        self.consumed
+    }
+
     pub(super) fn charge(&mut self, work: u64) -> Result<(), ValidationFailure> {
         self.consumed = self.consumed.saturating_add(work);
         if exceeds(self.consumed, self.limit) {

@@ -1,5 +1,6 @@
 //! Arbitrary-precision natural numbers sufficient to decide whether a
-//! canonical decimal rational is reduced, with every step charged as work.
+//! canonical decimal rational is reduced, with every limb operation charged as
+//! work so the metered cost bounds the real cost.
 
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
@@ -10,11 +11,12 @@ use std::cmp::Ordering;
 struct Natural(Vec<u32>);
 
 impl Natural {
-    /// Parses ASCII decimal digits already validated by the caller.
+    /// Parses ASCII decimal digits already validated by the caller. Each digit
+    /// touches every limb accumulated so far, and is charged that many units.
     fn parse(digits: &str, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
         let mut limbs = Vec::new();
         for byte in digits.bytes() {
-            meter.charge(1)?;
+            meter.charge(limb_work(limbs.len()))?;
             let mut carry = u64::from(byte.wrapping_sub(b'0'));
             for limb in &mut limbs {
                 let product = u64::from(*limb) * 10 + carry;
@@ -26,6 +28,11 @@ impl Natural {
             }
         }
         Ok(Self(limbs))
+    }
+
+    /// The work of one pass over this number's limbs (at least one unit).
+    fn work(&self) -> u64 {
+        limb_work(self.0.len())
     }
 
     fn is_zero(&self) -> bool {
@@ -74,6 +81,11 @@ impl Natural {
     }
 }
 
+/// One unit per limb touched, and at least one unit per operation.
+fn limb_work(limbs: usize) -> u64 {
+    u64::try_from(limbs).unwrap_or(u64::MAX).max(1)
+}
+
 /// The low 32 bits of a limb computation, without a lossy cast.
 fn low32(value: u64) -> u32 {
     u32::try_from(value & u64::from(u32::MAX)).unwrap_or(u32::MAX)
@@ -95,7 +107,8 @@ impl PartialOrd for Natural {
 }
 
 /// Returns whether `gcd(numerator, denominator) == 1` for canonical decimal
-/// magnitudes (no sign). Binary GCD; each shift or subtraction costs one work.
+/// magnitudes (no sign). Binary GCD; each halving costs the limbs it shifts and
+/// each compare-and-subtract step costs the limbs of the larger operand.
 pub(super) fn coprime(
     numerator: &str,
     denominator: &str,
@@ -114,14 +127,14 @@ pub(super) fn coprime(
     }
     loop {
         while left.is_even() {
-            meter.charge(1)?;
+            meter.charge(left.work())?;
             left.halve();
         }
         while right.is_even() {
-            meter.charge(1)?;
+            meter.charge(right.work())?;
             right.halve();
         }
-        meter.charge(1)?;
+        meter.charge(left.work().max(right.work()))?;
         match left.cmp(&right) {
             Ordering::Equal => return Ok(left.is_one()),
             Ordering::Less => right.subtract(&left),
@@ -133,14 +146,16 @@ pub(super) fn coprime(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked_package::v1::CheckedPackageLimit;
 
     fn check(numerator: &str, denominator: &str) -> bool {
         let mut meter = WorkMeter::new(u64::MAX);
         coprime(numerator, denominator, &mut meter).expect("unbounded work")
     }
 
+    /// Tracing: TC-048, FR-038-AC-5
     #[test]
-    fn decides_reduction_beyond_u128() {
+    fn tc_048_decides_reduction_beyond_u128() {
         assert!(check("340282366920938463463374607431768211457", "1"));
         assert!(check("5463", "20"));
         assert!(!check("27315", "100"));
@@ -156,9 +171,60 @@ mod tests {
         ));
     }
 
+    fn work_of(numerator: &str, denominator: &str) -> u64 {
+        let mut meter = WorkMeter::new(u64::MAX);
+        coprime(numerator, denominator, &mut meter).expect("unbounded work");
+        meter.consumed()
+    }
+
+    /// Tracing: TC-048, FR-038-AC-3
     #[test]
-    fn charges_work_and_stops_at_the_limit() {
+    fn tc_048_charges_work_and_stops_at_the_limit() {
         let mut meter = WorkMeter::new(3);
         assert!(coprime("12345", "7", &mut meter).is_err());
+
+        // Exact and one-over budgets for a multi-limb decision.
+        let numerator = "340282366920938463463374607431768211457";
+        let denominator = "340282366920938463463374607431768211456";
+        let exact = work_of(numerator, denominator);
+        let mut meter = WorkMeter::new(exact);
+        assert_eq!(coprime(numerator, denominator, &mut meter), Ok(true));
+        let mut meter = WorkMeter::new(exact - 1);
+        assert_eq!(
+            coprime(numerator, denominator, &mut meter),
+            Err(ValidationFailure::Incomplete(
+                CheckedPackageLimit::Work,
+                exact - 1,
+                exact
+            ))
+        );
+    }
+
+    /// Tracing: TC-048, FR-038-AC-3
+    #[test]
+    fn tc_048_parse_work_grows_with_limbs_not_digits() {
+        // Every digit after the first limb touches every accumulated limb, so
+        // a long magnitude costs superlinearly more than its digit count.
+        let digits = "9".repeat(2_000);
+        let mut meter = WorkMeter::new(u64::MAX);
+        let limbs = Natural::parse(&digits, &mut meter)
+            .expect("unbounded work")
+            .0
+            .len();
+        assert!(limbs > 200, "{limbs} limbs");
+        assert!(meter.consumed() > 100 * 2_000, "{}", meter.consumed());
+
+        // A default-sized budget refuses a million-digit scale during parsing.
+        let huge = "1".repeat(1_000_000);
+        let budget = 1_000_000;
+        let mut meter = WorkMeter::new(budget);
+        assert!(matches!(
+            coprime(&huge, "1", &mut meter),
+            Err(ValidationFailure::Incomplete(
+                CheckedPackageLimit::Work,
+                1_000_000,
+                _
+            ))
+        ));
     }
 }
