@@ -211,26 +211,45 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     );
 
     // failed at exactly one over the request's own work; siblings unaffected.
-    // eeee visits eeee, aaaa and dddd: one for the request plus three.
-    let exact = package.lower(&[id("eeee")], &profile(4));
+    // One for the request, then per visited node one plus its body terms plus
+    // its successor edges: eeee (1 + 1 reference + 2 edges), aaaa (1 + 1
+    // literal + 1 edge), dddd (1 + 1 literal + 1 edge) makes 1 + 4 + 3 + 3.
+    let exact = package.lower(&[id("eeee")], &profile(11));
     assert_eq!(
         lowered(&exact.records[0]).dependencies,
         vec![id("aaaa"), id("dddd")]
     );
-    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(3));
+    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(10));
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("eeee"),
-            limit: 3,
-            consumed: 4,
+            limit: 10,
+            consumed: 11,
         }
     );
     assert_eq!(
         result.records[1],
-        package.lower(&[id("aaaa")], &profile(3)).records[0]
+        package.lower(&[id("aaaa")], &profile(10)).records[0]
     );
+    assert_eq!(lowered(&result.records[1]).node.node_id, id("aaaa"));
     assert_eq!(result.records[2], result.records[0]);
+    // aaaa costs 1 + (1 + 1 literal + 1 edge) = 4: the node charge fails at a
+    // limit of 1 and the term-and-edge charge fails at a limit of 3.
+    assert_eq!(
+        lowered(&package.lower(&[id("aaaa")], &profile(4)).records[0])
+            .node
+            .node_id,
+        id("aaaa")
+    );
+    assert_eq!(
+        package.lower(&[id("aaaa")], &profile(3)).records[0],
+        CompleteLoweringRecordV2::Failed {
+            node_id: id("aaaa"),
+            limit: 3,
+            consumed: 4,
+        }
+    );
     assert_eq!(
         package.lower(&[id("aaaa")], &profile(1)).records[0],
         CompleteLoweringRecordV2::Failed {

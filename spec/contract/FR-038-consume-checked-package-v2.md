@@ -91,7 +91,7 @@ subject. A relinked correspondence records both package keys, the exact
 reconstruction inputs and one ordered row per V1 node whose basis is
 `relinked-identical` exactly when the source and target node digests are equal.
 
-When a caller lowers requested V2 items, the V2 lowerer shall charge work per request and per visited reachable node, return
+When a caller lowers requested V2 items, the V2 lowerer shall charge work per request and, for each visited reachable node, per node, per body term and per successor edge, return
 `invalid_input` for an absent node key, `unsupported` when any reachable node's
 tag is outside the profile, `requires_bound` when the profile requires bounds
 and a reachable unbounded numeric, text or collection type has no reachable

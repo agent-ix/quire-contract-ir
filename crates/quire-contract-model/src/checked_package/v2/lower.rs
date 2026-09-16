@@ -22,7 +22,8 @@ pub struct CompleteLoweringProfileV2 {
     pub supported_tags: BTreeSet<CheckedNodeTag>,
     /// Whether unbounded numeric, text and collection types must be bounded.
     pub require_bounds: bool,
-    /// Work per request: one for the request plus one per visited node.
+    /// Work per request: one for the request, plus for each visited node one
+    /// unit, one per body term and one per successor edge followed.
     pub work_limit: u64,
 }
 
@@ -163,10 +164,17 @@ impl CheckedPackageV2 {
             };
             let mut successors = vec![node.semantic_type.clone()];
             successors.extend(node.dependencies.iter().cloned());
-            // Admitted bodies are valid terms; only reference targets matter.
-            let _ = validate_term(&node.body, TermGrammar::V2, &mut |target| {
+            // Admitted bodies are valid terms; the walk reports its term count
+            // and every reference target.
+            let terms = validate_term(&node.body, TermGrammar::V2, &mut |target| {
                 successors.push(target.clone())
-            });
+            })
+            .unwrap_or(1);
+            let edges = u64::try_from(successors.len()).unwrap_or(u64::MAX);
+            work = work.saturating_add(terms).saturating_add(edges);
+            if work > profile.work_limit {
+                return failed(work);
+            }
             for successor in successors {
                 if let Some(&next) = index.get(&successor) {
                     if visited.insert(next) {
