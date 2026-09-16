@@ -10,7 +10,7 @@ relationships:
 
 ## Stakeholder Requirement Coverage
 
-| Stakeholder Req | Trace to US/FR | Test/Validation | Coverage Status |
+| Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
 | StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-034 | TC-015 through TC-018, TC-035, TC-038 through TC-043 | ✅ bounded-Kani and target-neutral output-mapping foundation implemented through TC-043; target-specific output correspondence remains excluded |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
@@ -18,7 +18,7 @@ relationships:
 
 ## Functional Requirement Coverage
 
-| Functional Req | Acceptance Criteria | Test Cases | Coverage Status |
+| Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
 | FR-011 | FR-011-AC-1 through FR-011-AC-3 | TC-015 | ✅ implemented |
 | FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | ✅ implemented |
@@ -41,7 +41,7 @@ relationships:
 | FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
-| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | 🚧 planned after #99 review; Contract IR #100 owns implementation |
+| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented through Contract IR #104 (`1baa5af`): strict I04 reader and exact independent lowering records |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
 
@@ -82,7 +82,7 @@ relationships:
 | TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | ✅ implemented architecture enablement |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall, module dispatch, provenance, and native counterexample replay conform | Integration | P0 | FR-029, FR-030, FR-031 | ✅ implemented across shared, arithmetic, graph, collection and native-replay suites; integrated codegen corpus at `73c82ad` |
 | TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | ✅ implemented in `tests/output_mapping.rs` and model overflow tests; target-specific OCL/SysML/FRETish semantics excluded |
-| TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | 🚧 planned; mirrors QSpec TC-217 through Contract IR #100 |
+| TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | ✅ implemented through Contract IR #104 (`1baa5af`); consumes merged QSpec I04 #66 and exercises exact/one-over reader limits |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
 
