@@ -183,10 +183,20 @@ mod tests {
         let mut meter = WorkMeter::new(3);
         assert!(coprime("12345", "7", &mut meter).is_err());
 
-        // Exact and one-over budgets for a multi-limb decision.
-        let numerator = "340282366920938463463374607431768211457";
-        let denominator = "340282366920938463463374607431768211456";
-        let exact = work_of(numerator, denominator);
+        // Exact and one-over budgets for a multi-limb decision, computed by
+        // hand for 2^64 + 1 over 1:
+        // - parse "18446744073709551617": digit 1 costs 1; digits 2..=11 see
+        //   one limb (10); digits 12..=20 see two limbs (9 * 2 = 18) => 29.
+        // - parse "1" => 1.
+        // - step 2^64 + 1 vs 1 (three limbs) => 3; left becomes 2^64.
+        // - halve 2^64 (three limbs) => 3; 2^63..=2^32 (two limbs) => 32 * 2;
+        //   2^31..=2^1 (one limb) => 31 => 98.
+        // - step 1 vs 1 => 1.
+        // Total 29 + 1 + 3 + 98 + 1 = 132; one unit per operation would be 87.
+        let numerator = "18446744073709551617";
+        let denominator = "1";
+        let exact = 132;
+        assert_eq!(work_of(numerator, denominator), exact);
         let mut meter = WorkMeter::new(exact);
         assert_eq!(coprime(numerator, denominator, &mut meter), Ok(true));
         let mut meter = WorkMeter::new(exact - 1);
