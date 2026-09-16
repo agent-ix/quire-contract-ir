@@ -44,7 +44,7 @@ relationships:
 | FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented through Contract IR #104 (`1baa5af`): strict I04 reader and exact independent lowering records |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
-| FR-038 | FR-038-AC-1 through FR-038-AC-7 | TC-047, TC-048, TC-049, TC-050 | 🚧 planned in Contract IR #106 against QSpec `4780a9e6`: version dispatch, strict V2 reader, V1-to-V2 migration outcome and V2 lowering |
+| FR-038 | FR-038-AC-1 through FR-038-AC-7 | TC-047, TC-048, TC-049, TC-050 | ✅ implemented through Contract IR #106 against QSpec `4780a9e6`: version dispatch, strict V2 reader, V1-to-V2 migration outcome and V2 lowering |
 
 ## Non-Functional Requirement Coverage
 
@@ -86,10 +86,10 @@ relationships:
 | TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | ✅ implemented through Contract IR #104 (`1baa5af`); consumes merged QSpec I04 #66 and exercises exact/one-over reader limits |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
-| TC-047 | CheckedPackage version dispatch keeps V1 frozen and V2 separate | Integration | P0 | FR-038-AC-1 | 🚧 planned in #106; mirrors QSpec TC-217 FR-322-AC-11 and FR-201-AC-5 |
-| TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | 🚧 planned in #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8 and FR-322-AC-10 |
-| TC-049 | CheckedPackage V1 to V2 migration returns the exact MigrationOutcome | Integration | P0 | FR-038-AC-6 | 🚧 planned in #106; mirrors QSpec TC-217 FR-322-AC-12 |
-| TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-7 | 🚧 planned in #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
+| TC-047 | CheckedPackage version dispatch keeps V1 frozen and V2 separate | Integration | P0 | FR-038-AC-1 | ✅ implemented through Contract IR #106; mirrors QSpec TC-217 FR-322-AC-11 and FR-201-AC-5 |
+| TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | ✅ implemented through Contract IR #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8 and FR-322-AC-10 |
+| TC-049 | CheckedPackage V1 to V2 migration returns the exact MigrationOutcome | Integration | P0 | FR-038-AC-6 | ✅ implemented through Contract IR #106; mirrors QSpec TC-217 FR-322-AC-12 |
+| TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-7 | ✅ implemented through Contract IR #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
 
 ## Coverage Design
 
