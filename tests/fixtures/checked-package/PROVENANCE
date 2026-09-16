@@ -1,7 +1,9 @@
 Vendored QSpec I04 CheckedPackage publication inputs (byte-exact, unmodified).
 
 repository: https://github.com/agent-ix/quire-specification
-commit: 4780a9e6119bb86ffb1322fe0a141ef3905b11ef (merged PR #70, issue #68)
+commit: 5aa00f35056c65948de93ad339540974d35c368a (merged PR #71, issue #68 amendment)
+first vendored at: 4780a9e6119bb86ffb1322fe0a141ef3905b11ef (merged PR #70); every blob below
+  and every normative requirement blob is identical at both commits
 retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
 verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
 

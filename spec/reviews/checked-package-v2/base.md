@@ -13,7 +13,7 @@ review_date: "2026-09-16"
 ## Summary
 
 PASS after fixes. FR-038 adds one consumer requirement for the merged QSpec I04
-V2 contract (`4780a9e6`) without amending FR-035. Every acceptance criterion is
+V2 contract (`5aa00f35`) without amending FR-035. Every acceptance criterion is
 verified by exactly one planned test case, and the normative QSpec criteria
 FR-322-AC-4/8/10/11/12, FR-201-AC-5 and FR-195-AC-1..5 each map to an FR-038
 criterion.

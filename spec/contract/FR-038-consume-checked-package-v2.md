@@ -37,7 +37,7 @@ lowering profile (supported node tags, bounded-domain requirement, work limit).
 
 The normative producer contract is QSpec
 `proposals/checked-package-v2/` at
-`agent-ix/quire-specification@4780a9e6119bb86ffb1322fe0a141ef3905b11ef`,
+`agent-ix/quire-specification@5aa00f35056c65948de93ad339540974d35c368a`,
 vendored byte-exact under `tests/fixtures/checked-package/` with a
 `PROVENANCE` file naming each source path, blob and SHA-256.
 

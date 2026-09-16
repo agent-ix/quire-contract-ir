@@ -1,7 +1,7 @@
 //! Strict reader for QSpec I04 `quire.checked-package/v2`.
 //!
 //! Consumes the public contract merged at quire-specification
-//! `4780a9e6119bb86ffb1322fe0a141ef3905b11ef` (`proposals/checked-package-v2/`).
+//! `5aa00f35056c65948de93ad339540974d35c368a` (`proposals/checked-package-v2/`).
 //! V2 is a distinct successor: it never relabels or widens the frozen V1 types.
 
 mod identity;
