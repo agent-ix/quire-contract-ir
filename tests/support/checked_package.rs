@@ -6,8 +6,9 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_ir::{
-    CheckedArtifactLocator, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageRefusal, CheckedPackageRefusalCode,
+    CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
+    CheckedPackageRefusalCode,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -15,6 +16,14 @@ use std::path::PathBuf;
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
+
+/// Exact read-limits `work` boundary that admits `v2_all_families()`: the 13
+/// family nodes' term charges plus the 14 graph edges (each node's
+/// semantic-type and body-target references). Shared between
+/// `complete_v1_checked_package` and `checked_package_v2_reader` so a change
+/// to the vendored all-families fixture cannot silently move the boundary in
+/// only one of them.
+pub const ALL_FAMILIES_READ_WORK: u64 = 27;
 
 /// Reads one vendored file under `tests/fixtures/checked-package/`.
 pub fn fixture(relative: &str) -> Value {
@@ -26,20 +35,12 @@ pub fn fixture(relative: &str) -> Value {
     serde_json::from_str(&text).expect("vendored fixture is JSON")
 }
 
-pub fn v1_all_families() -> Value {
-    fixture("checked-package-v1/fixtures/positive-all-families.json")
-}
-
 pub fn v2_all_families() -> Value {
     fixture("checked-package-v2/fixtures/positive-all-families.json")
 }
 
 pub fn v2_nominal() -> Value {
     fixture("checked-package-v2/fixtures/positive-nominal-identities.json")
-}
-
-pub fn v1_nominal_source() -> Value {
-    fixture("checked-package-v2/fixtures/migration-source-nominal-v1.json")
 }
 
 /// RFC 8785 bytes for the ASCII, integer-only fixtures (sorted members).
@@ -81,7 +82,21 @@ pub fn locator(artifact: &Value) -> CheckedArtifactLocator {
     }
 }
 
-/// Every locked artifact in `package`, including the diagnostic catalog.
+pub fn domain_package_locator(model: &Value) -> CheckedDomainPackageLocator {
+    let text = |key: &str| -> Box<str> {
+        model[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("domain package member {key}"))
+            .into()
+    };
+    CheckedDomainPackageLocator {
+        identity: text("identity"),
+        version: text("version"),
+    }
+}
+
+/// Every locked raw byte artifact in `package`, including the diagnostic
+/// catalog. Domain package selections are a separate digest domain.
 pub fn locked_artifacts(package: &Value) -> Vec<Value> {
     let lock = &package["lock"];
     let mut artifacts = Vec::new();
@@ -94,7 +109,6 @@ pub fn locked_artifacts(package: &Value) -> Vec<Value> {
             .map(|selection| selection["definition"].clone()),
     );
     artifacts.extend(list("definition_selections"));
-    artifacts.extend(list("model_selections"));
     artifacts.extend(
         list("dependency_selections")
             .into_iter()
@@ -112,6 +126,16 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
             locator(&artifact),
             artifact["digest"].as_str().expect("artifact digest"),
         );
+    }
+    // A lock's compiled-model selections are `sha256-jcs` domain packages,
+    // typed separately from raw byte artifacts.
+    for model in package["lock"]["model_selections"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+    {
+        let digest = model["digest"].as_str().expect("model digest");
+        evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence

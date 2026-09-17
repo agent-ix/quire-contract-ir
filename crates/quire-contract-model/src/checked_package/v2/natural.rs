@@ -146,7 +146,7 @@ pub(super) fn coprime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::v1::CheckedPackageLimit;
+    use crate::checked_package::shared::CheckedPackageLimit;
 
     fn check(numerator: &str, denominator: &str) -> bool {
         let mut meter = WorkMeter::new(u64::MAX);

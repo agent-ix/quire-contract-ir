@@ -10,11 +10,12 @@ mod checked_package;
 use checked_package::{
     apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
     node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_code, rekey,
-    sha256_hex, v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
+    sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     NominalIdentityPreimage,
 };
@@ -69,6 +70,98 @@ fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
 
 fn nominal(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
     refusal(code, NOMINAL_PATH)
+}
+
+fn dispatch(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageDispatchResult {
+    read_checked_package(bytes, CheckedPackageReadLimits::bounded(), evidence)
+}
+
+fn assert_dispatch_refused(
+    result: CheckedPackageDispatchResult,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+) {
+    match result {
+        CheckedPackageDispatchResult::Refused(actual) => assert_eq!(actual, refusal(code, path)),
+        other => panic!("expected {code:?} at {path}, got {other:?}"),
+    }
+}
+
+/// The reader parses `contract_version` exactly once and admits only the
+/// current contract; every other version, and every malformed document, is
+/// refused before any version-specific decoding.
+///
+/// Tracing: TC-048, FR-038-AC-1
+#[trace("TC-048", "FR-038-AC-1")]
+#[test]
+fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
+    let fixture = v2_all_families();
+    let evidence = evidence_for(&fixture);
+    let with_version = |version: Value| {
+        let mut value = fixture.clone();
+        value["contract_version"] = version;
+        canonical(&value)
+    };
+    for unknown in ["quire.checked-package/v3", "quire.checked-package/v0", ""] {
+        assert_dispatch_refused(
+            dispatch(&with_version(json!(unknown)), &evidence),
+            CheckedPackageRefusalCode::UnknownContractVersion,
+            "contract_version",
+        );
+    }
+    for malformed in [json!(2), json!(null), json!(["quire.checked-package/v2"])] {
+        assert_dispatch_refused(
+            dispatch(&with_version(malformed), &evidence),
+            CheckedPackageRefusalCode::MalformedWire,
+            "contract_version",
+        );
+    }
+    let mut absent = fixture.clone();
+    absent
+        .as_object_mut()
+        .expect("fixture object")
+        .remove("contract_version");
+    assert_dispatch_refused(
+        dispatch(&canonical(&absent), &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "contract_version",
+    );
+    assert_dispatch_refused(
+        dispatch(b"[]", &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "document",
+    );
+    assert_dispatch_refused(
+        dispatch(b"{\"contract_version\":", &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "document",
+    );
+
+    // The strict parse runs once, before any version is selected.
+    let bytes = canonical(&fixture);
+    let body = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
+    let duplicate = format!(
+        "{{\"contract_version\":\"quire.checked-package/v0\",{}",
+        body.trim_start_matches('{')
+    );
+    assert!(matches!(
+        dispatch(duplicate.as_bytes(), &evidence),
+        CheckedPackageDispatchResult::Refused(ref refused)
+            if refused.code == CheckedPackageRefusalCode::DuplicateMember
+    ));
+    let mut spaced = b" ".to_vec();
+    spaced.extend_from_slice(&bytes);
+    assert_dispatch_refused(
+        dispatch(&spaced, &evidence),
+        CheckedPackageRefusalCode::NoncanonicalWire,
+        "document",
+    );
+
+    // A recognized version still admits through the same entry point.
+    assert!(matches!(
+        dispatch(&bytes, &evidence),
+        CheckedPackageDispatchResult::AdmittedV2(_)
+    ));
 }
 
 /// Tracing: TC-048, FR-038-AC-2
@@ -475,16 +568,19 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let all = v2_all_families();
     let all_bytes = canonical(&all);
     let mut limits = CheckedPackageReadLimits::bounded();
-    // Terms 13 + graph edges 14; no nominal or diagnostic work.
-    limits.work = 27;
+    limits.work = ALL_FAMILIES_READ_WORK;
     assert!(matches!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    limits.work = 26;
+    limits.work = ALL_FAMILIES_READ_WORK - 1;
     assert_eq!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
-        CheckedPackageV2ReadResult::Incomplete(incomplete(CheckedPackageLimit::Work, 26, 27))
+        CheckedPackageV2ReadResult::Incomplete(incomplete(
+            CheckedPackageLimit::Work,
+            ALL_FAMILIES_READ_WORK - 1,
+            ALL_FAMILIES_READ_WORK
+        ))
     );
 }
 
@@ -573,6 +669,17 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
                     json!([{"role":"profile","definition": v["lock"]["definition_selections"][0]}]);
             }),
         ),
+        (
+            // `evidence_for` attests the selected domain package, so the
+            // unmirrored refusal is the lock/preimage mismatch, not evidence.
+            "model selection",
+            Box::new(|v| {
+                v["lock"]["model_selections"] = json!([{
+                    "identity": "test/orders", "version": "1",
+                    "digest_domain": "sha256-jcs", "digest": "5".repeat(64)
+                }]);
+            }),
+        ),
     ];
     for (name, mutate) in included {
         let mut changed = base.clone();
@@ -583,6 +690,12 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             CheckedPackageRefusalCode::StaleDependency,
             "{name}"
         );
+        if name == "model selection" {
+            assert_eq!(
+                stale,
+                refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
+            );
+        }
         refresh_identity(&mut changed);
         let mut evidence = evidence_for(&changed);
         evidence.support_feature("quire.extra/v1");
@@ -798,4 +911,224 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
             "{name}"
         );
     }
+}
+
+const DOMAIN_PACKAGE_DIGEST: &str =
+    "5555555555555555555555555555555555555555555555555555555555555555";
+
+fn domain_package(identity: &str) -> Value {
+    json!({
+        "identity": identity, "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    })
+}
+
+/// The recorded nominal package with its enum declaration owned by `owner`,
+/// re-keyed through every dependant, and `models` as the locked domain
+/// package selections.
+fn model_owned_package(owner: Value, models: Value) -> Value {
+    let recorded = v2_nominal();
+    let nodes = recorded["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    // Dependency order (declaration before member, dimension before unit), so
+    // one rekey pass carries the owner change through every dependant.
+    let order = [1, 0, 3, 2];
+    let mut preimages = order
+        .iter()
+        .map(|position| nodes[*position]["nominal_identity_preimage"].clone())
+        .collect::<Vec<_>>();
+    let keys = order
+        .iter()
+        .map(|position| {
+            nodes[*position]["node_id"]["digest"]
+                .as_str()
+                .expect("key")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    preimages[0]["owner"] = owner;
+    let fresh = rekey(&mut preimages, &keys);
+    let members = preimages.into_iter().zip(fresh).collect::<Vec<_>>();
+    let mut package = nominal_package(&members);
+    package["lock"]["model_selections"] = models;
+    refresh_identity(&mut package);
+    package
+}
+
+fn model_owner(identity: &str, node: &str) -> Value {
+    json!({"kind": "model", "identity": identity, "node": node})
+}
+
+/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-5
+#[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5")]
+#[test]
+fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
+    let schema = fixture("checked-package-v2/schema.json");
+    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let base = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    assert!(
+        schema.is_valid(&base),
+        "published V2 schema admits the base"
+    );
+    let package = admitted(&base);
+    let typed: Value = serde_json::to_value(package.lock()).expect("typed lock");
+    assert_eq!(typed, base["lock"]);
+    assert_eq!(
+        serde_json::to_value(&package.identity_preimage().model_selections)
+            .expect("preimage models"),
+        json!([domain_package("test/orders")])
+    );
+
+    // Owner-to-lock join: by domain package identity, with a present node.
+    let joins = [
+        (
+            "owner identity outside lock",
+            model_owned_package(
+                model_owner("test/other", "ix://test/orders/Status"),
+                json!([domain_package("test/orders")]),
+            ),
+        ),
+        (
+            "no domain package selected",
+            model_owned_package(owner.clone(), json!([])),
+        ),
+        (
+            "empty owner node",
+            model_owned_package(
+                model_owner("test/orders", ""),
+                json!([domain_package("test/orders")]),
+            ),
+        ),
+    ];
+    for (name, mutated) in joins {
+        assert_eq!(
+            refused(&mutated, &evidence_for(&mutated)),
+            nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
+            "{name}"
+        );
+    }
+
+    // A lock reference or owner carrying `authority`, `revision` or `export`
+    // is an unknown member.
+    let compiled_ref = json!({
+        "authority": "agent-ix", "identity": "test/orders",
+        "revision": {"namespace": "git", "value": "1"},
+        "digest_domain": "quire.compiled-model.bytes/v1",
+        "digest": DOMAIN_PACKAGE_DIGEST, "export": "Status"
+    });
+    let retired = [
+        (
+            "compiled-model owner with export",
+            model_owned_package(
+                json!({"kind": "model", "authority": "agent-ix",
+                       "identity": "test/orders", "export": "Status"}),
+                json!([domain_package("test/orders")]),
+            ),
+        ),
+        (
+            "domain package owner with export",
+            model_owned_package(
+                json!({"kind": "model", "identity": "test/orders",
+                       "node": "ix://test/orders/Status", "export": "Status"}),
+                json!([domain_package("test/orders")]),
+            ),
+        ),
+        ("compiled-model lock reference", {
+            let mut value = base.clone();
+            value["lock"]["model_selections"] = json!([compiled_ref]);
+            refresh_identity(&mut value);
+            value
+        }),
+        ("domain package reference with export", {
+            let mut value = base.clone();
+            value["lock"]["model_selections"][0]["export"] = json!("Status");
+            refresh_identity(&mut value);
+            value
+        }),
+    ];
+    let evidence = evidence_for(&base);
+    for (name, mutated) in retired {
+        assert!(!schema.is_valid(&mutated), "{name} schema");
+        assert_eq!(
+            refused(&mutated, &evidence),
+            refusal(CheckedPackageRefusalCode::UnknownMember, "document"),
+            "{name}"
+        );
+    }
+
+    // Domain, shape and evidence are checked in the domain package domain.
+    let lock_path = "lock.model_selections";
+    let mut compiled_domain = base.clone();
+    compiled_domain["lock"]["model_selections"][0]["digest_domain"] =
+        json!("quire.compiled-model.bytes/v1");
+    refresh_identity(&mut compiled_domain);
+    assert!(!schema.is_valid(&compiled_domain));
+    assert_eq!(
+        refused(&compiled_domain, &evidence),
+        refusal(CheckedPackageRefusalCode::DigestDomainMismatch, lock_path)
+    );
+    let mut empty_version = base.clone();
+    empty_version["lock"]["model_selections"][0]["version"] = json!("");
+    refresh_identity(&mut empty_version);
+    assert!(!schema.is_valid(&empty_version));
+    assert_eq!(
+        refused(&empty_version, &evidence),
+        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+    );
+    let mut other_version = base.clone();
+    other_version["lock"]["model_selections"][0]["version"] = json!("2");
+    refresh_identity(&mut other_version);
+    assert_eq!(
+        refused(&other_version, &evidence),
+        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path)
+    );
+    let mut raw_only = evidence_for(&v2_nominal());
+    raw_only.insert_artifact_digest(
+        locator(&json!({
+            "authority": "agent-ix", "identity": "test/orders",
+            "revision": {"namespace": "git", "value": "1"},
+            "digest_domain": "sha256-jcs"
+        })),
+        DOMAIN_PACKAGE_DIGEST,
+    );
+    assert_eq!(
+        refused(&base, &raw_only),
+        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
+        "equal digest bytes attested as a raw artifact never satisfy a domain package"
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-2
+#[trace("TC-048", "FR-038-AC-2")]
+#[test]
+fn tc_048_model_export_is_not_a_v2_model_form() {
+    let schema = fixture("checked-package-v2/schema.json");
+    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+    let base = v2_all_families();
+    let model = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == json!("model"))
+        .expect("all-families fixture carries a model node");
+    for form in ["model_import", "model_type", "model_declaration"] {
+        let mut value = base.clone();
+        value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        refresh_identity(&mut value);
+        assert!(schema.is_valid(&value), "{form} schema");
+        admitted(&value);
+    }
+    let mut export = base.clone();
+    export["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
+    refresh_identity(&mut export);
+    assert!(!schema.is_valid(&export));
+    assert_eq!(
+        refused(&export, &evidence_for(&export)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.semantic_form"
+        )
+    );
 }
