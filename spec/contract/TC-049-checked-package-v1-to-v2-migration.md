@@ -21,11 +21,13 @@ Admit each vector's V1 source and V2 target package. Migrate with the vector's
 reconstruction inputs and target key and compare the serialized outcome with
 the recorded outcome. Apply each refusal vector's RFC 6902 patch to its base
 record and migrate with the patched inputs and target key. Separately migrate a
-V2 target whose node families or lock differ from the V1 source.
+V2 target whose node families or lock differ from the V1 source, and a V2
+target whose lock selects a `sha256-jcs` domain package.
 
 ## Expected Results
 
 Positive vectors return the exact relinked correspondence, including every
 ordered row and basis. Every refusal vector returns its exact code and subject
-as the first failing check. A mismatched target refuses as
+as the first failing check. A mismatched target, and a target selecting a
+domain package that no V1 compiled-model input can reconstruct, refuses as
 `migration_target_incompatible`; no refusal exposes a V2 package.

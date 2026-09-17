@@ -328,3 +328,47 @@ fn tc_049_migration_refuses_mismatched_targets_and_orders_refusals() {
         .is_err()
     );
 }
+
+/// Tracing: TC-049, FR-038-AC-6
+#[trace("TC-049", "FR-038-AC-6")]
+#[test]
+fn tc_049_domain_package_target_has_no_compiled_model_reconstruction() {
+    let (_, nominal) = positives()
+        .into_iter()
+        .find(|(name, _)| name == "nominal-relinked-rekeyed")
+        .expect("nominal positive vector");
+    let mut target_value = fixture(&format!(
+        "{VECTOR_ROOT}/fixtures/positive-nominal-identities.json"
+    ));
+    target_value["lock"]["model_selections"] = json!([{
+        "identity": "test/orders", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": "5".repeat(64)
+    }]);
+    checked_package::refresh_identity(&mut target_value);
+    let target = match read_checked_package(
+        &canonical(&target_value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&target_value),
+    ) {
+        CheckedPackageDispatchResult::AdmittedV2(package) => *package,
+        other => panic!("domain package target must admit as V2, got {other:?}"),
+    };
+
+    // The V1 source selects no compiled model, so the inputs are current; the
+    // target's domain package cannot be reconstructed from them.
+    let mut request = nominal.outcome["correspondence"].clone();
+    request["target_package_id"] = target_value["package_id"].clone();
+    assert_eq!(
+        outcome(&nominal.source, &target, &request),
+        json!({"outcome":"refused","code":"migration_target_incompatible","subject":{"input":"target_package_id"}})
+    );
+    // The unchanged target still relinks with the same inputs.
+    assert_eq!(
+        outcome(
+            &nominal.source,
+            &nominal.target,
+            &nominal.outcome["correspondence"]
+        ),
+        nominal.outcome
+    );
+}

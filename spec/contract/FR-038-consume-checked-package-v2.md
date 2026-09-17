@@ -37,7 +37,7 @@ lowering profile (supported node tags, bounded-domain requirement, work limit).
 
 The normative producer contract is QSpec
 `proposals/checked-package-v2/` at
-`agent-ix/quire-specification@5aa00f35056c65948de93ad339540974d35c368a`,
+`agent-ix/quire-specification@5626bc8fcfc2c280e6486aa9757930d8d87add06`,
 vendored byte-exact under `tests/fixtures/checked-package/` with a
 `PROVENANCE` file naming each source path, blob and SHA-256.
 
@@ -65,7 +65,9 @@ canonical bytes of `identity_preimage` under `quire.package.semantic/v2`,
 require the preimage's lock members to equal the lock, and require its
 `identity_projection` to equal the occurrence-free projection of the graph in
 graph order. It shall check each digest's declared domain before its bytes,
-each locked source/definition/model digest against the read context, every
+each locked source/definition byte digest against the read context's raw
+artifact evidence and each selected `sha256-jcs` domain package digest against
+its separately typed domain package evidence, every
 required feature against the reported `available` capability and the
 reader-supported feature set, every node tag, family form and semantic term,
 reference and dependency resolution, cycles outside one explicit
@@ -74,7 +76,9 @@ reference and dependency resolution, cycles outside one explicit
 When a node is an enum declaration, enum member, dimension or declared unit, the
 V2 reader shall reconstruct the closed nominal preimage, require
 `node_id.digest` to equal the SHA-256 of its canonical bytes, require the owner
-to join an exact lock selection, and enforce identifier, canonical-integer,
+to join an exact lock selection (source and definition owners by authority and
+identity, model owners by domain package identity with a nonempty IR node
+identity), and enforce identifier, canonical-integer,
 reduced-rational, member/term order, duplicate/zero-exponent, root/non-root
 unit, base-dimension and cross-field (`semantic_type`, dependencies, enum
 literal body) rules. Any violation refuses as `invalid_semantic_graph`; a
@@ -87,7 +91,9 @@ bytes. The migrator shall evaluate refusal causes in
 the order `migration_byte_only_reconstruction`, `migration_input_missing`,
 `migration_input_ambiguous`, `migration_input_stale`,
 `migration_target_incompatible`, reporting only the first failing check and its
-subject. A relinked correspondence records both package keys, the exact
+subject. V1 compiled-model selections have no authoritative reconstruction as
+V2 domain packages, so a target is compatible only when neither the
+reconstruction inputs nor the target lock select a model. A relinked correspondence records both package keys, the exact
 reconstruction inputs and one ordered row per V1 node whose basis is
 `relinked-identical` exactly when the source and target node digests are equal.
 
@@ -105,11 +111,11 @@ dependency keys, bounding domain keys, reachable claim keys and a
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-038-AC-1 | The dispatcher admits the vendored V1 fixture through the V1 path and each vendored V2 fixture through the V2 path; an unknown version refuses as `unknown_contract_version`; the V1 reader refuses V2 bytes and a V1 node carrying `nominal_identity_preimage` (`unknown_member`); the V2 reader refuses V1 bytes; equal digest bytes under `quire.package.semantic/v1` and `/v2` compare unequal; and the V1 golden read/lower result is unchanged. | Test (TC-047) |
-| FR-038-AC-2 | The V2 reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every vendored adverse structural mutation returns its recorded outcome, before exposing a package. | Test (TC-048) |
+| FR-038-AC-2 | The V2 reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every vendored adverse structural mutation returns its recorded outcome, before exposing a package; a retired compiled-model lock reference or owner (`authority`, `revision`, `export`) refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one whose digest is attested only as a raw artifact as `stale_dependency`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a V2 package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
 | FR-038-AC-4 | The recomputed V2 package id equals each vendored fixture id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
-| FR-038-AC-5 | Every vendored node-identity vector re-derives its recorded digest; a package carrying every vector admits; every vendored invalid mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`. | Test (TC-048) |
-| FR-038-AC-6 | Both vendored positive migration vectors return their exact relinked correspondence, every vendored refusal vector returns its exact code and subject, and a relabelled or mismatched target refuses as `migration_target_incompatible`. | Test (TC-049) |
+| FR-038-AC-5 | Every vendored node-identity vector re-derives its recorded digest; a package carrying every vector admits; every vendored invalid mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
+| FR-038-AC-6 | Both vendored positive migration vectors return their exact relinked correspondence, every vendored refusal vector returns its exact code and subject, and a relabelled or mismatched target, including a target selecting a domain package, refuses as `migration_target_incompatible`. | Test (TC-049) |
 | FR-038-AC-7 | Every admitted V2 node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records. | Test (TC-050) |
 
 ## Dependencies

@@ -44,7 +44,7 @@ relationships:
 | FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented through Contract IR #104 (`1baa5af`): strict I04 reader and exact independent lowering records |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
-| FR-038 | FR-038-AC-1 through FR-038-AC-7 | TC-047, TC-048, TC-049, TC-050 | ✅ implemented by Contract IR PR #107 for issue #106 against QSpec `5aa00f35`: version dispatch, strict V2 reader, V1-to-V2 migration outcome and V2 lowering |
+| FR-038 | FR-038-AC-1 through FR-038-AC-7 | TC-047, TC-048, TC-049, TC-050 | ✅ implemented by Contract IR PR #107 for issue #106 against QSpec `5aa00f35`, re-pinned to QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): version dispatch, strict V2 reader, V1-to-V2 migration outcome and V2 lowering |
 
 ## Non-Functional Requirement Coverage
 

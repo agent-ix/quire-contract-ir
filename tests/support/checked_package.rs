@@ -6,8 +6,9 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_ir::{
-    CheckedArtifactLocator, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
-    CheckedPackageRefusal, CheckedPackageRefusalCode,
+    CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
+    CheckedPackageRefusalCode,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -81,7 +82,21 @@ pub fn locator(artifact: &Value) -> CheckedArtifactLocator {
     }
 }
 
-/// Every locked artifact in `package`, including the diagnostic catalog.
+pub fn domain_package_locator(model: &Value) -> CheckedDomainPackageLocator {
+    let text = |key: &str| -> Box<str> {
+        model[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("domain package member {key}"))
+            .into()
+    };
+    CheckedDomainPackageLocator {
+        identity: text("identity"),
+        version: text("version"),
+    }
+}
+
+/// Every locked raw byte artifact in `package`, including the diagnostic
+/// catalog. Domain package selections are a separate digest domain.
 pub fn locked_artifacts(package: &Value) -> Vec<Value> {
     let lock = &package["lock"];
     let mut artifacts = Vec::new();
@@ -94,7 +109,6 @@ pub fn locked_artifacts(package: &Value) -> Vec<Value> {
             .map(|selection| selection["definition"].clone()),
     );
     artifacts.extend(list("definition_selections"));
-    artifacts.extend(list("model_selections"));
     artifacts.extend(
         list("dependency_selections")
             .into_iter()
@@ -112,6 +126,21 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
             locator(&artifact),
             artifact["digest"].as_str().expect("artifact digest"),
         );
+    }
+    // A V1 lock's compiled-model selections are raw byte artifacts; a V2
+    // lock's are `sha256-jcs` domain packages.
+    let v2 = package["contract_version"] == json!("quire.checked-package/v2");
+    for model in package["lock"]["model_selections"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+    {
+        let digest = model["digest"].as_str().expect("model digest");
+        if v2 {
+            evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
+        } else {
+            evidence.insert_artifact_digest(locator(&model), digest);
+        }
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence

@@ -9,7 +9,7 @@ use super::v1::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackage, CheckedPackageLock, CheckedSelection,
     CheckedSemanticId, CHECKED_PACKAGE_V1,
 };
-use super::v2::{CheckedPackageV2, CHECKED_PACKAGE_V2};
+use super::v2::{CheckedDomainPackageRef, CheckedPackageV2, CHECKED_PACKAGE_V2};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -394,6 +394,15 @@ pub fn migrate_checked_package(
     }
 }
 
+/// V1 selects compiled-model byte documents by export; V2 selects `sha256-jcs`
+/// domain packages. No authoritative evidence maps one onto the other, so the
+/// selections correspond only when both are empty: any V1 compiled-model
+/// selection, or any V2 domain package selection, leaves the target
+/// incompatible rather than inferring a reconstruction.
+fn models_correspond(inputs: &[CheckedArtifactRef], target: &[CheckedDomainPackageRef]) -> bool {
+    inputs.is_empty() && target.is_empty()
+}
+
 /// Returns the ordered correspondence when the target is exactly the package
 /// rebuilt from `inputs`, or `None` when it is incompatible.
 fn relink_nodes(
@@ -409,7 +418,7 @@ fn relink_nodes(
         && target_lock.edition == inputs.edition
         && target_lock.profile_selections == inputs.profile_selections
         && target_lock.definition_selections == inputs.definition_selections
-        && target_lock.model_selections == inputs.model_selections
+        && models_correspond(&inputs.model_selections, &target_lock.model_selections)
         && target_lock.dependency_selections == inputs.dependency_selections
         && target_lock.required_features == source_lock.required_features;
     let source_nodes = &source.graph().nodes;
@@ -440,8 +449,24 @@ fn relink_nodes(
 
 #[cfg(test)]
 mod tests {
-    use super::{first_duplicate, same_sources, DuplicateKey};
+    use super::{first_duplicate, models_correspond, same_sources, DuplicateKey};
     use crate::checked_package::v1::CheckedArtifactRef;
+    use crate::checked_package::v2::CheckedDomainPackageRef;
+
+    /// Tracing: TC-049, FR-038-AC-6
+    #[test]
+    fn tc_049_compiled_models_never_correspond_to_domain_packages() {
+        let compiled = artifact("example-compiled", Some("Example"));
+        let package: CheckedDomainPackageRef = serde_json::from_value(json!({
+            "identity":"example-compiled","version":"1",
+            "digest_domain":"sha256-jcs","digest":"8".repeat(64)
+        }))
+        .expect("domain package reference");
+        assert!(models_correspond(&[], &[]));
+        assert!(!models_correspond(std::slice::from_ref(&compiled), &[]));
+        assert!(!models_correspond(&[], std::slice::from_ref(&package)));
+        assert!(!models_correspond(&[compiled], &[package]));
+    }
     use serde_json::json;
 
     fn artifact(identity: &str, export: Option<&str>) -> CheckedArtifactRef {
