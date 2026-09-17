@@ -13,6 +13,10 @@ Local paths mirror the upstream `proposals/` layout.
 Not vendored: proposals/checked-package-v2/model-effective-declaration.schema.json and
 model-effective-declaration-vectors.json (QSL-derived preimages; the upstream README states they
 add no CheckedPackage V1 or V2 wire member, and no reader or test here consumes them).
+Also not vendored: proposals/checked-package-v2/migration-correspondence.schema.json (blob
+d0620921), proposals/checked-package-v2/migration-correspondence-vectors.json (blob 837f1794) and
+proposals/checked-package-v2/fixtures/migration-source-nominal-v1.json (blob 8ccb5c63) — this
+repository reads one CheckedPackage contract and vendors no migration inputs.
 
 sha256                                                            git blob                                  source path
 37dff0cb00103e17a6de755ef014ad3c97cd40e5f256cb22e8ca22fd0a021af0  f781e2c1aab0b8cf252f4e5d6b6a1f2b56efda90  proposals/checked-package-v2/README.md

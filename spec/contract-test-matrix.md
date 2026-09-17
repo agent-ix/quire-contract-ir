@@ -87,7 +87,7 @@ relationships:
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
 | TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8, FR-322-AC-10 and FR-322-AC-11 |
-| TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-6 | ✅ implemented by Contract IR PR #107 for issue #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
+| TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-6 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
 
 ## Coverage Design
 

@@ -17,6 +17,14 @@ use std::path::PathBuf;
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
+/// Exact read-limits `work` boundary that admits `v2_all_families()`: the 13
+/// family nodes' term charges plus the 14 graph edges (each node's
+/// semantic-type and body-target references). Shared between
+/// `complete_v1_checked_package` and `checked_package_v2_reader` so a change
+/// to the vendored all-families fixture cannot silently move the boundary in
+/// only one of them.
+pub const ALL_FAMILIES_READ_WORK: u64 = 27;
+
 /// Reads one vendored file under `tests/fixtures/checked-package/`.
 pub fn fixture(relative: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

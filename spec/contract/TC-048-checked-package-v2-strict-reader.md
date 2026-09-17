@@ -34,9 +34,9 @@ preimage's enum case, `semantic_type`, dependency and unit target while
 mirroring the identity projection and package id. Re-own the nominal enum
 declaration by a model owner (`identity`, `node`) over a locked `sha256-jcs`
 domain package and re-read it; then name an unselected package, select none,
-empty the node, restore the retired compiled-model owner or lock shape, change
-the selection's digest domain, version or evidence domain, and set a model node
-to `model_export`.
+empty the node, restore a compiled-model owner or lock shape carrying
+`authority`, `revision` or `export`, change the selection's digest domain,
+version or evidence domain, and set a model node to `model_export`.
 
 ## Expected Results
 
@@ -50,7 +50,7 @@ package. Excluded edits keep the id and included edits change it. Every vector
 digest matches; every nominal mutation and contradictory cross-field join
 refuses as `invalid_semantic_graph`. The model-owned package validates
 against the vendored schema and admits; each model join mismatch refuses as
-`invalid_semantic_graph`, retired compiled-model shapes as `unknown_member`,
-a foreign digest domain as `digest_domain_mismatch`, an absent or raw-only
-domain package digest as `stale_dependency`, and `model_export` as
-`invalid_semantic_graph`.
+`invalid_semantic_graph`, a compiled-model owner or lock shape carrying
+`authority`, `revision` or `export` as `unknown_member`, a foreign digest
+domain as `digest_domain_mismatch`, an absent or raw-only domain package
+digest as `stale_dependency`, and `model_export` as `invalid_semantic_graph`.

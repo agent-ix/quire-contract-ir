@@ -10,7 +10,7 @@ mod checked_package;
 use checked_package::{
     apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
     node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_code, rekey,
-    sha256_hex, v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
+    sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -568,16 +568,19 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let all = v2_all_families();
     let all_bytes = canonical(&all);
     let mut limits = CheckedPackageReadLimits::bounded();
-    // Terms 13 + graph edges 14; no nominal or diagnostic work.
-    limits.work = 27;
+    limits.work = ALL_FAMILIES_READ_WORK;
     assert!(matches!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    limits.work = 26;
+    limits.work = ALL_FAMILIES_READ_WORK - 1;
     assert_eq!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
-        CheckedPackageV2ReadResult::Incomplete(incomplete(CheckedPackageLimit::Work, 26, 27))
+        CheckedPackageV2ReadResult::Incomplete(incomplete(
+            CheckedPackageLimit::Work,
+            ALL_FAMILIES_READ_WORK - 1,
+            ALL_FAMILIES_READ_WORK
+        ))
     );
 }
 
@@ -1007,7 +1010,8 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         );
     }
 
-    // The retired compiled-model owner and lock shapes are unknown members.
+    // A lock reference or owner carrying `authority`, `revision` or `export`
+    // is an unknown member.
     let compiled_ref = json!({
         "authority": "agent-ix", "identity": "test/orders",
         "revision": {"namespace": "git", "value": "1"},

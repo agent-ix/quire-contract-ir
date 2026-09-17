@@ -5,8 +5,8 @@ type: SpecReview
 analysis: base
 scope: "QCI #106; FR-038; TC-048, TC-050; TM-002 FR-038/TC-048/TC-050 rows; PLAN-009 E01b"
 review_set: subset
-evaluated_revision: "agent-e/106-checked-package-v2 based on e463103"
-review_date: "2026-09-16"
+evaluated_revision: "agent-e/106-v2-model-domain-package based on 48e0cdc"
+review_date: "2026-09-17"
 ---
 # Base review of CheckedPackage V2 consumption
 
@@ -38,4 +38,4 @@ criterion.
 - Refusal control: FR-038-AC-1 pins the exact `contract_version` refusal
   (unknown, absent, malformed) ahead of any version-specific decoding, so the
   reader never relabels or widens the admitted contract.
-- Matrix rows are `🚧 planned` until executable `tc_048`/`tc_050` tests exist.
+- Matrix rows are `✅ implemented`: executable `tc_048` and `tc_050` tests exist.

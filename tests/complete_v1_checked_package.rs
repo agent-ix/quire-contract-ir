@@ -14,7 +14,7 @@ mod checked_package;
 
 use checked_package::{
     canonical, evidence_for, incomplete, json_depth, refresh_identity, refusal, typed_node_id,
-    v2_all_families, NODE_DOMAIN,
+    v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -160,7 +160,7 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     );
     assert!(matches!(
         &mixed.records[2],
-        CompleteLoweringRecordV2::Failed { node_id, limit: 4, .. } if *node_id == expression
+        CompleteLoweringRecordV2::Failed { node_id, limit: 4, consumed: 5, .. } if *node_id == expression
     ));
 
     // The successful sibling is exactly what an isolated request would
@@ -308,8 +308,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         edges: 0,
         occurrences: u64::try_from(FAMILIES.len() * 2).expect("occurrence count"),
         diagnostics: 0,
-        // Terms 13 + graph edges 14 (semantic-type and body-target edges).
-        work: 27,
+        work: ALL_FAMILIES_READ_WORK,
     };
     assert!(matches!(
         CheckedPackageV2::read(&bytes, exact, &evidence),
