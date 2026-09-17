@@ -1,8 +1,8 @@
-//! Strict reader for QSpec I04 `quire.checked-package/v2`.
+//! Strict reader for QSpec I04 `quire.checked-package/v2`, the sole admitted
+//! `CheckedPackage` contract.
 //!
 //! Consumes the public contract merged at quire-specification
-//! `5626bc8fcfc2c280e6486aa9757930d8d87add06` (`proposals/checked-package-v2/`, AD-006). V2 is a distinct
-//! successor: it never relabels or widens the frozen V1 types. Model
+//! `5626bc8fcfc2c280e6486aa9757930d8d87add06` (`proposals/checked-package-v2/`, AD-006). Model
 //! selections are `sha256-jcs` domain packages, typed separately from the raw
 //! source and definition byte artifacts.
 
@@ -19,7 +19,7 @@ use super::common::{
     ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
-use super::v1::{
+use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,

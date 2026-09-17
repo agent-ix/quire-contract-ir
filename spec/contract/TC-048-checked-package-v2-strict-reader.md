@@ -12,12 +12,15 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-2 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
+Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
 FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors.
 
 ## Test Procedure
 
-Admit both vendored V2 positive fixtures. Apply every vendored adverse
+Dispatch an unknown, empty, absent and malformed `contract_version`, and
+independently a malformed document, a duplicate top-level member and
+noncanonical bytes, before any version is selected. Admit both vendored V2
+positive fixtures. Apply every vendored adverse
 structural mutation and compare the outcome. Independently inject malformed
 JSON, a duplicate member, an unknown member, noncanonical bytes, an absent or
 mismatched context digest, an unreported or unsupported required feature, a
@@ -37,7 +40,11 @@ to `model_export`.
 
 ## Expected Results
 
-Positive fixtures admit with their recorded package ids. Every adverse and
+An unknown, empty or absent `contract_version` refuses as
+`unknown_contract_version`; a malformed `contract_version`, document, or a
+duplicate or noncanonical top-level member refuses as `malformed_wire`,
+`duplicate_member` or `noncanonical_wire` before any version-specific
+decoding. Positive fixtures admit with their recorded package ids. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
 package. Excluded edits keep the id and included edits change it. Every vector
 digest matches; every nominal mutation and contradictory cross-field join

@@ -69,8 +69,8 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_ir::CompleteCon
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-7
-#[trace("TC-050", "FR-038-AC-7")]
+/// Tracing: TC-050, FR-038-AC-6
+#[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
     let value = v2_all_families();
@@ -172,8 +172,8 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
     }
 }
 
-/// Tracing: TC-050, FR-038-AC-7
-#[trace("TC-050", "FR-038-AC-7")]
+/// Tracing: TC-050, FR-038-AC-6
+#[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_non_lowered_records_are_terminal_and_independent() {
     let value = v2_all_families();
@@ -268,8 +268,8 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     );
 }
 
-/// Tracing: TC-050, FR-038-AC-7
-#[trace("TC-050", "FR-038-AC-7")]
+/// Tracing: TC-050, FR-038-AC-6
+#[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     let mut value = v2_all_families();

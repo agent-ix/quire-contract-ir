@@ -27,20 +27,12 @@ pub fn fixture(relative: &str) -> Value {
     serde_json::from_str(&text).expect("vendored fixture is JSON")
 }
 
-pub fn v1_all_families() -> Value {
-    fixture("checked-package-v1/fixtures/positive-all-families.json")
-}
-
 pub fn v2_all_families() -> Value {
     fixture("checked-package-v2/fixtures/positive-all-families.json")
 }
 
 pub fn v2_nominal() -> Value {
     fixture("checked-package-v2/fixtures/positive-nominal-identities.json")
-}
-
-pub fn v1_nominal_source() -> Value {
-    fixture("checked-package-v2/fixtures/migration-source-nominal-v1.json")
 }
 
 /// RFC 8785 bytes for the ASCII, integer-only fixtures (sorted members).
@@ -127,20 +119,15 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
             artifact["digest"].as_str().expect("artifact digest"),
         );
     }
-    // A V1 lock's compiled-model selections are raw byte artifacts; a V2
-    // lock's are `sha256-jcs` domain packages.
-    let v2 = package["contract_version"] == json!("quire.checked-package/v2");
+    // A lock's compiled-model selections are `sha256-jcs` domain packages,
+    // typed separately from raw byte artifacts.
     for model in package["lock"]["model_selections"]
         .as_array()
         .cloned()
         .unwrap_or_default()
     {
         let digest = model["digest"].as_str().expect("model digest");
-        if v2 {
-            evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
-        } else {
-            evidence.insert_artifact_digest(locator(&model), digest);
-        }
+        evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence

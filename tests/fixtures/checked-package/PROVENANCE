@@ -8,23 +8,17 @@ previously vendored at: 5aa00f35056c65948de93ad339540974d35c368a (merged PR #71)
 retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
 verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
 
-Local paths mirror the upstream `proposals/` layout so relative references inside
-`migration-correspondence-vectors.json` (for example
-`../checked-package-v1/fixtures/positive-all-families.json`) resolve unchanged.
+Local paths mirror the upstream `proposals/` layout.
 
 Not vendored: proposals/checked-package-v2/model-effective-declaration.schema.json and
 model-effective-declaration-vectors.json (QSL-derived preimages; the upstream README states they
 add no CheckedPackage V1 or V2 wire member, and no reader or test here consumes them).
 
 sha256                                                            git blob                                  source path
-70dd41b9ec9453350ed9becbc504356cfab3a2e00ba8a300b89c30b8e763cc7d  142addcb00d4a1f014fbcec550b7a383375a830a  proposals/checked-package-v1/fixtures/positive-all-families.json
 37dff0cb00103e17a6de755ef014ad3c97cd40e5f256cb22e8ca22fd0a021af0  f781e2c1aab0b8cf252f4e5d6b6a1f2b56efda90  proposals/checked-package-v2/README.md
 5a2d04dd603bfe39e38a0779d2fde7d17ce850e208ca1b9c2bcfbcef142aa60c  8a8579d1393e65faba65c404d1dc4db8736336a7  proposals/checked-package-v2/fixtures/adverse.json
-b8181fd08dcfcf6780fab35c4ef8f8be27bdb09b3ad103725205f1a97019a12f  8ccb5c63faa82af199e92eb374f788cd21f873c5  proposals/checked-package-v2/fixtures/migration-source-nominal-v1.json
 824a56a968a80b89d38f746b087c06868c20cfecd1d9ef20a17bc5836c473e0d  66aeeca2eb5ed1f3ac6731fe0f8250f1147084c7  proposals/checked-package-v2/fixtures/positive-all-families.json
 b6b1f81f33d6b8756f91ac3fefed74e8cb01b85892c4520a072952232e968a47  baddd5bffe94afe70a019c61238e2a37be7ca2b9  proposals/checked-package-v2/fixtures/positive-nominal-identities.json
-f13e17d609507bbeec9e17d787f3d8c140ac4174d7e507452ac68ae8bfca3c70  837f17941b106376b28d4de9ded397cf5e28ceb4  proposals/checked-package-v2/migration-correspondence-vectors.json
-fda2d9450be70d31532722df2ffb902f00add6467eaaea1df5455cfde10dd1b8  d06209217f8ba3438c4fbc64abffe61b5c9c3f5a  proposals/checked-package-v2/migration-correspondence.schema.json
 e8134c348cb9fa51d118415be539f2100c41b1beee0e2cb202a349aca3564681  046dd155899946f405807025cf6582051cddf4c9  proposals/checked-package-v2/node-identity-preimage.schema.json
 635717d735883c4f33440758376d4958e43340a801ac3b7be055d156f2096244  4a499af8c07b6e036fe0794150a68510b70fdfcb  proposals/checked-package-v2/node-identity-vectors.json
 579632040887ea7c36c7661b7b6c32a5d310673fa1193aa8cfdfb363191922ed  9e3f64dbf86e19ce6c38504a262e964d8ae1c6e1  proposals/checked-package-v2/schema.json

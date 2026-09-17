@@ -14,7 +14,8 @@ use checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     NominalIdentityPreimage,
 };
@@ -69,6 +70,98 @@ fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
 
 fn nominal(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
     refusal(code, NOMINAL_PATH)
+}
+
+fn dispatch(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageDispatchResult {
+    read_checked_package(bytes, CheckedPackageReadLimits::bounded(), evidence)
+}
+
+fn assert_dispatch_refused(
+    result: CheckedPackageDispatchResult,
+    code: CheckedPackageRefusalCode,
+    path: &str,
+) {
+    match result {
+        CheckedPackageDispatchResult::Refused(actual) => assert_eq!(actual, refusal(code, path)),
+        other => panic!("expected {code:?} at {path}, got {other:?}"),
+    }
+}
+
+/// The reader parses `contract_version` exactly once and admits only the
+/// current contract; every other version, and every malformed document, is
+/// refused before any version-specific decoding.
+///
+/// Tracing: TC-048, FR-038-AC-1
+#[trace("TC-048", "FR-038-AC-1")]
+#[test]
+fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
+    let fixture = v2_all_families();
+    let evidence = evidence_for(&fixture);
+    let with_version = |version: Value| {
+        let mut value = fixture.clone();
+        value["contract_version"] = version;
+        canonical(&value)
+    };
+    for unknown in ["quire.checked-package/v3", "quire.checked-package/v0", ""] {
+        assert_dispatch_refused(
+            dispatch(&with_version(json!(unknown)), &evidence),
+            CheckedPackageRefusalCode::UnknownContractVersion,
+            "contract_version",
+        );
+    }
+    for malformed in [json!(2), json!(null), json!(["quire.checked-package/v2"])] {
+        assert_dispatch_refused(
+            dispatch(&with_version(malformed), &evidence),
+            CheckedPackageRefusalCode::MalformedWire,
+            "contract_version",
+        );
+    }
+    let mut absent = fixture.clone();
+    absent
+        .as_object_mut()
+        .expect("fixture object")
+        .remove("contract_version");
+    assert_dispatch_refused(
+        dispatch(&canonical(&absent), &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "contract_version",
+    );
+    assert_dispatch_refused(
+        dispatch(b"[]", &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "document",
+    );
+    assert_dispatch_refused(
+        dispatch(b"{\"contract_version\":", &evidence),
+        CheckedPackageRefusalCode::MalformedWire,
+        "document",
+    );
+
+    // The strict parse runs once, before any version is selected.
+    let bytes = canonical(&fixture);
+    let body = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
+    let duplicate = format!(
+        "{{\"contract_version\":\"quire.checked-package/v0\",{}",
+        body.trim_start_matches('{')
+    );
+    assert!(matches!(
+        dispatch(duplicate.as_bytes(), &evidence),
+        CheckedPackageDispatchResult::Refused(ref refused)
+            if refused.code == CheckedPackageRefusalCode::DuplicateMember
+    ));
+    let mut spaced = b" ".to_vec();
+    spaced.extend_from_slice(&bytes);
+    assert_dispatch_refused(
+        dispatch(&spaced, &evidence),
+        CheckedPackageRefusalCode::NoncanonicalWire,
+        "document",
+    );
+
+    // A recognized version still admits through the same entry point.
+    assert!(matches!(
+        dispatch(&bytes, &evidence),
+        CheckedPackageDispatchResult::AdmittedV2(_)
+    ));
 }
 
 /// Tracing: TC-048, FR-038-AC-2

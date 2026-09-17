@@ -13,12 +13,12 @@ review_date: "2026-09-16"
 ## Summary
 
 PASS after fixes. `quire validate` reports FR-038 grammar-clean. Each SHALL
-statement names its subject (consumer, dispatcher, V2 reader, migrator, V2
-lowerer) and, where behavior is conditional, an explicit `When` trigger.
+statement names its subject (consumer, reader, lowerer) and, where behavior is
+conditional, an explicit `When` trigger.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | The migration and lowering paragraphs initially began with a noun phrase and no subject (`ears:missing-subject`, `ears:unclassifiable`); rewritten as event-driven statements. | FR-038 Behavior |
-| FND-002 | low | The nominal-identity paragraph opened with a prepositional scope instead of a trigger; rewritten as `When a node is … the V2 reader shall`. | FR-038 Behavior |
+| FND-001 | low | The lowering paragraph initially began with a noun phrase and no subject (`ears:missing-subject`, `ears:unclassifiable`); rewritten as an event-driven statement. | FR-038 Behavior |
+| FND-002 | low | The nominal-identity paragraph opened with a prepositional scope instead of a trigger; rewritten as `When a node is … the reader shall`. | FR-038 Behavior |

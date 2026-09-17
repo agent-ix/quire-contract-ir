@@ -9,7 +9,7 @@ use super::natural::coprime;
 use super::CheckedPackageLockV2;
 use super::{CheckedNodeTag, CheckedSemanticNodeV2, WorkMeter};
 use crate::checked_package::common::{digest_json, ValidationFailure};
-use crate::checked_package::v1::{CheckedNodeId, CheckedPackageRefusalCode};
+use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};

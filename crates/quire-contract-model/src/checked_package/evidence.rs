@@ -1,7 +1,7 @@
 //! Authoritative evidence consulted by the version dispatcher and V2 reader.
 
 use super::common::{digest_bytes, ArtifactDigests};
-use super::v1::CheckedArtifactLocator;
+use super::shared::CheckedArtifactLocator;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -1,10 +1,10 @@
-//! Exact I04 contract-version selection before any version-specific decode.
+//! Exact I04 contract-version refusal before any decode.
 
 use super::common::{canonical_value, Stop};
 use super::evidence::CheckedPackageEvidence;
-use super::v1::{
-    CheckedPackage, CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CHECKED_PACKAGE_V1,
+use super::shared::{
+    CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCode,
 };
 use super::v2::{CheckedPackageV2, CHECKED_PACKAGE_V2};
 use serde_json::Value;
@@ -12,8 +12,6 @@ use serde_json::Value;
 /// The closed result of dispatching untrusted checked-package bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedPackageDispatchResult {
-    /// A `quire.checked-package/v1` package admitted by the frozen V1 reader.
-    AdmittedV1(Box<CheckedPackage>),
     /// A `quire.checked-package/v2` package admitted by the V2 reader.
     AdmittedV2(Box<CheckedPackageV2>),
     /// The input is invalid for its selected version, or selects none.
@@ -22,8 +20,11 @@ pub enum CheckedPackageDispatchResult {
     Incomplete(CheckedPackageIncomplete),
 }
 
-/// Parses bytes once, reads `contract_version`, and routes to exactly one
-/// strict decoder. Neither decoder relabels or upgrades the other version.
+/// Parses bytes once, reads `contract_version` once, and either admits the
+/// current contract or refuses any other version with a typed
+/// [`CheckedPackageRefusalCode::UnknownContractVersion`] code. This is a
+/// refusal control, not a compatibility layer: it never relabels or widens
+/// the admitted contract.
 pub fn read_checked_package(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -62,8 +63,6 @@ fn dispatch(
         }
     };
     match version.as_str() {
-        CHECKED_PACKAGE_V1 => CheckedPackage::admit_value(value, limits, evidence)
-            .map(|package| CheckedPackageDispatchResult::AdmittedV1(Box::new(package))),
         CHECKED_PACKAGE_V2 => CheckedPackageV2::admit_value(value, limits, evidence)
             .map(|package| CheckedPackageDispatchResult::AdmittedV2(Box::new(package))),
         _ => Err(Stop::refused(
