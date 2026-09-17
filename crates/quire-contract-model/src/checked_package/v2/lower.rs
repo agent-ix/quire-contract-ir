@@ -1,4 +1,4 @@
-//! Exact, independent per-item lowering of an admitted V2 package.
+//! Exact, independent per-item lowering of an admitted checked package.
 //!
 //! Each requested key is lowered alone against its own work budget over the
 //! closure reachable through `semantic_type`, `dependencies` and body
@@ -7,7 +7,7 @@
 
 use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
 use crate::checked_package::common::{digest_json, validate_term, TermGrammar, ValidationFailure};
-use crate::checked_package::v1::{
+use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
 };

@@ -1,475 +1,433 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Real-reader qualification for the frozen QSpec I04 CheckedPackage V1 wire.
+//! FR-035/TC-044 complete-V1 lowering qualification against the current
+//! `quire.checked-package/v2` reader: exact per-family lowering, refusal of
+//! source/type/anchor/identity/bound/dependency/version mutations before any
+//! backend artifact is emitted, and exact/one-over resource accounting.
+//!
+//! `CheckedPackage` V1 is gone (owner ruling 2026-09-17): this file targets
+//! only the current `CheckedPackageV2` reader and lowerer.
 
+#[path = "support/checked_package.rs"]
+mod checked_package;
+
+use checked_package::{
+    canonical, evidence_for, incomplete, json_depth, refresh_identity, refusal, typed_node_id,
+    v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
+};
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedArtifactLocator, CheckedPackage, CheckedPackageLimit, CheckedPackageReadContext,
-    CheckedPackageReadLimits, CheckedPackageReadResult, CheckedPackageRefusalCode,
-    CompleteLoweringRecord,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteContractNodeV2, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
-const NODE_TAGS: [(&str, &str, &str); 13] = [
-    ("scalar_type", "boolean", "literal"),
-    ("composite_type", "record", "aggregate"),
-    ("bounded_domain", "integer_range", "aggregate"),
-    ("value", "literal", "literal"),
-    ("expression", "reference", "reference"),
-    ("function", "pure_function", "application"),
-    ("model", "model_import", "aggregate"),
-    ("relation", "relationship", "aggregate"),
-    ("state", "state_clause", "aggregate"),
-    ("temporal", "temporal_clause", "application"),
-    ("protocol", "protocol_clause", "application"),
-    ("claim", "verification_claim", "application"),
-    ("correspondence", "source_locus", "reference"),
+/// Every V2 family in the all-families fixture, in graph order.
+const FAMILIES: [CheckedNodeTag; 13] = [
+    CheckedNodeTag::ScalarType,
+    CheckedNodeTag::CompositeType,
+    CheckedNodeTag::BoundedDomain,
+    CheckedNodeTag::Value,
+    CheckedNodeTag::Expression,
+    CheckedNodeTag::Function,
+    CheckedNodeTag::Model,
+    CheckedNodeTag::Relation,
+    CheckedNodeTag::State,
+    CheckedNodeTag::Temporal,
+    CheckedNodeTag::Protocol,
+    CheckedNodeTag::Claim,
+    CheckedNodeTag::Correspondence,
 ];
 
-/// Tracing: TC-044, FR-035-AC-1, FR-035-AC-3, FR-035-AC-4, FR-322-AC-7
-#[test]
+/// The wire node identity recorded at `position` in the fixture's graph.
+fn wire_node_id(value: &Value, position: usize) -> CheckedNodeId {
+    serde_json::from_value(value["semantic_graph"]["nodes"][position]["node_id"].clone())
+        .expect("node id")
+}
+
+fn admit(value: &Value) -> CheckedPackageV2 {
+    match CheckedPackageV2::read(
+        &canonical(value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(value),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("expected V2 admission, got {other:?}"),
+    }
+}
+
+fn refused(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageRefusal {
+    refused_bytes(&canonical(value), evidence)
+}
+
+fn refused_bytes(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageRefusal {
+    match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), evidence) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("expected V2 refusal, got {other:?}"),
+    }
+}
+
+fn profile(work_limit: u64) -> CompleteLoweringProfileV2 {
+    CompleteLoweringProfileV2 {
+        supported_tags: FAMILIES.iter().copied().collect(),
+        require_bounds: false,
+        work_limit,
+    }
+}
+
+fn lowered(record: &CompleteLoweringRecordV2) -> &CompleteContractNodeV2 {
+    match record {
+        CompleteLoweringRecordV2::Lowered { node } => node,
+        other => panic!("expected lowered record, got {other:?}"),
+    }
+}
+
+/// Tracing: TC-044, FR-035-AC-1, FR-035-AC-3, FR-035-AC-4
 #[trace("TC-044", "FR-035-AC-1", "FR-035-AC-3", "FR-035-AC-4")]
-fn tc_044_i04_reader_admits_and_lowers_every_public_node_family() {
-    let (wire, context, node_ids) = valid_wire();
-    let admitted = admit(&wire, &context, CheckedPackageReadLimits::bounded());
-    assert_eq!(admitted.graph().nodes.len(), NODE_TAGS.len());
-    let result = admitted.lower(
-        &[node_ids[0].clone(), missing_node(), node_ids[1].clone()],
-        2,
-    );
-    assert!(matches!(
-        &result.records[0],
-        CompleteLoweringRecord::Lowered { node } if node.node_tag.as_ref() == "scalar_type" && node.source_map.len() == 1
-    ));
-    assert!(matches!(
-        &result.records[1],
-        CompleteLoweringRecord::InvalidInput { .. }
-    ));
-    assert!(matches!(
-        &result.records[2],
-        CompleteLoweringRecord::Failed {
-            limit: 2,
-            consumed: 3,
-            ..
+#[test]
+fn tc_044_reader_admits_and_lowers_every_public_node_family() {
+    let value = v2_all_families();
+    let package = admit(&value);
+    assert_eq!(package.graph().nodes.len(), FAMILIES.len());
+
+    let known_ids: BTreeSet<CheckedNodeId> = (0..FAMILIES.len())
+        .map(|position| wire_node_id(&value, position))
+        .collect();
+    let requested = (0..FAMILIES.len())
+        .map(|position| wire_node_id(&value, position))
+        .collect::<Vec<_>>();
+    let result = package.lower(&requested, &profile(u64::MAX));
+    assert_eq!(result.records.len(), FAMILIES.len());
+    for (position, (tag, record)) in FAMILIES.iter().zip(&result.records).enumerate() {
+        let node = lowered(record);
+        let wire = &value["semantic_graph"]["nodes"][position];
+
+        // Every public family admits and lowers to an exact semantic vector:
+        // the lowered node round-trips the wire node verbatim.
+        assert_eq!(node.node_tag, *tag, "{position}");
+        assert_eq!(
+            node.node.node_id,
+            wire_node_id(&value, position),
+            "{position}"
+        );
+        assert_eq!(
+            serde_json::to_value(&node.node).expect("node"),
+            *wire,
+            "{position}"
+        );
+
+        // Every reference resolves by stable identity to a reachable,
+        // version-compatible node in the admitted graph.
+        assert!(known_ids.contains(&node.semantic_type), "{position}");
+        for dependency in &node.dependencies {
+            assert!(known_ids.contains(dependency), "{position}");
         }
+
+        // Every represented node has exact source correspondence.
+        let source_map = value["source_map"]
+            .as_array()
+            .expect("source map")
+            .iter()
+            .filter(|entry| entry["node_id"] == wire["node_id"])
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(!source_map.is_empty(), "{position}");
+        assert_eq!(
+            serde_json::to_value(&node.source_map).expect("source map"),
+            Value::Array(source_map),
+            "{position}"
+        );
+    }
+
+    // Mixed supported, missing, and over-budget request: independent sibling
+    // records, and no placeholder substituted for the ones that do not lower.
+    let scalar_type = wire_node_id(&value, 0);
+    let expression = wire_node_id(&value, 4);
+    let missing = typed_node_id(&"9".repeat(64));
+    let mixed = package.lower(
+        &[scalar_type.clone(), missing.clone(), expression.clone()],
+        &profile(4),
+    );
+    assert_eq!(mixed.records.len(), 3);
+    assert_eq!(lowered(&mixed.records[0]).node.node_id, scalar_type);
+    assert_eq!(
+        mixed.records[1],
+        CompleteLoweringRecordV2::InvalidInput { node_id: missing }
+    );
+    assert!(matches!(
+        &mixed.records[2],
+        CompleteLoweringRecordV2::Failed { node_id, limit: 4, consumed: 5, .. } if *node_id == expression
     ));
+
+    // The successful sibling is exactly what an isolated request would
+    // return: one sibling's disposition never leaks into another's.
+    assert_eq!(
+        mixed.records[0],
+        package.lower(&[scalar_type], &profile(4)).records[0]
+    );
 }
 
-/// Tracing: TC-044, FR-035-AC-2, FR-322-AC-4, FR-322-AC-5
-#[test]
+/// Tracing: TC-044, FR-035-AC-2
 #[trace("TC-044", "FR-035-AC-2")]
-fn tc_044_i04_reader_refuses_strict_wire_and_identity_mutations() {
-    let (wire, context, _) = valid_wire();
-    let duplicate = format!(
-        "{{\"contract_version\":\"quire.checked-package/v1\",\"contract_version\":\"quire.checked-package/v1\",{}}}",
-        wire.trim_start_matches('{')
+#[test]
+fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    let bytes = canonical(&base);
+    let text = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
+
+    // Strict wire: a duplicated top-level member and a leading byte outside
+    // the canonical form both refuse before any node is considered.
+    assert_eq!(
+        refused_bytes(
+            format!(
+                "{{\"contract_version\":\"quire.checked-package/v2\",{}",
+                &text[1..]
+            )
+            .as_bytes(),
+            &evidence,
+        )
+        .code,
+        CheckedPackageRefusalCode::DuplicateMember
     );
-    assert_refusal(
-        CheckedPackage::read(
-            duplicate.as_bytes(),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::DuplicateMember,
-    );
-    assert_refusal(
-        CheckedPackage::read(
-            b" {\"contract_version\":\"quire.checked-package/v1\"}",
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::NoncanonicalWire,
+    let mut spaced = bytes.clone();
+    spaced.push(b'\n');
+    assert_eq!(
+        refused_bytes(&spaced, &evidence),
+        refusal(CheckedPackageRefusalCode::NoncanonicalWire, "document")
     );
 
-    let mut unknown_version: Value = serde_json::from_str(&wire).expect("fixture JSON");
-    unknown_version["contract_version"] = json!("quire.checked-package/v2");
-    assert_refusal(
-        CheckedPackage::read(
-            &canonical(&unknown_version),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::UnknownContractVersion,
+    // version: an unrecognised contract_version refuses before any node,
+    // lock, or identity member is examined.
+    let mut wrong_version = base.clone();
+    wrong_version["contract_version"] = json!("quire.checked-package/v1");
+    assert_eq!(
+        refused(&wrong_version, &evidence).code,
+        CheckedPackageRefusalCode::UnknownContractVersion
     );
 
-    let mut cross_domain: Value = serde_json::from_str(&wire).expect("fixture JSON");
-    cross_domain["lock"]["sources"][0]["digest_domain"] = json!("quire.definition.bytes/v1");
-    assert_refusal(
-        CheckedPackage::read(
-            &canonical(&cross_domain),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::DigestDomainMismatch,
+    // identity: a tampered package digest refuses without admitting any node.
+    let mut stale_identity = base.clone();
+    stale_identity["package_id"]["digest"] = json!("0".repeat(64));
+    assert_eq!(
+        refused(&stale_identity, &evidence),
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            "package_id.digest"
+        )
     );
 
-    let mut unavailable: Value = serde_json::from_str(&wire).expect("fixture JSON");
-    unavailable["capability_report"][0]["disposition"] = json!("unsupported");
-    assert_refusal(
-        CheckedPackage::read(
-            &canonical(&unavailable),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::UnknownRequiredCapability,
+    // source: an incomplete source map refuses instead of admitting a node
+    // with no exact source correspondence.
+    let mut missing_source = base.clone();
+    missing_source["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .pop();
+    assert_eq!(
+        refused(&missing_source, &evidence),
+        refusal(CheckedPackageRefusalCode::InvalidSourceMap, "source_map")
     );
 
-    let mut unknown_member: Value = serde_json::from_str(&wire).expect("fixture JSON");
-    unknown_member["future_member"] = json!(true);
-    assert_refusal(
-        CheckedPackage::read(
-            &canonical(&unknown_member),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::UnknownMember,
+    // anchor: a source region rebound to an unlocked source refuses.
+    let mut unlocked_anchor = base.clone();
+    unlocked_anchor["source_map"][0]["regions"][0]["source"]["identity"] = json!("other");
+    assert_eq!(
+        refused(&unlocked_anchor, &evidence_for(&unlocked_anchor)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSourceMap,
+            "source_map.regions.source",
+        )
     );
 
-    let mut unknown_tag: Value = serde_json::from_str(&wire).expect("fixture JSON");
+    // dependency: a dependency naming a node outside the admitted graph
+    // refuses rather than resolving to a substitute.
+    let mut dangling_dependency = base.clone();
+    dangling_dependency["semantic_graph"]["nodes"][1]["dependencies"] =
+        json!([{"domain": NODE_DOMAIN, "digest": "9".repeat(64)}]);
+    refresh_identity(&mut dangling_dependency);
+    assert_eq!(
+        refused(&dangling_dependency, &evidence_for(&dangling_dependency)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.dependencies",
+        )
+    );
+
+    // bound (a value's own type/target reference): a body reference naming a
+    // node outside the admitted graph refuses.
+    let mut dangling_target = base.clone();
+    let expression = dangling_target["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == json!("expression"))
+        .expect("all-families fixture carries an expression node");
+    dangling_target["semantic_graph"]["nodes"][expression]["body"]["target"]["digest"] =
+        json!("9".repeat(64));
+    refresh_identity(&mut dangling_target);
+    assert_eq!(
+        refused(&dangling_target, &evidence_for(&dangling_target)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.body.target",
+        )
+    );
+
+    // type: an unsupported node tag refuses rather than admitting an unknown
+    // family into the graph.
+    let mut unknown_tag = base.clone();
     unknown_tag["semantic_graph"]["nodes"][0]["node_tag"] = json!("future_node");
-    assert_refusal(
-        CheckedPackage::read(
-            &canonical(&unknown_tag),
-            CheckedPackageReadLimits::bounded(),
-            &context,
-        ),
-        CheckedPackageRefusalCode::UnsupportedNodeTag,
+    assert_eq!(
+        refused(&unknown_tag, &evidence),
+        refusal(
+            CheckedPackageRefusalCode::UnsupportedNodeTag,
+            "semantic_graph.nodes.node_tag",
+        )
     );
 
-    let stale = CheckedPackageReadContext::new();
-    assert_refusal(
-        CheckedPackage::read(wire.as_bytes(), CheckedPackageReadLimits::bounded(), &stale),
-        CheckedPackageRefusalCode::StaleDependency,
-    );
+    // Every mutation above refuses: no case admits, so none reaches lowering
+    // and none emits a backend artifact.
 }
 
-/// Tracing: TC-044, FR-035-AC-2, FR-322-AC-6, FR-322-AC-9
-#[test]
+/// Tracing: TC-044, FR-035-AC-2
 #[trace("TC-044", "FR-035-AC-2")]
-fn tc_044_i04_reader_reports_exact_and_one_over_resource_accounting() {
-    let (wire, context, _) = valid_wire();
-    let value: Value = serde_json::from_str(&wire).expect("fixture JSON");
+#[test]
+fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
+    let value = v2_all_families();
+    let evidence = evidence_for(&value);
+    let bytes = canonical(&value);
     let mut exact = CheckedPackageReadLimits {
-        bytes: u64::try_from(wire.len()).expect("fixture length"),
+        bytes: u64::try_from(bytes.len()).expect("fixture length"),
         depth: json_depth(&value),
-        nodes: u64::try_from(NODE_TAGS.len()).expect("node count"),
+        nodes: u64::try_from(FAMILIES.len()).expect("node count"),
         edges: 0,
-        occurrences: u64::try_from(NODE_TAGS.len() * 2).expect("occurrence count"),
+        occurrences: u64::try_from(FAMILIES.len() * 2).expect("occurrence count"),
         diagnostics: 0,
-        work: u64::try_from(NODE_TAGS.len()).expect("work count"),
+        work: ALL_FAMILIES_READ_WORK,
     };
     assert!(matches!(
-        CheckedPackage::read(wire.as_bytes(), exact, &context),
-        CheckedPackageReadResult::Admitted(_)
+        CheckedPackageV2::read(&bytes, exact, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
     ));
 
     exact.bytes -= 1;
     assert_incomplete(
-        CheckedPackage::read(wire.as_bytes(), exact, &context),
+        &bytes,
+        exact,
+        &evidence,
         CheckedPackageLimit::Bytes,
         exact.bytes,
-        exact.bytes + 1,
     );
-    exact.bytes = u64::try_from(wire.len()).expect("fixture length");
+    exact.bytes += 1;
+
+    exact.depth -= 1;
+    assert_incomplete(
+        &bytes,
+        exact,
+        &evidence,
+        CheckedPackageLimit::Depth,
+        exact.depth,
+    );
+    exact.depth += 1;
+
     exact.nodes -= 1;
     assert_incomplete(
-        CheckedPackage::read(wire.as_bytes(), exact, &context),
+        &bytes,
+        exact,
+        &evidence,
         CheckedPackageLimit::Nodes,
         exact.nodes,
-        exact.nodes + 1,
     );
-
     exact.nodes += 1;
+
     exact.occurrences -= 1;
     assert_incomplete(
-        CheckedPackage::read(wire.as_bytes(), exact, &context),
+        &bytes,
+        exact,
+        &evidence,
         CheckedPackageLimit::Occurrences,
         exact.occurrences,
-        exact.occurrences + 1,
     );
     exact.occurrences += 1;
+
     exact.work -= 1;
     assert_incomplete(
-        CheckedPackage::read(wire.as_bytes(), exact, &context),
+        &bytes,
+        exact,
+        &evidence,
         CheckedPackageLimit::Work,
         exact.work,
-        exact.work + 1,
     );
 
+    // edges: the base fixture carries no dependency edges, so the exact/
+    // one-over boundary is proven on a variant with exactly one.
     let mut edge_value = value.clone();
-    edge_value["semantic_graph"]["nodes"][1]["dependencies"] = json!([node_id(0)]);
+    edge_value["semantic_graph"]["nodes"][1]["dependencies"] =
+        json!([value["semantic_graph"]["nodes"][0]["node_id"]]);
     refresh_identity(&mut edge_value);
-    let edge_wire = canonical(&edge_value);
+    let edge_bytes = canonical(&edge_value);
+    let edge_evidence = evidence_for(&edge_value);
     let mut edge_limits = CheckedPackageReadLimits::bounded();
-    edge_limits.bytes = u64::try_from(edge_wire.len()).expect("fixture length");
+    edge_limits.bytes = u64::try_from(edge_bytes.len()).expect("fixture length");
+    edge_limits.edges = 1;
+    assert!(matches!(
+        CheckedPackageV2::read(&edge_bytes, edge_limits, &edge_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     edge_limits.edges = 0;
     assert_incomplete(
-        CheckedPackage::read(&edge_wire, edge_limits, &context),
+        &edge_bytes,
+        edge_limits,
+        &edge_evidence,
         CheckedPackageLimit::Edges,
         0,
-        1,
     );
 
+    // diagnostics: likewise, the boundary is proven on a variant with exactly
+    // one diagnostic entry.
     let mut diagnostic_value = value;
-    diagnostic_value["diagnostics"]["entries"] = json!([{"stage":"package_read"}]);
-    let diagnostic_wire = canonical(&diagnostic_value);
+    diagnostic_value["diagnostics"]["entries"] = json!([{
+        "stage": "type_checking",
+        "code": "ill_typed",
+        "cause_tag": "invalid-value",
+        "details": [],
+        "loci": [],
+    }]);
+    let diagnostic_bytes = canonical(&diagnostic_value);
+    let diagnostic_evidence = evidence_for(&diagnostic_value);
     let mut diagnostic_limits = CheckedPackageReadLimits::bounded();
-    diagnostic_limits.bytes = u64::try_from(diagnostic_wire.len()).expect("fixture length");
+    diagnostic_limits.bytes = u64::try_from(diagnostic_bytes.len()).expect("fixture length");
+    diagnostic_limits.diagnostics = 1;
+    assert!(matches!(
+        CheckedPackageV2::read(&diagnostic_bytes, diagnostic_limits, &diagnostic_evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
     diagnostic_limits.diagnostics = 0;
     assert_incomplete(
-        CheckedPackage::read(&diagnostic_wire, diagnostic_limits, &context),
+        &diagnostic_bytes,
+        diagnostic_limits,
+        &diagnostic_evidence,
         CheckedPackageLimit::Diagnostics,
         0,
-        1,
-    );
-}
-
-fn valid_wire() -> (
-    String,
-    CheckedPackageReadContext,
-    Vec<quire_contract_ir::CheckedNodeId>,
-) {
-    let source = artifact(
-        "agent-ix",
-        "source",
-        "git",
-        "1",
-        "quire.source.bytes/v1",
-        b"source",
-    );
-    let definition = artifact(
-        "agent-ix",
-        "edition",
-        "semver",
-        "1",
-        "quire.definition.bytes/v1",
-        b"definition",
-    );
-    let catalog = artifact(
-        "agent-ix",
-        "catalog",
-        "draft",
-        "1",
-        "quire.definition.bytes/v1",
-        b"catalog",
-    );
-    let edition = json!({"role":"edition", "definition": definition});
-    let node_ids = NODE_TAGS
-        .iter()
-        .enumerate()
-        .map(|(index, _)| node_id(index))
-        .collect::<Vec<_>>();
-    let nodes = NODE_TAGS
-        .iter()
-        .enumerate()
-        .map(|(index, (tag, form, term))| {
-            let body = match *term {
-                "literal" => json!({"term":"literal", "value_kind":"boolean", "value":true}),
-                "aggregate" => json!({"term":"aggregate", "members":[]}),
-                "application" => json!({"term":"application", "operator":"call", "arguments":[]}),
-                "reference" => json!({"term":"reference", "target": node_ids[0]}),
-                _ => unreachable!("fixed vector terms"),
-            };
-            json!({
-                "node_id": node_ids[index],
-                "schema_version":"quire.checked-semantic-graph/v1",
-                "node_tag":tag,
-                "semantic_form":form,
-                "semantic_type":node_ids[0],
-                "dependencies":[],
-                "occurrences":[{"role":"declaration", "ordinal":0}],
-                "body":body,
-            })
-        })
-        .collect::<Vec<_>>();
-    let identity_projection = nodes
-        .iter()
-        .cloned()
-        .map(|mut node| {
-            node.as_object_mut().expect("object").remove("occurrences");
-            node
-        })
-        .collect::<Vec<_>>();
-    let identity_preimage = json!({
-        "version":"quire.checked-package-id/v1",
-        "edition":edition,
-        "profile_selections":[],
-        "definition_selections":[],
-        "model_selections":[],
-        "required_features":["quire.value.complete/v1"],
-        "dependency_selections":[],
-        "identity_projection":identity_projection,
-    });
-    let package_digest = digest(&canonical(&identity_preimage));
-    let source_map = node_ids
-        .iter()
-        .enumerate()
-        .map(|(index, id)| {
-            json!({"node_id":id, "role":"declaration", "ordinal":0, "regions":[{"source":source, "start":index, "end":index + 1}]})
-        })
-        .collect::<Vec<_>>();
-    let value = json!({
-        "contract_version":"quire.checked-package/v1",
-        "identity_preimage":identity_preimage,
-        "package_id":{"domain":"quire.package.semantic/v1", "algorithm":"sha256", "digest":package_digest},
-        "lock":{"sources":[source], "edition":edition, "profile_selections":[], "definition_selections":[], "model_selections":[], "required_features":["quire.value.complete/v1"], "dependency_selections":[]},
-        "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v1", "nodes":nodes},
-        "source_map":source_map,
-        "capability_report":[{"feature":"quire.value.complete/v1", "disposition":"available"}],
-        "diagnostics":{"catalog":catalog, "entries":[]},
-    });
-    let mut context = CheckedPackageReadContext::new();
-    insert(
-        &mut context,
-        "agent-ix",
-        "source",
-        "git",
-        "1",
-        "quire.source.bytes/v1",
-        b"source",
-    );
-    insert(
-        &mut context,
-        "agent-ix",
-        "edition",
-        "semver",
-        "1",
-        "quire.definition.bytes/v1",
-        b"definition",
-    );
-    insert(
-        &mut context,
-        "agent-ix",
-        "catalog",
-        "draft",
-        "1",
-        "quire.definition.bytes/v1",
-        b"catalog",
-    );
-    let ids = node_ids
-        .into_iter()
-        .map(|value| serde_json::from_value(value).expect("node id"))
-        .collect();
-    (
-        String::from_utf8(canonical(&value)).expect("UTF-8 JSON"),
-        context,
-        ids,
-    )
-}
-
-fn artifact(
-    authority: &str,
-    identity: &str,
-    namespace: &str,
-    revision: &str,
-    domain: &str,
-    bytes: &[u8],
-) -> Value {
-    json!({"authority":authority, "identity":identity, "revision":{"namespace":namespace, "value":revision}, "digest_domain":domain, "digest":digest(bytes)})
-}
-
-fn insert(
-    context: &mut CheckedPackageReadContext,
-    authority: &str,
-    identity: &str,
-    namespace: &str,
-    revision: &str,
-    domain: &str,
-    bytes: &[u8],
-) {
-    context.insert(
-        CheckedArtifactLocator {
-            authority: authority.into(),
-            identity: identity.into(),
-            revision_namespace: namespace.into(),
-            revision_value: revision.into(),
-            domain: domain.into(),
-        },
-        bytes.to_vec(),
-    );
-}
-
-fn node_id(index: usize) -> Value {
-    json!({"domain":"quire.checked-semantic-node/v1", "digest":format!("{:064x}", index + 1)})
-}
-
-fn missing_node() -> quire_contract_ir::CheckedNodeId {
-    serde_json::from_value(
-        json!({"domain":"quire.checked-semantic-node/v1", "digest":format!("{:064x}", 99)}),
-    )
-    .expect("node id")
-}
-
-fn admit(
-    wire: &str,
-    context: &CheckedPackageReadContext,
-    limits: CheckedPackageReadLimits,
-) -> CheckedPackage {
-    match CheckedPackage::read(wire.as_bytes(), limits, context) {
-        CheckedPackageReadResult::Admitted(package) => *package,
-        result => panic!("expected admission, got {result:?}"),
-    }
-}
-
-fn assert_refusal(result: CheckedPackageReadResult, code: CheckedPackageRefusalCode) {
-    assert!(
-        matches!(result, CheckedPackageReadResult::Refused(ref refusal) if refusal.code == code),
-        "expected {code:?}, got {result:?}"
     );
 }
 
 fn assert_incomplete(
-    result: CheckedPackageReadResult,
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
     kind: CheckedPackageLimit,
     limit: u64,
-    consumed: u64,
 ) {
-    assert!(
-        matches!(result, CheckedPackageReadResult::Incomplete(ref incomplete) if incomplete.limit_kind == kind && incomplete.limit == limit && incomplete.consumed == consumed),
-        "expected {kind:?} {limit}/{consumed}, got {result:?}"
-    );
-}
-
-fn canonical(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).expect("canonical test JSON")
-}
-
-fn refresh_identity(value: &mut Value) {
-    let projection = value["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .cloned()
-        .map(|mut node| {
-            node.as_object_mut()
-                .expect("node object")
-                .remove("occurrences");
-            node
-        })
-        .collect::<Vec<_>>();
-    value["identity_preimage"]["identity_projection"] = Value::Array(projection);
-    value["package_id"]["digest"] = json!(digest(&canonical(&value["identity_preimage"])));
-}
-
-fn json_depth(value: &Value) -> u64 {
-    match value {
-        Value::Array(values) => values
-            .iter()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        Value::Object(values) => values
-            .values()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        _ => 1,
+    match CheckedPackageV2::read(bytes, limits, evidence) {
+        CheckedPackageV2ReadResult::Incomplete(actual) => {
+            assert_eq!(actual, incomplete(kind, limit, limit + 1), "{kind:?}");
+        }
+        other => panic!("{kind:?} one over must be incomplete, got {other:?}"),
     }
-}
-fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
 }

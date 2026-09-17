@@ -1,15 +1,14 @@
-//! Version-neutral I04 wire front end and helpers shared by the V1 and V2
-//! strict decoders.
+//! Version-neutral I04 wire front end and helpers shared by the strict V2
+//! decoder and its lowering pipeline.
 //!
-//! Every function here preserves the exact behavior the frozen V1 reader had
-//! before the version split; V2 reuses it so both versions measure bytes,
-//! nesting, duplicate members and canonical form identically.
+//! Every function here measures bytes, nesting, duplicate members and
+//! canonical form identically regardless of which closed schema is decoded
+//! from the resulting value.
 
-use super::v1::{
+use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageReadResult, CheckedPackageRefusal, CheckedPackageRefusalCode,
-    CheckedSourceMapEntry,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCode, CheckedSourceMapEntry,
 };
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -60,12 +59,6 @@ impl Stop {
     }
 }
 
-impl From<Stop> for CheckedPackageReadResult {
-    fn from(stop: Stop) -> Self {
-        stop.into_result(Self::Refused, Self::Incomplete)
-    }
-}
-
 /// Validation failure carrying a static structural path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ValidationFailure {
@@ -93,7 +86,7 @@ pub(super) trait ArtifactDigests {
 /// Measures, parses and canonicalizes untrusted bytes exactly once.
 ///
 /// Order: byte limit, strict JSON (duplicate members), depth limit, canonical
-/// bytes. This is the V1 front end, unchanged.
+/// bytes.
 pub(super) fn canonical_value(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -318,8 +311,6 @@ pub(super) fn validate_source_map_entries<'a>(
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TermGrammar {
-    /// Frozen V1: any JSON number is a literal value.
-    V1,
     /// V2 `SemanticTerm`: a numeric literal value must be an integer token
     /// within the signed or unsigned 64-bit range. The vendored schema admits
     /// only `integer` numbers; a fraction, exponent or out-of-range integer is
@@ -435,7 +426,6 @@ fn is_literal_value(value: &Value, grammar: TermGrammar) -> bool {
     match value {
         Value::Bool(_) | Value::String(_) | Value::Null => true,
         Value::Number(number) => match grammar {
-            TermGrammar::V1 => true,
             TermGrammar::V2 => number.is_i64() || number.is_u64(),
         },
         Value::Array(_) | Value::Object(_) => false,
@@ -627,7 +617,7 @@ pub(super) fn json_depth(value: &Value) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{canonical_value, is_literal_value, Stop, TermGrammar};
-    use crate::checked_package::v1::{CheckedPackageReadLimits, CheckedPackageRefusalCode};
+    use crate::checked_package::shared::{CheckedPackageReadLimits, CheckedPackageRefusalCode};
     use serde_json::{json, Number, Value};
 
     /// Tracing: TC-048, FR-038-AC-2
@@ -664,10 +654,10 @@ mod tests {
 
     /// Tracing: TC-048, FR-038-AC-2
     #[test]
-    fn tc_048_v2_literal_numbers_are_integers_and_v1_is_unchanged() {
+    fn tc_048_v2_literal_numbers_are_integers() {
         let fractional = Value::Number(Number::from_f64(1.5).expect("finite"));
         let whole_float = Value::Number(Number::from_f64(2.0).expect("finite"));
-        for (value, v2) in [
+        for (value, is_literal) in [
             (json!(7), true),
             (json!(-7), true),
             (json!(u64::MAX), true),
@@ -679,9 +669,11 @@ mod tests {
             (json!([]), false),
             (json!({}), false),
         ] {
-            assert_eq!(is_literal_value(&value, TermGrammar::V2), v2, "V2 {value}");
-            let v1 = !matches!(value, Value::Array(_) | Value::Object(_));
-            assert_eq!(is_literal_value(&value, TermGrammar::V1), v1, "V1 {value}");
+            assert_eq!(
+                is_literal_value(&value, TermGrammar::V2),
+                is_literal,
+                "{value}"
+            );
         }
     }
 }

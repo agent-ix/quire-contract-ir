@@ -6,9 +6,10 @@
 //! `invalid_semantic_graph`.
 
 use super::natural::coprime;
+use super::CheckedPackageLockV2;
 use super::{CheckedNodeTag, CheckedSemanticNodeV2, WorkMeter};
 use crate::checked_package::common::{digest_json, ValidationFailure};
-use crate::checked_package::v1::{CheckedNodeId, CheckedPackageLock, CheckedPackageRefusalCode};
+use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
@@ -49,14 +50,13 @@ pub enum NominalOwner {
         /// Definition identity.
         identity: Box<str>,
     },
-    /// A selected compiled model, joined by authority, identity and export.
+    /// A declaration in a selected domain package, joined by the package
+    /// identity; `node` is the IR node identity inside that package.
     Model {
-        /// Model authority.
-        authority: Box<str>,
-        /// Model identity.
+        /// Domain package identity.
         identity: Box<str>,
-        /// Model export.
-        export: Box<str>,
+        /// IR node identity within the domain package.
+        node: Box<str>,
     },
 }
 
@@ -201,7 +201,7 @@ pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     tags: &[CheckedNodeTag],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = NominalGraph { nodes, index };
@@ -253,7 +253,7 @@ impl NominalGraph<'_> {
 
 fn validate_owner(
     owner: &NominalOwner,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
 ) -> Result<(), ValidationFailure> {
     let joined = match owner {
         NominalOwner::Source {
@@ -269,15 +269,16 @@ fn validate_owner(
         } => lock.definition_selections.iter().any(|definition| {
             definition.authority == *authority && definition.identity == *identity
         }),
-        NominalOwner::Model {
-            authority,
-            identity,
-            export,
-        } => lock.model_selections.iter().any(|model| {
-            model.authority == *authority
-                && model.identity == *identity
-                && model.export.as_deref() == Some(export.as_ref())
-        }),
+        // The lock selects whole domain packages; the node is not a lock
+        // member, so the join is by package identity and the node is only
+        // required to be present.
+        NominalOwner::Model { identity, node } => {
+            !node.is_empty()
+                && lock
+                    .model_selections
+                    .iter()
+                    .any(|model| model.identity == *identity)
+        }
     };
     require(joined)
 }
@@ -323,7 +324,7 @@ fn validate_rational(
 
 fn validate_enum_declaration(
     declaration: &EnumDeclarationPreimage,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&declaration.owner, lock)?;
@@ -370,7 +371,7 @@ fn validate_dimension(
     node: &CheckedSemanticNodeV2,
     dimension: &DimensionPreimage,
     graph: &NominalGraph<'_>,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&dimension.owner, lock)?;
@@ -410,7 +411,7 @@ fn validate_unit(
     node: &CheckedSemanticNodeV2,
     unit: &UnitPreimage,
     graph: &NominalGraph<'_>,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&unit.owner, lock)?;

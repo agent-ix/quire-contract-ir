@@ -1,8 +1,10 @@
-//! Strict reader for QSpec I04 `quire.checked-package/v2`.
+//! Strict reader for QSpec I04 `quire.checked-package/v2`, the sole admitted
+//! `CheckedPackage` contract.
 //!
 //! Consumes the public contract merged at quire-specification
-//! `5aa00f35056c65948de93ad339540974d35c368a` (`proposals/checked-package-v2/`).
-//! V2 is a distinct successor: it never relabels or widens the frozen V1 types.
+//! `5626bc8fcfc2c280e6486aa9757930d8d87add06` (`proposals/checked-package-v2/`, AD-006). Model
+//! selections are `sha256-jcs` domain packages, typed separately from the raw
+//! source and definition byte artifacts.
 
 mod identity;
 mod lower;
@@ -16,12 +18,12 @@ use super::common::{
     validate_locked_artifact, validate_source_map_entries, validate_term, Stop, TermGrammar,
     ValidationFailure, NODE_DOMAIN,
 };
-use super::evidence::CheckedPackageEvidence;
-use super::v1::{
+use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
+use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageLock, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
+    CheckedSourceRegion,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,7 +37,8 @@ const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 const SOURCE_BYTES: &str = "quire.source.bytes/v1";
 const DEFINITION_BYTES: &str = "quire.definition.bytes/v1";
-const MODEL_BYTES: &str = "quire.compiled-model.bytes/v1";
+/// The digest domain of a selected domain package.
+pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
 const SELECTION_ROLES: [&str; 7] = [
     "language",
     "edition",
@@ -181,12 +184,7 @@ impl CheckedNodeTag {
                 "reachability",
             ],
             Self::Function => &["pure_function", "predicate", "recursive_function"],
-            Self::Model => &[
-                "model_import",
-                "model_export",
-                "model_type",
-                "model_declaration",
-            ],
+            Self::Model => &["model_import", "model_type", "model_declaration"],
             Self::Relation => &[
                 "relationship",
                 "population",
@@ -303,6 +301,50 @@ impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
     }
 }
 
+/// One selected `sha256-jcs` domain package (QSpec `ModelRef`).
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedDomainPackageRef {
+    /// Domain package identity.
+    pub identity: Box<str>,
+    /// Domain package version.
+    pub version: Box<str>,
+    /// Must be `sha256-jcs`.
+    pub digest_domain: Box<str>,
+    /// Lowercase SHA-256 of the package's RFC 8785 canonical bytes.
+    pub digest: Box<str>,
+}
+
+impl CheckedDomainPackageRef {
+    /// The evidence locator of this selection.
+    pub fn locator(&self) -> CheckedDomainPackageLocator {
+        CheckedDomainPackageLocator {
+            identity: self.identity.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
+
+/// The exact immutable V2 package lock.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedPackageLockV2 {
+    /// Locked raw source documents.
+    pub sources: Vec<CheckedArtifactRef>,
+    /// Selected edition.
+    pub edition: CheckedSelection,
+    /// Selected profiles.
+    pub profile_selections: Vec<CheckedSelection>,
+    /// Selected definitions.
+    pub definition_selections: Vec<CheckedArtifactRef>,
+    /// Selected domain packages.
+    pub model_selections: Vec<CheckedDomainPackageRef>,
+    /// Required features.
+    pub required_features: Vec<Box<str>>,
+    /// Dependency selections.
+    pub dependency_selections: Vec<CheckedSelection>,
+}
+
 /// The non-circular V2 package identity preimage.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -315,8 +357,8 @@ pub struct CheckedPackageIdentityPreimageV2 {
     pub profile_selections: Vec<CheckedSelection>,
     /// Selected definitions.
     pub definition_selections: Vec<CheckedArtifactRef>,
-    /// Selected models.
-    pub model_selections: Vec<CheckedArtifactRef>,
+    /// Selected domain packages.
+    pub model_selections: Vec<CheckedDomainPackageRef>,
     /// Required features.
     pub required_features: Vec<Box<str>>,
     /// Dependency selections.
@@ -465,7 +507,7 @@ struct CheckedPackageWireV2 {
     contract_version: Box<str>,
     identity_preimage: CheckedPackageIdentityPreimageV2,
     package_id: CheckedSemanticId,
-    lock: CheckedPackageLock,
+    lock: CheckedPackageLockV2,
     semantic_graph: CheckedSemanticGraphV2,
     source_map: Vec<CheckedSourceMapEntry>,
     capability_report: Vec<CheckedCapability>,
@@ -587,7 +629,7 @@ impl CheckedPackageV2 {
     }
 
     /// The exact immutable lock.
-    pub fn lock(&self) -> &CheckedPackageLock {
+    pub fn lock(&self) -> &CheckedPackageLockV2 {
         &self.wire.lock
     }
 
@@ -684,7 +726,7 @@ fn validate(
 
 fn same_non_graph_lock(
     preimage: &CheckedPackageIdentityPreimageV2,
-    lock: &CheckedPackageLock,
+    lock: &CheckedPackageLockV2,
 ) -> bool {
     preimage.edition == lock.edition
         && preimage.profile_selections == lock.profile_selections
@@ -731,13 +773,7 @@ fn validate_lock(
         )?;
     }
     for model in &lock.model_selections {
-        validate_locked_artifact(model, MODEL_BYTES, evidence, "lock.model_selections")?;
-        if model.export.as_deref().is_none_or(str::is_empty) {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                "lock.model_selections.export",
-            ));
-        }
+        validate_domain_package(model, evidence)?;
     }
     let mut features = BTreeSet::new();
     if !lock
@@ -767,6 +803,29 @@ fn validate_unexported(
     validate_locked_artifact(artifact, domain, evidence, path)?;
     if artifact.export.is_some() {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
+    }
+    Ok(())
+}
+
+/// Checks one domain package selection's domain, shape and `sha256-jcs`
+/// digest against the domain package evidence. Raw artifact evidence is never
+/// consulted, so equal digest bytes in another domain cannot satisfy it.
+fn validate_domain_package(
+    model: &CheckedDomainPackageRef,
+    evidence: &CheckedPackageEvidence,
+) -> Result<(), ValidationFailure> {
+    const PATH: &str = "lock.model_selections";
+    if model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST {
+        return Err(refuse(
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            PATH,
+        ));
+    }
+    if !is_nonempty(&model.identity) || !is_nonempty(&model.version) || !is_digest(&model.digest) {
+        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, PATH));
+    }
+    if evidence.domain_package_digest(&model.locator()) != Some(model.digest.as_ref()) {
+        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, PATH));
     }
     Ok(())
 }
