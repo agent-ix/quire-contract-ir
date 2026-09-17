@@ -573,6 +573,17 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
                     json!([{"role":"profile","definition": v["lock"]["definition_selections"][0]}]);
             }),
         ),
+        (
+            // `evidence_for` attests the selected domain package, so the
+            // unmirrored refusal is the lock/preimage mismatch, not evidence.
+            "model selection",
+            Box::new(|v| {
+                v["lock"]["model_selections"] = json!([{
+                    "identity": "test/orders", "version": "1",
+                    "digest_domain": "sha256-jcs", "digest": "5".repeat(64)
+                }]);
+            }),
+        ),
     ];
     for (name, mutate) in included {
         let mut changed = base.clone();
@@ -583,6 +594,12 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             CheckedPackageRefusalCode::StaleDependency,
             "{name}"
         );
+        if name == "model selection" {
+            assert_eq!(
+                stale,
+                refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
+            );
+        }
         refresh_identity(&mut changed);
         let mut evidence = evidence_for(&changed);
         evidence.support_feature("quire.extra/v1");

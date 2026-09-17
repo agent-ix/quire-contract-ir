@@ -452,6 +452,7 @@ mod tests {
     use super::{first_duplicate, models_correspond, same_sources, DuplicateKey};
     use crate::checked_package::v1::CheckedArtifactRef;
     use crate::checked_package::v2::CheckedDomainPackageRef;
+    use serde_json::json;
 
     /// Tracing: TC-049, FR-038-AC-6
     #[test]
@@ -467,7 +468,6 @@ mod tests {
         assert!(!models_correspond(&[], std::slice::from_ref(&package)));
         assert!(!models_correspond(&[compiled], &[package]));
     }
-    use serde_json::json;
 
     fn artifact(identity: &str, export: Option<&str>) -> CheckedArtifactRef {
         let mut value = json!({
