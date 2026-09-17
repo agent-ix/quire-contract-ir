@@ -80,10 +80,10 @@ selection shape (FND-001). The fix is small and belongs in this PR.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | FR-038-AC-4 says editing a selection changes the package id and refuses unless mirrored. This PR replaced the model selection type inside `identity_preimage`, but the `included` mutation list only edits required feature, edition, recursion group and profile selection. No case edits `lock.model_selections`. Fix: add `("model selection", Box::new(\|v\| v["lock"]["model_selections"] = json!([{"identity":"test/orders","version":"1","digest_domain":"sha256-jcs","digest":"5".repeat(64)}])))` to the list. The existing loop then asserts `stale_dependency` when not mirrored, and a changed, re-derived id once `refresh_identity` mirrors it (`evidence_for` already attests V2 domain packages). | tests/checked_package_v2_reader.rs:546-576; FR-038-AC-4 |
-| FND-002 | nit | `use serde_json::json;` comes after the new test fn inside `mod tests`. Move it up to the other `use` lines at the top of the module. | crates/quire-contract-model/src/checked_package/migration.rs:470 |
+| FND-002 | low | `use serde_json::json;` came after the test fn inside `mod tests` rather than with the other `use` lines. Resolved by deletion: the module it sat in is removed with the migration contract. | (module deleted) |
 
 ## Coverage
 
-- Touched criteria: FR-038-AC-2 is backed by `tc_048_model_owners_join_sha256_jcs_domain_package_selections` and `tc_048_model_export_is_not_a_v2_model_form`. FR-038-AC-5 is backed by `tc_048_model_owners_join_sha256_jcs_domain_package_selections`. FR-038-AC-6 is backed by `tc_049_domain_package_target_has_no_compiled_model_reconstruction` and `tc_049_compiled_models_never_correspond_to_domain_packages`. FR-038-AC-1 is backed by the existing dispatch and V1 golden tests. FR-038-AC-4 has a gap for model selections (FND-001).
+- Touched criteria: FR-038-AC-2 is backed by `tc_048_model_owners_join_sha256_jcs_domain_package_selections` and `tc_048_model_export_is_not_a_v2_model_form`. FR-038-AC-5 is backed by `tc_048_model_owners_join_sha256_jcs_domain_package_selections`. FR-038-AC-1 is backed by the contract-version refusal test. FR-038-AC-4 has a gap for model selections (FND-001).
 - Untraced behaviours / stubs: 0 in the diff.
 - Semantic review: done for the model-selection paths above; intent, test and code agree apart from FND-001.
