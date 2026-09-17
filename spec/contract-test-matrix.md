@@ -41,7 +41,7 @@ relationships:
 | FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
-| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | 🚧 no lowering evidence in this repository |
+| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
 | FR-038 | FR-038-AC-1 through FR-038-AC-6 | TC-048, TC-050 | ✅ implemented by Contract IR PR #107/#108 for issue #106 against QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): strict reader with typed version refusal and independent lowering |
@@ -83,7 +83,7 @@ relationships:
 | TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | ✅ implemented architecture enablement |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall, module dispatch, provenance, and native counterexample replay conform | Integration | P0 | FR-029, FR-030, FR-031 | ✅ implemented across shared, arithmetic, graph, collection and native-replay suites; integrated codegen corpus at `73c82ad` |
 | TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | ✅ implemented in `tests/output_mapping.rs` and model overflow tests; target-specific OCL/SysML/FRETish semantics excluded |
-| TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | 🚧 no lowering evidence in this repository |
+| TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | ✅ implemented in `tests/complete_v1_checked_package.rs` against the current `quire.checked-package/v2` reader/lowerer |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
 | TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8, FR-322-AC-10 and FR-322-AC-11 |
