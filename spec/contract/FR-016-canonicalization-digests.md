@@ -77,6 +77,16 @@ best-effort interpretation. Repeated canonicalization is side-effect-free and
 byte-identical. Public byte lengths use `u64`; implementations must reject a
 host allocation failure rather than emit partial bytes.
 
+Every canonical operation shall accept an explicit caller-supplied maximum byte
+budget. The crate exposes both forms for each of the five closed object kinds —
+package, requirement, clause, declaration and expression — as
+`canonical_<kind>` and `canonical_<kind>_with_limit`. The crate shall implement
+each budget-free form as its budgeted form at `u64::MAX` rather than as an
+unbounded path of its own. A budget the canonical bytes exceed returns
+`canonicalization_resource_exhausted` with no partial bytes and no digest,
+identically to an allocation failure. The budget is a caller policy: it bounds
+output size and never changes the bytes a successful call produces.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -84,6 +94,7 @@ host allocation failure rather than emit partial bytes.
 | FR-016-AC-1 | Exact golden fixtures pin the profile envelope, escaping, minimal integers, normalized rationals, semantic-set ordering, sequence preservation, source exclusion, and SHA-256 digest for every closed object kind; equivalent supported permutations are byte/digest identical. | Test (TC-017) |
 | FR-016-AC-2 | A semantic change to a clause changes that clause, requirement, and package digest while unrelated clause digests remain stable; repeated runs and reversed insertion order reproduce identical bytes without host-width or map-order fields. | Test (TC-017) |
 | FR-016-AC-3 | A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `canonicalization_resource_exhausted`, no partial public bytes, and no digest. | Test (TC-017) |
+| FR-016-AC-4 | Each of the five object kinds exposes a budgeted and a budget-free canonical operation; the budget-free result equals the budgeted result at `u64::MAX`; and a zero budget returns `canonicalization_resource_exhausted` with no bytes and no digest for every kind. | Test (TC-017) |
 
 ## Dependencies
 

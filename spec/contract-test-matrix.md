@@ -25,11 +25,11 @@ relationships:
 | FR-013 | FR-013-AC-1 through FR-013-AC-4 | TC-016 | ✅ implemented |
 | FR-014 | FR-014-AC-1 through FR-014-AC-6 | TC-016 | ✅ implemented |
 | FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | ✅ implemented |
-| FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | ✅ implemented |
+| FR-016 | FR-016-AC-1 through FR-016-AC-4 | TC-017 | ✅ implemented, including the caller byte budget on all five closed object kinds |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | ✅ implemented |
 | FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
-| FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
-| FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
+| FR-019 | FR-019-AC-1 through FR-019-AC-3 | TC-018 | ✅ implemented, including `hex_digest` and `expected_inventory` as declared stable surface |
+| FR-020 | FR-020-AC-1 through FR-020-AC-3 | TC-018 | ✅ implemented, including the exported per-file and fixture-count limits |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, and tl-syntax `842d8255` owner revisions |
 | FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, tl-syntax `842d8255`, and tl-mltl `22862189` owner revisions |
@@ -38,13 +38,13 @@ relationships:
 | FR-029 | FR-029-AC-1 through FR-029-AC-3 | TC-042 | ✅ implemented through PRs #87/#88 |
 | FR-030 | FR-030-AC-1 through FR-030-AC-3 | TC-042 | ✅ implemented through PRs #88–#91 |
 | FR-031 | FR-031-AC-1 through FR-031-AC-3 | TC-042 | ✅ implemented through native replay PR #92 and codegen corpus PR #47 |
-| FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
+| FR-032 | FR-032-AC-1 through FR-032-AC-5 | TC-043, TC-051 | ✅ implemented target-neutral admission and the closed STD-003 refusal catalog with a total unresolved-obligation precedence; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
-| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over |
+| FR-035 | FR-035-AC-1 through FR-035-AC-5 | TC-044, TC-047 | 🚧 AC-1 through AC-4 implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over; AC-5 planned because the lowering path emits no `ContractPackage` (issue #110), which the four original criteria did not cover |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
-| FR-038 | FR-038-AC-1 through FR-038-AC-6 | TC-048, TC-050 | ✅ implemented by Contract IR PR #107/#108 for issue #106 against QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): strict reader with typed version refusal and independent lowering |
+| FR-038 | FR-038-AC-1 through FR-038-AC-9 | TC-048, TC-050, TC-052 | ✅ implemented by Contract IR PR #107/#108 for issue #106 against QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): strict reader with typed version refusal and independent lowering; AC-7 and AC-8 added for the closed seven-member record vocabulary and the total outcome-selection order, AC-9 for the shipped finite default read-limit policy |
 
 ## Non-Functional Requirement Coverage
 
@@ -61,6 +61,7 @@ relationships:
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
 | STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | issue #6 through #10 and TC-038 through TC-040 closed code catalogs implemented |
+| STD-003 | exact registered code set both ways, unresolved-obligation precedence, required field paths, and no spelling shared with STD-001 | TC-051, TC-043 | ✅ implemented: the 37 `MappingRequestErrorCode` spellings and the registry are one closed set |
 
 ## Test Case Summary
 
@@ -73,7 +74,7 @@ relationships:
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned across issues #8–#10 |
 | TC-020 | Five assurance artifacts declare boundaries, evidence, failures, and owner | Inspection | P0 | StR-003, NFR-004 | ✅ implemented |
-| TC-021 | Composite review and dependency DAG preserve spec-first child gates; Python matrix and native orchestration controls enforce AC-5/6 | Inspection | P0 | NFR-004 | ✅ implemented |
+| TC-021 | Composite review and dependency DAG preserve spec-first child gates; Python matrix and native orchestration controls enforce AC-5/6/7 | Inspection | P0 | NFR-004 | ✅ implemented |
 | TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |
 | TC-036 | Exact Rust baseline declarations, stable-release trigger, and time-bounded older-version exception policy agree | Integration | P0 | NFR-005-AC-1, NFR-005-AC-4, NFR-005-AC-5, NFR-005-AC-6, NFR-002-AC-2 | ✅ implemented |
 | TC-037 | Compiler, targets, formatting, lint, safety, supply-chain and repository-specific tools execute and classify failures correctly | Integration | P0 | NFR-005-AC-2, NFR-005-AC-3, NFR-005-AC-6 | ✅ implemented |
@@ -84,9 +85,12 @@ relationships:
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall, module dispatch, provenance, and native counterexample replay conform | Integration | P0 | FR-029, FR-030, FR-031 | ✅ implemented across shared, arithmetic, graph, collection and native-replay suites; integrated codegen corpus at `73c82ad` |
 | TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | ✅ implemented in `tests/output_mapping.rs` and model overflow tests; target-specific OCL/SysML/FRETish semantics excluded |
 | TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | ✅ implemented in `tests/complete_v1_checked_package.rs` against the current `quire.checked-package/v2` reader/lowerer |
+| TC-047 | Complete-V1 lowering emits one canonical ContractPackage | Property | P0 | FR-035-AC-5 | 🚧 planned; the lowering path emits no `ContractPackage` (issue #110) |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
 | TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8, FR-322-AC-10 and FR-322-AC-11 |
+| TC-052 | CheckedPackage V2 lowering vocabulary and outcome selection conform | Property | P0 | FR-038-AC-7, FR-038-AC-8 | ✅ implemented in `tests/checked_package_v2_lowering.rs` |
+| TC-051 | The output-mapping refusal catalog is closed and registered | Inspection | P0 | STD-003, FR-032-AC-5 | ✅ implemented in `tests/output_mapping.rs` against the compiled-in registry |
 | TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-6 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
 
 ## Coverage Design
@@ -102,4 +106,6 @@ relationships:
 | TC-042 cases | Coverage, boundary, error, transition, replay, provenance | every profile/matrix construct and unknown/conflicting/missing entry; each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership; generated artifact mutation for source/model/profile/module/tool/options/assumption/bound/dependency identity; every concrete Kani counterexample round-trips through native `runtime::execute`; replay mismatch, unavailable runtime and malformed packet remain typed non-success; repeat corpus parity with exact Kani executable/options digest |
 | TC-048 cases | Coverage, compatibility, boundary, error, identity | unknown, absent and malformed contract_version, and a malformed/duplicate/noncanonical document, before any version is selected; both V2 fixtures; every vendored adverse mutation; malformed, duplicate, unknown member, noncanonical, stale digest, unreported/unsupported feature, dangling reference, incomplete source map; exact and one-over byte/depth/node/edge/occurrence/diagnostic/work limits; excluded and included package-preimage edits; every node-identity vector and invalid mutation; absent/foreign preimage; retained-preimage case/type/dependency/target contradictions |
 | TC-050 cases | Coverage, boundary, error, independence | every node family and nominal node; absent key; unsupported reachable tag; unbounded and bounded numeric type under a bounds-required profile; one-over work; mixed request sibling equality |
+| TC-052 cases | Coverage, boundary, error, precedence, determinism | wildcard-free classification of all seven record kinds; every node of both vendored fixtures yields neither defensive kind; each of the five reachable kinds produced independently; unsupported before requires_bound on one closure; zero versus sufficient work limit on an absent key; least-key versus first-visited offending node for both unsupported and requires_bound; every declared scalar and composite form, the three nominal forms on the fixture that carries them; bounds and claims contained in an ascending self-excluding dependency list |
+| TC-051 cases | Coverage, closure | every emitted spelling has one registry row; every registry row is emittable; each spelling round-trips its wire form; neither refusal catalog shares a spelling with the other |
 | TC-043 cases | Coverage, permutation, boundary, error, transition, identity, atomicity | each exact target profile independently without target semantics; nonempty ordered unique obligation selection; every source-fact state and disposition invariant; separate observation/protocol adequacy; missing/duplicate/foreign/stale/cross-profile/cross-wired inputs; zero/exact/just-over/overflow request, obligation, node, depth, work, record and emitted-byte limits; malformed and UTF-8-unsafe regions; cancellation/allocation/mapper failure; deterministic replay and mutation of every record/package identity member; path/time/locale/display/observer independence; no partial package or preservation fallback |

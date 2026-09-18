@@ -81,6 +81,14 @@ plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
 
+The crate root additionally exports two conformance helpers as stable v0.1 API:
+`hex_digest`, which renders SHA-256 over a byte slice as 64 lowercase
+hexadecimal characters, and `expected_inventory`, which returns the sorted
+published construct and boundary inventory as owned `String` values. Both are
+pure, allocate their own output, take no host handle, and are the supported way
+for a downstream tool to reproduce a published digest or inventory without
+reimplementing either. Their names, signatures and output spellings are stable.
+
 The crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
 sorted fixed-width `&'static [&'static str]` registries and retains
 `DiagnosticCode::ALL` as its sorted fixed-width enum registry. Their ordering,
@@ -109,6 +117,7 @@ tests with default features under NFR-005; the crate remains `publish = false`.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-3 | `hex_digest` renders SHA-256 as exactly 64 lowercase hexadecimal characters for empty and non-empty input, and `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 
 ## Dependencies

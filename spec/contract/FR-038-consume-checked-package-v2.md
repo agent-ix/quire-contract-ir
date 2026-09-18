@@ -26,7 +26,11 @@ contract version is refused with a typed `unknown_contract_version` code.
 
 ## Inputs
 
-Untrusted wire bytes; caller-selected read limits; package evidence holding
+Untrusted wire bytes; caller-selected read limits, for which the crate ships one
+named finite default appropriate to a single local request — 1048576 bytes, 128
+nesting levels, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics
+and 1000000 term-validation visits — as stable API, every member finite so that
+the default admits no unbounded read; package evidence holding
 the authoritative raw-artifact digests (from supplied bytes or a verified
 digest store), the authoritative `sha256-jcs` domain-package digests, and the
 reader-supported required features; for lowering, requested node keys and a
@@ -43,8 +47,20 @@ vendored byte-exact under `tests/fixtures/checked-package/` with a
 
 - A closed read result: admitted, refused (typed code and structural path) or
   incomplete (limit kind, limit, consumed).
-- One lowering record per requested item: `lowered`, `unsupported`,
-  `requires_bound`, `invalid_input` or `failed`.
+- One lowering record per requested item, drawn from a closed seven-member
+  vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
+  `failed`, `invalid_body` and `body_incomplete`. The last two are defensive:
+  they report a body that refuses or stops at a validation limit during the
+  lowering walk rather than guessing past it, so the work count and the closure
+  stay exact. A package this reader admitted never yields either, and lowering
+  every node of every admitted package is required to produce neither — but a
+  consumer written to the vocabulary shall handle all seven, because a record
+  kind that exists and is undeclared is a consumer that is incomplete by
+  construction.
+- The lowering result carries the admitted package's `package_id` alongside the
+  records. It is not an aggregate package artifact; see
+  [FR-035](./FR-035-complete-v1-contract-package-lowering.md) for the
+  `ContractPackage` obligation, which this path does not discharge.
 
 ## Behavior
 
@@ -90,6 +106,44 @@ carries the node, its exact source-map entries, semantic type, reachable
 dependency keys, bounding domain keys, reachable claim keys and a
 `quire.contract-ir.semantic/v1` digest. A non-lowered record carries no node.
 
+The lowerer shall select each request's single record under this total order, so
+that a request satisfying two conditions has one determined outcome rather than
+a traversal-dependent one:
+
+1. The per-request work unit is charged first. A work limit that unit alone
+   exceeds returns `failed` before the requested key is looked up, so a zero
+   work limit returns `failed` and not `invalid_input`.
+2. An absent node key returns `invalid_input`.
+3. Work is then charged per visited node, per body term and per successor edge;
+   exceeding the limit at any charge returns `failed`.
+4. Over the completed closure, `unsupported` is decided before `requires_bound`
+   and wins outright: a closure holding both an out-of-profile tag and an
+   unbounded type returns `unsupported`.
+5. `requires_bound` is decided last, and only when the profile requires bounds.
+
+Where a record names the "first" offending node, first shall mean the least
+`node_id` in ascending key order over the whole closure, not the first node the
+traversal reached. A record therefore never depends on visit order.
+
+A reachable type is unbounded exactly when its family and semantic form are a
+`scalar_type` of form `integer`, `rational`, `decimal` or `text`, or a
+`composite_type` of form `sequence`, `set`, `bag` or `ordered_set`. No other
+family and no other form of those two families is unbounded, so `boolean`,
+`float32`, `float64`, `dimension`, `unit`, `enum`, `option`, `record`, `tuple`,
+`alias` and `reference` never raise `requires_bound`. A type is bounded when the
+closure holds a reachable `bounded_domain` node whose `semantic_type` is that
+type's key.
+
+A lowered record's `dependencies` shall be every node key reachable from the
+requested node excluding the requested node itself, in ascending key order.
+The lowerer shall derive `bounds` and `claims` as filtered views of that same
+reachable set — `bounded_domain` nodes and `claim` nodes respectively — and not
+as a partition of it: every key in `bounds` and every key in `claims` also
+appears in
+`dependencies`. The `quire.contract-ir.lowered-node/v1` preimage carries all
+three lists as written, so an independent re-derivation of `ir_id` that treats
+the three as disjoint disagrees byte for byte.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -100,6 +154,9 @@ dependency keys, bounding domain keys, reachable claim keys and a
 | FR-038-AC-4 | The recomputed package id equals each vendored fixture id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every vendored node-identity vector re-derives its recorded digest; a package carrying every vector admits; every vendored invalid mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records. | Test (TC-050) |
+| FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any vendored fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself — no vendored fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
+| FR-038-AC-7 | Lowering every node of every vendored fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
+| FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
 
 ## Dependencies
 

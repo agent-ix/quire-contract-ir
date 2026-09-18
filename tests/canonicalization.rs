@@ -79,6 +79,7 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
 /// FR-016-AC-1.
 /// FR-016-AC-2.
 /// FR-016-AC-3.
+/// FR-016-AC-4.
 /// NFR-001-AC-1.
 #[test]
 fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
@@ -182,6 +183,34 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
         DiagnosticCode::UnregisteredMigration
     );
 
+    // FR-016-AC-4: the budget-free form is the budgeted form at u64::MAX, for
+    // every one of the five closed object kinds, and a budget never changes
+    // the bytes a successful call produces.
+    let requirement = &package.requirements()[0];
+    let clause = &requirement.clauses()[0];
+    assert_eq!(
+        package.canonical_package(CanonicalProfile::V1).unwrap(),
+        package
+            .canonical_package_with_limit(CanonicalProfile::V1, u64::MAX)
+            .unwrap()
+    );
+    assert_eq!(
+        package
+            .canonical_requirement(requirement, CanonicalProfile::V1)
+            .unwrap(),
+        package
+            .canonical_requirement_with_limit(requirement, CanonicalProfile::V1, u64::MAX)
+            .unwrap()
+    );
+    assert_eq!(
+        package
+            .canonical_clause(requirement, clause, CanonicalProfile::V1)
+            .unwrap(),
+        package
+            .canonical_clause_with_limit(requirement, clause, CanonicalProfile::V1, u64::MAX)
+            .unwrap()
+    );
+
     let exhausted = package
         .canonical_package_with_limit(CanonicalProfile::V1, 0)
         .unwrap_err();
@@ -221,6 +250,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
 /// Tracing: TC-017.
 /// StR-002-VC-2.
 /// FR-016-AC-1.
+/// FR-016-AC-4.
 #[test]
 fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
     let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
@@ -383,6 +413,14 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             .canonical_declaration(CanonicalProfile::V1)
             .unwrap()
     );
+    // FR-016-AC-4: the declaration budget-free form is the budgeted form at
+    // u64::MAX.
+    assert_eq!(
+        declaration,
+        environment
+            .canonical_declaration_with_limit(CanonicalProfile::V1, u64::MAX)
+            .unwrap()
+    );
     let declaration_text = std::str::from_utf8(declaration.bytes().as_slice()).unwrap();
     assert_eq!(declaration.kind(), CanonicalKind::Declaration);
     assert!(declaration_text.find("alpha").unwrap() < declaration_text.find("zeta").unwrap());
@@ -425,6 +463,14 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
     assert_eq!(
         exhausted_expression.span.as_deref(),
         Some(typed.expression().source())
+    );
+    // FR-016-AC-4: the expression budget-free form is the budgeted form at
+    // u64::MAX, completing all five closed object kinds.
+    assert_eq!(
+        expression_output,
+        typed
+            .canonical_expression_with_limit(CanonicalProfile::V1, u64::MAX)
+            .unwrap()
     );
     let expression_text = std::str::from_utf8(expression_output.bytes().as_slice()).unwrap();
     assert_eq!(

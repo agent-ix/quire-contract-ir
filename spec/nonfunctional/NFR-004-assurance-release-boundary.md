@@ -36,8 +36,9 @@ workflow.
 | NFR-004-AC-1 | Cargo publication is disabled, every workspace crate declares `AGPL-3.0-or-later`, the AGPL-3.0 license text is present, and CI has no automatic trigger. | Test (TC-014) |
 | NFR-004-AC-2 | The five assurance artifacts name decision, system, component, measurement, failure, evidence, and human-owner boundaries. | Test (TC-020) |
 | NFR-004-AC-3 | The implementation plan keeps dependency-blocked children pending and records every composite-review dimension. | Test (TC-021) |
-| NFR-004-AC-5 | Every completed matrix row and PGM acceptance citation resolves to a completed test case with a declared test symbol; the status validator's real-tree failure path is exercised. Criterion-to-symbol backing remains Quire's responsibility. | Test (TC-021) |
+| NFR-004-AC-5 | Every completed matrix row and PGM acceptance citation resolves to a completed test case with a declared test symbol; the status validator's real-tree failure path is exercised. Whether a cited criterion is itself verified by a real test remains Quire's responsibility; this repository owns only which criteria a row must cite (NFR-004-AC-7). | Test (TC-021) |
 | NFR-004-AC-6 | Native `ci` and `release-check` orchestration invokes every declared local gate and propagates a nonzero tool exit from each; controls detect omitted lanes and Make error suppression without interpreting tool console output. The manual hosted workflow is explicitly identified as a subset, not full release qualification. | Test (TC-021) |
+| NFR-004-AC-7 | Every completed functional or non-functional matrix row cites exactly its requirement's live acceptance criteria: an omitted live criterion or a cited unknown-or-retired one fails closed, scoped by the table each row lives in so the non-functional table's verify-by-method rows are not required to name a criterion id, and a functional row citing zero criteria fails exactly as one citing a wrong subset does — citing nothing is not a silent pass. | Test (TC-021) |
 
 ### Retired criteria
 

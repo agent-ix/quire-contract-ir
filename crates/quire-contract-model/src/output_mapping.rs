@@ -171,6 +171,14 @@ macro_rules! mapping_error_codes {
     };
 }
 
+// Declaration order here is not incidental: STD-003 requires
+// `MappingRequestErrorCode::ALL` and the registry's rows to be the same set
+// in the same order (`spec/contract/STD-003-output-mapping-refusal-registry.md`),
+// and the "Unresolved-obligation precedence" section states the
+// foreign/stale/unknown order explicitly. This declaration mirrors the
+// registry's three groups — Request Admission (FR-032), Accounting and
+// Mapper-Seam (FR-033), Package Assembly (FR-034) — in the registry's exact
+// row order; TC-051 fails closed if the two drift apart again.
 mapping_error_codes! {
     InvalidDigest => "invalid_digest",
     InvalidSourceSelection => "invalid_source_selection",
@@ -184,10 +192,11 @@ mapping_error_codes! {
     EmptyObligationSelection => "empty_obligation_selection",
     DuplicateObligation => "duplicate_obligation",
     InformationalObligation => "informational_obligation",
-    UnknownObligation => "unknown_obligation",
     ForeignObligation => "foreign_obligation",
     StaleObligation => "stale_obligation",
+    UnknownObligation => "unknown_obligation",
     ObligationOrderMismatch => "obligation_order_mismatch",
+    InvalidQualifiedReference => "invalid_qualified_reference",
     RequestLimitExceeded => "request_limit_exceeded",
     ObligationLimitExceeded => "obligation_limit_exceeded",
     ExpressionNodeLimitExceeded => "expression_node_limit_exceeded",
@@ -198,14 +207,13 @@ mapping_error_codes! {
     ArithmeticOverflow => "arithmetic_overflow",
     AllocationFailed => "allocation_failed",
     Cancelled => "cancelled",
-    InvalidQualifiedReference => "invalid_qualified_reference",
-    InvalidOutputRegion => "invalid_output_region",
+    ZeroMappingWork => "zero_mapping_work",
     DuplicateDependency => "duplicate_dependency",
     InvalidDisposition => "invalid_disposition",
-    ZeroMappingWork => "zero_mapping_work",
     CandidateObligationMismatch => "candidate_obligation_mismatch",
     CandidateSourceStateMismatch => "candidate_source_state_mismatch",
     MapperFailed => "mapper_failed",
+    InvalidOutputRegion => "invalid_output_region",
     InvalidGenerator => "invalid_generator",
     InvalidObserver => "invalid_observer",
     PackagePopulationMismatch => "package_population_mismatch",

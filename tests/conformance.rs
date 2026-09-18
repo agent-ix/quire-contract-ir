@@ -141,12 +141,14 @@ fn tc_018_normative_manifest_schema_rejects_shape_mutations() {
     }
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-3, FR-019-AC-1, FR-020-AC-1.
+/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-3, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1, FR-020-AC-3.
 /// TC-019.
 /// FR-018-AC-1.
 /// FR-018-AC-3.
 /// FR-019-AC-1.
+/// FR-019-AC-3.
 /// FR-020-AC-1.
+/// FR-020-AC-3.
 #[test]
 fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     let root = repository();
@@ -174,6 +176,69 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     let inventory: Vec<String> =
         serde_json::from_slice(&fs::read(corpus.join("inventory.json")).unwrap()).unwrap();
     assert_eq!(inventory, expected_inventory());
+
+    // FR-019-AC-3: hex_digest renders SHA-256 as exactly 64 lowercase hex
+    // characters, for empty and non-empty input alike.
+    for probe in [b"".as_slice(), b"contract-ir".as_slice()] {
+        let rendered = quire_contract_ir::hex_digest(probe);
+        assert_eq!(rendered.len(), 64);
+        assert!(rendered
+            .chars()
+            .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character)));
+    }
+    assert_eq!(
+        quire_contract_ir::hex_digest(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+
+    // FR-019-AC-3: expected_inventory is exactly the five published registries
+    // under their five stable prefixes, sorted, and nothing else.
+    let mut rebuilt = quire_contract_ir::PUBLIC_CONSTRUCT_TAGS
+        .iter()
+        .map(|tag| format!("construct:{tag}"))
+        .chain(
+            DiagnosticCode::ALL
+                .iter()
+                .map(|code| format!("diagnostic:{}", code.as_str())),
+        )
+        .chain(
+            [
+                "option_presence",
+                "non_zero_divisor",
+                "index_in_bounds",
+                "checked_range",
+            ]
+            .iter()
+            .map(|obligation| format!("obligation:{obligation}")),
+        )
+        .chain(
+            quire_contract_ir::CONFORMANCE_BOUNDARIES
+                .iter()
+                .map(|boundary| format!("boundary:{boundary}")),
+        )
+        .chain(
+            quire_contract_ir::ConformanceOperation::ALL
+                .iter()
+                .map(|operation| format!("operation:{}", operation.as_str())),
+        )
+        .collect::<Vec<_>>();
+    rebuilt.sort();
+    let published = expected_inventory();
+    assert_eq!(published, rebuilt);
+    assert!(published.windows(2).all(|pair| pair[0] < pair[1]));
+
+    // FR-020-AC-3: the two limits the runner enforces per file and per
+    // manifest are exact, and the per-file limit is strictly below the total
+    // preload budget, so no single file can exhaust a run on its own.
+    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES, 16_777_216);
+    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FIXTURES, 10_000);
+    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES, 67_108_864);
+    const {
+        assert!(
+            quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES
+                < quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES
+        );
+    }
     assert!(PUBLIC_CONSTRUCT_TAGS
         .windows(2)
         .all(|pair| pair[0] < pair[1]));
