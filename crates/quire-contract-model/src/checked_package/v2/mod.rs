@@ -1434,10 +1434,10 @@ fn validate_graph(
             // `aggregate` member, a `binding` value or an `application`
             // argument reports the same `BODY_TYPE_PATH` but with
             // `is_body_root: false`, and does not qualify — nor does a
-            // `reference` body, an `application.result_type`, or a frame
-            // array self-referencing a self-typed node. Every one of those
-            // still resolves through `recursion_group` or refuses, exactly
-            // like every other 1-node cycle.
+            // `reference` body or an `application.result_type`
+            // self-referencing a self-typed node. Both still resolve through
+            // `recursion_group` or refuse, exactly like every other 1-node
+            // cycle reached by this loop.
             let is_self_typed_literal_type =
                 site.is_body_root && site.path == BODY_TYPE_PATH && semantic_type == position;
             if target != position || !is_self_typed_literal_type {
@@ -1637,7 +1637,7 @@ fn validate_diagnostics(
     for entry in &wire.diagnostics.entries {
         for detail in &entry.details {
             let mut resolved = true;
-            let work = validate_term(detail, TermGrammar::V2, true, &mut |target, _site| {
+            let work = validate_term(detail, TermGrammar::V2, false, &mut |target, _site| {
                 resolved &= nodes.contains(target);
             })?;
             meter.charge(work)?;

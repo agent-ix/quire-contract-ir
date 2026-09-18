@@ -1489,7 +1489,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// Tracing: TC-048, FR-038-AC-18
 #[trace("TC-048", "FR-038-AC-18")]
 #[test]
-fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
+fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     let base = v2_all_families();
     let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
     let other_id = base["semantic_graph"]["nodes"][1]["semantic_type"].clone();
@@ -1507,22 +1507,6 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
             )
         );
     };
-
-    // Positive: a self-typed node's own body-root `literal.type`
-    // self-reference is the carve-out's intended case and admits with no
-    // `recursion_group`.
-    let mut literal_type = base.clone();
-    literal_type["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
-    literal_type["semantic_graph"]["nodes"][1]["body"] = json!({
-        "term": "literal", "type": own_id, "value_kind": "integer", "value": 1
-    });
-    refresh_identity(&mut literal_type);
-    let package = admitted(&literal_type);
-    assert_eq!(
-        package.graph().nodes[1].recursion_group,
-        None,
-        "a self-typed literal.type self-reference is not a cycle"
-    );
 
     // Negative: a self-typed node whose body is a `reference` term naming
     // itself is a genuine 1-node cycle, not the carve-out's case. The carve-
@@ -1569,21 +1553,52 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
         ]
     }));
 
-    // Positive: a nested `literal.type` typed by some *other* node, not
-    // self, inside an `aggregate` member is an ordinary resolvable
-    // reference — proof the narrowing to `is_body_root` did not start
-    // refusing ordinary nested literals.
-    let mut nested_other_typed = base.clone();
-    nested_other_typed["semantic_graph"]["nodes"][1]["body"] = json!({
+    // Negative: a self-typed node whose body-root `application.result_type`
+    // names itself is the same genuine 1-node cycle as the `reference` body
+    // case above — `application.result_type` is never exempt, whether or not
+    // the argument is itself self-referencing.
+    assert_self_cycle_refused(json!({
+        "term": "application",
+        "operator": "call",
+        "operation": {
+            "identity": "quire.op.function.call",
+            "laws": [],
+            "mode": null,
+            "member": null,
+            "leaves": []
+        },
+        "result_type": own_id,
+        "arguments": [
+            {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
+        ]
+    }));
+
+    // Positive: a self-typed node's own body-root `literal.type`
+    // self-reference is the carve-out's intended case and admits with no
+    // `recursion_group`; the same package also carries a sibling node whose
+    // nested `literal.type` names a *different* node — one admission
+    // exercising both the exempt body-root case and an ordinary nested
+    // reference the narrowing must not disturb.
+    let mut literal_type = base.clone();
+    literal_type["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
+    literal_type["semantic_graph"]["nodes"][1]["body"] = json!({
+        "term": "literal", "type": own_id, "value_kind": "integer", "value": 1
+    });
+    literal_type["semantic_graph"]["nodes"][2]["body"] = json!({
         "term": "aggregate",
         "members": [
             {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
         ]
     });
-    refresh_identity(&mut nested_other_typed);
-    let package = admitted(&nested_other_typed);
+    refresh_identity(&mut literal_type);
+    let package = admitted(&literal_type);
     assert_eq!(
         package.graph().nodes[1].recursion_group,
+        None,
+        "a self-typed literal.type self-reference is not a cycle"
+    );
+    assert_eq!(
+        package.graph().nodes[2].recursion_group,
         None,
         "a nested literal typed by a different node is not a cycle"
     );
