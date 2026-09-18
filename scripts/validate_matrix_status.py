@@ -174,15 +174,17 @@ def validate_criterion_citations(
         live = set(declared[row[0]])
         if not live:
             continue
-        if NON_FUNCTIONAL_SECTION in section.lower():
+        cited = cited_criteria(row[0], row[1])
+        if NON_FUNCTIONAL_SECTION not in section.lower():
             # The non-functional table verifies by method, not by criterion
             # id, so it names no criterion at all, by design — keyed on the
             # table the row lives in, not on whether the row is empty, so a
-            # functional row that cites nothing still fails below.
-            continue
-        cited = cited_criteria(row[0], row[1])
-        for criterion in sorted(live - cited):
-            failures.append(f"{row[0]} omits live criterion {criterion}")
+            # functional row that cites nothing still fails below. This
+            # exemption covers only the omission direction: a non-functional
+            # row that does cite a criterion is still held to naming a live
+            # one, below.
+            for criterion in sorted(live - cited):
+                failures.append(f"{row[0]} omits live criterion {criterion}")
         for criterion in sorted(cited - live):
             failures.append(f"{row[0]} cites unknown or retired criterion {criterion}")
     return failures

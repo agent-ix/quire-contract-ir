@@ -219,6 +219,31 @@ fn tc_049_not_a_test() {}
             ],
         )
 
+    def test_rejects_non_functional_rows_that_cite_a_retired_criterion(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-7.
+
+        NFR-004-AC-7's omission exemption for the non-functional table is
+        scoped to the naming direction only: such a row need not name a live
+        criterion at all. It is not scoped away from the unknown-or-retired
+        direction — a non-functional row that does cite a criterion id must
+        still cite one that is live, the same as a functional row.
+        """
+        declared = {"NFR-004": ["NFR-004-AC-1"]}
+        cites_retired_and_unknown = """
+## Non-Functional Requirement Coverage
+
+| Non-Functional Req | Acceptance Criteria | Test Cases | Status |
+|---|---|---|---|
+| NFR-004 | NFR-004-AC-4, NFR-004-AC-99 | TC-021 | OK |
+"""
+        self.assertEqual(
+            validate_criterion_citations([cites_retired_and_unknown], declared),
+            [
+                "NFR-004 cites unknown or retired criterion NFR-004-AC-4",
+                "NFR-004 cites unknown or retired criterion NFR-004-AC-99",
+            ],
+        )
+
     def test_retired_criteria_are_not_live(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5."""
         # Every FR-001, FR-009 and FR-022 criterion under a `Retired criteria`
