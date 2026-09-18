@@ -772,23 +772,34 @@ fn validate_lock(
             "lock.definition_selections",
         )?;
     }
-    // Schema `uniqueItems: true` on `model_selections` is whole-item
-    // equality (identity, version, digest_domain and digest all equal), not
-    // identity/version locator equality, so two entries pinning the same
-    // package to different digests are distinct items here. Only the lock's
-    // copy is checked: the `same_non_graph_lock` equality above already
-    // requires `identity_preimage.model_selections` to equal
-    // `lock.model_selections` element-for-element, so a lock free of
-    // duplicates guarantees the mirrored preimage is too.
+    // Structural validity is checked before semantic validity, across the
+    // whole array: a `model_selections` array that repeats an entry
+    // (identity, version, digest_domain and digest all equal — whole-item
+    // equality, matching the schema's `uniqueItems`; two entries pinning the
+    // same package to different digests are distinct items) is a defect in
+    // the shape of the wire and refuses before any entry's digest is
+    // evaluated against evidence, a defect in what the wire refers to.
+    // Evidence for an already-malformed array is not meaningful to check, so
+    // this order — not the reverse, and not interleaved per entry — is what
+    // keeps the outcome for an array carrying both defects independent of
+    // which one comes first in the array. Only the lock's copy is checked:
+    // the `same_non_graph_lock` equality above already requires
+    // `identity_preimage.model_selections` to equal `lock.model_selections`
+    // element-for-element, so a duplicate-free lock guarantees the mirrored
+    // preimage is too.
     let mut models = BTreeSet::new();
+    if !lock
+        .model_selections
+        .iter()
+        .all(|model| models.insert(model))
+    {
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            "lock.model_selections",
+        ));
+    }
     for model in &lock.model_selections {
         validate_domain_package(model, evidence)?;
-        if !models.insert(model) {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                "lock.model_selections",
-            ));
-        }
     }
     let mut features = BTreeSet::new();
     if !lock

@@ -1171,6 +1171,56 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     );
 }
 
+/// The uniqueness check runs over the whole `model_selections` array before
+/// any entry's digest is evaluated against evidence, so an array carrying
+/// both a repeated entry and an entry the evidence does not attest refuses
+/// as `malformed_wire` regardless of which defect appears first.
+///
+/// Tracing: TC-048, FR-038-AC-11
+#[trace("TC-048", "FR-038-AC-11")]
+#[test]
+fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position() {
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    // Evidence attests only the single "test/orders" selection, so a third
+    // entry naming a different identity is never attested — it is stale
+    // wherever it appears in the array.
+    let evidence = evidence_for(&single);
+    let stale_entry = json!({
+        "identity": "test/other", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let duplicate_before_stale = model_owned_package(
+        owner.clone(),
+        json!([
+            domain_package("test/orders"),
+            domain_package("test/orders"),
+            stale_entry.clone()
+        ]),
+    );
+    let stale_before_duplicate = model_owned_package(
+        owner,
+        json!([
+            stale_entry,
+            domain_package("test/orders"),
+            domain_package("test/orders")
+        ]),
+    );
+    for (name, package) in [
+        ("duplicate before stale", &duplicate_before_stale),
+        ("stale before duplicate", &stale_before_duplicate),
+    ] {
+        assert_eq!(
+            refused(package, &evidence),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "lock.model_selections"
+            ),
+            "{name}: the uniqueness check runs over the whole array before any digest is evaluated"
+        );
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]

@@ -79,13 +79,21 @@ require the preimage's lock members to equal the lock, and require its
 graph order. It shall check each digest's declared domain before its bytes,
 each locked source/definition byte digest against the package evidence's raw
 artifact digests and each selected `sha256-jcs` domain package digest against
-its separately typed domain package evidence, refuse a `model_selections`
-array that repeats an entry (identity, version, digest domain and digest all
-equal) exactly as it refuses a repeated `required_features` entry, every
-required feature against the reported `available` capability and the
-reader-supported feature set, every node tag, family form and semantic term,
-reference and dependency resolution, cycles outside one explicit
-`recursion_group`, and the total source map.
+its separately typed domain package evidence, every required feature against
+the reported `available` capability and the reader-supported feature set,
+every node tag, family form and semantic term, reference and dependency
+resolution, cycles outside one explicit `recursion_group`, and the total
+source map.
+
+For `model_selections`, structural validity is checked before semantic
+validity, across the whole array, so the outcome never depends on where in
+the array a defect sits: the reader shall first refuse, as `malformed_wire`
+at `lock.model_selections`, an array that repeats an entry anywhere in it
+(identity, version, digest domain and digest all equal), and only once no
+entry repeats shall it evaluate any entry's digest against the domain package
+evidence. An array carrying both a repeated entry and an entry whose digest
+the evidence does not attest therefore always refuses as `malformed_wire`,
+never as `stale_dependency`, regardless of which defect appears first.
 
 When a node is an enum declaration, enum member, dimension or declared unit, the
 reader shall reconstruct the closed nominal preimage, require
@@ -160,6 +168,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-7 | Lowering every node of every vendored fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
 | FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing identity and version but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
+| FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest the package evidence does not attest refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is evaluated against evidence, so the outcome does not depend on array position. | Test (TC-048) |
 
 ## Dependencies
 

@@ -42,4 +42,5 @@ changed reader obligation, and it is a generalization of one already held: "a re
 unrecognized `contract_version`" replaces "a V2 reader refuses a V1 contract version". The
 unchanged `unknown_contract_version` refusal code and FR-322-AC-4 already required it. FR-201-AC-5
 and AC-7, FR-322-AC-11/AC-12/AC-16, and interface_004's migration types and `relink_v1_to_v2`
-operation were all removed with the upstream V1 deletion; nothing here may cite them.
+operation were all removed with the upstream V1 deletion; no current requirement or plan artifact
+may cite them, though the dated SR-581 record retains them as history.
