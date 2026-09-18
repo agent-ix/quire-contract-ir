@@ -1112,7 +1112,8 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     // A verbatim repeat (identity, version, digest_domain and digest all
     // equal) violates the schema's `uniqueItems` on `model_selections`;
     // `model_owned_package` mirrors the lock into the identity preimage via
-    // `refresh_identity`, so the repeat is present in both members at once.
+    // `refresh_identity`, so the repeat is present in both members at once
+    // and reaches the new uniqueness check.
     let duplicated = model_owned_package(
         owner.clone(),
         json!([domain_package("test/orders"), domain_package("test/orders")]),
@@ -1124,6 +1125,29 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     assert_eq!(
         refused(&duplicated, &evidence_for(&duplicated)),
         refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+    );
+
+    // The same repeat, confined to the lock and left unmirrored in the
+    // identity preimage, never reaches that check: `same_non_graph_lock`
+    // requires `identity_preimage.model_selections` to equal
+    // `lock.model_selections` element-for-element before either is examined
+    // further, and a two-entry lock against a one-entry preimage fails that
+    // equality first.
+    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    let mut lock_only = single.clone();
+    lock_only["lock"]["model_selections"] =
+        json!([domain_package("test/orders"), domain_package("test/orders")]);
+    assert!(
+        !schema.is_valid(&lock_only),
+        "uniqueItems still rejects the lock's own repeat"
+    );
+    assert_ne!(
+        lock_only["lock"]["model_selections"], lock_only["identity_preimage"]["model_selections"],
+        "the repeat is confined to the lock, not mirrored into the preimage"
+    );
+    assert_eq!(
+        refused(&lock_only, &evidence_for(&lock_only)),
+        refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
     );
 
     // Two selections sharing identity and version but differing in digest

@@ -1,12 +1,15 @@
 Vendored QSpec I04 CheckedPackage publication inputs (byte-exact, unmodified).
 
 repository: https://github.com/agent-ix/quire-specification
-commit: 56c3e0b (CheckedPackage V1 and every migration surface removed upstream)
+commit: 56c3e0b40a5eacf35df556c87d5e96d5eae5fe9b (CheckedPackage V1 and every
+  migration surface removed upstream)
 previously vendored at: 5626bc8fcfc2c280e6486aa9757930d8d87add06 (merged PR #78); between the two
   commits only checked-package-v2/README.md and schema.json changed among the blobs below.
   schema.json carries one normative change: `model_selections` gains `"uniqueItems": true` in
   both `PackageLock` and `IdentityPreimage`, so a duplicate domain package selection is refused.
-  README.md changed only by deletion of the V1 and migration paragraphs.
+  README.md changed by deletion of the V1 and migration paragraphs and by
+  editing one retained line, "add no CheckedPackage V1 or V2 wire member" to
+  "add no CheckedPackage V2 wire member".
 retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
 verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
 
