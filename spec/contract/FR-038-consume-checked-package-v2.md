@@ -85,11 +85,13 @@ every node tag, family form and semantic term, reference and dependency
 resolution, cycles outside one explicit `recursion_group`, and the total
 source map.
 
-For `model_selections`, structural validity is checked before semantic
-validity, across the whole array, so the outcome never depends on where in
-the array a defect sits: the reader shall first refuse, as `malformed_wire`
-at `lock.model_selections`, an array that repeats an entry anywhere in it
-(identity, version, digest domain and digest all equal), and only once no
+For `model_selections`, whole-array uniqueness is checked before any entry's
+digest is evaluated against evidence, so an array carrying both a repeated
+entry and an entry the evidence does not attest has one determined outcome
+rather than a position-dependent one: the reader shall first refuse, as
+`malformed_wire` at `lock.model_selections`, an array that repeats an entry
+anywhere in it (identity, version, digest domain and digest all equal), and
+only once no
 entry repeats shall it evaluate any entry's digest against the domain package
 evidence. An array carrying both a repeated entry and an entry whose digest
 the evidence does not attest therefore always refuses as `malformed_wire`,
