@@ -27,8 +27,18 @@ limits, and exact upstream revision/profile identities.
 
 ## Outputs
 
-A canonical `ContractPackage` plus exactly one of `lowered`, `unsupported`,
-`requires_bound`, `invalid_input`, or `failed` for every requested item.
+A canonical `ContractPackage` plus exactly one record for every requested item,
+drawn from the closed seven-member vocabulary
+[FR-038](./FR-038-consume-checked-package-v2.md) declares: `lowered`,
+`unsupported`, `requires_bound`, `invalid_input`, `failed`, `invalid_body` and
+`body_incomplete`.
+
+The `ContractPackage` half of this output is a separate obligation from the
+per-item records and is stated here so that it has an acceptance criterion that
+can fail. It is not currently produced: the V2 lowering path returns the item
+records alongside the admitted `package_id` and assembles no package artifact,
+which is [issue #110](https://github.com/agent-ix/quire-contract-ir/issues/110).
+Until that issue closes, FR-035-AC-5 is unbacked and the matrix says so.
 
 ## Behavior
 
@@ -52,6 +62,7 @@ change a source/type/anchor/bound, or affect a sibling disposition.
 | FR-035-AC-2 | Mutation of source, type, anchor, identity, bound, dependency, or version refuses before a backend artifact is emitted. | Test (TC-044) |
 | FR-035-AC-3 | Mixed supported and unsupported requests retain independent sibling records and expose no placeholder semantics. | Test (TC-044) |
 | FR-035-AC-4 | Every reference resolves by stable identity to a reachable version-compatible node and every represented node has exact source correspondence. | Test (TC-044) |
+| FR-035-AC-5 | One lowering call over a mixed request emits a single canonical cycle-free versioned `ContractPackage` carrying every `lowered` node of that call, whose canonical bytes and digest are stable across repeated identical calls and change when any represented node changes. | Test (TC-047) |
 
 ## Dependencies
 
