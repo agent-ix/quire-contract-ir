@@ -283,6 +283,7 @@ fn validate_owner(
     require(joined)
 }
 
+/// ASCII identifier grammar shared with the closed `Declaration` member.
 fn is_identifier(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes
@@ -291,8 +292,24 @@ fn is_identifier(value: &str) -> bool {
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
-fn validate_qualified_name(name: &[Box<str>]) -> Result<(), ValidationFailure> {
-    require(!name.is_empty() && name.iter().all(|segment| is_identifier(segment)))
+/// A nonempty qualified name whose every segment is an ASCII identifier.
+/// Shared by the three nominal preimage kinds that carry one (each call
+/// passing this module's own `PATH`) and by `super::validate_declaration`'s
+/// `Declaration.qualified_name` check (passing its own path), so the
+/// grammar is checked in exactly one place regardless of which member holds
+/// the name.
+pub(super) fn validate_qualified_name(
+    name: &[Box<str>],
+    path: &'static str,
+) -> Result<(), ValidationFailure> {
+    if !name.is_empty() && name.iter().all(|segment| is_identifier(segment)) {
+        Ok(())
+    } else {
+        Err(ValidationFailure::Refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            path,
+        ))
+    }
 }
 
 /// `^(0|-?[1-9][0-9]*)$`; returns the unsigned magnitude.
@@ -328,7 +345,7 @@ fn validate_enum_declaration(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&declaration.owner, lock)?;
-    validate_qualified_name(&declaration.qualified_declaration)?;
+    validate_qualified_name(&declaration.qualified_declaration, PATH)?;
     require(!declaration.members.is_empty())?;
     let mut seen = BTreeSet::new();
     for member in &declaration.members {
@@ -361,9 +378,15 @@ fn validate_enum_member(
     require(declaration.members.contains(&member.case))?;
     require(node.semantic_type == member.declaration_node_id)?;
     require(node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id))?;
+    let declared_type = serde_json::to_value(&member.declaration_node_id).map_err(|_| invalid())?;
     require(
         node.body
-            == json!({"term": "literal", "value_kind": "enum", "value": member.case.as_ref()}),
+            == json!({
+                "term": "literal",
+                "type": declared_type,
+                "value_kind": "enum",
+                "value": member.case.as_ref(),
+            }),
     )
 }
 
@@ -375,7 +398,7 @@ fn validate_dimension(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&dimension.owner, lock)?;
-    validate_qualified_name(&dimension.qualified_declaration)?;
+    validate_qualified_name(&dimension.qualified_declaration, PATH)?;
     require(node.semantic_type == node.node_id)?;
     let mut keys = Vec::with_capacity(dimension.terms.len());
     let mut bases = BTreeSet::new();
@@ -415,7 +438,7 @@ fn validate_unit(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     validate_owner(&unit.owner, lock)?;
-    validate_qualified_name(&unit.qualified_declaration)?;
+    validate_qualified_name(&unit.qualified_declaration, PATH)?;
     require(matches!(
         graph.preimage(&unit.dimension_node_id),
         Some(NominalIdentityPreimage::Dimension(_))
