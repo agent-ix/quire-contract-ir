@@ -8,7 +8,7 @@
 use quire_contract_ir::{
     CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
-    CheckedPackageRefusalCode,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -19,20 +19,25 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
 /// Exact read-limits `work` boundary that admits `v2_all_families()`: body
 /// terms 35 (the sum of each of the 26 nodes' own `validate_body` charge) +
-/// graph edges 42 (every `semantic_type`, `dependencies` and body-reference
-/// edge the Tarjan recursion walk in `validate_recursion` traverses, one
-/// charge per edge) = 77. The fixture carries no nominal-form node
-/// (`enum`/`dimension`/`unit`/enum member) and no diagnostics entries, so
-/// neither `validate_nominal_nodes` nor `validate_diagnostics` charges
-/// anything here; a fixture that gained either would need its own added term
-/// in this sum. Cross-checked against `CheckedPackageV2::read`'s real
-/// admit/refuse boundary by `tc_048_v2_reader_reports_exact_and_one_over_limits`
-/// and `tc_048_shipped_default_read_limits_are_exact_and_finite`, so a drift
+/// graph edges 38 (every `semantic_type` and `dependencies` edge the Tarjan
+/// recursion walk in `validate_recursion` traverses, one charge per edge) =
+/// 73. Frame body member entries (`modifies`/`creates`/`deletes`) are
+/// declared dependencies, not independent successor edges — FR-340 frame
+/// semantics resolve them against `dependencies` alone, so
+/// `validate_frame_body` does not forward them to Loop 2's successor
+/// collection and they carry no separate edge charge here. The fixture
+/// carries no nominal-form node (`enum`/`dimension`/`unit`/enum member) and
+/// no diagnostics entries, so neither `validate_nominal_nodes` nor
+/// `validate_diagnostics` charges anything here; a fixture that gained
+/// either would need its own added term in this sum. Cross-checked against
+/// `CheckedPackageV2::read`'s real admit/refuse boundary by
+/// `tc_048_v2_reader_reports_exact_and_one_over_limits` and
+/// `tc_048_shipped_default_read_limits_are_exact_and_finite`, so a drift
 /// between this hand-derived figure and the reader's actual charge fails
 /// there rather than silently. Shared between `complete_v1_checked_package`
 /// and `checked_package_v2_reader` so a change to the vendored all-families
 /// fixture cannot silently move the boundary in only one of them.
-pub const ALL_FAMILIES_READ_WORK: u64 = 77;
+pub const ALL_FAMILIES_READ_WORK: u64 = 73;
 
 /// Reads one vendored file under `tests/fixtures/checked-package/`.
 pub fn fixture(relative: &str) -> Value {
@@ -404,6 +409,45 @@ pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRef
     CheckedPackageRefusal {
         code,
         path: path.into(),
+        cause: None,
+        locus: None,
+    }
+}
+
+/// A refusal located at a specific graph node (FR-340 frame refusals):
+/// carries the cause tag (absent for a canonical-order defect) and the node
+/// key of the offending entry or node.
+pub fn refusal_at(
+    code: CheckedPackageRefusalCode,
+    path: &str,
+    cause: Option<CheckedPackageRefusalCause>,
+    locus_digest: &str,
+) -> CheckedPackageRefusal {
+    CheckedPackageRefusal {
+        code,
+        path: path.into(),
+        cause,
+        locus: Some(typed_node_id(locus_digest)),
+    }
+}
+
+/// Parses a vendored `frame_mutations` vector's `expected_code`.
+pub fn frame_refusal_code(expected: &str) -> CheckedPackageRefusalCode {
+    match expected {
+        "invalid_semantic_graph" => CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "missing_declaration" => CheckedPackageRefusalCode::MissingDeclaration,
+        "invalid_model_binding" => CheckedPackageRefusalCode::InvalidModelBinding,
+        other => panic!("unknown vendored frame refusal code {other}"),
+    }
+}
+
+/// Parses a vendored `frame_mutations` vector's `expected_cause`.
+pub fn frame_refusal_cause(expected: Option<&str>) -> Option<CheckedPackageRefusalCause> {
+    match expected {
+        None => None,
+        Some("missing-name") => Some(CheckedPackageRefusalCause::MissingName),
+        Some("malformed-declaration") => Some(CheckedPackageRefusalCause::MalformedDeclaration),
+        Some(other) => panic!("unknown vendored frame refusal cause {other}"),
     }
 }
 

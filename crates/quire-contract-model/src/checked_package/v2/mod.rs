@@ -22,8 +22,8 @@ use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -605,6 +605,17 @@ fn refuse(code: CheckedPackageRefusalCode, path: &'static str) -> ValidationFail
     ValidationFailure::Refused(code, path)
 }
 
+/// A refusal located at a specific graph node, carrying the cause this stage
+/// determined (if any) and the node key of the offending entry or node.
+fn refuse_at(
+    code: CheckedPackageRefusalCode,
+    path: &'static str,
+    cause: Option<CheckedPackageRefusalCause>,
+    locus: CheckedNodeId,
+) -> ValidationFailure {
+    ValidationFailure::RefusedAt(code, path, cause, locus)
+}
+
 impl CheckedPackageV2 {
     /// Reads one canonical V2 value without exposing a partial package.
     pub fn read(
@@ -949,10 +960,16 @@ fn validate_declaration(
 /// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
 /// `BodyBindingRules`-selected shape is the closed reference triple
 /// `{term: "frame", modifies, creates, deletes}`, each member a `uniqueItems`
-/// array per the wire schema. This parses, rejects a repeated entry within one
-/// member, and collects reference targets only; frame eligibility, canonical
-/// member order and refusal precedence across a frame's own violations are
-/// not implemented here (FR-340; a later change owns them).
+/// array per the wire schema. This parses and rejects a repeated entry within
+/// one member, but reports no reference targets to the caller: a frame body's
+/// declaration-level meaning comes from `dependencies`, not from independent
+/// successor edges, so its entries never resolve through the generic
+/// reference mechanism `validate_graph`'s Loop 2 uses for every other body
+/// (which would refuse an entry that fails to resolve as
+/// `invalid_semantic_graph`, the wrong code for FR-340's `missing_declaration`).
+/// Entry eligibility, canonical member order and refusal precedence across a
+/// frame's own violations are [`validate_frame_semantics`]'s job, run once
+/// the whole graph's identity and dependency edges are known (FR-340).
 /// Structural path of a frame body's `modifies` array and its entries.
 const BODY_MODIFIES_PATH: &str = "semantic_graph.nodes.body.modifies";
 /// Structural path of a frame body's `creates` array and its entries.
@@ -967,16 +984,13 @@ fn validate_body(
     visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     if tag == CheckedNodeTag::State && form == "frame" {
-        validate_frame_body(body, visit)
+        validate_frame_body(body)
     } else {
         validate_term(body, TermGrammar::V2, visit)
     }
 }
 
-fn validate_frame_body(
-    body: &Value,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
-) -> Result<u64, ValidationFailure> {
+fn validate_frame_body(body: &Value) -> Result<u64, ValidationFailure> {
     const PATH: &str = "semantic_graph.nodes.body";
     let Value::Object(object) = body else {
         return Err(refuse(
@@ -998,7 +1012,7 @@ fn validate_frame_body(
         ("creates", BODY_CREATES_PATH),
         ("deletes", BODY_DELETES_PATH),
     ] {
-        work = work.saturating_add(visit_node_refs(object.get(key), path, visit)?);
+        work = work.saturating_add(visit_node_refs(object.get(key), path, &mut |_, _| {})?);
     }
     Ok(work)
 }
@@ -1043,6 +1057,222 @@ fn visit_node_refs(
         visit(target, path);
     }
     Ok(work)
+}
+
+/// The three frame body members, in the body's own member order — also the
+/// tie-break order FR-340 uses when meaning-join defects tie across members
+/// (`modifies` first, then `creates`, then `deletes`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameMember {
+    Modifies,
+    Creates,
+    Deletes,
+}
+
+impl FrameMember {
+    const ALL: [Self; 3] = [Self::Modifies, Self::Creates, Self::Deletes];
+
+    const fn wire_key(self) -> &'static str {
+        match self {
+            Self::Modifies => "modifies",
+            Self::Creates => "creates",
+            Self::Deletes => "deletes",
+        }
+    }
+
+    const fn path(self) -> &'static str {
+        match self {
+            Self::Modifies => BODY_MODIFIES_PATH,
+            Self::Creates => BODY_CREATES_PATH,
+            Self::Deletes => BODY_DELETES_PATH,
+        }
+    }
+
+    /// FR-340's closed eligibility table (FR-340-AC-1 through AC-4 upstream):
+    /// the single source of truth for which (member, node tag, semantic
+    /// form) triples a frame entry may name. Written as one exhaustive
+    /// `match` over the triple rather than per-member conditionals, so every
+    /// triple `CheckedNodeTag::ALL`/`forms()` can produce is a considered
+    /// decision, never an accidental fallthrough.
+    fn admits(self, tag: CheckedNodeTag, form: &str) -> bool {
+        matches!(
+            (self, tag, form),
+            (Self::Modifies, CheckedNodeTag::Relation, "relationship")
+                | (Self::Modifies, CheckedNodeTag::Model, "field_declaration")
+                | (Self::Creates, CheckedNodeTag::Model, "object_type")
+                | (Self::Creates, CheckedNodeTag::Model, "process")
+                | (Self::Deletes, CheckedNodeTag::Model, "object_type")
+                | (Self::Deletes, CheckedNodeTag::Model, "process")
+        )
+    }
+}
+
+/// One frame body member's entries in wire order (neither deduplicated nor
+/// reordered), so [`frame_defect`] can check FR-340's canonical ascending-
+/// digest order. `validate_frame_body` (Loop 1, earlier in `validate_graph`)
+/// already required this member to be a `uniqueItems` array of well-formed
+/// `NodeRef` objects before the frame stage is ever reached, so this reparse
+/// of the already-admitted body cannot fail.
+fn frame_entries(body: &Value, key: &str) -> Vec<CheckedNodeId> {
+    body.get(key)
+        .and_then(Value::as_array)
+        .expect("frame body member shape already validated by validate_frame_body")
+        .iter()
+        .map(|entry| {
+            serde_json::from_value(entry.clone())
+                .expect("frame body entry shape already validated by validate_frame_body")
+        })
+        .collect()
+}
+
+/// The single refusal FR-340 selects for one frame node's body, or `None`
+/// when the body is admitted. `frame_id` and `frame` are the same node;
+/// `frame_id` is threaded separately because it is the locus of a canonical-
+/// order defect, while a meaning-join defect's locus is the offending entry.
+///
+/// Collects every meaning-join defect (an entry naming no declared
+/// dependency of the frame, or a declared dependency of a meaning its member
+/// does not admit) across all three members, and separately whether any
+/// member's wire order is not strictly ascending by entry digest. Meaning-
+/// join defects always outrank a canonical-order defect; among meaning-join
+/// defects, `(member order, ascending entry digest)` — exactly the sort key
+/// below — selects the one FR-340 reports, so the outcome never depends on
+/// which member an author wrote a defect into, where in its array an entry
+/// sits, or the order this function happens to collect defects in.
+/// One meaning-join defect found while scanning a frame's body: an entry
+/// naming no declared dependency of the frame (including one declared but
+/// resolving to no real node), or a declared dependency of a meaning its
+/// member does not admit. `member_index` and `digest` together are exactly
+/// FR-340's precedence sort key — member group first, then ascending entry
+/// digest — kept as their own fields (not derived from `locus`/`path`) so the
+/// sort in [`frame_defect`] cannot silently drift from the fields it reports.
+struct MeaningDefect {
+    member_index: u8,
+    digest: Box<str>,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    locus: CheckedNodeId,
+    path: &'static str,
+}
+
+fn frame_defect(
+    frame_id: &CheckedNodeId,
+    frame: &CheckedSemanticNodeV2,
+    nodes: &[CheckedSemanticNodeV2],
+    tags: &[CheckedNodeTag],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<ValidationFailure> {
+    let declared: BTreeSet<&CheckedNodeId> = frame.dependencies.iter().collect();
+    let mut order_defect = false;
+    let mut meaning_defects: Vec<MeaningDefect> = Vec::new();
+    for (member_index, member) in FrameMember::ALL.into_iter().enumerate() {
+        let entries = frame_entries(&frame.body, member.wire_key());
+        if entries
+            .windows(2)
+            .any(|pair| pair[0].digest >= pair[1].digest)
+        {
+            order_defect = true;
+        }
+        for entry in entries {
+            let member_index = member_index as u8;
+            if !declared.contains(&entry) {
+                meaning_defects.push(MeaningDefect {
+                    member_index,
+                    digest: entry.digest.clone(),
+                    code: CheckedPackageRefusalCode::MissingDeclaration,
+                    cause: CheckedPackageRefusalCause::MissingName,
+                    locus: entry,
+                    path: member.path(),
+                });
+                continue;
+            }
+            // FR-340 resolves each declared entry itself rather than relying
+            // on the graph's generic dependency-edge resolution (which runs
+            // later, see `validate_graph`): a frame dependency naming no
+            // real node is `missing_declaration` exactly like an entry the
+            // frame never declared at all, not the generic
+            // `invalid_semantic_graph` an unresolved edge would otherwise be.
+            let Some(&position) = index.get(&entry) else {
+                meaning_defects.push(MeaningDefect {
+                    member_index,
+                    digest: entry.digest.clone(),
+                    code: CheckedPackageRefusalCode::MissingDeclaration,
+                    cause: CheckedPackageRefusalCause::MissingName,
+                    locus: entry,
+                    path: member.path(),
+                });
+                continue;
+            };
+            if !member.admits(tags[position], nodes[position].semantic_form.as_ref()) {
+                meaning_defects.push(MeaningDefect {
+                    member_index,
+                    digest: entry.digest.clone(),
+                    code: CheckedPackageRefusalCode::InvalidModelBinding,
+                    cause: CheckedPackageRefusalCause::MalformedDeclaration,
+                    locus: entry,
+                    path: member.path(),
+                });
+            }
+        }
+    }
+    if !meaning_defects.is_empty() {
+        meaning_defects.sort_by(|left, right| {
+            (left.member_index, &left.digest).cmp(&(right.member_index, &right.digest))
+        });
+        let winner = meaning_defects
+            .into_iter()
+            .next()
+            .expect("checked nonempty above");
+        return Some(refuse_at(
+            winner.code,
+            winner.path,
+            Some(winner.cause),
+            winner.locus,
+        ));
+    }
+    if order_defect {
+        return Some(refuse_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.body",
+            None,
+            frame_id.clone(),
+        ));
+    }
+    None
+}
+
+/// FR-340 frame-body semantics: entry eligibility, canonical member order and
+/// cross-defect refusal precedence. Runs once every node's own identity is
+/// known (`index`/`tags`, built by `validate_graph`'s per-node loop),
+/// immediately after declaration checks (`validate_nominal_nodes`) and before
+/// the graph's dependency/body-reference edges are resolved — the
+/// "graph-shape, ..., declaration, frame, operation" reader order the
+/// vendored README states normatively (the stale-application-key and
+/// operation stages it also names are not yet implemented by this reader).
+/// Running before edge resolution matters: `frame_defect` resolves each
+/// declared entry itself, so a frame `dependencies` entry naming no real node
+/// is reported as FR-340's own `missing_declaration`, not the generic
+/// unresolved-edge `invalid_semantic_graph` the later resolution pass would
+/// otherwise raise for the same node first. Visits `state`/`frame` nodes in
+/// ascending `node_id` digest order — the iteration order of `index`, a
+/// `BTreeMap` — and reports the first one carrying a defect, so a package
+/// with several defective frames refuses at the least such frame
+/// (FR-340-AC-9).
+fn validate_frame_semantics(
+    nodes: &[CheckedSemanticNodeV2],
+    tags: &[CheckedNodeTag],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    for (&node_id, &position) in index {
+        let node = &nodes[position];
+        if tags[position] != CheckedNodeTag::State || node.semantic_form.as_ref() != "frame" {
+            continue;
+        }
+        if let Some(failure) = frame_defect(node_id, node, nodes, tags, index) {
+            return Err(failure);
+        }
+    }
+    Ok(())
 }
 
 fn validate_graph(
@@ -1139,6 +1369,15 @@ fn validate_graph(
             ));
         }
     }
+    // Declaration and frame checks (FR-322/FR-340) run here, against `index`
+    // and `tags` alone, before the dependency/body-target edges below are
+    // resolved against the graph: a frame `dependencies` entry naming no
+    // real node is FR-340's own `missing_declaration` refusal (`frame_defect`
+    // resolves each entry itself), not the generic unresolved-reference
+    // `invalid_semantic_graph` the edge-resolution loop below would raise for
+    // the same node first if it ran first.
+    validate_nominal_nodes(&graph.nodes, &tags, &index, &wire.lock, meter)?;
+    validate_frame_semantics(&graph.nodes, &tags, &index)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path| {
@@ -1177,7 +1416,6 @@ fn validate_graph(
         }
         adjacency.push(successors);
     }
-    validate_nominal_nodes(&graph.nodes, &tags, &index, &wire.lock, meter)?;
     validate_recursion(&graph.nodes, &adjacency, meter)?;
     let projection = graph
         .nodes
@@ -1390,4 +1628,71 @@ fn validate_diagnostics(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckedNodeTag, FrameMember};
+
+    /// The exact closed set of `(member, tag, form)` triples FR-340 admits:
+    /// `modifies` takes a relation's `relationship` form or a model's
+    /// `field_declaration` form; `creates` and `deletes` each take a
+    /// model's `object_type` or `process` form. Every other triple the
+    /// closed `CheckedNodeTag::ALL` × `.forms()` table can produce is
+    /// refused. This enumerates the full cross product rather than sampling
+    /// it, so a `FrameMember::admits` edit that accidentally widens or
+    /// narrows eligibility for any tag/form pair fails here, not only in an
+    /// end-to-end fixture test.
+    ///
+    /// Tracing: TC-053, FR-038-AC-12
+    #[test]
+    fn tc_053_frame_member_admits_exactly_the_closed_eligible_triples() {
+        let eligible: [(FrameMember, CheckedNodeTag, &str); 6] = [
+            (
+                FrameMember::Modifies,
+                CheckedNodeTag::Relation,
+                "relationship",
+            ),
+            (
+                FrameMember::Modifies,
+                CheckedNodeTag::Model,
+                "field_declaration",
+            ),
+            (FrameMember::Creates, CheckedNodeTag::Model, "object_type"),
+            (FrameMember::Creates, CheckedNodeTag::Model, "process"),
+            (FrameMember::Deletes, CheckedNodeTag::Model, "object_type"),
+            (FrameMember::Deletes, CheckedNodeTag::Model, "process"),
+        ];
+
+        let mut checked = 0usize;
+        for member in FrameMember::ALL {
+            for tag in CheckedNodeTag::ALL {
+                for form in tag.forms() {
+                    checked += 1;
+                    let expected = eligible
+                        .iter()
+                        .any(|&(m, t, f)| m == member && t == tag && f == *form);
+                    assert_eq!(
+                        member.admits(tag, form),
+                        expected,
+                        "{:?}.admits({:?}, {form:?}) should be {expected}",
+                        member,
+                        tag,
+                    );
+                }
+            }
+        }
+        // Sanity: the enumeration actually walked every declared eligible
+        // triple (catches a typo in `eligible` that would otherwise pass
+        // vacuously if `forms()` ever dropped one of these forms).
+        for &(member, tag, form) in &eligible {
+            assert!(
+                member.admits(tag, form),
+                "declared-eligible triple {:?}/{:?}/{form:?} was not admitted",
+                member,
+                tag
+            );
+        }
+        assert!(checked > eligible.len(), "cross product degenerated");
+    }
 }

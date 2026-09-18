@@ -57,7 +57,12 @@ is `README.md`, `schema.json`, `node-identity-preimage.schema.json`,
 - A closed read result: admitted, refused or incomplete (limit kind, limit,
   consumed). A refusal carries a typed code and the structural path at which
   admission failed, so a caller distinguishes the condition and locates it
-  without parsing prose.
+  without parsing prose. A frame-body refusal additionally carries the cause
+  tag FR-322's `DiagnosticCausePairing` pairs with that code — `missing-name`
+  with `missing_declaration`, `malformed-declaration` with
+  `invalid_model_binding` — and the node key of the offending entry or, for a
+  canonical-order defect, of the frame node itself, so a caller need not
+  re-derive from the path alone why admission failed or at which node.
 - One lowering record per requested item, drawn from a closed seven-member
   vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
   `failed`, `invalid_body` and `body_incomplete`. The last two are defensive:
@@ -156,6 +161,44 @@ naming a node key outside the reader's node-identity domain refuses as
 `digest_domain_mismatch` at that same member path. Three empty members are
 admitted.
 
+Once every node's identity is known, the reader shall evaluate frame-body
+semantics as its own stage, in reader order graph-shape, stale-key,
+declaration, frame, operation — immediately after declaration checks and
+before the graph's dependency and body-reference edges are resolved, so a
+frame's own `dependencies` entry naming no real node is this stage's own
+refusal rather than the graph's generic unresolved-reference refusal. A
+`modifies` entry names a declared dependency of `relation` form
+`relationship` or of `model` form `field_declaration`; a `creates` or
+`deletes` entry names a declared dependency of `model` form `object_type` or
+`process`. This is the closed eligibility table over the family/form pairs
+the contract's node taxonomy admits; a member and an entry's family/form pair
+outside it is never admitted, regardless of the entry's own grammar validity.
+An entry naming a digest that is not among the frame node's own
+`dependencies` — including one declared but resolving to no node anywhere in
+the graph — refuses as `missing_declaration` with cause `missing-name`,
+located at that entry's own key. An entry that does resolve against a
+declared dependency, but to a family/form pair the entry's member does not
+admit, refuses as `invalid_model_binding` with cause `malformed-declaration`,
+located at that entry's own key. Within one member array, entries shall
+appear in strictly ascending digest order; an array not in that order refuses
+as `invalid_semantic_graph` at the frame body path, located at the frame node
+itself, carrying no cause.
+
+A frame node carrying more than one defect refuses for exactly one of them,
+selected by one precedence: any meaning-join defect (`missing_declaration` or
+`invalid_model_binding`) outranks a canonical-order defect outright, so a
+frame whose member order is wrong and whose entries are also ineligible
+refuses for the meaning-join defect, never the order defect. Among
+meaning-join defects, the member the defect's entry sits in decides first —
+`modifies` before `creates` before `deletes` — and, within one member,
+ascending entry digest breaks the tie; the selected defect therefore never
+depends on where in its array an entry sits or on which member an author
+wrote a defect into. A package carrying more than one defective frame node
+refuses at the frame the reader reaches first in ascending `node_id` digest
+order, reporting only that frame's own selected defect; a later frame's
+defect, however it would otherwise rank, is never reached or compared
+against an earlier frame's.
+
 When a caller lowers requested items, the lowerer shall charge work per request and, for each visited reachable node, per node, per body term and per successor edge, return
 `invalid_input` for an absent node key, `unsupported` when any reachable node's
 tag is outside the profile, `requires_bound` when the profile requires bounds
@@ -218,6 +261,10 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
 | FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing identity and version but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest the package evidence does not attest refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is evaluated against evidence, so the outcome does not depend on array position. | Test (TC-048) |
+| FR-038-AC-12 | A frame body entry's eligibility is exactly the closed six-triple table — `modifies` admits `relation`/`relationship` and `model`/`field_declaration`; `creates` and `deletes` each admit `model`/`object_type` and `model`/`process` — verified against every `(member, tag, form)` triple the closed node taxonomy can produce, not sampled: every triple outside the six refuses as `invalid_model_binding` with cause `malformed-declaration`, located at the offending entry, and each of the two eligible triples the published all-families fixture's own frame body does not already exercise (`process` in `creates`, `object_type` in `deletes`) is independently shown admitted. | Test (TC-053) |
+| FR-038-AC-13 | An entry naming a digest that is not among the frame node's own `dependencies` refuses as `missing_declaration` with cause `missing-name`, located at that entry, whether the digest resolves to no node the frame declared as a dependency (a real node elsewhere in the graph) or to no node anywhere in the graph at all — both conditions are the same refusal, never `invalid_model_binding` and never the graph's generic unresolved-reference `invalid_semantic_graph`. | Test (TC-053) |
+| FR-038-AC-14 | A frame node carrying both a meaning-join defect and a canonical-order defect refuses for the meaning-join defect; among two meaning-join defects in different members, the earlier member (`modifies` before `creates` before `deletes`) is selected regardless of which defect's entry digest is lower; among two meaning-join defects in the same member, the lower entry digest is selected; a member array not in strictly ascending digest order, with no meaning-join defect present, refuses as `invalid_semantic_graph` at the frame body path, located at the frame node itself and carrying no cause. | Test (TC-053) |
+| FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
 | FR-038-AC-16 | The vendored `tests/fixtures/checked-package/` tree is byte-identical to `proposals/checked-package-v2/` at `0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb` for every vendored path, `PROVENANCE` names that commit and each path's git blob and SHA-256, and each of the five positive fixtures admits and re-derives its recorded `package_id`: `b0b40569b19f00bd06ae08e218f0f77d114ce97cf42d2b6fa7c868a96a18bdad` (all-families), `b70a9f27c9ef49711fb603d56014aa5ce092379cd820c5e62a0154c89877e7b4` (nominal-identities), `dca508e418e70d99bcaf49384ea48c7f909a389d8c5b15541e5fb1bddd426168` (operation-identities), `d011de207a1fe5578b89d185f9394ef6a995c16244b72d63ba2775c6518b5952` (clause-operations) and `c76a26bf468ae66a74ea3f79dde881657b5fc9c0c555535fcc12d59b4cc2b69f` (control-operations). | Test (TC-048) |
 | FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 
