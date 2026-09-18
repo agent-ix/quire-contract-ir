@@ -58,7 +58,7 @@ is dispatched and before any target byte exists.
 | `stale_obligation` | The obligation names a requirement present in the bound package at a different revision | `request.obligations` |
 | `unknown_obligation` | The obligation resolves to no executable clause and is neither foreign nor stale | `request.obligations` |
 | `obligation_order_mismatch` | The retained obligation order differs from the admitted order | `request.obligations` |
-| `invalid_qualified_reference` | A qualified owner, identity, revision, condition, or cause code is empty, unbounded, or outside visible ASCII | the offending qualified-reference path |
+| `invalid_qualified_reference` | A qualified owner, identity, revision, condition, or cause code is empty, unbounded, or outside visible ASCII | `dependencies`; `candidate.conditions`; `candidate.causes`; `observation_adequacy`; `protocol_adequacy` |
 
 ### Unresolved-obligation precedence
 
@@ -88,9 +88,9 @@ dispatched mapper's candidates against the admitted limits.
 | `mapping_work_limit_exceeded` | Aggregate mapping work exceeds its declared limit | `mapping.work`; `request.obligations` when the charge is per obligation |
 | `record_limit_exceeded` | The record count exceeds its declared limit | `request.obligations` |
 | `emitted_bytes_limit_exceeded` | Accounted emitted bytes exceed the declared limit | `mapping.emitted_bytes` |
-| `arithmetic_overflow` | An accounting counter or region endpoint overflows its width | the overflowing counter or region path |
-| `allocation_failed` | A deterministic allocation, serialization, or canonicalization step for an accounted structure failed | the structure's path |
-| `cancelled` | The caller cancelled the mapping before it completed | `output mapping was cancelled` |
+| `arithmetic_overflow` | An accounting counter or region endpoint overflows its width | `record.output_regions.start`; `record.output_regions.end`; `candidate.fragment`; `candidate.output_regions.start`; `candidate.output_regions.end`; `package.target_bytes`; `package.records.output_regions.start`; `package.records.output_regions.end`; `request.obligations`; `request.expression_nodes`; `request`; `mapping.work`; `mapping.emitted_bytes` |
+| `allocation_failed` | A deterministic allocation, serialization, or canonicalization step for an accounted structure failed | `package.target_bytes`; `package.records`; `package.identity.record_ids`; `package.identity`; `request.obligations`; `request`; `request.identity`; `mapping.records`; `mapping.fragments`; `record.output_regions`; `record.identity` |
+| `cancelled` | The caller cancelled the mapping before it completed | `package`; `package.target_bytes`; `package.identity`; `package.complete`; `request`; `request.obligations`; `request.identity`; `mapping`; `mapping.dispatch`; `mapping.result`; `mapping.complete` |
 | `zero_mapping_work` | A mapper candidate accounts for zero work | `candidate.work` |
 | `duplicate_dependency` | A candidate repeats a dependency identity | `candidate.dependencies` |
 | `invalid_disposition` | A candidate's disposition, source state, output fragment, conditions, and causes disagree | `candidate.disposition` |
@@ -105,7 +105,7 @@ assembling the single atomic output package.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `invalid_output_region` | An output region is reversed, out of range, not on a character boundary, or its bytes are not UTF-8 | the region or fragment path |
+| `invalid_output_region` | An output region is reversed, out of range, not on a character boundary, or its bytes are not UTF-8 | `candidate.output_regions`; `candidate.fragment`; `package.target_bytes`; `package.records.output_regions`; `record.output_regions` |
 | `invalid_generator` | The declared generator identity is empty, unbounded, or outside visible ASCII | `generator` |
 | `invalid_observer` | The declared observer identity is empty, unbounded, or outside visible ASCII | `observer` |
 | `package_population_mismatch` | The assembled record population or target-byte length disagrees with the accounted counts | `package.records`; `package.target_bytes` |
