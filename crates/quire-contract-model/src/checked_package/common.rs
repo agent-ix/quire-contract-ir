@@ -345,6 +345,18 @@ pub(super) const BODY_TYPE_PATH: &str = "semantic_graph.nodes.body.type";
 /// Structural path of an `application` term's `result_type` member.
 pub(super) const BODY_RESULT_TYPE_PATH: &str = "semantic_graph.nodes.body.result_type";
 
+/// Where a resolved reference target was found: its structural path, and
+/// whether it was reported by the node body's own top-level term rather than
+/// a term nested inside it (an `aggregate` member, a `binding` value, or an
+/// `application` argument). Only a target reported with `is_body_root: true`
+/// can be the node's own self-typed `literal.type`; the same path reported
+/// from a nested term names a different, non-exempt occurrence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ReferenceSite {
+    pub(super) path: &'static str,
+    pub(super) is_body_root: bool,
+}
+
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TermGrammar {
@@ -356,14 +368,19 @@ pub(super) enum TermGrammar {
 }
 
 /// Validates one public semantic term, returning its work and reporting every
-/// reference target to `visit`, alongside the structural path of the member
-/// that carried it (`BODY_TARGET_PATH`, `BODY_TYPE_PATH` or
-/// `BODY_RESULT_TYPE_PATH`), so a caller can tell which member a target came
-/// from rather than only its node key.
+/// reference target to `visit` via a [`ReferenceSite`] naming the structural
+/// path of the member that carried it (`BODY_TARGET_PATH`, `BODY_TYPE_PATH`
+/// or `BODY_RESULT_TYPE_PATH`) and whether `value` itself is the node body's
+/// own top-level term (`is_body_root`), so a caller can tell a target found
+/// in the body root from the same path found in a nested term. Every
+/// recursive descent — an `aggregate` member, a `binding` value, an
+/// `application` argument — passes `is_body_root: false`: only the term
+/// handed to the outermost call can be the body root.
 pub(super) fn validate_term(
     value: &Value,
     grammar: TermGrammar,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
+    is_body_root: bool,
+    visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
 ) -> Result<u64, ValidationFailure> {
     let Value::Object(object) = value else {
         return Err(ValidationFailure::Refused(
@@ -388,10 +405,10 @@ pub(super) fn validate_term(
                     .get("value")
                     .is_some_and(|value| is_literal_value(value, grammar)) =>
         {
-            visit_reference(object.get("type"), BODY_TYPE_PATH, visit)
+            visit_reference(object.get("type"), BODY_TYPE_PATH, is_body_root, visit)
         }
         "reference" if exact_members(object, &["term", "target"]) => {
-            visit_reference(object.get("target"), BODY_TARGET_PATH, visit)
+            visit_reference(object.get("target"), BODY_TARGET_PATH, is_body_root, visit)
         }
         "application"
             if exact_members(
@@ -407,8 +424,12 @@ pub(super) fn validate_term(
             // reader accepts the member is present and validates only
             // `result_type` as a reference. Deep operation-law validation is
             // not implemented by this reader.
-            let result_type_work =
-                visit_reference(object.get("result_type"), BODY_RESULT_TYPE_PATH, visit)?;
+            let result_type_work = visit_reference(
+                object.get("result_type"),
+                BODY_RESULT_TYPE_PATH,
+                is_body_root,
+                visit,
+            )?;
             let arguments_work = visit_terms(object.get("arguments"), grammar, visit)?;
             Ok(result_type_work.saturating_add(arguments_work))
         }
@@ -422,8 +443,13 @@ pub(super) fn validate_term(
                     .and_then(Value::as_str)
                     .is_some_and(is_nonempty) =>
         {
-            validate_term(object.get("value").unwrap_or(&Value::Null), grammar, visit)
-                .map(|work| work.saturating_add(1))
+            validate_term(
+                object.get("value").unwrap_or(&Value::Null),
+                grammar,
+                false,
+                visit,
+            )
+            .map(|work| work.saturating_add(1))
         }
         _ => Err(ValidationFailure::Refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -432,16 +458,18 @@ pub(super) fn validate_term(
     }
 }
 
-/// Parses one node-reference member, reports its target and the caller's
-/// `path` to `visit`, and charges one unit of work. Shared by
-/// `reference.target`, `literal.type`, `application.result_type`, and the V2
-/// `frame` body's reference arrays; the caller names the exact member `path`
-/// so a refusal identifies the offending member rather than a path fixed to
-/// whichever member first used this helper.
+/// Parses one node-reference member, reports its target and a
+/// [`ReferenceSite`] naming the caller's `path` and `is_body_root` to
+/// `visit`, and charges one unit of work. Shared by `reference.target`,
+/// `literal.type`, `application.result_type`, and the V2 `frame` body's
+/// reference arrays; the caller names the exact member `path` so a refusal
+/// identifies the offending member rather than a path fixed to whichever
+/// member first used this helper.
 pub(super) fn visit_reference(
     value: Option<&Value>,
     path: &'static str,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
+    is_body_root: bool,
+    visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
 ) -> Result<u64, ValidationFailure> {
     let target = value.cloned().ok_or(ValidationFailure::Refused(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -451,7 +479,7 @@ pub(super) fn visit_reference(
         ValidationFailure::Refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
     })?;
     if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
-        visit(&target, path);
+        visit(&target, ReferenceSite { path, is_body_root });
         Ok(1)
     } else {
         Err(ValidationFailure::Refused(
@@ -514,10 +542,14 @@ fn is_operator(value: &str) -> bool {
     )
 }
 
+/// Validates each term in an `aggregate.members` or `application.arguments`
+/// array. Every element is nested one level below the term that holds this
+/// array, so each is validated with `is_body_root: false` regardless of
+/// whether that enclosing term was itself the body root.
 fn visit_terms(
     value: Option<&Value>,
     grammar: TermGrammar,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
+    visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
 ) -> Result<u64, ValidationFailure> {
     let Some(Value::Array(values)) = value else {
         return Err(ValidationFailure::Refused(
@@ -526,7 +558,7 @@ fn visit_terms(
         ));
     };
     values.iter().try_fold(1_u64, |work, term| {
-        validate_term(term, grammar, visit).map(|child| work.saturating_add(child))
+        validate_term(term, grammar, false, visit).map(|child| work.saturating_add(child))
     })
 }
 

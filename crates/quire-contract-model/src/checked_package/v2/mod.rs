@@ -16,7 +16,8 @@ pub use lower::*;
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
     is_nonempty, validate_locked_artifact, validate_source_map_entries, validate_term,
-    visit_reference, Stop, TermGrammar, ValidationFailure, BODY_TYPE_PATH, NODE_DOMAIN,
+    visit_reference, ReferenceSite, Stop, TermGrammar, ValidationFailure, BODY_TYPE_PATH,
+    NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
@@ -981,12 +982,14 @@ fn validate_body(
     tag: CheckedNodeTag,
     form: &str,
     body: &Value,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
+    visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
 ) -> Result<u64, ValidationFailure> {
     if tag == CheckedNodeTag::State && form == "frame" {
         validate_frame_body(body)
     } else {
-        validate_term(body, TermGrammar::V2, visit)
+        // `body` is the node's own top-level term, never a nested one, so
+        // this is the one call in the module that reports `is_body_root: true`.
+        validate_term(body, TermGrammar::V2, true, visit)
     }
 }
 
@@ -1042,7 +1045,7 @@ fn visit_node_refs(
     let mut seen = BTreeSet::new();
     let mut targets = Vec::with_capacity(values.len());
     let work = values.iter().try_fold(0_u64, |work, entry| {
-        visit_reference(Some(entry), path, &mut |target, _path| {
+        visit_reference(Some(entry), path, false, &mut |target, _site| {
             targets.push(target.clone())
         })
         .map(|charged| work.saturating_add(charged))
@@ -1374,8 +1377,8 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target, path| {
-            targets.push((target.clone(), path))
+        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target, site| {
+            targets.push((target.clone(), site))
         })?;
         meter.charge(work)?;
         references.push(targets);
@@ -1417,22 +1420,26 @@ fn validate_graph(
         for dependency in &node.dependencies {
             successors.push(resolve(dependency, "semantic_graph.nodes.dependencies")?);
         }
-        for (target, member_path) in targets {
-            let member_path: &'static str = member_path;
-            let target = resolve(target, member_path)?;
-            // Only a self-typed node's own `literal.type` may name itself
-            // from its body — e.g. a self-typed scalar's `literal.type` —
-            // without that counting as a reference cycle requiring
-            // `recursion_group`: FR-322's foundational nominal axiom is typed
-            // by itself and can state that fact only through its own
-            // `literal.type`. The carve-out is keyed on that member, not on
-            // node identity: a `reference` body, an `application.result_type`
-            // or a frame array cannot borrow the same exemption by also
-            // self-referencing a self-typed node — those still resolve
-            // through `recursion_group` or refuse, exactly like every other
-            // 1-node cycle.
+        for (target, site) in targets {
+            let site: ReferenceSite = *site;
+            let target = resolve(target, site.path)?;
+            // Only a self-typed node's own top-level `literal.type` — the
+            // literal that *is* the node body, e.g. a self-typed scalar's
+            // `literal.type` — may name itself from its body without that
+            // counting as a reference cycle requiring `recursion_group`:
+            // FR-322's foundational nominal axiom is typed by itself and can
+            // state that fact only through its own `literal.type`. The
+            // carve-out is keyed on that member *and* on `is_body_root`, not
+            // on node identity alone: a `literal.type` nested inside an
+            // `aggregate` member, a `binding` value or an `application`
+            // argument reports the same `BODY_TYPE_PATH` but with
+            // `is_body_root: false`, and does not qualify — nor does a
+            // `reference` body or an `application.result_type`
+            // self-referencing a self-typed node. Both still resolve through
+            // `recursion_group` or refuse, exactly like every other 1-node
+            // cycle reached by this loop.
             let is_self_typed_literal_type =
-                member_path == BODY_TYPE_PATH && semantic_type == position;
+                site.is_body_root && site.path == BODY_TYPE_PATH && semantic_type == position;
             if target != position || !is_self_typed_literal_type {
                 successors.push(target);
             }
@@ -1630,7 +1637,7 @@ fn validate_diagnostics(
     for entry in &wire.diagnostics.entries {
         for detail in &entry.details {
             let mut resolved = true;
-            let work = validate_term(detail, TermGrammar::V2, &mut |target, _path| {
+            let work = validate_term(detail, TermGrammar::V2, false, &mut |target, _site| {
                 resolved &= nodes.contains(target);
             })?;
             meter.charge(work)?;
