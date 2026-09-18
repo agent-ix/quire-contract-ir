@@ -772,17 +772,21 @@ fn validate_lock(
             "lock.definition_selections",
         )?;
     }
-    // Structural validity is checked before semantic validity, across the
-    // whole array: a `model_selections` array that repeats an entry
-    // (identity, version, digest_domain and digest all equal — whole-item
-    // equality, matching the schema's `uniqueItems`; two entries pinning the
-    // same package to different digests are distinct items) is a defect in
-    // the shape of the wire and refuses before any entry's digest is
-    // evaluated against evidence, a defect in what the wire refers to.
-    // Evidence for an already-malformed array is not meaningful to check, so
-    // this order — not the reverse, and not interleaved per entry — is what
-    // keeps the outcome for an array carrying both defects independent of
-    // which one comes first in the array. Only the lock's copy is checked:
+    // Whole-array uniqueness is checked before any entry's digest is
+    // evaluated against evidence: a `model_selections` array that repeats an
+    // entry (identity, version, digest_domain and digest all equal —
+    // whole-item equality, matching the schema's `uniqueItems`; two entries
+    // pinning the same package to different digests are distinct items) is a
+    // defect in the shape of the wire, and evidence for an already-malformed
+    // array is not meaningful to check. This order — not the reverse, and not
+    // interleaved per entry — is what keeps the outcome for an array carrying
+    // both defects independent of which one comes first in the array.
+    // It does NOT make the refusal code position-independent in general: the
+    // per-entry domain, shape and evidence checks below still short-circuit on
+    // the first failing entry, so two entries of different defect classes are
+    // still resolved by array position. That gap is #124; do not read this
+    // comment as a standing "structural before semantic" invariant and move
+    // those checks up here believing you are restoring a stated rule. Only the lock's copy is checked:
     // the `same_non_graph_lock` equality above already requires
     // `identity_preimage.model_selections` to equal `lock.model_selections`
     // element-for-element, so a duplicate-free lock guarantees the mirrored
