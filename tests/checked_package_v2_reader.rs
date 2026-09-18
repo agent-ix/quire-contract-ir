@@ -1470,7 +1470,8 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 }
 
 /// The self-typed carve-out in `validate_graph`'s adjacency construction is
-/// keyed on the member, not on node identity: only a self-typed node's own
+/// keyed on the member *and* on the term being the node body's own top-level
+/// term, not on node identity: only a self-typed node's own body-root
 /// `literal.type` may name itself from its body without counting as a
 /// reference cycle requiring `recursion_group` (a self-typed scalar's
 /// `literal.type` states the same fact its `semantic_type` already does). A
@@ -1478,17 +1479,38 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// a genuine 1-node cycle and must still resolve through `recursion_group` or
 /// refuse — nothing restricts which node may declare itself its own
 /// `semantic_type`, so the carve-out must not be reachable through any body
-/// member but `literal.type`.
+/// member but `literal.type`. Nor is it reachable through a `literal.type`
+/// that names itself from *inside* another term nested in the body — an
+/// `aggregate` member, a `binding` value or an `application` argument — even
+/// though `validate_term`'s recursive walk reports every one of those with
+/// the same `BODY_TYPE_PATH` structural path: only the body's own outermost
+/// term is the node's `literal.type` in FR-322's sense (FR-038-AC-18).
 ///
-/// Tracing: TC-048, FR-038-AC-2
-#[trace("TC-048", "FR-038-AC-2")]
+/// Tracing: TC-048, FR-038-AC-18
+#[trace("TC-048", "FR-038-AC-18")]
 #[test]
 fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
     let base = v2_all_families();
     let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let other_id = base["semantic_graph"]["nodes"][1]["semantic_type"].clone();
 
-    // Positive: a self-typed node's own `literal.type` self-reference is the
-    // carve-out's intended case and admits with no `recursion_group`.
+    let assert_self_cycle_refused = |body: Value| {
+        let mut mutated = base.clone();
+        mutated["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
+        mutated["semantic_graph"]["nodes"][1]["body"] = body;
+        refresh_identity(&mut mutated);
+        assert_eq!(
+            refused(&mutated, &evidence_for(&mutated)),
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_graph.nodes.recursion_group"
+            )
+        );
+    };
+
+    // Positive: a self-typed node's own body-root `literal.type`
+    // self-reference is the carve-out's intended case and admits with no
+    // `recursion_group`.
     let mut literal_type = base.clone();
     literal_type["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
     literal_type["semantic_graph"]["nodes"][1]["body"] = json!({
@@ -1507,17 +1529,63 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
     // out regressed this: it used to key on node identity alone
     // (`semantic_type == position`), which also swallowed this case with no
     // `recursion_group` on `origin/main`'s vendored fixture.
-    let mut reference_body = base.clone();
-    reference_body["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
-    reference_body["semantic_graph"]["nodes"][1]["body"] =
-        json!({"term": "reference", "target": own_id});
-    refresh_identity(&mut reference_body);
+    assert_self_cycle_refused(json!({"term": "reference", "target": own_id}));
+
+    // Negative: the same self-typed `literal.type` self-reference, nested
+    // one level inside an `aggregate` member instead of being the body's own
+    // top-level term, is still a genuine 1-node cycle. `validate_term`
+    // reports this nested literal's `type` at the same `BODY_TYPE_PATH` path
+    // as the body-root case, so the carve-out must not key on the path
+    // alone.
+    assert_self_cycle_refused(json!({
+        "term": "aggregate",
+        "members": [
+            {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+        ]
+    }));
+
+    // Negative: the same self-reference nested inside a `binding` value.
+    assert_self_cycle_refused(json!({
+        "term": "binding",
+        "name": "x",
+        "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+    }));
+
+    // Negative: the same self-reference nested inside an `application`
+    // argument.
+    assert_self_cycle_refused(json!({
+        "term": "application",
+        "operator": "call",
+        "operation": {
+            "identity": "quire.op.function.call",
+            "laws": [],
+            "mode": null,
+            "member": null,
+            "leaves": []
+        },
+        "result_type": other_id,
+        "arguments": [
+            {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+        ]
+    }));
+
+    // Positive: a nested `literal.type` typed by some *other* node, not
+    // self, inside an `aggregate` member is an ordinary resolvable
+    // reference — proof the narrowing to `is_body_root` did not start
+    // refusing ordinary nested literals.
+    let mut nested_other_typed = base.clone();
+    nested_other_typed["semantic_graph"]["nodes"][1]["body"] = json!({
+        "term": "aggregate",
+        "members": [
+            {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
+        ]
+    });
+    refresh_identity(&mut nested_other_typed);
+    let package = admitted(&nested_other_typed);
     assert_eq!(
-        refused(&reference_body, &evidence_for(&reference_body)),
-        refusal(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.recursion_group"
-        )
+        package.graph().nodes[1].recursion_group,
+        None,
+        "a nested literal typed by a different node is not a cycle"
     );
 }
 
