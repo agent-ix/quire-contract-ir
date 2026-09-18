@@ -26,7 +26,11 @@ contract version is refused with a typed `unknown_contract_version` code.
 
 ## Inputs
 
-Untrusted wire bytes; caller-selected read limits; package evidence holding
+Untrusted wire bytes; caller-selected read limits, for which the crate ships one
+named finite default appropriate to a single local request — 1048576 bytes, 128
+nesting levels, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics
+and 1000000 term-validation visits — as stable API, every member finite so that
+the default admits no unbounded read; package evidence holding
 the authoritative raw-artifact digests (from supplied bytes or a verified
 digest store), the authoritative `sha256-jcs` domain-package digests, and the
 reader-supported required features; for lowering, requested node keys and a
@@ -150,6 +154,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-4 | The recomputed package id equals each vendored fixture id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every vendored node-identity vector re-derives its recorded digest; a package carrying every vector admits; every vendored invalid mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records. | Test (TC-050) |
+| FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and a package that admits under it is refused as `incomplete` under a policy one below any single member. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every vendored fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
 

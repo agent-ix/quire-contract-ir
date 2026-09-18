@@ -88,7 +88,12 @@ manifest/file/count/byte/allocation/pre-decode-nesting limits map to
 `resource_exhausted`.
 The total logical preload budget is 67108864 bytes across the manifest,
 schemas, inventory, inputs, expectations, and canonical files; a repeated path
-is charged on every authored reference. Raw JSON nesting is scanned before
+is charged on every authored reference. Two further exact limits bound one run and
+are exported alongside it: a single referenced file may be at most 16777216
+bytes, and a manifest may declare at most 10000 fixtures. Both are exceeded
+before any result is emitted and map to `resource_exhausted` like every other
+preload limit. The per-file limit is strictly below the total budget, so no
+single file can exhaust a run on its own. Raw JSON nesting is scanned before
 recursive materialization and is limited to 576 levels.
 
 The runner reads every referenced file before emitting its first result, then
@@ -106,6 +111,7 @@ and exits 0 without reading a manifest.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with the exact non-empty manifest trace ids per authored fixture, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
+| FR-020-AC-3 | The exported per-file byte limit is exactly 16777216, the fixture-count limit exactly 10000, and the total preload budget exactly 67108864, with the per-file limit strictly below the total. | Test (TC-018) |
 | FR-020-AC-2 | Process fixtures pin exit 1 with all seven mismatch kinds in fixed order and exit 2 for all six closed operational codes; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
 
 ## Dependencies

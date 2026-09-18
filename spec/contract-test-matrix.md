@@ -25,11 +25,11 @@ relationships:
 | FR-013 | FR-013-AC-1 through FR-013-AC-4 | TC-016 | ✅ implemented |
 | FR-014 | FR-014-AC-1 through FR-014-AC-6 | TC-016 | ✅ implemented |
 | FR-015 | FR-015-AC-1 through FR-015-AC-7 | TC-016 | ✅ implemented |
-| FR-016 | FR-016-AC-1 through FR-016-AC-3 | TC-017 | ✅ implemented |
+| FR-016 | FR-016-AC-1 through FR-016-AC-4 | TC-017 | ✅ implemented, including the caller byte budget on all five closed object kinds |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | ✅ implemented |
 | FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
-| FR-019 | FR-019-AC-1, FR-019-AC-2 | TC-018 | ✅ implemented |
-| FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
+| FR-019 | FR-019-AC-1 through FR-019-AC-3 | TC-018 | ✅ implemented, including `hex_digest` and `expected_inventory` as declared stable surface |
+| FR-020 | FR-020-AC-1 through FR-020-AC-3 | TC-018 | ✅ implemented, including the exported per-file and fixture-count limits |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, and tl-syntax `842d8255` owner revisions |
 | FR-026 | FR-026-AC-1 through FR-026-AC-8 | TC-039 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, tl-syntax `842d8255`, and tl-mltl `22862189` owner revisions |
@@ -44,7 +44,7 @@ relationships:
 | FR-035 | FR-035-AC-1 through FR-035-AC-5 | TC-044, TC-047 | 🚧 AC-1 through AC-4 implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over; AC-5 planned because the lowering path emits no `ContractPackage` (issue #110), which the four original criteria did not cover |
 | FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-045 | 🚧 planned after #99 review; runtime #16 and codegen #48/#49 consume it |
 | FR-037 | FR-037-AC-1 through FR-037-AC-5 | TC-046 | 🚧 planned after #99 review; codegen #50 and runtime #16 own replay integration |
-| FR-038 | FR-038-AC-1 through FR-038-AC-8 | TC-048, TC-050, TC-052 | ✅ implemented by Contract IR PR #107/#108 for issue #106 against QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): strict reader with typed version refusal and independent lowering; AC-7 and AC-8 added for the closed seven-member record vocabulary and the total outcome-selection order |
+| FR-038 | FR-038-AC-1 through FR-038-AC-9 | TC-048, TC-050, TC-052 | ✅ implemented by Contract IR PR #107/#108 for issue #106 against QSpec `5626bc8f` (AD-006 `sha256-jcs` domain package model selections): strict reader with typed version refusal and independent lowering; AC-7 and AC-8 added for the closed seven-member record vocabulary and the total outcome-selection order, AC-9 for the shipped finite default read-limit policy |
 
 ## Non-Functional Requirement Coverage
 

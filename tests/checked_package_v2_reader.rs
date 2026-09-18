@@ -1132,3 +1132,89 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         )
     );
 }
+
+/// Tracing: TC-048, FR-038-AC-9
+#[trace("TC-048", "FR-038-AC-9")]
+#[test]
+fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
+    // FR-038-AC-9: the shipped default policy is exactly these seven values.
+    let bounded = CheckedPackageReadLimits::bounded();
+    assert_eq!(bounded.bytes, 1_048_576);
+    assert_eq!(bounded.depth, 128);
+    assert_eq!(bounded.nodes, 10_000);
+    assert_eq!(bounded.edges, 100_000);
+    assert_eq!(bounded.occurrences, 100_000);
+    assert_eq!(bounded.diagnostics, 10_000);
+    assert_eq!(bounded.work, 1_000_000);
+
+    // FR-038-AC-9: every member is strictly positive and finite, so the
+    // default admits no unbounded read on any axis.
+    for (name, value) in [
+        ("bytes", bounded.bytes),
+        ("depth", bounded.depth),
+        ("nodes", bounded.nodes),
+        ("edges", bounded.edges),
+        ("occurrences", bounded.occurrences),
+        ("diagnostics", bounded.diagnostics),
+        ("work", bounded.work),
+    ] {
+        assert!(value > 0, "{name} must be positive");
+        assert!(value < u64::MAX, "{name} must be finite");
+    }
+
+    // FR-038-AC-9: a package that admits under the default is refused as
+    // incomplete under a policy one below any single member, so no member is
+    // slack enough to be unreachable.
+    let mut value = v2_all_families();
+    // Give the graph a real dependency edge so every one of the seven meters
+    // is charged by this package and the axis check below is not vacuous.
+    let bound_key = value["semantic_graph"]["nodes"][2]["node_id"].clone();
+    value["semantic_graph"]["nodes"][3]["dependencies"] = json!([bound_key]);
+    value["diagnostics"]["entries"] = json!([{
+        "stage": "type_checking",
+        "code": "ill_typed",
+        "cause_tag": "invalid-value",
+        "details": [{"term": "reference", "target": value["semantic_graph"]["nodes"][0]["node_id"]}],
+        "loci": [{"source": value["lock"]["sources"][0], "start": 0, "end": 1}],
+    }]);
+    refresh_identity(&mut value);
+    let evidence = evidence_for(&value);
+    let bytes = canonical(&value);
+    assert!(matches!(
+        CheckedPackageV2::read(&bytes, bounded, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let narrowed: [(CheckedPackageLimit, fn(&mut CheckedPackageReadLimits, u64)); 7] = [
+        (CheckedPackageLimit::Bytes, |limits, value| {
+            limits.bytes = value
+        }),
+        (CheckedPackageLimit::Depth, |limits, value| {
+            limits.depth = value
+        }),
+        (CheckedPackageLimit::Nodes, |limits, value| {
+            limits.nodes = value
+        }),
+        (CheckedPackageLimit::Edges, |limits, value| {
+            limits.edges = value
+        }),
+        (CheckedPackageLimit::Occurrences, |limits, value| {
+            limits.occurrences = value
+        }),
+        (CheckedPackageLimit::Diagnostics, |limits, value| {
+            limits.diagnostics = value
+        }),
+        (CheckedPackageLimit::Work, |limits, value| {
+            limits.work = value
+        }),
+    ];
+    for (kind, set) in narrowed {
+        let mut limits = bounded;
+        set(&mut limits, 0);
+        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Incomplete(report) => {
+                assert_eq!(report.limit_kind, kind, "wrong limit kind for {kind:?}");
+            }
+            other => panic!("expected incomplete for {kind:?}, got {other:?}"),
+        }
+    }
+}
