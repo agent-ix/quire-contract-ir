@@ -16,7 +16,7 @@ pub use lower::*;
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
     is_nonempty, validate_locked_artifact, validate_source_map_entries, validate_term,
-    visit_reference, Stop, TermGrammar, ValidationFailure, NODE_DOMAIN,
+    visit_reference, Stop, TermGrammar, ValidationFailure, BODY_TYPE_PATH, NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
@@ -940,17 +940,7 @@ fn validate_declaration(
         ));
     }
     if let Some(declaration) = declaration {
-        if declaration.qualified_name.is_empty()
-            || !declaration
-                .qualified_name
-                .iter()
-                .all(|segment| identity::is_identifier(segment))
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                PATH,
-            ));
-        }
+        identity::validate_qualified_name(&declaration.qualified_name, PATH)?;
     }
     Ok(())
 }
@@ -963,11 +953,18 @@ fn validate_declaration(
 /// member, and collects reference targets only; frame eligibility, canonical
 /// member order and refusal precedence across a frame's own violations are
 /// not implemented here (FR-340; a later change owns them).
+/// Structural path of a frame body's `modifies` array and its entries.
+const BODY_MODIFIES_PATH: &str = "semantic_graph.nodes.body.modifies";
+/// Structural path of a frame body's `creates` array and its entries.
+const BODY_CREATES_PATH: &str = "semantic_graph.nodes.body.creates";
+/// Structural path of a frame body's `deletes` array and its entries.
+const BODY_DELETES_PATH: &str = "semantic_graph.nodes.body.deletes";
+
 fn validate_body(
     tag: CheckedNodeTag,
     form: &str,
     body: &Value,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     if tag == CheckedNodeTag::State && form == "frame" {
         validate_frame_body(body, visit)
@@ -978,7 +975,7 @@ fn validate_body(
 
 fn validate_frame_body(
     body: &Value,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     const PATH: &str = "semantic_graph.nodes.body";
     let Value::Object(object) = body else {
@@ -996,37 +993,54 @@ fn validate_frame_body(
         ));
     }
     let mut work = 1_u64;
-    for key in ["modifies", "creates", "deletes"] {
-        work = work.saturating_add(visit_node_refs(object.get(key), visit)?);
+    for (key, path) in [
+        ("modifies", BODY_MODIFIES_PATH),
+        ("creates", BODY_CREATES_PATH),
+        ("deletes", BODY_DELETES_PATH),
+    ] {
+        work = work.saturating_add(visit_node_refs(object.get(key), path, visit)?);
     }
     Ok(work)
 }
 
+/// Validates one frame reference array, reporting each unique target to
+/// `visit` tagged with the array's own `path` (`modifies`, `creates` or
+/// `deletes`) rather than a path shared across all three.
+/// Reports each unique target once, in digest-ascending order (the iteration
+/// order of the `BTreeSet` deduplicating them) rather than the wire array's
+/// own order. This is safe: `seen` has already rejected a repeated entry
+/// before this loop runs, so re-ordering here changes neither which targets
+/// are visited nor the refusal outcome for a malformed array, only the
+/// sequence `validate_recursion`'s Tarjan walk later traverses the resulting
+/// successor edges in — which does not affect which nodes end up in a
+/// `recursion_group`.
 fn visit_node_refs(
     value: Option<&Value>,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    path: &'static str,
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
-    const PATH: &str = "semantic_graph.nodes.body";
     let Some(Value::Array(values)) = value else {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            PATH,
+            path,
         ));
     };
     let mut seen = BTreeSet::new();
     let mut targets = Vec::with_capacity(values.len());
     let work = values.iter().try_fold(0_u64, |work, entry| {
-        visit_reference(Some(entry), &mut |target| targets.push(target.clone()))
-            .map(|charged| work.saturating_add(charged))
+        visit_reference(Some(entry), path, &mut |target, _path| {
+            targets.push(target.clone())
+        })
+        .map(|charged| work.saturating_add(charged))
     })?;
     if !targets.into_iter().all(|target| seen.insert(target)) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            PATH,
+            path,
         ));
     }
     for target in &seen {
-        visit(target);
+        visit(target, path);
     }
     Ok(work)
 }
@@ -1107,8 +1121,8 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target| {
-            targets.push(target.clone())
+        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target, path| {
+            targets.push((target.clone(), path))
         })?;
         meter.charge(work)?;
         references.push(targets);
@@ -1141,16 +1155,23 @@ fn validate_graph(
         for dependency in &node.dependencies {
             successors.push(resolve(dependency, "semantic_graph.nodes.dependencies")?);
         }
-        for target in targets {
-            let target = resolve(target, "semantic_graph.nodes.body.target")?;
-            // Only a node that is already the self-typed foundational axiom
-            // (`semantic_type == position`, the carve-out above) may also
-            // name itself from its own body — e.g. a self-typed scalar's
-            // `literal.type` — without that counting as a reference cycle
-            // requiring `recursion_group`. A body target that self-references
-            // on any other node is a genuine 1-node cycle and must still
-            // resolve through `recursion_group` or refuse.
-            if target != position || semantic_type != position {
+        for (target, member_path) in targets {
+            let member_path: &'static str = member_path;
+            let target = resolve(target, member_path)?;
+            // Only a self-typed node's own `literal.type` may name itself
+            // from its body — e.g. a self-typed scalar's `literal.type` —
+            // without that counting as a reference cycle requiring
+            // `recursion_group`: FR-322's foundational nominal axiom is typed
+            // by itself and can state that fact only through its own
+            // `literal.type`. The carve-out is keyed on that member, not on
+            // node identity: a `reference` body, an `application.result_type`
+            // or a frame array cannot borrow the same exemption by also
+            // self-referencing a self-typed node — those still resolve
+            // through `recursion_group` or refuse, exactly like every other
+            // 1-node cycle.
+            let is_self_typed_literal_type =
+                member_path == BODY_TYPE_PATH && semantic_type == position;
+            if target != position || !is_self_typed_literal_type {
                 successors.push(target);
             }
         }
@@ -1348,7 +1369,7 @@ fn validate_diagnostics(
     for entry in &wire.diagnostics.entries {
         for detail in &entry.details {
             let mut resolved = true;
-            let work = validate_term(detail, TermGrammar::V2, &mut |target| {
+            let work = validate_term(detail, TermGrammar::V2, &mut |target, _path| {
                 resolved &= nodes.contains(target);
             })?;
             meter.charge(work)?;

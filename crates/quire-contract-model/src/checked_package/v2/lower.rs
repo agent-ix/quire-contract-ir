@@ -193,10 +193,12 @@ impl CheckedPackageV2 {
             // target; a failure is terminal for this request. `validate_body`
             // is the same admission dispatch the reader used, so a package it
             // admitted re-walks identically here.
-            let walked =
-                super::validate_body(node_tag, &node.semantic_form, &node.body, &mut |target| {
-                    successors.push(target.clone())
-                });
+            let walked = super::validate_body(
+                node_tag,
+                &node.semantic_form,
+                &node.body,
+                &mut |target, _path| successors.push(target.clone()),
+            );
             let terms = match walked {
                 Ok(terms) => terms,
                 Err(ValidationFailure::Refused(code, path)) => {

@@ -17,14 +17,21 @@ use std::path::PathBuf;
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
-/// Exact read-limits `work` boundary that admits `v2_all_families()`,
-/// determined empirically (bisecting `CheckedPackageV2::read`'s admit/refuse
-/// boundary against the vendored fixture's 26 nodes) rather than hand-summed,
-/// since the reader charges work at many call sites (per-node term charges,
-/// graph-edge traversal, nominal identity/enum/dimension/unit validation).
-/// Shared between `complete_v1_checked_package` and `checked_package_v2_reader`
-/// so a change to the vendored all-families fixture cannot silently move the
-/// boundary in only one of them.
+/// Exact read-limits `work` boundary that admits `v2_all_families()`: body
+/// terms 35 (the sum of each of the 26 nodes' own `validate_body` charge) +
+/// graph edges 42 (every `semantic_type`, `dependencies` and body-reference
+/// edge the Tarjan recursion walk in `validate_recursion` traverses, one
+/// charge per edge) = 77. The fixture carries no nominal-form node
+/// (`enum`/`dimension`/`unit`/enum member) and no diagnostics entries, so
+/// neither `validate_nominal_nodes` nor `validate_diagnostics` charges
+/// anything here; a fixture that gained either would need its own added term
+/// in this sum. Cross-checked against `CheckedPackageV2::read`'s real
+/// admit/refuse boundary by `tc_048_v2_reader_reports_exact_and_one_over_limits`
+/// and `tc_048_shipped_default_read_limits_are_exact_and_finite`, so a drift
+/// between this hand-derived figure and the reader's actual charge fails
+/// there rather than silently. Shared between `complete_v1_checked_package`
+/// and `checked_package_v2_reader` so a change to the vendored all-families
+/// fixture cannot silently move the boundary in only one of them.
 pub const ALL_FAMILIES_READ_WORK: u64 = 77;
 
 /// Reads one vendored file under `tests/fixtures/checked-package/`.

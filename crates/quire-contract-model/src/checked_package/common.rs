@@ -308,6 +308,13 @@ pub(super) fn validate_source_map_entries<'a>(
     Ok(())
 }
 
+/// Structural path of a `reference` term's `target` member.
+pub(super) const BODY_TARGET_PATH: &str = "semantic_graph.nodes.body.target";
+/// Structural path of a `literal` term's `type` member.
+pub(super) const BODY_TYPE_PATH: &str = "semantic_graph.nodes.body.type";
+/// Structural path of an `application` term's `result_type` member.
+pub(super) const BODY_RESULT_TYPE_PATH: &str = "semantic_graph.nodes.body.result_type";
+
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TermGrammar {
@@ -319,11 +326,14 @@ pub(super) enum TermGrammar {
 }
 
 /// Validates one public semantic term, returning its work and reporting every
-/// reference target to `visit`.
+/// reference target to `visit`, alongside the structural path of the member
+/// that carried it (`BODY_TARGET_PATH`, `BODY_TYPE_PATH` or
+/// `BODY_RESULT_TYPE_PATH`), so a caller can tell which member a target came
+/// from rather than only its node key.
 pub(super) fn validate_term(
     value: &Value,
     grammar: TermGrammar,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     let Value::Object(object) = value else {
         return Err(ValidationFailure::Refused(
@@ -348,10 +358,10 @@ pub(super) fn validate_term(
                     .get("value")
                     .is_some_and(|value| is_literal_value(value, grammar)) =>
         {
-            visit_reference(object.get("type"), visit)
+            visit_reference(object.get("type"), BODY_TYPE_PATH, visit)
         }
         "reference" if exact_members(object, &["term", "target"]) => {
-            visit_reference(object.get("target"), visit)
+            visit_reference(object.get("target"), BODY_TARGET_PATH, visit)
         }
         "application"
             if exact_members(
@@ -367,7 +377,8 @@ pub(super) fn validate_term(
             // reader accepts the member is present and validates only
             // `result_type` as a reference. Deep operation-law validation is
             // not implemented by this reader.
-            let result_type_work = visit_reference(object.get("result_type"), visit)?;
+            let result_type_work =
+                visit_reference(object.get("result_type"), BODY_RESULT_TYPE_PATH, visit)?;
             let arguments_work = visit_terms(object.get("arguments"), grammar, visit)?;
             Ok(result_type_work.saturating_add(arguments_work))
         }
@@ -391,30 +402,31 @@ pub(super) fn validate_term(
     }
 }
 
-/// Parses one node-reference member, reports its target to `visit`, and
-/// charges one unit of work. Shared by `reference.target`, `literal.type`,
-/// `application.result_type`, and the V2 `frame` body's reference arrays.
+/// Parses one node-reference member, reports its target and the caller's
+/// `path` to `visit`, and charges one unit of work. Shared by
+/// `reference.target`, `literal.type`, `application.result_type`, and the V2
+/// `frame` body's reference arrays; the caller names the exact member `path`
+/// so a refusal identifies the offending member rather than a path fixed to
+/// whichever member first used this helper.
 pub(super) fn visit_reference(
     value: Option<&Value>,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    path: &'static str,
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     let target = value.cloned().ok_or(ValidationFailure::Refused(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "semantic_graph.nodes.body.target",
+        path,
     ))?;
     let target = serde_json::from_value::<CheckedNodeId>(target).map_err(|_| {
-        ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body.target",
-        )
+        ValidationFailure::Refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
     })?;
     if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
-        visit(&target);
+        visit(&target, path);
         Ok(1)
     } else {
         Err(ValidationFailure::Refused(
             CheckedPackageRefusalCode::DigestDomainMismatch,
-            "semantic_graph.nodes.body.target",
+            path,
         ))
     }
 }
@@ -475,7 +487,7 @@ fn is_operator(value: &str) -> bool {
 fn visit_terms(
     value: Option<&Value>,
     grammar: TermGrammar,
-    visit: &mut dyn FnMut(&CheckedNodeId),
+    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
 ) -> Result<u64, ValidationFailure> {
     let Some(Value::Array(values)) = value else {
         return Err(ValidationFailure::Refused(

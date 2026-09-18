@@ -55,10 +55,9 @@ is `README.md`, `schema.json`, `node-identity-preimage.schema.json`,
 ## Outputs
 
 - A closed read result: admitted, refused or incomplete (limit kind, limit,
-  consumed). A refusal carries a typed code, a structural path, and — for a
-  refusal whose code is paired with a catalogued cause — that cause tag and the
-  exact node key it is located at, so a caller distinguishes the condition and
-  the offending node without parsing prose.
+  consumed). A refusal carries a typed code and the structural path at which
+  admission failed, so a caller distinguishes the condition and locates it
+  without parsing prose.
 - One lowering record per requested item, drawn from a closed seven-member
   vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
   `failed`, `invalid_body` and `body_incomplete`. The last two are defensive:
@@ -147,10 +146,15 @@ frame body: `{"term": "frame", "modifies": [...], "creates": [...],
 array of node keys per the wire schema. The reader shall validate a
 `state`/`frame` node's `body` against this shape alone and every other node's
 `body` against the semantic-term grammar alone. A frame body that omits one of
-the three members, carries any further member, repeats an entry within one
-member, or carries an entry that is not a node key, refuses as
-`invalid_semantic_graph` at the frame body; so does a node of any other tag or
-form whose body carries the frame shape. Three empty members are admitted.
+the three members, carries any further member, or does not carry this closed
+shape refuses as `invalid_semantic_graph` at the frame body; so does a node of
+any other tag or form whose body carries the frame shape. Within one member
+array, an entry that repeats another entry of the same array, or that is not a
+node key, refuses as `invalid_semantic_graph` at that member's own path
+(`semantic_graph.nodes.body.modifies`, `.creates` or `.deletes`); an entry
+naming a node key outside the reader's node-identity domain refuses as
+`digest_domain_mismatch` at that same member path. Three empty members are
+admitted.
 
 When a caller lowers requested items, the lowerer shall charge work per request and, for each visited reachable node, per node, per body term and per successor edge, return
 `invalid_input` for an absent node key, `unsupported` when any reachable node's
@@ -215,7 +219,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing identity and version but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest the package evidence does not attest refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is evaluated against evidence, so the outcome does not depend on array position. | Test (TC-048) |
 | FR-038-AC-16 | The vendored `tests/fixtures/checked-package/` tree is byte-identical to `proposals/checked-package-v2/` at `0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb` for every vendored path, `PROVENANCE` names that commit and each path's git blob and SHA-256, and each of the five positive fixtures admits and re-derives its recorded `package_id`: `b0b40569b19f00bd06ae08e218f0f77d114ce97cf42d2b6fa7c868a96a18bdad` (all-families), `b70a9f27c9ef49711fb603d56014aa5ce092379cd820c5e62a0154c89877e7b4` (nominal-identities), `dca508e418e70d99bcaf49384ea48c7f909a389d8c5b15541e5fb1bddd426168` (operation-identities), `d011de207a1fe5578b89d185f9394ef6a995c16244b72d63ba2775c6518b5952` (clause-operations) and `c76a26bf468ae66a74ea3f79dde881657b5fc9c0c555535fcc12d59b4cc2b69f` (control-operations). | Test (TC-048) |
-| FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package, mirrored into `identity_preimage.identity_projection`, refuses as `invalid_semantic_graph`; deleting it from the graph alone refuses at the projection comparison; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 
 ## Dependencies
 
