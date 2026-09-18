@@ -5,12 +5,6 @@ checked packages. It is intentionally a schema-and-vector boundary, not a
 native Rust package API: QSL remains free to use internal parser/CST/package
 structures, but any external consumer receives only the versioned contract.
 
-V2 is the incompatible successor to the frozen V1 wire. V1 remains unchanged:
-its closed nodes cannot carry the nominal identity preimages required to
-recompute enum, dimension and declared-unit keys. A V1 reader must therefore
-continue to reject V2, and a V2 reader must select V2 explicitly; neither
-version is silently upgraded in place.
-
 ## Contract contents
 
 - `schema.json` defines the closed `quire.checked-package/v2` wire shape.
@@ -23,21 +17,12 @@ version is silently upgraded in place.
   duplicate-member/noncanonical raw-byte cases and production-reader outcomes
   remain TC-217 Contract IR consumer evidence; this schema qualification does
   not claim them complete.
-- `migration-correspondence.schema.json` and
-  `migration-correspondence-vectors.json` define the typed V1-to-V2 re-link
-  receipt, the closed `MigrationOutcome` sum (`relinked` correspondence or
-  `refused` code and subject) and its refusal code vocabulary. The positive
-  vectors cover an all-families `relinked-identical` migration and a nominal
-  `relinked-rekeyed` migration from
-  `fixtures/migration-source-nominal-v1.json`, a V1 package validated by the
-  frozen V1 schema; refusal vectors cover missing, stale, ambiguous,
-  incompatible-target and byte-only reconstruction.
 - `model-effective-declaration.schema.json` and
   `model-effective-declaration-vectors.json` define the QSL-derived
   `quire.model.effective-declaration/v1`, `quire.model.effective-view/v1` and
   `quire.model.object-universe/v1` preimages selected by
   `quire.model.complete/v1`, with JCS SHA-256 vectors, the reference key order
-  and invalid mutations. They add no CheckedPackage V1 or V2 wire member.
+  and invalid mutations. They add no CheckedPackage V2 wire member.
 - The checked semantic graph is a closed `quire.checked-semantic-graph/v2`
   tagged union. It is source-language-neutral transport, not Contract IR and
   not an alternative language semantic authority.

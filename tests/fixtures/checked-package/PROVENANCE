@@ -1,10 +1,12 @@
 Vendored QSpec I04 CheckedPackage publication inputs (byte-exact, unmodified).
 
 repository: https://github.com/agent-ix/quire-specification
-commit: 5626bc8fcfc2c280e6486aa9757930d8d87add06 (merged PR #78, AD-006 domain package model selections)
-previously vendored at: 5aa00f35056c65948de93ad339540974d35c368a (merged PR #71); between the two
-  commits only checked-package-v2/README.md, schema.json and node-identity-preimage.schema.json
-  changed among the blobs below
+commit: 56c3e0b (CheckedPackage V1 and every migration surface removed upstream)
+previously vendored at: 5626bc8fcfc2c280e6486aa9757930d8d87add06 (merged PR #78); between the two
+  commits only checked-package-v2/README.md and schema.json changed among the blobs below.
+  schema.json carries one normative change: `model_selections` gains `"uniqueItems": true` in
+  both `PackageLock` and `IdentityPreimage`, so a duplicate domain package selection is refused.
+  README.md changed only by deletion of the V1 and migration paragraphs.
 retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
 verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
 
@@ -12,25 +14,29 @@ Local paths mirror the upstream `proposals/` layout.
 
 Not vendored: proposals/checked-package-v2/model-effective-declaration.schema.json and
 model-effective-declaration-vectors.json (QSL-derived preimages; the upstream README states they
-add no CheckedPackage V1 or V2 wire member, and no reader or test here consumes them).
-Also not vendored: proposals/checked-package-v2/migration-correspondence.schema.json (blob
-d0620921), proposals/checked-package-v2/migration-correspondence-vectors.json (blob 837f1794) and
-proposals/checked-package-v2/fixtures/migration-source-nominal-v1.json (blob 8ccb5c63) — this
-repository reads one CheckedPackage contract and vendors no migration inputs.
+add no CheckedPackage V2 wire member, and no reader or test here consumes them).
 
 sha256                                                            git blob                                  source path
-37dff0cb00103e17a6de755ef014ad3c97cd40e5f256cb22e8ca22fd0a021af0  f781e2c1aab0b8cf252f4e5d6b6a1f2b56efda90  proposals/checked-package-v2/README.md
+99ebb43f6184289a9fd597c6d59871b2c81d8192af415039d31d68a99abbc126  b5f3082fd7b22c1aca119d6d8509d6971fee4ef0  proposals/checked-package-v2/README.md
 5a2d04dd603bfe39e38a0779d2fde7d17ce850e208ca1b9c2bcfbcef142aa60c  8a8579d1393e65faba65c404d1dc4db8736336a7  proposals/checked-package-v2/fixtures/adverse.json
 824a56a968a80b89d38f746b087c06868c20cfecd1d9ef20a17bc5836c473e0d  66aeeca2eb5ed1f3ac6731fe0f8250f1147084c7  proposals/checked-package-v2/fixtures/positive-all-families.json
 b6b1f81f33d6b8756f91ac3fefed74e8cb01b85892c4520a072952232e968a47  baddd5bffe94afe70a019c61238e2a37be7ca2b9  proposals/checked-package-v2/fixtures/positive-nominal-identities.json
 e8134c348cb9fa51d118415be539f2100c41b1beee0e2cb202a349aca3564681  046dd155899946f405807025cf6582051cddf4c9  proposals/checked-package-v2/node-identity-preimage.schema.json
 635717d735883c4f33440758376d4958e43340a801ac3b7be055d156f2096244  4a499af8c07b6e036fe0794150a68510b70fdfcb  proposals/checked-package-v2/node-identity-vectors.json
-579632040887ea7c36c7661b7b6c32a5d310673fa1193aa8cfdfb363191922ed  9e3f64dbf86e19ce6c38504a262e964d8ae1c6e1  proposals/checked-package-v2/schema.json
+ba0f5324616da85d3ddf29904e41352caa2ab5395220b05d5222311b46a31ac8  db5fcca2f28fd6f741e3efb1ee0bfb69ba946b58  proposals/checked-package-v2/schema.json
 
 Normative QSpec requirement text read at the same commit (not vendored):
-spec/objects/interfaces/FR-322-checked-package-artifact.md  (blob 4dfcc853e7b06e5c1a6882eb6571e07c445fa308)
-spec/objects/interfaces/interface-004-checked-package.md    (blob c3f3287cf409203553714314416248515d49d199)
-spec/objects/foundation/FR-201-canonical-identity-domain.md (blob 99aefd8cf99e0ca34b24c6abb28d63aadb4999fa)
-spec/functional/ir-proof/FR-195-lower-complete-contract-ir.md (blob 5600ed4ea40705328bbc50dd850baef7e997d4d4)
-spec/test-cases/TC-217-complete-contract-ir-lowering.md (blob fa298bca721c092c5c56e2399c6ce12c95e76cf6)
+spec/objects/interfaces/FR-322-checked-package-artifact.md  (blob e28c8c599ea66ec4c493720ab8e589d2692ec0f4)
+spec/objects/interfaces/interface_004-checked-package.md    (blob c6ea9559f35849c8c3f147f582972d50c448c231)
+spec/objects/foundation/FR-201-canonical-identity-domain.md (blob d155d4e378a73aa603ccf37ae432f234b5d1c2f9)
+spec/functional/ir-proof/FR-195-lower-complete-contract-ir.md (blob a96af646c769d3bb774ef024ac1aec898e77105f)
+spec/test-cases/TC-217-complete-contract-ir-lowering.md (blob 5d24972a11a25d4c94b42ad8d0306b900b8f5da6)
 spec/integration/IT-070-artifact-bundle-to-checked-package.md (blob 9340b1edd9a3f87ed5c0edfb3c161537be18ce10)
+
+`interface-004-checked-package.md` was renamed to `interface_004-checked-package.md` upstream,
+the hyphen-to-underscore object id form. Of the five changed documents, only FR-322 states a
+changed reader obligation, and it is a generalization of one already held: "a reader refuses any
+unrecognized `contract_version`" replaces "a V2 reader refuses a V1 contract version". The
+unchanged `unknown_contract_version` refusal code and FR-322-AC-4 already required it. FR-201-AC-5
+and AC-7, FR-322-AC-11/AC-12/AC-16, and interface_004's migration types and `relink_v1_to_v2`
+operation were all removed with the upstream V1 deletion; nothing here may cite them.
