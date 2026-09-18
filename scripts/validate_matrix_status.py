@@ -22,13 +22,29 @@ TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
 RUST_TEST = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+tc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 REQUIREMENT_ID = re.compile(r"(?:FR|NFR)-\d{3}")
-RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\s*$", re.M)
+RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\b.*$", re.I)
 SPEC_DIRECTORIES = ("spec/contract", "spec/functional", "spec/interface", "spec/nonfunctional")
+HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+# The heading text (matched case-insensitively, by substring) marking the one
+# table kind that verifies by method rather than by acceptance-criterion id.
+NON_FUNCTIONAL_SECTION = "non-functional"
 
 
-def rows(document: str) -> list[list[str]]:
-    parsed = []
+def rows(document: str) -> list[tuple[str, list[str]]]:
+    """Table rows in `document`, each paired with its nearest heading.
+
+    The heading identifies the row's table *kind* (for example "Functional
+    Requirement Coverage" versus "Non-Functional Requirement Coverage"), so a
+    caller can key behavior on what table a row lives in rather than guessing
+    from the row's own content.
+    """
+    parsed: list[tuple[str, list[str]]] = []
+    section = ""
     for line in document.splitlines():
+        heading = HEADING.match(line)
+        if heading:
+            section = heading.group(2)
+            continue
         if not line.startswith("|") or set(line.replace("|", "").strip()) <= {"-"}:
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -38,7 +54,7 @@ def rows(document: str) -> list[list[str]]:
             "Functional Req",
             "Stakeholder Req",
         }:
-            parsed.append(cells)
+            parsed.append((section, cells))
     return parsed
 
 
@@ -47,6 +63,33 @@ def referenced_tests(value: str) -> set[str]:
     for start, end in TEST_RANGE.findall(value):
         result.update(f"TC-{number:03d}" for number in range(int(start), int(end) + 1))
     return result
+
+
+def _without_retired_sections(document: str) -> str:
+    """`document` with every `Retired criteria` subsection's body removed.
+
+    A retired subsection runs from its own heading up to (but not including)
+    the next heading at the same or a shallower level, wherever that falls —
+    not "everything after the first match". Content before, between, or
+    after retired subsections is kept, so a live criterion declared later in
+    the document (for example after a `## Dependencies` section that follows
+    a `### Retired criteria` subsection) is not silently dropped.
+    """
+    kept = []
+    skip_at_or_below: int | None = None
+    for line in document.splitlines(keepends=True):
+        heading = HEADING.match(line)
+        if heading:
+            level = len(heading.group(1))
+            if skip_at_or_below is not None and level <= skip_at_or_below:
+                skip_at_or_below = None
+            if skip_at_or_below is None and RETIRED_HEADING.match(line):
+                skip_at_or_below = level
+                continue
+        if skip_at_or_below is not None:
+            continue
+        kept.append(line)
+    return "".join(kept)
 
 
 def live_criteria(root: Path = ROOT) -> dict[str, list[str]]:
@@ -64,7 +107,7 @@ def live_criteria(root: Path = ROOT) -> dict[str, list[str]]:
             if not identifier or not REQUIREMENT_ID.fullmatch(identifier.group(1)):
                 continue
             requirement = identifier.group(1)
-            body = RETIRED_HEADING.split(document, maxsplit=1)[0]
+            body = _without_retired_sections(document)
             criteria = re.findall(rf"\|\s*({requirement}-AC-\d+)\s*\|", body)
             declared[requirement] = sorted(set(criteria))
     return declared
@@ -123,17 +166,21 @@ def validate_criterion_citations(
     reads green while that criterion is verified by nothing.
     """
     failures = []
-    for row in (row for document in documents for row in rows(document)):
+    for section, row in (
+        item for document in documents for item in rows(document)
+    ):
         if not row or not REQUIREMENT_ID.fullmatch(row[0]) or row[0] not in declared:
             continue
         live = set(declared[row[0]])
         if not live:
             continue
-        cited = cited_criteria(row[0], row[1])
-        if not cited:
-            # Sections that verify by method rather than by criterion id — the
-            # non-functional table — name no criterion at all, by design.
+        if NON_FUNCTIONAL_SECTION in section.lower():
+            # The non-functional table verifies by method, not by criterion
+            # id, so it names no criterion at all, by design — keyed on the
+            # table the row lives in, not on whether the row is empty, so a
+            # functional row that cites nothing still fails below.
             continue
+        cited = cited_criteria(row[0], row[1])
         for criterion in sorted(live - cited):
             failures.append(f"{row[0]} omits live criterion {criterion}")
         for criterion in sorted(cited - live):
@@ -142,7 +189,7 @@ def validate_criterion_citations(
 
 
 def validate_documents(documents: list[str], executable: set[str]) -> list[str]:
-    parsed = [row for document in documents for row in rows(document)]
+    parsed = [row for document in documents for _, row in rows(document)]
     summaries = {
         row[0]: row[-1]
         for row in parsed
