@@ -233,10 +233,12 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES, 16_777_216);
     assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FIXTURES, 10_000);
     assert_eq!(quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES, 67_108_864);
-    assert!(
-        quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES
-            < quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES
-    );
+    const {
+        assert!(
+            quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES
+                < quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES
+        );
+    }
     assert!(PUBLIC_CONSTRUCT_TAGS
         .windows(2)
         .all(|pair| pair[0] < pair[1]));

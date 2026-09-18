@@ -1184,7 +1184,8 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
         CheckedPackageV2::read(&bytes, bounded, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    let narrowed: [(CheckedPackageLimit, fn(&mut CheckedPackageReadLimits, u64)); 7] = [
+    type NarrowLimit = fn(&mut CheckedPackageReadLimits, u64);
+    let narrowed: [(CheckedPackageLimit, NarrowLimit); 7] = [
         (CheckedPackageLimit::Bytes, |limits, value| {
             limits.bytes = value
         }),

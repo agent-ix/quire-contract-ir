@@ -6,7 +6,14 @@ import pathlib
 import tempfile
 import unittest
 
-from scripts.validate_matrix_status import executable_tests, main, validate_documents
+from scripts.validate_matrix_status import (
+    cited_criteria,
+    executable_tests,
+    live_criteria,
+    main,
+    validate_criterion_citations,
+    validate_documents,
+)
 
 
 class MatrixStatusTests(unittest.TestCase):
@@ -115,3 +122,76 @@ fn tc_049_not_a_test() {}
             (root / "tests").mkdir()
             (root / "tests/traced.rs").write_text(source, encoding="utf-8")
             self.assertEqual(executable_tests(root), {"TC-044", "TC-047", "TC-048"})
+
+    def test_rejects_rows_that_omit_a_live_acceptance_criterion(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-5."""
+        # A row can cite fewer criteria than its requirement declares and stay
+        # green under both coverage gates, because coverage checks the criteria
+        # the row names. This is the class issue #33 describes.
+        document = """
+| Functional Req | Acceptance Criteria | Test Cases | Status |
+|---|---|---|---|
+| FR-099 | FR-099-AC-2 | TC-001 | ✅ covered |
+"""
+        declared = {"FR-099": ["FR-099-AC-1", "FR-099-AC-2", "FR-099-AC-3"]}
+        self.assertEqual(
+            validate_criterion_citations([document], declared),
+            [
+                "FR-099 omits live criterion FR-099-AC-1",
+                "FR-099 omits live criterion FR-099-AC-3",
+            ],
+        )
+
+        # Citing every live criterion passes, whether spelled out or ranged.
+        for cell in ("FR-099-AC-1, FR-099-AC-2, FR-099-AC-3", "FR-099-AC-1 through FR-099-AC-3"):
+            complete = f"""
+| Functional Req | Acceptance Criteria | Test Cases | Status |
+|---|---|---|---|
+| FR-099 | {cell} | TC-001 | ✅ covered |
+"""
+            self.assertEqual(validate_criterion_citations([complete], declared), [])
+
+        # A row naming a criterion the document no longer declares — a retired
+        # or misspelled id — is a failure in the other direction.
+        stale = """
+| Functional Req | Acceptance Criteria | Test Cases | Status |
+|---|---|---|---|
+| FR-099 | FR-099-AC-1 through FR-099-AC-4 | TC-001 | ✅ covered |
+"""
+        self.assertEqual(
+            validate_criterion_citations([stale], declared),
+            ["FR-099 cites unknown or retired criterion FR-099-AC-4"],
+        )
+
+        # A table that verifies by method rather than by criterion id names no
+        # criterion at all and is not treated as omitting every one of them.
+        by_method = """
+| Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
+|---|---|---|---|
+| FR-099 | inspection | TC-001 | ✅ covered |
+"""
+        self.assertEqual(validate_criterion_citations([by_method], declared), [])
+
+    def test_retired_criteria_are_not_live(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-5."""
+        # Every FR-001, FR-009 and FR-022 criterion under a `Retired criteria`
+        # heading is withdrawn with a recorded reason. A matrix row that omits
+        # them is correct, and the checker must not report it.
+        declared = live_criteria()
+        self.assertEqual(declared["FR-001"], ["FR-001-AC-2"])
+        self.assertEqual(declared["FR-009"], ["FR-009-AC-2", "FR-009-AC-6"])
+        self.assertEqual(
+            declared["FR-022"],
+            [
+                "FR-022-AC-1",
+                "FR-022-AC-2",
+                "FR-022-AC-3",
+                "FR-022-AC-5",
+                "FR-022-AC-6",
+            ],
+        )
+        self.assertEqual(
+            cited_criteria("FR-022", "FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6"),
+            set(declared["FR-022"]),
+        )
+

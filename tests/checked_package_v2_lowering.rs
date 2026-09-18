@@ -438,7 +438,9 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
     // rather than invalid_input. With any budget the same key is invalid_input.
     let missing = typed_node_id(&"9".repeat(64));
     assert_eq!(
-        package.lower(&[missing.clone()], &profile(0)).records[0],
+        package
+            .lower(std::slice::from_ref(&missing), &profile(0))
+            .records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: missing.clone(),
             limit: 0,
@@ -446,7 +448,9 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
         }
     );
     assert_eq!(
-        package.lower(&[missing.clone()], &profile(1)).records[0],
+        package
+            .lower(std::slice::from_ref(&missing), &profile(1))
+            .records[0],
         CompleteLoweringRecordV2::InvalidInput { node_id: missing }
     );
 

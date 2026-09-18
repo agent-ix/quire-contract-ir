@@ -21,6 +21,9 @@ TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
 # in either order relative to them, and then the traced function.
 RUST_TEST = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+tc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
+REQUIREMENT_ID = re.compile(r"(?:FR|NFR)-\d{3}")
+RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\s*$", re.M)
+SPEC_DIRECTORIES = ("spec/contract", "spec/functional", "spec/interface", "spec/nonfunctional")
 
 
 def rows(document: str) -> list[list[str]]:
@@ -44,6 +47,39 @@ def referenced_tests(value: str) -> set[str]:
     for start, end in TEST_RANGE.findall(value):
         result.update(f"TC-{number:03d}" for number in range(int(start), int(end) + 1))
     return result
+
+
+def live_criteria(root: Path = ROOT) -> dict[str, list[str]]:
+    """Acceptance criterion ids each requirement document still declares.
+
+    Criteria under a `Retired criteria` heading are deliberately withdrawn and
+    are not live, so a matrix row that omits them is correct rather than
+    under-citing.
+    """
+    declared: dict[str, list[str]] = {}
+    for directory in SPEC_DIRECTORIES:
+        for path in sorted((root / directory).glob("*.md")):
+            document = path.read_text(encoding="utf-8")
+            identifier = re.search(r"^id:\s*(\S+)", document, re.M)
+            if not identifier or not REQUIREMENT_ID.fullmatch(identifier.group(1)):
+                continue
+            requirement = identifier.group(1)
+            body = RETIRED_HEADING.split(document, maxsplit=1)[0]
+            criteria = re.findall(rf"\|\s*({requirement}-AC-\d+)\s*\|", body)
+            declared[requirement] = sorted(set(criteria))
+    return declared
+
+
+def cited_criteria(requirement: str, cell: str) -> set[str]:
+    """Criterion ids a matrix cell names, expanding `X through Y` ranges."""
+    numbered = rf"{requirement}-AC-(\d+)"
+    cited = set()
+    for start, end in re.findall(rf"{numbered}\s+through\s+{numbered}", cell):
+        cited.update(
+            f"{requirement}-AC-{number}" for number in range(int(start), int(end) + 1)
+        )
+    cited.update(re.findall(rf"{requirement}-AC-\d+", cell))
+    return cited
 
 
 def executable_tests(root: Path = ROOT) -> set[str]:
@@ -75,6 +111,34 @@ def executable_tests(root: Path = ROOT) -> set[str]:
                     ) and method.name.startswith("test_"):
                         result.update(referenced_tests(ast.get_docstring(method) or ""))
     return result
+
+
+def validate_criterion_citations(
+    documents: list[str], declared: dict[str, list[str]]
+) -> list[str]:
+    """Fail closed when a matrix row cites fewer criteria than it must.
+
+    `quire coverage` reports a row backed when the criteria the row *names* are
+    backed, so a row that silently omits one of its requirement's live criteria
+    reads green while that criterion is verified by nothing.
+    """
+    failures = []
+    for row in (row for document in documents for row in rows(document)):
+        if not row or not REQUIREMENT_ID.fullmatch(row[0]) or row[0] not in declared:
+            continue
+        live = set(declared[row[0]])
+        if not live:
+            continue
+        cited = cited_criteria(row[0], row[1])
+        if not cited:
+            # Sections that verify by method rather than by criterion id — the
+            # non-functional table — name no criterion at all, by design.
+            continue
+        for criterion in sorted(live - cited):
+            failures.append(f"{row[0]} omits live criterion {criterion}")
+        for criterion in sorted(cited - live):
+            failures.append(f"{row[0]} cites unknown or retired criterion {criterion}")
+    return failures
 
 
 def validate_documents(documents: list[str], executable: set[str]) -> list[str]:
@@ -117,17 +181,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
-    failures = validate_documents(
-        [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS],
-        executable_tests(root),
-    )
+    documents = [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS]
+    failures = validate_documents(documents, executable_tests(root))
+    failures.extend(validate_criterion_citations(documents, live_criteria(root)))
     if failures:
         for failure in failures:
             print(f"matrix status error: {failure}", file=sys.stderr)
         return 1
     print(
         "matrix status census: every ✅ row and PGM acceptance citation "
-        "resolves to a completed test case with a declared test symbol"
+        "resolves to a completed test case with a declared test symbol, and "
+        "every requirement row cites exactly its live acceptance criteria"
     )
     return 0
 
