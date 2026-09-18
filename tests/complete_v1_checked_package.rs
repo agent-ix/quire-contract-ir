@@ -92,9 +92,17 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &CompleteContractNodeV2 {
 fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     let value = v2_all_families();
     let package = admit(&value);
-    assert_eq!(package.graph().nodes.len(), FAMILIES.len());
+    let total_nodes = value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    // The admitted graph carries every node the fixture declares: the 13
+    // public families plus the supporting nodes their new required fields
+    // (FR-208's `application.operation`/`result_type` and the 18 model
+    // forms) now reference, such as the function family's second function.
+    assert_eq!(package.graph().nodes.len(), total_nodes);
 
-    let known_ids: BTreeSet<CheckedNodeId> = (0..FAMILIES.len())
+    let known_ids: BTreeSet<CheckedNodeId> = (0..total_nodes)
         .map(|position| wire_node_id(&value, position))
         .collect();
     let requested = (0..FAMILIES.len())
@@ -147,10 +155,16 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     // records, and no placeholder substituted for the ones that do not lower.
     let scalar_type = wire_node_id(&value, 0);
     let expression = wire_node_id(&value, 4);
-    let missing = typed_node_id(&"9".repeat(64));
+    // Not "9".repeat(64): that digest now collides with the fixture's own
+    // real node 23 (systems_interface/Flowable).
+    let missing = typed_node_id(&"0123456789abcdef".repeat(4));
+    // scalar_type's own closure now costs 5 (its self-typed literal's new
+    // `type` member adds a self-edge charge), so the shared budget below
+    // must clear 5 for it to succeed while still failing expression's larger
+    // closure.
     let mixed = package.lower(
         &[scalar_type.clone(), missing.clone(), expression.clone()],
-        &profile(4),
+        &profile(5),
     );
     assert_eq!(mixed.records.len(), 3);
     assert_eq!(lowered(&mixed.records[0]).node.node_id, scalar_type);
@@ -160,14 +174,14 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     );
     assert!(matches!(
         &mixed.records[2],
-        CompleteLoweringRecordV2::Failed { node_id, limit: 4, consumed: 5, .. } if *node_id == expression
+        CompleteLoweringRecordV2::Failed { node_id, limit: 5, consumed: 6 } if *node_id == expression
     ));
 
     // The successful sibling is exactly what an isolated request would
     // return: one sibling's disposition never leaks into another's.
     assert_eq!(
         mixed.records[0],
-        package.lower(&[scalar_type], &profile(4)).records[0]
+        package.lower(&[scalar_type], &profile(5)).records[0]
     );
 }
 
@@ -248,7 +262,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     // refuses rather than resolving to a substitute.
     let mut dangling_dependency = base.clone();
     dangling_dependency["semantic_graph"]["nodes"][1]["dependencies"] =
-        json!([{"domain": NODE_DOMAIN, "digest": "9".repeat(64)}]);
+        json!([{"domain": NODE_DOMAIN, "digest": "0123456789abcdef".repeat(4)}]);
     refresh_identity(&mut dangling_dependency);
     assert_eq!(
         refused(&dangling_dependency, &evidence_for(&dangling_dependency)),
@@ -268,7 +282,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         .position(|node| node["node_tag"] == json!("expression"))
         .expect("all-families fixture carries an expression node");
     dangling_target["semantic_graph"]["nodes"][expression]["body"]["target"]["digest"] =
-        json!("9".repeat(64));
+        json!("0123456789abcdef".repeat(4));
     refresh_identity(&mut dangling_target);
     assert_eq!(
         refused(&dangling_target, &evidence_for(&dangling_target)),
@@ -301,12 +315,30 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
     let value = v2_all_families();
     let evidence = evidence_for(&value);
     let bytes = canonical(&value);
+    let wire_nodes = value["semantic_graph"]["nodes"].as_array().expect("nodes");
+    // The fixture's 13 public families now carry 13 supporting nodes besides
+    // (referenced by their new required fields, e.g. the function family's
+    // second function), so nodes/edges/occurrences count the full graph, not
+    // just `FAMILIES`.
+    let total_edges: usize = wire_nodes
+        .iter()
+        .map(|node| node["dependencies"].as_array().expect("dependencies").len())
+        .sum();
+    // The `occurrences` limit charges the source map's entry-and-region
+    // count (`validate_source_map_entries`), not the graph nodes' own
+    // `occurrences` arrays.
+    let source_map = value["source_map"].as_array().expect("source map");
+    let total_occurrences: usize = source_map.len()
+        + source_map
+            .iter()
+            .map(|entry| entry["regions"].as_array().expect("regions").len())
+            .sum::<usize>();
     let mut exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("fixture length"),
         depth: json_depth(&value),
-        nodes: u64::try_from(FAMILIES.len()).expect("node count"),
-        edges: 0,
-        occurrences: u64::try_from(FAMILIES.len() * 2).expect("occurrence count"),
+        nodes: u64::try_from(wire_nodes.len()).expect("node count"),
+        edges: u64::try_from(total_edges).expect("edge count"),
+        occurrences: u64::try_from(total_occurrences).expect("occurrence count"),
         diagnostics: 0,
         work: ALL_FAMILIES_READ_WORK,
     };
@@ -364,8 +396,9 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         exact.work,
     );
 
-    // edges: the base fixture carries no dependency edges, so the exact/
-    // one-over boundary is proven on a variant with exactly one.
+    // edges: node 1 (composite_type) carries no dependency edges in the base
+    // fixture, so adding exactly one to it proves the exact/one-over boundary
+    // against the fixture's other `total_edges` edges.
     let mut edge_value = value.clone();
     edge_value["semantic_graph"]["nodes"][1]["dependencies"] =
         json!([value["semantic_graph"]["nodes"][0]["node_id"]]);
@@ -374,18 +407,19 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
     let edge_evidence = evidence_for(&edge_value);
     let mut edge_limits = CheckedPackageReadLimits::bounded();
     edge_limits.bytes = u64::try_from(edge_bytes.len()).expect("fixture length");
-    edge_limits.edges = 1;
+    let edges_with_one_more = u64::try_from(total_edges + 1).expect("edge count");
+    edge_limits.edges = edges_with_one_more;
     assert!(matches!(
         CheckedPackageV2::read(&edge_bytes, edge_limits, &edge_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    edge_limits.edges = 0;
+    edge_limits.edges = edges_with_one_more - 1;
     assert_incomplete(
         &edge_bytes,
         edge_limits,
         &edge_evidence,
         CheckedPackageLimit::Edges,
-        0,
+        edges_with_one_more - 1,
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly

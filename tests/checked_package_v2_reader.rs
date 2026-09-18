@@ -14,7 +14,7 @@ use checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     NominalIdentityPreimage,
@@ -283,7 +283,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling body reference",
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] = json!("9".repeat(64));
+                // Not "9".repeat(64): that digest now collides with the
+                // fixture's own real node 23 (systems_interface/Flowable).
+                v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] =
+                    json!("0123456789abcdef".repeat(4));
                 refresh_identity(v);
             }),
             refusal(
@@ -294,8 +297,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling dependency",
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][1]["dependencies"] =
-                    json!([{"domain":"quire.checked-semantic-node/v1","digest":"9".repeat(64)}]);
+                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([{"domain":"quire.checked-semantic-node/v1","digest":"0123456789abcdef".repeat(4)}]);
                 refresh_identity(v);
             }),
             refusal(
@@ -407,18 +409,22 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let schema = jsonschema::JSONSchema::compile(&fixture("checked-package-v2/schema.json"))
         .expect("vendored schema compiles");
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
+    let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
     let body: Build = Box::new(|literal| {
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][0]["body"] =
-            json!({"term":"literal","value_kind":"integer","value":literal});
+        changed["semantic_graph"]["nodes"][0]["body"] = json!({"term":"literal","type":self_type.clone(),"value_kind":"integer","value":literal});
         refresh_identity(&mut changed);
         changed
     });
     let detail: Build = Box::new(|literal| {
         let mut changed = base.clone();
+        let target = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+        // FR-208's new `DiagnosticCausePairing` (added by this re-pin) requires
+        // `cause_tag: "invalid-value"` to pair with `code: "invalid_package"`,
+        // not `"ill_typed"` as this case used before.
         changed["diagnostics"]["entries"] = json!([{
-            "stage":"type_checking","code":"ill_typed","cause_tag":"invalid-value",
-            "details":[{"term":"literal","value_kind":"integer","value":literal}],"loci":[]
+            "stage":"type_checking","code":"invalid_package","cause_tag":"invalid-value",
+            "details":[{"term":"literal","type":target,"value_kind":"integer","value":literal}],"loci":[]
         }]);
         changed
     });
@@ -449,7 +455,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
-    assert_eq!(admitted(&grouped).graph().nodes.len(), 13);
+    assert_eq!(admitted(&grouped).graph().nodes.len(), 26);
 
     // Evidence the caller must supply: every locked digest and the feature.
     assert_eq!(
@@ -514,8 +520,11 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         edges: 2,
         occurrences: 8,
         diagnostics: 1,
-        // Terms 4 + nominal 11 + graph edges 4 + diagnostic detail 1.
-        work: 20,
+        // Terms 4 + nominal 11 + graph edges 5 + diagnostic detail 1.
+        // Graph edges is 5, not 4: node 0's body now carries a required
+        // `literal.type` that (like its `semantic_type`) self-references
+        // node 0, adding one more body-target edge into the Tarjan walk.
+        work: 21,
     };
     match CheckedPackageV2::read(&bytes, exact, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => {
@@ -864,6 +873,12 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 let nodes = v["semantic_graph"]["nodes"].as_array_mut().expect("nodes");
                 nodes[member]["nominal_identity_preimage"] = preimage;
                 nodes[member]["semantic_form"] = json!("literal");
+                // "literal" is not "enum_value", so this node's retained
+                // `declaration`-role occurrence now requires a `declaration`
+                // member (FR-208's `DeclarationOccurrenceRule`); add one so
+                // this case still isolates the nominal-preimage mismatch it
+                // targets, rather than tripping that unrelated rule first.
+                nodes[member]["declaration"] = json!({"qualified_name": ["Example", "Member"]});
             }),
         ),
         (
@@ -1234,7 +1249,26 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         .iter()
         .position(|node| node["node_tag"] == json!("model"))
         .expect("all-families fixture carries a model node");
-    for form in ["model_import", "model_type", "model_declaration"] {
+    for form in [
+        "model_import",
+        "object_type",
+        "value_type",
+        "variant_type",
+        "record_value_type",
+        "event_type",
+        "state_machine",
+        "process",
+        "persistence_interface",
+        "namespace",
+        "field_declaration",
+        "operation_declaration",
+        "clause_member_declaration",
+        "systems_interface",
+        "systems_part",
+        "systems_port",
+        "systems_connection",
+        "systems_allocation",
+    ] {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
         refresh_identity(&mut value);
@@ -1390,4 +1424,310 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
             other => panic!("expected incomplete for {kind:?}, got {other:?}"),
         }
     }
+}
+
+/// The self-typed carve-out in `validate_graph`'s adjacency construction is
+/// keyed on the member, not on node identity: only a self-typed node's own
+/// `literal.type` may name itself from its body without counting as a
+/// reference cycle requiring `recursion_group` (a self-typed scalar's
+/// `literal.type` states the same fact its `semantic_type` already does). A
+/// self-typed node whose body is instead a `reference` term naming itself is
+/// a genuine 1-node cycle and must still resolve through `recursion_group` or
+/// refuse — nothing restricts which node may declare itself its own
+/// `semantic_type`, so the carve-out must not be reachable through any body
+/// member but `literal.type`.
+///
+/// Tracing: TC-048, FR-038-AC-2
+#[trace("TC-048", "FR-038-AC-2")]
+#[test]
+fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_not_node_identity() {
+    let base = v2_all_families();
+    let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
+
+    // Positive: a self-typed node's own `literal.type` self-reference is the
+    // carve-out's intended case and admits with no `recursion_group`.
+    let mut literal_type = base.clone();
+    literal_type["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
+    literal_type["semantic_graph"]["nodes"][1]["body"] = json!({
+        "term": "literal", "type": own_id, "value_kind": "integer", "value": 1
+    });
+    refresh_identity(&mut literal_type);
+    let package = admitted(&literal_type);
+    assert_eq!(
+        package.graph().nodes[1].recursion_group,
+        None,
+        "a self-typed literal.type self-reference is not a cycle"
+    );
+
+    // Negative: a self-typed node whose body is a `reference` term naming
+    // itself is a genuine 1-node cycle, not the carve-out's case. The carve-
+    // out regressed this: it used to key on node identity alone
+    // (`semantic_type == position`), which also swallowed this case with no
+    // `recursion_group` on `origin/main`'s vendored fixture.
+    let mut reference_body = base.clone();
+    reference_body["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
+    reference_body["semantic_graph"]["nodes"][1]["body"] =
+        json!({"term": "reference", "target": own_id});
+    refresh_identity(&mut reference_body);
+    assert_eq!(
+        refused(&reference_body, &evidence_for(&reference_body)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.recursion_group"
+        )
+    );
+}
+
+/// The vendored tree pinned by `PROVENANCE` is what this reader actually
+/// re-derives: each of the five positive fixtures admits and re-derives its
+/// recorded `package_id` exactly. The digests are pinned as literals — not
+/// read back from the fixture — so a silent identity change in the reader,
+/// or an edit to a vendored fixture that is not re-pinned here, fails this
+/// test rather than passing silently.
+///
+/// Tracing: TC-048, FR-038-AC-16
+#[trace("TC-048", "FR-038-AC-16")]
+#[test]
+fn tc_048_vendored_positive_fixtures_rederive_their_recorded_package_id() {
+    let cases = [
+        (
+            "checked-package-v2/fixtures/positive-all-families.json",
+            "b0b40569b19f00bd06ae08e218f0f77d114ce97cf42d2b6fa7c868a96a18bdad",
+        ),
+        (
+            "checked-package-v2/fixtures/positive-nominal-identities.json",
+            "b70a9f27c9ef49711fb603d56014aa5ce092379cd820c5e62a0154c89877e7b4",
+        ),
+        (
+            "checked-package-v2/fixtures/positive-operation-identities.json",
+            "dca508e418e70d99bcaf49384ea48c7f909a389d8c5b15541e5fb1bddd426168",
+        ),
+        (
+            "checked-package-v2/fixtures/positive-clause-operations.json",
+            "d011de207a1fe5578b89d185f9394ef6a995c16244b72d63ba2775c6518b5952",
+        ),
+        (
+            "checked-package-v2/fixtures/positive-control-operations.json",
+            "c76a26bf468ae66a74ea3f79dde881657b5fc9c0c555535fcc12d59b4cc2b69f",
+        ),
+    ];
+    for (path, recorded_digest) in cases {
+        let value = fixture(path);
+        let package = admitted(&value);
+        assert_eq!(
+            package.package_id().digest.as_ref(),
+            recorded_digest,
+            "{path}"
+        );
+    }
+}
+
+/// FR-038-AC-17: deleting `declaration`, `literal.type`,
+/// `application.operation` or `application.result_type` from a single node
+/// refuses as `invalid_semantic_graph`, whether the deletion is left on the
+/// graph alone or mirrored into `identity_preimage.identity_projection`. Both
+/// scenarios hit the identical outcome, because the graph node's own
+/// member-level check — `validate_declaration` for `declaration`, the term
+/// grammar's closed member set for the other three — refuses unconditionally
+/// inside the per-node walk, before `identity_preimage.identity_projection`
+/// is ever compared against the derived projection; mirroring the deletion
+/// into the preimage changes nothing about which check fires first.
+///
+/// Tracing: TC-048, FR-038-AC-17
+#[trace("TC-048", "FR-038-AC-17")]
+#[test]
+fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
+    let base = fixture("checked-package-v2/fixtures/positive-operation-identities.json");
+    let nodes = base["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let declaring_node = nodes
+        .iter()
+        .position(|node| node.get("declaration").is_some())
+        .expect("a declaring node");
+    let literal_node = nodes
+        .iter()
+        .position(|node| node["body"]["term"] == json!("literal"))
+        .expect("a literal node");
+    let application_node = nodes
+        .iter()
+        .position(|node| node["body"]["term"] == json!("application"))
+        .expect("an application node");
+
+    type Delete = fn(&mut Value, usize);
+    let cases: [(&str, usize, Delete, CheckedPackageRefusal); 4] = [
+        (
+            "declaration",
+            declaring_node,
+            |v, i| {
+                v["semantic_graph"]["nodes"][i]
+                    .as_object_mut()
+                    .expect("node object")
+                    .remove("declaration");
+            },
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_graph.nodes.declaration",
+            ),
+        ),
+        (
+            "literal.type",
+            literal_node,
+            |v, i| {
+                v["semantic_graph"]["nodes"][i]["body"]
+                    .as_object_mut()
+                    .expect("body object")
+                    .remove("type");
+            },
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_graph.nodes.body",
+            ),
+        ),
+        (
+            "application.operation",
+            application_node,
+            |v, i| {
+                v["semantic_graph"]["nodes"][i]["body"]
+                    .as_object_mut()
+                    .expect("body object")
+                    .remove("operation");
+            },
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_graph.nodes.body",
+            ),
+        ),
+        (
+            "application.result_type",
+            application_node,
+            |v, i| {
+                v["semantic_graph"]["nodes"][i]["body"]
+                    .as_object_mut()
+                    .expect("body object")
+                    .remove("result_type");
+            },
+            refusal(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                "semantic_graph.nodes.body",
+            ),
+        ),
+    ];
+
+    for (name, index, delete, expected) in cases {
+        // Left on the graph alone: the preimage still carries the member, so
+        // the package_id/preimage staleness check (which runs before the
+        // graph is walked) still passes unchanged, and it is the member-level
+        // check inside the graph walk that actually refuses.
+        let mut graph_only = base.clone();
+        delete(&mut graph_only, index);
+        assert_eq!(
+            refused(&graph_only, &evidence_for(&graph_only)),
+            expected,
+            "{name}: graph alone"
+        );
+
+        // Mirrored into identity_preimage.identity_projection: refreshing
+        // the identity after the same graph deletion re-derives a projection
+        // and package_id consistent with the mutated graph, so the member is
+        // absent from both. The outcome is identical, because the
+        // member-level check never consults the preimage.
+        let mut mirrored = base.clone();
+        delete(&mut mirrored, index);
+        refresh_identity(&mut mirrored);
+        assert_eq!(
+            refused(&mirrored, &evidence_for(&mirrored)),
+            expected,
+            "{name}: mirrored"
+        );
+    }
+}
+
+/// FR-038-AC-17's closed model/expression form lists: `CheckedNodeTag::forms`
+/// for every family equals the vendored schema's own `semantic_form` enum for
+/// that family's node definition, so the schema stays the single source for
+/// the closed lists rather than two hand-maintained copies that can diverge
+/// silently. The eighteen `model` forms and the fifteen `expression` forms
+/// each admit as a node form; a nineteenth `model` form and a sixteenth
+/// `expression` form each refuse as `invalid_semantic_graph`.
+///
+/// Tracing: TC-048, FR-038-AC-17
+#[trace("TC-048", "FR-038-AC-17")]
+#[test]
+fn tc_048_node_tag_forms_match_the_vendored_schema_and_bound_admission() {
+    let schema = fixture("checked-package-v2/schema.json");
+    let defs = schema["$defs"].as_object().expect("schema $defs");
+    for tag in CheckedNodeTag::ALL {
+        let def = defs
+            .values()
+            .find(|def| {
+                def["allOf"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|part| part["properties"]["node_tag"]["const"] == json!(tag.as_wire()))
+            })
+            .unwrap_or_else(|| panic!("schema defines a node for {}", tag.as_wire()));
+        let forms = def["allOf"]
+            .as_array()
+            .expect("allOf")
+            .iter()
+            .find_map(|part| part["properties"]["semantic_form"]["enum"].as_array())
+            .unwrap_or_else(|| panic!("{} declares a semantic_form enum", tag.as_wire()));
+        let schema_forms = forms
+            .iter()
+            .map(|form| form.as_str().expect("form string"))
+            .collect::<Vec<_>>();
+        assert_eq!(schema_forms, tag.forms(), "{}", tag.as_wire());
+    }
+
+    let schema_doc = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+    let base = v2_all_families();
+    let model = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == json!("model"))
+        .expect("all-families fixture carries a model node");
+    for form in CheckedNodeTag::Model.forms() {
+        let mut value = base.clone();
+        value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        refresh_identity(&mut value);
+        assert!(schema_doc.is_valid(&value), "model/{form} schema");
+        admitted(&value);
+    }
+    let mut nineteenth = base.clone();
+    nineteenth["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
+    refresh_identity(&mut nineteenth);
+    assert!(!schema_doc.is_valid(&nineteenth));
+    assert_eq!(
+        refused(&nineteenth, &evidence_for(&nineteenth)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.semantic_form"
+        )
+    );
+
+    let expression = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == json!("expression"))
+        .expect("all-families fixture carries an expression node");
+    for form in CheckedNodeTag::Expression.forms() {
+        let mut value = base.clone();
+        value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form);
+        refresh_identity(&mut value);
+        assert!(schema_doc.is_valid(&value), "expression/{form} schema");
+        admitted(&value);
+    }
+    let mut sixteenth = base.clone();
+    sixteenth["semantic_graph"]["nodes"][expression]["semantic_form"] = json!("future_expression");
+    refresh_identity(&mut sixteenth);
+    assert!(!schema_doc.is_valid(&sixteenth));
+    assert_eq!(
+        refused(&sixteenth, &evidence_for(&sixteenth)),
+        refusal(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.semantic_form"
+        )
+    );
 }
