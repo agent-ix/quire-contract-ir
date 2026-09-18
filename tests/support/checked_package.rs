@@ -17,13 +17,15 @@ use std::path::PathBuf;
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
-/// Exact read-limits `work` boundary that admits `v2_all_families()`: the 13
-/// family nodes' term charges plus the 14 graph edges (each node's
-/// semantic-type and body-target references). Shared between
-/// `complete_v1_checked_package` and `checked_package_v2_reader` so a change
-/// to the vendored all-families fixture cannot silently move the boundary in
-/// only one of them.
-pub const ALL_FAMILIES_READ_WORK: u64 = 27;
+/// Exact read-limits `work` boundary that admits `v2_all_families()`,
+/// determined empirically (bisecting `CheckedPackageV2::read`'s admit/refuse
+/// boundary against the vendored fixture's 26 nodes) rather than hand-summed,
+/// since the reader charges work at many call sites (per-node term charges,
+/// graph-edge traversal, nominal identity/enum/dimension/unit validation).
+/// Shared between `complete_v1_checked_package` and `checked_package_v2_reader`
+/// so a change to the vendored all-families fixture cannot silently move the
+/// boundary in only one of them.
+pub const ALL_FAMILIES_READ_WORK: u64 = 77;
 
 /// Reads one vendored file under `tests/fixtures/checked-package/`.
 pub fn fixture(relative: &str) -> Value {
@@ -279,7 +281,17 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
     let mut source_map = Vec::with_capacity(members.len());
     for (position, (preimage, key)) in members.iter().enumerate() {
         let id = node_id(key);
-        let (tag, form, semantic_type, dependencies, body) =
+        // Every nominal form here is a named, source-declared `scalar_type`
+        // (or the `enum_value` its enum declares); the schema's
+        // `DeclarationTagRules`/`DeclarationOccurrenceRule` (FR-208) require
+        // a `declaration` member on the former, exactly matching each node's
+        // `declaration`-role occurrence below, and forbid it on the latter.
+        // FR-322's `declaration-nominal-mismatch` rule pins a nominal node's
+        // `declaration.qualified_name` to its own preimage's
+        // `qualified_declaration`, so that member is reused verbatim rather
+        // than invented.
+        let declaration_name = preimage["qualified_declaration"].clone();
+        let (tag, form, semantic_type, dependencies, body, declaration) =
             match preimage["version"].as_str().expect("preimage version") {
                 "quire.enum-declaration-node/v1" => (
                     "scalar_type",
@@ -287,13 +299,20 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                     id.clone(),
                     json!([]),
                     json!({"term":"aggregate","members":[]}),
+                    Some(json!({"qualified_name": declaration_name})),
                 ),
                 "quire.enum-member-node/v1" => (
                     "value",
                     "enum_value",
                     preimage["declaration_node_id"].clone(),
                     json!([preimage["declaration_node_id"]]),
-                    json!({"term":"literal","value_kind":"enum","value":preimage["case"]}),
+                    json!({
+                        "term": "literal",
+                        "type": preimage["declaration_node_id"],
+                        "value_kind": "enum",
+                        "value": preimage["case"],
+                    }),
+                    None,
                 ),
                 "quire.dimension-node/v1" => (
                     "scalar_type",
@@ -308,6 +327,7 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                             .collect(),
                     ),
                     json!({"term":"aggregate","members":[]}),
+                    Some(json!({"qualified_name": declaration_name})),
                 ),
                 "quire.unit-node/v1" => {
                     let mut dependencies = vec![preimage["dimension_node_id"].clone()];
@@ -320,11 +340,12 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                         preimage["dimension_node_id"].clone(),
                         Value::Array(dependencies),
                         json!({"term":"aggregate","members":[]}),
+                        Some(json!({"qualified_name": declaration_name})),
                     )
                 }
                 other => panic!("unknown nominal preimage {other}"),
             };
-        nodes.push(json!({
+        let mut node = json!({
             "node_id": id,
             "schema_version": "quire.checked-semantic-graph/v2",
             "node_tag": tag,
@@ -334,7 +355,13 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
             "occurrences": [{"role":"declaration","ordinal":0}],
             "nominal_identity_preimage": preimage,
             "body": body,
-        }));
+        });
+        if let Some(declaration) = declaration {
+            node.as_object_mut()
+                .expect("node object")
+                .insert("declaration".to_owned(), declaration);
+        }
+        nodes.push(node);
         source_map.push(json!({
             "node_id": id,
             "role": "declaration",

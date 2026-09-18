@@ -6,7 +6,7 @@
 //! depends on a sibling request.
 
 use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
-use crate::checked_package::common::{digest_json, validate_term, TermGrammar, ValidationFailure};
+use crate::checked_package::common::{digest_json, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
@@ -183,16 +183,20 @@ impl CheckedPackageV2 {
             if work > profile.work_limit {
                 return failed(work);
             }
-            let Some(node) = nodes.get(position) else {
+            let Some((node, node_tag)) = nodes.get(position).zip(tags.get(position).copied())
+            else {
                 continue;
             };
             let mut successors = vec![node.semantic_type.clone()];
             successors.extend(node.dependencies.iter().cloned());
             // The walk reports the body's term count and every reference
-            // target; a failure is terminal for this request.
-            let walked = validate_term(&node.body, TermGrammar::V2, &mut |target| {
-                successors.push(target.clone())
-            });
+            // target; a failure is terminal for this request. `validate_body`
+            // is the same admission dispatch the reader used, so a package it
+            // admitted re-walks identically here.
+            let walked =
+                super::validate_body(node_tag, &node.semantic_form, &node.body, &mut |target| {
+                    successors.push(target.clone())
+                });
             let terms = match walked {
                 Ok(terms) => terms,
                 Err(ValidationFailure::Refused(code, path)) => {

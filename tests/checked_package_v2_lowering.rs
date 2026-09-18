@@ -36,8 +36,19 @@ const FAMILIES: [(&str, CheckedNodeTag); 13] = [
     ("7070", CheckedNodeTag::Correspondence),
 ];
 
+/// Every family node's node key is `prefix.repeat(16)` except the four whose
+/// body is now a real `application` term (function, temporal, protocol,
+/// claim): their required `operation`/`result_type` members changed their
+/// preimage, so the vendored fixture gives them real computed digests
+/// instead of a repeated placeholder. `prefix` still labels and orders them.
 fn key(prefix: &str) -> String {
-    prefix.repeat(16)
+    match prefix {
+        "ffff" => "736baaed11db476bcb4e5d21d89942a7a60d8691a4e2d0f49c874727d4d40210".to_owned(),
+        "4040" => "3c321536f3d222c24ad9788ff5adfe45c596a025f3de9bf2acb08bc3b4199a22".to_owned(),
+        "5050" => "a4f5711b7fa43973d9701774c8874728b8a06ba92302ebe2445594e21c874c15".to_owned(),
+        "6060" => "a11fcc8981d4b33e71b7f9778a8dbe9026c0dad1f911075e9eebe43b7e80ad49".to_owned(),
+        _ => prefix.repeat(16),
+    }
 }
 
 fn id(prefix: &str) -> CheckedNodeId {
@@ -93,6 +104,11 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         let expected_dependencies = match *prefix {
             "aaaa" => vec![],
             "eeee" | "7070" => vec![id("aaaa"), id("dddd")],
+            // The function node's real `application` body also argues over
+            // the second function node ("8080"), so its own one-hop
+            // dependency set gains that reference beside its self-typed
+            // `result_type`; digest-ascending puts "8080" before "aaaa".
+            "ffff" => vec![id("8080"), id("aaaa")],
             _ => vec![id("aaaa")],
         };
         assert_eq!(node.dependencies, expected_dependencies, "{prefix}");
@@ -172,7 +188,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
 fn tc_050_non_lowered_records_are_terminal_and_independent() {
     let value = v2_all_families();
     let package = admit(&value);
-    let missing = typed_node_id(&"9".repeat(64));
+    let missing = typed_node_id(&"0123456789abcdef".repeat(4));
 
     // invalid_input for a key outside the admitted graph.
     let result = package.lower(&[missing.clone(), id("aaaa")], &profile(u64::MAX));
@@ -207,41 +223,44 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     // failed at exactly one over the request's own work; siblings unaffected.
     // One for the request, then per visited node one plus its body terms plus
     // its successor edges: eeee (1 + 1 reference + 2 edges), aaaa (1 + 1
-    // literal + 1 edge), dddd (1 + 1 literal + 1 edge) makes 1 + 4 + 3 + 3.
-    let exact = package.lower(&[id("eeee")], &profile(11));
+    // literal + 2 edges: its own semantic_type and its literal's own `type`,
+    // both self), dddd (1 + 1 literal + 2 edges: semantic_type and `type`,
+    // both aaaa) makes 1 + 4 + 4 + 4.
+    let exact = package.lower(&[id("eeee")], &profile(13));
     assert_eq!(
         lowered(&exact.records[0]).dependencies,
         vec![id("aaaa"), id("dddd")]
     );
-    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(10));
+    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(12));
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("eeee"),
-            limit: 10,
-            consumed: 11,
+            limit: 12,
+            consumed: 13,
         }
     );
     assert_eq!(
         result.records[1],
-        package.lower(&[id("aaaa")], &profile(10)).records[0]
+        package.lower(&[id("aaaa")], &profile(12)).records[0]
     );
     assert_eq!(lowered(&result.records[1]).node.node_id, id("aaaa"));
     assert_eq!(result.records[2], result.records[0]);
-    // aaaa costs 1 + (1 + 1 literal + 1 edge) = 4: the node charge fails at a
-    // limit of 1 and the term-and-edge charge fails at a limit of 3.
+    // aaaa costs 1 + (1 + 1 literal + 2 edges: semantic_type and the
+    // literal's own `type`, both self) = 5: the node charge fails at a
+    // limit of 1 and the term-and-edge charge fails at a limit of 4.
     assert_eq!(
-        lowered(&package.lower(&[id("aaaa")], &profile(4)).records[0])
+        lowered(&package.lower(&[id("aaaa")], &profile(5)).records[0])
             .node
             .node_id,
         id("aaaa")
     );
     assert_eq!(
-        package.lower(&[id("aaaa")], &profile(3)).records[0],
+        package.lower(&[id("aaaa")], &profile(4)).records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("aaaa"),
-            limit: 3,
-            consumed: 4,
+            limit: 4,
+            consumed: 5,
         }
     );
     assert_eq!(
@@ -385,7 +404,10 @@ fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
         record_kind(&integer_package.lower(&[id("bbbb")], &bounded).records[0]),
         record_kind(
             &package
-                .lower(&[typed_node_id(&"9".repeat(64))], &profile(u64::MAX))
+                .lower(
+                    &[typed_node_id(&"0123456789abcdef".repeat(4))],
+                    &profile(u64::MAX),
+                )
                 .records[0],
         ),
         record_kind(&package.lower(&[id("aaaa")], &profile(0)).records[0]),
@@ -432,7 +454,7 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
     // FR-038-AC-8: the per-request work unit is charged before the key is
     // looked up, so a zero work limit returns failed for an *absent* key
     // rather than invalid_input. With any budget the same key is invalid_input.
-    let missing = typed_node_id(&"9".repeat(64));
+    let missing = typed_node_id(&"0123456789abcdef".repeat(4));
     assert_eq!(
         package
             .lower(std::slice::from_ref(&missing), &profile(0))

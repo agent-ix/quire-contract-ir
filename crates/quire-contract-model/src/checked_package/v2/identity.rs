@@ -283,7 +283,8 @@ fn validate_owner(
     require(joined)
 }
 
-fn is_identifier(value: &str) -> bool {
+/// ASCII identifier grammar shared with the closed `Declaration` member.
+pub(super) fn is_identifier(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes
         .next()
@@ -361,9 +362,15 @@ fn validate_enum_member(
     require(declaration.members.contains(&member.case))?;
     require(node.semantic_type == member.declaration_node_id)?;
     require(node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id))?;
+    let declared_type = serde_json::to_value(&member.declaration_node_id).map_err(|_| invalid())?;
     require(
         node.body
-            == json!({"term": "literal", "value_kind": "enum", "value": member.case.as_ref()}),
+            == json!({
+                "term": "literal",
+                "type": declared_type,
+                "value_kind": "enum",
+                "value": member.case.as_ref(),
+            }),
     )
 }
 

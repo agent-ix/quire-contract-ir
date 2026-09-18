@@ -339,7 +339,7 @@ pub(super) fn validate_term(
     };
     match term.as_str() {
         "literal"
-            if exact_members(object, &["term", "value_kind", "value"])
+            if exact_members(object, &["term", "type", "value_kind", "value"])
                 && object
                     .get("value_kind")
                     .and_then(Value::as_str)
@@ -348,40 +348,28 @@ pub(super) fn validate_term(
                     .get("value")
                     .is_some_and(|value| is_literal_value(value, grammar)) =>
         {
-            Ok(1)
+            visit_reference(object.get("type"), visit)
         }
         "reference" if exact_members(object, &["term", "target"]) => {
-            let target = object
-                .get("target")
-                .cloned()
-                .ok_or(ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "semantic_graph.nodes.body.target",
-                ))?;
-            let target = serde_json::from_value::<CheckedNodeId>(target).map_err(|_| {
-                ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "semantic_graph.nodes.body.target",
-                )
-            })?;
-            if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
-                visit(&target);
-                Ok(1)
-            } else {
-                Err(ValidationFailure::Refused(
-                    CheckedPackageRefusalCode::DigestDomainMismatch,
-                    "semantic_graph.nodes.body.target",
-                ))
-            }
+            visit_reference(object.get("target"), visit)
         }
         "application"
-            if exact_members(object, &["term", "operator", "arguments"])
-                && object
-                    .get("operator")
-                    .and_then(Value::as_str)
-                    .is_some_and(is_operator) =>
+            if exact_members(
+                object,
+                &["term", "operator", "operation", "result_type", "arguments"],
+            ) && object
+                .get("operator")
+                .and_then(Value::as_str)
+                .is_some_and(is_operator) =>
         {
-            visit_terms(object.get("arguments"), grammar, visit)
+            // The `operation` member's own closed shape (`OperationIdentity`,
+            // laws, mode, member and leaves) is admitted opaquely here: this
+            // reader accepts the member is present and validates only
+            // `result_type` as a reference. Deep operation-law validation is
+            // not implemented by this reader.
+            let result_type_work = visit_reference(object.get("result_type"), visit)?;
+            let arguments_work = visit_terms(object.get("arguments"), grammar, visit)?;
+            Ok(result_type_work.saturating_add(arguments_work))
         }
         "aggregate" if exact_members(object, &["term", "members"]) => {
             visit_terms(object.get("members"), grammar, visit)
@@ -403,7 +391,35 @@ pub(super) fn validate_term(
     }
 }
 
-fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> bool {
+/// Parses one node-reference member, reports its target to `visit`, and
+/// charges one unit of work. Shared by `reference.target`, `literal.type`,
+/// `application.result_type`, and the V2 `frame` body's reference arrays.
+pub(super) fn visit_reference(
+    value: Option<&Value>,
+    visit: &mut dyn FnMut(&CheckedNodeId),
+) -> Result<u64, ValidationFailure> {
+    let target = value.cloned().ok_or(ValidationFailure::Refused(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "semantic_graph.nodes.body.target",
+    ))?;
+    let target = serde_json::from_value::<CheckedNodeId>(target).map_err(|_| {
+        ValidationFailure::Refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "semantic_graph.nodes.body.target",
+        )
+    })?;
+    if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
+        visit(&target);
+        Ok(1)
+    } else {
+        Err(ValidationFailure::Refused(
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            "semantic_graph.nodes.body.target",
+        ))
+    }
+}
+
+pub(super) fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> bool {
     object.len() == expected.len() && expected.iter().all(|member| object.contains_key(*member))
 }
 

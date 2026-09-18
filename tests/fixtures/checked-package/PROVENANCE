@@ -1,46 +1,147 @@
 Vendored QSpec I04 CheckedPackage publication inputs (byte-exact, unmodified).
 
 repository: https://github.com/agent-ix/quire-specification
-commit: 56c3e0b40a5eacf35df556c87d5e96d5eae5fe9b (CheckedPackage V1 and every
-  migration surface removed upstream)
-previously vendored at: 5626bc8fcfc2c280e6486aa9757930d8d87add06 (merged PR #78); between the two
-  commits only checked-package-v2/README.md and schema.json changed among the blobs below.
-  schema.json carries one normative change: `model_selections` gains `"uniqueItems": true` in
-  both `PackageLock` and `IdentityPreimage`, so a duplicate domain package selection is refused.
-  README.md changed by deletion of the V1 and migration paragraphs and by
-  editing one retained line, "add no CheckedPackage V1 or V2 wire member" to
-  "add no CheckedPackage V2 wire member".
+commit: 0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb (FR-208 eighteen-meaning model
+  vocabulary, the `Declaration` member, `FrameBody`, and the operation-identity
+  family land)
+previously vendored at: 56c3e0b40a5eacf35df556c87d5e96d5eae5fe9b (CheckedPackage
+  V1 and every migration surface removed upstream)
 retrieval: gh api repos/agent-ix/quire-specification/contents/<source path>?ref=<commit>
 verification: each file's `git hash-object` equals the blob SHA in the tree at <commit>
 
-Local paths mirror the upstream `proposals/` layout.
+Local paths mirror the upstream `proposals/` layout. Four files are newly
+vendored at this pin and were not present at 56c3e0b:
+operation-catalog.json, fixtures/positive-clause-operations.json,
+fixtures/positive-control-operations.json and
+fixtures/positive-operation-identities.json.
 
 Not vendored: proposals/checked-package-v2/model-effective-declaration.schema.json and
 model-effective-declaration-vectors.json (QSL-derived preimages; the upstream README states they
 add no CheckedPackage V2 wire member, and no reader or test here consumes them).
 
 sha256                                                            git blob                                  source path
-99ebb43f6184289a9fd597c6d59871b2c81d8192af415039d31d68a99abbc126  b5f3082fd7b22c1aca119d6d8509d6971fee4ef0  proposals/checked-package-v2/README.md
+0ed233ac35d68c3395debc4bc3f69954b497a0156ddbe86c25fab4ac32e0877e  a6c1642501640e9fb79c44ee7873ef18056b5428  proposals/checked-package-v2/README.md
 5a2d04dd603bfe39e38a0779d2fde7d17ce850e208ca1b9c2bcfbcef142aa60c  8a8579d1393e65faba65c404d1dc4db8736336a7  proposals/checked-package-v2/fixtures/adverse.json
-824a56a968a80b89d38f746b087c06868c20cfecd1d9ef20a17bc5836c473e0d  66aeeca2eb5ed1f3ac6731fe0f8250f1147084c7  proposals/checked-package-v2/fixtures/positive-all-families.json
-b6b1f81f33d6b8756f91ac3fefed74e8cb01b85892c4520a072952232e968a47  baddd5bffe94afe70a019c61238e2a37be7ca2b9  proposals/checked-package-v2/fixtures/positive-nominal-identities.json
-e8134c348cb9fa51d118415be539f2100c41b1beee0e2cb202a349aca3564681  046dd155899946f405807025cf6582051cddf4c9  proposals/checked-package-v2/node-identity-preimage.schema.json
-635717d735883c4f33440758376d4958e43340a801ac3b7be055d156f2096244  4a499af8c07b6e036fe0794150a68510b70fdfcb  proposals/checked-package-v2/node-identity-vectors.json
-ba0f5324616da85d3ddf29904e41352caa2ab5395220b05d5222311b46a31ac8  db5fcca2f28fd6f741e3efb1ee0bfb69ba946b58  proposals/checked-package-v2/schema.json
+c6bc2522df94a1d300331956399102c4b82b973257f195a8c6ac714ad6313f6c  6546b0406ea0468df90487ad4b49fef31457ec99  proposals/checked-package-v2/fixtures/positive-all-families.json
+64b4c14caa10d4610b393d5e68aa6ef21bd44160996844711583177d19c69173  2be2503729bcaeefc415e30b605410f8d57ca18a  proposals/checked-package-v2/fixtures/positive-nominal-identities.json
+1576c301642ad1fa6f1da0ca213823fb4d6f0b2a1e03cd3b013a98c9ce28f996  1aaf384006959d59cbb8fad12bee3eaf93ef697c  proposals/checked-package-v2/fixtures/positive-clause-operations.json
+5d25404c13d0cf7eac043a7656378ddb8d8d3355782324bb0474317a49658eaf  0f0203683f42c2347068bd4ebc82fac8f6055763  proposals/checked-package-v2/fixtures/positive-control-operations.json
+ff02a6a1ceeaf72d62d7bb7fc8e2724f6a93794d158debc48b4cce2038fdaf95  86331a543d5e1bfb3c0533ee1164ace729585be8  proposals/checked-package-v2/fixtures/positive-operation-identities.json
+204b67af22f3c6fb6e776c4d92683e44e7e11cf8b6d2184b5b895ac310941af6  44230efbaf3c1d4521f4529bea2759969b225ce1  proposals/checked-package-v2/node-identity-preimage.schema.json
+30451dcd72d0443e4827faaced2b864e7a96e891c29a5458eef389cd09e4b2de  10d128ea0bc3c8194d1efc7225267fdaeccaddf6  proposals/checked-package-v2/node-identity-vectors.json
+4413e24af43934b0d02c51b0f14815a8b36678548c8dd7639d12af3e2f6fa508  1fc2cdc7af7f8e3c74a0e01a5dbb9402afb1ee2a  proposals/checked-package-v2/operation-catalog.json
+b956ef28e3da218fb362a244836370115c25c3b4789d6c17da8cb42c7f8adf4e  acc71ca8c84bd260080759e74e2397dd9080702c  proposals/checked-package-v2/schema.json
 
 Normative QSpec requirement text read at the same commit (not vendored):
-spec/objects/interfaces/FR-322-checked-package-artifact.md  (blob e28c8c599ea66ec4c493720ab8e589d2692ec0f4)
-spec/objects/interfaces/interface_004-checked-package.md    (blob c6ea9559f35849c8c3f147f582972d50c448c231)
+spec/objects/interfaces/FR-322-checked-package-artifact.md  (blob d98ae8c4045125465eb32d3cfc1dae941f16cf95)
+spec/objects/interfaces/interface_004-checked-package.md    (blob 1bc1f6292f7e7bb68904c06eb291323cb26a7a5e)
 spec/objects/foundation/FR-201-canonical-identity-domain.md (blob d155d4e378a73aa603ccf37ae432f234b5d1c2f9)
 spec/functional/ir-proof/FR-195-lower-complete-contract-ir.md (blob a96af646c769d3bb774ef024ac1aec898e77105f)
-spec/test-cases/TC-217-complete-contract-ir-lowering.md (blob 5d24972a11a25d4c94b42ad8d0306b900b8f5da6)
+spec/test-cases/TC-217-complete-contract-ir-lowering.md (blob cbe79da9e95c38a648ac3c96280d26ade575a91e)
 spec/integration/IT-070-artifact-bundle-to-checked-package.md (blob 9340b1edd9a3f87ed5c0edfb3c161537be18ce10)
+spec/objects/interfaces/FR-340-checked-package-frame-location.md (blob d8196330b8908fa65007751d12f43e951cb9f48e)
+spec/functional/foundation/FR-013-validate-operation-frames.md (blob cfc6f5451cd3d91f2442d1e8dfa22a635b519971)
+spec/objects/foundation/FR-204-declared-object-identity.md (blob 4de4e7281da7c93d1f643162e1ddd3aea897c74d)
+spec/objects/foundation/FR-208-quire-meaning-vocabulary.md (blob 7ecf6a0b72740552bf271bd6bb629c3da978bb1d)
+spec/functional/type-model/FR-152-bind-systems-model-structures.md (blob ff6f641b0cc037c595a18e2a30915fc0c49448d3)
+
+FR-201, FR-195, IT-070, FR-208 and FR-152 are unchanged since 56c3e0b (same
+blob). FR-322, interface_004 and TC-217 changed and are re-recorded above;
+FR-340, FR-013 and FR-204 are newly read at this pin, none of them previously
+read for this vendor.
+
+Normative changes between the two pins, read from the files above:
+
+(a) `ModelNode.semantic_form` (schema.json) drops the three-form list
+`model_import`/`model_type`/`model_declaration` and replaces it with FR-208's
+eighteen meanings: `model_import`, `object_type`, `value_type`, `variant_type`,
+`record_value_type`, `event_type`, `state_machine`, `process`,
+`persistence_interface`, `namespace`, `field_declaration`,
+`operation_declaration`, `clause_member_declaration`, `systems_interface`,
+`systems_part`, `systems_port`, `systems_connection` and `systems_allocation`.
+`model_type` and `model_declaration` are deleted upstream, not retained
+alongside the new forms.
+
+(b) `FrameBody` (schema.json) is a new closed shape,
+`{term: "frame", modifies, creates, deletes}` (each a `NodeRef` array),
+selected in place of the ordinary `SemanticTerm` grammar by
+`BodyBindingRules` for exactly a `state` node with `semantic_form: "frame"`
+(FR-340). Eligibility of each entry against the meaning of the dependency it
+names, canonical member order, and refusal precedence among a frame's own
+violations are FR-340/FR-013 obligations this vendor's reader does not
+enforce; see the reader-scope note below.
+
+(c) The `Declaration` member (schema.json, FR-322, FR-208) is a new closed
+shape `{qualified_name}` carried by a named, source-declared
+`scalar_type`/`composite_type`/`bounded_domain`/`function`/`model`/`protocol`/
+`claim` node or a non-`enum_value` `value` node, exactly when the node has a
+`declaration` source occurrence (`DeclarationOccurrenceRule`); it is forbidden
+on `expression`, `relation`, `state`, `temporal`, `correspondence` and
+`enum_value` nodes (`DeclarationTagRules`).
+
+(d) `literal.type` and `application.operation`/`application.result_type`
+(schema.json) are new required members: a `literal` term now carries its
+declared `type` (a node reference) beside `value_kind`/`value`, and an
+`application` term now carries a catalogued `operation` identity
+(`{identity, laws, mode, member, leaves}`) and a declared `result_type` (a
+node reference) beside `operator`/`arguments`. Neither type is inferred. The
+new `Operation`/`OperationIdentity`/`OperationLaw`/`OperationMode`/
+`OperationMember`/`OperationLeaf` family (schema.json, and
+`operation-catalog.json`'s `quire.checked-operation-catalog/v1` entries) gives
+`operation`'s closed shape; this vendor's reader admits the member opaquely
+(present, well-formed JSON) and validates only `result_type` as a reference.
+The operation catalog's own eligibility, law/mode/member/leaf matching, and
+the refusal family FR-322 defines for it are not implemented here.
+
+(e) `ExpressionNode.semantic_form` (schema.json) gains two forms in the
+otherwise-unchanged list: `collection` and `value_read`.
+
+(f) `PackageId`'s constituent `package_selections` are unaffected, but every
+`package_id` and node id computed over a graph that uses any of (a)-(e)
+changes, because `identity_projection` includes `declaration` and the new
+required `literal`/`application` members; `positive-all-families.json`,
+`positive-nominal-identities.json`, `positive-clause-operations.json`,
+`positive-control-operations.json` and `positive-operation-identities.json`
+all re-derive their `package_id`s at this pin, verified in
+`positive-nominal-identities.json`, whose node 1's `declaration` gains
+`{"qualified_name": ["Example", "Status"]}` and whose node 0's `body` gains a
+`type` reference to node 1.
+
+(g) `node-identity-vectors.json` gains three new top-level vector arrays
+alongside the unchanged `vectors` (14 entries) and `invalid_mutations` (12
+entries): `frame_mutations` (26 entries, one of them,
+`cross-frame-lower-digest-wins`, carrying a complete inline `second_frame`
+node), `operation_vectors` (21 entries) and `operation_mutations` (24
+entries), verified by loading the vendored file and counting each array.
+
+(h) FR-322's refusal code vocabulary grows from 11 to 16 members: it gains
+`invalid_package`, `ill_typed` and `ambiguous_declaration` (operation and
+declaration causes) and, at this pin, `missing_declaration` and
+`invalid_model_binding` (frame-entry causes FR-340 defines). FR-322 and
+interface_004 also now state the reader's cause-carrying refusal order
+normatively: graph-shape, then `stale-node-key`, then declaration
+(`declaration-nominal-mismatch`/`ambiguous-name`), then frame
+(FR-340's own meaning-join/canonical-order precedence, at the first
+`state`/`frame` node in ascending node-id digest order with a defect), then
+operation. This vendor's reader implements none of the ordering beyond
+graph-shape and declaration; it carries none of the five cause-carrying codes
+and enforces frame bodies only for shape and `uniqueItems`, not for meaning-
+join, order or precedence.
+
+Reader scope at this pin: this reader admits every new wire member (b)-(e)
+above structurally and enforces (c)'s two binding rules exactly. For (b) it
+recognizes only the `frame` shape's own closed member set, its `uniqueItems`
+constraint, and reference arrays; it does not check an entry's eligibility
+against the meaning of the node it names, does not enforce canonical member
+order, and does not implement FR-340/FR-013's refusal precedence among a
+frame's own violations. For (d) it does not implement the operation catalog,
+its law/mode/member/leaf matching, or the refusal family and ordering (h)
+describes. Frame and operation semantics are a later change's scope.
 
 `interface-004-checked-package.md` was renamed to `interface_004-checked-package.md` upstream,
-the hyphen-to-underscore object id form. Of the five changed documents, only FR-322 states a
-changed reader obligation, and it is a generalization of one already held: "a reader refuses any
-unrecognized `contract_version`" replaces "a V2 reader refuses a V1 contract version". The
-unchanged `unknown_contract_version` refusal code and FR-322-AC-4 already required it. FR-201-AC-5
+the hyphen-to-underscore object id form, before 56c3e0b; this rename is unaffected by this
+re-pin and is not repeated here. Of the five documents read at 56c3e0b, only FR-322 stated a
+changed reader obligation at that pin, a generalization of one already held. FR-201-AC-5
 and AC-7, FR-322-AC-11/AC-12/AC-16, and interface_004's migration types and `relink_v1_to_v2`
 operation were all removed with the upstream V1 deletion; no current requirement or plan artifact
 may cite them, though the dated SR-581 record retains them as history.

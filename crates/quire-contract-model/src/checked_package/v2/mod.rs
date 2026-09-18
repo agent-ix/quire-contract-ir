@@ -2,7 +2,7 @@
 //! `CheckedPackage` contract.
 //!
 //! Consumes the public contract merged at quire-specification
-//! `56c3e0b40a5eacf35df556c87d5e96d5eae5fe9b` (`proposals/checked-package-v2/`,
+//! `0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb` (`proposals/checked-package-v2/`,
 //! AD-006). Model selections are `sha256-jcs` domain packages, typed
 //! separately from the raw source and definition byte artifacts.
 
@@ -14,13 +14,13 @@ pub use identity::*;
 pub use lower::*;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exceeds, is_digest, is_nonempty,
-    validate_locked_artifact, validate_source_map_entries, validate_term, Stop, TermGrammar,
-    ValidationFailure, NODE_DOMAIN,
+    canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
+    is_nonempty, validate_locked_artifact, validate_source_map_entries, validate_term,
+    visit_reference, Stop, TermGrammar, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId, CheckedSourceMapEntry,
     CheckedSourceRegion,
@@ -176,15 +176,36 @@ impl CheckedNodeTag {
                 "conditional",
                 "let",
                 "quantify",
+                "collection",
                 "conversion",
                 "query",
                 "pre_read",
                 "presence_read",
+                "value_read",
                 "deref",
                 "reachability",
             ],
             Self::Function => &["pure_function", "predicate", "recursive_function"],
-            Self::Model => &["model_import", "model_type", "model_declaration"],
+            Self::Model => &[
+                "model_import",
+                "object_type",
+                "value_type",
+                "variant_type",
+                "record_value_type",
+                "event_type",
+                "state_machine",
+                "process",
+                "persistence_interface",
+                "namespace",
+                "field_declaration",
+                "operation_declaration",
+                "clause_member_declaration",
+                "systems_interface",
+                "systems_part",
+                "systems_port",
+                "systems_connection",
+                "systems_allocation",
+            ],
             Self::Relation => &[
                 "relationship",
                 "population",
@@ -231,6 +252,16 @@ impl CheckedNodeTag {
     }
 }
 
+/// A node's declared qualified name (FR-208). Present exactly where the
+/// schema's `DeclarationOccurrenceRule` requires it and forbidden where
+/// `DeclarationTagRules` forbids it; see [`validate_declaration`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedDeclaration {
+    /// ASCII identifier segments.
+    pub qualified_name: Vec<Box<str>>,
+}
+
 /// A checked V2 semantic graph node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -255,6 +286,9 @@ pub struct CheckedSemanticNodeV2 {
     /// Nominal identity preimage; present exactly for nominal forms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nominal_identity_preimage: Option<NominalIdentityPreimage>,
+    /// Declared qualified name; present exactly per `DeclarationOccurrenceRule`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<CheckedDeclaration>,
     /// Typed public semantic term.
     pub body: Value,
 }
@@ -281,6 +315,9 @@ pub struct CheckedNodeProjectionV2 {
     /// Nominal identity preimage when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nominal_identity_preimage: Option<NominalIdentityPreimage>,
+    /// Declared qualified name when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<CheckedDeclaration>,
     /// Typed semantic term.
     pub body: Value,
 }
@@ -296,6 +333,7 @@ impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
             dependencies: node.dependencies.clone(),
             recursion_group: node.recursion_group.clone(),
             nominal_identity_preimage: node.nominal_identity_preimage.clone(),
+            declaration: node.declaration.clone(),
             body: node.body.clone(),
         }
     }
@@ -871,6 +909,128 @@ fn validate_node_id(id: &CheckedNodeId, path: &'static str) -> Result<(), Valida
     }
 }
 
+/// Enforces the schema's `DeclarationTagRules` and `DeclarationOccurrenceRule`
+/// (FR-208): `declaration` is forbidden on `expression`, `relation`, `state`,
+/// `temporal` and `correspondence` nodes and on `value`/`enum_value` nodes;
+/// for every other family it is present exactly when the node carries a
+/// `declaration`-role occurrence.
+fn validate_declaration(
+    tag: CheckedNodeTag,
+    form: &str,
+    occurrences: &[CheckedOccurrence],
+    declaration: Option<&CheckedDeclaration>,
+) -> Result<(), ValidationFailure> {
+    const PATH: &str = "semantic_graph.nodes.declaration";
+    let forced_absent = matches!(
+        tag,
+        CheckedNodeTag::Expression
+            | CheckedNodeTag::Relation
+            | CheckedNodeTag::State
+            | CheckedNodeTag::Temporal
+            | CheckedNodeTag::Correspondence
+    ) || (tag == CheckedNodeTag::Value && form == "enum_value");
+    let required = !forced_absent
+        && occurrences
+            .iter()
+            .any(|occurrence| occurrence.role == CheckedOccurrenceRole::Declaration);
+    if required != declaration.is_some() {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            PATH,
+        ));
+    }
+    if let Some(declaration) = declaration {
+        if declaration.qualified_name.is_empty()
+            || !declaration
+                .qualified_name
+                .iter()
+                .all(|segment| identity::is_identifier(segment))
+        {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                PATH,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Minimal structural admission for one node body. Every node validates as
+/// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
+/// `BodyBindingRules`-selected shape is the closed reference triple
+/// `{term: "frame", modifies, creates, deletes}`, each member a `uniqueItems`
+/// array per the wire schema. This parses, rejects a repeated entry within one
+/// member, and collects reference targets only; frame eligibility, canonical
+/// member order and refusal precedence across a frame's own violations are
+/// not implemented here (FR-340; a later change owns them).
+fn validate_body(
+    tag: CheckedNodeTag,
+    form: &str,
+    body: &Value,
+    visit: &mut dyn FnMut(&CheckedNodeId),
+) -> Result<u64, ValidationFailure> {
+    if tag == CheckedNodeTag::State && form == "frame" {
+        validate_frame_body(body, visit)
+    } else {
+        validate_term(body, TermGrammar::V2, visit)
+    }
+}
+
+fn validate_frame_body(
+    body: &Value,
+    visit: &mut dyn FnMut(&CheckedNodeId),
+) -> Result<u64, ValidationFailure> {
+    const PATH: &str = "semantic_graph.nodes.body";
+    let Value::Object(object) = body else {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            PATH,
+        ));
+    };
+    if !exact_members(object, &["term", "modifies", "creates", "deletes"])
+        || object.get("term").and_then(Value::as_str) != Some("frame")
+    {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            PATH,
+        ));
+    }
+    let mut work = 1_u64;
+    for key in ["modifies", "creates", "deletes"] {
+        work = work.saturating_add(visit_node_refs(object.get(key), visit)?);
+    }
+    Ok(work)
+}
+
+fn visit_node_refs(
+    value: Option<&Value>,
+    visit: &mut dyn FnMut(&CheckedNodeId),
+) -> Result<u64, ValidationFailure> {
+    const PATH: &str = "semantic_graph.nodes.body";
+    let Some(Value::Array(values)) = value else {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            PATH,
+        ));
+    };
+    let mut seen = BTreeSet::new();
+    let mut targets = Vec::with_capacity(values.len());
+    let work = values.iter().try_fold(0_u64, |work, entry| {
+        visit_reference(Some(entry), &mut |target| targets.push(target.clone()))
+            .map(|charged| work.saturating_add(charged))
+    })?;
+    if !targets.into_iter().all(|target| seen.insert(target)) {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            PATH,
+        ));
+    }
+    for target in &seen {
+        visit(target);
+    }
+    Ok(work)
+}
+
 fn validate_graph(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -922,6 +1082,12 @@ fn validate_graph(
             ));
         }
         tags.push(tag);
+        validate_declaration(
+            tag,
+            &node.semantic_form,
+            &node.occurrences,
+            node.declaration.as_ref(),
+        )?;
         validate_node_id(&node.semantic_type, "semantic_graph.nodes.semantic_type")?;
         for dependency in &node.dependencies {
             validate_node_id(dependency, "semantic_graph.nodes.dependencies")?;
@@ -941,7 +1107,7 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_term(&node.body, TermGrammar::V2, &mut |target| {
+        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target| {
             targets.push(target.clone())
         })?;
         meter.charge(work)?;
@@ -976,7 +1142,17 @@ fn validate_graph(
             successors.push(resolve(dependency, "semantic_graph.nodes.dependencies")?);
         }
         for target in targets {
-            successors.push(resolve(target, "semantic_graph.nodes.body.target")?);
+            let target = resolve(target, "semantic_graph.nodes.body.target")?;
+            // Only a node that is already the self-typed foundational axiom
+            // (`semantic_type == position`, the carve-out above) may also
+            // name itself from its own body — e.g. a self-typed scalar's
+            // `literal.type` — without that counting as a reference cycle
+            // requiring `recursion_group`. A body target that self-references
+            // on any other node is a genuine 1-node cycle and must still
+            // resolve through `recursion_group` or refuse.
+            if target != position || semantic_type != position {
+                successors.push(target);
+            }
         }
         adjacency.push(successors);
     }

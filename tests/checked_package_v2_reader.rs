@@ -283,7 +283,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling body reference",
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] = json!("9".repeat(64));
+                // Not "9".repeat(64): that digest now collides with the
+                // fixture's own real node 23 (systems_interface/Flowable).
+                v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] =
+                    json!("0123456789abcdef".repeat(4));
                 refresh_identity(v);
             }),
             refusal(
@@ -294,8 +297,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         (
             "dangling dependency",
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][1]["dependencies"] =
-                    json!([{"domain":"quire.checked-semantic-node/v1","digest":"9".repeat(64)}]);
+                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([{"domain":"quire.checked-semantic-node/v1","digest":"0123456789abcdef".repeat(4)}]);
                 refresh_identity(v);
             }),
             refusal(
@@ -407,18 +409,22 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let schema = jsonschema::JSONSchema::compile(&fixture("checked-package-v2/schema.json"))
         .expect("vendored schema compiles");
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
+    let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
     let body: Build = Box::new(|literal| {
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][0]["body"] =
-            json!({"term":"literal","value_kind":"integer","value":literal});
+        changed["semantic_graph"]["nodes"][0]["body"] = json!({"term":"literal","type":self_type.clone(),"value_kind":"integer","value":literal});
         refresh_identity(&mut changed);
         changed
     });
     let detail: Build = Box::new(|literal| {
         let mut changed = base.clone();
+        let target = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+        // FR-208's new `DiagnosticCausePairing` (added by this re-pin) requires
+        // `cause_tag: "invalid-value"` to pair with `code: "invalid_package"`,
+        // not `"ill_typed"` as this case used before.
         changed["diagnostics"]["entries"] = json!([{
-            "stage":"type_checking","code":"ill_typed","cause_tag":"invalid-value",
-            "details":[{"term":"literal","value_kind":"integer","value":literal}],"loci":[]
+            "stage":"type_checking","code":"invalid_package","cause_tag":"invalid-value",
+            "details":[{"term":"literal","type":target,"value_kind":"integer","value":literal}],"loci":[]
         }]);
         changed
     });
@@ -449,7 +455,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
-    assert_eq!(admitted(&grouped).graph().nodes.len(), 13);
+    assert_eq!(admitted(&grouped).graph().nodes.len(), 26);
 
     // Evidence the caller must supply: every locked digest and the feature.
     assert_eq!(
@@ -514,8 +520,11 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         edges: 2,
         occurrences: 8,
         diagnostics: 1,
-        // Terms 4 + nominal 11 + graph edges 4 + diagnostic detail 1.
-        work: 20,
+        // Terms 4 + nominal 11 + graph edges 5 + diagnostic detail 1.
+        // Graph edges is 5, not 4: node 0's body now carries a required
+        // `literal.type` that (like its `semantic_type`) self-references
+        // node 0, adding one more body-target edge into the Tarjan walk.
+        work: 21,
     };
     match CheckedPackageV2::read(&bytes, exact, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => {
@@ -864,6 +873,12 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 let nodes = v["semantic_graph"]["nodes"].as_array_mut().expect("nodes");
                 nodes[member]["nominal_identity_preimage"] = preimage;
                 nodes[member]["semantic_form"] = json!("literal");
+                // "literal" is not "enum_value", so this node's retained
+                // `declaration`-role occurrence now requires a `declaration`
+                // member (FR-208's `DeclarationOccurrenceRule`); add one so
+                // this case still isolates the nominal-preimage mismatch it
+                // targets, rather than tripping that unrelated rule first.
+                nodes[member]["declaration"] = json!({"qualified_name": ["Example", "Member"]});
             }),
         ),
         (
@@ -1234,7 +1249,26 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         .iter()
         .position(|node| node["node_tag"] == json!("model"))
         .expect("all-families fixture carries a model node");
-    for form in ["model_import", "model_type", "model_declaration"] {
+    for form in [
+        "model_import",
+        "object_type",
+        "value_type",
+        "variant_type",
+        "record_value_type",
+        "event_type",
+        "state_machine",
+        "process",
+        "persistence_interface",
+        "namespace",
+        "field_declaration",
+        "operation_declaration",
+        "clause_member_declaration",
+        "systems_interface",
+        "systems_part",
+        "systems_port",
+        "systems_connection",
+        "systems_allocation",
+    ] {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
         refresh_identity(&mut value);
