@@ -4,19 +4,21 @@ use ix_trace_rs::trace;
 use quire_contract_ir::{
     assemble_output_package, map_admitted_request, map_admitted_request_controlled,
     AdmittedMappingObligation, AdmittedMappingRequest, BoundPackage, ClauseId, ClauseRef,
-    GeneratorBytesDigest, MappingAllocationPoint, MappingCancellation, MappingCancellationToken,
-    MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
-    MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
-    MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
-    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverBytesDigest,
-    ObserverDependencySetDigest, ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion,
-    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
-    ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
-    RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
-    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
-    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
+    DiagnosticCode, GeneratorBytesDigest, MappingAllocationPoint, MappingCancellation,
+    MappingCancellationToken, MappingCandidate, MappingCause, MappingCondition,
+    MappingDependencyKind, MappingDependencyRef, MappingDisposition, MappingExecutionControl,
+    MappingLimits, MappingRequestError, MappingRequestErrorCode, MappingRuleDigest,
+    MappingWorkBudget, ModelSourceSelection, NativeSourceSelection, ObservationAdequacyRef,
+    ObservationAdequacyState, ObserverBytesDigest, ObserverDependencySetDigest,
+    ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion, OutputCapability,
+    OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId, ProtocolAdequacyRef,
+    ProtocolAdequacyState, RequestedMappingObligation, RequirementId, RequirementRef,
+    RequirementRevision, SemanticSourceSelection, SourceBytesDigest, SourceFactState,
+    StructuralObservationOutcome, StructuralObservationRef, StructuralObserverIdentity,
+    TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 fn projection() -> Value {
     let mut package: Value = serde_json::from_str(include_str!(
@@ -1841,4 +1843,237 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     for excluded in ["observer", "timestamp", "locale", "display", "path"] {
         assert!(!serialized.contains(excluded));
     }
+}
+
+const MAPPING_REFUSAL_REGISTRY: &str =
+    include_str!("../spec/contract/STD-003-output-mapping-refusal-registry.md");
+
+/// Tracing: TC-051, STD-003, FR-032-AC-5.
+#[trace("TC-051", "STD-003", "FR-032-AC-5")]
+#[test]
+fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
+    // STD-003: every emitted spelling has exactly one registry row.
+    for code in MappingRequestErrorCode::ALL {
+        let row = format!("| `{}` |", code.as_str());
+        assert_eq!(
+            MAPPING_REFUSAL_REGISTRY.matches(&row).count(),
+            1,
+            "registry row {row}"
+        );
+        let encoded = serde_json::to_string(code).expect("code serializes");
+        assert_eq!(encoded, format!("{:?}", code.as_str()));
+        assert_eq!(
+            MappingRequestErrorCode::from_code(code.as_str()),
+            Some(*code)
+        );
+    }
+
+    // STD-003: the registry holds no row the catalog cannot emit.
+    assert_eq!(
+        MAPPING_REFUSAL_REGISTRY
+            .lines()
+            .filter(|line| line.starts_with("| `"))
+            .count(),
+        MappingRequestErrorCode::ALL.len()
+    );
+
+    // STD-003: `MappingRequestErrorCode::ALL` and the registry rows are the
+    // same set *in the same order* — reordering the registry must fail this,
+    // not just a set-equality check.
+    let registry_order = MAPPING_REFUSAL_REGISTRY
+        .lines()
+        .filter(|line| line.starts_with("| `"))
+        .map(|line| line.split('`').nth(1).expect("code token"))
+        .collect::<Vec<_>>();
+    let catalog_order = MappingRequestErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(registry_order, catalog_order);
+
+    // STD-003: "Every row names the structural field path the refusal is
+    // required to carry" — a structural path is a dot-joined sequence of
+    // lower_snake_case identifiers, never prose with spaces. This directly
+    // guards the class of defect where the `cancelled` row named its
+    // message (`` `output mapping was cancelled` ``) instead of a path.
+    fn is_structural_path(token: &str) -> bool {
+        !token.is_empty()
+            && token.split('.').all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            })
+    }
+    let mut rows_checked = 0usize;
+    for line in MAPPING_REFUSAL_REGISTRY.lines() {
+        if !line.starts_with("| `") {
+            continue;
+        }
+        rows_checked += 1;
+        // Extract every backtick-quoted token from the third (`Required
+        // location`) column; a trailing prose qualifier after `;` (for
+        // example "when the mismatch is the mapper's") is not itself a
+        // token and is ignored.
+        let location_cell = line
+            .trim_start_matches('|')
+            .trim_end_matches('|')
+            .split('|')
+            .nth(2)
+            .expect("location column");
+        let mut tokens = Vec::new();
+        let mut rest = location_cell;
+        while let Some(start) = rest.find('`') {
+            let after = &rest[start + 1..];
+            let Some(end) = after.find('`') else { break };
+            tokens.push(&after[..end]);
+            rest = &after[end + 1..];
+        }
+        assert!(
+            !tokens.is_empty(),
+            "{line:?} names no structural field path"
+        );
+        for path in &tokens {
+            assert!(
+                is_structural_path(path),
+                "{line:?} required location {path:?} is not a dotted structural field path"
+            );
+        }
+    }
+    assert_eq!(rows_checked, MappingRequestErrorCode::ALL.len());
+
+    // STD-003, finding evidence: the `cancelled` row specifically is
+    // cross-checked against every real `check_cancelled` call site in
+    // production code, so the registry cannot silently drift from the
+    // source that emits it.
+    const OUTPUT_MAPPING_SOURCE: &str =
+        include_str!("../crates/quire-contract-model/src/output_mapping.rs");
+    let production_source = OUTPUT_MAPPING_SOURCE
+        .split("#[cfg(test)]")
+        .next()
+        .expect("source has a test module");
+    let mut cancelled_call_sites = BTreeSet::new();
+    for line in production_source.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("control.check_cancelled(\"") {
+            let end = rest.find('"').expect("closing quote");
+            cancelled_call_sites.insert(rest[..end].to_string());
+        }
+    }
+    assert!(
+        !cancelled_call_sites.is_empty(),
+        "no check_cancelled call sites found in {}",
+        "crates/quire-contract-model/src/output_mapping.rs"
+    );
+    let cancelled_row = MAPPING_REFUSAL_REGISTRY
+        .lines()
+        .find(|line| line.starts_with("| `cancelled` |"))
+        .expect("cancelled row");
+    let cancelled_registry_locations = cancelled_row
+        .trim_start_matches('|')
+        .trim_end_matches('|')
+        .split('|')
+        .nth(2)
+        .expect("location column")
+        .split(';')
+        .map(|token| token.trim().trim_matches('`').to_string())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(cancelled_registry_locations, cancelled_call_sites);
+
+    // STD-003: the two registries share no spelling in either direction.
+    for code in MappingRequestErrorCode::ALL {
+        assert!(
+            !DiagnosticCode::ALL
+                .iter()
+                .any(|diagnostic| diagnostic.as_str() == code.as_str()),
+            "{} appears in both refusal registries",
+            code.as_str()
+        );
+    }
+    for diagnostic in DiagnosticCode::ALL {
+        assert!(
+            MappingRequestErrorCode::from_code(diagnostic.as_str()).is_none(),
+            "{} appears in both refusal registries",
+            diagnostic.as_str()
+        );
+    }
+}
+
+/// Tracing: TC-043, FR-032-AC-5, STD-003.
+#[trace("TC-043", "FR-032-AC-5", "STD-003")]
+#[test]
+fn tc_043_unresolved_obligation_precedence_is_total() {
+    let package = bound_package();
+    let valid = requested(&package);
+    let identity = valid[0].identity();
+
+    // STD-003: an obligation that is foreign *and* carries a revision that
+    // would be stale in the bound package classifies as foreign, because
+    // package identity is compared before any revision is read. Without the
+    // declared order this case could report either code.
+    let foreign_and_stale = RequestedMappingObligation::new(
+        ClauseRef::new(
+            RequirementRef::new(
+                PackageId::new("foreign/package").expect("foreign package id"),
+                identity.requirement().requirement().clone(),
+                identity
+                    .requirement()
+                    .revision()
+                    .advance(2)
+                    .expect("stale revision"),
+            ),
+            identity.clause().clone(),
+        ),
+        SourceFactState::Ready,
+    );
+    assert_eq!(
+        admit(&package, vec![foreign_and_stale], ocl_profile(), limits())
+            .expect_err("foreign obligation accepted")
+            .code(),
+        MappingRequestErrorCode::ForeignObligation
+    );
+
+    // STD-003: a same-package obligation naming a present requirement at
+    // another revision is stale, never unknown, even though its clause also
+    // fails to resolve.
+    let stale = RequestedMappingObligation::new(
+        ClauseRef::new(
+            RequirementRef::new(
+                package.package().id().clone(),
+                identity.requirement().requirement().clone(),
+                identity
+                    .requirement()
+                    .revision()
+                    .advance(3)
+                    .expect("stale revision"),
+            ),
+            ClauseId::new("absent").expect("clause id"),
+        ),
+        SourceFactState::Ready,
+    );
+    assert_eq!(
+        admit(&package, vec![stale], ocl_profile(), limits())
+            .expect_err("stale obligation accepted")
+            .code(),
+        MappingRequestErrorCode::StaleObligation
+    );
+
+    // STD-003: neither foreign nor stale leaves exactly unknown.
+    let unknown = RequestedMappingObligation::new(
+        ClauseRef::new(
+            RequirementRef::new(
+                package.package().id().clone(),
+                RequirementId::new("absent").expect("requirement id"),
+                RequirementRevision::new(1).expect("revision"),
+            ),
+            ClauseId::new("absent").expect("clause id"),
+        ),
+        SourceFactState::Ready,
+    );
+    assert_eq!(
+        admit(&package, vec![unknown], ocl_profile(), limits())
+            .expect_err("unknown obligation accepted")
+            .code(),
+        MappingRequestErrorCode::UnknownObligation
+    );
 }
