@@ -208,6 +208,26 @@ impl CheckedPackageV2 {
                         refusal: CheckedPackageRefusal {
                             code,
                             path: path.into(),
+                            cause: None,
+                            locus: None,
+                        },
+                    };
+                }
+                // `validate_body` never returns `RefusedAt` — only
+                // `validate_frame_semantics` (run separately by the reader,
+                // never by this re-walk) constructs it — but the two share
+                // one `ValidationFailure` type, so this arm carries the same
+                // cause/locus through rather than asserting an impossibility
+                // this match cannot itself guarantee.
+                Err(ValidationFailure::RefusedAt(code, path, cause, locus)) => {
+                    return CompleteLoweringRecordV2::InvalidBody {
+                        node_id: request.clone(),
+                        body_node_id: node.node_id.clone(),
+                        refusal: CheckedPackageRefusal {
+                            code,
+                            path: path.into(),
+                            cause,
+                            locus: Some(locus),
                         },
                     };
                 }

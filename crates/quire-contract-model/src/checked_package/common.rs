@@ -8,7 +8,7 @@
 use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedSourceMapEntry,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry,
 };
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -26,6 +26,15 @@ pub(super) const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum Stop {
     Refused(CheckedPackageRefusalCode, Box<str>),
+    /// A refusal located at a specific graph node, carrying the cause tag
+    /// this reader determined (when the stage determines one) and the node
+    /// key of the offending entry or node.
+    RefusedAt(
+        CheckedPackageRefusalCode,
+        Box<str>,
+        Option<CheckedPackageRefusalCause>,
+        CheckedNodeId,
+    ),
     Incomplete(CheckedPackageLimit, u64, u64),
 }
 
@@ -49,7 +58,18 @@ impl Stop {
         incomplete: fn(CheckedPackageIncomplete) -> R,
     ) -> R {
         match self {
-            Self::Refused(code, path) => refused(CheckedPackageRefusal { code, path }),
+            Self::Refused(code, path) => refused(CheckedPackageRefusal {
+                code,
+                path,
+                cause: None,
+                locus: None,
+            }),
+            Self::RefusedAt(code, path, cause, locus) => refused(CheckedPackageRefusal {
+                code,
+                path,
+                cause,
+                locus: Some(locus),
+            }),
             Self::Incomplete(limit_kind, limit, consumed) => incomplete(CheckedPackageIncomplete {
                 limit_kind,
                 limit,
@@ -60,9 +80,16 @@ impl Stop {
 }
 
 /// Validation failure carrying a static structural path.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ValidationFailure {
     Refused(CheckedPackageRefusalCode, &'static str),
+    /// A refusal located at a specific graph node; see [`Stop::RefusedAt`].
+    RefusedAt(
+        CheckedPackageRefusalCode,
+        &'static str,
+        Option<CheckedPackageRefusalCause>,
+        CheckedNodeId,
+    ),
     Incomplete(CheckedPackageLimit, u64, u64),
 }
 
@@ -70,6 +97,9 @@ impl From<ValidationFailure> for Stop {
     fn from(failure: ValidationFailure) -> Self {
         match failure {
             ValidationFailure::Refused(code, path) => Self::Refused(code, path.into()),
+            ValidationFailure::RefusedAt(code, path, cause, locus) => {
+                Self::RefusedAt(code, path.into(), cause, locus)
+            }
             ValidationFailure::Incomplete(kind, limit, consumed) => {
                 Self::Incomplete(kind, limit, consumed)
             }
