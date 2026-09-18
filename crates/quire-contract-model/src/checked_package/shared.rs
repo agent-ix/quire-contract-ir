@@ -85,6 +85,26 @@ pub enum CheckedPackageRefusalCode {
     InvalidSourceMap,
     /// The selected graph contained a tag unknown to the current contract.
     UnsupportedNodeTag,
+    /// A frame entry named no declared dependency of its frame node.
+    MissingDeclaration,
+    /// A frame entry named a declared dependency of a meaning its member
+    /// does not admit.
+    InvalidModelBinding,
+}
+
+/// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
+/// FR-322's closed `DiagnosticCausePairing` (`schema.json`). Only the causes
+/// this reader currently produces; FR-322's remaining cause tags belong to
+/// stages (stale application-node keys, ambiguous declarations, operator
+/// eligibility) this reader does not yet implement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedPackageRefusalCause {
+    /// `missing-name`: an entry naming no node of the graph, or a node that
+    /// is not a declared dependency of the frame node that names it.
+    MissingName,
+    /// `malformed-declaration`: an entry naming a declared dependency whose
+    /// tag and semantic form its member does not admit.
+    MalformedDeclaration,
 }
 
 /// A typed refusal with a stable code and structural path.
@@ -94,6 +114,12 @@ pub struct CheckedPackageRefusal {
     pub code: CheckedPackageRefusalCode,
     /// The closed-schema path at which admission failed.
     pub path: Box<str>,
+    /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
+    /// present exactly when this reader determined one.
+    pub cause: Option<CheckedPackageRefusalCause>,
+    /// The node key of the offending entry or node, present whenever this
+    /// reader located the refusal at a specific graph node.
+    pub locus: Option<CheckedNodeId>,
 }
 
 /// A typed non-conclusive outcome caused by the first exhausted limit.
