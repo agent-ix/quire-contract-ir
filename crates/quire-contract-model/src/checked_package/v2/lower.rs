@@ -43,9 +43,9 @@ pub struct CompleteContractNodeV2 {
     pub semantic_type: CheckedNodeId,
     /// Every key reachable from the node, excluding itself, ascending.
     pub dependencies: Vec<CheckedNodeId>,
-    /// Reachable `bounded_domain` keys, ascending.
+    /// Reachable `bounded_domain` keys, excluding the node itself, ascending.
     pub bounds: Vec<CheckedNodeId>,
-    /// Reachable `claim` keys, ascending.
+    /// Reachable `claim` keys, excluding the node itself, ascending.
     pub claims: Vec<CheckedNodeId>,
     /// `quire.contract-ir.semantic/v1` identity of this lowered node.
     pub ir_id: CheckedSemanticId,
@@ -246,10 +246,21 @@ impl CheckedPackageV2 {
                 node_tag: *tag,
             };
         }
+        let Some((node, tag)) = nodes.get(start).zip(tags.get(start).copied()) else {
+            return CompleteLoweringRecordV2::InvalidInput {
+                node_id: request.clone(),
+            };
+        };
+        // FR-038: `bounds` and `claims` are filtered views of the same
+        // reachable-excluding-self set that `dependencies` is drawn from, so
+        // every key in `bounds` and every key in `claims` also appears in
+        // `dependencies` — the requested node is never its own bound or claim.
         let bounds = ordered
             .iter()
-            .filter(|(_, tag)| *tag == CheckedNodeTag::BoundedDomain)
-            .map(|(node, _)| node.node_id.clone())
+            .filter(|(candidate, tag)| {
+                *tag == CheckedNodeTag::BoundedDomain && candidate.node_id != node.node_id
+            })
+            .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
         if profile.require_bounds {
             if let Some((node, _)) = ordered.iter().find(|(node, tag)| {
@@ -265,11 +276,6 @@ impl CheckedPackageV2 {
                 };
             }
         }
-        let Some((node, tag)) = nodes.get(start).zip(tags.get(start).copied()) else {
-            return CompleteLoweringRecordV2::InvalidInput {
-                node_id: request.clone(),
-            };
-        };
         let dependencies = ordered
             .iter()
             .filter(|(candidate, _)| candidate.node_id != node.node_id)
@@ -277,7 +283,9 @@ impl CheckedPackageV2 {
             .collect::<Vec<_>>();
         let claims = ordered
             .iter()
-            .filter(|(_, tag)| *tag == CheckedNodeTag::Claim)
+            .filter(|(candidate, tag)| {
+                *tag == CheckedNodeTag::Claim && candidate.node_id != node.node_id
+            })
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
         let preimage = LoweredNodePreimage {

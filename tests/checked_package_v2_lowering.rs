@@ -96,19 +96,12 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             _ => vec![id("aaaa")],
         };
         assert_eq!(node.dependencies, expected_dependencies, "{prefix}");
-        let only_self = |family: CheckedNodeTag| {
-            if *tag == family {
-                vec![id(prefix)]
-            } else {
-                vec![]
-            }
-        };
-        assert_eq!(
-            node.bounds,
-            only_self(CheckedNodeTag::BoundedDomain),
-            "{prefix}"
-        );
-        assert_eq!(node.claims, only_self(CheckedNodeTag::Claim), "{prefix}");
+        // bounds/claims exclude the requested node itself; this fixture's
+        // only reachable dependencies ("aaaa", and "dddd" for eeee/7070) are
+        // neither a bounded_domain nor a claim, so every direct request here
+        // yields empty lists regardless of the requested node's own tag.
+        assert_eq!(node.bounds, Vec::<CheckedNodeId>::new(), "{prefix}");
+        assert_eq!(node.claims, Vec::<CheckedNodeId>::new(), "{prefix}");
         let source_map = value["source_map"]
             .as_array()
             .expect("source map")
@@ -293,7 +286,10 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     let value_node = lowered(&result.records[1]);
     assert_eq!(value_node.dependencies, vec![id("aaaa"), id("cccc")]);
     assert_eq!(value_node.bounds, vec![id("cccc")]);
-    assert_eq!(lowered(&result.records[2]).bounds, vec![id("cccc")]);
+    // Requesting the bounded_domain node itself excludes it from its own
+    // `bounds`: the only other reachable node ("aaaa") is not a bounded
+    // domain.
+    assert!(lowered(&result.records[2]).bounds.is_empty());
 
     // Without the bound requirement the same request lowers.
     let unbounded = package.lower(&[id("bbbb")], &profile(u64::MAX));
@@ -591,20 +587,24 @@ fn tc_052_dependencies_contain_every_bound_and_claim_key() {
         let dependencies = node.dependencies.iter().collect::<BTreeSet<_>>();
         for bound in &node.bounds {
             assert!(
-                bound == &node.node.node_id || dependencies.contains(bound),
+                dependencies.contains(bound),
                 "bound {bound:?} is absent from dependencies"
             );
-            saw_bound |= bound != &node.node.node_id;
+            saw_bound = true;
         }
         for claim in &node.claims {
             assert!(
-                claim == &node.node.node_id || dependencies.contains(claim),
+                dependencies.contains(claim),
                 "claim {claim:?} is absent from dependencies"
             );
-            saw_claim |= claim != &node.node.node_id;
+            saw_claim = true;
         }
-        // dependencies is every reachable key except the node itself.
+        // dependencies, bounds and claims are every reachable key except the
+        // node itself: the requested node is never its own dependency, bound
+        // or claim.
         assert!(!dependencies.contains(&node.node.node_id));
+        assert!(!node.bounds.contains(&node.node.node_id));
+        assert!(!node.claims.contains(&node.node.node_id));
         let mut ascending = node.dependencies.clone();
         ascending.sort();
         assert_eq!(node.dependencies, ascending);
