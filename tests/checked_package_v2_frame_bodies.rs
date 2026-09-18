@@ -10,12 +10,13 @@ mod checked_package;
 
 use checked_package::{
     canonical, evidence_for, frame_refusal_cause, frame_refusal_code, node_id,
-    node_identity_vectors, refresh_identity, typed_node_id, v2_all_families,
+    node_identity_vectors, refresh_identity, refusal_at, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::Value;
 
@@ -154,14 +155,11 @@ fn tc_053_frame_mutations_vectors_refuse_the_published_code_cause_and_locus() {
             .expect("expected_locus_digest");
         let expected_path = expected_path(vector, expected_code);
 
-        assert_eq!(refusal.code, expected_code, "{name} code");
-        assert_eq!(refusal.cause, expected_cause, "{name} cause");
         assert_eq!(
-            refusal.locus,
-            Some(typed_node_id(expected_locus)),
-            "{name} locus"
+            refusal,
+            refusal_at(expected_code, expected_path, expected_cause, expected_locus),
+            "{name}"
         );
-        assert_eq!(refusal.path.as_ref(), expected_path, "{name} path");
         replayed += 1;
     }
     assert_eq!(
@@ -197,4 +195,63 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
 
     let admitted = admitted(&package);
     assert_eq!(admitted.graph().nodes.len(), 26);
+}
+
+/// FR-340's headline precedence rule (`spec/contract/FR-038-consume-checked-package-v2.md`:
+/// "A frame node carrying more than one defect refuses for exactly one of
+/// them ... any meaning-join defect ... outranks a canonical-order defect
+/// outright") has no vendored vector that puts both defect classes in one
+/// frame: every vector `tc_053_frame_mutations_vectors_refuse_the_published_code_cause_and_locus`
+/// replays carries either a meaning-join defect or a canonical-order defect,
+/// never both. This case is authored locally, not vendored, to close that
+/// gap.
+///
+/// It narrows the frame's `dependencies` to the fixture's own `object_type`
+/// and `process` nodes, places `object_type` — ineligible for `modifies`,
+/// which admits only `relationship`/`field_declaration` — into `modifies`
+/// (a meaning-join defect), and places both entries into `deletes` in
+/// descending digest order (`process` before `object_type`; both are
+/// individually eligible for `deletes`, so this is a pure canonical-order
+/// defect there, not a second meaning-join defect). FR-340 requires the
+/// meaning-join defect to win: `invalid_model_binding`/`malformed-declaration`
+/// located at `object_type`, never `invalid_semantic_graph` at the frame
+/// node for the `deletes` misorder.
+///
+/// Tracing: TC-053, FR-038-AC-14
+#[trace("TC-053", "FR-038-AC-14")]
+#[test]
+fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
+    let base = v2_all_families();
+    let index = frame_index(&base);
+    let object_type = base["semantic_graph"]["nodes"][index]["body"]["creates"][0].clone();
+    let process = base["semantic_graph"]["nodes"][index]["body"]["deletes"][0].clone();
+    let object_type_digest = object_type["digest"]
+        .as_str()
+        .expect("digest string")
+        .to_owned();
+
+    let mut package = base.clone();
+    package["semantic_graph"]["nodes"][index]["dependencies"] =
+        Value::Array(vec![object_type.clone(), process.clone()]);
+    package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
+        Value::Array(vec![object_type.clone()]);
+    package["semantic_graph"]["nodes"][index]["body"]["creates"] = Value::Array(vec![]);
+    // Descending digest order: `process` ("92...") before `object_type`
+    // ("91...") — a canonical-order defect, since both entries are
+    // individually eligible for `deletes`.
+    package["semantic_graph"]["nodes"][index]["body"]["deletes"] =
+        Value::Array(vec![process, object_type]);
+    refresh_identity(&mut package);
+
+    let refusal = refused(&package);
+    assert_eq!(
+        refusal,
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            BODY_MODIFIES_PATH,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            &object_type_digest,
+        ),
+        "meaning-join defect must win over the co-occurring order defect"
+    );
 }

@@ -19,9 +19,13 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 
 /// Exact read-limits `work` boundary that admits `v2_all_families()`: body
 /// terms 35 (the sum of each of the 26 nodes' own `validate_body` charge) +
-/// graph edges 38 (every `semantic_type` and `dependencies` edge the Tarjan
-/// recursion walk in `validate_recursion` traverses, one charge per edge) =
-/// 73. Frame body member entries (`modifies`/`creates`/`deletes`) are
+/// graph edges 38 (every `semantic_type`, `dependencies` and body-reference
+/// edge the Tarjan recursion walk in `validate_recursion` traverses, one
+/// charge per edge: `semantic_type` 25 of the 26 nodes — the one self-typed
+/// node contributes none — + `dependencies` 5 + body-reference 8, the
+/// non-frame `literal.type`, `application.result_type` and `reference.target`
+/// edges that still enter adjacency) = 73. Frame body member entries
+/// (`modifies`/`creates`/`deletes`) are
 /// declared dependencies, not independent successor edges — FR-340 frame
 /// semantics resolve them against `dependencies` alone, so
 /// `validate_frame_body` does not forward them to Loop 2's successor

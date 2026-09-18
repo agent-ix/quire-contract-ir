@@ -832,6 +832,49 @@ fn tc_048_invalid_nominal_mutations_refuse_retained_and_rekeyed() {
     }
 }
 
+/// Declaration checks (`validate_nominal_nodes`) must run, and refuse,
+/// before the graph's `dependencies` edges are resolved — the vendored
+/// README's normative reader order is "graph-shape, ..., declaration,
+/// frame, ..., then nodes in ascending node-id digest order" (the edge
+/// resolution `validate_graph`'s Loop 2 performs). A package carrying both
+/// defects at once has one determined outcome, not a position-dependent
+/// one: this pins that outcome to the declaration defect, at
+/// `semantic_graph.nodes.nominal_identity_preimage`, never the generic
+/// unresolved-edge refusal a dangling `dependencies` entry would otherwise
+/// raise at `semantic_graph.nodes.dependencies`.
+///
+/// Both defects sit on the same node (the fixture's enum declaration,
+/// node index 1): its `nominal_identity_preimage.members` gains an entry
+/// without updating `node_id`, so the preimage no longer re-derives the
+/// node's own key (`validate_nominal_nodes`'s own defect); its
+/// `dependencies` gains an entry naming no real node
+/// (`validate_enum_declaration` never inspects `node.dependencies`, unlike
+/// the enum-member/dimension/unit preimages, so this entry is invisible to
+/// the nominal check and reaches only the later edge-resolution loop, if
+/// that loop is ever reached).
+///
+/// Tracing: TC-048, FR-038-AC-5
+#[trace("TC-048", "FR-038-AC-5")]
+#[test]
+fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference() {
+    let mut package = v2_nominal();
+    package["semantic_graph"]["nodes"][1]["nominal_identity_preimage"]["members"]
+        .as_array_mut()
+        .expect("members")
+        .push(json!("EXTRA"));
+    package["semantic_graph"]["nodes"][1]["dependencies"] = json!([{
+        "domain": "quire.checked-semantic-node/v1",
+        "digest": "0123456789abcdef".repeat(4),
+    }]);
+    refresh_identity(&mut package);
+
+    assert_eq!(
+        refused(&package, &evidence_for(&package)),
+        nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
+        "declaration checks must refuse before the dangling dependency edge is resolved"
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]

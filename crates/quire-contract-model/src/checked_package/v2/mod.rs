@@ -1090,20 +1090,36 @@ impl FrameMember {
 
     /// FR-340's closed eligibility table (FR-340-AC-1 through AC-4 upstream):
     /// the single source of truth for which (member, node tag, semantic
-    /// form) triples a frame entry may name. Written as one exhaustive
-    /// `match` over the triple rather than per-member conditionals, so every
-    /// triple `CheckedNodeTag::ALL`/`forms()` can produce is a considered
-    /// decision, never an accidental fallthrough.
+    /// form) triples a frame entry may name. Exhaustive over `(self, tag)`
+    /// with no wildcard arm — every one of `FrameMember`'s 3 variants against
+    /// every one of `CheckedNodeTag`'s 13 is its own arm, so a new
+    /// `CheckedNodeTag` variant fails to compile here until a considered
+    /// decision is written for it, rather than silently falling through to
+    /// `false`. `form` is a wire string, not a closed Rust type (see
+    /// [`CheckedNodeTag::forms`]), so the admitted forms within an eligible
+    /// `(member, tag)` pair are still an exact string match; the exhaustive
+    /// unit test `tc_053_frame_member_admits_exactly_the_closed_eligible_triples`
+    /// below independently walks every `(member, tag, form)` triple
+    /// `CheckedNodeTag::ALL`/`.forms()` can produce and pins the eligible
+    /// count at exactly 6.
     fn admits(self, tag: CheckedNodeTag, form: &str) -> bool {
-        matches!(
-            (self, tag, form),
-            (Self::Modifies, CheckedNodeTag::Relation, "relationship")
-                | (Self::Modifies, CheckedNodeTag::Model, "field_declaration")
-                | (Self::Creates, CheckedNodeTag::Model, "object_type")
-                | (Self::Creates, CheckedNodeTag::Model, "process")
-                | (Self::Deletes, CheckedNodeTag::Model, "object_type")
-                | (Self::Deletes, CheckedNodeTag::Model, "process")
-        )
+        use CheckedNodeTag::{
+            BoundedDomain, Claim, CompositeType, Correspondence, Expression, Function, Model,
+            Protocol, Relation, ScalarType, State, Temporal, Value,
+        };
+        match self {
+            Self::Modifies => match tag {
+                Relation => form == "relationship",
+                Model => form == "field_declaration",
+                ScalarType | CompositeType | BoundedDomain | Value | Expression | Function
+                | State | Temporal | Protocol | Claim | Correspondence => false,
+            },
+            Self::Creates | Self::Deletes => match tag {
+                Model => matches!(form, "object_type" | "process"),
+                ScalarType | CompositeType | BoundedDomain | Value | Expression | Function
+                | Relation | State | Temporal | Protocol | Claim | Correspondence => false,
+            },
+        }
     }
 }
 
@@ -1125,20 +1141,6 @@ fn frame_entries(body: &Value, key: &str) -> Vec<CheckedNodeId> {
         .collect()
 }
 
-/// The single refusal FR-340 selects for one frame node's body, or `None`
-/// when the body is admitted. `frame_id` and `frame` are the same node;
-/// `frame_id` is threaded separately because it is the locus of a canonical-
-/// order defect, while a meaning-join defect's locus is the offending entry.
-///
-/// Collects every meaning-join defect (an entry naming no declared
-/// dependency of the frame, or a declared dependency of a meaning its member
-/// does not admit) across all three members, and separately whether any
-/// member's wire order is not strictly ascending by entry digest. Meaning-
-/// join defects always outrank a canonical-order defect; among meaning-join
-/// defects, `(member order, ascending entry digest)` — exactly the sort key
-/// below — selects the one FR-340 reports, so the outcome never depends on
-/// which member an author wrote a defect into, where in its array an entry
-/// sits, or the order this function happens to collect defects in.
 /// One meaning-join defect found while scanning a frame's body: an entry
 /// naming no declared dependency of the frame (including one declared but
 /// resolving to no real node), or a declared dependency of a meaning its
@@ -1155,6 +1157,21 @@ struct MeaningDefect {
     path: &'static str,
 }
 
+/// The single refusal FR-340 selects for one frame node's body, or `None`
+/// when the body is admitted. `frame_id` and `frame` are the same node;
+/// `frame_id` is threaded separately because it is the locus of a canonical-
+/// order defect, while a meaning-join defect's locus is the offending entry.
+///
+/// Collects every meaning-join defect (an entry naming no declared
+/// dependency of the frame, or a declared dependency of a meaning its member
+/// does not admit) across all three members, and separately whether any
+/// member's wire order is not strictly ascending by entry digest. Meaning-
+/// join defects always outrank a canonical-order defect; among meaning-join
+/// defects, `(member order, ascending entry digest)` — exactly the sort key
+/// [`MeaningDefect`] carries — selects the one FR-340 reports, so the outcome
+/// never depends on which member an author wrote a defect into, where in its
+/// array an entry sits, or the order this function happens to collect
+/// defects in.
 fn frame_defect(
     frame_id: &CheckedNodeId,
     frame: &CheckedSemanticNodeV2,
@@ -1174,7 +1191,9 @@ fn frame_defect(
             order_defect = true;
         }
         for entry in entries {
-            let member_index = member_index as u8;
+            // `FrameMember::ALL` has exactly 3 members, so `enumerate()`
+            // never reaches a value `u8` cannot hold.
+            let member_index = u8::try_from(member_index).expect("FrameMember::ALL has 3 members");
             if !declared.contains(&entry) {
                 meaning_defects.push(MeaningDefect {
                     member_index,
@@ -1257,7 +1276,11 @@ fn frame_defect(
 /// ascending `node_id` digest order — the iteration order of `index`, a
 /// `BTreeMap` — and reports the first one carrying a defect, so a package
 /// with several defective frames refuses at the least such frame
-/// (FR-340-AC-9).
+/// (FR-340-AC-9). Takes no `&mut WorkMeter`: every frame entry it walks
+/// (via [`frame_entries`]) was already parsed, shape-validated and charged
+/// once by `validate_frame_body` in the per-node loop above, so this stage's
+/// cost is already bounded by that earlier charge (see FR-038's "Frame
+/// bodies" section) rather than uncharged and unbounded.
 fn validate_frame_semantics(
     nodes: &[CheckedSemanticNodeV2],
     tags: &[CheckedNodeTag],
