@@ -2,9 +2,9 @@
 //! `CheckedPackage` contract.
 //!
 //! Consumes the public contract merged at quire-specification
-//! `5626bc8fcfc2c280e6486aa9757930d8d87add06` (`proposals/checked-package-v2/`, AD-006). Model
-//! selections are `sha256-jcs` domain packages, typed separately from the raw
-//! source and definition byte artifacts.
+//! `56c3e0b40a5eacf35df556c87d5e96d5eae5fe9b` (`proposals/checked-package-v2/`,
+//! AD-006). Model selections are `sha256-jcs` domain packages, typed
+//! separately from the raw source and definition byte artifacts.
 
 mod identity;
 mod lower;
@@ -771,6 +771,36 @@ fn validate_lock(
             evidence,
             "lock.definition_selections",
         )?;
+    }
+    // Whole-array uniqueness is checked before any entry's digest is
+    // evaluated against evidence: a `model_selections` array that repeats an
+    // entry (identity, version, digest_domain and digest all equal —
+    // whole-item equality, matching the schema's `uniqueItems`; two entries
+    // pinning the same package to different digests are distinct items) is a
+    // defect in the shape of the wire, and evidence for an already-malformed
+    // array is not meaningful to check. This order — not the reverse, and not
+    // interleaved per entry — is what keeps the outcome for an array carrying
+    // both defects independent of which one comes first in the array.
+    // It does NOT make the refusal code position-independent in general: the
+    // per-entry domain, shape and evidence checks below still short-circuit on
+    // the first failing entry, so two entries of different defect classes are
+    // still resolved by array position. That gap is #124; do not read this
+    // comment as a standing "structural before semantic" invariant and move
+    // those checks up here believing you are restoring a stated rule. Only the lock's copy is checked:
+    // the `same_non_graph_lock` equality above already requires
+    // `identity_preimage.model_selections` to equal `lock.model_selections`
+    // element-for-element, so a duplicate-free lock guarantees the mirrored
+    // preimage is too.
+    let mut models = BTreeSet::new();
+    if !lock
+        .model_selections
+        .iter()
+        .all(|model| models.insert(model))
+    {
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            "lock.model_selections",
+        ));
     }
     for model in &lock.model_selections {
         validate_domain_package(model, evidence)?;

@@ -1100,6 +1100,127 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     );
 }
 
+/// Tracing: TC-048, FR-038-AC-10
+#[trace("TC-048", "FR-038-AC-10")]
+#[test]
+fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
+    let schema = fixture("checked-package-v2/schema.json");
+    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let lock_path = "lock.model_selections";
+
+    // A verbatim repeat (identity, version, digest_domain and digest all
+    // equal) violates the schema's `uniqueItems` on `model_selections`;
+    // `model_owned_package` mirrors the lock into the identity preimage via
+    // `refresh_identity`, so the repeat is present in both members at once
+    // and reaches the new uniqueness check.
+    let duplicated = model_owned_package(
+        owner.clone(),
+        json!([domain_package("test/orders"), domain_package("test/orders")]),
+    );
+    assert!(
+        !schema.is_valid(&duplicated),
+        "uniqueItems rejects the verbatim repeat"
+    );
+    assert_eq!(
+        refused(&duplicated, &evidence_for(&duplicated)),
+        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+    );
+
+    // The same repeat, confined to the lock and left unmirrored in the
+    // identity preimage, never reaches that check: `same_non_graph_lock`
+    // requires `identity_preimage.model_selections` to equal
+    // `lock.model_selections` element-for-element before either is examined
+    // further, and a two-entry lock against a one-entry preimage fails that
+    // equality first.
+    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    let mut lock_only = single.clone();
+    lock_only["lock"]["model_selections"] =
+        json!([domain_package("test/orders"), domain_package("test/orders")]);
+    assert!(
+        !schema.is_valid(&lock_only),
+        "uniqueItems still rejects the lock's own repeat"
+    );
+    assert_ne!(
+        lock_only["lock"]["model_selections"], lock_only["identity_preimage"]["model_selections"],
+        "the repeat is confined to the lock, not mirrored into the preimage"
+    );
+    assert_eq!(
+        refused(&lock_only, &evidence_for(&lock_only)),
+        refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
+    );
+
+    // Two selections sharing identity and version but differing in digest
+    // are distinct JSON items under whole-value `uniqueItems` equality, so
+    // this criterion never refuses them. The package evidence can attest
+    // only one digest per identity/version locator, so the input is still
+    // refused, but by the pre-existing per-item digest check as
+    // `stale_dependency`, not by this uniqueness check as `malformed_wire`.
+    let mut other_digest = domain_package("test/orders");
+    other_digest["digest"] = json!("9".repeat(64));
+    let distinct_digest =
+        model_owned_package(owner, json!([domain_package("test/orders"), other_digest]));
+    assert!(
+        schema.is_valid(&distinct_digest),
+        "distinct whole-value items satisfy uniqueItems"
+    );
+    assert_eq!(
+        refused(&distinct_digest, &evidence_for(&distinct_digest)),
+        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
+        "same identity/version but differing digest is not a duplicate under this criterion"
+    );
+}
+
+/// The uniqueness check runs over the whole `model_selections` array before
+/// any entry's digest is evaluated against evidence, so an array carrying
+/// both a repeated entry and an entry the evidence does not attest refuses
+/// as `malformed_wire` regardless of which defect appears first.
+///
+/// Tracing: TC-048, FR-038-AC-11
+#[trace("TC-048", "FR-038-AC-11")]
+#[test]
+fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position() {
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let single = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    // Evidence attests only the single "test/orders" selection, so a third
+    // entry naming a different identity is never attested — it is stale
+    // wherever it appears in the array.
+    let evidence = evidence_for(&single);
+    let stale_entry = json!({
+        "identity": "test/other", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let duplicate_before_stale = model_owned_package(
+        owner.clone(),
+        json!([
+            domain_package("test/orders"),
+            domain_package("test/orders"),
+            stale_entry.clone()
+        ]),
+    );
+    let stale_before_duplicate = model_owned_package(
+        owner,
+        json!([
+            stale_entry,
+            domain_package("test/orders"),
+            domain_package("test/orders")
+        ]),
+    );
+    for (name, package) in [
+        ("duplicate before stale", &duplicate_before_stale),
+        ("stale before duplicate", &stale_before_duplicate),
+    ] {
+        assert_eq!(
+            refused(package, &evidence),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "lock.model_selections"
+            ),
+            "{name}: the uniqueness check runs over the whole array before any digest is evaluated"
+        );
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
