@@ -1100,6 +1100,53 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     );
 }
 
+/// Tracing: TC-048, FR-038-AC-10
+#[trace("TC-048", "FR-038-AC-10")]
+#[test]
+fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
+    let schema = fixture("checked-package-v2/schema.json");
+    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let lock_path = "lock.model_selections";
+
+    // A verbatim repeat (identity, version, digest_domain and digest all
+    // equal) violates the schema's `uniqueItems` on `model_selections`;
+    // `model_owned_package` mirrors the lock into the identity preimage via
+    // `refresh_identity`, so the repeat is present in both members at once.
+    let duplicated = model_owned_package(
+        owner.clone(),
+        json!([domain_package("test/orders"), domain_package("test/orders")]),
+    );
+    assert!(
+        !schema.is_valid(&duplicated),
+        "uniqueItems rejects the verbatim repeat"
+    );
+    assert_eq!(
+        refused(&duplicated, &evidence_for(&duplicated)),
+        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+    );
+
+    // Two selections sharing identity and version but differing in digest
+    // are distinct JSON items under whole-value `uniqueItems` equality, so
+    // this criterion never refuses them. The package evidence can attest
+    // only one digest per identity/version locator, so the input is still
+    // refused, but by the pre-existing per-item digest check as
+    // `stale_dependency`, not by this uniqueness check as `malformed_wire`.
+    let mut other_digest = domain_package("test/orders");
+    other_digest["digest"] = json!("9".repeat(64));
+    let distinct_digest =
+        model_owned_package(owner, json!([domain_package("test/orders"), other_digest]));
+    assert!(
+        schema.is_valid(&distinct_digest),
+        "distinct whole-value items satisfy uniqueItems"
+    );
+    assert_eq!(
+        refused(&distinct_digest, &evidence_for(&distinct_digest)),
+        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
+        "same identity/version but differing digest is not a duplicate under this criterion"
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]

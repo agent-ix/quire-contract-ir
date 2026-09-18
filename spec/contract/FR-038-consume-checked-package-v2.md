@@ -39,7 +39,7 @@ limit).
 
 The normative producer contract is QSpec
 `proposals/checked-package-v2/` at
-`agent-ix/quire-specification@5626bc8fcfc2c280e6486aa9757930d8d87add06`,
+`agent-ix/quire-specification@56c3e0b`,
 vendored byte-exact under `tests/fixtures/checked-package/` with a
 `PROVENANCE` file naming each source path, blob and SHA-256.
 
@@ -79,7 +79,9 @@ require the preimage's lock members to equal the lock, and require its
 graph order. It shall check each digest's declared domain before its bytes,
 each locked source/definition byte digest against the package evidence's raw
 artifact digests and each selected `sha256-jcs` domain package digest against
-its separately typed domain package evidence, every
+its separately typed domain package evidence, refuse a `model_selections`
+array that repeats an entry (identity, version, digest domain and digest all
+equal) exactly as it refuses a repeated `required_features` entry, every
 required feature against the reported `available` capability and the
 reader-supported feature set, every node tag, family form and semantic term,
 reference and dependency resolution, cycles outside one explicit
@@ -157,9 +159,10 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any vendored fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself — no vendored fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every vendored fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
+| FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim refuses as `malformed_wire` at `lock.model_selections`, both when the duplicate is confined to the lock and when it is mirrored into `identity_preimage.model_selections`; two entries sharing identity and version but differing in digest are distinct items and are not refused by this criterion. | Test (TC-048) |
 
 ## Dependencies
 
-QSpec FR-322 (AC-4, AC-8, AC-10, AC-11), FR-201-AC-5 and FR-195 (AC-1 through
+QSpec FR-322 (AC-4, AC-8, AC-10) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 TC-217 names this repository as their consumer evidence owner.

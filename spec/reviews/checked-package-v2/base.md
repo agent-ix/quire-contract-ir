@@ -13,9 +13,9 @@ review_date: "2026-09-17"
 ## Summary
 
 PASS after fixes. FR-038 is the sole consumer requirement for the admitted
-QSpec I04 V2 contract (`5626bc8f`). Every acceptance criterion is verified by
+QSpec I04 V2 contract (`56c3e0b`). Every acceptance criterion is verified by
 exactly one planned test case, and the normative QSpec criteria
-FR-322-AC-4/8/10/11, FR-201-AC-5 and FR-195-AC-1..5 each map to an FR-038
+FR-322-AC-4/8/10 and FR-195-AC-1..5 each map to an FR-038
 criterion.
 
 ## Findings
