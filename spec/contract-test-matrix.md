@@ -38,7 +38,7 @@ relationships:
 | FR-029 | FR-029-AC-1 through FR-029-AC-3 | TC-042 | ✅ implemented through PRs #87/#88 |
 | FR-030 | FR-030-AC-1 through FR-030-AC-3 | TC-042 | ✅ implemented through PRs #88–#91 |
 | FR-031 | FR-031-AC-1 through FR-031-AC-3 | TC-042 | ✅ implemented through native replay PR #92 and codegen corpus PR #47 |
-| FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
+| FR-032 | FR-032-AC-1 through FR-032-AC-5 | TC-043, TC-051 | ✅ implemented target-neutral admission and the closed STD-003 refusal catalog with a total unresolved-obligation precedence; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
 | FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | ✅ implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over |
@@ -61,6 +61,7 @@ relationships:
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
 | STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | issue #6 through #10 and TC-038 through TC-040 closed code catalogs implemented |
+| STD-003 | exact registered code set both ways, unresolved-obligation precedence, required field paths, and no spelling shared with STD-001 | TC-051, TC-043 | ✅ implemented: the 37 `MappingRequestErrorCode` spellings and the registry are one closed set |
 
 ## Test Case Summary
 
@@ -87,6 +88,7 @@ relationships:
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors QSpec TC-218 through runtime #16 and codegen #49 |
 | TC-046 | Canonical backend counterexample replay conforms | Integration | P0 | FR-037 | 🚧 planned; mirrors QSpec TC-219 through codegen #50 and runtime #16 |
 | TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-322-AC-4, FR-322-AC-8, FR-322-AC-10 and FR-322-AC-11 |
+| TC-051 | The output-mapping refusal catalog is closed and registered | Inspection | P0 | STD-003, FR-032-AC-5 | ✅ implemented in `tests/output_mapping.rs` against the compiled-in registry |
 | TC-050 | CheckedPackage V2 items lower independently with exact correspondence | Property | P0 | FR-038-AC-6 | ✅ implemented by Contract IR PR #107/#108 for issue #106; mirrors QSpec TC-217 FR-195-AC-1 through FR-195-AC-5 |
 
 ## Coverage Design
@@ -102,4 +104,5 @@ relationships:
 | TC-042 cases | Coverage, boundary, error, transition, replay, provenance | every profile/matrix construct and unknown/conflicting/missing entry; each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership; generated artifact mutation for source/model/profile/module/tool/options/assumption/bound/dependency identity; every concrete Kani counterexample round-trips through native `runtime::execute`; replay mismatch, unavailable runtime and malformed packet remain typed non-success; repeat corpus parity with exact Kani executable/options digest |
 | TC-048 cases | Coverage, compatibility, boundary, error, identity | unknown, absent and malformed contract_version, and a malformed/duplicate/noncanonical document, before any version is selected; both V2 fixtures; every vendored adverse mutation; malformed, duplicate, unknown member, noncanonical, stale digest, unreported/unsupported feature, dangling reference, incomplete source map; exact and one-over byte/depth/node/edge/occurrence/diagnostic/work limits; excluded and included package-preimage edits; every node-identity vector and invalid mutation; absent/foreign preimage; retained-preimage case/type/dependency/target contradictions |
 | TC-050 cases | Coverage, boundary, error, independence | every node family and nominal node; absent key; unsupported reachable tag; unbounded and bounded numeric type under a bounds-required profile; one-over work; mixed request sibling equality |
+| TC-051 cases | Coverage, closure | every emitted spelling has one registry row; every registry row is emittable; each spelling round-trips its wire form; neither refusal catalog shares a spelling with the other |
 | TC-043 cases | Coverage, permutation, boundary, error, transition, identity, atomicity | each exact target profile independently without target semantics; nonempty ordered unique obligation selection; every source-fact state and disposition invariant; separate observation/protocol adequacy; missing/duplicate/foreign/stale/cross-profile/cross-wired inputs; zero/exact/just-over/overflow request, obligation, node, depth, work, record and emitted-byte limits; malformed and UTF-8-unsafe regions; cancellation/allocation/mapper failure; deterministic replay and mutation of every record/package identity member; path/time/locale/display/observer independence; no partial package or preservation fallback |
