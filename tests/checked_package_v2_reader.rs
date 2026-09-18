@@ -1162,9 +1162,15 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
         assert!(value < u64::MAX, "{name} must be finite");
     }
 
-    // FR-038-AC-9: a package that admits under the default is refused as
-    // incomplete under a policy one below any single member, so no member is
-    // slack enough to be unreachable.
+    // FR-038-AC-9: each meter is enforced at its own true measured boundary.
+    // The shipped default (up to 1,048,576 bytes / 10,000 nodes / 100,000
+    // edges) is far larger than any vendored fixture (the largest is 19,992
+    // bytes / 13 nodes), so a boundary fixed at the default is unreachable by
+    // any plausibly sized package and would prove nothing; instead this test
+    // discovers each meter's real measured cost against an actual package by
+    // binary search, then proves that exact value admits and one below it
+    // refuses as `incomplete`, naming that meter and reporting the true
+    // consumption.
     let mut value = v2_all_families();
     // Give the graph a real dependency edge so every one of the seven meters
     // is charged by this package and the axis check below is not vacuous.
@@ -1185,35 +1191,80 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     type NarrowLimit = fn(&mut CheckedPackageReadLimits, u64);
-    let narrowed: [(CheckedPackageLimit, NarrowLimit); 7] = [
-        (CheckedPackageLimit::Bytes, |limits, value| {
-            limits.bytes = value
-        }),
-        (CheckedPackageLimit::Depth, |limits, value| {
-            limits.depth = value
-        }),
-        (CheckedPackageLimit::Nodes, |limits, value| {
-            limits.nodes = value
-        }),
-        (CheckedPackageLimit::Edges, |limits, value| {
-            limits.edges = value
-        }),
-        (CheckedPackageLimit::Occurrences, |limits, value| {
-            limits.occurrences = value
-        }),
-        (CheckedPackageLimit::Diagnostics, |limits, value| {
-            limits.diagnostics = value
-        }),
-        (CheckedPackageLimit::Work, |limits, value| {
-            limits.work = value
-        }),
+    let narrowed: [(CheckedPackageLimit, NarrowLimit, u64); 7] = [
+        (
+            CheckedPackageLimit::Bytes,
+            |limits, value| limits.bytes = value,
+            bounded.bytes,
+        ),
+        (
+            CheckedPackageLimit::Depth,
+            |limits, value| limits.depth = value,
+            bounded.depth,
+        ),
+        (
+            CheckedPackageLimit::Nodes,
+            |limits, value| limits.nodes = value,
+            bounded.nodes,
+        ),
+        (
+            CheckedPackageLimit::Edges,
+            |limits, value| limits.edges = value,
+            bounded.edges,
+        ),
+        (
+            CheckedPackageLimit::Occurrences,
+            |limits, value| limits.occurrences = value,
+            bounded.occurrences,
+        ),
+        (
+            CheckedPackageLimit::Diagnostics,
+            |limits, value| limits.diagnostics = value,
+            bounded.diagnostics,
+        ),
+        (
+            CheckedPackageLimit::Work,
+            |limits, value| limits.work = value,
+            bounded.work,
+        ),
     ];
-    for (kind, set) in narrowed {
+    let read_with = |set: NarrowLimit, value: u64| -> CheckedPackageV2ReadResult {
         let mut limits = bounded;
-        set(&mut limits, 0);
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        set(&mut limits, value);
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    for (kind, set, default) in narrowed {
+        // 0 must refuse (the meter is genuinely charged) and `default` must
+        // admit (established above); binary search the smallest value in
+        // between that admits, which is exactly this package's true measured
+        // consumption for this meter.
+        assert!(
+            matches!(read_with(set, 0), CheckedPackageV2ReadResult::Incomplete(_)),
+            "{kind:?} must refuse at zero"
+        );
+        let (mut lo, mut hi) = (0_u64, default);
+        while lo + 1 < hi {
+            let mid = lo + (hi - lo) / 2;
+            match read_with(set, mid) {
+                CheckedPackageV2ReadResult::Admitted(_) => hi = mid,
+                CheckedPackageV2ReadResult::Incomplete(_) => lo = mid,
+                other => panic!("unexpected outcome searching {kind:?} boundary: {other:?}"),
+            }
+        }
+        // `hi` is now the true measured consumption: the smallest value that
+        // admits, and `hi - 1` therefore names it exactly as the reported
+        // `consumed` counter.
+        assert!(
+            matches!(read_with(set, hi), CheckedPackageV2ReadResult::Admitted(_)),
+            "{kind:?} exact measured consumption must admit"
+        );
+        match read_with(set, hi - 1) {
             CheckedPackageV2ReadResult::Incomplete(report) => {
-                assert_eq!(report.limit_kind, kind, "wrong limit kind for {kind:?}");
+                assert_eq!(
+                    report,
+                    incomplete(kind, hi - 1, hi),
+                    "{kind:?} one below its true measured consumption"
+                );
             }
             other => panic!("expected incomplete for {kind:?}, got {other:?}"),
         }
