@@ -14,6 +14,8 @@ relationships:
     type: realizes
   - target: ix://agent-ix/quire-contract-ir/FR-031
     type: realizes
+  - target: ix://agent-ix/quire-specification/AD-016
+    type: references
 ---
 # Bounded Kani backend architecture
 

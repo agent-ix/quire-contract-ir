@@ -7,6 +7,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-030
     type: depends_on
+  - target: ix://agent-ix/quire-specification/AD-016
+    type: references
 ---
 # FR-031: Dispatch bounded Kani modules with replayable provenance
 
@@ -68,8 +70,9 @@ whose truth the test asserts two lines earlier. Native `runtime::execute` is
 therefore reached with an input no counterexample determined. Lowering,
 emission, compilation, `cargo kani` execution and transcript classification are
 built and gated; witness extraction, reconstruction and executor agreement are
-not. Per AD-016, `src/kani/replay.rs` holds the counterexample packet type;
-the executor call lives in the codegen replay adapter, pending WP9 (issue
-#140).
+not. Per AD-016 the counterexample packet is `src/kani/replay.rs`'s and the
+executor call is the codegen replay adapter's, pending WP9 (issue #140);
+today `src/kani/replay.rs` also carries `replay_with_native_runtime`, which
+invokes the executor itself.
 
 AC-4, the witness vocabulary AC-3 consumes, is added; implemented by IR #139.
