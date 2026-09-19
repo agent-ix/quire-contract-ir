@@ -1,0 +1,16 @@
+/// Test generated for harness `kob_..._module::kob_..._proof` that checks contract for `kob_..._contract`
+///
+/// Check for `assertion`: "|post_state: &i64| (*post_state >= 0_i64 && *post_state <= 1000_i64) &&
+oracle_fr_200_1_balance_never_grows_id_6aad...(balance_pre,
+*post_state)"
+
+#[test]
+fn kani_concrete_playback_kob_..._proof_993634016887226435() {
+    let concrete_vals: Vec<Vec<u8>> = vec![
+        // 8
+        vec![8, 0, 0, 0, 0, 0, 0, 0],
+        // 992
+        vec![224, 3, 0, 0, 0, 0, 0, 0],
+    ];
+    kani::concrete_playback_run(concrete_vals, kob_..._proof);
+}

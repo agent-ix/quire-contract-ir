@@ -13,6 +13,7 @@ mod outcome;
 mod profile;
 mod provenance;
 mod replay;
+mod witness;
 
 pub use abi::{
     FiniteInput, FiniteObject, FiniteReference, PopulationCompleteness, ResourceBounds,
@@ -31,6 +32,7 @@ pub use replay::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket, NativeReplayAgreement,
     ReplayAgreement,
 };
+pub use witness::{Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType};
 
 /// First selected bounded Kani profile family.
 pub const PROFILE: &str = "kani-bounded/1";
