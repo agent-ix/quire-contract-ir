@@ -37,6 +37,7 @@ A `counterexample` serializes exact ABI/profile identities, concrete finite popu
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
 | FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
 | FR-031-AC-3 | Every serialized counterexample either reproduces through native `runtime::execute` with the same outcome/witness or returns a typed non-success disagreement; proof, refusal, and inconclusive results never masquerade as replayed counterexamples. | Test (TC-042) |
+| FR-031-AC-4 | An evaluated witness is parsed from a backend transcript and carries the concrete values that transcript recorded, untyped; it is typed only against a schema the generator declared, and a disagreement between the two — in arity, in byte width, or with the backend's own decoded value — is a typed refusal naming its cause, never an inferred value. A transcript that witnesses reachability or a bound rather than falsity is refused as a counterexample witness. | Test (TC-042) |
 
 ## Dependencies
 
@@ -61,3 +62,8 @@ therefore reached with an input no counterexample determined. Lowering,
 emission, compilation, `cargo kani` execution and transcript classification are
 built and gated; witness extraction, reconstruction and native agreement are
 not.
+
+AC-4 states the witness vocabulary AC-3 depends on and was written for
+alongside it, because the tests that establish a witness parses and decodes
+correctly establish nothing about native replay, and must not be credited to
+AC-3 as though they did.
