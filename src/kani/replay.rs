@@ -284,9 +284,9 @@ pub fn replay_counterexample(
             packet.profile_revision,
         ));
     }
-    // The arm is decided by matching `packet.source` (by reference, so
-    // `packet` itself stays intact to move whole into the settled arm
-    // result below); no separate flag records which arm was taken.
+    // The arm is decided by matching `packet.source`; the wildcard bindings
+    // move nothing, so `packet` goes whole into the settled arm result. No
+    // separate flag records which arm was taken.
     Ok(match packet.source {
         ReplaySource::Witness(_) => {
             ReplayAgreement::Witness(WitnessReplayAgreement::new(packet, native))
