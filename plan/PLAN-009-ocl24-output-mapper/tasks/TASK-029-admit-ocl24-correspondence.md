@@ -8,9 +8,9 @@ priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-028
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/FR-036
+  - target: ix://agent-ix/quire-contract-ir/FR-342
     type: references
-  - target: ix://agent-ix/quire-contract-ir/TC-044
+  - target: ix://agent-ix/quire-contract-ir/TC-220
     type: verifies
 ---
 # TASK-029: Admit the typed OCL 2.4 correspondence catalog
@@ -35,7 +35,7 @@ and constructor refusal for ambiguity or arbitrary target snippets.
 ## Deliverables
 
 - `quire_contract_ir::ocl24` name, dependency and catalog API
-- Focused FR-036/TC-044 constructor and boundary tests
+- Focused FR-342/TC-220 constructor and boundary tests
 
 ## Notes
 

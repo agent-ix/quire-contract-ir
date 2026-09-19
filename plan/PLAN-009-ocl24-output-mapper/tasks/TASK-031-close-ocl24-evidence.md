@@ -8,15 +8,15 @@ priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-030
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/FR-035
+  - target: ix://agent-ix/quire-contract-ir/FR-341
     type: references
-  - target: ix://agent-ix/quire-contract-ir/FR-036
+  - target: ix://agent-ix/quire-contract-ir/FR-342
     type: references
-  - target: ix://agent-ix/quire-contract-ir/FR-037
+  - target: ix://agent-ix/quire-contract-ir/FR-343
     type: references
   - target: ix://agent-ix/quire-contract-ir/issues/55
     type: references
-  - target: ix://agent-ix/quire-contract-ir/TC-044
+  - target: ix://agent-ix/quire-contract-ir/TC-220
     type: verifies
 ---
 # TASK-031: Close integrated OCL mapper evidence
@@ -29,7 +29,7 @@ only from real trace evidence, and pass every local PR gate.
 
 ## Subtasks
 
-- [ ] Complete TC-044 end-to-end record/package, determinism, mutation, resource,
+- [ ] Complete TC-220 end-to-end record/package, determinism, mutation, resource,
   refusal and ambient-independence cases.
 - [ ] Verify all 14 acceptance criteria have real Rust test tags and no scoped
   status lie or reverse-trace gap.
@@ -41,7 +41,7 @@ only from real trace evidence, and pass every local PR gate.
 
 ## Deliverables
 
-- Integrated TC-044 evidence and promoted TM-002 rows
+- Integrated TC-220 evidence and promoted TM-002 rows
 - Completed PLAN-009 and exact local verification record
 - One reviewed, merged PR closing Contract IR #55
 

@@ -1,5 +1,5 @@
 ---
-id: FR-035
+id: FR-341
 title: "Bind a target mapper to one admitted request context"
 type: FR
 relationships:
@@ -12,7 +12,7 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-122
     type: implements
 ---
-# FR-035: Bind a target mapper to one admitted request context
+# FR-341: Bind a target mapper to one admitted request context
 
 ## Description
 
@@ -55,10 +55,10 @@ target profile, and limits before invoking the mapper.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-035-AC-1 | A mapper whose immutable request identity and target profile equal the admitted request is invoked once per selected obligation in source order. | Test (TC-044) |
-| FR-035-AC-2 | A source-package, obligation, native, model, semantic, target-profile, or limit mutation changes the request identity and refuses before the mismatched mapper invocation with no partial result. | Test (TC-044) |
-| FR-035-AC-3 | Reusing one mapper across a profile-equal request with a different model or semantic selection refuses rather than inheriting the prior correspondence. | Test (TC-044) |
-| FR-035-AC-4 | Path, time, locale, display, installed-tool, and observer changes cannot alter binding equality or supply an omitted member. | Test (TC-044) |
+| FR-341-AC-1 | A mapper whose immutable request identity and target profile equal the admitted request is invoked once per selected obligation in source order. | Test (TC-220) |
+| FR-341-AC-2 | A source-package, obligation, native, model, semantic, target-profile, or limit mutation changes the request identity and refuses before the mismatched mapper invocation with no partial result. | Test (TC-220) |
+| FR-341-AC-3 | Reusing one mapper across a profile-equal request with a different model or semantic selection refuses rather than inheriting the prior correspondence. | Test (TC-220) |
+| FR-341-AC-4 | Path, time, locale, display, installed-tool, and observer changes cannot alter binding equality or supply an omitted member. | Test (TC-220) |
 
 ## Dependencies
 

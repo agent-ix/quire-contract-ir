@@ -8,9 +8,9 @@ priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-029
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/FR-037
+  - target: ix://agent-ix/quire-contract-ir/FR-343
     type: references
-  - target: ix://agent-ix/quire-contract-ir/TC-044
+  - target: ix://agent-ix/quire-contract-ir/TC-220
     type: verifies
 ---
 # TASK-030: Render and classify bounded OCL 2.4 obligations
@@ -35,7 +35,7 @@ regions, work, dependencies, conditions and causes.
 ## Deliverables
 
 - OCL mapper implementing the request-bound `OutputMapper` seam
-- Focused FR-037/TC-044 golden, boundary and refusal tests
+- Focused FR-343/TC-220 golden, boundary and refusal tests
 
 ## Notes
 

@@ -94,7 +94,7 @@ FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific
 correspondence or admitting generated target text as source.
-FR-035 through FR-037 bind target mappers to exact request selections and define
+FR-341 through FR-343 bind target mappers to exact request selections and define
 the first target-specific producer: the bounded OCL 2.4 correspondence selected
 by QSpec FR-122. They refine the common seam without changing shared loss or
 package identity, and they refuse every unsupported or ambiguous construct
@@ -127,10 +127,10 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Per-obligation output accounting](contract/FR-033-account-for-output-obligations.md).
 - [Atomic output package assembly](contract/FR-034-assemble-output-package-atomically.md).
 - [Output-mapping foundation test case](contract/TC-043-output-mapping-foundation.md).
-- [Request-bound target mapper](contract/FR-035-bind-output-mapper-to-request.md).
-- [Exact OCL 2.4 correspondence admission](contract/FR-036-admit-ocl24-correspondence.md).
-- [Bounded OCL 2.4 mapping](contract/FR-037-map-bounded-ocl24-output.md).
-- [Bounded OCL 2.4 mapper test case](contract/TC-044-ocl24-output-mapper.md).
+- [Request-bound target mapper](contract/FR-341-bind-output-mapper-to-request.md).
+- [Exact OCL 2.4 correspondence admission](contract/FR-342-admit-ocl24-correspondence.md).
+- [Bounded OCL 2.4 mapping](contract/FR-343-map-bounded-ocl24-output.md).
+- [Bounded OCL 2.4 mapper test case](contract/TC-220-ocl24-output-mapper.md).
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
 - [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).

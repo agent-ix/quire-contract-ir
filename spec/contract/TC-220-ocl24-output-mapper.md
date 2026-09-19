@@ -1,20 +1,20 @@
 ---
-id: TC-044
+id: TC-220
 title: "Bounded OCL 2.4 output mapper conforms"
 type: TC
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-035
+  - target: ix://agent-ix/quire-contract-ir/FR-341
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-036
+  - target: ix://agent-ix/quire-contract-ir/FR-342
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-037
+  - target: ix://agent-ix/quire-contract-ir/FR-343
     type: verifies
   - target: ix://agent-ix/quire-specification/TC-151
     type: references
   - target: ix://agent-ix/quire-specification/TC-155
     type: references
 ---
-# TC-044: Bounded OCL 2.4 output mapper conforms
+# TC-220: Bounded OCL 2.4 output mapper conforms
 
 ## Description
 

@@ -12,7 +12,7 @@ relationships:
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-037 | TC-015 through TC-018, TC-035, TC-038 through TC-044 | 🚧 OCL mapper FR-035–FR-037 and TC-044 specified; implementation pending under #55 |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-025 through FR-034, FR-341 through FR-343 | TC-015 through TC-018, TC-035, TC-038 through TC-043, TC-220 | 🚧 OCL mapper FR-341–FR-343 and TC-220 specified; implementation pending under #55 |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020 | ✅ implemented |
 
@@ -41,9 +41,9 @@ relationships:
 | FR-032 | FR-032-AC-1 through FR-032-AC-4 | TC-043 | ✅ implemented target-neutral admission; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
-| FR-035 | FR-035-AC-1 through FR-035-AC-4 | TC-044 | 🚧 specified; implementation pending under #55 |
-| FR-036 | FR-036-AC-1 through FR-036-AC-4 | TC-044 | 🚧 specified; implementation pending under #55 |
-| FR-037 | FR-037-AC-1 through FR-037-AC-6 | TC-044 | 🚧 specified; implementation pending under #55 |
+| FR-341 | FR-341-AC-1 through FR-341-AC-4 | TC-220 | 🚧 specified; implementation pending under #55 |
+| FR-342 | FR-342-AC-1 through FR-342-AC-4 | TC-220 | 🚧 specified; implementation pending under #55 |
+| FR-343 | FR-343-AC-1 through FR-343-AC-6 | TC-220 | 🚧 specified; implementation pending under #55 |
 
 ## Non-Functional Requirement Coverage
 
@@ -82,7 +82,7 @@ relationships:
 | TC-041 | Preserve the Contract IR API while proving the model/owner/bridge Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | ✅ implemented architecture enablement |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall, module dispatch, provenance, and native counterexample replay conform | Integration | P0 | FR-029, FR-030, FR-031 | ✅ implemented across shared, arithmetic, graph, collection and native-replay suites; integrated codegen corpus at `73c82ad` |
 | TC-043 | Output-mapping request, mapper seam, per-obligation records, limits, atomic package, and observer separation conform | Integration | P0 | FR-032, FR-033, FR-034 | ✅ implemented in `tests/output_mapping.rs` and model overflow tests; target-specific OCL/SysML/FRETish semantics excluded |
-| TC-044 | Bounded OCL 2.4 request binding, correspondence, emission, loss, determinism, and package integration conform | Integration | P0 | FR-035, FR-036, FR-037 | 🚧 specified; implementation pending under #55 |
+| TC-220 | Bounded OCL 2.4 request binding, correspondence, emission, loss, determinism, and package integration conform | Integration | P0 | FR-341, FR-342, FR-343 | 🚧 specified; implementation pending under #55 |
 
 ## Coverage Design
 
@@ -96,4 +96,4 @@ relationships:
 | TC-041 cases | Coverage, compatibility, dependency, feature, edge | Cargo metadata cycle check for default/all/minimum features; model package owner/TL dependency absence; root-package compatibility imports; existing schema/canonical/digest/diagnostic/corpus equality; QSL dependency-key alias build; locked bridge-and-QSL owner API composition build; dev/historical pin isolation; compile-fail probes for public owner constructors, callbacks, trait validators, trust flags and copied owner wire types |
 | TC-042 cases | Coverage, boundary, error, transition, replay, provenance | every profile/matrix construct and unknown/conflicting/missing entry; each valid, duplicate, dangling, foreign, wrong-type, incomplete, unavailable and one-over-bound population/snapshot/reference/collection case; no-assumption invalid-input probes; every typed outcome kind and Boolean-field absence; arithmetic/definedness, object/reference/graph and collection/query dispatch ownership; generated artifact mutation for source/model/profile/module/tool/options/assumption/bound/dependency identity; every concrete Kani counterexample round-trips through native `runtime::execute`; replay mismatch, unavailable runtime and malformed packet remain typed non-success; repeat corpus parity with exact Kani executable/options digest |
 | TC-043 cases | Coverage, permutation, boundary, error, transition, identity, atomicity | each exact target profile independently without target semantics; nonempty ordered unique obligation selection; every source-fact state and disposition invariant; separate observation/protocol adequacy; missing/duplicate/foreign/stale/cross-profile/cross-wired inputs; zero/exact/just-over/overflow request, obligation, node, depth, work, record and emitted-byte limits; malformed and UTF-8-unsafe regions; cancellation/allocation/mapper failure; deterministic replay and mutation of every record/package identity member; path/time/locale/display/observer independence; no partial package or preservation fallback |
-| TC-044 cases | Coverage, permutation, boundary, error, identity, correspondence, refusal | exact request binding and each member mismatch; correspondence input permutations; missing/duplicate/ambiguous/foreign/stale/invalid/reserved/over-limit entries; invariant/pre/post anchors and pre/current/post reads; Boolean and bounded reject-on-overflow integer operators; ConfigVersion 0/1000/-1/1001; Sequence empty/one/duplicates/max/over and size/includes/count/forAll/exists; unsupported option/invalid/rational/divide/remainder/saturating/index/collection/graph/temporal/protocol/clause cases; ParentPrecedes complete/missing correspondence; source pending/incomplete/refused; exact/just-over/overflow work; deterministic package and ambient/observer independence; no foreign runtime or target readback authority |
+| TC-220 cases | Coverage, permutation, boundary, error, identity, correspondence, refusal | exact request binding and each member mismatch; correspondence input permutations; missing/duplicate/ambiguous/foreign/stale/invalid/reserved/over-limit entries; invariant/pre/post anchors and pre/current/post reads; Boolean and bounded reject-on-overflow integer operators; ConfigVersion 0/1000/-1/1001; Sequence empty/one/duplicates/max/over and size/includes/count/forAll/exists; unsupported option/invalid/rational/divide/remainder/saturating/index/collection/graph/temporal/protocol/clause cases; ParentPrecedes complete/missing correspondence; source pending/incomplete/refused; exact/just-over/overflow work; deterministic package and ambient/observer independence; no foreign runtime or target readback authority |
