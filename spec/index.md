@@ -88,8 +88,9 @@ provenance are implemented by Contract IR PRs #88 through #92 and the
 integrated codegen corpus at `73c82ad`. That implementation applies only to its
 exact selected finite profile and does not qualify unbounded source semantics
 or another Kani/options selection. FR-031-AC-3, the native replay of an
-evaluated witness, is planned; issue #137 records why the present TC-042 case
-cannot establish it.
+evaluated witness, is planned as TC-221; issue #137 records why the present
+case cannot establish it, and the replay executor is pending AD-016 (issue
+#140).
 FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific
