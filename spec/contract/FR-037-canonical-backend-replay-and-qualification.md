@@ -1,6 +1,6 @@
 ---
 id: FR-037
-title: "Replay backend counterexamples through the native runtime"
+title: "Replay backend counterexamples through the complete-V1 executor"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-003
@@ -11,21 +11,23 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-336
     type: references
+  - target: ix://agent-ix/quire-specification/AD-016
+    type: references
 ---
-# FR-037: Replay backend counterexamples through the native runtime
+# FR-037: Replay backend counterexamples through the complete-V1 executor
 
 ## Description
 
 When a backend reports a counterexample, the Contract IR replay boundary shall
 canonicalize the typed input and execution identity, validate it against the
-original domain, and replay it through native `runtime::execute` without a
-backend shortcut.
+original domain, and replay it through the QSL complete-V1 executor entry
+`value::expression::CheckedPackage::call` without a backend shortcut.
 
 ## Inputs
 
 Backend counterexample, immutable backend-result digest, package and claim
 digests, provider run identity, typed values, pre-state, selected transition or
-trace occurrences, reported backend verdict, model domain, and native runtime
+trace occurrences, reported backend verdict, model domain, and executor
 selection.
 
 ## Outputs
@@ -55,7 +57,7 @@ When decode, domain, or verdicts differ, the replay boundary shall return a type
 | --- | --- | --- |
 | FR-037-AC-1 | Every backend-supported typed counterexample round-trips canonically without loss of identity, type, bound, or source correspondence. | Test (TC-046) |
 | FR-037-AC-2 | A bounded Kani counterexample replays through the same native package and domain with the same verdict. | Test (TC-046) |
-| FR-037-AC-3 | Decode, domain, runtime-availability, or verdict disagreement remains an explicit non-success outcome. | Test (TC-046) |
+| FR-037-AC-3 | Decode, domain, executor-availability, or verdict disagreement remains an explicit non-success outcome. | Test (TC-046) |
 | FR-037-AC-4 | Minimization creates linked revisions and retains only valid candidates with preserved backend and native failure. | Test (TC-046) |
 | FR-037-AC-5 | Mutation or substitution of any received counterexample value, state, occurrence, verdict, or identity member fails immutable backend-result verification before replay. | Test (TC-046) |
 
