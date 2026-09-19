@@ -44,8 +44,20 @@ FR-029 selects module and artifact ABI versions. FR-030 defines validated inputs
 
 ## Status
 
-Implemented through Contract IR PRs #88 through #92, with native replay at
-`29c1432`, and qualified against the cycle-free integrated codegen corpus from
-codegen PR #47 at `73c82ad`. The evidence binds its exact Kani executable,
-options, finite inputs and modules; it is not a general proof-engine or release
-claim.
+AC-1 and AC-2 are implemented through Contract IR PRs #88 through #92 and
+qualified against the cycle-free integrated codegen corpus from codegen PR #47
+at `73c82ad`. The dispatch index routes the three families through distinct
+modules, and every generated lowering, oracle, strategy, harness, proof and
+result binds its exact Kani executable, options, finite inputs and modules. That
+evidence is not a general proof-engine or release claim.
+
+AC-3 is planned; see issue #137. The `evaluated witness` this requirement names
+is not produced. `src/kani/replay.rs` carries it as a string checked only for
+emptiness, its codegen producer sets it to the artifact's own content digest
+before Kani runs, and the TC-042 case at `tests/kani_replay.rs:239` passes
+`reconstruct` as `|_|`, discarding the packet and returning a constant input
+whose truth the test asserts two lines earlier. Native `runtime::execute` is
+therefore reached with an input no counterexample determined. Lowering,
+emission, compilation, `cargo kani` execution and transcript classification are
+built and gated; witness extraction, reconstruction and native agreement are
+not.
