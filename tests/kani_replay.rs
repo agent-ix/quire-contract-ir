@@ -205,7 +205,7 @@ fn packet() -> CounterexamplePacket {
         },
     }
 }
-#[trace("TC-042", "FR-031-AC-3")]
+#[trace("TC-042")]
 #[test]
 fn tc_042_counterexample_replay_agrees_or_is_non_success() {
     let agreement = replay_counterexample(packet(), |_| {
@@ -230,7 +230,7 @@ fn tc_042_counterexample_replay_agrees_or_is_non_success() {
     assert_eq!(invalid.kind, KaniOutcomeKind::InvalidInput);
 }
 
-#[trace("TC-042", "FR-031-AC-3")]
+#[trace("TC-042")]
 #[test]
 fn tc_042_counterexample_replays_through_native_runtime_execute() {
     let models = vec![native_model()];
