@@ -6,7 +6,7 @@ use quire_spec_language::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{FiniteInput, KaniOutcome, KaniOutcomeKind};
+use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessCheck};
 
 /// Retained concrete counterexample, never a proof or generic non-success result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -15,8 +15,11 @@ pub struct CounterexamplePacket {
     pub profile_revision: String,
     /// Exact finite ABI input that produced the witness.
     pub input: FiniteInput,
-    /// Concrete witness identity or value selected by the harness.
-    pub witness: String,
+    /// The evaluated Kani concrete-playback witness that backs this
+    /// counterexample, when a Kani backend produced one. `None` is a real,
+    /// honestly modeled state: a corpus counterexample that never ran Kani
+    /// retains no backend transcript, and must not fabricate one.
+    pub witness: Option<Witness>,
 }
 
 /// Result of replaying an exact packet through an independently supplied native executor.
@@ -38,7 +41,6 @@ pub struct NativeReplayAgreement<'package, 'model> {
 
 fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
     if packet.profile_revision.trim().is_empty()
-        || packet.witness.trim().is_empty()
         || packet.profile_revision != packet.input.profile.revision
     {
         return Err(KaniOutcome::non_success(
@@ -47,6 +49,21 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
             packet.input.source_id.clone(),
             packet.profile_revision.clone(),
         ));
+    }
+    if let Some(witness) = &packet.witness {
+        let structurally_invalid = witness.check == WitnessCheck::Cover
+            || witness.harness_symbol.trim().is_empty()
+            || witness.check_text.trim().is_empty()
+            || witness.concrete_values.is_empty()
+            || witness.concrete_values.iter().any(Vec::is_empty);
+        if structurally_invalid {
+            return Err(KaniOutcome::non_success(
+                KaniOutcomeKind::InvalidInput,
+                "kani_replay_witness_invalid",
+                packet.input.source_id.clone(),
+                packet.profile_revision.clone(),
+            ));
+        }
     }
     packet.input.clone().validate().map(|_| ())
 }

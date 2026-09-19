@@ -2,7 +2,7 @@ use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket, FiniteInput,
     FiniteObject, KaniOutcome, KaniOutcomeKind, PopulationCompleteness, ProfileSelection,
-    ResourceBounds, PROFILE,
+    ResourceBounds, Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType, PROFILE,
 };
 use quire_contract_model_owner as ir;
 use quire_spec_language::checking::{check, CheckBindings, CheckLimits, ClauseBinding};
@@ -175,7 +175,10 @@ fn native_package<'a>(models: &'a [NativeModel]) -> NativePackage<'a> {
 fn packet() -> CounterexamplePacket {
     CounterexamplePacket {
         profile_revision: "kani-bounded/1.0.0".into(),
-        witness: "witness".into(),
+        // This synthetic packet never ran Kani, so it honestly retains no
+        // backend transcript; `Witness` parsing/decoding is covered
+        // separately below against a real captured playback block.
+        witness: None,
         input: FiniteInput {
             model_id: "model".into(),
             source_id: "clause".into(),
@@ -245,4 +248,156 @@ fn tc_042_counterexample_replays_through_native_runtime_execute() {
     )
     .expect("the independently executed false predicate agrees with the counterexample");
     assert_eq!(agreement.native.truth(), Some(false));
+}
+
+/// A real `kani::concrete_playback_run` block captured from a falsified
+/// two-argument `i64` contract check, copied verbatim.
+fn real_playback_block() -> &'static str {
+    include_str!("fixtures/kani-concrete-playback.txt")
+}
+
+/// A cover playback in the same shape Kani emits, copied down to a single
+/// binding: cover checks witness reachability, never falsity.
+fn cover_playback_block() -> &'static str {
+    "/// Test generated for harness `kob_..._module::kob_..._cover_proof`\n\
+     ///\n\
+     /// Check for `cover`: \"cover_marker\"\n\
+     \n\
+     #[test]\n\
+     fn kani_concrete_playback_kob_..._cover_proof_1() {\n\
+     let concrete_vals: Vec<Vec<u8>> = vec![\n\
+     // 1\n\
+     vec![1],\n\
+     ];\n\
+     kani::concrete_playback_run(concrete_vals, kob_..._cover_proof);\n\
+     }\n"
+}
+
+fn balance_schema() -> Vec<WitnessBinding> {
+    vec![
+        WitnessBinding {
+            identifier: "balance_pre".into(),
+            value_type: WitnessValueType::I64,
+        },
+        WitnessBinding {
+            identifier: "post_state".into(),
+            value_type: WitnessValueType::I64,
+        },
+    ]
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_parses_real_playback_block_with_multiline_check_text() {
+    let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+        .expect("a real falsified concrete-playback block parses");
+    assert_eq!(
+        witness.harness_symbol, "kob_..._module::kob_..._proof",
+        "harness symbol must come from the backtick-quoted `Test generated for harness` text"
+    );
+    assert_eq!(witness.check, WitnessCheck::Assertion);
+    assert_eq!(
+        witness.check_text,
+        "|post_state: &i64| (*post_state >= 0_i64 && *post_state <= 1000_i64) &&\n\
+         oracle_fr_200_1_balance_never_grows_id_6aad...(balance_pre,\n\
+         *post_state)",
+        "the `Check for` text spans multiple lines and must be captured whole"
+    );
+    assert!(
+        witness.check_text.contains('\n'),
+        "a line-based extractor that stopped at the first newline would fail this"
+    );
+    assert_eq!(
+        witness.concrete_values,
+        vec![vec![8, 0, 0, 0, 0, 0, 0, 0], vec![224, 3, 0, 0, 0, 0, 0, 0]],
+        "one untyped byte vector per kani::any() call, in declaration order"
+    );
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_cover_playback_is_refused() {
+    let refusal = Witness::parse("clause", "kani-bounded/1.0.0", cover_playback_block())
+        .expect_err("a cover playback witnesses reachability, not falsity");
+    assert_eq!(refusal.kind, KaniOutcomeKind::Refused);
+    assert_eq!(refusal.code, "kani_witness_cover_refused");
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_decode_round_trips_declared_schema() {
+    let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+        .expect("a real falsified concrete-playback block parses");
+    let decoded = witness
+        .decode(&balance_schema())
+        .expect("8 and 992 decode against a matching i64 schema");
+    assert_eq!(
+        decoded,
+        vec![
+            ("balance_pre".to_string(), WitnessValue::Integer(8)),
+            ("post_state".to_string(), WitnessValue::Integer(992)),
+        ]
+    );
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_decode_refuses_arity_mismatch() {
+    let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+        .expect("a real falsified concrete-playback block parses");
+    let schema = vec![balance_schema().remove(0)];
+    let refusal = witness
+        .decode(&schema)
+        .expect_err("two concrete values against a one-binding schema must refuse, not truncate");
+    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(refusal.code, "kani_witness_arity_mismatch");
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_decode_refuses_width_mismatch() {
+    let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+        .expect("a real falsified concrete-playback block parses");
+    let mut schema = balance_schema();
+    schema[0].value_type = WitnessValueType::Boolean;
+    let refusal = witness.decode(&schema).expect_err(
+        "an 8-byte concrete value against a 1-byte boolean binding must refuse, not truncate",
+    );
+    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(refusal.code, "kani_witness_width_mismatch");
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_witness_decode_refuses_comment_disagreement() {
+    let mut witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+        .expect("a real falsified concrete-playback block parses");
+    // The retained transcript still says `// 8`; disagree with it without
+    // touching the transcript, the way a corrupted or hand-edited packet
+    // would.
+    witness.concrete_values[0] = vec![9, 9, 9, 9, 9, 9, 9, 9];
+    let refusal = witness
+        .decode(&balance_schema())
+        .expect_err("a decoded value that disagrees with Kani's own comment must refuse");
+    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(refusal.code, "kani_witness_comment_mismatch");
+}
+
+#[trace("TC-042", "FR-031-AC-3")]
+#[test]
+fn tc_042_counterexample_packet_refuses_cover_witness() {
+    let mut with_cover = packet();
+    with_cover.witness = Some(Witness {
+        harness_symbol: "kob_..._module::kob_..._cover_proof".into(),
+        check: WitnessCheck::Cover,
+        check_text: "cover_marker".into(),
+        concrete_values: vec![vec![1]],
+        transcript: cover_playback_block().trim().into(),
+    });
+    let refusal = replay_counterexample(with_cover, |_| {
+        KaniOutcome::counterexample("clause", "native")
+    })
+    .expect_err("a cover witness never backs a counterexample packet");
+    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(refusal.code, "kani_replay_witness_invalid");
 }
