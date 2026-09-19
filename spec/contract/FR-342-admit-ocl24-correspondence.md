@@ -1,22 +1,22 @@
 ---
-id: FR-036
+id: FR-342
 title: "Admit exact OCL 2.4 correspondence"
 type: FR
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-035
+  - target: ix://agent-ix/quire-contract-ir/FR-341
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-122
     type: implements
   - target: ix://agent-ix/quire-specification/NFR-061
     type: constrained_by
 ---
-# FR-036: Admit exact OCL 2.4 correspondence
+# FR-342: Admit exact OCL 2.4 correspondence
 
 ## Description
 
 When constructing an OCL 2.4 mapper, the mapper shall admit only profile
 `quire.output.ocl24/v1` revision `1-draft.1` and a finite typed correspondence
-catalog bound to the exact [FR-035](FR-035-bind-output-mapper-to-request.md)
+catalog bound to the exact [FR-341](FR-341-bind-output-mapper-to-request.md)
 request context.
 
 ## Inputs
@@ -64,14 +64,14 @@ request context.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-036-AC-1 | Equal correspondence entries in any input order construct one equal mapper binding and produce byte-identical mapping candidates. | Test (TC-044) |
-| FR-036-AC-2 | Missing/extra obligation entries, duplicate, ambiguous, stale, foreign, cross-request, invalid-identifier, reserved-word, 10,001-entry/member, and 1,048,577-byte catalogs refuse construction without a usable mapper. | Test (TC-044) |
-| FR-036-AC-3 | Every represented context, anchor, value, field, operation, type, and semantic rule appears as an exact typed dependency in the resulting mapping record. | Test (TC-044) |
-| FR-036-AC-4 | Arbitrary target snippets and all ambient/foreign-runtime inputs are absent from the public construction and mapping interfaces. | Test (TC-044) |
+| FR-342-AC-1 | Equal correspondence entries in any input order construct one equal mapper binding and produce byte-identical mapping candidates. | Test (TC-220) |
+| FR-342-AC-2 | Missing/extra obligation entries, duplicate, ambiguous, stale, foreign, cross-request, invalid-identifier, reserved-word, 10,001-entry/member, and 1,048,577-byte catalogs refuse construction without a usable mapper. | Test (TC-220) |
+| FR-342-AC-3 | Every represented context, anchor, value, field, operation, type, and semantic rule appears as an exact typed dependency in the resulting mapping record. | Test (TC-220) |
+| FR-342-AC-4 | Arbitrary target snippets and all ambient/foreign-runtime inputs are absent from the public construction and mapping interfaces. | Test (TC-220) |
 
 ## Dependencies
 
-- [FR-035](FR-035-bind-output-mapper-to-request.md) binds catalog meaning to
+- [FR-341](FR-341-bind-output-mapper-to-request.md) binds catalog meaning to
   the exact admitted source/model/semantic selections.
 - `ix://agent-ix/quire-specification/FR-122` owns the selected bounded OCL
   correspondence; `NFR-061` prohibits a foreign-runtime semantic dependency.

@@ -6,9 +6,9 @@ status: in_progress
 track: O
 priority: P0
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-035
+  - target: ix://agent-ix/quire-contract-ir/FR-341
     type: references
-  - target: ix://agent-ix/quire-contract-ir/TC-044
+  - target: ix://agent-ix/quire-contract-ir/TC-220
     type: verifies
 ---
 # TASK-028: Bind mapper dispatch to the exact admitted request
@@ -30,7 +30,7 @@ mapper invocation or partial result.
 ## Deliverables
 
 - Cycle-free request identity and mapper-binding API
-- Focused FR-035/TC-044 tests, including compatibility updates to TC-043 mappers
+- Focused FR-341/TC-220 tests, including compatibility updates to TC-043 mappers
 
 ## Notes
 

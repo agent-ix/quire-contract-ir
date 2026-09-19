@@ -3,7 +3,7 @@ id: SR-548
 title: "Base review of the bounded OCL 2.4 output mapper"
 type: SpecReview
 analysis: base
-scope: "QCI #55; FR-035–FR-037; TC-044; TM-002 rows only"
+scope: "QCI #55; FR-341–FR-343; TC-220; TM-002 rows only"
 review_set: subset
 evaluated_revision: "9baab67 based on 5ea7730"
 review_date: "2026-09-15"
@@ -21,14 +21,14 @@ reopening shared loss, package identity, or source-authority architecture.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | No scoped blocking defect remains; TC-044 is intentionally unbacked while its matrix rows remain Planned, and the two pre-existing TestMatrix header failures remain owned by upstream `spec-artifacts-process#81` rather than an invalid local rename. | FR-035–FR-037; TC-044; TM-002; QSpec #55 |
+| FND-001 | low | No scoped blocking defect remains; TC-220 is intentionally unbacked while its matrix rows remain Planned, and the two pre-existing TestMatrix header failures remain owned by upstream `spec-artifacts-process#81` rather than an invalid local rename. | FR-341–FR-343; TC-220; TM-002; QSpec #55 |
 
 ## Checklist result
 
-- FR-035 through FR-037 are sequential, atomic, and independently testable:
+- FR-341 through FR-343 are sequential, atomic, and independently testable:
   exact request binding precedes typed OCL correspondence admission, which
   precedes deterministic expression mapping and loss classification.
-- All 14 acceptance criteria trace to TC-044. The coverage design enumerates
+- All 14 acceptance criteria trace to TC-220. The coverage design enumerates
   every binding member, exact/over resource boundaries, supported operator and
   collection permutations, ConfigVersion 0/1000/just-outside values, source
   states, unsupported families, identity mutations, and ambient/observer

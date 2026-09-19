@@ -4,11 +4,11 @@ title: "Implement the bounded OCL 2.4 output mapper"
 type: Plan
 status: active
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/FR-035
+  - target: ix://agent-ix/quire-contract-ir/FR-341
     type: references
-  - target: ix://agent-ix/quire-contract-ir/FR-036
+  - target: ix://agent-ix/quire-contract-ir/FR-342
     type: references
-  - target: ix://agent-ix/quire-contract-ir/FR-037
+  - target: ix://agent-ix/quire-contract-ir/FR-343
     type: references
   - target: ix://agent-ix/quire-contract-ir/issues/55
     type: references
@@ -19,9 +19,9 @@ relationships:
 
 ### Functional Requirements
 
-- [ ] **FR-035**: Bind every target mapper to the exact canonical admitted request.
-- [ ] **FR-036**: Admit one finite, typed, deterministic OCL correspondence catalog.
-- [ ] **FR-037**: Emit only the accepted bounded OCL fragment and classify every
+- [ ] **FR-341**: Bind every target mapper to the exact canonical admitted request.
+- [ ] **FR-342**: Admit one finite, typed, deterministic OCL correspondence catalog.
+- [ ] **FR-343**: Emit only the accepted bounded OCL fragment and classify every
   other obligation without approximation.
 
 ### Accepted upstream authority
@@ -35,16 +35,16 @@ relationships:
 
 ## Dependency Graph
 
-- `FR-032 + FR-033 -> TASK-028 / FR-035`
+- `FR-032 + FR-033 -> TASK-028 / FR-341`
   Reason: an exact request identity must be retained and compared by the common
   coordinator before a target mapper can safely use request-scoped correspondence.
-- `TASK-028 / FR-035 -> TASK-029 / FR-036`
+- `TASK-028 / FR-341 -> TASK-029 / FR-342`
   Reason: catalog completeness, source membership and model/profile identity are
   meaningful only after one immutable request context is fixed.
-- `TASK-029 / FR-036 -> TASK-030 / FR-037`
+- `TASK-029 / FR-342 -> TASK-030 / FR-343`
   Reason: the renderer may emit a target name or preservation condition only
   after its typed correspondence and dependency record are admitted.
-- `TASK-030 -> TASK-031 / TC-044 -> qcir #58`
+- `TASK-030 -> TASK-031 / TC-220 -> qcir #58`
   Reason: integrated record/package evidence and matrix promotion require the
   real mapper's supported and non-preserved outcomes; #58 consumes that producer.
 
@@ -108,9 +108,9 @@ common coordinator and atomic package assembler in `tests/ocl24_output_mapping.r
 
 ### Verification
 
-- [ ] TC-044 backs all 14 FR-035–FR-037 acceptance criteria with real Rust test tags.
+- [ ] TC-220 backs all 14 FR-341–FR-343 acceptance criteria with real Rust test tags.
 - [ ] The scoped Quire coverage census reports no unbacked row or status lie for
-  FR-035–FR-037/TC-044 before matrix promotion.
+  FR-341–FR-343/TC-220 before matrix promotion.
 - [ ] Locked workspace/all-target tests, all-feature warning-denied Clippy,
   rustfmt, cargo-deny and unsafe audit pass with literal
   `--target-dir target-codex-backends` where applicable.
@@ -126,7 +126,7 @@ common coordinator and atomic package assembler in `tests/ocl24_output_mapping.r
   bounded, canonical, request-complete set of target names/dependencies is usable.
 - **O3 = TASK-030** OCL renderer and loss classifier — Hard; exit: the admitted
   fragment emits deterministically and every other case is explicitly non-preserved.
-- **Gate = TASK-031** Integrated TC-044 closure — Hard; measures end-to-end
+- **Gate = TASK-031** Integrated TC-220 closure — Hard; measures end-to-end
   record/package agreement and traceability; pass: 14/14 criteria backed, all
   local gates green, no approximation or foreign-runtime dependency.
 
@@ -145,14 +145,14 @@ parallelism continues in the independently owned Protocol and TL tracks.
 
 | Task | Track | Owns (references) | Verified by (verifies) | Status |
 | --- | --- | --- | --- | --- |
-| TASK-028 | O | FR-035 | TC-044 | in_progress |
-| TASK-029 | O | FR-036 | TC-044 | not_started |
-| TASK-030 | O | FR-037 | TC-044 | not_started |
-| TASK-031 | O | FR-035–FR-037, issue #55 | TC-044 | not_started |
+| TASK-028 | O | FR-341 | TC-220 | in_progress |
+| TASK-029 | O | FR-342 | TC-220 | not_started |
+| TASK-030 | O | FR-343 | TC-220 | not_started |
+| TASK-031 | O | FR-341–FR-343, issue #55 | TC-220 | not_started |
 
 ## Coordination Rules
 
-One owner edits the common mapper seam, OCL module, TC-044, TM-002 and PLAN-009
+One owner edits the common mapper seam, OCL module, TC-220, TM-002 and PLAN-009
 through the single #55 PR. Do not modify QSpec's accepted FS06 architecture or
 another target mapper. Do not edit `resources/native-v1/`, dispatch hosted CI,
 or consume unmerged strategy work. Run focused tests while developing and the

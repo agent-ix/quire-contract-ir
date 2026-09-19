@@ -1,11 +1,11 @@
 ---
-id: FR-037
+id: FR-343
 title: "Map bounded OCL 2.4 output without approximation"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-033
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/FR-036
+  - target: ix://agent-ix/quire-contract-ir/FR-342
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-121
     type: implements
@@ -16,7 +16,7 @@ relationships:
   - target: ix://agent-ix/quire-specification/NFR-060
     type: constrained_by
 ---
-# FR-037: Map bounded OCL 2.4 output without approximation
+# FR-343: Map bounded OCL 2.4 output without approximation
 
 ## Description
 
@@ -54,7 +54,7 @@ for the whole obligation without substitute text.
 - The renderer shall use `Sequence{...}` and OCL arrow operations for collection
   expressions.
 - The renderer shall use only the closed target names admitted by
-  [FR-036](FR-036-admit-ocl24-correspondence.md).
+  [FR-342](FR-342-admit-ocl24-correspondence.md).
 - The renderer shall use explicit parentheses and canonical whitespace, names,
   line endings, expression order, and local order without consulting path,
   time, locale, observer, parser, tool, or prior output.
@@ -99,18 +99,18 @@ for the whole obligation without substitute text.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-037-AC-1 | Total Boolean/scalar invariants and exact pre/post field comparisons emit canonical OCL with complete source, model, anchor, and profile dependencies. | Test (TC-044) |
-| FR-037-AC-2 | Every admitted bounded integer case agrees over its exact native domain and retains the domain condition; zero, 1000, and just-outside ConfigVersion cases cannot enlarge the native claim. | Test (TC-044) |
-| FR-037-AC-3 | Ordered duplicate-preserving Sequence size/includes/count/forAll/exists cases preserve order, multiplicity, local scope, and bounded work exactly. | Test (TC-044) |
-| FR-037-AC-4 | Optional/invalid/rational/index/unsupported collection/graph/temporal/protocol, saturating/overflow, unresolved-anchor, non-ready, and resource cases return the specified typed non-success with no approximate fragment. | Test (TC-044) |
-| FR-037-AC-5 | The bounded ConfigVersion invariant and exact operation pre/post example retain bounds and anchors; ParentPrecedes is wholly unrepresented or refused unless its complete relationship/endpoint mapping is selected. | Test (TC-044) |
-| FR-037-AC-6 | Equal admitted inputs produce byte-identical fragments, records, and packages, while parser/tool/path/time/locale/observer variation cannot promote or mutate semantic mapping state. | Test (TC-044) |
+| FR-343-AC-1 | Total Boolean/scalar invariants and exact pre/post field comparisons emit canonical OCL with complete source, model, anchor, and profile dependencies. | Test (TC-220) |
+| FR-343-AC-2 | Every admitted bounded integer case agrees over its exact native domain and retains the domain condition; zero, 1000, and just-outside ConfigVersion cases cannot enlarge the native claim. | Test (TC-220) |
+| FR-343-AC-3 | Ordered duplicate-preserving Sequence size/includes/count/forAll/exists cases preserve order, multiplicity, local scope, and bounded work exactly. | Test (TC-220) |
+| FR-343-AC-4 | Optional/invalid/rational/index/unsupported collection/graph/temporal/protocol, saturating/overflow, unresolved-anchor, non-ready, and resource cases return the specified typed non-success with no approximate fragment. | Test (TC-220) |
+| FR-343-AC-5 | The bounded ConfigVersion invariant and exact operation pre/post example retain bounds and anchors; ParentPrecedes is wholly unrepresented or refused unless its complete relationship/endpoint mapping is selected. | Test (TC-220) |
+| FR-343-AC-6 | Equal admitted inputs produce byte-identical fragments, records, and packages, while parser/tool/path/time/locale/observer variation cannot promote or mutate semantic mapping state. | Test (TC-220) |
 
 ## Dependencies
 
 - [FR-033](FR-033-account-for-output-obligations.md) validates the candidate and
   assembles its complete record without a preservation default.
-- [FR-036](FR-036-admit-ocl24-correspondence.md) supplies exact OCL names and
+- [FR-342](FR-342-admit-ocl24-correspondence.md) supplies exact OCL names and
   owner-qualified correspondence dependencies.
 - `ix://agent-ix/quire-specification/FR-121`, `FR-122`, `FR-269`, and `NFR-060`
   own the portable loss vocabulary, bounded OCL profile, and resource behavior.
