@@ -31,5 +31,4 @@ Every supported artifact has exact independently traceable domains and pins.
 Every missing or unsupported item has a separate `requires_bound`,
 `unsupported`, or `invalid_request` record and no generated artifact. The
 claim with no advertised capability settles `unsupported` and its record
-carries a warning naming the required FR-290 capability, never a hold or
-refusal error.
+carries a warning naming the required FR-290 capability.
