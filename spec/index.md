@@ -90,8 +90,9 @@ exact selected finite profile and does not qualify unbounded source semantics
 or another Kani/options selection. FR-031-AC-3, replay of an evaluated witness
 through the QSL complete-V1 executor entry
 `value::expression::CheckedPackage::call`, is planned as TC-054, discharged by
-the QSL crossing test at `agent-ix/quire-spec-language#243`. Per AD-016, the
-executor call lives in the codegen replay adapter, pending WP9 (issue #140).
+the QSL crossing test at `agent-ix/quire-spec-language#243`; issue #137
+records why the present case cannot establish it. Per AD-016, the executor
+call lives in the codegen replay adapter, pending WP9 (issue #140).
 FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific

@@ -7,6 +7,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
+  - target: ix://agent-ix/quire-spec-language/issues/243
+    type: references
 ---
 # TC-054: Kani counterexample replay through the complete-V1 executor conforms
 
@@ -15,16 +17,22 @@ relationships:
 Verify FR-031-AC-3: every serialized Kani counterexample either reproduces
 through the QSL complete-V1 executor entry
 `value::expression::CheckedPackage::call` with the same outcome and witness,
-or returns a typed non-success disagreement. Per AD-016 (AD-016 arrows 6 and
-7), a criterion whose test lives in another repo gets its own row, discharged
-by the test that repo owns: this crossing behaviour's test is
+or returns a typed non-success disagreement. Per AD-016 (arrows 6 and 7), a
+criterion whose test lives in another repo gets its own row, discharged by
+the test that repo owns: this crossing behaviour's test is
 quire-spec-language's, not Contract IR's, and does not share a row with
 FR-031-AC-4 (witness vocabulary), which TC-221 keeps.
 
 ## Test Procedure
 
-Discharged by the QSL crossing test at `agent-ix/quire-spec-language#243`
-(the layer-6 `replay` facade), which has not started.
+Serialize a Contract IR counterexample packet carrying its concrete finite
+population/snapshots/invocation, selected bounds, strategy seed where used,
+evaluated witness, and provenance. Reconstruct the packet's input and invoke
+the QSL complete-V1 executor entry `value::expression::CheckedPackage::call`
+against it. Compare the executor's returned outcome and witness to the
+packet's recorded outcome and witness. Repeat with a packet whose witness or
+population was altered after serialization, with the executor runtime
+unavailable, and with a structurally malformed packet.
 
 ## Expected Results
 
