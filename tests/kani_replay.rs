@@ -294,7 +294,7 @@ fn balance_schema() -> Vec<WitnessBinding> {
     ]
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_parses_real_playback_block_with_multiline_check_text() {
     let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
@@ -335,7 +335,7 @@ fn tc_042_witness_parses_real_playback_block_with_multiline_check_text() {
     );
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_cover_playback_is_refused() {
     let refusal = Witness::parse("clause", "kani-bounded/1.0.0", cover_playback_block())
@@ -344,7 +344,7 @@ fn tc_042_witness_cover_playback_is_refused() {
     assert_eq!(refusal.code, "kani_witness_cover_refused");
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_round_trips_declared_schema() {
     let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
@@ -361,7 +361,7 @@ fn tc_042_witness_decode_round_trips_declared_schema() {
     );
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_refuses_arity_mismatch() {
     let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
@@ -374,7 +374,7 @@ fn tc_042_witness_decode_refuses_arity_mismatch() {
     assert_eq!(refusal.code, "kani_witness_arity_mismatch");
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_refuses_width_mismatch() {
     let witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
@@ -388,7 +388,7 @@ fn tc_042_witness_decode_refuses_width_mismatch() {
     assert_eq!(refusal.code, "kani_witness_width_mismatch");
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_refuses_comment_disagreement() {
     let mut witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
@@ -408,7 +408,7 @@ fn tc_042_witness_decode_refuses_comment_disagreement() {
     assert_eq!(refusal.code, "kani_witness_comment_mismatch");
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_counterexample_packet_refuses_cover_witness() {
     let mut with_cover = packet();
@@ -446,7 +446,7 @@ fn unwinding_assertion_playback_block() -> &'static str {
 }
 
 // F1: `WitnessCheck::Other` must not be accepted as a witness of falsity.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_refuses_unwinding_assertion_check_kind() {
     let refusal = Witness::parse(
@@ -474,7 +474,7 @@ fn tc_042_witness_refuses_unwinding_assertion_check_kind() {
 // F2: multi-block transcripts must be delimited and the assertion block
 // selected, rather than the first `Check for` / `let concrete_vals` in the
 // whole text.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_selects_assertion_block_when_cover_precedes_it() {
     let transcript = format!("{}\n{}", cover_playback_block(), real_playback_block());
@@ -502,7 +502,7 @@ fn tc_042_witness_selects_assertion_block_when_cover_precedes_it() {
 // still narrow to the real assertion block for every derived fact,
 // including `concrete_values` — not read concrete values out of whichever
 // block happens to appear first in the raw text.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_direct_construction_narrows_concrete_values_to_selected_block() {
     let multi_block_transcript = format!("{}\n{}", cover_playback_block(), real_playback_block());
@@ -524,7 +524,7 @@ fn tc_042_witness_direct_construction_narrows_concrete_values_to_selected_block(
     );
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_refuses_multiple_assertion_blocks() {
     let transcript = format!("{}\n{}", real_playback_block(), real_playback_block());
@@ -548,7 +548,7 @@ fn tc_042_witness_refuses_multiple_assertion_blocks() {
 // — every one of these cases is only reachable by constructing a `Witness`
 // directly from a `transcript` string, the same shape a `Deserialize`d
 // packet arrives in.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_replay_counterexample_refuses_witness_with_untrustworthy_transcript() {
     let cases: Vec<(&str, String)> = vec![
@@ -613,7 +613,7 @@ fn missing_first_comment_playback_block() -> &'static str {
      }\n"
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_refuses_concrete_value_with_no_comment() {
     let refusal = Witness::parse(
@@ -652,7 +652,7 @@ fn tricky_backtick_playback_block() -> &'static str {
      }\n"
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_tricky_backtick_anchors_to_the_real_check_line() {
     let witness = Witness::parse(
@@ -704,7 +704,7 @@ fn boolean_out_of_range_playback_block() -> &'static str {
      }\n"
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_refuses_out_of_range_boolean_byte() {
     let witness = Witness::parse(
@@ -738,7 +738,7 @@ fn zero_argument_playback_block() -> &'static str {
      }\n"
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_parses_zero_argument_harness() {
     let witness = Witness::parse(
@@ -758,7 +758,7 @@ fn tc_042_witness_parses_zero_argument_harness() {
 // `NativeReplayAgreement` must carry a field that distinguishes the two. The
 // only previously covered `Some` case was the cover refusal, leaving the
 // `Some(Assertion)` accept path untested.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_replay_counterexample_marks_agreement_witness_backed_for_assertion_witness() {
     let mut with_witness = packet();
@@ -776,7 +776,7 @@ fn tc_042_replay_counterexample_marks_agreement_witness_backed_for_assertion_wit
     );
 }
 
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_replay_counterexample_marks_agreement_not_witness_backed_for_none() {
     let agreement = replay_counterexample(packet(), |_| {
@@ -793,7 +793,7 @@ fn tc_042_replay_counterexample_marks_agreement_not_witness_backed_for_none() {
 // the repo's ~20 other `#[serde(deny_unknown_fields)]` sites, so a stray or
 // misspelled field in a hand-authored or corrupted packet is refused at
 // deserialization rather than silently ignored.
-#[trace("TC-042", "FR-031-AC-4")]
+#[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_wire_types_deny_unknown_fields() {
     fn assert_denies_unknown_field<T>(mut value: serde_json::Value, type_name: &str)
