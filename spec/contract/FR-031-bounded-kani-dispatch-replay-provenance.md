@@ -64,8 +64,8 @@ AC-3, the crossing behaviour, has its own row as TC-054, discharged by the QSL
 crossing test at `agent-ix/quire-spec-language#243` (the layer-6 `replay`
 facade, AD-016 arrows 6 and 7), which has not started; issue #137 records why
 the present case cannot establish it. The codegen producer
-still sets the packet's witness field to the artifact's own content digest
-before Kani runs, and the test
+still sets the packet's `source` field to `ReplaySource::Witness` carrying the
+artifact's own content digest before Kani runs, and the test
 `tc_042_counterexample_replays_through_native_runtime_execute` passes
 `reconstruct` as `|_|`, discarding the packet and returning a constant input
 whose truth the test asserts two lines earlier. Native `runtime::execute` is
