@@ -14,6 +14,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/AD-010
     type: references
+  - target: ix://agent-ix/quire-specification/AD-016
+    type: references
 ---
 # Complete V1 target-neutral IR and backend delivery architecture
 
@@ -31,7 +33,7 @@ the sole source and semantic authority.
 checked native package -> exact per-item lowering -> ContractPackage
 ContractPackage -> capability negotiation -> runtime oracle | codegen provider
 codegen provider -> bounded Kani/artifacts/results -> canonical replay envelope
-canonical replay envelope -> native runtime::execute -> parity or typed failure
+canonical replay envelope -> codegen replay adapter -> QSL complete-V1 executor -> parity or typed failure
 ContractPackage -> output mapping package -> OCL | SysML/KerML | FRETish outputs
 ```
 
@@ -49,7 +51,7 @@ items remain independently accounted for.
 | ContractPackage is core typed data | A test-only model or backend-local wire shapes | Runtime and providers share one cycle-free identity-bearing contract. |
 | Stable identities, not positions, bind nodes | Array index or source-spelling joins | Reordering cannot alter semantic reference resolution. |
 | Exact negotiation before emission | Best-effort generation | Unbounded or unsupported meaning produces no approximating artifact. |
-| Canonical replay through native runtime | Opaque backend diagnostics | Refutation evidence is independently checkable against the same package and domain. |
+| Canonical replay through the QSL complete-V1 executor | Opaque backend diagnostics | Refutation evidence is independently checkable against the same package and domain. |
 | Target mappers consume the shared IR seam | Separate target source authorities | OCL, SysML/KerML, and FRETish stay derived outputs with explicit loss records. |
 
 ## Risks

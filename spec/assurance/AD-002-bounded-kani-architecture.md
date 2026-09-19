@@ -14,12 +14,14 @@ relationships:
     type: realizes
   - target: ix://agent-ix/quire-contract-ir/FR-031
     type: realizes
+  - target: ix://agent-ix/quire-specification/AD-016
+    type: references
 ---
 # Bounded Kani backend architecture
 
 ## System Boundary
 
-This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and replays concrete counterexamples through native `runtime::execute`. It does not parse source, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
+This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and produces the counterexample packet that the codegen replay adapter reconstructs and replays through the QSL complete-V1 executor entry `value::expression::CheckedPackage::call` (AD-016). It does not parse source, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
 
 ## Views
 
@@ -28,7 +30,7 @@ checked clause + exact profile + finite ABI input
   -> profile/matrix selection -> input validation -> dispatch index
   -> family module -> oracle/strategy/harness artifacts -> Kani
   -> typed outcome + provenance
-counterexample only -> replay packet -> native runtime::execute -> agreement or typed non-success
+counterexample only -> replay packet -> codegen replay adapter -> QSL complete-V1 executor -> agreement or typed non-success
 ```
 
 The dispatch index is shared; family modules are separate for checked arithmetic/definedness, objects/references/graphs, and collections/queries. Validation runs before any Kani `assume`; assumptions restrict only a previously validated finite model. The output envelope is shared and no non-success kind has a Boolean value.
