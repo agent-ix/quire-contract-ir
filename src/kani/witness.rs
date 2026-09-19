@@ -6,6 +6,17 @@
 //! into a typed [`Witness`] and joins its untyped bytes with the schema a
 //! generator declared, refusing rather than guessing whenever the two
 //! disagree.
+//!
+//! A transcript may retain more than one playback block (a reached cover
+//! statement alongside a falsified contract is an ordinary run): [`Witness::parse`]
+//! delimits the blocks and selects the single assertion block among them,
+//! rather than scanning the whole text for the first `Check for` / `let
+//! concrete_vals` occurrence.
+//!
+//! `transcript` is the single source of truth for the concrete bytes:
+//! [`Witness::concrete_values`] and [`Witness::decode`] both parse them from
+//! it on demand rather than from a separately retained copy, so they cannot
+//! drift from what Kani actually emitted.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,11 +30,12 @@ pub enum WitnessCheck {
     /// that witnesses falsity.
     Assertion,
     /// `Check for \`cover\`` — a reached cover statement. Witnesses
-    /// reachability, never falsity.
+    /// reachability, never falsity. [`Witness::parse`] never returns this as
+    /// the check of a parsed witness: a cover-only block is refused outright.
+    /// The variant exists so callers that construct a `Witness` directly
+    /// (tests exercising [`super::replay`]'s structural validation) can name
+    /// the case they are refusing.
     Cover,
-    /// Any other declared check kind Kani may emit; parsed but not further
-    /// classified.
-    Other,
 }
 
 /// The declared primitive type of one nondeterministic `kani::any()` binding.
@@ -65,11 +77,6 @@ pub enum WitnessValue {
 }
 
 /// The evaluated witness Kani retained for one falsified check.
-///
-/// `concrete_values` is deliberately untyped: Kani's playback block carries
-/// raw bytes with no schema of its own. [`Witness::decode`] is the only place
-/// that assigns them meaning, and it does so against a schema the generator
-/// supplies rather than by inference.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Witness {
     /// The harness symbol the playback block names.
@@ -78,37 +85,108 @@ pub struct Witness {
     pub check: WitnessCheck,
     /// The exact, possibly multi-line, text of the `Check for` clause.
     pub check_text: String,
-    /// Untyped concrete bytes, one entry per `kani::any()` call, in
-    /// declaration order.
-    pub concrete_values: Vec<Vec<u8>>,
-    /// The exact retained playback block text, kept as the single source of
-    /// truth for [`Witness::decode`]'s cross-check against Kani's own
-    /// decoded-value comments.
+    /// The exact retained text of the selected assertion playback block: the
+    /// single source of truth for [`Witness::concrete_values`] and
+    /// [`Witness::decode`]. There is no separately stored copy of the
+    /// concrete bytes, so they cannot disagree with what this text says.
     pub transcript: String,
 }
 
 impl Witness {
-    /// Parses the fenced playback block Kani emits in a `counterexample`
-    /// string. A cover playback is refused: it witnesses reachability, not
-    /// falsity.
+    /// Parses the fenced playback block(s) Kani emits in a `counterexample`
+    /// string.
+    ///
+    /// A transcript may contain more than one `Test generated for harness`
+    /// block (for example a reached cover statement alongside a falsified
+    /// contract, both ordinary parts of the same run). Blocks are delimited
+    /// on that marker and classified by check kind:
+    /// - exactly one `assertion` block is required to succeed: it is parsed
+    ///   and returned;
+    /// - zero `assertion` blocks refuses — as a cover refusal if any block
+    ///   was a reached cover statement, otherwise naming the other check kind
+    ///   Kani reported (`kani_witness_check_kind_refused`), since only an
+    ///   assertion witnesses falsity;
+    /// - more than one `assertion` block refuses rather than silently
+    ///   selecting the first, since guessing which falsification is the
+    ///   relevant one is not this module's call to make.
     pub fn parse(source_id: &str, context: &str, block: &str) -> Result<Self, KaniOutcome> {
         let refuse = |code: &'static str| {
             KaniOutcome::non_success(KaniOutcomeKind::InvalidInput, code, source_id, context)
         };
 
-        let harness_symbol = extract_delimited(block, "Test generated for harness `", '`')
+        let harness_marker = "/// Test generated for harness `";
+        let starts = find_all(block, harness_marker);
+        if starts.is_empty() {
+            return Err(refuse("kani_witness_harness_missing"));
+        }
+        let sub_blocks: Vec<&str> = starts
+            .iter()
+            .enumerate()
+            .map(|(i, &start)| {
+                let end = starts.get(i + 1).copied().unwrap_or(block.len());
+                &block[start..end]
+            })
+            .collect();
+
+        let mut assertion_block: Option<&str> = None;
+        let mut saw_cover = false;
+        let mut other_kind: Option<&str> = None;
+        for sub in sub_blocks {
+            let (kind_text, _) = locate_check_kind(sub, source_id, context)?;
+            match kind_text {
+                "assertion" => {
+                    if assertion_block.is_some() {
+                        return Err(KaniOutcome::non_success(
+                            KaniOutcomeKind::Refused,
+                            "kani_witness_multiple_assertions_refused",
+                            source_id,
+                            context,
+                        ));
+                    }
+                    assertion_block = Some(sub);
+                }
+                "cover" => saw_cover = true,
+                other => {
+                    other_kind.get_or_insert(other);
+                }
+            }
+        }
+
+        let Some(sub_block) = assertion_block else {
+            if saw_cover {
+                return Err(KaniOutcome::non_success(
+                    KaniOutcomeKind::Refused,
+                    "kani_witness_cover_refused",
+                    source_id,
+                    context,
+                ));
+            }
+            if let Some(kind_text) = other_kind {
+                return Err(KaniOutcome::non_success(
+                    KaniOutcomeKind::Refused,
+                    "kani_witness_check_kind_refused",
+                    source_id,
+                    kind_text,
+                ));
+            }
+            return Err(refuse("kani_witness_check_missing"));
+        };
+
+        Self::parse_single(source_id, context, sub_block)
+    }
+
+    /// Parses exactly one already-delimited `Test generated for harness`
+    /// block, which must be the selected assertion block.
+    fn parse_single(source_id: &str, context: &str, sub_block: &str) -> Result<Self, KaniOutcome> {
+        let refuse = |code: &'static str| {
+            KaniOutcome::non_success(KaniOutcomeKind::InvalidInput, code, source_id, context)
+        };
+
+        let harness_symbol = extract_delimited(sub_block, "Test generated for harness `", '`')
             .ok_or_else(|| refuse("kani_witness_harness_missing"))?
             .to_owned();
 
-        let check_marker = "Check for `";
-        let check_start = block
-            .find(check_marker)
-            .ok_or_else(|| refuse("kani_witness_check_missing"))?;
-        let after_marker = &block[check_start + check_marker.len()..];
-        let kind_end = after_marker
-            .find('`')
-            .ok_or_else(|| refuse("kani_witness_check_missing"))?;
-        let kind_text = &after_marker[..kind_end];
+        let (kind_text, after_kind) = locate_check_kind(sub_block, source_id, context)?;
         let check = match kind_text {
             "assertion" => WitnessCheck::Assertion,
             "cover" => {
@@ -119,10 +197,16 @@ impl Witness {
                     context,
                 ));
             }
-            _ => WitnessCheck::Other,
+            _ => {
+                return Err(KaniOutcome::non_success(
+                    KaniOutcomeKind::Refused,
+                    "kani_witness_check_kind_refused",
+                    source_id,
+                    kind_text,
+                ));
+            }
         };
 
-        let after_kind = &after_marker[kind_end + 1..];
         let colon = after_kind
             .find(':')
             .ok_or_else(|| refuse("kani_witness_check_text_missing"))?;
@@ -135,19 +219,31 @@ impl Witness {
             .ok_or_else(|| refuse("kani_witness_check_text_missing"))?;
         let check_text = after_quote[..quote_end].to_owned();
 
-        let entries = extract_concrete_entries(block, source_id, context)?;
-        if entries.is_empty() {
-            return Err(refuse("kani_witness_concrete_vals_missing"));
-        }
-        let concrete_values = entries.into_iter().map(|(_, bytes)| bytes).collect();
+        // Validate the concrete-values section parses now, rather than
+        // deferring the failure to the first `concrete_values`/`decode`
+        // call. A zero-`kani::any()` harness legitimately has none (F9): an
+        // empty result is not itself a refusal.
+        extract_concrete_entries(sub_block, source_id, context)?;
 
         Ok(Self {
             harness_symbol,
             check,
             check_text,
-            concrete_values,
-            transcript: block.trim().to_owned(),
+            transcript: sub_block.trim().to_owned(),
         })
+    }
+
+    /// The untyped concrete bytes, one entry per `kani::any()` call, in
+    /// declaration order, parsed from `transcript` on demand.
+    pub fn concrete_values(&self) -> Result<Vec<Vec<u8>>, KaniOutcome> {
+        let source_id = self.harness_symbol.as_str();
+        let context = self.check_text.as_str();
+        Ok(
+            extract_concrete_entries(&self.transcript, source_id, context)?
+                .into_iter()
+                .map(|(_, bytes)| bytes)
+                .collect(),
+        )
     }
 
     /// Joins the untyped concrete bytes with the schema a generator declared
@@ -160,46 +256,33 @@ impl Witness {
     /// - `kani_witness_width_mismatch`: a byte vector's length does not match
     ///   the declared primitive's width.
     /// - `kani_witness_comment_mismatch`: a decoded value disagrees with
-    ///   Kani's own decoded-value comment, or that comment cannot be
-    ///   recovered from the retained transcript.
+    ///   Kani's own decoded-value comment.
     pub fn decode(
         &self,
         schema: &[WitnessBinding],
     ) -> Result<Vec<(String, WitnessValue)>, KaniOutcome> {
         let source_id = self.harness_symbol.as_str();
-        let context = self.check_text.as_str();
+        let entries =
+            extract_concrete_entries(&self.transcript, source_id, self.check_text.as_str())?;
 
-        if self.concrete_values.len() != schema.len() {
+        if entries.len() != schema.len() {
             return Err(KaniOutcome::non_success(
                 KaniOutcomeKind::InvalidInput,
                 "kani_witness_arity_mismatch",
                 source_id,
-                context,
-            ));
-        }
-
-        let comments = extract_concrete_entries(&self.transcript, source_id, context)?
-            .into_iter()
-            .map(|(comment, _)| comment)
-            .collect::<Vec<_>>();
-        if comments.len() != self.concrete_values.len() {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::InvalidInput,
-                "kani_witness_comment_mismatch",
-                source_id,
-                context,
+                self.check_text.as_str(),
             ));
         }
 
         let mut decoded = Vec::with_capacity(schema.len());
-        for ((binding, bytes), comment) in schema.iter().zip(&self.concrete_values).zip(&comments) {
+        for (binding, (comment, bytes)) in schema.iter().zip(&entries) {
             let width = binding.value_type.byte_width();
             if bytes.len() != width {
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::InvalidInput,
                     "kani_witness_width_mismatch",
-                    binding.identifier.as_str(),
                     source_id,
+                    binding.identifier.as_str(),
                 ));
             }
             let value = match binding.value_type {
@@ -214,8 +297,8 @@ impl Witness {
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::InvalidInput,
                     "kani_witness_comment_mismatch",
-                    binding.identifier.as_str(),
                     source_id,
+                    binding.identifier.as_str(),
                 ));
             }
             decoded.push((binding.identifier.clone(), value));
@@ -239,6 +322,67 @@ fn comment_agrees(value: &WitnessValue, comment: &str) -> bool {
             _ => false,
         },
     }
+}
+
+/// Returns the byte offset of every non-overlapping occurrence of `needle` in
+/// `haystack`, in order.
+fn find_all(haystack: &str, needle: &str) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(pos) = haystack[cursor..].find(needle) {
+        offsets.push(cursor + pos);
+        cursor += pos + needle.len();
+    }
+    offsets
+}
+
+/// Returns the byte offset, within `text`, of the start of the first line
+/// whose content — trimmed of leading whitespace — begins with `"/// Check
+/// for \`"`.
+///
+/// Anchoring to the doc-comment line that actually declares the check,
+/// rather than searching the whole block for that substring, refuses to be
+/// fooled by caller-controlled contract text earlier in the block (Kani
+/// appends it to the harness doc line) that happens to contain the same
+/// words.
+fn find_check_line(text: &str) -> Option<usize> {
+    let marker = "/// Check for `";
+    let mut offset = 0usize;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(marker) {
+            return Some(offset + (line.len() - trimmed.len()));
+        }
+        offset += line.len();
+    }
+    None
+}
+
+/// Locates the `Check for` clause's check-kind text within `sub_block` (a
+/// single, already-delimited `Test generated for harness` block), anchored
+/// to the doc-comment line that declares it (see [`find_check_line`]).
+///
+/// Returns `(kind_text, after_kind)`, where `after_kind` is the remainder of
+/// `sub_block` immediately following the kind's closing backtick — the
+/// `: "..."` clause a full parse still needs to extract.
+fn locate_check_kind<'a>(
+    sub_block: &'a str,
+    source_id: &str,
+    context: &str,
+) -> Result<(&'a str, &'a str), KaniOutcome> {
+    let refuse = || {
+        KaniOutcome::non_success(
+            KaniOutcomeKind::InvalidInput,
+            "kani_witness_check_missing",
+            source_id,
+            context,
+        )
+    };
+    let check_marker = "/// Check for `";
+    let check_start = find_check_line(sub_block).ok_or_else(refuse)?;
+    let after_marker = &sub_block[check_start + check_marker.len()..];
+    let kind_end = after_marker.find('`').ok_or_else(refuse)?;
+    Ok((&after_marker[..kind_end], &after_marker[kind_end + 1..]))
 }
 
 /// Returns the text between `start_marker` and the next `end` character.
@@ -297,10 +441,14 @@ fn bracket_body(text: &str, open_idx: usize) -> Option<(&str, usize)> {
 /// playback block into `(decoded-value comment, untyped bytes)` pairs, in
 /// declaration order.
 ///
-/// This is the single parser for that section: [`Witness::parse`] uses it to
-/// populate `concrete_values`, and [`Witness::decode`] uses it again, against
-/// the retained `transcript`, to recover Kani's own decoded-value comments
-/// for its cross-check — never trusting a cached copy of them.
+/// This is the single parser for that section: [`Witness::parse_single`],
+/// [`Witness::concrete_values`], and [`Witness::decode`] all call it against
+/// the retained `transcript` rather than any cached copy.
+///
+/// The loop is driven off each `vec![` entry occurrence, not off `//`
+/// comments: a value with no comment before it refuses
+/// (`kani_witness_comment_missing`) instead of being silently skipped by a
+/// scan that starts at the next comment it finds.
 fn extract_concrete_entries(
     text: &str,
     source_id: &str,
@@ -324,20 +472,19 @@ fn extract_concrete_entries(
         .ok_or_else(|| refuse("kani_witness_concrete_vals_malformed"))?;
 
     let mut entries = Vec::new();
-    let mut rest = body;
-    while let Some(comment_pos) = rest.find("//") {
-        let after_comment_marker = &rest[comment_pos + "//".len()..];
-        let line_end = after_comment_marker
-            .find('\n')
-            .unwrap_or(after_comment_marker.len());
-        let comment_text = after_comment_marker[..line_end].trim().to_owned();
-        let after_comment_line = &after_comment_marker[line_end..];
-
-        let inner_vec_pos = after_comment_line
-            .find(vec_marker)
+    let mut cursor = 0usize;
+    while let Some(rel_pos) = body[cursor..].find(vec_marker) {
+        let entry_pos = cursor + rel_pos;
+        let preceding = &body[cursor..entry_pos];
+        let comment_marker_pos = preceding
+            .rfind("//")
             .ok_or_else(|| refuse("kani_witness_comment_missing"))?;
-        let inner_open = inner_vec_pos + vec_marker.len() - 1;
-        let (inner_body, inner_end) = bracket_body(after_comment_line, inner_open)
+        let comment_scope = &preceding[comment_marker_pos + "//".len()..];
+        let comment_line_end = comment_scope.find('\n').unwrap_or(comment_scope.len());
+        let comment_text = comment_scope[..comment_line_end].trim().to_owned();
+
+        let inner_open = entry_pos + vec_marker.len() - 1;
+        let (inner_body, inner_end) = bracket_body(body, inner_open)
             .ok_or_else(|| refuse("kani_witness_concrete_vals_malformed"))?;
 
         let mut bytes = Vec::new();
@@ -352,7 +499,7 @@ fn extract_concrete_entries(
             bytes.push(byte);
         }
         entries.push((comment_text, bytes));
-        rest = &after_comment_line[inner_end..];
+        cursor = inner_end;
     }
     Ok(entries)
 }

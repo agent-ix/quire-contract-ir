@@ -27,6 +27,13 @@ pub struct CounterexamplePacket {
 pub struct ReplayAgreement {
     pub packet: CounterexamplePacket,
     pub native: KaniOutcome,
+    /// Whether this agreement was reproduced together with an evaluated
+    /// witness (`packet.witness` was `Some` and passed structural
+    /// validation, including re-parsing its `transcript`), as opposed to
+    /// reproduced with no witness at all. `ReplayAgreement`'s "same
+    /// outcome" is always established; this records which half of "same
+    /// outcome, same witness" was also established.
+    pub witness_backed: bool,
 }
 
 /// Agreement produced by replaying through QSL's independently implemented
@@ -37,6 +44,8 @@ pub struct NativeReplayAgreement<'package, 'model> {
     pub packet: CounterexamplePacket,
     /// The retained native execution report, including its original request.
     pub native: ExecutionReport<'package, 'model>,
+    /// See [`ReplayAgreement::witness_backed`].
+    pub witness_backed: bool,
 }
 
 fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
@@ -51,18 +60,28 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
         ));
     }
     if let Some(witness) = &packet.witness {
-        let structurally_invalid = witness.check == WitnessCheck::Cover
-            || witness.harness_symbol.trim().is_empty()
-            || witness.check_text.trim().is_empty()
-            || witness.concrete_values.is_empty()
-            || witness.concrete_values.iter().any(Vec::is_empty);
-        if structurally_invalid {
-            return Err(KaniOutcome::non_success(
+        let invalid = || {
+            KaniOutcome::non_success(
                 KaniOutcomeKind::InvalidInput,
                 "kani_replay_witness_invalid",
                 packet.input.source_id.clone(),
                 packet.profile_revision.clone(),
-            ));
+            )
+        };
+        if witness.check == WitnessCheck::Cover
+            || witness.harness_symbol.trim().is_empty()
+            || witness.check_text.trim().is_empty()
+        {
+            return Err(invalid());
+        }
+        // Re-parses `transcript` rather than trusting a separately retained
+        // copy of the concrete bytes: `transcript` is the single source of
+        // truth (see `witness.rs` module doc), and this is the only place
+        // the shipped replay path re-derives from it. A zero-binding
+        // witness (F9) legitimately parses to an empty, valid result.
+        let entries = witness.concrete_values().map_err(|_| invalid())?;
+        if entries.iter().any(Vec::is_empty) {
+            return Err(invalid());
         }
     }
     packet.input.clone().validate().map(|_| ())
@@ -74,6 +93,7 @@ pub fn replay_counterexample(
     execute_native: impl FnOnce(&FiniteInput) -> KaniOutcome,
 ) -> Result<ReplayAgreement, KaniOutcome> {
     validate_packet(&packet)?;
+    let witness_backed = packet.witness.is_some();
     let validated = packet.input.clone().validate()?;
     let native = execute_native(validated.input());
     if native.kind != KaniOutcomeKind::Counterexample {
@@ -84,7 +104,11 @@ pub fn replay_counterexample(
             packet.profile_revision,
         ));
     }
-    Ok(ReplayAgreement { packet, native })
+    Ok(ReplayAgreement {
+        packet,
+        native,
+        witness_backed,
+    })
 }
 
 /// Reconstructs and executes a counterexample with the native QSL runtime.
@@ -101,6 +125,7 @@ pub fn replay_with_native_runtime<'package, 'model>(
     limits: ExecutionLimits,
 ) -> Result<NativeReplayAgreement<'package, 'model>, KaniOutcome> {
     validate_packet(&packet)?;
+    let witness_backed = packet.witness.is_some();
     let (input, selection) = reconstruct(&packet);
     let native = runtime::execute(package, input, selection, limits, || false);
     if native.truth() != Some(false) {
@@ -111,5 +136,9 @@ pub fn replay_with_native_runtime<'package, 'model>(
             packet.profile_revision,
         ));
     }
-    Ok(NativeReplayAgreement { packet, native })
+    Ok(NativeReplayAgreement {
+        packet,
+        native,
+        witness_backed,
+    })
 }
