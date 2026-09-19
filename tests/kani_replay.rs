@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket, FiniteInput,
-    FiniteObject, KaniOutcome, KaniOutcomeKind, PopulationCompleteness, ProfileSelection,
-    ResourceBounds, Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType, PROFILE,
+    FiniteObject, InputReplayAgreement, KaniOutcome, KaniOutcomeKind, NativeReplayAgreement,
+    PopulationCompleteness, ProfileSelection, ReplayAgreement, ReplaySource, ResourceBounds,
+    Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType, PROFILE,
 };
 use quire_contract_model_owner as ir;
 use quire_spec_language::checking::{check, CheckBindings, CheckLimits, ClauseBinding};
@@ -176,9 +179,10 @@ fn packet() -> CounterexamplePacket {
     CounterexamplePacket {
         profile_revision: "kani-bounded/1.0.0".into(),
         // This synthetic packet never ran Kani, so it honestly retains no
-        // backend transcript; `Witness` parsing/decoding is covered
-        // separately below against a real captured playback block.
-        witness: None,
+        // backend transcript: the `Input` arm with no assignments. `Witness`
+        // parsing/decoding is covered separately below against a real
+        // captured playback block.
+        source: ReplaySource::Input(BTreeMap::new()),
         input: FiniteInput {
             model_id: "model".into(),
             source_id: "clause".into(),
@@ -212,11 +216,10 @@ fn tc_042_counterexample_replay_agrees_or_is_non_success() {
         KaniOutcome::counterexample("clause", "native")
     })
     .expect("same counterexample");
+    let ReplayAgreement::Input(agreement) = agreement else {
+        panic!("packet() carries source: ReplaySource::Input(..); the agreement must settle the Input arm, never the Witness arm");
+    };
     assert_eq!(agreement.native.kind, KaniOutcomeKind::Counterexample);
-    assert!(
-        !agreement.witness_backed,
-        "packet() carries witness: None; the agreement must record that"
-    );
     let disagreement = replay_counterexample(packet(), |_| KaniOutcome::proved("clause", "native"))
         .expect_err("proof is not replay agreement");
     assert_eq!(disagreement.kind, KaniOutcomeKind::Inconclusive);
@@ -251,11 +254,10 @@ fn tc_042_counterexample_replays_through_native_runtime_execute() {
         ExecutionLimits::default(),
     )
     .expect("the independently executed false predicate agrees with the counterexample");
+    let NativeReplayAgreement::Input(agreement) = agreement else {
+        panic!("packet() carries source: ReplaySource::Input(..); the agreement must settle the Input arm, never the Witness arm");
+    };
     assert_eq!(agreement.native.truth(), Some(false));
-    assert!(
-        !agreement.witness_backed,
-        "packet() carries witness: None; the agreement must record that"
-    );
 }
 
 /// A real `kani::concrete_playback_run` block captured from a falsified
@@ -391,16 +393,20 @@ fn tc_042_witness_decode_refuses_width_mismatch() {
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_witness_decode_refuses_comment_disagreement() {
-    let mut witness = Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
-        .expect("a real falsified concrete-playback block parses");
-    // `transcript` is the single source of truth for the concrete bytes
-    // (F3), so disagreement can only be introduced by editing it directly,
-    // the way a corrupted or hand-edited packet would: keep the `// 8`
-    // comment but change the bytes it names.
-    witness.transcript = witness.transcript.replace(
+    // `transcript` is private and `Witness::parse` (directly, or through
+    // `Deserialize`; see the module doc) is the only admission path, so
+    // disagreement can only be introduced in the transcript's own text
+    // before admission, the way a corrupted or hand-edited packet would:
+    // keep the `// 8` comment but change the bytes it names. Parsing does
+    // not itself cross-check a comment against its bytes (only `decode`
+    // does), so this is structurally well-formed and is admitted.
+    let corrupted_transcript = real_playback_block().replace(
         "vec![8, 0, 0, 0, 0, 0, 0, 0]",
         "vec![9, 0, 0, 0, 0, 0, 0, 0]",
     );
+    let witness: Witness =
+        serde_json::from_value(serde_json::json!({ "transcript": corrupted_transcript }))
+            .expect("a structurally well-formed transcript is admitted even though its own comment disagrees with its bytes");
     let refusal = witness
         .decode(&balance_schema())
         .expect_err("a decoded value that disagrees with Kani's own comment must refuse");
@@ -410,17 +416,18 @@ fn tc_042_witness_decode_refuses_comment_disagreement() {
 
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
-fn tc_042_counterexample_packet_refuses_cover_witness() {
-    let mut with_cover = packet();
-    with_cover.witness = Some(Witness {
-        transcript: cover_playback_block().trim().into(),
-    });
-    let refusal = replay_counterexample(with_cover, |_| {
-        KaniOutcome::counterexample("clause", "native")
-    })
-    .expect_err("a cover witness never backs a counterexample packet");
-    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
-    assert_eq!(refusal.code, "kani_replay_witness_invalid");
+fn tc_042_witness_deserializing_cover_playback_is_refused() {
+    // `Witness::parse` is the only admission path, including through
+    // `Deserialize` (see the module doc): a cover witness never backs a
+    // counterexample, so it is refused at admission — there is no longer a
+    // way to construct a `Witness` carrying a cover transcript at all, so
+    // `CounterexamplePacket` can no longer even be built with one.
+    let result: Result<Witness, _> = serde_json::from_value(serde_json::json!({
+        "transcript": cover_playback_block().trim(),
+    }));
+    result.expect_err(
+        "a cover playback witnesses reachability, not falsity, and must be refused at admission",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -496,19 +503,20 @@ fn tc_042_witness_selects_assertion_block_when_cover_precedes_it() {
     );
 }
 
-// F1: a `Witness` built directly from a raw, un-selected multi-block
-// transcript (the shape a `Deserialize`d packet arrives in, since
-// `Deserialize` bypasses `Witness::parse`'s block selection entirely) must
-// still narrow to the real assertion block for every derived fact,
-// including `concrete_values` — not read concrete values out of whichever
-// block happens to appear first in the raw text.
+// F1: a `Witness` deserialized from a raw, un-selected multi-block
+// transcript (the shape a wire packet arrives in) must still narrow to the
+// real assertion block for every derived fact, including `concrete_values`
+// — not read concrete values out of whichever block happens to appear first
+// in the raw text. `Deserialize` now routes through `Witness::parse` (see
+// the module doc), the same admission path direct construction used to
+// bypass; there is no longer any way to hold an un-narrowed transcript.
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
-fn tc_042_witness_direct_construction_narrows_concrete_values_to_selected_block() {
+fn tc_042_witness_deserialize_narrows_concrete_values_to_selected_block() {
     let multi_block_transcript = format!("{}\n{}", cover_playback_block(), real_playback_block());
-    let witness = Witness {
-        transcript: multi_block_transcript,
-    };
+    let witness: Witness =
+        serde_json::from_value(serde_json::json!({ "transcript": multi_block_transcript }))
+            .expect("a cover block followed by a falsified assertion block is an ordinary run");
     assert_eq!(
         witness
             .check()
@@ -543,15 +551,18 @@ fn tc_042_witness_refuses_multiple_assertion_blocks() {
 // calls from `replay_counterexample`.
 //
 // F5 (PR #139 review): a transcript can look well-formed and still be
-// wrong. `Witness` no longer has a `check`/`harness_symbol`/`check_text`
-// field a hand-written packet could set to disagree with `transcript` (F1)
-// — every one of these cases is only reachable by constructing a `Witness`
-// directly from a `transcript` string, the same shape a `Deserialize`d
-// packet arrives in.
+// wrong. `Witness::parse` is now the only admission path, including through
+// `Deserialize` (see the module doc), so a hand-written or corrupted packet
+// can no longer carry a `Witness` that disagrees with its own transcript at
+// all: three of the four cases below are refused at admission, before a
+// `CounterexamplePacket` can even be built. The fourth — bytes that
+// structurally parse but contradict their own `//` comment — is admitted
+// (parsing does not cross-check comments against bytes) and is caught only
+// once `replay_counterexample` validates the packet, exactly as before.
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
 fn tc_042_replay_counterexample_refuses_witness_with_untrustworthy_transcript() {
-    let cases: Vec<(&str, String)> = vec![
+    let refused_at_admission: Vec<(&str, String)> = vec![
         (
             "empty transcript: cannot possibly reproduce any concrete values",
             String::new(),
@@ -561,38 +572,31 @@ fn tc_042_replay_counterexample_refuses_witness_with_untrustworthy_transcript() 
             cover_playback_block().trim().to_owned(),
         ),
         (
-            "bytes contradict their own `//` decoded-value comment",
-            real_playback_block().replace(
-                "vec![8, 0, 0, 0, 0, 0, 0, 0]",
-                "vec![9, 0, 0, 0, 0, 0, 0, 0]",
-            ),
-        ),
-        (
             "not a playback block at all",
             "this is not a kani playback block".to_owned(),
         ),
     ];
-
-    for (description, transcript) in cases {
-        let mut with_untrustworthy_transcript = packet();
-        with_untrustworthy_transcript.witness = Some(Witness { transcript });
-        let result = replay_counterexample(with_untrustworthy_transcript, |_| {
-            KaniOutcome::counterexample("clause", "native")
-        });
-        let refusal = match result {
-            Err(refusal) => refusal,
-            Ok(_) => panic!("must refuse: {description}"),
-        };
-        assert_eq!(
-            refusal.kind,
-            KaniOutcomeKind::InvalidInput,
-            "case: {description}"
-        );
-        assert_eq!(
-            refusal.code, "kani_replay_witness_invalid",
-            "case: {description}"
-        );
+    for (description, transcript) in refused_at_admission {
+        let result: Result<Witness, _> =
+            serde_json::from_value(serde_json::json!({ "transcript": transcript }));
+        assert!(result.is_err(), "must refuse at admission: {description}");
     }
+
+    let comment_mismatch_transcript = real_playback_block().replace(
+        "vec![8, 0, 0, 0, 0, 0, 0, 0]",
+        "vec![9, 0, 0, 0, 0, 0, 0, 0]",
+    );
+    let witness: Witness =
+        serde_json::from_value(serde_json::json!({ "transcript": comment_mismatch_transcript }))
+            .expect("a structurally well-formed transcript is admitted even though its own comment disagrees with its bytes");
+    let mut with_untrustworthy_transcript = packet();
+    with_untrustworthy_transcript.source = ReplaySource::Witness(witness);
+    let refusal = replay_counterexample(with_untrustworthy_transcript, |_| {
+        KaniOutcome::counterexample("clause", "native")
+    })
+    .expect_err("bytes contradicting their own comment must refuse at replay");
+    assert_eq!(refusal.kind, KaniOutcomeKind::InvalidInput);
+    assert_eq!(refusal.code, "kani_replay_witness_invalid");
 }
 
 // F6: a concrete value with no `//` comment must be refused, not silently
@@ -753,40 +757,72 @@ fn tc_042_witness_parses_zero_argument_harness() {
     assert!(decoded.is_empty());
 }
 
-// F5: a `None` witness must not earn the same unqualified agreement as one
+// F5: an `Input`-arm packet must not settle the same agreement type as one
 // reproduced together with its evaluated witness; `ReplayAgreement` and
-// `NativeReplayAgreement` must carry a field that distinguishes the two. The
-// only previously covered `Some` case was the cover refusal, leaving the
-// `Some(Assertion)` accept path untested.
+// `NativeReplayAgreement` are sums of the two distinct arm result types
+// (AD-016 "Replay result"), so the two can never be confused — the arm
+// itself is the fact, not a separate field. The only previously covered
+// `Witness`-arm case was the cover refusal, leaving the accepted assertion
+// witness path untested.
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
-fn tc_042_replay_counterexample_marks_agreement_witness_backed_for_assertion_witness() {
+fn tc_042_replay_counterexample_settles_witness_arm_for_assertion_witness() {
     let mut with_witness = packet();
-    with_witness.witness = Some(
+    with_witness.source = ReplaySource::Witness(
         Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
             .expect("a real falsified concrete-playback block parses"),
     );
     let agreement = replay_counterexample(with_witness, |_| {
         KaniOutcome::counterexample("clause", "native")
     })
-    .expect("a Some(Assertion) witness must reproduce alongside its native agreement");
+    .expect("a Witness-arm packet must reproduce alongside its native agreement");
     assert!(
-        agreement.witness_backed,
-        "the agreement must record that it was reproduced together with its evaluated witness"
+        matches!(agreement, ReplayAgreement::Witness(_)),
+        "an accepted assertion witness must settle the Witness arm (reproduced-with-evaluated-witness)"
     );
 }
 
 #[trace("TC-221", "FR-031-AC-4")]
 #[test]
-fn tc_042_replay_counterexample_marks_agreement_not_witness_backed_for_none() {
+fn tc_042_replay_counterexample_settles_input_arm_for_witness_free_packet() {
     let agreement = replay_counterexample(packet(), |_| {
         KaniOutcome::counterexample("clause", "native")
     })
-    .expect("a witness-free packet is a real, honestly modeled state");
+    .expect("an Input-arm packet is a real, honestly modeled corpus counterexample");
     assert!(
-        !agreement.witness_backed,
-        "a None witness must not earn the same unqualified agreement as an evaluated one"
+        matches!(agreement, ReplayAgreement::Input(_)),
+        "a witness-free packet must settle the Input arm (reproduced-without-witness), never the Witness arm"
     );
+}
+
+// Mutation charge: an `Input`-arm packet replayed against a stub executor
+// that agrees is structurally incapable of producing a `WitnessReplayAgreement`
+// — `InputReplayAgreement` carries no `Witness` field anywhere, so there is
+// no value it could ever hold that a backend-evidence verdict could be built
+// from (AD-016 "Replay ownership": "Its only construction path takes an
+// agreeing `Witness`-arm result").
+#[trace("TC-221", "FR-031-AC-4")]
+#[test]
+fn tc_042_input_arm_replay_cannot_settle_the_witness_arm() {
+    let mut corpus_counterexample = packet();
+    let mut assignments = BTreeMap::new();
+    assignments.insert("balance_pre".to_string(), WitnessValue::Integer(8));
+    assignments.insert("post_state".to_string(), WitnessValue::Integer(992));
+    corpus_counterexample.source = ReplaySource::Input(assignments);
+
+    // A stub executor that agrees unconditionally, for any input.
+    let agreement = replay_counterexample(corpus_counterexample, |_| {
+        KaniOutcome::counterexample("clause", "native")
+    })
+    .expect("an Input-arm packet with a stub executor that agrees must settle");
+    match agreement {
+        ReplayAgreement::Input(InputReplayAgreement { native, .. }) => {
+            assert_eq!(native.kind, KaniOutcomeKind::Counterexample);
+        }
+        ReplayAgreement::Witness(_) => {
+            panic!("an Input-arm packet must never settle the Witness arm")
+        }
+    }
 }
 
 // F4 (PR #139 review): the new wire types must deny unknown fields, matching

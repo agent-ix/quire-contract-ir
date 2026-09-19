@@ -96,15 +96,46 @@ pub enum WitnessValue {
 /// its structural validation entirely — with no independent `check` field to
 /// forge, a deserialized packet cannot claim `WitnessCheck::Assertion` while
 /// `transcript` is verbatim a cover (or absent, or malformed) playback block.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// `transcript` is private and `Witness` implements no public constructor
+/// other than [`Witness::parse`]: a struct literal outside this module fails
+/// to compile (there is no field to name), and [`Deserialize`] is
+/// hand-written below to route every wire value through `parse` as well. A
+/// transcript that is not a single selected Kani assertion playback block is
+/// therefore unrepresentable, not merely unparsed.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Witness {
     /// The exact retained text of the selected assertion playback block: the
     /// single source of truth for every fact this type exposes. There is no
     /// separately stored copy of the harness symbol, check kind, check text,
     /// or concrete bytes, so none of them can disagree with what this text
     /// says.
-    pub transcript: String,
+    transcript: String,
+}
+
+/// Routes every deserialized `Witness` through [`Witness::parse`], the same
+/// admission path a caller-constructed one goes through, so a wire value
+/// whose `transcript` is not a single selected Kani assertion playback block
+/// is refused at deserialization rather than accepted and only later found
+/// to be untrustworthy.
+impl<'de> Deserialize<'de> for Witness {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireWitness {
+            transcript: String,
+        }
+        let wire = WireWitness::deserialize(deserializer)?;
+        Witness::parse(WITNESS_SOURCE_ID, WITNESS_CONTEXT, &wire.transcript).map_err(|outcome| {
+            serde::de::Error::custom(format!(
+                "witness transcript refused ({}): {}",
+                outcome.code, outcome.context
+            ))
+        })
+    }
 }
 
 /// The harness symbol, check kind, and check text one playback block

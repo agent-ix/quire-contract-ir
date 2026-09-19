@@ -1,12 +1,36 @@
 //! Concrete counterexample serialization and strict native-replay agreement.
 
+use std::collections::BTreeMap;
+
 use quire_spec_language::{
     package::NativePackage,
     runtime::{self, ExecutionLimits, ExecutionReport, ExecutionSelection, RuntimeInput},
 };
 use serde::{Deserialize, Serialize};
 
-use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessCheck};
+use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessCheck, WitnessValue};
+
+/// Where a replayed counterexample's input comes from.
+///
+/// A packet holds exactly one arm, never both, and the arm is the fact: no
+/// packet or replay result stores a second field restating which arm it is
+/// (see the AD-016 "Replay source" section). `Witness` replay yields
+/// `reproduced-with-evaluated-witness` on agreement; `Input` replay yields
+/// `reproduced-without-witness`, and can never be evidence of a backend
+/// counterexample reproducing natively, because it reproduces an answer
+/// supplied with its own input.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplaySource {
+    /// The evaluated Kani concrete-playback witness that backs this
+    /// counterexample, admitted only through [`Witness::parse`].
+    Witness(Witness),
+    /// Canonical input assignments for a counterexample that did not come
+    /// from a backend transcript (a corpus counterexample): one concrete
+    /// value per declared parameter identifier, with no backend transcript
+    /// stored beside it.
+    Input(BTreeMap<String, WitnessValue>),
+}
 
 /// Retained concrete counterexample, never a proof or generic non-success result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -14,41 +38,85 @@ use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessCheck};
 pub struct CounterexamplePacket {
     /// Exact profile revision.
     pub profile_revision: String,
-    /// Exact finite ABI input that produced the witness.
+    /// Exact finite ABI input that produced the counterexample.
     pub input: FiniteInput,
-    /// The evaluated Kani concrete-playback witness that backs this
-    /// counterexample, when a Kani backend produced one. `None` is a real,
-    /// honestly modeled state: a corpus counterexample that never ran Kani
-    /// retains no backend transcript, and must not fabricate one.
-    pub witness: Option<Witness>,
+    /// Where this counterexample's input comes from: a backend witness, or
+    /// stored canonical assignments with no witness at all. Exactly one arm.
+    pub source: ReplaySource,
 }
 
-/// Result of replaying an exact packet through an independently supplied native executor.
+/// Settled by replaying a packet's `Witness` arm and agreeing with it:
+/// `reproduced-with-evaluated-witness`. This is the only arm from which a
+/// backend-evidence verdict can ever be built (AD-016 "Replay ownership").
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReplayAgreement {
+pub struct WitnessReplayAgreement {
+    /// The exact portable counterexample packet that was replayed; its
+    /// `source` is always [`ReplaySource::Witness`].
     pub packet: CounterexamplePacket,
+    /// The independently produced native result that agreed.
     pub native: KaniOutcome,
-    /// Whether this agreement was reproduced together with an evaluated
-    /// witness (`packet.witness` was `Some` and passed structural
-    /// validation — its harness symbol, check kind, check text, and concrete
-    /// values were all re-derived from `transcript` and found non-`Cover`,
-    /// non-empty, and self-consistent), as opposed to reproduced with no
-    /// witness at all. `ReplayAgreement`'s "same outcome" is always
-    /// established; this records which half of "same outcome, same
-    /// witness" was also established.
-    pub witness_backed: bool,
+}
+
+/// Settled by replaying a packet's `Input` arm and agreeing with it:
+/// `reproduced-without-witness`. An `Input` replay reproduces an answer
+/// supplied with its own input, so agreement here can never show that a
+/// backend counterexample reproduces natively: this type carries no
+/// [`Witness`] anywhere and cannot be turned into a backend-evidence
+/// verdict.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputReplayAgreement {
+    /// The exact portable counterexample packet that was replayed; its
+    /// `source` is always [`ReplaySource::Input`].
+    pub packet: CounterexamplePacket,
+    /// The independently produced native result that agreed.
+    pub native: KaniOutcome,
+}
+
+/// Result of replaying an exact packet through an independently supplied
+/// native executor: a sum of the two distinct arm result types (AD-016
+/// "Replay result"). The arm is the fact; neither variant carries a
+/// second, separately stored flag that restates it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReplayAgreement {
+    /// Reproduced together with an evaluated witness.
+    Witness(WitnessReplayAgreement),
+    /// Reproduced with no witness at all.
+    Input(InputReplayAgreement),
 }
 
 /// Agreement produced by replaying through QSL's independently implemented
-/// native reference runtime.
+/// native reference runtime, settled by a packet's `Witness` arm.
+/// See [`WitnessReplayAgreement`].
 #[derive(Debug)]
-pub struct NativeReplayAgreement<'package, 'model> {
-    /// The exact portable counterexample packet that was replayed.
+pub struct WitnessNativeReplayAgreement<'package, 'model> {
+    /// The exact portable counterexample packet that was replayed; its
+    /// `source` is always [`ReplaySource::Witness`].
     pub packet: CounterexamplePacket,
     /// The retained native execution report, including its original request.
     pub native: ExecutionReport<'package, 'model>,
-    /// See [`ReplayAgreement::witness_backed`].
-    pub witness_backed: bool,
+}
+
+/// Agreement produced by replaying through QSL's independently implemented
+/// native reference runtime, settled by a packet's `Input` arm.
+/// See [`InputReplayAgreement`].
+#[derive(Debug)]
+pub struct InputNativeReplayAgreement<'package, 'model> {
+    /// The exact portable counterexample packet that was replayed; its
+    /// `source` is always [`ReplaySource::Input`].
+    pub packet: CounterexamplePacket,
+    /// The retained native execution report, including its original request.
+    pub native: ExecutionReport<'package, 'model>,
+}
+
+/// Agreement produced by replaying through QSL's independently implemented
+/// native reference runtime: a sum of the two distinct arm result types,
+/// mirroring [`ReplayAgreement`].
+#[derive(Debug)]
+pub enum NativeReplayAgreement<'package, 'model> {
+    /// Reproduced together with an evaluated witness.
+    Witness(WitnessNativeReplayAgreement<'package, 'model>),
+    /// Reproduced with no witness at all.
+    Input(InputNativeReplayAgreement<'package, 'model>),
 }
 
 fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
@@ -62,7 +130,7 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
             packet.profile_revision.clone(),
         ));
     }
-    if let Some(witness) = &packet.witness {
+    if let ReplaySource::Witness(witness) = &packet.source {
         let invalid = || {
             KaniOutcome::non_success(
                 KaniOutcomeKind::InvalidInput,
@@ -74,7 +142,7 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
         // F1/F2: `harness_symbol`, `check`, and `check_text` are re-derived
         // from `witness.transcript` on every call (see the `witness.rs`
         // module doc) rather than trusted stored fields, so a `Witness`
-        // built directly by `Deserialize` — with a `transcript` that is a
+        // built directly by `Deserialize` — with a transcript that is a
         // verbatim cover playback block, or no playback block at all —
         // cannot disagree with its own transcript here. There is no `check`
         // field left to bypass this re-derivation with.
@@ -97,8 +165,8 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
         // decoded-value comment wherever its byte width unambiguously
         // implies a value kind, with no schema in hand — otherwise a
         // transcript whose bytes contradict their own comment would replay
-        // as `witness_backed = true` despite never having reproduced what
-        // Kani actually recorded.
+        // as agreement despite never having reproduced what Kani actually
+        // recorded.
         witness.validate_concrete_entries().map_err(|_| invalid())?;
     }
     packet.input.clone().validate().map(|_| ())
@@ -110,7 +178,6 @@ pub fn replay_counterexample(
     execute_native: impl FnOnce(&FiniteInput) -> KaniOutcome,
 ) -> Result<ReplayAgreement, KaniOutcome> {
     validate_packet(&packet)?;
-    let witness_backed = packet.witness.is_some();
     let validated = packet.input.clone().validate()?;
     let native = execute_native(validated.input());
     if native.kind != KaniOutcomeKind::Counterexample {
@@ -121,10 +188,14 @@ pub fn replay_counterexample(
             packet.profile_revision,
         ));
     }
-    Ok(ReplayAgreement {
-        packet,
-        native,
-        witness_backed,
+    // The arm is decided by matching `packet.source` (by reference, so
+    // `packet` itself stays intact to move whole into the settled arm
+    // result below); no separate flag records which arm was taken.
+    Ok(match packet.source {
+        ReplaySource::Witness(_) => {
+            ReplayAgreement::Witness(WitnessReplayAgreement { packet, native })
+        }
+        ReplaySource::Input(_) => ReplayAgreement::Input(InputReplayAgreement { packet, native }),
     })
 }
 
@@ -142,7 +213,6 @@ pub fn replay_with_native_runtime<'package, 'model>(
     limits: ExecutionLimits,
 ) -> Result<NativeReplayAgreement<'package, 'model>, KaniOutcome> {
     validate_packet(&packet)?;
-    let witness_backed = packet.witness.is_some();
     let (input, selection) = reconstruct(&packet);
     let native = runtime::execute(package, input, selection, limits, || false);
     if native.truth() != Some(false) {
@@ -153,9 +223,12 @@ pub fn replay_with_native_runtime<'package, 'model>(
             packet.profile_revision,
         ));
     }
-    Ok(NativeReplayAgreement {
-        packet,
-        native,
-        witness_backed,
+    Ok(match packet.source {
+        ReplaySource::Witness(_) => {
+            NativeReplayAgreement::Witness(WitnessNativeReplayAgreement { packet, native })
+        }
+        ReplaySource::Input(_) => {
+            NativeReplayAgreement::Input(InputNativeReplayAgreement { packet, native })
+        }
     })
 }
