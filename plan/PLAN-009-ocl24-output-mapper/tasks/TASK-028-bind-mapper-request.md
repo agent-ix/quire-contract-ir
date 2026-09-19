@@ -2,7 +2,7 @@
 id: TASK-028
 title: "Bind mapper dispatch to the exact admitted request"
 type: Task
-status: not_started
+status: in_progress
 track: O
 priority: P0
 relationships:

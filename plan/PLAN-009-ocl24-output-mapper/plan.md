@@ -145,7 +145,7 @@ parallelism continues in the independently owned Protocol and TL tracks.
 
 | Task | Track | Owns (references) | Verified by (verifies) | Status |
 | --- | --- | --- | --- | --- |
-| TASK-028 | O | FR-035 | TC-044 | not_started |
+| TASK-028 | O | FR-035 | TC-044 | in_progress |
 | TASK-029 | O | FR-036 | TC-044 | not_started |
 | TASK-030 | O | FR-037 | TC-044 | not_started |
 | TASK-031 | O | FR-035–FR-037, issue #55 | TC-044 | not_started |
