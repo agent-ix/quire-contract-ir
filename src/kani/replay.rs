@@ -10,6 +10,7 @@ use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessCheck};
 
 /// Retained concrete counterexample, never a proof or generic non-success result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CounterexamplePacket {
     /// Exact profile revision.
     pub profile_revision: String,
@@ -29,10 +30,12 @@ pub struct ReplayAgreement {
     pub native: KaniOutcome,
     /// Whether this agreement was reproduced together with an evaluated
     /// witness (`packet.witness` was `Some` and passed structural
-    /// validation, including re-parsing its `transcript`), as opposed to
-    /// reproduced with no witness at all. `ReplayAgreement`'s "same
-    /// outcome" is always established; this records which half of "same
-    /// outcome, same witness" was also established.
+    /// validation — its harness symbol, check kind, check text, and concrete
+    /// values were all re-derived from `transcript` and found non-`Cover`,
+    /// non-empty, and self-consistent), as opposed to reproduced with no
+    /// witness at all. `ReplayAgreement`'s "same outcome" is always
+    /// established; this records which half of "same outcome, same
+    /// witness" was also established.
     pub witness_backed: bool,
 }
 
@@ -68,9 +71,19 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
                 packet.profile_revision.clone(),
             )
         };
-        if witness.check == WitnessCheck::Cover
-            || witness.harness_symbol.trim().is_empty()
-            || witness.check_text.trim().is_empty()
+        // F1/F2: `harness_symbol`, `check`, and `check_text` are re-derived
+        // from `witness.transcript` on every call (see the `witness.rs`
+        // module doc) rather than trusted stored fields, so a `Witness`
+        // built directly by `Deserialize` — with a `transcript` that is a
+        // verbatim cover playback block, or no playback block at all —
+        // cannot disagree with its own transcript here. There is no `check`
+        // field left to bypass this re-derivation with.
+        let check = witness.check().map_err(|_| invalid())?;
+        let harness_symbol = witness.harness_symbol().map_err(|_| invalid())?;
+        let check_text = witness.check_text().map_err(|_| invalid())?;
+        if check == WitnessCheck::Cover
+            || harness_symbol.trim().is_empty()
+            || check_text.trim().is_empty()
         {
             return Err(invalid());
         }
@@ -79,10 +92,14 @@ fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
         // truth (see `witness.rs` module doc), and this is the only place
         // the shipped replay path re-derives from it. A zero-binding
         // witness (F9) legitimately parses to an empty, valid result.
-        let entries = witness.concrete_values().map_err(|_| invalid())?;
-        if entries.iter().any(Vec::is_empty) {
-            return Err(invalid());
-        }
+        //
+        // F5: also cross-checks each concrete value against its own `//`
+        // decoded-value comment wherever its byte width unambiguously
+        // implies a value kind, with no schema in hand — otherwise a
+        // transcript whose bytes contradict their own comment would replay
+        // as `witness_backed = true` despite never having reproduced what
+        // Kani actually recorded.
+        witness.validate_concrete_entries().map_err(|_| invalid())?;
     }
     packet.input.clone().validate().map(|_| ())
 }

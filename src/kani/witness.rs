@@ -13,10 +13,15 @@
 //! rather than scanning the whole text for the first `Check for` / `let
 //! concrete_vals` occurrence.
 //!
-//! `transcript` is the single source of truth for the concrete bytes:
-//! [`Witness::concrete_values`] and [`Witness::decode`] both parse them from
-//! it on demand rather than from a separately retained copy, so they cannot
-//! drift from what Kani actually emitted.
+//! `transcript` is the single source of truth for every fact a `Witness`
+//! exposes. [`Witness::harness_symbol`], [`Witness::check`],
+//! [`Witness::check_text`], [`Witness::concrete_values`], and
+//! [`Witness::decode`] all re-derive their answer from `transcript` on
+//! demand rather than from a separately retained field, so none of them can
+//! disagree with what `transcript` actually says — including for a `Witness`
+//! built directly by `Deserialize`, which bypasses [`Witness::parse`]
+//! entirely and could otherwise carry a stored field that lies about its own
+//! transcript.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,11 +35,14 @@ pub enum WitnessCheck {
     /// that witnesses falsity.
     Assertion,
     /// `Check for \`cover\`` — a reached cover statement. Witnesses
-    /// reachability, never falsity. [`Witness::parse`] never returns this as
-    /// the check of a parsed witness: a cover-only block is refused outright.
-    /// The variant exists so callers that construct a `Witness` directly
-    /// (tests exercising [`super::replay`]'s structural validation) can name
-    /// the case they are refusing.
+    /// reachability, never falsity. Neither [`Witness::parse`] nor
+    /// [`Witness::check`] ever return this variant as `Ok`: a transcript
+    /// whose only playback block is a cover check is refused outright
+    /// (`kani_witness_cover_refused`) by the same re-derivation both use, so
+    /// this variant can never appear as an accepted witness's check kind.
+    /// The variant exists so refusal diagnostics and tests exercising
+    /// [`super::replay`]'s structural validation can name the case being
+    /// refused.
     Cover,
 }
 
@@ -60,6 +68,7 @@ impl WitnessValueType {
 
 /// One declared `kani::any()` binding, in the harness's call order.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WitnessBinding {
     /// The generator's identifier for this binding.
     pub identifier: String,
@@ -69,6 +78,7 @@ pub struct WitnessBinding {
 
 /// One decoded concrete value, typed by the schema that named it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum WitnessValue {
     /// A decoded boolean.
     Boolean(bool),
@@ -77,22 +87,100 @@ pub enum WitnessValue {
 }
 
 /// The evaluated witness Kani retained for one falsified check.
+///
+/// `transcript` is the only stored field. `harness_symbol`, `check`, and
+/// `check_text` are methods, not fields: each re-derives its answer from
+/// `transcript` on every call, so a `Witness` cannot hold a field that
+/// disagrees with its own transcript. This matters most for a `Witness`
+/// built directly by `Deserialize`, which bypasses [`Witness::parse`] and
+/// its structural validation entirely — with no independent `check` field to
+/// forge, a deserialized packet cannot claim `WitnessCheck::Assertion` while
+/// `transcript` is verbatim a cover (or absent, or malformed) playback block.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Witness {
-    /// The harness symbol the playback block names.
-    pub harness_symbol: String,
-    /// The check kind the playback block was generated for.
-    pub check: WitnessCheck,
-    /// The exact, possibly multi-line, text of the `Check for` clause.
-    pub check_text: String,
     /// The exact retained text of the selected assertion playback block: the
-    /// single source of truth for [`Witness::concrete_values`] and
-    /// [`Witness::decode`]. There is no separately stored copy of the
-    /// concrete bytes, so they cannot disagree with what this text says.
+    /// single source of truth for every fact this type exposes. There is no
+    /// separately stored copy of the harness symbol, check kind, check text,
+    /// or concrete bytes, so none of them can disagree with what this text
+    /// says.
     pub transcript: String,
 }
 
+/// The harness symbol, check kind, and check text one playback block
+/// encodes, alongside the exact (re-trimmed) transcript text they were
+/// derived from.
+///
+/// This is an internal parsing product, never itself stored on [`Witness`]:
+/// [`Witness::parse`] uses it only to populate `transcript`, and every
+/// accessor that exposes one of these three facts re-derives it through
+/// [`Witness::derived`] instead of caching it, so a `Witness` — including one
+/// built directly by `Deserialize` — can never carry a stored value that
+/// disagrees with its own `transcript`.
+struct ParsedTranscript {
+    harness_symbol: String,
+    check: WitnessCheck,
+    check_text: String,
+    transcript: String,
+}
+
+/// Placeholder `source_id`/`context` used only when [`Witness::derived`]
+/// re-parses an already-retained `Witness`, where (unlike [`Witness::parse`],
+/// which callers invoke with the real clause/profile identifiers) no
+/// caller-supplied identifiers are available. The refusal `code` already
+/// names the cause; these two exist only to satisfy [`KaniOutcome`]'s shape.
+const WITNESS_SOURCE_ID: &str = "witness";
+const WITNESS_CONTEXT: &str = "transcript";
+
 impl Witness {
+    /// Parses the fenced playback block(s) Kani emits in a `counterexample`
+    /// string, selecting the single assertion block (see the private
+    /// `derive` associated function for the delimiting/classification rules)
+    /// and retaining only its `transcript`.
+    pub fn parse(source_id: &str, context: &str, block: &str) -> Result<Self, KaniOutcome> {
+        let parsed = Self::derive(source_id, context, block)?;
+        Ok(Self {
+            transcript: parsed.transcript,
+        })
+    }
+
+    /// Re-parses `self.transcript` and returns the harness symbol, check
+    /// kind, check text, and (re-trimmed) selected transcript it encodes.
+    ///
+    /// This is the single derivation point [`Witness::harness_symbol`],
+    /// [`Witness::check`], [`Witness::check_text`], [`Witness::concrete_values`],
+    /// and [`Witness::decode`] all share, and it runs the exact same
+    /// delimiting/classification [`Witness::parse`] uses to construct a
+    /// `Witness` in the first place. A `self.transcript` that is not a
+    /// single, already-selected assertion block — for example a multi-block
+    /// blob, or a verbatim cover block, arriving via `Deserialize` rather
+    /// than `Witness::parse` — is re-classified and re-selected exactly as
+    /// strictly here as it would be by `Witness::parse` itself, so no
+    /// accessor can be fooled by a transcript that merely *contains* a valid
+    /// block alongside something else.
+    fn derived(&self) -> Result<ParsedTranscript, KaniOutcome> {
+        Self::derive(WITNESS_SOURCE_ID, WITNESS_CONTEXT, &self.transcript)
+    }
+
+    /// The harness symbol the playback block names, re-derived from
+    /// `transcript` on every call (see the module doc).
+    pub fn harness_symbol(&self) -> Result<String, KaniOutcome> {
+        self.derived().map(|parsed| parsed.harness_symbol)
+    }
+
+    /// The check kind the playback block was generated for, re-derived from
+    /// `transcript` on every call. Never `Ok(WitnessCheck::Cover)` — see
+    /// [`WitnessCheck::Cover`].
+    pub fn check(&self) -> Result<WitnessCheck, KaniOutcome> {
+        self.derived().map(|parsed| parsed.check)
+    }
+
+    /// The exact, possibly multi-line, text of the `Check for` clause,
+    /// re-derived from `transcript` on every call.
+    pub fn check_text(&self) -> Result<String, KaniOutcome> {
+        self.derived().map(|parsed| parsed.check_text)
+    }
+
     /// Parses the fenced playback block(s) Kani emits in a `counterexample`
     /// string.
     ///
@@ -103,13 +191,17 @@ impl Witness {
     /// - exactly one `assertion` block is required to succeed: it is parsed
     ///   and returned;
     /// - zero `assertion` blocks refuses — as a cover refusal if any block
-    ///   was a reached cover statement, otherwise naming the other check kind
-    ///   Kani reported (`kani_witness_check_kind_refused`), since only an
-    ///   assertion witnesses falsity;
+    ///   was a reached cover statement, otherwise as a check-kind refusal
+    ///   (`kani_witness_check_kind_refused`), since only an assertion
+    ///   witnesses falsity;
     /// - more than one `assertion` block refuses rather than silently
     ///   selecting the first, since guessing which falsification is the
     ///   relevant one is not this module's call to make.
-    pub fn parse(source_id: &str, context: &str, block: &str) -> Result<Self, KaniOutcome> {
+    fn derive(
+        source_id: &str,
+        context: &str,
+        block: &str,
+    ) -> Result<ParsedTranscript, KaniOutcome> {
         let refuse = |code: &'static str| {
             KaniOutcome::non_success(KaniOutcomeKind::InvalidInput, code, source_id, context)
         };
@@ -146,8 +238,8 @@ impl Witness {
                     assertion_block = Some(sub);
                 }
                 "cover" => saw_cover = true,
-                other => {
-                    other_kind.get_or_insert(other);
+                _ => {
+                    other_kind.get_or_insert(kind_text);
                 }
             }
         }
@@ -161,12 +253,18 @@ impl Witness {
                     context,
                 ));
             }
-            if let Some(kind_text) = other_kind {
+            if other_kind.is_some() {
+                // F7: `context` already carries the caller's identifying
+                // context (profile revision / check text), matching every
+                // other refusal in this function; the cause is named by the
+                // `code` alone, not by substituting the other check's kind
+                // text into a field that means something else everywhere
+                // else in the module.
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::Refused,
                     "kani_witness_check_kind_refused",
                     source_id,
-                    kind_text,
+                    context,
                 ));
             }
             return Err(refuse("kani_witness_check_missing"));
@@ -177,7 +275,11 @@ impl Witness {
 
     /// Parses exactly one already-delimited `Test generated for harness`
     /// block, which must be the selected assertion block.
-    fn parse_single(source_id: &str, context: &str, sub_block: &str) -> Result<Self, KaniOutcome> {
+    fn parse_single(
+        source_id: &str,
+        context: &str,
+        sub_block: &str,
+    ) -> Result<ParsedTranscript, KaniOutcome> {
         let refuse = |code: &'static str| {
             KaniOutcome::non_success(KaniOutcomeKind::InvalidInput, code, source_id, context)
         };
@@ -198,11 +300,14 @@ impl Witness {
                 ));
             }
             _ => {
+                // F7: see the matching comment in `derive` — `context`, not
+                // `kind_text`, is what this function passes as context
+                // everywhere else.
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::Refused,
                     "kani_witness_check_kind_refused",
                     source_id,
-                    kind_text,
+                    context,
                 ));
             }
         };
@@ -225,7 +330,7 @@ impl Witness {
         // empty result is not itself a refusal.
         extract_concrete_entries(sub_block, source_id, context)?;
 
-        Ok(Self {
+        Ok(ParsedTranscript {
             harness_symbol,
             check,
             check_text,
@@ -236,14 +341,72 @@ impl Witness {
     /// The untyped concrete bytes, one entry per `kani::any()` call, in
     /// declaration order, parsed from `transcript` on demand.
     pub fn concrete_values(&self) -> Result<Vec<Vec<u8>>, KaniOutcome> {
-        let source_id = self.harness_symbol.as_str();
-        let context = self.check_text.as_str();
-        Ok(
-            extract_concrete_entries(&self.transcript, source_id, context)?
-                .into_iter()
-                .map(|(_, bytes)| bytes)
-                .collect(),
+        Ok(self
+            .concrete_entries()?
+            .into_iter()
+            .map(|(_, bytes)| bytes)
+            .collect())
+    }
+
+    /// The `(decoded-value comment, untyped bytes)` pairs `transcript`
+    /// encodes, re-derived on every call. Shared by [`Witness::concrete_values`]
+    /// (which discards the comment) and [`Witness::validate_concrete_entries`]
+    /// (which does not).
+    fn concrete_entries(&self) -> Result<Vec<(String, Vec<u8>)>, KaniOutcome> {
+        let parsed = self.derived()?;
+        extract_concrete_entries(
+            &parsed.transcript,
+            &parsed.harness_symbol,
+            &parsed.check_text,
         )
+    }
+
+    /// Validates every concrete entry `transcript` encodes with no schema in
+    /// hand: each byte vector must be non-empty, and wherever its length
+    /// unambiguously determines a value kind under this module's closed
+    /// vocabulary (1 byte: boolean; 8 bytes: i64 — see
+    /// [`WitnessValueType::byte_width`]), it must also agree with Kani's own
+    /// `//` decoded-value comment (`kani_witness_comment_mismatch`) — the
+    /// same cross-check [`Witness::decode`] performs once a schema is
+    /// available. A byte vector of any other length carries no meaning in
+    /// this closed vocabulary and is left entirely to `decode`'s
+    /// schema-driven arity/width refusal.
+    ///
+    /// Used by [`super::replay`]'s packet validation: without this, a packet
+    /// whose `transcript` records a concrete value contradicting its own
+    /// comment would replay as `witness_backed = true` despite never having
+    /// reproduced what Kani actually recorded.
+    pub(crate) fn validate_concrete_entries(&self) -> Result<(), KaniOutcome> {
+        let parsed = self.derived()?;
+        let entries = self.concrete_entries()?;
+        let refuse = |code: &'static str| {
+            KaniOutcome::non_success(
+                KaniOutcomeKind::InvalidInput,
+                code,
+                parsed.harness_symbol.as_str(),
+                parsed.check_text.as_str(),
+            )
+        };
+        for (comment, bytes) in &entries {
+            if bytes.is_empty() {
+                return Err(refuse("kani_witness_concrete_value_empty"));
+            }
+            let inferred = match bytes.len() {
+                1 => Some(WitnessValue::Boolean(bytes[0] != 0)),
+                8 => {
+                    let mut buf = [0u8; 8];
+                    buf.copy_from_slice(bytes);
+                    Some(WitnessValue::Integer(i64::from_le_bytes(buf)))
+                }
+                _ => None,
+            };
+            if let Some(value) = inferred {
+                if !comment_agrees(&value, comment) {
+                    return Err(refuse("kani_witness_comment_mismatch"));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Joins the untyped concrete bytes with the schema a generator declared
@@ -255,22 +418,25 @@ impl Witness {
     ///   disagree on how many `kani::any()` calls were made.
     /// - `kani_witness_width_mismatch`: a byte vector's length does not match
     ///   the declared primitive's width.
+    /// - `kani_witness_boolean_byte_invalid`: a boolean's byte is neither `0`
+    ///   nor `1` — never inferred from "any nonzero byte" (AC-4).
     /// - `kani_witness_comment_mismatch`: a decoded value disagrees with
     ///   Kani's own decoded-value comment.
     pub fn decode(
         &self,
         schema: &[WitnessBinding],
     ) -> Result<Vec<(String, WitnessValue)>, KaniOutcome> {
-        let source_id = self.harness_symbol.as_str();
+        let parsed = self.derived()?;
+        let source_id = parsed.harness_symbol.as_str();
         let entries =
-            extract_concrete_entries(&self.transcript, source_id, self.check_text.as_str())?;
+            extract_concrete_entries(&parsed.transcript, source_id, parsed.check_text.as_str())?;
 
         if entries.len() != schema.len() {
             return Err(KaniOutcome::non_success(
                 KaniOutcomeKind::InvalidInput,
                 "kani_witness_arity_mismatch",
                 source_id,
-                self.check_text.as_str(),
+                parsed.check_text.as_str(),
             ));
         }
 
@@ -286,7 +452,22 @@ impl Witness {
                 ));
             }
             let value = match binding.value_type {
-                WitnessValueType::Boolean => WitnessValue::Boolean(bytes[0] != 0),
+                WitnessValueType::Boolean => {
+                    // AC-4: never an inferred value. Kani's concrete-playback
+                    // encoding for `bool` is exactly one byte, `0` or `1`;
+                    // any other byte is not a boolean Kani could have
+                    // produced, so refuse rather than infer `true` from any
+                    // nonzero byte.
+                    if bytes[0] > 1 {
+                        return Err(KaniOutcome::non_success(
+                            KaniOutcomeKind::InvalidInput,
+                            "kani_witness_boolean_byte_invalid",
+                            source_id,
+                            binding.identifier.as_str(),
+                        ));
+                    }
+                    WitnessValue::Boolean(bytes[0] != 0)
+                }
                 WitnessValueType::I64 => {
                     let mut buf = [0u8; 8];
                     buf.copy_from_slice(bytes);
