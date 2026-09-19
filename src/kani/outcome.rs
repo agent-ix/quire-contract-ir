@@ -57,6 +57,28 @@ impl KaniOutcome {
         )
     }
 
+    /// Constructs a proof result from an observed `Proved` run, given the
+    /// number of SUCCESS checks its obligation reported. A `Proved` run
+    /// backed by zero SUCCESS checks proved nothing — no check in the
+    /// obligation actually ran — so it settles the existing `Inconclusive`
+    /// kind under the typed cause `kani_vacuous_proof` rather than
+    /// manufacturing a new terminal kind or reporting `Proved`.
+    pub fn proved_from_checks(
+        success_checks: usize,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        if success_checks == 0 {
+            return Self::non_success(
+                KaniOutcomeKind::Inconclusive,
+                "kani_vacuous_proof",
+                source_id,
+                context,
+            );
+        }
+        Self::proved(source_id, context)
+    }
+
     /// Constructs a typed non-success result.
     pub fn non_success(
         kind: KaniOutcomeKind,
