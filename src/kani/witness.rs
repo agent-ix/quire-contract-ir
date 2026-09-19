@@ -405,7 +405,7 @@ impl Witness {
     ///
     /// Used by [`super::replay`]'s packet validation: without this, a packet
     /// whose `transcript` records a concrete value contradicting its own
-    /// comment would replay as `witness_backed = true` despite never having
+    /// comment would settle the `Witness` arm despite never having
     /// reproduced what Kani actually recorded.
     pub(crate) fn validate_concrete_entries(&self) -> Result<(), KaniOutcome> {
         let parsed = self.derived()?;

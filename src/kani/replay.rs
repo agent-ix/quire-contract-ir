@@ -48,13 +48,44 @@ pub struct CounterexamplePacket {
 /// Settled by replaying a packet's `Witness` arm and agreeing with it:
 /// `reproduced-with-evaluated-witness`. This is the only arm from which a
 /// backend-evidence verdict can ever be built (AD-016 "Replay ownership").
+///
+/// Both fields are private and the only constructor,
+/// [`WitnessReplayAgreement::new`], is private to this module: a caller
+/// outside `replay.rs` cannot build one from an arbitrary packet (in
+/// particular not from a `ReplaySource::Input` packet), so `packet().source`
+/// being `ReplaySource::Witness` is a structural guarantee, not a claim this
+/// type's doc comment merely asserts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WitnessReplayAgreement {
+    packet: CounterexamplePacket,
+    native: KaniOutcome,
+}
+
+impl WitnessReplayAgreement {
+    /// Builds the settled `Witness`-arm agreement. Only this module's
+    /// replay functions call this, immediately after matching
+    /// `packet.source` themselves; the `debug_assert!` is defense in depth,
+    /// not the guard — the guard is that this constructor, and the private
+    /// fields it is the only way to populate, are unreachable from outside
+    /// `replay.rs`.
+    fn new(packet: CounterexamplePacket, native: KaniOutcome) -> Self {
+        debug_assert!(
+            matches!(packet.source, ReplaySource::Witness(_)),
+            "WitnessReplayAgreement::new called with a non-Witness-arm packet"
+        );
+        Self { packet, native }
+    }
+
     /// The exact portable counterexample packet that was replayed; its
     /// `source` is always [`ReplaySource::Witness`].
-    pub packet: CounterexamplePacket,
+    pub fn packet(&self) -> &CounterexamplePacket {
+        &self.packet
+    }
+
     /// The independently produced native result that agreed.
-    pub native: KaniOutcome,
+    pub fn native(&self) -> &KaniOutcome {
+        &self.native
+    }
 }
 
 /// Settled by replaying a packet's `Input` arm and agreeing with it:
@@ -63,13 +94,36 @@ pub struct WitnessReplayAgreement {
 /// backend counterexample reproduces natively: this type carries no
 /// [`Witness`] anywhere and cannot be turned into a backend-evidence
 /// verdict.
+///
+/// Both fields are private; see [`WitnessReplayAgreement`] for why that is
+/// the guard, not [`InputReplayAgreement::new`]'s `debug_assert!`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputReplayAgreement {
+    packet: CounterexamplePacket,
+    native: KaniOutcome,
+}
+
+impl InputReplayAgreement {
+    /// Builds the settled `Input`-arm agreement. See
+    /// [`WitnessReplayAgreement::new`].
+    fn new(packet: CounterexamplePacket, native: KaniOutcome) -> Self {
+        debug_assert!(
+            matches!(packet.source, ReplaySource::Input(_)),
+            "InputReplayAgreement::new called with a non-Input-arm packet"
+        );
+        Self { packet, native }
+    }
+
     /// The exact portable counterexample packet that was replayed; its
     /// `source` is always [`ReplaySource::Input`].
-    pub packet: CounterexamplePacket,
+    pub fn packet(&self) -> &CounterexamplePacket {
+        &self.packet
+    }
+
     /// The independently produced native result that agreed.
-    pub native: KaniOutcome,
+    pub fn native(&self) -> &KaniOutcome {
+        &self.native
+    }
 }
 
 /// Result of replaying an exact packet through an independently supplied
@@ -86,26 +140,68 @@ pub enum ReplayAgreement {
 
 /// Agreement produced by replaying through QSL's independently implemented
 /// native reference runtime, settled by a packet's `Witness` arm.
-/// See [`WitnessReplayAgreement`].
+/// See [`WitnessReplayAgreement`] for why the private fields and constructor
+/// are the guard.
 #[derive(Debug)]
 pub struct WitnessNativeReplayAgreement<'package, 'model> {
+    packet: CounterexamplePacket,
+    native: ExecutionReport<'package, 'model>,
+}
+
+impl<'package, 'model> WitnessNativeReplayAgreement<'package, 'model> {
+    /// Builds the settled `Witness`-arm agreement. See
+    /// [`WitnessReplayAgreement::new`].
+    fn new(packet: CounterexamplePacket, native: ExecutionReport<'package, 'model>) -> Self {
+        debug_assert!(
+            matches!(packet.source, ReplaySource::Witness(_)),
+            "WitnessNativeReplayAgreement::new called with a non-Witness-arm packet"
+        );
+        Self { packet, native }
+    }
+
     /// The exact portable counterexample packet that was replayed; its
     /// `source` is always [`ReplaySource::Witness`].
-    pub packet: CounterexamplePacket,
+    pub fn packet(&self) -> &CounterexamplePacket {
+        &self.packet
+    }
+
     /// The retained native execution report, including its original request.
-    pub native: ExecutionReport<'package, 'model>,
+    pub fn native(&self) -> &ExecutionReport<'package, 'model> {
+        &self.native
+    }
 }
 
 /// Agreement produced by replaying through QSL's independently implemented
 /// native reference runtime, settled by a packet's `Input` arm.
-/// See [`InputReplayAgreement`].
+/// See [`InputReplayAgreement`] for why the private fields and constructor
+/// are the guard.
 #[derive(Debug)]
 pub struct InputNativeReplayAgreement<'package, 'model> {
+    packet: CounterexamplePacket,
+    native: ExecutionReport<'package, 'model>,
+}
+
+impl<'package, 'model> InputNativeReplayAgreement<'package, 'model> {
+    /// Builds the settled `Input`-arm agreement. See
+    /// [`WitnessReplayAgreement::new`].
+    fn new(packet: CounterexamplePacket, native: ExecutionReport<'package, 'model>) -> Self {
+        debug_assert!(
+            matches!(packet.source, ReplaySource::Input(_)),
+            "InputNativeReplayAgreement::new called with a non-Input-arm packet"
+        );
+        Self { packet, native }
+    }
+
     /// The exact portable counterexample packet that was replayed; its
     /// `source` is always [`ReplaySource::Input`].
-    pub packet: CounterexamplePacket,
+    pub fn packet(&self) -> &CounterexamplePacket {
+        &self.packet
+    }
+
     /// The retained native execution report, including its original request.
-    pub native: ExecutionReport<'package, 'model>,
+    pub fn native(&self) -> &ExecutionReport<'package, 'model> {
+        &self.native
+    }
 }
 
 /// Agreement produced by replaying through QSL's independently implemented
@@ -193,9 +289,9 @@ pub fn replay_counterexample(
     // result below); no separate flag records which arm was taken.
     Ok(match packet.source {
         ReplaySource::Witness(_) => {
-            ReplayAgreement::Witness(WitnessReplayAgreement { packet, native })
+            ReplayAgreement::Witness(WitnessReplayAgreement::new(packet, native))
         }
-        ReplaySource::Input(_) => ReplayAgreement::Input(InputReplayAgreement { packet, native }),
+        ReplaySource::Input(_) => ReplayAgreement::Input(InputReplayAgreement::new(packet, native)),
     })
 }
 
@@ -225,10 +321,10 @@ pub fn replay_with_native_runtime<'package, 'model>(
     }
     Ok(match packet.source {
         ReplaySource::Witness(_) => {
-            NativeReplayAgreement::Witness(WitnessNativeReplayAgreement { packet, native })
+            NativeReplayAgreement::Witness(WitnessNativeReplayAgreement::new(packet, native))
         }
         ReplaySource::Input(_) => {
-            NativeReplayAgreement::Input(InputNativeReplayAgreement { packet, native })
+            NativeReplayAgreement::Input(InputNativeReplayAgreement::new(packet, native))
         }
     })
 }

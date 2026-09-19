@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket, FiniteInput,
-    FiniteObject, InputReplayAgreement, KaniOutcome, KaniOutcomeKind, NativeReplayAgreement,
-    PopulationCompleteness, ProfileSelection, ReplayAgreement, ReplaySource, ResourceBounds,
-    Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType, PROFILE,
+    FiniteObject, KaniOutcome, KaniOutcomeKind, NativeReplayAgreement, PopulationCompleteness,
+    ProfileSelection, ReplayAgreement, ReplaySource, ResourceBounds, Witness, WitnessBinding,
+    WitnessCheck, WitnessValue, WitnessValueType, PROFILE,
 };
 use quire_contract_model_owner as ir;
 use quire_spec_language::checking::{check, CheckBindings, CheckLimits, ClauseBinding};
@@ -219,7 +219,7 @@ fn tc_042_counterexample_replay_agrees_or_is_non_success() {
     let ReplayAgreement::Input(agreement) = agreement else {
         panic!("packet() carries source: ReplaySource::Input(..); the agreement must settle the Input arm, never the Witness arm");
     };
-    assert_eq!(agreement.native.kind, KaniOutcomeKind::Counterexample);
+    assert_eq!(agreement.native().kind, KaniOutcomeKind::Counterexample);
     let disagreement = replay_counterexample(packet(), |_| KaniOutcome::proved("clause", "native"))
         .expect_err("proof is not replay agreement");
     assert_eq!(disagreement.kind, KaniOutcomeKind::Inconclusive);
@@ -257,7 +257,7 @@ fn tc_042_counterexample_replays_through_native_runtime_execute() {
     let NativeReplayAgreement::Input(agreement) = agreement else {
         panic!("packet() carries source: ReplaySource::Input(..); the agreement must settle the Input arm, never the Witness arm");
     };
-    assert_eq!(agreement.native.truth(), Some(false));
+    assert_eq!(agreement.native().truth(), Some(false));
 }
 
 /// A real `kani::concrete_playback_run` block captured from a falsified
@@ -816,8 +816,11 @@ fn tc_042_input_arm_replay_cannot_settle_the_witness_arm() {
     })
     .expect("an Input-arm packet with a stub executor that agrees must settle");
     match agreement {
-        ReplayAgreement::Input(InputReplayAgreement { native, .. }) => {
-            assert_eq!(native.kind, KaniOutcomeKind::Counterexample);
+        ReplayAgreement::Input(input_agreement) => {
+            assert_eq!(
+                input_agreement.native().kind,
+                KaniOutcomeKind::Counterexample
+            );
         }
         ReplayAgreement::Witness(_) => {
             panic!("an Input-arm packet must never settle the Witness arm")
