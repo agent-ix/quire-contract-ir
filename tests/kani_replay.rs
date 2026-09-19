@@ -764,7 +764,12 @@ fn tc_042_witness_parses_zero_argument_harness() {
 // itself is the fact, not a separate field. The only previously covered
 // `Witness`-arm case was the cover refusal, leaving the accepted assertion
 // witness path untested.
-#[trace("TC-221", "FR-031-AC-4")]
+//
+// Deliberately untraced: FR-031-AC-4 covers witness parsing, typing, and
+// arity/width/comment refusal only — it says nothing about replay arms,
+// `ReplaySource`, or which agreement type a replay settles. Arm separation
+// is governed by AD-016 "Replay ownership" / "Replay source", which has no
+// FR/AC of its own yet; authoring one is spec work, not this test's job.
 #[test]
 fn tc_042_replay_counterexample_settles_witness_arm_for_assertion_witness() {
     let mut with_witness = packet();
@@ -782,7 +787,10 @@ fn tc_042_replay_counterexample_settles_witness_arm_for_assertion_witness() {
     );
 }
 
-#[trace("TC-221", "FR-031-AC-4")]
+// Deliberately untraced: see the comment above
+// `tc_042_replay_counterexample_settles_witness_arm_for_assertion_witness` —
+// FR-031-AC-4 does not cover replay-arm settlement; AD-016 "Replay ownership"
+// / "Replay source" governs it, with no FR/AC of its own yet.
 #[test]
 fn tc_042_replay_counterexample_settles_input_arm_for_witness_free_packet() {
     let agreement = replay_counterexample(packet(), |_| {
@@ -801,7 +809,11 @@ fn tc_042_replay_counterexample_settles_input_arm_for_witness_free_packet() {
 // no value it could ever hold that a backend-evidence verdict could be built
 // from (AD-016 "Replay ownership": "Its only construction path takes an
 // agreeing `Witness`-arm result").
-#[trace("TC-221", "FR-031-AC-4")]
+//
+// Deliberately untraced: see the comment above
+// `tc_042_replay_counterexample_settles_witness_arm_for_assertion_witness` —
+// FR-031-AC-4 does not cover replay-arm settlement; AD-016 "Replay ownership"
+// / "Replay source" governs it, with no FR/AC of its own yet.
 #[test]
 fn tc_042_input_arm_replay_cannot_settle_the_witness_arm() {
     let mut corpus_counterexample = packet();
@@ -872,5 +884,31 @@ fn tc_042_wire_types_deny_unknown_fields() {
     assert_denies_unknown_field::<CounterexamplePacket>(
         serde_json::to_value(packet()).expect("CounterexamplePacket serializes"),
         "CounterexamplePacket",
+    );
+}
+
+// PR #156 review (finding 4): the `Input` arm was the only arm round-tripped
+// above, so the externally tagged `ReplaySource::Witness(_)` wrapping
+// `Witness`'s hand-written `Deserialize` was never exercised inside a real
+// packet. A bad `rename_all` or a tagging interaction would have broken
+// every real packet on the wire with the suite green.
+//
+// Deliberately untraced: FR-031-AC-4 covers witness parsing, typing, and
+// arity/width/comment refusal only, not wire round-tripping of
+// `CounterexamplePacket` or `ReplaySource`'s enum tagging; no other
+// acceptance criterion covers it yet.
+#[test]
+fn tc_042_witness_arm_packet_round_trips_through_serde() {
+    let mut with_witness = packet();
+    with_witness.source = ReplaySource::Witness(
+        Witness::parse("clause", "kani-bounded/1.0.0", real_playback_block())
+            .expect("a real falsified concrete-playback block parses"),
+    );
+    let wire = serde_json::to_value(&with_witness).expect("Witness-arm packet serializes");
+    let round_tripped: CounterexamplePacket =
+        serde_json::from_value(wire).expect("Witness-arm packet deserializes");
+    assert_eq!(
+        round_tripped, with_witness,
+        "a Witness-arm packet must round-trip through serde byte-identically"
     );
 }

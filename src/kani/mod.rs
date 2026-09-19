@@ -30,8 +30,8 @@ pub use profile::{
 pub use provenance::{ArtifactIdentity, GeneratorProvenance, ProvenanceError};
 pub use replay::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket,
-    InputNativeReplayAgreement, InputReplayAgreement, NativeReplayAgreement, ReplayAgreement,
-    ReplaySource, WitnessNativeReplayAgreement, WitnessReplayAgreement,
+    InputNativeReplayAgreement, InputReplayAgreement, NativeReplayAgreement, PacketIdentity,
+    ReplayAgreement, ReplaySource, WitnessNativeReplayAgreement, WitnessReplayAgreement,
 };
 pub use witness::{Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType};
 
