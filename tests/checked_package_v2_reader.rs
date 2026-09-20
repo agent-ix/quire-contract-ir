@@ -9,15 +9,15 @@ mod checked_package;
 
 use checked_package::{
     apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
-    node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_code, rekey,
-    sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
+    node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_at, refusal_code,
+    rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
-    NominalIdentityPreimage,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -1494,18 +1494,33 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
     let other_id = base["semantic_graph"]["nodes"][1]["semantic_type"].clone();
 
-    let assert_self_cycle_refused = |body: Value| {
+    let recursion_group_refusal = refusal(
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+        "semantic_graph.nodes.recursion_group",
+    );
+    // An `application`-termed body embedding a literal self-reference to its
+    // own node_id is, once `validate_application_keys` exists, a
+    // cryptographic impossibility to construct honestly: a node's digest is
+    // derived from its body, so a body cannot legitimately embed that same
+    // digest as one of its own values without a hash-preimage attack. The
+    // stale-key check (run ahead of recursion, IR-216) therefore now catches
+    // this shape before recursion detection ever sees it — a more
+    // fundamental defect than a bare `recursion_group` refusal, not a
+    // regression of the carve-out's own coverage (cases 1-3 below, which
+    // never touch `validate_application_keys`, still exercise it directly).
+    let stale_application_key_refusal = refusal_at(
+        CheckedPackageRefusalCode::InvalidPackage,
+        "semantic_graph.nodes.node_id",
+        Some(CheckedPackageRefusalCause::StaleNodeKey),
+        own_id["digest"].as_str().expect("own_id digest"),
+    );
+
+    let assert_self_cycle_refused = |body: Value, expected: CheckedPackageRefusal| {
         let mut mutated = base.clone();
         mutated["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
         mutated["semantic_graph"]["nodes"][1]["body"] = body;
         refresh_identity(&mut mutated);
-        assert_eq!(
-            refused(&mutated, &evidence_for(&mutated)),
-            refusal(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.recursion_group"
-            )
-        );
+        assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
     };
 
     // Negative: a self-typed node whose body is a `reference` term naming
@@ -1513,7 +1528,10 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // out regressed this: it used to key on node identity alone
     // (`semantic_type == position`), which also swallowed this case with no
     // `recursion_group` on `origin/main`'s vendored fixture.
-    assert_self_cycle_refused(json!({"term": "reference", "target": own_id}));
+    assert_self_cycle_refused(
+        json!({"term": "reference", "target": own_id}),
+        recursion_group_refusal.clone(),
+    );
 
     // Negative: the same self-typed `literal.type` self-reference, nested
     // one level inside an `aggregate` member instead of being the body's own
@@ -1521,57 +1539,74 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // reports this nested literal's `type` at the same `BODY_TYPE_PATH` path
     // as the body-root case, so the carve-out must not key on the path
     // alone.
-    assert_self_cycle_refused(json!({
-        "term": "aggregate",
-        "members": [
-            {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
-        ]
-    }));
+    assert_self_cycle_refused(
+        json!({
+            "term": "aggregate",
+            "members": [
+                {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+            ]
+        }),
+        recursion_group_refusal.clone(),
+    );
 
     // Negative: the same self-reference nested inside a `binding` value.
-    assert_self_cycle_refused(json!({
-        "term": "binding",
-        "name": "x",
-        "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
-    }));
+    assert_self_cycle_refused(
+        json!({
+            "term": "binding",
+            "name": "x",
+            "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+        }),
+        recursion_group_refusal.clone(),
+    );
 
     // Negative: the same self-reference nested inside an `application`
-    // argument.
-    assert_self_cycle_refused(json!({
-        "term": "application",
-        "operator": "call",
-        "operation": {
-            "identity": "quire.op.function.call",
-            "laws": [],
-            "mode": null,
-            "member": null,
-            "leaves": []
-        },
-        "result_type": other_id,
-        "arguments": [
-            {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
-        ]
-    }));
+    // argument. The body's own top-level term is now `application`, so
+    // `validate_application_keys` (IR-216) evaluates this node's key before
+    // recursion detection runs, and refuses it as stale — see
+    // `stale_application_key_refusal` above for why that is the correct,
+    // more fundamental defect rather than a masked recursion assertion.
+    assert_self_cycle_refused(
+        json!({
+            "term": "application",
+            "operator": "call",
+            "operation": {
+                "identity": "quire.op.function.call",
+                "laws": [],
+                "mode": null,
+                "member": null,
+                "leaves": []
+            },
+            "result_type": other_id,
+            "arguments": [
+                {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+            ]
+        }),
+        stale_application_key_refusal.clone(),
+    );
 
     // Negative: a self-typed node whose body-root `application.result_type`
     // names itself is the same genuine 1-node cycle as the `reference` body
     // case above — `application.result_type` is never exempt, whether or not
-    // the argument is itself self-referencing.
-    assert_self_cycle_refused(json!({
-        "term": "application",
-        "operator": "call",
-        "operation": {
-            "identity": "quire.op.function.call",
-            "laws": [],
-            "mode": null,
-            "member": null,
-            "leaves": []
-        },
-        "result_type": own_id,
-        "arguments": [
-            {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
-        ]
-    }));
+    // the argument is itself self-referencing. Same stale-key reasoning as
+    // the previous case applies here too.
+    assert_self_cycle_refused(
+        json!({
+            "term": "application",
+            "operator": "call",
+            "operation": {
+                "identity": "quire.op.function.call",
+                "laws": [],
+                "mode": null,
+                "member": null,
+                "leaves": []
+            },
+            "result_type": own_id,
+            "arguments": [
+                {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
+            ]
+        }),
+        stale_application_key_refusal,
+    );
 
     // Positive: a self-typed node's own body-root `literal.type`
     // self-reference is the carve-out's intended case and admits with no

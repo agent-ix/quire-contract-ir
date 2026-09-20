@@ -419,11 +419,12 @@ pub(super) fn validate_term(
                 .and_then(Value::as_str)
                 .is_some_and(is_operator) =>
         {
-            // The `operation` member's own closed shape (`OperationIdentity`,
-            // laws, mode, member and leaves) is admitted opaquely here: this
-            // reader accepts the member is present and validates only
-            // `result_type` as a reference. Deep operation-law validation is
-            // not implemented by this reader.
+            // The `operation` member's presence is checked here; its own
+            // closed shape and catalog-law validation is
+            // `v2::operations::validate_operations`'s job, run once the
+            // whole graph's identity and dependency edges are known — the
+            // same reason `validate_frame_semantics` runs separately from
+            // this per-term walk rather than inline here.
             let result_type_work = visit_reference(
                 object.get("result_type"),
                 BODY_RESULT_TYPE_PATH,

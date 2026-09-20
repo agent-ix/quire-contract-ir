@@ -33,7 +33,14 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 /// carries no nominal-form node (`enum`/`dimension`/`unit`/enum member) and
 /// no diagnostics entries, so neither `validate_nominal_nodes` nor
 /// `validate_diagnostics` charges anything here; a fixture that gained
-/// either would need its own added term in this sum. Cross-checked against
+/// either would need its own added term in this sum, and did: IR-216 added
+/// `validate_application_keys` (one charge per of the fixture's 4
+/// application-bodied nodes — `function.call`, `temporal.clause`,
+/// `protocol.control`, `claim.clause` — = 4) and `validate_operations` (one
+/// charge per application node plus one per declared law plus one per leaf
+/// entry: `function.call` 0 laws 0 leaves = 1; each of `temporal.clause`,
+/// `protocol.control` and `claim.clause` 1 law, 0 leaves = 2 each = 6;
+/// total 7), for 73 + 4 + 7 = 84. Cross-checked against
 /// `CheckedPackageV2::read`'s real admit/refuse boundary by
 /// `tc_048_v2_reader_reports_exact_and_one_over_limits` and
 /// `tc_048_shipped_default_read_limits_are_exact_and_finite`, so a drift
@@ -41,7 +48,7 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 /// there rather than silently. Shared between `complete_v1_checked_package`
 /// and `checked_package_v2_reader` so a change to the vendored all-families
 /// fixture cannot silently move the boundary in only one of them.
-pub const ALL_FAMILIES_READ_WORK: u64 = 73;
+pub const ALL_FAMILIES_READ_WORK: u64 = 84;
 
 /// Reads one vendored file under `tests/fixtures/checked-package/`.
 pub fn fixture(relative: &str) -> Value {
