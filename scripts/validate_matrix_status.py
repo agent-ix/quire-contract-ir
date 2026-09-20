@@ -17,9 +17,24 @@ STATUS_DOCUMENTS = (
 )
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
-# `#[test]` followed by any further outer attributes (for example `#[trace]`),
-# in either order relative to them, and then the traced function.
-RUST_TEST = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+tc_(\d{3})(?:_|\b)")
+# `#[trace(...)]` is the declared binding between a test and the ids it
+# verifies (see `ix_trace_rs::trace`): comma-separated string-literal
+# arguments, in any order, mixing exactly the id shapes each names — a `TC-`
+# id and zero or more acceptance-criterion ids such as `FR-047-AC-1`. This
+# mirrors how `quire coverage` itself reads the attribute: whichever quoted
+# argument is `TC-\d{3}` shaped is the bound test case; nothing about the
+# decorated function's own name is part of that reading.
+RUST_TRACE_ATTR = re.compile(r"#\[trace\((?P<args>.*?)\)\]", re.S)
+RUST_TRACE_ARG = re.compile(r'"([^"]*)"')
+RUST_TRACE_TC_ID = re.compile(r"\ATC-(\d{3})\Z")
+# One `#[test]` item: every attribute contiguous with it — including
+# `#[trace(...)]`, in whatever order they were written — up through the `fn`
+# it decorates. The captured name exists only so a disagreement or an absent
+# trace can be reported; it is never consulted to bind coverage.
+RUST_TEST_UNIT = re.compile(
+    r"(?P<attrs>(?:#\[[^\[\]]*\]\s*)+)fn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+)
+RUST_NAME_TC_ID = re.compile(r"\Atc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 REQUIREMENT_ID = re.compile(r"(?:FR|NFR)-\d{3}")
 RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\b.*$", re.I)
@@ -125,10 +140,59 @@ def cited_criteria(requirement: str, cell: str) -> set[str]:
     return cited
 
 
-def executable_tests(root: Path = ROOT) -> set[str]:
+def rust_test_bindings(path: Path) -> tuple[set[str], list[str]]:
+    """TC ids `path`'s `#[test]` functions bind, and any binding failures.
+
+    Binding comes only from a test's own `#[trace(...)]` — never from its
+    function name. A `tc_NNN_*` name is inspected only to report the two
+    failure modes a name-driven reading used to hide: a test traced to a
+    different TC than its name suggests (the credited TC silently moves when
+    the function is renamed), and a test carrying no trace at all (which
+    binds nothing, however its name reads).
+    """
+    text = path.read_text(encoding="utf-8")
+    bound: set[str] = set()
+    failures: list[str] = []
+    for unit in RUST_TEST_UNIT.finditer(text):
+        attrs, name = unit.group("attrs"), unit.group("name")
+        if "#[test]" not in attrs:
+            continue
+        trace_ids = sorted(
+            {
+                id_match.group(1)
+                for trace in RUST_TRACE_ATTR.finditer(attrs)
+                for arg in RUST_TRACE_ARG.findall(trace.group("args"))
+                for id_match in [RUST_TRACE_TC_ID.match(arg)]
+                if id_match
+            }
+        )
+        bound.update(f"TC-{number}" for number in trace_ids)
+        name_match = RUST_NAME_TC_ID.match(name)
+        if name_match is None:
+            continue
+        name_id = name_match.group(1)
+        line = text.count("\n", 0, unit.start("name")) + 1
+        if not trace_ids:
+            failures.append(
+                f"{path}:{line} {name} is named for TC-{name_id} but carries no "
+                f"#[trace]; it contributes no coverage for TC-{name_id}"
+            )
+        elif name_id not in trace_ids:
+            traced = ", ".join(f"TC-{number}" for number in trace_ids)
+            failures.append(
+                f"{path}:{line} {name} is named for TC-{name_id} but #[trace] "
+                f"binds {traced}; coverage follows the trace, not the name"
+            )
+    return bound, failures
+
+
+def executable_tests(root: Path = ROOT) -> tuple[set[str], list[str]]:
     result = set()
+    failures: list[str] = []
     for path in (root / "tests").glob("*.rs"):
-        result.update(f"TC-{number}" for number in RUST_TEST.findall(path.read_text()))
+        bound, rust_failures = rust_test_bindings(path)
+        result.update(bound)
+        failures.extend(rust_failures)
     for path in (root / "tests").glob("*.py"):
         module = ast.parse(path.read_text(encoding="utf-8"))
         has_function_loader = any(
@@ -153,7 +217,7 @@ def executable_tests(root: Path = ROOT) -> set[str]:
                         method, (ast.FunctionDef, ast.AsyncFunctionDef)
                     ) and method.name.startswith("test_"):
                         result.update(referenced_tests(ast.get_docstring(method) or ""))
-    return result
+    return result, failures
 
 
 def validate_criterion_citations(
@@ -231,7 +295,9 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
     documents = [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS]
-    failures = validate_documents(documents, executable_tests(root))
+    executable, trace_failures = executable_tests(root)
+    failures = list(trace_failures)
+    failures.extend(validate_documents(documents, executable))
     failures.extend(validate_criterion_citations(documents, live_criteria(root)))
     if failures:
         for failure in failures:

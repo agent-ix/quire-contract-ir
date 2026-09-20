@@ -92,7 +92,8 @@ class MatrixStatusTests(unittest.TestCase):
             )
 
             (root / "tests/matrix.rs").write_text(
-                "#[test]\nfn tc_021_matrix_status() {}\n", encoding="utf-8"
+                '#[trace("TC-021")]\n#[test]\nfn tc_021_matrix_status() {}\n',
+                encoding="utf-8",
             )
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
@@ -100,7 +101,11 @@ class MatrixStatusTests(unittest.TestCase):
             self.assertIn("declared test symbol", stdout.getvalue())
 
     def test_rust_test_symbols_accept_either_attribute_order(self) -> None:
-        """TC-021. Trace: TC-021, NFR-004-AC-5."""
+        """TC-021. Trace: TC-021, NFR-004-AC-5.
+
+        `#[trace(...)]` binds coverage whether it is written before or after
+        `#[test]`. It binds nothing when it decorates a non-test item.
+        """
         source = """
 /// Tracing: TC-044
 #[test]
@@ -111,9 +116,6 @@ fn tc_044_test_before_trace() {}
 #[test]
 fn tc_047_trace_before_test() {}
 
-#[test]
-fn tc_048_plain() {}
-
 #[trace("TC-049", "FR-038-AC-6")]
 fn tc_049_not_a_test() {}
 """
@@ -121,7 +123,47 @@ fn tc_049_not_a_test() {}
             root = pathlib.Path(directory)
             (root / "tests").mkdir()
             (root / "tests/traced.rs").write_text(source, encoding="utf-8")
-            self.assertEqual(executable_tests(root), {"TC-044", "TC-047", "TC-048"})
+            bound, failures = executable_tests(root)
+            self.assertEqual(bound, {"TC-044", "TC-047"})
+            self.assertEqual(failures, [])
+
+    def test_coverage_binds_by_trace_attribute_not_function_name(self) -> None:
+        """TC-021, IR-202 (quire-contract-ir#157). Trace: TC-021, NFR-004-AC-5.
+
+        Coverage is bound by what `#[trace(...)]` names, never by the
+        function name it decorates. A `tc_NNN_*` name traced to a different
+        TC id is a reported disagreement, not a silent name-wins resolution
+        — renaming the function must not move which TC id gets credited.
+        """
+        source = """
+#[trace("TC-221", "FR-031-AC-4")]
+#[test]
+fn tc_042_witness_parses_real_playback_block() {}
+
+#[test]
+fn tc_048_plain() {}
+"""
+        with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
+            root = pathlib.Path(directory)
+            (root / "tests").mkdir()
+            path = root / "tests/traced.rs"
+            path.write_text(source, encoding="utf-8")
+            bound, failures = executable_tests(root)
+
+            # The attribute binds TC-221, not the TC-042 the function name
+            # suggests — and TC-042 gets no credit from this test at all.
+            self.assertEqual(bound, {"TC-221"})
+            self.assertEqual(len(failures), 2)
+            self.assertIn(f"{path}:4", failures[0])
+            self.assertIn("tc_042_witness_parses_real_playback_block", failures[0])
+            self.assertIn("is named for TC-042 but #[trace] binds TC-221", failures[0])
+            self.assertIn(f"{path}:7", failures[1])
+            self.assertIn("tc_048_plain", failures[1])
+            self.assertIn(
+                "is named for TC-048 but carries no #[trace]; it contributes "
+                "no coverage for TC-048",
+                failures[1],
+            )
 
     def test_rejects_rows_that_omit_a_live_acceptance_criterion(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5, NFR-004-AC-7."""
