@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import ast
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,24 +18,6 @@ STATUS_DOCUMENTS = (
 )
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
-# `#[trace(...)]` is the declared binding between a test and the ids it
-# verifies (see `ix_trace_rs::trace`): comma-separated string-literal
-# arguments, in any order, mixing exactly the id shapes each names — a `TC-`
-# id and zero or more acceptance-criterion ids such as `FR-047-AC-1`. This
-# mirrors how `quire coverage` itself reads the attribute: whichever quoted
-# argument is `TC-\d{3}` shaped is the bound test case; nothing about the
-# decorated function's own name is part of that reading.
-RUST_TRACE_ATTR = re.compile(r"#\[trace\((?P<args>.*?)\)\]", re.S)
-RUST_TRACE_ARG = re.compile(r'"([^"]*)"')
-RUST_TRACE_TC_ID = re.compile(r"\ATC-(\d{3})\Z")
-# One `#[test]` item: every attribute contiguous with it — including
-# `#[trace(...)]`, in whatever order they were written — up through the `fn`
-# it decorates. The captured name exists only so a disagreement or an absent
-# trace can be reported; it is never consulted to bind coverage.
-RUST_TEST_UNIT = re.compile(
-    r"(?P<attrs>(?:#\[[^\[\]]*\]\s*)+)fn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
-)
-RUST_NAME_TC_ID = re.compile(r"\Atc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 REQUIREMENT_ID = re.compile(r"(?:FR|NFR)-\d{3}")
 RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\b.*$", re.I)
@@ -140,84 +123,65 @@ def cited_criteria(requirement: str, cell: str) -> set[str]:
     return cited
 
 
-def rust_test_bindings(path: Path) -> tuple[set[str], list[str]]:
-    """TC ids `path`'s `#[test]` functions bind, and any binding failures.
+class QuireCoverageError(RuntimeError):
+    """`quire coverage` could not be run, or did not return a parseable report."""
 
-    Binding comes only from a test's own `#[trace(...)]` — never from its
-    function name. A `tc_NNN_*` name is inspected only to report the two
-    failure modes a name-driven reading used to hide: a test traced to a
-    different TC than its name suggests (the credited TC silently moves when
-    the function is renamed), and a test carrying no trace at all (which
-    binds nothing, however its name reads).
+
+def run_quire_coverage(root: Path, *, quire_bin: str = "quire") -> dict:
+    """The `CoverageReport` `quire coverage --scope <root> --json` emits.
+
+    This is the *only* reader of test/code trace bindings: whichever forms
+    `quire`'s declared trace-tag grammar honours (`#[trace(...)]`, the
+    doc-comment and line-comment legacy forms, and any others a module
+    declares) are the forms this script honours, because this script never
+    parses Rust or Python source itself. `quire` also walks the whole
+    scope — `tests/**/*.rs` and `src/`, not just `tests/*.rs` — so a
+    production `#[trace]` (for example `src/predicate/artifacts.rs`) counts
+    here too.
+
+    Without `--strict`, `quire coverage` always exits 0 — the rollup is a
+    report, not a gate (this script and `make spec`'s separate `--strict`
+    invocation are the gates) — so a non-zero exit here means the command
+    itself failed, not that a row is unbacked; that is never swallowed.
     """
-    text = path.read_text(encoding="utf-8")
-    bound: set[str] = set()
-    failures: list[str] = []
-    for unit in RUST_TEST_UNIT.finditer(text):
-        attrs, name = unit.group("attrs"), unit.group("name")
-        if "#[test]" not in attrs:
-            continue
-        trace_ids = sorted(
-            {
-                id_match.group(1)
-                for trace in RUST_TRACE_ATTR.finditer(attrs)
-                for arg in RUST_TRACE_ARG.findall(trace.group("args"))
-                for id_match in [RUST_TRACE_TC_ID.match(arg)]
-                if id_match
-            }
+    try:
+        result = subprocess.run(
+            [quire_bin, "coverage", "--scope", str(root), "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        bound.update(f"TC-{number}" for number in trace_ids)
-        name_match = RUST_NAME_TC_ID.match(name)
-        if name_match is None:
-            continue
-        name_id = name_match.group(1)
-        line = text.count("\n", 0, unit.start("name")) + 1
-        if not trace_ids:
-            failures.append(
-                f"{path}:{line} {name} is named for TC-{name_id} but carries no "
-                f"#[trace]; it contributes no coverage for TC-{name_id}"
-            )
-        elif name_id not in trace_ids:
-            traced = ", ".join(f"TC-{number}" for number in trace_ids)
-            failures.append(
-                f"{path}:{line} {name} is named for TC-{name_id} but #[trace] "
-                f"binds {traced}; coverage follows the trace, not the name"
-            )
-    return bound, failures
+    except FileNotFoundError as error:
+        raise QuireCoverageError(f"could not run {quire_bin!r}: {error}") from error
+    if result.returncode != 0:
+        raise QuireCoverageError(
+            f"`{quire_bin} coverage --scope {root} --json` exited "
+            f"{result.returncode}:\n{result.stderr}"
+        )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise QuireCoverageError(
+            f"`{quire_bin} coverage --json` did not emit valid JSON: {error}\n"
+            f"stderr:\n{result.stderr}"
+        ) from error
 
 
-def executable_tests(root: Path = ROOT) -> tuple[set[str], list[str]]:
-    result = set()
-    failures: list[str] = []
-    for path in (root / "tests").glob("*.rs"):
-        bound, rust_failures = rust_test_bindings(path)
-        result.update(bound)
-        failures.extend(rust_failures)
-    for path in (root / "tests").glob("*.py"):
-        module = ast.parse(path.read_text(encoding="utf-8"))
-        has_function_loader = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "load_tests"
-            for node in module.body
-        )
-        for node in module.body:
-            if (
-                has_function_loader
-                and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith("test_")
-            ):
-                result.update(referenced_tests(ast.get_docstring(node) or ""))
-            if isinstance(node, ast.ClassDef) and any(
-                (isinstance(base, ast.Name) and base.id == "TestCase")
-                or (isinstance(base, ast.Attribute) and base.attr == "TestCase")
-                for base in node.bases
-            ):
-                for method in node.body:
-                    if isinstance(
-                        method, (ast.FunctionDef, ast.AsyncFunctionDef)
-                    ) and method.name.startswith("test_"):
-                        result.update(referenced_tests(ast.get_docstring(method) or ""))
-    return result, failures
+def executable_test_ids(report: dict) -> set[str]:
+    """TC ids `quire coverage` reports as backed by a real test-case symbol.
+
+    `minted_targets` carries every id `quire` minted from the corpus, each
+    with the `backed` verdict it computed — for a `test-case` target that
+    verdict already reconciles every declared binding form, in every
+    scanned language and file, exactly as `quire coverage --strict` gates
+    on. Reading it here is the whole point of "one reader, one fact": this
+    function invents no coverage of its own, in either direction.
+    """
+    return {
+        target["id"]
+        for target in report.get("minted_targets", [])
+        if target.get("target") == "test-case" and target.get("backed")
+    }
 
 
 def validate_criterion_citations(
@@ -295,9 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
     documents = [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS]
-    executable, trace_failures = executable_tests(root)
-    failures = list(trace_failures)
-    failures.extend(validate_documents(documents, executable))
+    executable = executable_test_ids(run_quire_coverage(root))
+    failures = validate_documents(documents, executable)
     failures.extend(validate_criterion_citations(documents, live_criteria(root)))
     if failures:
         for failure in failures:
