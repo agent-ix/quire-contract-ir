@@ -17,7 +17,6 @@ mod checked_package;
 use checked_package::{
     canonical, evidence_for, fixture, node_identity_vectors, refresh_identity, sha256_hex,
 };
-use ix_trace_rs::trace;
 use quire_contract_ir::{
     CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
@@ -33,13 +32,6 @@ fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2Rea
         CheckedPackageReadLimits::bounded(),
         evidence,
     )
-}
-
-fn admitted(value: &Value) -> Box<CheckedPackageV2> {
-    match read(value, &evidence_for(value)) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("expected V2 admission, got {other:?}"),
-    }
 }
 
 fn refused(value: &Value) -> CheckedPackageRefusal {
@@ -182,8 +174,27 @@ fn apply_operation_mutation(
     checked_package::apply_patch(&mut preimage, patch);
     package["semantic_graph"]["nodes"][position]["body"] = preimage["body"].clone();
     if rekey {
+        let original_digest = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("node_id.digest")
+            .to_owned();
         let fresh = sha256_hex(&canonical(&preimage));
         package["semantic_graph"]["nodes"][position]["node_id"]["digest"] = json!(fresh);
+        // Mirrors admit_vector's own source_map rekeying: a rekeyed node's
+        // occurrence must keep matching its source-map entry, or the graph
+        // stage's InvalidSourceMap fires as a second, incidental defect
+        // before this mutation's own named defect is ever reached.
+        if original_digest != fresh {
+            for entry in package["source_map"]
+                .as_array_mut()
+                .expect("source_map")
+                .iter_mut()
+            {
+                if entry["node_id"]["digest"] == original_digest {
+                    entry["node_id"]["digest"] = json!(fresh);
+                }
+            }
+        }
     }
     refresh_identity(&mut package);
     package
@@ -196,9 +207,13 @@ fn apply_operation_mutation(
 /// `tests/fixtures/checked-package/checked-package-v2/operation-catalog.json`
 /// (PROVENANCE's own digest, never edited) are proven to be one set of
 /// bytes kept in two places, not two catalogs that can silently drift apart.
-///
-/// Tracing: TC-054
-#[trace("TC-054")]
+// Deliberately untraced: TC-054 is "Kani counterexample replay through the
+// complete-V1 executor conforms" (FR-031-AC-3), status planned and
+// discharged by the QSL crossing test at quire-spec-language#243, which has
+// not started. This test only proves the production and vendored
+// operation-catalog bytes stay identical — not what TC-054 names — so it
+// binds itself to no criterion rather than claim that unstarted work is
+// done.
 #[test]
 fn tc_054_production_operation_catalog_matches_the_vendored_fixture() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -219,9 +234,15 @@ fn tc_054_production_operation_catalog_matches_the_vendored_fixture() {
 /// identity or digest anchors it to in `positive-operation-identities.json`
 /// (adding any law definition the base fixture does not already select),
 /// admits.
-///
-/// Tracing: TC-054, FR-038-AC-5, FR-038-AC-17
-#[trace("TC-054", "FR-038-AC-5", "FR-038-AC-17")]
+// Deliberately untraced: TC-054 is "Kani counterexample replay through the
+// complete-V1 executor conforms" (FR-031-AC-3), status planned and
+// discharged by the QSL crossing test at quire-spec-language#243, which has
+// not started — not what this test verifies. FR-038-AC-17 covers the
+// `operation` member's presence, not law validation, and FR-038-AC-5 covers
+// node-identity vector re-derivation, not operation-law admission; neither
+// is what this test checks. FR-038 has no acceptance criterion for
+// catalog-driven operation-law validation, so there is no row to bind to,
+// and binding to any of these would be a false claim.
 #[test]
 fn tc_054_operation_vectors_admit() {
     let document = node_identity_vectors();
@@ -234,8 +255,10 @@ fn tc_054_operation_vectors_admit() {
         let name = vector["name"].as_str().expect("name");
         let position = anchor_position(&base, vector);
         let package = admit_vector(&base, position, vector);
-        admitted(&package);
-        let _ = name;
+        match read(&package, &evidence_for(&package)) {
+            CheckedPackageV2ReadResult::Admitted(_) => {}
+            other => panic!("{name}: expected V2 admission, got {other:?}"),
+        }
     }
 }
 
@@ -245,9 +268,14 @@ fn tc_054_operation_vectors_admit() {
 /// retains its anchor node's original key (the defect under test); every
 /// other mutation rekeys first, so the *only* defect left standing is the
 /// one its own `expected_cause` names.
-///
-/// Tracing: TC-054, FR-038-AC-5
-#[trace("TC-054", "FR-038-AC-5")]
+// Deliberately untraced: TC-054 is "Kani counterexample replay through the
+// complete-V1 executor conforms" (FR-031-AC-3), status planned and
+// discharged by the QSL crossing test at quire-spec-language#243, which has
+// not started — not what this test verifies. FR-038-AC-5 covers
+// node-identity vector re-derivation, not operation-law refusal causes,
+// which is also not what this test checks. FR-038 has no acceptance
+// criterion for catalog-driven operation-law validation, so there is no row
+// to bind to, and binding to either would be a false claim.
 #[test]
 fn tc_054_operation_mutations_vectors_refuse_their_own_code_and_cause() {
     let document = node_identity_vectors();

@@ -46,7 +46,6 @@ pub(super) struct OperationCatalogEntry {
     pub(super) constraints: Vec<OperationConstraint>,
     /// The leaf source this operation compares, or `None` when it carries no
     /// leaves.
-    #[allow(dead_code)]
     pub(super) leaves: Option<Box<str>>,
 }
 

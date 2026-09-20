@@ -20,21 +20,39 @@
 //!    entry, in ascending node-id digest order, reporting the first node
 //!    that fails.
 //!
-//! Scope this reader does not cover, all narrower than the vendored README's
-//! full generality and never exercised by an admitted fixture or vendored
-//! vector: a node's own `recursion` preimage member is encoded here as the
-//! bare `recursion_group` label rather than the README's `group_reference`
-//! ordinal substitution (no vendored application node carries one); an
+//! Scope this reader does not cover, narrower than the vendored README's full
+//! generality and not exercised by an admitted fixture or vendored vector,
+//! except where noted below: a node's own `recursion` preimage member is
+//! encoded here as the bare `recursion_group` label rather than the README's
+//! `group_reference` ordinal substitution (no vendored application node
+//! carries one) — unlike every other item in this list, this one is a
+//! **false-refusal risk, not a silent no-op**: the two encodings yield
+//! different digests, so a legitimate application node inside a recursion
+//! group is refused `invalid_package`/`stale-node-key` rather than admitted.
+//! The remaining items are silent no-ops (never a false refusal), not a
+//! silent admission of something the vendored corpus requires rejected: an
 //! `operation.member` of kind `position`, `element`, `relationship_end`,
 //! `type_argument` or `operation` is checked for presence and kind only, not
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind a vendored mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared); a `constraints`
 //! entry other than `same_family`/`same_type` is not enforced; leaf-path
-//! resolution covers exactly one shape, `["field:<name>"]` against the
-//! first operand's record type, the one the vendored vectors exercise.
-//! Every one of these is a silent no-op (never a false refusal), not a
-//! silent admission of something the vendored corpus requires rejected.
+//! resolution covers exactly one shape, `["field:<name>"]` against the first
+//! operand's record type, the one the vendored vectors exercise;
+//! [`validate_application_keys`] re-derives a key only for a node whose own
+//! `body` is an application term at its root, never for a nested
+//! `application` term inside `body.arguments[*]` — the README instead says
+//! every node whose body *contains* an application gets a re-derived key, so
+//! a nested application's own key is never checked here, and its own
+//! `operation` is never validated by [`validate_operations`] either, since
+//! that stage only visits root-bodied application nodes too; `operation.mode`
+//! is checked for `kind` only — its `value` is never checked against the
+//! catalog's closed `modes` vocabulary; a catalogued entry's `result` is
+//! never checked against the catalog's `result_forms`; `argument_family`
+//! resolves only `reference` and `binding` argument terms, so a `literal`,
+//! `aggregate` or nested `application` argument resolves to no family and
+//! silently bypasses every operand-family check ([`check_operands`],
+//! [`check_mode_type`], [`check_leaves`]) that consults it.
 
 use super::operation_catalog::{operation_catalog, OperationCatalogEntry};
 use super::{
@@ -163,13 +181,18 @@ struct OperationLeafWire {
 
 /// Every application node's `operation`, in ascending node-id digest order,
 /// checked against [`operation_catalog`] and `lock`. Reports the first node
-/// that fails, at the first check it fails, in the vendored README's order:
-/// `unknown-operation`, `operation-class-mismatch`, `operation-law-missing`,
+/// that fails, at the first check it fails, in this order: `unknown-operation`,
+/// `operation-class-mismatch`, `operation-law-missing`,
 /// `operation-law-mismatch`, `operation-law-unselected`,
-/// `operation-mode-mismatch`, `operation-member-mismatch`, then
-/// `operator-ineligible` (arity, operand family, named-member existence),
-/// then `operation-mode-type-mismatch` (an operand or leaf whose own type
-/// pins a value the wire's mode disagrees with).
+/// `operation-mode-mismatch`, `operation-member-mismatch` — these seven match
+/// the vendored README's own order — then `operator-ineligible` (arity,
+/// operand family, named-member existence), then `operation-mode-type-mismatch`
+/// (an operand or leaf whose own type pins a value the wire's mode disagrees
+/// with). The README instead orders `operation-mode-type-mismatch` before
+/// `operator-ineligible`; this implementation runs the reverse, and no
+/// vendored vector distinguishes the two orders, so this one adjacent pair's
+/// relative order is not pinned by any vector — do not read it as validated
+/// against the README.
 pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -208,7 +231,10 @@ fn operation_defect(
             OPERATION_PATH,
         )));
     };
-    meter.charge(1 + operation.laws.len() as u64 + operation.leaves.len() as u64)?;
+    meter.charge(
+        1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
+            + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
+    )?;
 
     let catalog = operation_catalog();
     let Some(entry) = catalog.entry(&operation.identity) else {
@@ -339,7 +365,7 @@ fn operation_defect(
     {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(node, &operation, &arguments, nodes, index, catalog) {
+    if let Some(failure) = check_leaves(node, &operation, &arguments, nodes, index) {
         return Ok(Some(failure));
     }
     Ok(None)
@@ -659,7 +685,6 @@ fn check_leaves(
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    _catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
     for leaf in &operation.leaves {
         let Some(mode) = &leaf.mode else { continue };

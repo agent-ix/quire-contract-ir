@@ -38,7 +38,7 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 /// application-bodied nodes — `function.call`, `temporal.clause`,
 /// `protocol.control`, `claim.clause` — = 4) and `validate_operations` (one
 /// charge per application node plus one per declared law plus one per leaf
-/// entry: `function.call` 1 law 0 leaves 0 = 1; each of `temporal.clause`,
+/// entry: `function.call` 0 laws 0 leaves = 1; each of `temporal.clause`,
 /// `protocol.control` and `claim.clause` 1 law, 0 leaves = 2 each = 6;
 /// total 7), for 73 + 4 + 7 = 84. Cross-checked against
 /// `CheckedPackageV2::read`'s real admit/refuse boundary by
