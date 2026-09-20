@@ -5,10 +5,11 @@ import io
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts.validate_matrix_status import (
     cited_criteria,
-    executable_tests,
+    executable_test_ids,
     live_criteria,
     main,
     validate_criterion_citations,
@@ -63,7 +64,14 @@ class MatrixStatusTests(unittest.TestCase):
         self.assertEqual(validate_documents([matrix, policy], {"TC-026"}), [])
 
     def test_main_reads_a_real_tree_and_fails_closed(self) -> None:
-        """TC-021. Trace: TC-021, NFR-004-AC-5."""
+        """TC-021. Trace: TC-021, NFR-004-AC-5.
+
+        `main()` never parses Rust or Python itself; it consumes whatever
+        `run_quire_coverage` returns, so this test controls that boundary
+        directly rather than writing source files for a real `quire` to
+        scan. Everything else — the matrix and policy documents, the
+        criterion-citation check — is real.
+        """
         matrix = """
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
@@ -77,51 +85,95 @@ class MatrixStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
             root = pathlib.Path(directory)
             (root / "spec/program").mkdir(parents=True)
-            (root / "tests").mkdir()
             (root / "spec/test-matrix.md").write_text(matrix, encoding="utf-8")
             (root / "spec/contract-test-matrix.md").write_text("", encoding="utf-8")
             (root / "spec/program/PGM-01-governance.md").write_text(
                 policy, encoding="utf-8"
             )
 
+            unbacked_report = {"minted_targets": []}
             stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
+            with mock.patch(
+                "scripts.validate_matrix_status.run_quire_coverage",
+                return_value=unbacked_report,
+            ), contextlib.redirect_stderr(stderr):
                 self.assertEqual(main(["--root", str(root)]), 1)
             self.assertIn(
                 "TC-021 is complete but has no executable test", stderr.getvalue()
             )
 
-            (root / "tests/matrix.rs").write_text(
-                "#[test]\nfn tc_021_matrix_status() {}\n", encoding="utf-8"
-            )
+            backed_report = {
+                "minted_targets": [
+                    {"id": "TC-021", "target": "test-case", "backed": True}
+                ]
+            }
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
+            with mock.patch(
+                "scripts.validate_matrix_status.run_quire_coverage",
+                return_value=backed_report,
+            ), contextlib.redirect_stdout(stdout):
                 self.assertEqual(main(["--root", str(root)]), 0)
             self.assertIn("declared test symbol", stdout.getvalue())
 
-    def test_rust_test_symbols_accept_either_attribute_order(self) -> None:
-        """TC-021. Trace: TC-021, NFR-004-AC-5."""
-        source = """
-/// Tracing: TC-044
-#[test]
-#[trace("TC-044", "FR-035-AC-1")]
-fn tc_044_test_before_trace() {}
+    def test_main_ties_the_coverage_verdict_to_the_exit_code(self) -> None:
+        """TC-021. Trace: TC-021, NFR-004-AC-5.
 
-#[trace("TC-047", "FR-038-AC-1")]
-#[test]
-fn tc_047_trace_before_test() {}
-
-#[test]
-fn tc_048_plain() {}
-
-#[trace("TC-049", "FR-038-AC-6")]
-fn tc_049_not_a_test() {}
+        Regression for finding 5: a rewrite that computes `failures` from
+        `validate_documents`/`validate_criterion_citations` but forgets to
+        route them into `main()`'s return value (or a mutant that clears
+        `failures` before the `if failures:` check) must fail this test.
+        Mutation transcript recorded in the PR discussion: setting
+        `failures = []` immediately before the check turns this failure
+        into a false pass, which is exactly the regression this asserts
+        against.
+        """
+        matrix = """
+| Test ID | Title | Type | Priority | Traces To | Status |
+|---|---|---|---|---|---|
+| TC-900 | invented row | Test | P0 | NFR-004 | ✅ implemented |
 """
         with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
             root = pathlib.Path(directory)
-            (root / "tests").mkdir()
-            (root / "tests/traced.rs").write_text(source, encoding="utf-8")
-            self.assertEqual(executable_tests(root), {"TC-044", "TC-047", "TC-048"})
+            (root / "spec/program").mkdir(parents=True)
+            (root / "spec/test-matrix.md").write_text(matrix, encoding="utf-8")
+            (root / "spec/contract-test-matrix.md").write_text("", encoding="utf-8")
+            (root / "spec/program/PGM-01-governance.md").write_text("", encoding="utf-8")
+
+            with mock.patch(
+                "scripts.validate_matrix_status.run_quire_coverage",
+                return_value={"minted_targets": []},
+            ):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = main(["--root", str(root)])
+                self.assertEqual(exit_code, 1)
+                self.assertIn(
+                    "matrix status error: TC-900 is complete but has no executable "
+                    "test",
+                    stderr.getvalue(),
+                )
+
+    def test_executable_test_ids_reads_backed_test_case_targets(self) -> None:
+        """TC-021, IR-202 (quire-contract-ir#157). Trace: TC-021, NFR-004-AC-5.
+
+        `executable_test_ids` is the whole binding boundary now: it credits
+        exactly the ids `quire coverage --json` marked as a backed
+        `test-case` target, and nothing else — not an unbacked test-case, not
+        a backed target of a different kind (an acceptance criterion can
+        share an id shape's neighborhood but is never a test case), and not
+        an id `quire` never minted at all.
+        """
+        report = {
+            "minted_targets": [
+                {"id": "TC-044", "target": "test-case", "backed": True},
+                {"id": "TC-047", "target": "test-case", "backed": True},
+                {"id": "TC-049", "target": "test-case", "backed": False},
+                {"id": "FR-035-AC-1", "target": "acceptance-criterion", "backed": True},
+            ]
+        }
+        self.assertEqual(executable_test_ids(report), {"TC-044", "TC-047"})
+        self.assertEqual(executable_test_ids({"minted_targets": []}), set())
+        self.assertEqual(executable_test_ids({}), set())
 
     def test_rejects_rows_that_omit_a_live_acceptance_criterion(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5, NFR-004-AC-7."""

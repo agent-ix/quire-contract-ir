@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import ast
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,9 +18,6 @@ STATUS_DOCUMENTS = (
 )
 TEST_ID = re.compile(r"TC-(\d{3})")
 TEST_RANGE = re.compile(r"TC-(\d{3})\s+through\s+TC-(\d{3})")
-# `#[test]` followed by any further outer attributes (for example `#[trace]`),
-# in either order relative to them, and then the traced function.
-RUST_TEST = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+tc_(\d{3})(?:_|\b)")
 POLICY_AC = re.compile(r"PGM-\d+-R\d+-AC-\d+")
 REQUIREMENT_ID = re.compile(r"(?:FR|NFR)-\d{3}")
 RETIRED_HEADING = re.compile(r"^#{2,4}\s+Retired criteria\b.*$", re.I)
@@ -125,35 +123,65 @@ def cited_criteria(requirement: str, cell: str) -> set[str]:
     return cited
 
 
-def executable_tests(root: Path = ROOT) -> set[str]:
-    result = set()
-    for path in (root / "tests").glob("*.rs"):
-        result.update(f"TC-{number}" for number in RUST_TEST.findall(path.read_text()))
-    for path in (root / "tests").glob("*.py"):
-        module = ast.parse(path.read_text(encoding="utf-8"))
-        has_function_loader = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "load_tests"
-            for node in module.body
+class QuireCoverageError(RuntimeError):
+    """`quire coverage` could not be run, or did not return a parseable report."""
+
+
+def run_quire_coverage(root: Path, *, quire_bin: str = "quire") -> dict:
+    """The `CoverageReport` `quire coverage --scope <root> --json` emits.
+
+    This is the *only* reader of test/code trace bindings: whichever forms
+    `quire`'s declared trace-tag grammar honours (`#[trace(...)]`, the
+    doc-comment and line-comment legacy forms, and any others a module
+    declares) are the forms this script honours, because this script never
+    parses Rust or Python source itself. `quire` also walks the whole
+    scope — `tests/**/*.rs` and `src/`, not just `tests/*.rs` — so a
+    production `#[trace]` (for example `src/predicate/artifacts.rs`) counts
+    here too.
+
+    Without `--strict`, `quire coverage` always exits 0 — the rollup is a
+    report, not a gate (this script and `make spec`'s separate `--strict`
+    invocation are the gates) — so a non-zero exit here means the command
+    itself failed, not that a row is unbacked; that is never swallowed.
+    """
+    try:
+        result = subprocess.run(
+            [quire_bin, "coverage", "--scope", str(root), "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        for node in module.body:
-            if (
-                has_function_loader
-                and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith("test_")
-            ):
-                result.update(referenced_tests(ast.get_docstring(node) or ""))
-            if isinstance(node, ast.ClassDef) and any(
-                (isinstance(base, ast.Name) and base.id == "TestCase")
-                or (isinstance(base, ast.Attribute) and base.attr == "TestCase")
-                for base in node.bases
-            ):
-                for method in node.body:
-                    if isinstance(
-                        method, (ast.FunctionDef, ast.AsyncFunctionDef)
-                    ) and method.name.startswith("test_"):
-                        result.update(referenced_tests(ast.get_docstring(method) or ""))
-    return result
+    except FileNotFoundError as error:
+        raise QuireCoverageError(f"could not run {quire_bin!r}: {error}") from error
+    if result.returncode != 0:
+        raise QuireCoverageError(
+            f"`{quire_bin} coverage --scope {root} --json` exited "
+            f"{result.returncode}:\n{result.stderr}"
+        )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise QuireCoverageError(
+            f"`{quire_bin} coverage --json` did not emit valid JSON: {error}\n"
+            f"stderr:\n{result.stderr}"
+        ) from error
+
+
+def executable_test_ids(report: dict) -> set[str]:
+    """TC ids `quire coverage` reports as backed by a real test-case symbol.
+
+    `minted_targets` carries every id `quire` minted from the corpus, each
+    with the `backed` verdict it computed — for a `test-case` target that
+    verdict already reconciles every declared binding form, in every
+    scanned language and file, exactly as `quire coverage --strict` gates
+    on. Reading it here is the whole point of "one reader, one fact": this
+    function invents no coverage of its own, in either direction.
+    """
+    return {
+        target["id"]
+        for target in report.get("minted_targets", [])
+        if target.get("target") == "test-case" and target.get("backed")
+    }
 
 
 def validate_criterion_citations(
@@ -231,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
     documents = [(root / path).read_text(encoding="utf-8") for path in STATUS_DOCUMENTS]
-    failures = validate_documents(documents, executable_tests(root))
+    executable = executable_test_ids(run_quire_coverage(root))
+    failures = validate_documents(documents, executable)
     failures.extend(validate_criterion_citations(documents, live_criteria(root)))
     if failures:
         for failure in failures:
