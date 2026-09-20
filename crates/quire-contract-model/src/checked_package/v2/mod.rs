@@ -9,9 +9,13 @@
 mod identity;
 mod lower;
 mod natural;
+mod operation_catalog;
+mod operations;
 
 pub use identity::*;
 pub use lower::*;
+
+use operations::{validate_application_keys, validate_operations};
 
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
@@ -1269,8 +1273,9 @@ fn frame_defect(
 /// immediately after declaration checks (`validate_nominal_nodes`) and before
 /// the graph's dependency/body-reference edges are resolved — the
 /// "graph-shape, ..., declaration, frame, operation" reader order the
-/// vendored README states normatively (the stale-application-key and
-/// operation stages it also names are not yet implemented by this reader).
+/// vendored README states normatively (`validate_application_keys` runs the
+/// stale-application-key stage just before this one, ahead of declaration;
+/// `validate_operations` runs the operation stage just after).
 /// Running before edge resolution matters: `frame_defect` resolves each
 /// declared entry itself, so a frame `dependencies` entry naming no real node
 /// is reported as FR-340's own `missing_declaration`, not the generic
@@ -1402,8 +1407,10 @@ fn validate_graph(
     // resolves each entry itself), not the generic unresolved-reference
     // `invalid_semantic_graph` the edge-resolution loop below would raise for
     // the same node first if it ran first.
+    validate_application_keys(&graph.nodes, &index, meter)?;
     validate_nominal_nodes(&graph.nodes, &tags, &index, &wire.lock, meter)?;
     validate_frame_semantics(&graph.nodes, &tags, &index)?;
+    validate_operations(&graph.nodes, &index, &wire.lock, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path| {

@@ -90,13 +90,20 @@ pub enum CheckedPackageRefusalCode {
     /// A frame entry named a declared dependency of a meaning its member
     /// does not admit.
     InvalidModelBinding,
+    /// An application node's `operation` failed catalog validation, or its
+    /// retained key is not its own preimage digest.
+    InvalidPackage,
+    /// An application node's argument, member or leaf is ill-typed against
+    /// its catalogued operation.
+    IllTyped,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
 /// FR-322's closed `DiagnosticCausePairing` (`schema.json`). Only the causes
-/// this reader currently produces; FR-322's remaining cause tags belong to
-/// stages (stale application-node keys, ambiguous declarations, operator
-/// eligibility) this reader does not yet implement.
+/// this reader currently produces; FR-322's remaining cause tags — ambiguous
+/// declarations and `declaration-nominal-mismatch` (the README names it a
+/// reader-stage cause; this reader does not produce it) — belong to stages
+/// this reader does not yet implement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckedPackageRefusalCause {
     /// `missing-name`: an entry naming no node of the graph, or a node that
@@ -105,6 +112,36 @@ pub enum CheckedPackageRefusalCause {
     /// `malformed-declaration`: an entry naming a declared dependency whose
     /// tag and semantic form its member does not admit.
     MalformedDeclaration,
+    /// `stale-node-key`: an application node whose retained key is not the
+    /// JCS SHA-256 of its own preimage.
+    StaleNodeKey,
+    /// `unknown-operation`: an `operation.identity` absent from the catalog.
+    UnknownOperation,
+    /// `operation-class-mismatch`: the application's `operator` does not
+    /// equal the catalogued entry's operator class.
+    OperationClassMismatch,
+    /// `operation-law-missing`: `operation.laws` (or a required `leaves`
+    /// entry) is shorter than the catalogued entry requires.
+    OperationLawMissing,
+    /// `operation-law-mismatch`: a declared law names a role or definition
+    /// the catalogued entry (or its law-role table) does not admit.
+    OperationLawMismatch,
+    /// `operation-law-unselected`: a declared law's definition is a
+    /// catalogued member of its role but is absent from the package lock's
+    /// own selections.
+    OperationLawUnselected,
+    /// `operation-mode-mismatch`: `operation.mode`'s presence or kind
+    /// disagrees with the catalogued entry's mode kind.
+    OperationModeMismatch,
+    /// `operation-mode-type-mismatch`: `operation.mode`'s value disagrees
+    /// with the value an operand or leaf's own type pins.
+    OperationModeTypeMismatch,
+    /// `operation-member-mismatch`: `operation.member`'s presence or kind
+    /// disagrees with the catalogued entry's member kind.
+    OperationMemberMismatch,
+    /// `operator-ineligible`: an argument's arity, type or named member does
+    /// not fit the catalogued entry's operands, constraints or member.
+    OperatorIneligible,
 }
 
 /// A typed refusal with a stable code and structural path.
