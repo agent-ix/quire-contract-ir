@@ -1,5 +1,7 @@
 # Quire Contract IR
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/6qsdhSPE)
+
 Cycle-free semantic contract model and compatibility bridge for assurance tooling.
 
 ## Workspace architecture
