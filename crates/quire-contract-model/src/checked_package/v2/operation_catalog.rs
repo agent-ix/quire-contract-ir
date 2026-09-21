@@ -1,38 +1,45 @@
 //! The closed `quire.checked-operation-catalog/v1` every V2 `application`
 //! term's `operation` member is validated against (`validate_operations`).
 //!
-//! This module has no catalog to read. The bytes it embedded were copied from
-//! a private repository into this public one; both copies are now deleted, and
-//! neither is coming back. A copy is a copy wherever it is spelled, and
-//! `schemas/` is not a different rule from `tests/fixtures/`.
+//! This module reads the catalog from its home and holds no copy of it. The
+//! bytes it used to embed were copied from a private repository into this
+//! public one; both copies were deleted, and neither is coming back. A copy is
+//! a copy wherever it is spelled, and `schemas/` was not a different rule from
+//! `tests/fixtures/`.
 //!
-//! The build therefore does not compile, deliberately. The alternatives were
-//! to keep the copy, or to drop catalog-driven validation and let this reader
-//! start admitting `operation` members it used to refuse — a silent weakening
-//! of the contract, decided by an agent, in a crate other repositories depend
-//! on. A build that stops and says why is the honest one of the three.
+//! Between that deletion and this module's current form the build did not
+//! compile, deliberately (agent-ix/quire-contract-ir#169). The alternatives
+//! were to keep the copy, or to drop catalog-driven validation and let this
+//! reader start admitting `operation` members it used to refuse — a silent
+//! weakening of the contract, decided by an agent, in a crate other
+//! repositories depend on. A build that stops and says why was the honest one
+//! of the three.
 //!
-//! What unblocks it, on agent-ix/quire-contract-ir#166: a published source for
-//! `quire.checked-operation-catalog/v1` this crate can depend on rather than
-//! copy, or a catalog authored here in its own right. Restoring the deleted
-//! bytes is not one of the options.
+//! What unblocked it was the third option asked for on #166: a published source
+//! to depend on rather than copy. `quire-verification-contracts` is now the
+//! catalog's home; this crate depends on it and owns only the reader. Restoring
+//! the deleted bytes here, under any name or path, is still not one of the
+//! options.
 
 use super::CheckedArtifactRef;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-compile_error!(
-    "quire.checked-operation-catalog/v1 has no source in this repository. The bytes this \
-     module embedded were copied from a private repository and were deleted; see \
-     agent-ix/quire-contract-ir#166. Resolve it with a published source or a catalog \
-     authored here — not by restoring the deleted file."
-);
+/// The catalog, read from its home rather than copied here.
+///
+/// `quire-verification-contracts` owns `quire.checked-operation-catalog/v1` and
+/// publishes the bytes and a digest over them; this crate owns the reader that
+/// decides what they admit. That split is the point: one definition of the closed
+/// vocabulary, one implementation of the rules it drives. A copy of these bytes in
+/// this repository, under any name or path, is a defect — it is what left this
+/// module unable to compile at all.
+const CATALOG_BYTES: &str =
+    quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
-// Empty only so the rest of this module still type-checks and the build stops
-// on the `compile_error!` above rather than on a cascade of consequential
-// errors that bury it. Nothing reads it: the crate does not compile.
-const CATALOG_BYTES: &str = "";
+/// The vocabulary identity this reader's rules are written against.
+const CATALOG_VERSION: &str =
+    quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1_VERSION;
 
 /// One `operation-catalog.json` `operations[]` entry.
 #[derive(Clone, Debug, Deserialize)]
@@ -83,7 +90,6 @@ pub(super) struct OperationConstraint {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OperationCatalogWire {
-    #[allow(dead_code)]
     version: Box<str>,
     #[allow(dead_code)]
     families: Vec<Box<str>>,
@@ -160,6 +166,16 @@ pub(super) fn operation_catalog() -> &'static OperationCatalog {
     CATALOG.get_or_init(|| {
         let wire: OperationCatalogWire = serde_json::from_str(CATALOG_BYTES)
             .expect("embedded checked-operation-catalog-v1.json is valid");
+        // The dependency `rev` is provenance and pins nothing about content: a rev
+        // bump that landed a different closed vocabulary would leave this reader
+        // validating every package against it, silently. The identity is what the
+        // reader's rules are written for, so it is checked here rather than assumed.
+        assert_eq!(
+            wire.version.as_ref(),
+            CATALOG_VERSION,
+            "the catalog read from its home declares a different vocabulary identity \
+             than this reader implements"
+        );
         let operations = wire
             .operations
             .into_iter()
@@ -173,4 +189,39 @@ pub(super) fn operation_catalog() -> &'static OperationCatalog {
             type_pinned_modes: wire.type_pinned_modes,
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    /// The catalog this crate compiled against is the document its home
+    /// published, checked by content rather than by the dependency `rev`.
+    ///
+    /// The `rev` is provenance: it says where the bytes came from, and it dies
+    /// if that history is rewritten — which is exactly what happened to the
+    /// copy this dependency replaced. The digest is over the bytes themselves,
+    /// so a rev bump that landed a different vocabulary fails here instead of
+    /// silently changing what every CheckedPackage V2 is validated against.
+    #[test]
+    fn the_catalog_read_from_its_home_is_the_document_that_home_published() {
+        let measured = format!("{:x}", Sha256::digest(CATALOG_BYTES.as_bytes()));
+        assert_eq!(
+            measured,
+            quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1_SHA256,
+            "the operation catalog's bytes do not match the digest its home publishes for them"
+        );
+    }
+
+    /// The reader refuses a catalog of another vocabulary identity rather than
+    /// applying v1 rules to it. Paired with the digest check above: that one
+    /// catches changed bytes, this one catches a deliberate version change.
+    #[test]
+    fn the_catalog_declares_the_vocabulary_this_reader_implements() {
+        let wire: OperationCatalogWire =
+            serde_json::from_str(CATALOG_BYTES).expect("the catalog is valid");
+        assert_eq!(wire.version.as_ref(), "quire.checked-operation-catalog/v1");
+        assert_eq!(CATALOG_VERSION, "quire.checked-operation-catalog/v1");
+    }
 }

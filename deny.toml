@@ -7,6 +7,11 @@ allow = [
     "AGPL-3.0-or-later",
     "BSD-2-Clause",
     "Unicode-3.0",
+    # Reached through the operation catalog's home: `foldhash` (Zlib) via
+    # `hashbrown`, `borrow-or-share` (MIT-0) via `fluent-uri`. Both are permissive
+    # and compatible with this crate's AGPL-3.0-or-later.
+    "Zlib",
+    "MIT-0",
 ]
 confidence-threshold = 0.9
 
@@ -27,6 +32,7 @@ allow-git = [
     "https://github.com/agent-ix/quire-observation",
     "https://github.com/agent-ix/quire-protocol",
     "https://github.com/agent-ix/quire-spec-language",
+    "https://github.com/agent-ix/quire-verification-contracts",
     "https://github.com/agent-ix/tl-mltl",
     "https://github.com/agent-ix/tl-syntax",
 ]
