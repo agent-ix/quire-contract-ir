@@ -30,19 +30,6 @@ reopened or generalized by implication.
 
 ## Dependency DAG
 
-```text
-#99 / FR-035..037 / AD-003 (specified and reviewed)
-  -> #100 Contract IR complete node families and exact lowering
-    -> runtime #16 exact typed oracle operators
-      -> codegen #48 deterministic complete-V1 oracle generation
-        -> codegen #49 complete bounded Kani generation
-          -> codegen #50 canonical replay and parity
-            -> #55 OCL, #56 SysML/KerML, #57 FRETish
-              -> #58 formalization coverage
-                -> #40 cross-repository closeout
-                  -> #101 cross-backend qualification
-```
-
 No consumer may start an implementation interface before its direct producer
 has merged its reviewed contract. Each ticket runs its own scoped spec cycle if
 it introduces a new representation, correspondence, or compatibility promise.

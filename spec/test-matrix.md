@@ -49,7 +49,7 @@ substrate's own non-functional requirements are covered by TM-002; see
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
 | TC-001 | Compatibility and pinning language exists | Inspection | P0 | FR-001, FR-002 | ✅ implemented |
-| TC-002 | Eight repositories and release classes are complete | Inspection | P0 | FR-003, FR-007 | ✅ implemented |
+| TC-002 | Repository release classes and the source-tag gating rule are complete | Inspection | P0 | FR-003, FR-007 | ✅ implemented |
 | TC-003 | License, clean-room, agent, and boundary rules exist | Inspection | P0 | FR-004, FR-005, FR-010 | ✅ implemented |
 | TC-004 | CODEOWNER and human-only decision gate agree | Inspection | P0 | FR-006, FR-009 | ✅ implemented |
 | TC-023 | Shared responsibility registry has exactly one owner per responsibility | Inspection | P0 | FR-021 | ✅ implemented |
