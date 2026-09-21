@@ -1639,50 +1639,6 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     );
 }
 
-/// The vendored tree pinned by `PROVENANCE` is what this reader actually
-/// re-derives: each of the five positive fixtures admits and re-derives its
-/// recorded `package_id` exactly. The digests are pinned as literals — not
-/// read back from the fixture — so a silent identity change in the reader,
-/// or an edit to a vendored fixture that is not re-pinned here, fails this
-/// test rather than passing silently.
-///
-/// Tracing: TC-048, FR-038-AC-16
-#[trace("TC-048", "FR-038-AC-16")]
-#[test]
-fn tc_048_vendored_positive_fixtures_rederive_their_recorded_package_id() {
-    let cases = [
-        (
-            "checked-package-v2/fixtures/positive-all-families.json",
-            "b0b40569b19f00bd06ae08e218f0f77d114ce97cf42d2b6fa7c868a96a18bdad",
-        ),
-        (
-            "checked-package-v2/fixtures/positive-nominal-identities.json",
-            "b70a9f27c9ef49711fb603d56014aa5ce092379cd820c5e62a0154c89877e7b4",
-        ),
-        (
-            "checked-package-v2/fixtures/positive-operation-identities.json",
-            "dca508e418e70d99bcaf49384ea48c7f909a389d8c5b15541e5fb1bddd426168",
-        ),
-        (
-            "checked-package-v2/fixtures/positive-clause-operations.json",
-            "d011de207a1fe5578b89d185f9394ef6a995c16244b72d63ba2775c6518b5952",
-        ),
-        (
-            "checked-package-v2/fixtures/positive-control-operations.json",
-            "c76a26bf468ae66a74ea3f79dde881657b5fc9c0c555535fcc12d59b4cc2b69f",
-        ),
-    ];
-    for (path, recorded_digest) in cases {
-        let value = fixture(path);
-        let package = admitted(&value);
-        assert_eq!(
-            package.package_id().digest.as_ref(),
-            recorded_digest,
-            "{path}"
-        );
-    }
-}
-
 /// FR-038-AC-17: deleting `declaration`, `literal.type`,
 /// `application.operation` or `application.result_type` from a single node
 /// refuses as `invalid_semantic_graph`, whether the deletion is left on the

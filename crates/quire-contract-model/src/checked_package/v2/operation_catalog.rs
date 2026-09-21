@@ -1,15 +1,12 @@
 //! The closed `quire.checked-operation-catalog/v1` every V2 `application`
 //! term's `operation` member is validated against (`validate_operations`).
 //!
-//! Embedded from `schemas/checked-operation-catalog-v1.json`, the production
-//! home for this data. The catalog is also vendored, byte-identical, at
-//! `tests/fixtures/checked-package/checked-package-v2/operation-catalog.json`
-//! for the QSpec qualification crate that ships it and for this crate's own
-//! conformance vectors (`node-identity-vectors.json`'s `operation_vectors`
-//! and `operation_mutations`); the two are not the same file read twice, so
-//! `tc_054_production_operation_catalog_matches_the_vendored_fixture`
-//! (`tests/checked_package_v2_operations.rs`) asserts they stay byte-equal
-//! rather than letting them drift silently.
+//! Embedded from `schemas/checked-operation-catalog-v1.json`, the single home
+//! for this data in this repository. The second, byte-identical copy that used
+//! to sit under `tests/fixtures/` — and the test asserting the two stayed
+//! equal — are gone with the rest of the private-sourced fixture tree
+//! (agent-ix/quire-contract-ir#166). The remaining copy carries the same
+//! origin and has not been re-derived here; that is open on #166 too.
 
 use super::CheckedArtifactRef;
 use serde::Deserialize;

@@ -361,7 +361,7 @@ pub(super) struct ReferenceSite {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TermGrammar {
     /// V2 `SemanticTerm`: a numeric literal value must be an integer token
-    /// within the signed or unsigned 64-bit range. The vendored schema admits
+    /// within the signed or unsigned 64-bit range. The upstream schema admits
     /// only `integer` numbers; a fraction, exponent or out-of-range integer is
     /// refused rather than rounded.
     V2,

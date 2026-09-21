@@ -41,16 +41,12 @@ reader-supported required features; for lowering, requested node keys and a
 lowering profile (supported node tags, bounded-domain requirement, work
 limit).
 
-The normative producer contract is QSpec
-`proposals/checked-package-v2/` at
-`agent-ix/quire-specification@0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb`,
-vendored byte-exact under `tests/fixtures/checked-package/` with a
-`PROVENANCE` file naming each source path, blob and SHA-256. The vendored set
-is `README.md`, `schema.json`, `node-identity-preimage.schema.json`,
-`node-identity-vectors.json`, `operation-catalog.json` and the six fixtures
-`adverse.json`, `positive-all-families.json`,
-`positive-nominal-identities.json`, `positive-operation-identities.json`,
-`positive-clause-operations.json` and `positive-control-operations.json`.
+The normative producer contract is the QSpec I04 CheckedPackage interface,
+owned by `agent-ix/quire-specification`. This repository states the wire shape
+it admits in its own reader — `crates/quire-contract-model/src/checked_package/`
+— and holds no copy of the upstream artifacts. The copies it used to hold were
+removed because this repository is public and they were not; the test inputs
+they supplied are open work on agent-ix/quire-contract-ir#166.
 
 ## Outputs
 
@@ -271,7 +267,6 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-13 | An entry naming a digest that is not among the frame node's own `dependencies` refuses as `missing_declaration` with cause `missing-name`, located at that entry, whether the digest resolves to no node the frame declared as a dependency (a real node elsewhere in the graph) or to no node anywhere in the graph at all — both conditions are the same refusal, never `invalid_model_binding` and never the graph's generic unresolved-reference `invalid_semantic_graph`. | Test (TC-053) |
 | FR-038-AC-14 | A frame node carrying both a meaning-join defect and a canonical-order defect refuses for the meaning-join defect; among two meaning-join defects in different members, the earlier member (`modifies` before `creates` before `deletes`) is selected regardless of which defect's entry digest is lower; among two meaning-join defects in the same member, the lower entry digest is selected; a member array not in strictly ascending digest order, with no meaning-join defect present, refuses as `invalid_semantic_graph` at the frame body path, located at the frame node itself and carrying no cause. | Test (TC-053) |
 | FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
-| FR-038-AC-16 | The vendored `tests/fixtures/checked-package/` tree is byte-identical to `proposals/checked-package-v2/` at `0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb` for every vendored path, `PROVENANCE` names that commit and each path's git blob and SHA-256, and each of the five positive fixtures admits and re-derives its recorded `package_id`: `b0b40569b19f00bd06ae08e218f0f77d114ce97cf42d2b6fa7c868a96a18bdad` (all-families), `b70a9f27c9ef49711fb603d56014aa5ce092379cd820c5e62a0154c89877e7b4` (nominal-identities), `dca508e418e70d99bcaf49384ea48c7f909a389d8c5b15541e5fb1bddd426168` (operation-identities), `d011de207a1fe5578b89d185f9394ef6a995c16244b72d63ba2775c6518b5952` (clause-operations) and `c76a26bf468ae66a74ea3f79dde881657b5fc9c0c555535fcc12d59b4cc2b69f` (control-operations). | Test (TC-048) |
 | FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-18 | A self-typed node's own body-root `literal.type` — the literal that is the node's body — naming itself is exempt from the reference-cycle check and admits with no declared `recursion_group`. The same `literal.type` self-reference nested one level deeper, inside that node's own `aggregate` member, `binding` value or `application` argument, is not exempt, and refuses as `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group` for want of a declared `recursion_group`, exactly like a self-typed node's `reference` body or `application.result_type` naming itself. | Test (TC-048) |
 

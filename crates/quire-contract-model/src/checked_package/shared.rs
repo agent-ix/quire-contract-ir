@@ -101,7 +101,7 @@ pub enum CheckedPackageRefusalCode {
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
 /// FR-322's closed `DiagnosticCausePairing` (`schema.json`). Only the causes
 /// this reader currently produces; FR-322's remaining cause tags — ambiguous
-/// declarations and `declaration-nominal-mismatch` (the README names it a
+/// declarations and `declaration-nominal-mismatch` (the upstream description names it a
 /// reader-stage cause; this reader does not produce it) — belong to stages
 /// this reader does not yet implement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
