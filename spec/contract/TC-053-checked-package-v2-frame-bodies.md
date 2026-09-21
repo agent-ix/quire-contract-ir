@@ -25,18 +25,23 @@ are both checked, not sampled. Reassign the published all-families fixture's
 frame body so its two already-declared `object_type` and `process`
 dependencies sit in `creates` and `deletes` respectively (the two eligible
 triples the fixture's own body does not already exercise) and read the
-package. Replay every vendored `node-identity-vectors.json` `frame_mutations`
+package. Replay every published `frame_mutations`
 vector — substituting its `dependencies`, `modifies`, `creates` and `deletes`
 into the fixture's one frame node in place, splicing in a `second_frame`
 node verbatim where the vector carries one — asserting the refused code,
 cause and locus digest for each, and that the number of vectors replayed
 equals the number published.
 
+**Blocked.** The all-families package and the `frame_mutations` vectors this
+method reads were copies of private upstream content and were deleted; the
+steps above are the intended method, not a method that runs today. The
+replacement inputs are open work on agent-ix/quire-contract-ir#166.
+
 ## Expected Results
 
 The eligibility check admits exactly the six declared triples and refuses
 every other triple; the published fixture, with `process` in `creates` and
-`object_type` in `deletes`, still admits. Each vendored vector refuses with
+`object_type` in `deletes`, still admits. Each published vector refuses with
 its recorded code, cause and locus: an ineligible declared entry as
 `invalid_model_binding`/`malformed-declaration`; an entry naming no declared
 dependency, whether or not that digest resolves to a real node elsewhere, as

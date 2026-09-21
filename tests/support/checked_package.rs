@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Shared helpers for the vendored QSpec I04 CheckedPackage fixtures.
+//! Shared helpers for the I04 CheckedPackage integration tests.
+//!
+//! The package documents these helpers used to read were copied from a
+//! private repository and were removed when this repository's contents were
+//! contained; see agent-ix/quire-contract-ir#166. [`fixture`] therefore has
+//! no input to return and stops the test that asks for one. The failures are
+//! deliberate: the replacement is a generator built from this crate's own
+//! closed vocabulary, not a copy of the same bytes under another name.
 
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
@@ -12,7 +19,6 @@ use quire_contract_ir::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
@@ -50,14 +56,20 @@ pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 /// fixture cannot silently move the boundary in only one of them.
 pub const ALL_FAMILIES_READ_WORK: u64 = 84;
 
-/// Reads one vendored file under `tests/fixtures/checked-package/`.
+/// The package document `relative` names.
+///
+/// There is none. Every input this returned was a copy of private upstream
+/// content and was deleted; this panics rather than substituting a document
+/// this crate generated for itself, which would turn each caller's assertion
+/// into a statement about its own output. Tracked by
+/// agent-ix/quire-contract-ir#166.
 pub fn fixture(relative: &str) -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/checked-package")
-        .join(relative);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("vendored fixture {} is readable: {error}", path.display()));
-    serde_json::from_str(&text).expect("vendored fixture is JSON")
+    panic!(
+        "CheckedPackage V2 test input {relative} was removed with the private-sourced \
+         fixture tree; this test is blocked on agent-ix/quire-contract-ir#166 (generate \
+         the package documents from this crate's own vocabulary). Do not restore it by \
+         re-adding the deleted bytes."
+    )
 }
 
 pub fn v2_all_families() -> Value {
@@ -259,7 +271,7 @@ fn insert(target: &mut Value, path: &str, value: Value) {
     }
 }
 
-/// The vendored nominal node-identity vectors.
+/// The nominal node-identity vectors. Unavailable; see [`fixture`].
 pub fn node_identity_vectors() -> Value {
     fixture("checked-package-v2/node-identity-vectors.json")
 }
