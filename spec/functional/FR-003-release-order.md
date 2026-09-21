@@ -10,7 +10,7 @@ relationships:
 
 ## Description
 
-The governance contract shall define the eight-repository source-tag dependency order exactly as specified by PGM-01-R03.
+The governance contract shall define the source-tag gating rule exactly as specified by PGM-01-R03.
 
 ## Inputs
 
@@ -22,15 +22,15 @@ A topologically valid set of immutable v0.1.0 source tags and checksums.
 
 ## Behavior
 
-- `quire-contract-ir`, `quire-contract-runtime`, and `tl-syntax` are independent roots.
-- Codegen follows IR plus runtime; analyze follows IR; parse and MLTL follow syntax; rewrite follows syntax plus evaluator evidence.
+- A repository may tag only once the exact dependency tags and checksums its own manifest names are available.
 - Added manifest dependencies add corresponding topological gates.
+- Rebuilds of an existing tag are forbidden.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-003-AC-1 | The policy names all eight repositories and the complete root/dependent ordering. | Inspection (TC-002) |
+| FR-003-AC-1 | The policy gates each source tag on the exact dependency tags and checksums its manifest names. | Inspection (TC-002) |
 
 ## Dependencies
 

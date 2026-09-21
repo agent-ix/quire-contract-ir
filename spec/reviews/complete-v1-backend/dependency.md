@@ -18,8 +18,8 @@ relationships:
 ## Summary
 
 FR-035 is cycle-free IR enablement, FR-036 is provider enablement, and FR-037
-is the replay qualification feature. PLAN-009 maps that order to Contract IR
-#100, runtime #16, codegen #48 through #50, then mappings and #101.
+is the replay qualification feature. PLAN-009 allocates each of them to its
+owning ticket.
 
 ## Findings
 
