@@ -1,10 +1,11 @@
 //! Strict reader for QSpec I04 `quire.checked-package/v2`, the sole admitted
 //! `CheckedPackage` contract.
 //!
-//! Consumes the public contract merged at quire-specification
-//! `0c7497ee0f7c99b2c6fd69b283c314edbe53a1bb` (`proposals/checked-package-v2/`,
-//! AD-006). Model selections are `sha256-jcs` domain packages, typed
-//! separately from the raw source and definition byte artifacts.
+//! Implements the I04 contract described by AD-006. The wire shape this
+//! module admits is stated here, in the types and checks below, rather than
+//! by pointing at a revision of another repository. Model selections are
+//! `sha256-jcs` domain packages, typed separately from the raw source and
+//! definition byte artifacts.
 
 mod identity;
 mod lower;
@@ -1273,7 +1274,7 @@ fn frame_defect(
 /// immediately after declaration checks (`validate_nominal_nodes`) and before
 /// the graph's dependency/body-reference edges are resolved — the
 /// "graph-shape, ..., declaration, frame, operation" reader order the
-/// vendored README states normatively (`validate_application_keys` runs the
+/// upstream contract description states normatively (`validate_application_keys` runs the
 /// stale-application-key stage just before this one, ahead of declaration;
 /// `validate_operations` runs the operation stage just after).
 /// Running before edge resolution matters: `frame_defect` resolves each

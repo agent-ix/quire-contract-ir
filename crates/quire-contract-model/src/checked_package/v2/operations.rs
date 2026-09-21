@@ -1,12 +1,13 @@
 //! FR-038/QSpec #76 operation-law validation: an `application` term's
 //! `operation` member is admitted opaquely nowhere past this module — its
 //! identity, laws, mode, member and leading operand shape are checked
-//! against the vendored `quire.checked-operation-catalog/v1`
+//! against the upstream `quire.checked-operation-catalog/v1`
 //! ([`operation_catalog`]) and the package's own lock selections.
 //!
-//! Two stages, run in the vendored README's normative order
-//! (`tests/fixtures/checked-package/checked-package-v2/README.md`'s
-//! "Operation identity rules" and reader-boundary sections):
+//! Two stages, run in the upstream contract's normative order (its
+//! "Operation identity rules" and reader-boundary sections). The copy of
+//! that description this tree used to carry was removed with the rest of the
+//! private-sourced fixture tree; see agent-ix/quire-contract-ir#166:
 //!
 //! 1. [`validate_application_keys`]: every node whose body is an
 //!    `application` term re-derives its own `node_id` from
@@ -20,28 +21,30 @@
 //!    entry, in ascending node-id digest order, reporting the first node
 //!    that fails.
 //!
-//! Scope this reader does not cover, narrower than the vendored README's full
-//! generality and not exercised by an admitted fixture or vendored vector,
+//! Scope this reader does not cover, narrower than the upstream contract
+//! description's full generality and not exercised by an admitted fixture or
+//! upstream vector,
 //! except where noted below: a node's own `recursion` preimage member is
-//! encoded here as the bare `recursion_group` label rather than the README's
-//! `group_reference` ordinal substitution (no vendored application node
-//! carries one) — unlike every other item in this list, this one is a
+//! encoded here as the bare `recursion_group` label rather than the upstream
+//! description's `group_reference` ordinal substitution (no upstream
+//! application node carries one) — unlike every other item in this list, this one is a
 //! **false-refusal risk, not a silent no-op**: the two encodings yield
 //! different digests, so a legitimate application node inside a recursion
 //! group is refused `invalid_package`/`stale-node-key` rather than admitted.
 //! The remaining items are silent no-ops (never a false refusal), not a
-//! silent admission of something the vendored corpus requires rejected: an
+//! silent admission of something the upstream corpus requires rejected: an
 //! `operation.member` of kind `position`, `element`, `relationship_end`,
 //! `type_argument` or `operation` is checked for presence and kind only, not
 //! that its `declaration` resolves to a real, eligible node (`field` is the
-//! one kind a vendored mutation exercises, so it alone is checked in full,
+//! one kind an upstream mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared); a `constraints`
 //! entry other than `same_family`/`same_type` is not enforced; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
-//! operand's record type, the one the vendored vectors exercise;
+//! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key only for a node whose own
 //! `body` is an application term at its root, never for a nested
-//! `application` term inside `body.arguments[*]` — the README instead says
+//! `application` term inside `body.arguments[*]` — the upstream description
+//! instead says
 //! every node whose body *contains* an application gets a re-derived key, so
 //! a nested application's own key is never checked here, and its own
 //! `operation` is never validated by [`validate_operations`] either, since
@@ -91,10 +94,10 @@ fn is_application(body: &Value) -> bool {
 
 /// Every application node's `node_id` re-derived from its own visible
 /// members, in ascending digest order, reporting the first stale one. See
-/// the module doc for the one narrowing from the vendored README: a
-/// recursion-group member is encoded as its bare label, never the
-/// `group_reference` ordinal substitution, because no vendored application
-/// node carries one.
+/// the module doc for the one narrowing from the upstream contract
+/// description: a recursion-group member is encoded as its bare label, never
+/// the `group_reference` ordinal substitution, because no upstream
+/// application node carries one.
 pub(super) fn validate_application_keys(
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -185,14 +188,16 @@ struct OperationLeafWire {
 /// `operation-class-mismatch`, `operation-law-missing`,
 /// `operation-law-mismatch`, `operation-law-unselected`,
 /// `operation-mode-mismatch`, `operation-member-mismatch` — these seven match
-/// the vendored README's own order — then `operator-ineligible` (arity,
+/// the upstream contract description's own order — then
+/// `operator-ineligible` (arity,
 /// operand family, named-member existence), then `operation-mode-type-mismatch`
 /// (an operand or leaf whose own type pins a value the wire's mode disagrees
-/// with). The README instead orders `operation-mode-type-mismatch` before
+/// with). The upstream description instead orders
+/// `operation-mode-type-mismatch` before
 /// `operator-ineligible`; this implementation runs the reverse, and no
-/// vendored vector distinguishes the two orders, so this one adjacent pair's
+/// upstream vector distinguishes the two orders, so this one adjacent pair's
 /// relative order is not pinned by any vector — do not read it as validated
-/// against the README.
+/// against the upstream description.
 pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -534,7 +539,7 @@ fn check_operands(
     None
 }
 
-/// The one `operation.member` shape a vendored mutation exercises in full: a
+/// The one `operation.member` shape an upstream mutation exercises in full: a
 /// `field` member's `name` must actually be declared on the record type its
 /// `declaration` names (that type's own `body` is an `aggregate` of
 /// `binding` members, one per field, exactly the shape the record-type
@@ -677,7 +682,7 @@ fn check_mode_type(
     None
 }
 
-/// The one leaf-path shape a vendored mutation exercises: `["field:<name>"]`
+/// The one leaf-path shape an upstream mutation exercises: `["field:<name>"]`
 /// against the first operand's record type. Any other path is not resolved.
 fn check_leaves(
     node: &CheckedSemanticNodeV2,
