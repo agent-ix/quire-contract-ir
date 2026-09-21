@@ -1,20 +1,38 @@
 //! The closed `quire.checked-operation-catalog/v1` every V2 `application`
 //! term's `operation` member is validated against (`validate_operations`).
 //!
-//! Embedded from `schemas/checked-operation-catalog-v1.json`, the single home
-//! for this data in this repository. The second, byte-identical copy that used
-//! to sit under `tests/fixtures/` — and the test asserting the two stayed
-//! equal — are gone with the rest of the private-sourced fixture tree
-//! (agent-ix/quire-contract-ir#166). The remaining copy carries the same
-//! origin and has not been re-derived here; that is open on #166 too.
+//! This module has no catalog to read. The bytes it embedded were copied from
+//! a private repository into this public one; both copies are now deleted, and
+//! neither is coming back. A copy is a copy wherever it is spelled, and
+//! `schemas/` is not a different rule from `tests/fixtures/`.
+//!
+//! The build therefore does not compile, deliberately. The alternatives were
+//! to keep the copy, or to drop catalog-driven validation and let this reader
+//! start admitting `operation` members it used to refuse — a silent weakening
+//! of the contract, decided by an agent, in a crate other repositories depend
+//! on. A build that stops and says why is the honest one of the three.
+//!
+//! What unblocks it, on agent-ix/quire-contract-ir#166: a published source for
+//! `quire.checked-operation-catalog/v1` this crate can depend on rather than
+//! copy, or a catalog authored here in its own right. Restoring the deleted
+//! bytes is not one of the options.
 
 use super::CheckedArtifactRef;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-const CATALOG_BYTES: &str =
-    include_str!("../../../../../schemas/checked-operation-catalog-v1.json");
+compile_error!(
+    "quire.checked-operation-catalog/v1 has no source in this repository. The bytes this \
+     module embedded were copied from a private repository and were deleted; see \
+     agent-ix/quire-contract-ir#166. Resolve it with a published source or a catalog \
+     authored here — not by restoring the deleted file."
+);
+
+// Empty only so the rest of this module still type-checks and the build stops
+// on the `compile_error!` above rather than on a cascade of consequential
+// errors that bury it. Nothing reads it: the crate does not compile.
+const CATALOG_BYTES: &str = "";
 
 /// One `operation-catalog.json` `operations[]` entry.
 #[derive(Clone, Debug, Deserialize)]
