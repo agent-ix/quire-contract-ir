@@ -22,17 +22,16 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-compile_error!(
-    "quire.checked-operation-catalog/v1 has no source in this repository. The bytes this \
-     module embedded were copied from a private repository and were deleted; see \
-     agent-ix/quire-contract-ir#166. Resolve it with a published source or a catalog \
-     authored here — not by restoring the deleted file."
-);
-
-// Empty only so the rest of this module still type-checks and the build stops
-// on the `compile_error!` above rather than on a cascade of consequential
-// errors that bury it. Nothing reads it: the crate does not compile.
-const CATALOG_BYTES: &str = "";
+/// The catalog, read from its home rather than copied here.
+///
+/// `quire-verification-contracts` owns `quire.checked-operation-catalog/v1` and
+/// publishes the bytes and a digest over them; this crate owns the reader that
+/// decides what they admit. That split is the point: one definition of the closed
+/// vocabulary, one implementation of the rules it drives. A copy of these bytes in
+/// this repository, under any name or path, is a defect — it is what left this
+/// module unable to compile at all.
+const CATALOG_BYTES: &str =
+    quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
 /// One `operation-catalog.json` `operations[]` entry.
 #[derive(Clone, Debug, Deserialize)]

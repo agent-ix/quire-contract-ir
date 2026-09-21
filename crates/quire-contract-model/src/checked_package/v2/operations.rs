@@ -721,3 +721,157 @@ fn check_leaves(
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        operation_catalog, operation_defect, CheckedNodeId, CheckedPackageLockV2,
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
+        ValidationFailure, WorkMeter, OPERATION_PATH,
+    };
+    use crate::checked_package::common::NODE_DOMAIN;
+    use crate::checked_package::shared::{CheckedArtifactRef, CheckedRevision, CheckedSelection};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    /// A catalogued identity used correctly throughout this module's tests:
+    /// zero laws, no mode, no member, two plain-literal operands (so the
+    /// unexercised operand-family/type machinery never needs a second graph
+    /// node to resolve against).
+    const CATALOGUED_IDENTITY: &str = "quire.op.integer.add";
+    /// Obviously synthetic; must never collide with a real catalogued
+    /// identity.
+    const UNCATALOGUED_IDENTITY: &str = "quire.op.test-only.not-a-real-operation";
+
+    fn dummy_digest(byte: char) -> String {
+        std::iter::repeat_n(byte, 64).collect()
+    }
+
+    /// A minimal single-node `application` term whose `operation.identity`
+    /// is `identity` and whose `operator` is `operator`. Arguments are plain
+    /// `literal` terms (not `reference`/`binding`), so `argument_family`
+    /// resolves them to `None` and `check_operands` skips the family checks
+    /// that would otherwise need a second, referenced graph node — the only
+    /// thing this fixture needs to reach is the catalog lookup inside
+    /// `operation_defect`.
+    fn application_node(identity: &str, operator: &str) -> CheckedSemanticNodeV2 {
+        let value = json!({
+            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest('1') },
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "expression",
+            "semantic_form": "call",
+            "semantic_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('2') },
+            "dependencies": [],
+            "occurrences": [],
+            "body": {
+                "term": "application",
+                "operator": operator,
+                "arguments": [
+                    { "term": "literal", "value": 1 },
+                    { "term": "literal", "value": 2 },
+                ],
+                "operation": {
+                    "identity": identity,
+                    "laws": [],
+                    "mode": null,
+                    "member": null,
+                    "leaves": [],
+                },
+            },
+        });
+        serde_json::from_value(value).expect("test fixture node is well-formed")
+    }
+
+    /// A lock with nothing selected; every test identity here carries zero
+    /// laws, so nothing in `operation_defect` ever consults its selections.
+    fn empty_lock() -> CheckedPackageLockV2 {
+        let placeholder = CheckedArtifactRef {
+            authority: Box::from("test"),
+            identity: Box::from("test"),
+            revision: CheckedRevision {
+                namespace: Box::from("test"),
+                value: Box::from("test"),
+            },
+            digest_domain: Box::from("sha256-jcs"),
+            digest: Box::from(dummy_digest('a').as_str()),
+            export: None,
+        };
+        CheckedPackageLockV2 {
+            sources: Vec::new(),
+            edition: CheckedSelection {
+                role: Box::from("edition"),
+                definition: placeholder,
+            },
+            profile_selections: Vec::new(),
+            definition_selections: Vec::new(),
+            model_selections: Vec::new(),
+            required_features: Vec::new(),
+            dependency_selections: Vec::new(),
+        }
+    }
+
+    fn defect_for(
+        node: &CheckedSemanticNodeV2,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        let nodes = std::slice::from_ref(node);
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        index.insert(&node.node_id, 0);
+        let lock = empty_lock();
+        let mut meter = WorkMeter::new(1_000);
+        operation_defect(node, nodes, &index, &lock, &mut meter)
+    }
+
+    /// An `application` node whose `operation.identity` is absent from the
+    /// catalog is refused `invalid_package`/`unknown-operation`. This is the
+    /// criterion the deleted private-sourced fixture tree used to carry (see
+    /// agent-ix/quire-contract-ir#166): without it, the `catalog.entry(...)`
+    /// lookup in `operation_defect` could be replaced by an always-`Some`
+    /// admission and nothing in this crate's test suite would notice.
+    #[test]
+    fn operation_defect_refuses_uncatalogued_identity() {
+        let node = application_node(UNCATALOGUED_IDENTITY, "binary");
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_PATH,
+                Some(CheckedPackageRefusalCause::UnknownOperation),
+                node.node_id.clone(),
+            ))),
+            "an uncatalogued operation.identity must be refused as unknown-operation, got {result:?}"
+        );
+    }
+
+    /// Control for the test above: the same node shape, with a real
+    /// catalogued identity used exactly as its catalog entry requires
+    /// (matching operator, arity and operand shape), is admitted — not
+    /// refused for `unknown-operation` or anything else. Without this
+    /// control, a reader that refused every node would satisfy the assertion
+    /// above just as well as the real check does.
+    #[test]
+    fn operation_defect_admits_catalogued_identity_used_correctly() {
+        // Guard against catalog drift: fail loudly here, not by way of a
+        // confusing assertion failure below, if this identity is ever
+        // removed or reshaped upstream.
+        let entry = operation_catalog()
+            .entry(CATALOGUED_IDENTITY)
+            .unwrap_or_else(|| {
+                panic!("{CATALOGUED_IDENTITY} must be catalogued for this control to be meaningful")
+            });
+        assert_eq!(entry.operator.as_ref(), "binary");
+        assert_eq!(entry.operands.len(), 2);
+
+        let node = application_node(CATALOGUED_IDENTITY, "binary");
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(None),
+            "a catalogued identity used correctly must not be refused, got {result:?}"
+        );
+    }
+}
