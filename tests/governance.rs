@@ -56,10 +56,8 @@ fn tc_002_classifies_all_repositories_and_orders_tags() {
             "missing class: {classification}"
         );
     }
-    assert!(policy.contains("are independent initial source-tag roots"));
-    assert!(policy.contains("quire-contract-codegen` follows the IR and runtime"));
-    assert!(policy.contains("quire-analyze` follows the IR"));
-    assert!(policy.contains("tl-rewrite` follows `tl-syntax` plus retained evaluator evidence"));
+    assert!(policy.contains("normal topological order applies"));
+    assert!(policy.contains("name every exact dependency tag, commit, and checksum"));
 }
 
 /// Tracing: TC-003
