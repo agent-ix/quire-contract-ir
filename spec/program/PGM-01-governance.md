@@ -50,28 +50,8 @@ named human release authority records a bounded exception under PGM-01-R09.
 ### PGM-01-R03 — source-release order
 
 Each source tag is `v0.1.0` for the first program release. A repository may tag
-only after the exact dependency tags and checksums are available:
-
-```text
-quire-contract-ir
-├── quire-contract-codegen (also requires quire-contract-runtime)
-└── quire-analyze
-
-quire-contract-runtime
-└── quire-contract-codegen (also requires quire-contract-ir)
-
-tl-syntax
-├── tl-parse
-├── tl-mltl
-└── tl-rewrite (also requires retained evaluator evidence)
-```
-
-`quire-contract-ir`, `quire-contract-runtime`, and `tl-syntax` are independent
-initial source-tag roots and may be tagged in any order. `quire-contract-codegen`
-follows the IR and runtime; `quire-analyze` follows the IR; `tl-parse` and
-`tl-mltl` follow `tl-syntax`; and `tl-rewrite` follows `tl-syntax` plus retained
-evaluator evidence for its rewrite corpus. Where an actual manifest adds a
-dependency, normal topological order applies. A source-release manifest shall
+only after the exact dependency tags and checksums named by its own manifest are
+available; normal topological order applies. A source-release manifest shall
 name every exact dependency tag, commit, and checksum. Rebuilds of an existing
 tag are forbidden.
 
@@ -279,7 +259,7 @@ retention layout.
 |---|---|---|
 | PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | Policy inspection TC-001 |
 | PGM-01-R02-AC-1 | Exact release and qualification pins are mandatory. | Policy inspection; TC-001 |
-| PGM-01-R03-AC-1 | All eight repositories have a topological source-tag rule. | TC-002 |
+| PGM-01-R03-AC-1 | Source tagging is gated on the exact dependency tags and checksums a manifest names. | TC-002 |
 | PGM-01-R04-AC-1 | Generated and third-party material has explicit license provenance. | Policy inspection; TC-003 |
 | PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-003 |
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |

@@ -118,17 +118,5 @@ Rejected architecture:
 
 ## Common-work order
 
-```text
-Engineering Assurance #5 verification semantics (complete)
-  -> quire-contract-ir #38 governance reconciliation
-    -> Quire CLI #74 static export
-      -> Quoin CLI #322 explicit result intake
-        -> Engineering Assurance #9 compatibility fixtures
-          -> Quoin #323 adapter inventory
-            -> Engineering Assurance #8 exact releases and pins
-              -> Engineering Assurance #10 migration contract
-                -> eight separately reviewed repository migrations
-```
-
-The eight migration issues are not part of this gate. No migration begins until
-all common gates above it are reviewed, released where applicable, and pinned.
+The eight migration issues are not part of this gate. No migration begins
+until every common gate is reviewed, released where applicable, and pinned.
