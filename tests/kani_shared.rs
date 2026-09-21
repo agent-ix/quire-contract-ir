@@ -198,18 +198,3 @@ fn tc_042_provenance_identity_changes_with_an_assumption() {
         .expect("complete provenance");
     assert_ne!(first.as_str(), second.as_str());
 }
-
-// Deliberately untraced: no acceptance criterion covers vacuous-proof
-// classification yet (FR-030-AC-1..3 say nothing about it), so this test
-// binds itself to no criterion rather than claim one it does not establish.
-#[test]
-fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
-    let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
-    assert_eq!(vacuous.kind, KaniOutcomeKind::Inconclusive);
-    assert_eq!(vacuous.code, "kani_vacuous_proof");
-    assert_eq!(vacuous.boolean_claim(), None);
-
-    let genuine = KaniOutcome::proved_from_checks(1, "clause:demo", "profile");
-    assert_eq!(genuine, KaniOutcome::proved("clause:demo", "profile"));
-    assert_eq!(genuine.boolean_claim(), Some(true));
-}
