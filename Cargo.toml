@@ -21,22 +21,30 @@ path = "src/lib.rs"
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6" }
 quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "9606131bbc978c494e81df13a8301a5d8a72017a" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07", default-features = false }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "2736b62b2f741496590d099d71478b3044d638d6", default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
 serde_stacker = "=0.1.11"
 sha2 = "=0.10.9"
 stacker = "=0.1.15"
 thiserror = "=2.0.20"
-tl-syntax = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-syntax", rev = "842d82553f045eb69a7f38745756d968254fc25e", features = ["serde"] }
-tl-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-mltl", rev = "22862189ac4eb515ab84928faec25b2eac47d835" }
+tl-syntax = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-syntax", rev = "d52d89549b0a6c0c429261bab912cd5396c4a19e", features = ["serde"] }
+tl-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-mltl", rev = "b3e2a26a8516b0747679214d2a05be0210e69ec6" }
+# The one deliberate exception to tl-mltl's independence from the agent-ix/Quire
+# ecosystem: quire-mltl ports tl-mltl's wire::request/report and
+# mapping::contract_ir modules onto quire-observation's owner-assertion views
+# (TL-178/TL-175). tl-mltl stays a direct dependency too for the wire::trace,
+# past::*, and OwnerLimits/OwnerReadError/ValidatedTrace types quire-mltl does
+# not re-export.
+quire-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-mltl", rev = "f44431155de54fa028da88665e5d29ff826e27da" }
 
 [dev-dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
+agent-ix-baseline-producer = { version = "=0.0.0", git = "https://github.com/agent-ix/filament-core-data", rev = "a6fe662542770e6acbec4917cfe1772b349ee414" }
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", tag = "v0.1.1" }
 jsonschema = { version = "=0.17.1", default-features = false }
 quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "53cc03c639e2e26528132d34d96dc56449df78e8" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07", default-features = false }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "2736b62b2f741496590d099d71478b3044d638d6", default-features = false }
 sha2 = "=0.10.9"
 
 [profile.release]

@@ -11,13 +11,14 @@ use quire_contract_ir::{
     predicate,
     temporal::{self, ObservationViews, PositionValuations},
 };
+use quire_mltl::{contract_ir as tl_mapping, report};
 use quire_observation::authority::OpenClosed;
 use quire_protocol::result::{contract_ir as protocol_map, Limits as ResultLimits, Truth};
 use quire_spec_language::protocol_artifact::native_temporal::result::{
     self as native_result, Relation as NativeRelation,
 };
 use serde_json::{json, Value};
-use tl_mltl::{mapping as tl_mapping, wire, wire::OwnerLimits};
+use tl_mltl::wire::OwnerLimits;
 
 const QSPEC: &str = "983b0b28c479241fb066cbe4db3fc0980362de36";
 const TL_SYNTAX: &str = "842d82553f045eb69a7f38745756d968254fc25e";
@@ -335,13 +336,16 @@ fn owner_selections() -> Vec<ContractSelection> {
         temporal.trace(),
         temporal.history(),
         temporal.history_requirement(),
-        temporal.request(),
-        temporal.evaluator_report(),
+        // `request`, `evaluator_report`, and `tl_mapping` are deliberately excluded from
+        // this sweep. FR-027-AC-1 fixes this manifest to the exact nine-repository
+        // Task-011 set; those three axes now select `agent-ix/quire-mltl` (TL-181),
+        // a tenth repository this frozen historical campaign never named, and
+        // `owner_component` has no entry for it. Expanding the closed set to cover
+        // them would misrepresent Task-011's own scope rather than describe it.
         temporal.native_request(),
         temporal.native_result(),
         temporal.protocol_result(),
         temporal.protocol_mapping(),
-        temporal.tl_mapping(),
     ]
     .into_iter()
     .cloned()
@@ -651,24 +655,23 @@ fn tc_040_manifest_selection_executes_the_real_owner_bridge_path_end_to_end() {
     )
     .into_result()
     .expect("native owner reader");
-    let tl_document = wire::report::evaluate(
+    let tl_document = report::evaluate(
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL owner result");
-    let tl = wire::report::read(
+    let tl = report::read(
         tl_document.bytes(),
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL owner reader");
-    let tl_selection = tl_mapping::contract_ir::MappingSelection::for_result(&tl);
+    let tl_selection = tl_mapping::MappingSelection::for_result(&tl);
     let tl_map_document =
-        tl_mapping::contract_ir::map(&tl, &tl_selection, OwnerLimits::owner_max())
-            .expect("TL owner map");
-    let tl_mapped = tl_mapping::contract_ir::read(
+        tl_mapping::map(&tl, &tl_selection, OwnerLimits::owner_max()).expect("TL owner map");
+    let tl_mapped = tl_mapping::read(
         tl_map_document.bytes(),
         &tl,
         &tl_selection,

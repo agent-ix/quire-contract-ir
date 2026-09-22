@@ -138,13 +138,15 @@ native subject, predicate correspondence, complete explicit valuation cells,
 position ledger, clock, capture, four progress/closure assertions, completeness,
 availability and limits. The native sibling selects QSL
 `quire.native-temporal-request/v1`; the TL sibling selects the applicable
-`tl-mltl` trace/history and request contracts. Both siblings retain the bridge
+`tl-mltl` trace/history contracts and the `quire-mltl` request contract. Both
+siblings retain the bridge
 correspondence identity and the exact source-owner identities from which each
 field was derived. Neither input is derived from the other input's bytes.
 
 QSL strict-reads and evaluates only its native request and publishes
-`quire.native-temporal-result/v1`. TL-MLTL strict-reads and evaluates only its
-TL request and derives `tl-mltl.contract-ir-result-map/v1`. Contract IR accepts
+`quire.native-temporal-result/v1`. Quire-MLTL strict-reads and evaluates only
+its TL request and derives `quire-mltl.contract-ir-result-map/v1`. Contract IR
+accepts
 only those constructor-private formula-wide views under exact selections. Quire
 Protocol's `quire.protocol.contract-ir-result-map/v1` remains the independent
 owner input to each FR-025 leaf valuation; it is not a native temporal result
@@ -235,8 +237,12 @@ FR-025 supplies predicate correspondence and Quire Protocol-backed leaf
 valuations. QSL FR-051 supplies the checked temporal subject and QSL FR-052
 supplies the native request/result owner boundary. Quire Observation FR-004
 supplies position, clock, capture and scope assertions. TL-MLTL FR-018 supplies
-the independently validated TL result mapping. tl-syntax FR-011/012/014 owns
-the selected temporal graphs and profiles.
+the independently validated `wire::trace`/`past::*` owner boundary the future
+and past projections construct and strict-read directly. Quire-MLTL FR-001
+supplies the request/result admission boundary and Quire-MLTL FR-003 supplies
+the independently validated TL result mapping (both ported from TL-MLTL
+FR-018/FR-019 onto Quire Observation's owner-assertion views; TL-181). tl-syntax
+FR-011/012/014 owns the selected temporal graphs and profiles.
 
 ## Status
 

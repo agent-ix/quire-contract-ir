@@ -1,14 +1,25 @@
 //! Real observation/QSL/QProtocol owner fixtures for FR-025 integration tests.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use agent_ix_baseline_producer::{
+    ArtifactKind, ArtifactReference, ConfigurationDocument, DeclarationSource,
+    DigestDomainSelection, DigestSelection, FormalDocument, InventoryCompleteness,
+    InventoryDeclaration, ModelSelection, NativeSourceLabel, NumericResourceLimit,
+    ProfileSelection, RawByteDigest, ResourceLimits as ProducerResourceLimits, Revision,
+    StaticClosure, StaticProducerBundle, WireReference, BASELINE_VERSION,
+    NATIVE_REVISION_NAMESPACE, PRODUCER_REVISION_NAMESPACE,
+};
 use quire_observation::authority::{
     self, AuthoritySelection, Context, History, Limits as ObservationLimits, OpenClosed,
     SubjectSelection, TemporalBoundary,
 };
 use quire_observation::{
-    admit, AdmissionOutcome, AdmissionRequest, AdmittedRecord, Anchor, ClockRange, Digest,
-    Identity, Member, ObservationBinding, PackageSelection, ProducerSelection,
-    QualifiedObservation, ResourceLimits, ScopeKind, ScopeSelection, Subject, SubjectKind,
-    ValueState, Visibility, NATIVE_LINKED_PACKAGE_FORMAT, PRODUCER_INTERFACE_VERSION,
+    admit, AdmissionOutcome, AdmissionRequest, AdmittedRecord, AdmittedStaticBundle, Anchor,
+    ClockRange, Digest, Identity, Member, ObservationBinding, PackageSelection,
+    QualifiedObservation, QualifiedSubject, ResourceLimits, ScopeKind, ScopeSelection,
+    SubjectIdentity, SubjectKind, ValueState, Visibility, NATIVE_LINKED_PACKAGE_FORMAT,
+    PRODUCER_INTERFACE_VERSION,
 };
 use quire_protocol::closure::{AssessmentExecution, GlobalConformanceClosure};
 use quire_protocol::repro::{CorpusIdentity, ReproductionInputs, Seed, ToolchainIdentity};
@@ -75,7 +86,7 @@ pub fn fixture_for_temporal(temporal_ordinal: usize) -> Fixture {
     let declarations = loaded.declarations();
     let inventories = loaded.inventories(&declarations);
     let expected = loaded.expected(&inventories);
-    let admitted = quire_protocol::admit_and_link_v2(loaded.offer(), &expected, loaded.limits())
+    let admitted = quire_protocol::intake::v2::admit(loaded.offer(), &expected, loaded.limits())
         .into_result()
         .expect("strict v2 package");
     let temporal_declaration = admitted
@@ -141,6 +152,38 @@ pub fn fixture_from_package(admitted: &v2::AdmittedPackage, temporal_declaration
     }
 }
 
+// BLOCKED (TL-181 follow-up, not fixed by this change): `quire_protocol::result::produce`
+// and `produce_bounded` went from `pub` to `pub(crate)` in quire-protocol commit
+// ed753b8 / PR #88 ("Harden post-merge Protocol result boundaries"), landed on the
+// `9606131` main this crate now pins. There is no remaining public function that
+// takes a caller-built `result::Input` and returns a `Document`/`ValidatedResult`;
+// `quire_protocol::result::reader::read` itself calls the sealed `produce`
+// internally to re-derive the expected canonical bytes, so it cannot be used to
+// bypass the seal either. The module doc at `quire_protocol::result` states the
+// intended replacement: "Canonical production is an Engine-owned transition, not
+// an external wire-shaped input seam."
+//
+// The only remaining public path to a `result::ValidatedResult` is
+// `quire_protocol::assessment::with_result_assessment_after_resolving`, which
+// requires (verified against quire-protocol's own `tests/it002_observation_temporal.rs`
+// and `tests/tc_002_binding_model.rs`, the only current external callers): a real
+// `model::v2::LinkedAssessment` context built from a `StaticBindingDefinition` and
+// `RuntimeBindingSet`/`StaticSlot` binding model quire-contract-ir does not use
+// anywhere else in this crate; a `v3::AdmittedPackage` activation-mapping context
+// (`admitted_activation_map`-style, a second admission pass); real
+// `quire_spec_language::protocol_artifact::native_temporal::v2::{produce, evaluate}`
+// request/result values (these ARE still public and can be driven from the same
+// `authority::progress`/`closure`/`completeness::View` objects this fixture already
+// builds); and a `ProducerResolutionRequest`/`VersionLockManifest`/`ResolutionBudget`
+// producer-resolution round trip (see `tests/support/producer_selection.rs` in
+// quire-protocol for the selection-digest oracle that requires).
+//
+// This is a net-new integration surface, not a rename: quire-protocol's own
+// `it002_observation_temporal.rs` (this pattern's origin) is 1300+ lines.
+// Reimplementing it here needs its own scoped ticket/session rather than a
+// blind, unverified multi-hundred-line addition folded into this pin-bump PR.
+// Everything else in this file (the FR-287 `QualifiedSubject`/`AdmittedStaticBundle`
+// producer fixture above, and the `tl_mltl` -> `quire_mltl` import moves) is fixed.
 pub fn validated_result(fixture: &Fixture) -> result::ValidatedResult {
     validated_result_with(
         fixture,
@@ -453,11 +496,128 @@ fn subject(tag: &str, qualified: &QualifiedObservation) -> SubjectSelection {
     }
 }
 
-fn qualified(tag: &str) -> Box<QualifiedObservation> {
-    let record_subject = Subject {
-        kind: SubjectKind::Order,
-        identity: id(format!("order:{tag}")),
+/// Producer-local subject-kind bytes for every fixture-admitted record.
+///
+/// FR-287's authority-qualified `QualifiedSubject` replaced the closed
+/// `SubjectKind::Order` enum (quire-observation TL-181 pin bump): a subject
+/// kind is now opaque producer-local bytes, so every fixture-admitted record
+/// shares this one spelling instead of a variant.
+pub(crate) const ORDER_KIND: &[u8] = b"order";
+
+pub(crate) fn order_subject(producer: &AdmittedStaticBundle, tag: &str) -> QualifiedSubject {
+    QualifiedSubject::new(
+        producer,
+        SubjectKind::new(ORDER_KIND.to_vec()).expect("fixture subject kind is non-empty"),
+        SubjectIdentity::new(format!("order:{tag}").into_bytes())
+            .expect("fixture subject identity is non-empty"),
+    )
+}
+
+/// Constructs a minimal, self-consistent FR-287 admitted static producer bundle.
+///
+/// quire-observation's `AdmissionRequest.producer` moved from a caller-authored
+/// `ProducerSelection` triple to a real FCD `AdmittedStaticBundle` (TL-181 pin
+/// bump). This bundle is built entirely from `agent-ix-baseline-producer`'s own
+/// public constructors rather than a committed FCD fixture document, so no FCD
+/// bundle fixture is vendored into this repository. Every component/endpoint/
+/// relationship/correspondence collection stays empty, so none of their
+/// cross-validation against the inventory declaration applies; only the
+/// bundle's own header, model, profile, and static-closure identities need to
+/// agree with each other and with the configuration document's declared
+/// digest/revision vocabulary.
+pub(crate) fn producer_bundle() -> AdmittedStaticBundle {
+    let zero_digest = format!("sha256:{}", "0".repeat(64));
+    let configuration = ConfigurationDocument {
+        configuration_identity: "configuration:fixture".to_owned(),
+        baseline_version: BASELINE_VERSION.to_owned(),
+        digest: DigestSelection::canonical(zero_digest.clone()),
+        model_authority: "authority:fixture".to_owned(),
+        profile_identities: BTreeSet::from(["profile:fixture".to_owned()]),
+        adapter_identities: BTreeSet::new(),
+        mapping_targets: BTreeSet::new(),
+        loss_policy: "loss-policy:fixture".to_owned(),
+        resource_limits: ProducerResourceLimits {
+            numeric_resource_limit: Some(NumericResourceLimit::new(4096, 6144)),
+            declared_bounds: BTreeMap::new(),
+        },
+        digest_selections: DigestDomainSelection::baseline(),
+        revision_namespaces: BTreeSet::from([
+            PRODUCER_REVISION_NAMESPACE.to_owned(),
+            NATIVE_REVISION_NAMESPACE.to_owned(),
+        ]),
+        trusted_references: BTreeSet::new(),
     };
+    let model = ModelSelection {
+        model_identity: "model:fixture".to_owned(),
+        model_revision: Revision::producer("1"),
+        digest: DigestSelection::canonical(zero_digest.clone()),
+    };
+    let profile = ProfileSelection {
+        profile_identity: "profile:fixture".to_owned(),
+        profile_revision: Revision::producer("1"),
+        digest: DigestSelection::canonical(zero_digest.clone()),
+    };
+    let inventory = InventoryDeclaration {
+        inventory_identity: "inventory:fixture".to_owned(),
+        completeness: InventoryCompleteness::Complete,
+        component_identities: BTreeSet::new(),
+        endpoint_identities: BTreeSet::new(),
+        relationship_identities: BTreeSet::new(),
+    };
+    let static_closure = StaticClosure {
+        configuration_identity: configuration.configuration_identity.clone(),
+        configuration_digest: configuration.digest.clone(),
+        model_identity: model.model_identity.clone(),
+        model_digest: model.digest.clone(),
+        profile_identity: profile.profile_identity.clone(),
+        profile_digest: profile.digest.clone(),
+        declaration_sources: vec![DeclarationSource {
+            source: ArtifactReference {
+                ref_version: "1".to_owned(),
+                kind: ArtifactKind::Source,
+                authority: "agent-ix/quire-contract-ir".to_owned(),
+                identity: "source:fixture".to_owned(),
+                revision: Revision::producer("1"),
+                digest: RawByteDigest::new(zero_digest).expect("fixture raw digest is valid"),
+                wire: WireReference {
+                    identity: "wire:fixture".to_owned(),
+                    version: "1".to_owned(),
+                },
+            },
+            native: NativeSourceLabel::new("native:fixture", "1"),
+            path: "fixture.json".to_owned(),
+            formal: FormalDocument {
+                document: "fixture-formal-document".to_owned(),
+                revision: Revision::producer("1"),
+            },
+        }],
+    };
+    let mut bundle = StaticProducerBundle {
+        bundle_identity: Some("bundle:fixture".to_owned()),
+        bundle_revision: Some(Revision::producer("1")),
+        digest: None,
+        interface_version: Some(PRODUCER_INTERFACE_VERSION.to_owned()),
+        model: Some(model),
+        profile: Some(profile),
+        components: vec![],
+        endpoints: vec![],
+        relationships: vec![],
+        inventory: Some(inventory),
+        configuration: Some(configuration),
+        static_closure: Some(static_closure),
+        correspondences: vec![],
+    };
+    bundle.digest = Some(
+        bundle
+            .canonical_digest_selection()
+            .expect("fixture bundle canonicalizes"),
+    );
+    bundle.admit().expect("fixture static bundle is admitted")
+}
+
+fn qualified(tag: &str) -> Box<QualifiedObservation> {
+    let producer = producer_bundle();
+    let record_subject = order_subject(&producer, tag);
     let mut request = AdmissionRequest {
         package: PackageSelection {
             format: NATIVE_LINKED_PACKAGE_FORMAT.to_owned(),
@@ -465,14 +625,7 @@ fn qualified(tag: &str) -> Box<QualifiedObservation> {
             revision: id("1"),
             digest: digest(1),
         },
-        producer: ProducerSelection {
-            interface_version: PRODUCER_INTERFACE_VERSION.to_owned(),
-            document_identity: id(format!("producer:{tag}")),
-            document_digest: digest(2),
-            model_identity: id(format!("model:{tag}")),
-            configuration_identity: id(format!("configuration:{tag}")),
-            configuration_digest: digest(3),
-        },
+        producer,
         binding: ObservationBinding {
             identity: id(format!("binding:{tag}")),
             source_identity: id(format!("source:{tag}")),
@@ -480,7 +633,8 @@ fn qualified(tag: &str) -> Box<QualifiedObservation> {
             signal_identity: id(format!("signal:{tag}")),
             trigger_identity: id(format!("trigger:{tag}")),
             unit: id("unit"),
-            subject_kind: SubjectKind::Order,
+            subject_kind: SubjectKind::new(ORDER_KIND.to_vec())
+                .expect("fixture subject kind is non-empty"),
             required: true,
         },
         expected_subject: record_subject.clone(),

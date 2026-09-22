@@ -39,6 +39,7 @@ fn tc_002_classifies_all_repositories_and_orders_tags() {
         "tl-parse",
         "tl-rewrite",
         "tl-mltl",
+        "quire-mltl",
     ] {
         assert!(
             policy.contains(repository),

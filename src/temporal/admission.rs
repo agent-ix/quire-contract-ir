@@ -256,11 +256,12 @@ pub struct TargetSelection {
 impl TargetSelection {
     #[must_use]
     pub fn current() -> Self {
-        const QSL: &str = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07";
-        const TLS: &str = "842d82553f045eb69a7f38745756d968254fc25e";
-        const TLM: &str = "22862189ac4eb515ab84928faec25b2eac47d835";
-        const QOBS: &str = "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc";
-        const QPROTOCOL: &str = "34d1752e6c5f789a52ccf115b0694eedd96cdd46";
+        const QSL: &str = "2736b62b2f741496590d099d71478b3044d638d6";
+        const TLS: &str = "d52d89549b0a6c0c429261bab912cd5396c4a19e";
+        const TLM: &str = "b3e2a26a8516b0747679214d2a05be0210e69ec6";
+        const QMLTL: &str = "f44431155de54fa028da88665e5d29ff826e27da";
+        const QOBS: &str = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6";
+        const QPROTOCOL: &str = "9606131bbc978c494e81df13a8301a5d8a72017a";
         const QCI_PREDICATE: &str = "202210cf6339208740299ae4050d6f16908d557e";
         let select = |contract: &str, version: &str, repo: &str, revision: &str, bytes: &[u8]| {
             ContractSelection::new(contract, version, repo, revision, BridgeDigest::raw(bytes))
@@ -381,18 +382,18 @@ impl TargetSelection {
                 tl_mltl::past::requirement::SCHEMA_BYTES,
             ),
             request: select(
-                tl_mltl::wire::request::CONTRACT,
+                quire_mltl::request::CONTRACT,
                 "0.1.0",
-                "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::wire::request::SCHEMA_BYTES,
+                "agent-ix/quire-mltl",
+                QMLTL,
+                quire_mltl::request::SCHEMA_BYTES,
             ),
             evaluator_report: select(
-                tl_mltl::wire::report::CONTRACT,
+                quire_mltl::report::CONTRACT,
                 "0.1.0",
-                "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::wire::report::SCHEMA_BYTES,
+                "agent-ix/quire-mltl",
+                QMLTL,
+                quire_mltl::report::SCHEMA_BYTES,
             ),
             native_result: select(
                 quire_spec_language::protocol_artifact::native_temporal::result::CONTRACT,
@@ -423,11 +424,11 @@ impl TargetSelection {
                 quire_protocol::result::contract_ir::SCHEMA_BYTES,
             ),
             tl_mapping: select(
-                tl_mltl::mapping::contract_ir::CONTRACT,
+                quire_mltl::contract_ir::CONTRACT,
                 "0.1.0",
-                "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::mapping::contract_ir::SCHEMA_BYTES,
+                "agent-ix/quire-mltl",
+                QMLTL,
+                quire_mltl::contract_ir::SCHEMA_BYTES,
             ),
         }
     }
