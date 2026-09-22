@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 
 fn projection() -> Value {
     let mut package: Value = serde_json::from_str(include_str!(
-        "../corpus/contract-v0.1/inputs/package-constructs.json"
+        "../../corpus/contract-v0.1/inputs/package-constructs.json"
     ))
     .expect("shared package fixture");
     let mut bindings = Vec::new();
@@ -41,7 +41,7 @@ fn projection() -> Value {
                 continue;
             }
             let mut expression: Value = serde_json::from_str(include_str!(
-                "../corpus/contract-v0.1/inputs/expression-boolean-literal.json"
+                "../../corpus/contract-v0.1/inputs/expression-boolean-literal.json"
             ))
             .expect("boolean expression fixture");
             expression["owner"] = owner.clone();
@@ -82,7 +82,7 @@ fn nested_bound_package() -> BoundPackage {
         let owner = binding["expression"]["owner"].clone();
         let execution_point = binding["expression"]["execution_point"].clone();
         let mut nested: Value = serde_json::from_str(include_str!(
-            "../corpus/contract-v0.1/inputs/expression-boolean-not.json"
+            "../../corpus/contract-v0.1/inputs/expression-boolean-not.json"
         ))
         .expect("nested Boolean expression fixture");
         nested["owner"] = owner;
@@ -1846,7 +1846,7 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
 }
 
 const MAPPING_REFUSAL_REGISTRY: &str =
-    include_str!("../spec/contract/STD-003-output-mapping-refusal-registry.md");
+    include_str!("../../spec/contract/STD-003-output-mapping-refusal-registry.md");
 
 /// Tracing: TC-051, STD-003, FR-032-AC-5.
 #[trace("TC-051", "STD-003", "FR-032-AC-5")]
@@ -1947,7 +1947,7 @@ fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
     // production code, so the registry cannot silently drift from the
     // source that emits it.
     const OUTPUT_MAPPING_SOURCE: &str =
-        include_str!("../crates/quire-contract-model/src/output_mapping.rs");
+        include_str!("../../crates/quire-contract-model/src/output_mapping.rs");
     let production_source = OUTPUT_MAPPING_SOURCE
         .split("#[cfg(test)]")
         .next()

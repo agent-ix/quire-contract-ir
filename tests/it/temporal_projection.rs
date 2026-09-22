@@ -1,14 +1,4 @@
-#[allow(dead_code)]
-#[path = "support/native_protocol/mod.rs"]
-mod native_protocol;
-#[allow(dead_code)]
-#[path = "support/result_fixture.rs"]
-mod result_fixture;
-#[path = "support/temporal_fixture.rs"]
-mod temporal_fixture;
-#[path = "support/v2_handoff.rs"]
-mod v2_handoff;
-
+use crate::support::{result_fixture, temporal_fixture};
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     bridge::{BridgeDigest, BridgeLimits, ContractSelection},
@@ -34,7 +24,9 @@ use quire_spec_language::{
 };
 use tl_mltl::{mapping, wire, wire::OwnerLimits};
 
-use native_protocol::{Inputs as NativeInputs, TemporalDefinitionExpectation, Unit};
+use crate::support::native_protocol::{
+    Inputs as NativeInputs, TemporalDefinitionExpectation, Unit,
+};
 
 #[trace(
     "TC-039",

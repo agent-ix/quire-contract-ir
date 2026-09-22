@@ -1,15 +1,4 @@
-#[allow(dead_code)]
-#[path = "support/native_protocol/mod.rs"]
-mod native_protocol;
-#[allow(dead_code)]
-#[path = "support/result_fixture.rs"]
-mod result_fixture;
-#[allow(dead_code)]
-#[path = "support/temporal_fixture.rs"]
-mod temporal_fixture;
-#[path = "support/v2_handoff.rs"]
-mod v2_handoff;
-
+use crate::support::{result_fixture, temporal_fixture};
 use ix_trace_rs::trace;
 use jsonschema::{Draft, JSONSchema};
 use quire_contract_ir::{
@@ -406,7 +395,7 @@ fn read_value(
 #[test]
 fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
     let mut cause_labels = std::collections::BTreeSet::new();
-    let registry = include_str!("../spec/contract/STD-001-diagnostic-registry.md");
+    let registry = include_str!("../../spec/contract/STD-001-diagnostic-registry.md");
     for code in ModelCauseCode::all() {
         assert!(cause_labels.insert(code.as_str()));
         assert!(registry.contains(&format!("| `{}` |", code.as_str())));

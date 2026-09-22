@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 fn projection() -> Value {
     let mut package: Value = serde_json::from_str(include_str!(
-        "../corpus/contract-v0.1/inputs/package-constructs.json"
+        "../../corpus/contract-v0.1/inputs/package-constructs.json"
     ))
     .unwrap();
     // Use the shared package's clause kinds and source identities, with literal
@@ -21,7 +21,7 @@ fn projection() -> Value {
                 continue;
             }
             let mut expression: Value = serde_json::from_str(include_str!(
-                "../corpus/contract-v0.1/inputs/expression-boolean-literal.json"
+                "../../corpus/contract-v0.1/inputs/expression-boolean-literal.json"
             ))
             .unwrap();
             expression["owner"] = owner.clone();
@@ -571,15 +571,15 @@ fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() 
 #[test]
 fn tc_035_normative_schema_is_checked_independently_of_binder() {
     let schema: Value = serde_json::from_str(include_str!(
-        "../schemas/contract-executable-projection-v1.schema.json"
+        "../../schemas/contract-executable-projection-v1.schema.json"
     ))
     .unwrap();
     let package: Value = serde_json::from_str(include_str!(
-        "../schemas/contract-package-reference-v1.schema.json"
+        "../../schemas/contract-package-reference-v1.schema.json"
     ))
     .unwrap();
     let conformance: Value = serde_json::from_str(include_str!(
-        "../schemas/contract-conformance-manifest-v1.schema.json"
+        "../../schemas/contract-conformance-manifest-v1.schema.json"
     ))
     .unwrap();
     let validator = jsonschema::JSONSchema::options()
@@ -688,10 +688,12 @@ fn tc_035_depth_limits_do_not_abort_the_process() {
         "wire:576",
         "wire:577",
     ] {
+        // The relaunched child is the shared `it` test binary, so the filter must
+        // name this test by its module-qualified path, not its bare fn name.
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "tc_035_depth_limits_do_not_abort_the_process",
+                "executable_binding::tc_035_depth_limits_do_not_abort_the_process",
                 "--nocapture",
             ])
             .env(CHILD, control)

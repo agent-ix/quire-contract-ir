@@ -150,7 +150,7 @@ fn try_model_with(
     extend: impl FnOnce(&mut Value),
 ) -> Result<NativeModel, Box<model_source::ModelSourceError>> {
     let mut document: Value =
-        serde_json::from_str(include_str!("../../fixtures/native-rule-model.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/native-rule-model.json")).unwrap();
     document["package"] = json!(format!("test/{name}"));
     document["scalars"].as_array_mut().unwrap().extend([
         json!({"name":"Q", "kind":"rational", "numerator_minimum":-1, "numerator_maximum":1, "maximum_denominator":2}),

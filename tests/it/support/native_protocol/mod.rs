@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Real native inputs and fixture-authored external selections for emission tests.
+//!
+//! Shared by whichever `tests/it/*` modules need it; a method callable from
+//! this module's public API (`Inputs::read`/`Inputs::read_bytes`) with no
+//! current caller anywhere in the merged binary is still part of the fixture's
+//! surface, not dead code to delete.
+#![allow(dead_code)]
 
 #[path = "../composed_types/mod.rs"]
 mod composed_inputs;

@@ -5,10 +5,7 @@
 //! and cross-defect refusal precedence for `quire.checked-package/v2`'s
 //! `state`/`frame` nodes.
 
-#[path = "support/checked_package.rs"]
-mod checked_package;
-
-use checked_package::{
+use crate::support::checked_package::{
     canonical, evidence_for, frame_refusal_cause, frame_refusal_code, node_id,
     node_identity_vectors, refresh_identity, refusal_at, v2_all_families,
 };
