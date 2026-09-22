@@ -64,8 +64,14 @@ impl KaniOutcome {
     /// terminal kind or reporting `Proved`.
     ///
     /// This function maps a check count to an outcome; it does not itself
-    /// observe or run anything. No caller in this repository's `src/` or
-    /// `crates/` routes a Kani run through it yet.
+    /// observe or run anything. This is the one shared implementation of
+    /// that rule: `quire-contract-codegen`'s `classify_run`
+    /// (`src/kani_execution.rs`) routes its own SUCCESS-check classification
+    /// through this function instead of re-deriving the zero-check rule from
+    /// its transcript parse (agent-ix/quire-contract-codegen#99). No caller
+    /// inside this repository's own `src/` or `crates/` needs to route a
+    /// Kani run through it — the caller is external — so within this
+    /// repository it is exercised only by `tests/kani_shared.rs`.
     pub fn proved_from_checks(
         success_checks: usize,
         source_id: impl Into<String>,
