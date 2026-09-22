@@ -5,16 +5,17 @@
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{
-    self, all_families_read_work, canonical, evidence_for, fixture, incomplete, json_depth,
-    locator, nominal_package, positive_operation_identities, refresh_identity, refusal,
-    refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal, COMPLETE_VALUE_FEATURE,
+    self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
+    nominal_fixture_members, nominal_package, positive_operation_identities, refresh_identity,
+    refusal, refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -613,7 +614,11 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
 
     let all = v2_all_families();
     let all_bytes = canonical(&all);
-    let all_families_read_work = all_families_read_work();
+    // Pinned so a future change to the reader's charging logic that shifts
+    // the real boundary is caught here, rather than silently absorbed by a
+    // binary search that measures whatever the reader under test now does.
+    assert_eq!(all_families_read_work(), ALL_FAMILIES_READ_WORK);
+    let all_families_read_work = ALL_FAMILIES_READ_WORK;
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = all_families_read_work;
     assert!(matches!(
@@ -771,6 +776,35 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
 // `v2_nominal()`'s own construction (`nominal_package` over
 // `nominal_fixture_members()` in `tests/support/checked_package.rs`) is still
 // exercised end-to-end by every other test in this crate that reads it.
+//
+// The first removed test's serde round-trip and digest re-derivation checks
+// did not actually depend on the deleted oracle, though: they checked that a
+// typed `NominalIdentityPreimage` serializes back to its own wire form and
+// that `NominalIdentityPreimage::digest()` reproduces the node key it is
+// keyed by. Both properties are re-checked below against
+// `nominal_fixture_members()` — this module's own locally-authored preimages,
+// never the deleted oracle — so `NominalIdentityPreimage`'s serde impl and
+// `digest()` keep a real test rather than going untested.
+
+/// Tracing: TC-048, FR-038-AC-5
+#[trace("TC-048", "FR-038-AC-5")]
+#[test]
+fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
+    for (preimage, key) in nominal_fixture_members() {
+        let typed: NominalIdentityPreimage =
+            serde_json::from_value(preimage.clone()).expect("typed preimage");
+        assert_eq!(
+            serde_json::to_value(&typed).expect("round trip"),
+            preimage,
+            "preimage did not round-trip through NominalIdentityPreimage"
+        );
+        assert_eq!(
+            typed.digest().as_deref(),
+            Some(key.as_str()),
+            "digest() did not reproduce the node key this preimage is keyed by"
+        );
+    }
+}
 
 /// Declaration checks (`validate_nominal_nodes`) must run, and refuse,
 /// before the graph's `dependencies` edges are resolved — the vendored
@@ -1568,6 +1602,12 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
 #[test]
 fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
     let base = positive_operation_identities();
+    // The base fixture must itself be admissible before any of the deletion
+    // cases below can say anything about which member's absence refuses it:
+    // an already-refusing base document would make every case below pass
+    // vacuously, for whatever reason the base already refuses rather than
+    // the deletion under test.
+    admitted(&base);
     let nodes = base["semantic_graph"]["nodes"].as_array().expect("nodes");
     let declaring_node = nodes
         .iter()

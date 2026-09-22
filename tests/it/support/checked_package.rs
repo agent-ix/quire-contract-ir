@@ -15,10 +15,11 @@
 //! `v2/operations.rs`, and the nominal identity preimages `v2/identity.rs`
 //! implements) — SHA-256/RFC-8785 canonicalization done with the same
 //! `sha256_hex`/`canonical` helpers every other test in this module already
-//! used, never a copy of bytes from anywhere else. [`node_identity_vectors`]
-//! is the one piece that stays unavailable: it was an *independent* oracle
-//! (what an outside producer computed), so regenerating it from this crate
-//! would make every assertion against it tautological — see the issue.
+//! used, never a copy of bytes from anywhere else. The node-identity-vectors
+//! conformance oracle is the one piece that stays unavailable: it was an
+//! *independent* oracle (what an outside producer computed), so regenerating
+//! it from this crate would make every assertion against it tautological —
+//! see AGE-1961. Every test that read it was removed rather than rewritten.
 
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
@@ -63,6 +64,17 @@ pub fn all_families_read_work() -> u64 {
     }
     hi
 }
+
+/// The real value [`all_families_read_work`] measures today, pinned by hand
+/// so this file matches its own convention of hand-pinning other worked-out
+/// charges (e.g. `tc_048_v2_reader_reports_exact_and_one_over_limits`'s
+/// `work: 21`). A binary search against the reader under test can only ever
+/// agree with that same reader — it is not, on its own, a gate that a change
+/// to the reader's charging logic can fail. Both callers assert
+/// `all_families_read_work() == ALL_FAMILIES_READ_WORK`, so a future change
+/// to `v2/lower.rs`'s charge model that moves the real boundary is caught
+/// here instead of silently absorbed by a measurement that moves with it.
+pub const ALL_FAMILIES_READ_WORK: u64 = 77;
 
 pub fn v2_all_families() -> Value {
     build_v2_all_families()
@@ -216,78 +228,6 @@ pub fn json_depth(value: &Value) -> u64 {
     }
 }
 
-/// Applies the RFC 6902 `add`, `remove`, `replace` and `move` operations the
-/// vendored vectors use.
-pub fn apply_patch(target: &mut Value, patch: &Value) {
-    for operation in patch.as_array().expect("patch array") {
-        let path = operation["path"].as_str().expect("patch path");
-        match operation["op"].as_str().expect("patch op") {
-            "replace" => {
-                *target.pointer_mut(path).expect("replace target exists") =
-                    operation["value"].clone();
-            }
-            "remove" => {
-                remove(target, path);
-            }
-            "add" => insert(target, path, operation["value"].clone()),
-            "move" => {
-                let from = operation["from"].as_str().expect("move from");
-                let value = remove(target, from);
-                insert(target, path, value);
-            }
-            other => panic!("unsupported patch op {other}"),
-        }
-    }
-}
-
-fn split(path: &str) -> (&str, String) {
-    let (parent, last) = path.rsplit_once('/').expect("JSON pointer");
-    (parent, last.replace("~1", "/").replace("~0", "~"))
-}
-
-fn remove(target: &mut Value, path: &str) -> Value {
-    let (parent, key) = split(path);
-    match target.pointer_mut(parent).expect("patch parent exists") {
-        Value::Object(members) => members.remove(&key).expect("removed member exists"),
-        Value::Array(items) => items.remove(key.parse::<usize>().expect("array index")),
-        _ => panic!("patch parent is a container"),
-    }
-}
-
-fn insert(target: &mut Value, path: &str, value: Value) {
-    let (parent, key) = split(path);
-    match target.pointer_mut(parent).expect("patch parent exists") {
-        Value::Object(members) => {
-            members.insert(key, value);
-        }
-        Value::Array(items) => {
-            let index = if key == "-" {
-                items.len()
-            } else {
-                key.parse::<usize>().expect("array index")
-            };
-            items.insert(index, value);
-        }
-        _ => panic!("patch parent is a container"),
-    }
-}
-
-/// The nominal node-identity vectors. Unavailable: this was an *independent*
-/// conformance oracle (what an outside producer computed for these preimages),
-/// copied from a private upstream repository and deleted along with the rest
-/// of the private-sourced fixture tree (AGE-1961).
-/// Regenerating it from this crate's own code would make every assertion
-/// checked against it a tautology — it would only ever agree with itself —
-/// so it is not recoverable here and every test that needed it was removed
-/// rather than rewritten. Restoring it needs a publicly sourced vector set.
-pub fn node_identity_vectors() -> Value {
-    panic!(
-        "the node-identity-vectors.json conformance oracle was removed with the \
-         private-sourced fixture tree (AGE-1961) and is not \
-         recoverable from this crate's own code; every test that read it was removed"
-    )
-}
-
 /// Recomputes each preimage's key in list order, rewriting every later
 /// preimage that names a changed key. Vectors are listed in dependency order,
 /// so one pass carries a rekey through every dependant.
@@ -422,24 +362,6 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
     package
 }
 
-/// Parses a vendored `refused:<code>` outcome.
-pub fn refusal_code(outcome: &str) -> CheckedPackageRefusalCode {
-    match outcome.strip_prefix("refused:").expect("refused outcome") {
-        "unknown_contract_version" => CheckedPackageRefusalCode::UnknownContractVersion,
-        "malformed_wire" => CheckedPackageRefusalCode::MalformedWire,
-        "duplicate_member" => CheckedPackageRefusalCode::DuplicateMember,
-        "unknown_member" => CheckedPackageRefusalCode::UnknownMember,
-        "noncanonical_wire" => CheckedPackageRefusalCode::NoncanonicalWire,
-        "stale_dependency" => CheckedPackageRefusalCode::StaleDependency,
-        "digest_domain_mismatch" => CheckedPackageRefusalCode::DigestDomainMismatch,
-        "unknown_required_capability" => CheckedPackageRefusalCode::UnknownRequiredCapability,
-        "invalid_semantic_graph" => CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "invalid_source_map" => CheckedPackageRefusalCode::InvalidSourceMap,
-        "unsupported_node_tag" => CheckedPackageRefusalCode::UnsupportedNodeTag,
-        other => panic!("unknown vendored refusal code {other}"),
-    }
-}
-
 pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRefusal {
     CheckedPackageRefusal {
         code,
@@ -463,26 +385,6 @@ pub fn refusal_at(
         path: path.into(),
         cause,
         locus: Some(typed_node_id(locus_digest)),
-    }
-}
-
-/// Parses a vendored `frame_mutations` vector's `expected_code`.
-pub fn frame_refusal_code(expected: &str) -> CheckedPackageRefusalCode {
-    match expected {
-        "invalid_semantic_graph" => CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "missing_declaration" => CheckedPackageRefusalCode::MissingDeclaration,
-        "invalid_model_binding" => CheckedPackageRefusalCode::InvalidModelBinding,
-        other => panic!("unknown vendored frame refusal code {other}"),
-    }
-}
-
-/// Parses a vendored `frame_mutations` vector's `expected_cause`.
-pub fn frame_refusal_cause(expected: Option<&str>) -> Option<CheckedPackageRefusalCause> {
-    match expected {
-        None => None,
-        Some("missing-name") => Some(CheckedPackageRefusalCause::MissingName),
-        Some("malformed-declaration") => Some(CheckedPackageRefusalCause::MalformedDeclaration),
-        Some(other) => panic!("unknown vendored frame refusal cause {other}"),
     }
 }
 
@@ -727,7 +629,15 @@ fn empty_aggregate() -> Value {
 }
 
 /// An application-bodied node, keyed by [`application_key`] rather than a
-/// placeholder digest.
+/// placeholder digest. `result_type` doubles as the node's own `semantic_type`:
+/// an application node's semantic type is the type of the value it produces,
+/// the same type its own body already names as `result_type`. Every caller in
+/// `build_v2_all_families` happens to pass `"aaaa"` for both, but
+/// `build_operation_identities` does not — its call node's real type is its
+/// `result_type` argument (`&root`), not the `"aaaa"` family node that
+/// document never builds; hardcoding `"aaaa"` here previously left that
+/// document's call node with a dangling `semantic_type` that refused
+/// admission with `InvalidSemanticGraph` at `semantic_graph.nodes.semantic_type`.
 fn application_node(
     node_tag: &str,
     semantic_form: &str,
@@ -737,7 +647,7 @@ fn application_node(
     arguments: Vec<Value>,
     dependencies: &[&str],
 ) -> Value {
-    let semantic_type = node_id(&family_key("aaaa"));
+    let semantic_type = node_id(result_type);
     let body = json!({
         "term": "application",
         "operator": operator,
@@ -788,7 +698,13 @@ fn fixture_secondary_source() -> Value {
 /// can select it into `profile_selections` under a fresh role and show that a
 /// preimage member's *value* (not merely its presence) is what the identity
 /// covers, reusing an artifact evidence already attests rather than a
-/// digest invented for the mutation.
+/// digest invented for the mutation. It is also load-bearing for a second,
+/// unrelated role: `nominal_fixture_members`'s dimension preimage owns it as
+/// a `NominalOwner::Definition` (rather than the source-owned declaration and
+/// unit), so `tc_048_nominal_cross_field_contradictions_refuse`'s "owner
+/// outside lock" case — which mutates `lock.definition_selections[0].identity`
+/// — has a real join to break; without this second role that mutation would
+/// have nothing in the fixture to affect.
 fn fixture_definition_selection() -> Value {
     artifact(
         FIXTURE_SOURCE_AUTHORITY,
@@ -832,15 +748,26 @@ fn fixture_lock(profile_selections: Vec<Value>) -> Value {
     })
 }
 
+/// One entry per node, sourced from the node's own single occurrence rather
+/// than a hardcoded `generated` role: every node this generator builds
+/// carries exactly one entry in its own `occurrences` array, but that entry's
+/// role is `declaration` for a declaring node (see `build_operation_identities`'s
+/// `declaring_node`) and `generated` for every other one. Reading the role
+/// and ordinal back from the node itself, rather than re-asserting
+/// `generated` here, is what keeps this function correct for both — a
+/// hardcoded `generated` silently produced a `source_map` whose entry
+/// disagreed with the declaring node's own recorded occurrence, which
+/// `validate_source_map_entries` refuses as `invalid_source_map`.
 fn source_map_for(nodes: &[Value], source: &Value) -> Value {
     let entries = nodes
         .iter()
         .enumerate()
         .map(|(position, node)| {
+            let occurrence = &node["occurrences"][0];
             json!({
                 "node_id": node["node_id"],
-                "role": "generated",
-                "ordinal": 0,
+                "role": occurrence["role"],
+                "ordinal": occurrence["ordinal"],
                 "regions": [{"source": source, "start": position, "end": position + 1}],
             })
         })
@@ -909,7 +836,7 @@ fn nominal_skeleton() -> Value {
 /// in dependency order (declaration before its member, dimension before its
 /// unit) — required, since each dependant preimage embeds the digest of the
 /// node it names — and only then reordered into that display order.
-fn nominal_fixture_members() -> Vec<(Value, String)> {
+pub fn nominal_fixture_members() -> Vec<(Value, String)> {
     let owner = json!({
         "kind": "source",
         "authority": FIXTURE_SOURCE_AUTHORITY,
@@ -1058,10 +985,7 @@ fn build_v2_all_families() -> Value {
             "function",
             "pure_function",
             "call",
-            json!({
-                "identity": "quire.op.function.call", "laws": Value::Array(Vec::new()),
-                "mode": Value::Null, "member": Value::Null, "leaves": Value::Array(Vec::new()),
-            }),
+            function_call_body()["operation"].clone(),
             &aaaa,
             vec![json!({"term": "reference", "target": node_id(&f8080)})],
             &[],
@@ -1094,10 +1018,7 @@ fn build_v2_all_families() -> Value {
             "temporal",
             "temporal_clause",
             "temporal",
-            json!({
-                "identity": "quire.op.temporal.clause", "laws": [temporal_profile_law()],
-                "mode": Value::Null, "member": {"kind": "profile_operator"}, "leaves": Value::Array(Vec::new()),
-            }),
+            temporal_clause_body()["operation"].clone(),
             &aaaa,
             Vec::new(),
             &[],
@@ -1106,10 +1027,7 @@ fn build_v2_all_families() -> Value {
             "protocol",
             "protocol_clause",
             "protocol_control",
-            json!({
-                "identity": "quire.op.protocol.control", "laws": [protocol_profile_law()],
-                "mode": Value::Null, "member": {"kind": "profile_operator"}, "leaves": Value::Array(Vec::new()),
-            }),
+            protocol_control_body()["operation"].clone(),
             &aaaa,
             Vec::new(),
             &[],
@@ -1118,10 +1036,7 @@ fn build_v2_all_families() -> Value {
             "claim",
             "verification_claim",
             "claim",
-            json!({
-                "identity": "quire.op.claim.clause", "laws": [temporal_profile_law()],
-                "mode": Value::Null, "member": {"kind": "profile_operator"}, "leaves": Value::Array(Vec::new()),
-            }),
+            claim_clause_body()["operation"].clone(),
             &aaaa,
             Vec::new(),
             &[],

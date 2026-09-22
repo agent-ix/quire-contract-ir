@@ -11,7 +11,7 @@
 
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, incomplete, json_depth, refresh_identity,
-    refusal, typed_node_id, v2_all_families, NODE_DOMAIN,
+    refusal, typed_node_id, v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -331,6 +331,10 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
             .iter()
             .map(|entry| entry["regions"].as_array().expect("regions").len())
             .sum::<usize>();
+    // Pinned so a future change to the reader's charging logic that shifts
+    // the real boundary is caught here, rather than silently absorbed by a
+    // binary search that measures whatever the reader under test now does.
+    assert_eq!(all_families_read_work(), ALL_FAMILIES_READ_WORK);
     let mut exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("fixture length"),
         depth: json_depth(&value),
@@ -338,7 +342,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         edges: u64::try_from(total_edges).expect("edge count"),
         occurrences: u64::try_from(total_occurrences).expect("occurrence count"),
         diagnostics: 0,
-        work: all_families_read_work(),
+        work: ALL_FAMILIES_READ_WORK,
     };
     assert!(matches!(
         CheckedPackageV2::read(&bytes, exact, &evidence),
