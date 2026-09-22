@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-const POLICY: &str = include_str!("../spec/program/PGM-01-governance.md");
+const POLICY: &str = include_str!("../../spec/program/PGM-01-governance.md");
 
 fn normalized_policy() -> String {
     POLICY.split_whitespace().collect::<Vec<_>>().join(" ")

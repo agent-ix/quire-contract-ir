@@ -6,7 +6,7 @@ use quire_contract_ir::{
     ValidationOptions,
 };
 
-const REGISTRY: &str = include_str!("../spec/contract/STD-001-diagnostic-registry.md");
+const REGISTRY: &str = include_str!("../../spec/contract/STD-001-diagnostic-registry.md");
 const FORBIDDEN_PUBLIC_VOCABULARY: [&str; 8] = [
     "rust", "gumbo", "aadl", "hamr", "solver", "runtime", "usize", "pathbuf",
 ];

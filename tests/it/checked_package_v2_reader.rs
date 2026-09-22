@@ -4,11 +4,8 @@
 //! Strict CheckedPackage V2 reader: vendored adverse mutations, injected
 //! refusals, resource limits, package identity, and nominal node identity.
 
-#[path = "support/checked_package.rs"]
-mod checked_package;
-
-use checked_package::{
-    apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
+use crate::support::checked_package::{
+    self, apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
     node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_at, refusal_code,
     rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };

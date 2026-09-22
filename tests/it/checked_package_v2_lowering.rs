@@ -3,11 +3,8 @@
 
 //! Exact, independent per-item lowering of admitted CheckedPackage V2 nodes.
 
-#[path = "support/checked_package.rs"]
-mod checked_package;
-
-use checked_package::{
-    canonical, evidence_for, refresh_identity, sha256_hex, typed_node_id, v2_all_families,
+use crate::support::checked_package::{
+    self, canonical, evidence_for, refresh_identity, sha256_hex, typed_node_id, v2_all_families,
     v2_nominal,
 };
 use ix_trace_rs::trace;

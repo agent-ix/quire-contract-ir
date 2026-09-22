@@ -35,7 +35,7 @@ fn native_model() -> NativeModel {
             revision: "1".into(),
         },
         "native-rule-model.json",
-        include_bytes!("fixtures/native-rule-model.json"),
+        include_bytes!("../fixtures/native-rule-model.json"),
         Limits::default().source_bytes,
     )
     .expect("read native model fixture");
@@ -263,7 +263,7 @@ fn tc_042_counterexample_replays_through_native_runtime_execute() {
 /// A real `kani::concrete_playback_run` block captured from a falsified
 /// two-argument `i64` contract check, copied verbatim.
 fn real_playback_block() -> &'static str {
-    include_str!("fixtures/kani-concrete-playback.txt")
+    include_str!("../fixtures/kani-concrete-playback.txt")
 }
 
 /// A cover playback in the same shape Kani emits, copied down to a single

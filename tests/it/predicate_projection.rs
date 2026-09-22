@@ -1,6 +1,4 @@
-#[path = "support/v2_handoff.rs"]
-mod v2_handoff;
-
+use crate::support::v2_handoff;
 use ix_trace_rs::trace;
 use quire_contract_ir::bridge::{BridgeDigest, BridgeErrorCode, BridgeLimits, ContractSelection};
 use quire_contract_ir::predicate::{

@@ -9,10 +9,7 @@
 //! `CheckedPackage` V1 is gone (owner ruling 2026-09-17): this file targets
 //! only the current `CheckedPackageV2` reader and lowerer.
 
-#[path = "support/checked_package.rs"]
-mod checked_package;
-
-use checked_package::{
+use crate::support::checked_package::{
     canonical, evidence_for, incomplete, json_depth, refresh_identity, refusal, typed_node_id,
     v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
 };

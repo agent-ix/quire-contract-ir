@@ -6,11 +6,12 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-const POLICY: &str = include_str!("../spec/program/PGM-01-governance.md");
-const RECONCILIATION: &str = include_str!("../spec/program/STD-002-shared-assurance-governance.md");
-const README: &str = include_str!("../README.md");
-const CONTRIBUTING: &str = include_str!("../CONTRIBUTING.md");
-const DISPOSITION_RECEIPT: &str = include_str!("fixtures/campaign-issue-dispositions-v1.json");
+const POLICY: &str = include_str!("../../spec/program/PGM-01-governance.md");
+const RECONCILIATION: &str =
+    include_str!("../../spec/program/STD-002-shared-assurance-governance.md");
+const README: &str = include_str!("../../README.md");
+const CONTRIBUTING: &str = include_str!("../../CONTRIBUTING.md");
+const DISPOSITION_RECEIPT: &str = include_str!("../fixtures/campaign-issue-dispositions-v1.json");
 
 fn normalized(document: &str) -> String {
     document.split_whitespace().collect::<Vec<_>>().join(" ")
