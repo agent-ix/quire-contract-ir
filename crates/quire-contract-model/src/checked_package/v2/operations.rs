@@ -725,13 +725,15 @@ fn check_leaves(
 #[cfg(test)]
 mod tests {
     use super::{
-        operation_catalog, operation_defect, CheckedNodeId, CheckedPackageLockV2,
-        CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
-        ValidationFailure, WorkMeter, OPERATION_PATH,
+        operation_catalog, operation_defect, validate_application_keys, CheckedNodeId,
+        CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+        CheckedSemanticNodeV2, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
+        NODE_ID_PATH, OPERATION_ARGUMENTS_PATH, OPERATION_LAWS_PATH, OPERATION_MEMBER_PATH,
+        OPERATION_MODE_PATH, OPERATION_PATH, OPERATOR_PATH,
     };
-    use crate::checked_package::common::NODE_DOMAIN;
+    use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{CheckedArtifactRef, CheckedRevision, CheckedSelection};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     /// A catalogued identity used correctly throughout this module's tests:
@@ -742,19 +744,57 @@ mod tests {
     /// Obviously synthetic; must never collide with a real catalogued
     /// identity.
     const UNCATALOGUED_IDENTITY: &str = "quire.op.test-only.not-a-real-operation";
+    /// Catalogued with one required law role (`integer_division`), operator
+    /// `binary`, two `integer` operands, no mode, no member.
+    const INTEGER_DIV_IDENTITY: &str = "quire.op.integer.div";
+    /// Catalogued with operator `binary`, two `decimal` operands, a required
+    /// `rounding` mode, no laws, no member.
+    const DECIMAL_ADD_IDENTITY: &str = "quire.op.decimal.add";
+    /// Catalogued with operator `convert`, one `quantity` operand, a
+    /// required `rounding` mode, a required `type_argument` member, no laws.
+    const QUANTITY_CONVERT_IDENTITY: &str = "quire.op.quantity.convert";
+    /// Catalogued with operator `query`, one `record` operand, a required
+    /// `field` member, no laws, no mode.
+    const RECORD_PROJECT_IDENTITY: &str = "quire.op.record.project";
+    /// Catalogued with operator `binary`, two `structural_kind` operands, a
+    /// `same_type` constraint and `leaves: "operand:0"`, no laws, no mode,
+    /// no member.
+    const STRUCTURAL_EQ_IDENTITY: &str = "quire.op.structural.eq";
 
     fn dummy_digest(byte: char) -> String {
         std::iter::repeat_n(byte, 64).collect()
     }
 
-    /// A minimal single-node `application` term whose `operation.identity`
-    /// is `identity` and whose `operator` is `operator`. Arguments are plain
-    /// `literal` terms (not `reference`/`binding`), so `argument_family`
-    /// resolves them to `None` and `check_operands` skips the family checks
-    /// that would otherwise need a second, referenced graph node — the only
-    /// thing this fixture needs to reach is the catalog lookup inside
-    /// `operation_defect`.
-    fn application_node(identity: &str, operator: &str) -> CheckedSemanticNodeV2 {
+    fn node_id(byte: char) -> CheckedNodeId {
+        CheckedNodeId {
+            domain: Box::from(NODE_DOMAIN),
+            digest: Box::from(dummy_digest(byte).as_str()),
+        }
+    }
+
+    /// The default `operation` wire shape every fixture below starts from:
+    /// `identity`, zero laws, no mode, no member, no leaves. Individual
+    /// tests override exactly the field their refusal needs to be wrong.
+    fn plain_operation(identity: &str) -> Value {
+        json!({
+            "identity": identity,
+            "laws": [],
+            "mode": null,
+            "member": null,
+            "leaves": [],
+        })
+    }
+
+    /// A single-node `application` term with a caller-supplied `operator`,
+    /// `operation` wire value and `arguments`. `node_id`/`semantic_type` are
+    /// placeholders `operation_defect` never inspects for its own checks
+    /// (only `validate_application_keys`'s own tests care whether a node's
+    /// key is genuine).
+    fn custom_application_node(
+        operator: &str,
+        operation: Value,
+        arguments: Vec<Value>,
+    ) -> CheckedSemanticNodeV2 {
         let value = json!({
             "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest('1') },
             "schema_version": "quire.checked-semantic-graph/v2",
@@ -766,20 +806,110 @@ mod tests {
             "body": {
                 "term": "application",
                 "operator": operator,
-                "arguments": [
-                    { "term": "literal", "value": 1 },
-                    { "term": "literal", "value": 2 },
-                ],
-                "operation": {
-                    "identity": identity,
-                    "laws": [],
-                    "mode": null,
-                    "member": null,
-                    "leaves": [],
-                },
+                "arguments": arguments,
+                "operation": operation,
             },
         });
         serde_json::from_value(value).expect("test fixture node is well-formed")
+    }
+
+    /// A minimal single-node `application` term whose `operation.identity`
+    /// is `identity` and whose `operator` is `operator`. Arguments are plain
+    /// `literal` terms (not `reference`/`binding`), so `argument_family`
+    /// resolves them to `None` and `check_operands` skips the family checks
+    /// that would otherwise need a second, referenced graph node — the only
+    /// thing this fixture needs to reach is the catalog lookup inside
+    /// `operation_defect`.
+    fn application_node(identity: &str, operator: &str) -> CheckedSemanticNodeV2 {
+        custom_application_node(
+            operator,
+            plain_operation(identity),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        )
+    }
+
+    /// `application_node`'s `node_id.digest` replaced by the genuine JCS
+    /// SHA-256 of its own preimage — the same formula
+    /// `validate_application_keys` re-derives — so the node passes that
+    /// check rather than tripping the `stale-node-key` refusal every other
+    /// fixture in this module deliberately does not care about.
+    fn correctly_keyed(mut node: CheckedSemanticNodeV2) -> CheckedSemanticNodeV2 {
+        let semantic_type =
+            serde_json::to_value(&node.semantic_type).expect("semantic_type serializes");
+        let preimage = json!({
+            "version": APPLICATION_NODE_VERSION,
+            "node_tag": node.node_tag.as_ref(),
+            "semantic_form": node.semantic_form.as_ref(),
+            "semantic_type": semantic_type,
+            "declaration": Value::Null,
+            "recursion": node.recursion_group.as_deref(),
+            "body": node.body.clone(),
+        });
+        let digest = digest_json(&preimage).expect("preimage digests");
+        node.node_id.digest = Box::from(digest.as_str());
+        node
+    }
+
+    /// A bare graph node with caller-supplied tag/form/semantic-type/body,
+    /// keyed on `id_byte`. Used to build the second and third nodes
+    /// `check_field_member`, `check_mode_type` and `check_leaves` resolve an
+    /// operand's declared type through.
+    fn graph_node(
+        id_byte: char,
+        node_tag: &str,
+        semantic_form: &str,
+        semantic_type: &CheckedNodeId,
+        body: Value,
+    ) -> CheckedSemanticNodeV2 {
+        let value = json!({
+            "node_id": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": node_tag,
+            "semantic_form": semantic_form,
+            "semantic_type": {
+                "domain": semantic_type.domain.as_ref(),
+                "digest": semantic_type.digest.as_ref(),
+            },
+            "dependencies": [],
+            "occurrences": [],
+            "body": body,
+        });
+        serde_json::from_value(value).expect("test fixture node is well-formed")
+    }
+
+    /// One `operation.laws[]` entry.
+    fn law_json(role: &str, definition: Value) -> Value {
+        json!({ "role": role, "definition": definition })
+    }
+
+    /// A syntactically valid `CheckedArtifactRef` guaranteed absent from
+    /// every catalogued law-role definition list.
+    fn dummy_law_definition(marker: char) -> Value {
+        json!({
+            "authority": "test",
+            "identity": "test",
+            "revision": { "namespace": "test", "value": "test" },
+            "digest_domain": "sha256-jcs",
+            "digest": dummy_digest(marker),
+        })
+    }
+
+    /// The exact bytes of the catalog's own first `integer_division`
+    /// law-role definition (`quire.value.integer-division.truncating/v1`),
+    /// copied from `checked-operation-catalog-v1.json` so `catalog.entry(...)`
+    /// recognizes it as catalogued while the empty lock leaves it
+    /// unselected.
+    fn real_integer_division_truncating_definition() -> Value {
+        json!({
+            "authority": "agent-ix",
+            "identity": "quire.value.integer-division.truncating/v1",
+            "revision": { "namespace": "quire-draft", "value": "1-draft.1" },
+            "digest_domain": "quire.definition.bytes/v1",
+            "digest": "9998507608e4885b314d5dcc59a88bb3d04ef3c263d2d8ae5810f92ae1893364",
+        })
     }
 
     /// A lock with nothing selected; every test identity here carries zero
@@ -819,6 +949,21 @@ mod tests {
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         operation_defect(node, nodes, &index, &lock, &mut meter)
+    }
+
+    /// Like [`defect_for`], but for a multi-node graph: `nodes[0]` is the
+    /// `application` node under test; the rest are the type/declaration
+    /// nodes its `operation` or `arguments` reference by id.
+    fn defect_for_graph(
+        nodes: Vec<CheckedSemanticNodeV2>,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        for (position, node) in nodes.iter().enumerate() {
+            index.insert(&node.node_id, position);
+        }
+        let lock = empty_lock();
+        let mut meter = WorkMeter::new(1_000);
+        operation_defect(&nodes[0], &nodes, &index, &lock, &mut meter)
     }
 
     /// An `application` node whose `operation.identity` is absent from the
@@ -872,6 +1017,553 @@ mod tests {
             result,
             Ok(None),
             "a catalogued identity used correctly must not be refused, got {result:?}"
+        );
+    }
+
+    /// `operator-class-mismatch`: agent-ix/quire-contract-ir#171. `binary` is
+    /// catalogued for [`CATALOGUED_IDENTITY`]; supplying `unary` must be
+    /// refused before arity or anything else is checked.
+    #[test]
+    fn operation_defect_refuses_wrong_operator_class() {
+        let node = application_node(CATALOGUED_IDENTITY, "unary");
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATOR_PATH,
+                Some(CheckedPackageRefusalCause::OperationClassMismatch),
+                node.node_id.clone(),
+            ))),
+            "an operator that disagrees with the catalogued entry's operator class must be \
+             refused as operation-class-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-law-missing`: agent-ix/quire-contract-ir#171.
+    /// [`INTEGER_DIV_IDENTITY`] requires one `integer_division` law;
+    /// supplying zero must be refused.
+    #[test]
+    fn operation_defect_refuses_missing_laws() {
+        let node = custom_application_node(
+            "binary",
+            plain_operation(INTEGER_DIV_IDENTITY),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_LAWS_PATH,
+                Some(CheckedPackageRefusalCause::OperationLawMissing),
+                node.node_id.clone(),
+            ))),
+            "fewer laws than the catalogued entry requires must be refused as \
+             operation-law-missing, got {result:?}"
+        );
+    }
+
+    /// `operation-law-mismatch` (too many laws): agent-ix/quire-contract-ir#171.
+    /// [`CATALOGUED_IDENTITY`] requires zero laws; supplying one must be
+    /// refused as a mismatch, not admitted as extra.
+    #[test]
+    fn operation_defect_refuses_too_many_laws() {
+        let mut operation = plain_operation(CATALOGUED_IDENTITY);
+        operation["laws"] = json!([law_json("anything", dummy_law_definition('a'))]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_LAWS_PATH,
+                Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                node.node_id.clone(),
+            ))),
+            "more laws than the catalogued entry admits must be refused as \
+             operation-law-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-law-mismatch` (role order): agent-ix/quire-contract-ir#171.
+    /// [`INTEGER_DIV_IDENTITY`]'s one required role is `integer_division`; a
+    /// law naming any other role at that position must be refused. The
+    /// definition is [`real_integer_division_truncating_definition`] (a
+    /// genuinely catalogued `integer_division` definition, not a dummy one)
+    /// deliberately: if the role check is skipped, the catalog-membership
+    /// and lock-selection checks further down key off the *catalogued*
+    /// entry's role, not the wire's declared role, so a dummy definition
+    /// would still be refused — just under a different cause
+    /// (`operation-law-mismatch` for an uncatalogued definition) — and this
+    /// test would not distinguish the role check being gone from it being
+    /// present.
+    #[test]
+    fn operation_defect_refuses_wrong_law_role() {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json(
+            "not_integer_division",
+            real_integer_division_truncating_definition()
+        )]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_LAWS_PATH,
+                Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                node.node_id.clone(),
+            ))),
+            "a law whose role does not match the catalogued entry's role order must be \
+             refused as operation-law-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-law-mismatch` (uncatalogued definition):
+    /// agent-ix/quire-contract-ir#171. `integer_division` is a value role
+    /// closed over the catalog's own definition list; a definition outside
+    /// that list must be refused before the lock is even consulted.
+    #[test]
+    fn operation_defect_refuses_uncatalogued_law_definition() {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json("integer_division", dummy_law_definition('c'))]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_LAWS_PATH,
+                Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                node.node_id.clone(),
+            ))),
+            "a law definition absent from the catalogued role's own definition list must be \
+             refused as operation-law-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-law-unselected`: agent-ix/quire-contract-ir#171. A
+    /// catalogued `integer_division` definition
+    /// ([`real_integer_division_truncating_definition`], copied byte-for-byte
+    /// from the catalog) is known to `catalog.entry(...)`, so this exercises
+    /// the *lock selection* check specifically, not the catalog-membership
+    /// check the previous test covers: `empty_lock` selects nothing, so it
+    /// must still be refused.
+    #[test]
+    fn operation_defect_refuses_unselected_law_definition() {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json(
+            "integer_division",
+            real_integer_division_truncating_definition()
+        )]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_LAWS_PATH,
+                Some(CheckedPackageRefusalCause::OperationLawUnselected),
+                node.node_id.clone(),
+            ))),
+            "a catalogued law definition absent from the lock's own selections must be \
+             refused as operation-law-unselected, got {result:?}"
+        );
+    }
+
+    /// `operation-mode-mismatch`: agent-ix/quire-contract-ir#171.
+    /// [`DECIMAL_ADD_IDENTITY`] requires a `rounding` mode; a missing mode
+    /// must be refused.
+    #[test]
+    fn operation_defect_refuses_mode_mismatch() {
+        let node = custom_application_node(
+            "binary",
+            plain_operation(DECIMAL_ADD_IDENTITY),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_MODE_PATH,
+                Some(CheckedPackageRefusalCause::OperationModeMismatch),
+                node.node_id.clone(),
+            ))),
+            "a missing mode where the catalogued entry requires one must be refused as \
+             operation-mode-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-member-mismatch`: agent-ix/quire-contract-ir#171.
+    /// [`QUANTITY_CONVERT_IDENTITY`] requires a `type_argument` member; the
+    /// mode is set to match so the member check, not the mode check, is what
+    /// fails.
+    #[test]
+    fn operation_defect_refuses_member_mismatch() {
+        let mut operation = plain_operation(QUANTITY_CONVERT_IDENTITY);
+        operation["mode"] = json!({ "kind": "rounding", "value": "exact" });
+        let node = custom_application_node(
+            "convert",
+            operation,
+            vec![json!({ "term": "literal", "value": 1 })],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_MEMBER_PATH,
+                Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                node.node_id.clone(),
+            ))),
+            "a missing member where the catalogued entry requires one must be refused as \
+             operation-member-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operator-ineligible` (arity): agent-ix/quire-contract-ir#171.
+    /// [`CATALOGUED_IDENTITY`] takes exactly two operands and admits no
+    /// `rest`; three arguments must be refused by `check_operands`.
+    #[test]
+    fn operation_defect_refuses_wrong_arity() {
+        let node = custom_application_node(
+            "binary",
+            plain_operation(CATALOGUED_IDENTITY),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+                json!({ "term": "literal", "value": 3 }),
+            ],
+        );
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::IllTyped,
+                OPERATION_ARGUMENTS_PATH,
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                node.node_id.clone(),
+            ))),
+            "an argument count that disagrees with the catalogued entry's fixed arity must be \
+             refused as operator-ineligible, got {result:?}"
+        );
+    }
+
+    /// `operator-ineligible` (field member): agent-ix/quire-contract-ir#171.
+    /// [`RECORD_PROJECT_IDENTITY`] requires a `field` member; this exercises
+    /// `check_field_member` specifically (reached only once the generic
+    /// member-kind check above already passed) by naming a field its
+    /// declared record type does not declare.
+    #[test]
+    fn operation_defect_refuses_undeclared_field_member() {
+        let record_type = node_id('7');
+        let record_node = graph_node(
+            '7',
+            "composite_type",
+            "record",
+            &node_id('8'),
+            json!({
+                "term": "aggregate",
+                "members": [
+                    {
+                        "term": "binding",
+                        "name": "other_field",
+                        "value": {
+                            "term": "reference",
+                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('9') },
+                        },
+                    },
+                ],
+            }),
+        );
+
+        let mut operation = plain_operation(RECORD_PROJECT_IDENTITY);
+        operation["member"] = json!({
+            "kind": "field",
+            "declaration": {
+                "domain": record_type.domain.as_ref(),
+                "digest": record_type.digest.as_ref(),
+            },
+            "name": "missing_field",
+        });
+        let root = custom_application_node(
+            "query",
+            operation,
+            vec![json!({ "term": "literal", "value": 1 })],
+        );
+
+        let result = defect_for_graph(vec![root.clone(), record_node]);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::IllTyped,
+                OPERATION_MEMBER_PATH,
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                root.node_id.clone(),
+            ))),
+            "a field member naming a field its declared record type does not declare must be \
+             refused as operator-ineligible, got {result:?}"
+        );
+    }
+
+    /// `operation-mode-type-mismatch` (operand): agent-ix/quire-contract-ir#171.
+    /// [`DECIMAL_ADD_IDENTITY`]'s first operand is a `reference` to a
+    /// `bounded_domain` node whose own body pins `rounding` to
+    /// `"nearest-even"`; the operation's own mode value disagrees, so
+    /// `check_mode_type` must refuse it.
+    #[test]
+    fn operation_defect_refuses_mode_type_mismatch_on_operand() {
+        let decimal_scalar = graph_node('5', "scalar_type", "decimal", &node_id('6'), json!({}));
+        let decimal_range = graph_node(
+            '4',
+            "bounded_domain",
+            "decimal_range",
+            &node_id('5'),
+            json!({
+                "term": "aggregate",
+                "members": [
+                    {
+                        "term": "binding",
+                        "name": "rounding",
+                        "value": { "term": "literal", "value": "nearest-even" },
+                    },
+                ],
+            }),
+        );
+
+        let mut operation = plain_operation(DECIMAL_ADD_IDENTITY);
+        operation["mode"] = json!({ "kind": "rounding", "value": "toward-zero" });
+        let root = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({
+                    "term": "reference",
+                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('4') },
+                }),
+                json!({ "term": "literal", "value": 0 }),
+            ],
+        );
+
+        let result = defect_for_graph(vec![root.clone(), decimal_range, decimal_scalar]);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_MODE_PATH,
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                root.node_id.clone(),
+            ))),
+            "a mode value that disagrees with what the first operand's own type pins must be \
+             refused as operation-mode-type-mismatch, got {result:?}"
+        );
+    }
+
+    /// `operation-mode-type-mismatch` (leaf): agent-ix/quire-contract-ir#171.
+    /// [`STRUCTURAL_EQ_IDENTITY`]'s first operand is a `record` whose
+    /// `name` field's own type pins `rounding` to `"nearest-even"`; a
+    /// `["field:name"]` leaf whose mode value disagrees must be refused by
+    /// `check_leaves`, independent of the operation's own top-level mode
+    /// (left absent here, so `check_mode_type` never fires first).
+    #[test]
+    fn operation_defect_refuses_mode_type_mismatch_on_leaf() {
+        let record_node = graph_node(
+            'r',
+            "composite_type",
+            "record",
+            &node_id('t'),
+            json!({
+                "term": "aggregate",
+                "members": [
+                    {
+                        "term": "binding",
+                        "name": "name",
+                        "value": {
+                            "term": "reference",
+                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                        },
+                    },
+                ],
+            }),
+        );
+        let field_type_node = graph_node(
+            'f',
+            "bounded_domain",
+            "decimal_range",
+            &node_id('t'),
+            json!({
+                "term": "aggregate",
+                "members": [
+                    {
+                        "term": "binding",
+                        "name": "rounding",
+                        "value": { "term": "literal", "value": "nearest-even" },
+                    },
+                ],
+            }),
+        );
+
+        let mut operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
+        operation["leaves"] = json!([
+            {
+                "path": ["field:name"],
+                "mode": { "kind": "rounding", "value": "toward-zero" },
+                "laws": [],
+            }
+        ]);
+        let root = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({
+                    "term": "reference",
+                    "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('r') },
+                }),
+                json!({ "term": "literal", "value": 0 }),
+            ],
+        );
+
+        let result = defect_for_graph(vec![root.clone(), record_node, field_type_node]);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATION_MODE_PATH,
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                root.node_id.clone(),
+            ))),
+            "a leaf mode value that disagrees with what the named field's own type pins must \
+             be refused as operation-mode-type-mismatch, got {result:?}"
+        );
+    }
+
+    /// `stale-node-key`: agent-ix/quire-contract-ir#171. `application_node`'s
+    /// `node_id.digest` is a placeholder, never the JCS SHA-256 of its own
+    /// preimage — exactly the condition [`validate_application_keys`] exists
+    /// to catch. Unlike every other test in this module, this one calls
+    /// `validate_application_keys` directly rather than `operation_defect`:
+    /// the two are separate stages (see the module doc), and nothing above
+    /// reaches this one.
+    #[test]
+    fn validate_application_keys_refuses_a_stale_node_key() {
+        let node = application_node(CATALOGUED_IDENTITY, "binary");
+        let nodes = std::slice::from_ref(&node);
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        index.insert(&node.node_id, 0);
+        let mut meter = WorkMeter::new(1_000);
+
+        let result = validate_application_keys(nodes, &index, &mut meter);
+
+        assert_eq!(
+            result,
+            Err(ValidationFailure::RefusedAt(
+                CheckedPackageRefusalCode::InvalidPackage,
+                NODE_ID_PATH,
+                Some(CheckedPackageRefusalCause::StaleNodeKey),
+                node.node_id.clone(),
+            )),
+            "a node_id that is not the JCS SHA-256 of the node's own preimage must be \
+             refused as stale-node-key, got {result:?}"
+        );
+    }
+
+    /// Control for the test above: a node whose `node_id.digest` genuinely
+    /// is its own preimage's digest ([`correctly_keyed`]) is admitted, not
+    /// refused. Without this control, a `validate_application_keys` that
+    /// refused every node would satisfy the assertion above just as well as
+    /// the real re-derivation does.
+    #[test]
+    fn validate_application_keys_admits_a_correctly_keyed_node() {
+        let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
+        let nodes = std::slice::from_ref(&node);
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        index.insert(&node.node_id, 0);
+        let mut meter = WorkMeter::new(1_000);
+
+        let result = validate_application_keys(nodes, &index, &mut meter);
+
+        assert_eq!(
+            result,
+            Ok(()),
+            "a node_id that genuinely is the JCS SHA-256 of the node's own preimage must be \
+             admitted, got {result:?}"
+        );
+    }
+
+    /// `invalid_semantic_graph` (malformed wire): agent-ix/quire-contract-ir#171.
+    /// `operation` must deserialize as `OperationWire`; a bare string is not
+    /// one, so this must be refused before any catalog lookup runs.
+    #[test]
+    fn operation_defect_refuses_malformed_operation_wire() {
+        let node = custom_application_node("binary", json!("not-an-operation-object"), Vec::new());
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(Some(ValidationFailure::Refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                OPERATION_PATH,
+            ))),
+            "an operation member that does not deserialize as OperationWire must be refused \
+             as invalid_semantic_graph, got {result:?}"
         );
     }
 }
