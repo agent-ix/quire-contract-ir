@@ -58,10 +58,12 @@ Every case refuses before any declaration is built:
 - Case 3 refuses `unknown_member` (or the strict-parse duplicate/unknown-member
   refusal FR-038-AC-1/AC-2 already exercise) before the node's own shape is
   further validated.
-- Cases 4 and 5 both refuse `invalid_semantic_graph` at
-  `semantic_graph.nodes.body`: case 4 because the object carries no `term`
-  member: it fails `validate_term`'s first extraction of `object.get("term")`
-  before any term arm is tried; case 5 because the population identity,
+- Case 4 refuses `invalid_semantic_graph` at `semantic_graph.nodes.body.term`,
+  a path distinct from case 5's: the object carries no `term` member, so it
+  fails `validate_term`'s first extraction of `object.get("term")` — the
+  reader's own `"semantic_graph.nodes.body.term"` path constant — before any
+  term arm is tried. Case 5 refuses `invalid_semantic_graph` at
+  `semantic_graph.nodes.body` instead, because the population identity,
   `displayName`, `kind`, `extent` and `origin` members have no home in the
   `aggregate` term's own closed member set (`exact_members(object, &["term",
   "members"])`), so the wrapped shape fails the same closed-set match an
