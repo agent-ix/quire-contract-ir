@@ -116,23 +116,28 @@ the FR-340 counterpart for these five — has been published as of this
 writing (2026-09-21; verified against `agent-ix/quire-specification`'s
 `spec/objects/interfaces/` directory, whose highest published interface FR
 is FR-340 itself, and `FR-322`'s `semantic_graph` tag enumeration, which
-still names exactly the 13 tags `CheckedNodeTag::ALL` admits). This FR's
-admission and lowering acceptance criteria for those five are accordingly
-stated as **planned**, each naming exactly the upstream artifact its own
-admission/lowering test depends on — this repository does not guess a
-member shape ahead of the producing side, per issue #120 and ADR-0054's
-producer-neutral boundary.
+still names exactly the 13 tags `CheckedNodeTag::ALL` admits). This FR
+accordingly states no admission or lowering criterion for those five: a
+criterion whose subject shape is unpublished cannot be written without
+guessing a member shape ahead of the producing side, which issue #120 and
+ADR-0054's producer-neutral boundary rule out. The blocked admission and
+lowering work, and the exact upstream artifact each member waits on, is
+recorded in Dependencies and Status below, where it is a scheduling fact
+rather than a claim about reader behavior.
 
 ## Outputs
 
-Once a member's wire carrier publishes: one closed admission/refusal
-disposition for that member, and one lowering disposition drawn from
-FR-038's existing seven-member record vocabulary (`lowered`, `unsupported`,
-`requires_bound`, `invalid_input`, `failed`, `invalid_body`,
-`body_incomplete`) — this FR adds no eighth lowering-disposition kind.
-Until a member's wire carrier publishes: a typed refusal
-(`unsupported_node_tag` or `invalid_semantic_graph`), never a lowered
-record, and never a package admitted with that member's content dropped.
+For a document carrying any of the five members in any of the three shapes
+a producer can encode one in today — a new `node_tag`, a new
+`semantic_form` of an admitted tag, or an extra member of an admitted node
+— a typed refusal (`unsupported_node_tag`, `invalid_semantic_graph` or
+`unknown_member`) carrying the structural path at which admission failed,
+never a lowered record, and never a package admitted with that member's
+content dropped. This FR adds no lowering-disposition kind: FR-038's
+seven-member record vocabulary (`lowered`, `unsupported`, `requires_bound`,
+`invalid_input`, `failed`, `invalid_body`, `body_incomplete`) stays closed,
+and a future admission/lowering FR for these five draws from it rather than
+extending it.
 
 ## Behavior
 
@@ -143,11 +148,17 @@ list, abstractness flag, subsets edge, redefines edge and population node
 exactly as it governs every other unrecognized wire content: refuse the
 whole package before any declaration is built, never interpret or drop
 the offending member. This FR does not change that behavior; it names it
-as the acceptance criterion for these five members and blocks each
-member's admission/lowering criterion on the one thing this repository
-does not own — the QSpec wire-carrier requirement that fixes its
-`(node_tag, semantic_form, body)` encoding, as FR-340 already did for
-operation frame.
+as the acceptance criteria for these five members, once per shape a
+producer can encode one in: a `node_tag` outside `CheckedNodeTag::ALL` or
+a `semantic_form` outside that tag's `forms()` refuses at the graph's tag
+and form gates; an extra member on an otherwise-admitted node object
+refuses earlier still, in the strict closed-schema decode of the whole
+document, as `unknown_member` at `document`; and a body that satisfies no
+branch of the closed `SemanticTerm` grammar refuses at the body. Admission
+and lowering for these five is out of scope for this FR and stays blocked
+on the one thing this repository does not own — the QSpec wire-carrier
+requirement that fixes each member's `(node_tag, semantic_form, body)`
+encoding, as FR-340 already did for operation frame.
 
 ## Acceptance Criteria
 
@@ -159,15 +170,20 @@ TC-053; FR-038-AC-2/AC-17 for embedded meaning vocabulary, verified by
 TC-048) — restating them here would duplicate an existing criterion rather
 than add one.
 
+The three criteria below are the three shapes a producer can encode one of
+the remaining five members in today, each with its own refusal code, locus
+and validation layer. Every one is verifiable against the reader as it
+stands. Admission and lowering for those five members is not stated as a
+criterion here: its subject shape is unpublished, so any criterion for it
+would assert the state of the specification rather than the behavior of
+the reader, and would be unfalsifiable under test. That blocked work is
+recorded in Dependencies and Status instead.
+
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-344-AC-1 | A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's `forms()`, refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag` or `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`, before any declaration is built and with the document never admitted with the offending node dropped. | Test (TC-222) |
 | FR-344-AC-2 | A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph`, never admitted as an ordinary `relation` term: at `semantic_graph.nodes.body.term` when the body carries no `term` member at all — the case of `filament-core-data#184`/#193's published population shape, which carries no `term` member — and at `semantic_graph.nodes.body` when it carries a `term` value that matches no arm's own closed member set. | Test (TC-222) |
-| FR-344-AC-3 | Admission, refusal and lowering criteria for the supertype list member (FCD's own FR-141-AC-2, `typeDefinition.supertypes: identityList`) are unspecified pending a QSpec `quire.checked-package/v2` wire-carrier requirement fixing its `(node_tag, semantic_form, body)` encoding; none is published as of this writing. | Test (TC-223, planned) |
-| FR-344-AC-4 | Admission, refusal and lowering criteria for the abstractness flag member (FCD's own FR-141-AC-1, `typeDefinition.abstract: boolean`) are unspecified pending a QSpec `quire.checked-package/v2` wire-carrier requirement fixing its `(node_tag, semantic_form, body)` encoding; none is published as of this writing. | Test (TC-223, planned) |
-| FR-344-AC-5 | Admission, refusal and lowering criteria for the subsets edge member (FCD's own FR-141-AC-3, `field.subsets: identityList`) are unspecified pending a QSpec `quire.checked-package/v2` wire-carrier requirement fixing its `(node_tag, semantic_form, body)` encoding, and are additionally unreachable against a real fixture until FCD's own extraction pipeline produces a real `subsets` instance from a spec artifact (`filament-core-data#193`'s own "Out of scope" note); neither exists as of this writing. | Test (TC-223, planned) |
-| FR-344-AC-6 | Admission, refusal and lowering criteria for the redefines edge member (FCD's own FR-141-AC-3, `field.redefines: semanticIdentity`) are unspecified pending a QSpec `quire.checked-package/v2` wire-carrier requirement fixing its `(node_tag, semantic_form, body)` encoding, and are additionally unreachable against a real fixture until FCD's own extraction pipeline produces a real `redefines` instance from a spec artifact (`filament-core-data#193`'s own "Out of scope" note); neither exists as of this writing. | Test (TC-223, planned) |
-| FR-344-AC-7 | Admission, refusal and lowering criteria for the population node member (FCD's own FR-141-AC-4, `{identity, displayName, kind, members, extent, origin}`, ruled canonical on `filament-core-data#196`) are unspecified pending a QSpec `quire.checked-package/v2` wire-carrier requirement fixing its `(node_tag, semantic_form, body)` encoding, and are additionally unreachable against a real fixture until FCD's own extraction pipeline produces a real `population` instance from a spec artifact (`filament-core-data#193`'s own "Out of scope" note); neither exists as of this writing. | Test (TC-223, planned) |
+| FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which extend a `model`/`field_declaration` node rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at `document`, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
 
 ## Dependencies
 
@@ -188,6 +204,40 @@ than add one.
 - `filament-core-data#184` (closed by `filament-core-data#193`) owns the
   domain-package/document-schema shape of each member; this FR cites it
   per member and specifies no shape beyond what that PR published.
+- QSpec [FR-154](https://github.com/agent-ix/quire-specification/blob/main/spec/functional/type-model/FR-154-admit-domain-package-model.md)
+  is the nearest-miss artifact: it is the one published QSpec requirement
+  that names supertypes, subsets, redefines and population together with
+  refusal codes, but it governs QSL's intake of a *domain package model* —
+  a different artifact from the `quire.checked-package/v2` wire this
+  repository reads. It is therefore not the wire-carrier requirement these
+  five members wait on, and none of its refusal codes or loci transfers to
+  this reader; it is cited here so a future reader does not have to
+  re-derive that distinction.
+
+### Blocked admission and lowering work
+
+Admission, refusal-cause and lowering for the five members below are not
+criteria of this FR. Each waits on a QSpec `quire.checked-package/v2`
+wire-carrier requirement — the FR-340 counterpart for that member — fixing
+its `(node_tag, semantic_form, body)` encoding; none is published as of
+2026-09-21. The FCD-side shape each will have to carry is already
+published, and is recorded here so the future requirement has a starting
+citation rather than a rediscovery:
+
+- Supertype list — FCD's own FR-141-AC-2, `typeDefinition.supertypes: identityList`.
+- Abstractness flag — FCD's own FR-141-AC-1, `typeDefinition.abstract: boolean`.
+- Subsets edge — FCD's own FR-141-AC-3, `field.subsets: identityList`.
+- Redefines edge — FCD's own FR-141-AC-3, `field.redefines: semanticIdentity`.
+- Population node — FCD's own FR-141-AC-4,
+  `{identity, displayName, kind, members, extent, origin}`, ruled canonical
+  on `filament-core-data#196`.
+
+For subsets, redefines and population a second condition also applies: FCD's
+own extraction pipeline does not yet produce a real instance of any of the
+three from a spec artifact (`filament-core-data#193`'s own "Out of scope"
+note), so even once a wire carrier publishes, the first fixture for those
+three can only be hand-constructed to the published shape rather than
+traceable to a real spec.
 - [issue #110](https://github.com/agent-ix/quire-contract-ir/issues/110)
   names the same ADR-002 surface touching FR-035's `ContractPackage`
   output. This FR does not author FR/TC content for that gap; the two are
@@ -198,12 +248,14 @@ than add one.
 Specified, not yet implemented. Operation frame and embedded meaning
 vocabulary need no new implementation — two of the seven ADR-002 members
 are already discharged by FR-038 and are not restated as criteria of this
-FR. FR-344-AC-1 and FR-344-AC-2 (refusal, for the remaining five members)
-are implemented today as an emergent property of FR-038's existing closed
+FR. All three of this FR's criteria (FR-344-AC-1, FR-344-AC-2 and
+FR-344-AC-3) hold today as an emergent property of FR-038's existing closed
 grammars; TC-222 is planned to pin them explicitly as a named regression
-rather than leave them implicit. FR-344-AC-3 through FR-344-AC-7
-(admission, refusal-cause and lowering for supertype list, abstractness
-flag, subsets edge, redefines edge and population node) are blocked on a
-QSpec-published `quire.checked-package/v2` wire-carrier requirement per
-member, none of which exists as of this writing; no code change is
-proposed by this FR until one publishes.
+rather than leave them implicit, and requires no reader or lowerer change.
+
+Admission and lowering for the five members remains blocked, per
+Dependencies above, on a QSpec-published `quire.checked-package/v2`
+wire-carrier requirement per member, none of which exists as of
+2026-09-21. That work is not a criterion of this FR and carries no test
+case here; when the first wire carrier publishes, it is specified by a new
+FR of its own, with its own testable criteria and its own test case.
