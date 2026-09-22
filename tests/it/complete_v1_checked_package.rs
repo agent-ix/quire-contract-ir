@@ -10,8 +10,8 @@
 //! only the current `CheckedPackageV2` reader and lowerer.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, incomplete, json_depth, refresh_identity, refusal, typed_node_id,
-    v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
+    all_families_read_work, canonical, evidence_for, incomplete, json_depth, refresh_identity,
+    refusal, typed_node_id, v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -152,13 +152,14 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     // records, and no placeholder substituted for the ones that do not lower.
     let scalar_type = wire_node_id(&value, 0);
     let expression = wire_node_id(&value, 4);
-    // Not "9".repeat(64): that digest now collides with the fixture's own
-    // real node 23 (systems_interface/Flowable).
     let missing = typed_node_id(&"0123456789abcdef".repeat(4));
-    // scalar_type's own closure now costs 5 (its self-typed literal's new
-    // `type` member adds a self-edge charge), so the shared budget below
-    // must clear 5 for it to succeed while still failing expression's larger
-    // closure.
+    // scalar_type's own closure costs exactly 5 (1 request + 1 node visit + 1
+    // literal term + 2 edges: its own semantic_type and its literal's own
+    // `type`, both self), so the shared budget below must clear 5 for it to
+    // succeed while still failing expression's larger closure (1 request + 1
+    // node visit + 1 reference term + 4 edges: semantic_type `aaaa`, the two
+    // wire `dependencies` `aaaa`/`dddd`, and the `reference` body's own target
+    // `dddd`, for 7 — over budget before `aaaa`/`dddd` are ever visited).
     let mixed = package.lower(
         &[scalar_type.clone(), missing.clone(), expression.clone()],
         &profile(5),
@@ -171,7 +172,7 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     );
     assert!(matches!(
         &mixed.records[2],
-        CompleteLoweringRecordV2::Failed { node_id, limit: 5, consumed: 6 } if *node_id == expression
+        CompleteLoweringRecordV2::Failed { node_id, limit: 5, consumed: 7 } if *node_id == expression
     ));
 
     // The successful sibling is exactly what an isolated request would
@@ -330,6 +331,10 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
             .iter()
             .map(|entry| entry["regions"].as_array().expect("regions").len())
             .sum::<usize>();
+    // Pinned so a future change to the reader's charging logic that shifts
+    // the real boundary is caught here, rather than silently absorbed by a
+    // binary search that measures whatever the reader under test now does.
+    assert_eq!(all_families_read_work(), ALL_FAMILIES_READ_WORK);
     let mut exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("fixture length"),
         depth: json_depth(&value),

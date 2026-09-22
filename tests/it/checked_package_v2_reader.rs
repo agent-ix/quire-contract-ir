@@ -5,9 +5,10 @@
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{
-    self, apply_patch, canonical, evidence_for, fixture, incomplete, json_depth, locator,
-    node_identity_vectors, nominal_package, refresh_identity, refusal, refusal_at, refusal_code,
-    rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
+    self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
+    nominal_fixture_members, nominal_package, positive_operation_identities, refresh_identity,
+    refusal, refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -161,29 +162,73 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
     ));
 }
 
+/// Five structural mutations against document-level members every
+/// `quire.checked-package/v2` document shares, each named by JSON pointer and
+/// its expected refusal code. Authored here rather than vendored: unlike the
+/// node-identity vectors, this is not an independent conformance oracle —
+/// each entry asserts the reader's own documented structural rule
+/// (`contract_version`/`lock.sources`/`semantic_graph.graph_version`/
+/// `diagnostics.catalog.digest_domain`/`capability_report`, all checked
+/// directly by `v2::mod::validate`) against itself, so authoring it in this
+/// repository makes no assertion tautological.
+const STRUCTURAL_MUTATIONS: [(&str, &str, CheckedPackageRefusalCode); 5] = [
+    (
+        "/contract_version",
+        "unknown_contract_version",
+        CheckedPackageRefusalCode::UnknownContractVersion,
+    ),
+    (
+        "/lock/sources",
+        "stale_dependency",
+        CheckedPackageRefusalCode::StaleDependency,
+    ),
+    (
+        "/semantic_graph/graph_version",
+        "invalid_semantic_graph",
+        CheckedPackageRefusalCode::InvalidSemanticGraph,
+    ),
+    (
+        "/diagnostics/catalog/digest_domain",
+        "digest_domain_mismatch",
+        CheckedPackageRefusalCode::DigestDomainMismatch,
+    ),
+    (
+        "/capability_report",
+        "unknown_required_capability",
+        CheckedPackageRefusalCode::UnknownRequiredCapability,
+    ),
+];
+
+fn structural_mutation_replacement(pointer: &str) -> Value {
+    match pointer {
+        "/contract_version" => json!("quire.checked-package/v3"),
+        "/lock/sources" => json!([]),
+        "/semantic_graph/graph_version" => json!("quire.checked-semantic-graph/v3"),
+        "/diagnostics/catalog/digest_domain" => json!("quire.fixture.wrong-domain/v1"),
+        "/capability_report" => json!([]),
+        other => panic!("no replacement authored for structural mutation pointer {other}"),
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
-fn tc_048_v2_reader_refuses_every_vendored_structural_mutation() {
-    let adverse = fixture("checked-package-v2/fixtures/adverse.json");
-    let mutations = adverse["structural_mutations"]
-        .as_array()
-        .expect("structural mutations");
-    assert_eq!(mutations.len(), 5);
+fn tc_048_v2_reader_refuses_every_structural_mutation() {
     for base in [v2_all_families(), v2_nominal()] {
         let evidence = evidence_for(&base);
-        for mutation in mutations {
-            let pointer = mutation["pointer"].as_str().expect("pointer");
-            let code = refusal_code(mutation["outcome"].as_str().expect("outcome"));
+        for (pointer, id, code) in STRUCTURAL_MUTATIONS {
             let mut mutated = base.clone();
             *mutated.pointer_mut(pointer).expect("pointer target") =
-                mutation["replacement"].clone();
-            // Refused both as recorded and with the identity re-derived.
+                structural_mutation_replacement(pointer);
+            // Refused both as constructed and with the identity re-derived:
+            // none of these five mutations touches a member
+            // `refresh_identity` recomputes, so the outcome must not change
+            // when the identity is rederived around it.
             let mut rederived = mutated.clone();
             refresh_identity(&mut rederived);
             for candidate in [&mutated, &rederived] {
                 let actual = refused(candidate, &evidence);
-                assert_eq!(actual.code, code, "{}", mutation["id"]);
+                assert_eq!(actual.code, code, "{id}");
             }
         }
     }
@@ -399,12 +444,9 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     }
 
     // Literal numbers are integers, in node bodies and diagnostic details. A
-    // fraction is refused by the schema and the reader alike; a whole-valued
-    // float spelling is refused too, as the reader admits integer tokens only.
-    // The refusal is the same whether or not serde_json's
-    // `arbitrary_precision` is unified into the build.
-    let schema = jsonschema::JSONSchema::compile(&fixture("checked-package-v2/schema.json"))
-        .expect("vendored schema compiles");
+    // whole-valued float spelling is refused too, as the reader admits
+    // integer tokens only. The refusal is the same whether or not
+    // serde_json's `arbitrary_precision` is unified into the build.
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
     let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
     let body: Build = Box::new(|literal| {
@@ -431,13 +473,11 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     );
     for build in [body, detail] {
         let integer = build(json!(-7));
-        assert!(schema.is_valid(&integer));
         assert!(matches!(
             read(&integer, &evidence),
             CheckedPackageV2ReadResult::Admitted(_)
         ));
         let fractional = build(json!(1.5));
-        assert!(!schema.is_valid(&fractional));
         for candidate in [fractional, build(json!(2.0))] {
             assert_eq!(refused(&candidate, &evidence), integer_refusal);
         }
@@ -452,7 +492,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
-    assert_eq!(admitted(&grouped).graph().nodes.len(), 26);
+    // 18 total: see `build_v2_all_families` in `tests/support/checked_package.rs`.
+    assert_eq!(admitted(&grouped).graph().nodes.len(), 18);
 
     // Evidence the caller must supply: every locked digest and the feature.
     assert_eq!(
@@ -573,19 +614,24 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
 
     let all = v2_all_families();
     let all_bytes = canonical(&all);
+    // Pinned so a future change to the reader's charging logic that shifts
+    // the real boundary is caught here, rather than silently absorbed by a
+    // binary search that measures whatever the reader under test now does.
+    assert_eq!(all_families_read_work(), ALL_FAMILIES_READ_WORK);
+    let all_families_read_work = ALL_FAMILIES_READ_WORK;
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = ALL_FAMILIES_READ_WORK;
+    limits.work = all_families_read_work;
     assert!(matches!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
-    limits.work = ALL_FAMILIES_READ_WORK - 1;
+    limits.work = all_families_read_work - 1;
     assert_eq!(
         CheckedPackageV2::read(&all_bytes, limits, &evidence_for(&all)),
         CheckedPackageV2ReadResult::Incomplete(incomplete(
             CheckedPackageLimit::Work,
-            ALL_FAMILIES_READ_WORK - 1,
-            ALL_FAMILIES_READ_WORK
+            all_families_read_work - 1,
+            all_families_read_work
         ))
     );
 }
@@ -719,113 +765,44 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
     }
 }
 
+// `tc_048_nominal_vectors_rederive_and_admit_as_one_package` and
+// `tc_048_invalid_nominal_mutations_refuse_retained_and_rekeyed` were removed
+// here: both replayed `node_identity_vectors()`, the independent
+// node-identity conformance oracle copied from a private upstream repository
+// and deleted with the rest of the private-sourced fixture tree (the issue's
+// own account names both by this description). Regenerating that oracle from
+// this crate's own code would make every assertion checked against it a
+// tautology, so it is not recoverable here; see AGE-1961.
+// `v2_nominal()`'s own construction (`nominal_package` over
+// `nominal_fixture_members()` in `tests/support/checked_package.rs`) is still
+// exercised end-to-end by every other test in this crate that reads it.
+//
+// The first removed test's serde round-trip and digest re-derivation checks
+// did not actually depend on the deleted oracle, though: they checked that a
+// typed `NominalIdentityPreimage` serializes back to its own wire form and
+// that `NominalIdentityPreimage::digest()` reproduces the node key it is
+// keyed by. Both properties are re-checked below against
+// `nominal_fixture_members()` — this module's own locally-authored preimages,
+// never the deleted oracle — so `NominalIdentityPreimage`'s serde impl and
+// `digest()` keep a real test rather than going untested.
+
 /// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
-fn tc_048_nominal_vectors_rederive_and_admit_as_one_package() {
-    let vectors = node_identity_vectors();
-    let vectors = vectors["vectors"].as_array().expect("vectors");
-    assert_eq!(vectors.len(), 14);
-    let mut members = Vec::new();
-    for vector in vectors {
-        let recorded = vector["sha256"].as_str().expect("sha256");
+fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
+    for (preimage, key) in nominal_fixture_members() {
         let typed: NominalIdentityPreimage =
-            serde_json::from_value(vector["preimage"].clone()).expect("typed preimage");
+            serde_json::from_value(preimage.clone()).expect("typed preimage");
         assert_eq!(
             serde_json::to_value(&typed).expect("round trip"),
-            vector["preimage"]
+            preimage,
+            "preimage did not round-trip through NominalIdentityPreimage"
         );
         assert_eq!(
             typed.digest().as_deref(),
-            Some(recorded),
-            "{}",
-            vector["name"]
+            Some(key.as_str()),
+            "digest() did not reproduce the node key this preimage is keyed by"
         );
-        assert_eq!(sha256_hex(&canonical(&vector["preimage"])), recorded);
-        members.push((vector["preimage"].clone(), recorded.to_owned()));
-    }
-    let package = nominal_package(&members);
-    let admitted = admitted(&package);
-    assert_eq!(admitted.graph().nodes.len(), 14);
-
-    // The recorded nominal fixture is exactly this construction over its nodes,
-    // so the builder cannot drift from the published shape.
-    let recorded = v2_nominal();
-    let fixture_members = recorded["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .map(|node| {
-            (
-                node["nominal_identity_preimage"].clone(),
-                node["node_id"]["digest"].as_str().expect("key").to_owned(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(nominal_package(&fixture_members), recorded);
-}
-
-/// Tracing: TC-048, FR-038-AC-5
-#[trace("TC-048", "FR-038-AC-5")]
-#[test]
-fn tc_048_invalid_nominal_mutations_refuse_retained_and_rekeyed() {
-    let document = node_identity_vectors();
-    let vectors = document["vectors"].as_array().expect("vectors");
-    let names = vectors
-        .iter()
-        .map(|vector| vector["name"].as_str().expect("name"))
-        .collect::<Vec<_>>();
-    let preimages = vectors
-        .iter()
-        .map(|vector| vector["preimage"].clone())
-        .collect::<Vec<_>>();
-    let keys = vectors
-        .iter()
-        .map(|vector| vector["sha256"].as_str().expect("sha256").to_owned())
-        .collect::<Vec<_>>();
-    let mutations = document["invalid_mutations"].as_array().expect("mutations");
-    assert_eq!(mutations.len(), 12);
-    for mutation in mutations {
-        let name = mutation["name"].as_str().expect("name");
-        let base = names
-            .iter()
-            .position(|candidate| *candidate == mutation["base"].as_str().expect("base"))
-            .expect("mutation base vector");
-        assert_eq!(
-            mutation["retained_sha256"].as_str(),
-            Some(keys[base].as_str())
-        );
-        assert_eq!(
-            mutation["expected_code"].as_str(),
-            Some("invalid_semantic_graph")
-        );
-        let mut patched = preimages.clone();
-        apply_patch(&mut patched[base], &mutation["patch"]);
-
-        // Retained key: the preimage no longer derives the node key.
-        let retained = patched
-            .iter()
-            .cloned()
-            .zip(keys.iter().cloned())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            refused(&nominal_package(&retained), &evidence_for(&v2_nominal())),
-            nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
-            "{name} retained"
-        );
-
-        // Rekeyed: the key derives, so only a semantic or owner rule refuses.
-        if mutation["kind"] != json!("stale_key") {
-            let mut rekeyed = patched.clone();
-            let fresh = rekey(&mut rekeyed, &keys);
-            assert_ne!(fresh[base], keys[base], "{name}");
-            let members = rekeyed.into_iter().zip(fresh).collect::<Vec<_>>();
-            assert_eq!(
-                refused(&nominal_package(&members), &evidence_for(&v2_nominal())),
-                nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
-                "{name} rekeyed"
-            );
-        }
     }
 }
 
@@ -1019,14 +996,8 @@ fn model_owner(identity: &str, node: &str) -> Value {
 #[trace("TC-048", "FR-038-AC-2", "FR-038-AC-5")]
 #[test]
 fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
-    let schema = fixture("checked-package-v2/schema.json");
-    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
     let owner = model_owner("test/orders", "ix://test/orders/Status");
     let base = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
-    assert!(
-        schema.is_valid(&base),
-        "published V2 schema admits the base"
-    );
     let package = admitted(&base);
     let typed: Value = serde_json::to_value(package.lock()).expect("typed lock");
     assert_eq!(typed, base["lock"]);
@@ -1105,7 +1076,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     ];
     let evidence = evidence_for(&base);
     for (name, mutated) in retired {
-        assert!(!schema.is_valid(&mutated), "{name} schema");
         assert_eq!(
             refused(&mutated, &evidence),
             refusal(CheckedPackageRefusalCode::UnknownMember, "document"),
@@ -1119,7 +1089,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     compiled_domain["lock"]["model_selections"][0]["digest_domain"] =
         json!("quire.compiled-model.bytes/v1");
     refresh_identity(&mut compiled_domain);
-    assert!(!schema.is_valid(&compiled_domain));
     assert_eq!(
         refused(&compiled_domain, &evidence),
         refusal(CheckedPackageRefusalCode::DigestDomainMismatch, lock_path)
@@ -1127,7 +1096,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     let mut empty_version = base.clone();
     empty_version["lock"]["model_selections"][0]["version"] = json!("");
     refresh_identity(&mut empty_version);
-    assert!(!schema.is_valid(&empty_version));
     assert_eq!(
         refused(&empty_version, &evidence),
         refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
@@ -1159,23 +1127,17 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
 #[trace("TC-048", "FR-038-AC-10")]
 #[test]
 fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
-    let schema = fixture("checked-package-v2/schema.json");
-    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
     let owner = model_owner("test/orders", "ix://test/orders/Status");
     let lock_path = "lock.model_selections";
 
     // A verbatim repeat (identity, version, digest_domain and digest all
-    // equal) violates the schema's `uniqueItems` on `model_selections`;
+    // equal) violates the closed schema's `uniqueItems` on `model_selections`;
     // `model_owned_package` mirrors the lock into the identity preimage via
     // `refresh_identity`, so the repeat is present in both members at once
     // and reaches the new uniqueness check.
     let duplicated = model_owned_package(
         owner.clone(),
         json!([domain_package("test/orders"), domain_package("test/orders")]),
-    );
-    assert!(
-        !schema.is_valid(&duplicated),
-        "uniqueItems rejects the verbatim repeat"
     );
     assert_eq!(
         refused(&duplicated, &evidence_for(&duplicated)),
@@ -1192,10 +1154,6 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     let mut lock_only = single.clone();
     lock_only["lock"]["model_selections"] =
         json!([domain_package("test/orders"), domain_package("test/orders")]);
-    assert!(
-        !schema.is_valid(&lock_only),
-        "uniqueItems still rejects the lock's own repeat"
-    );
     assert_ne!(
         lock_only["lock"]["model_selections"], lock_only["identity_preimage"]["model_selections"],
         "the repeat is confined to the lock, not mirrored into the preimage"
@@ -1215,10 +1173,6 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     other_digest["digest"] = json!("9".repeat(64));
     let distinct_digest =
         model_owned_package(owner, json!([domain_package("test/orders"), other_digest]));
-    assert!(
-        schema.is_valid(&distinct_digest),
-        "distinct whole-value items satisfy uniqueItems"
-    );
     assert_eq!(
         refused(&distinct_digest, &evidence_for(&distinct_digest)),
         refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
@@ -1280,8 +1234,6 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
 fn tc_048_model_export_is_not_a_v2_model_form() {
-    let schema = fixture("checked-package-v2/schema.json");
-    let schema = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
     let base = v2_all_families();
     let model = base["semantic_graph"]["nodes"]
         .as_array()
@@ -1312,13 +1264,11 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
         refresh_identity(&mut value);
-        assert!(schema.is_valid(&value), "{form} schema");
         admitted(&value);
     }
     let mut export = base.clone();
     export["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
     refresh_identity(&mut export);
-    assert!(!schema.is_valid(&export));
     assert_eq!(
         refused(&export, &evidence_for(&export)),
         refusal(
@@ -1651,7 +1601,13 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare() {
-    let base = fixture("checked-package-v2/fixtures/positive-operation-identities.json");
+    let base = positive_operation_identities();
+    // The base fixture must itself be admissible before any of the deletion
+    // cases below can say anything about which member's absence refuses it:
+    // an already-refusing base document would make every case below pass
+    // vacuously, for whatever reason the base already refuses rather than
+    // the deletion under test.
+    admitted(&base);
     let nodes = base["semantic_graph"]["nodes"].as_array().expect("nodes");
     let declaring_node = nodes
         .iter()
@@ -1755,88 +1711,36 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
     }
 }
 
-/// FR-038-AC-17's closed model/expression form lists: `CheckedNodeTag::forms`
-/// for every family equals the vendored schema's own `semantic_form` enum for
-/// that family's node definition, so the schema stays the single source for
-/// the closed lists rather than two hand-maintained copies that can diverge
-/// silently. The eighteen `model` forms and the fifteen `expression` forms
-/// each admit as a node form; a nineteenth `model` form and a sixteenth
-/// `expression` form each refuse as `invalid_semantic_graph`.
+/// FR-038-AC-17's closed `expression` form list: every one of the fifteen
+/// `CheckedNodeTag::Expression.forms()` admits as a node form, and a
+/// sixteenth, undeclared form refuses as `invalid_semantic_graph`.
+/// `tc_048_model_export_is_not_a_v2_model_form` already covers the same
+/// pattern for the eighteen `model` forms — this test is the `expression`
+/// counterpart, not a repeat of it. (The schema-vs-`CheckedNodeTag::forms`
+/// cross-check this test used to also run was dropped along with the
+/// vendored schema it needed; see AGE-1961.)
 ///
 /// Tracing: TC-048, FR-038-AC-17
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
-fn tc_048_node_tag_forms_match_the_vendored_schema_and_bound_admission() {
-    let schema = fixture("checked-package-v2/schema.json");
-    let defs = schema["$defs"].as_object().expect("schema $defs");
-    for tag in CheckedNodeTag::ALL {
-        let def = defs
-            .values()
-            .find(|def| {
-                def["allOf"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|part| part["properties"]["node_tag"]["const"] == json!(tag.as_wire()))
-            })
-            .unwrap_or_else(|| panic!("schema defines a node for {}", tag.as_wire()));
-        let forms = def["allOf"]
-            .as_array()
-            .expect("allOf")
-            .iter()
-            .find_map(|part| part["properties"]["semantic_form"]["enum"].as_array())
-            .unwrap_or_else(|| panic!("{} declares a semantic_form enum", tag.as_wire()));
-        let schema_forms = forms
-            .iter()
-            .map(|form| form.as_str().expect("form string"))
-            .collect::<Vec<_>>();
-        assert_eq!(schema_forms, tag.forms(), "{}", tag.as_wire());
-    }
-
-    let schema_doc = jsonschema::JSONSchema::compile(&schema).expect("vendored schema compiles");
+fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
     let base = v2_all_families();
-    let model = base["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["node_tag"] == json!("model"))
-        .expect("all-families fixture carries a model node");
-    for form in CheckedNodeTag::Model.forms() {
-        let mut value = base.clone();
-        value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
-        refresh_identity(&mut value);
-        assert!(schema_doc.is_valid(&value), "model/{form} schema");
-        admitted(&value);
-    }
-    let mut nineteenth = base.clone();
-    nineteenth["semantic_graph"]["nodes"][model]["semantic_form"] = json!("model_export");
-    refresh_identity(&mut nineteenth);
-    assert!(!schema_doc.is_valid(&nineteenth));
-    assert_eq!(
-        refused(&nineteenth, &evidence_for(&nineteenth)),
-        refusal(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.semantic_form"
-        )
-    );
-
     let expression = base["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
         .position(|node| node["node_tag"] == json!("expression"))
         .expect("all-families fixture carries an expression node");
+    assert_eq!(CheckedNodeTag::Expression.forms().len(), 15);
     for form in CheckedNodeTag::Expression.forms() {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form);
         refresh_identity(&mut value);
-        assert!(schema_doc.is_valid(&value), "expression/{form} schema");
         admitted(&value);
     }
     let mut sixteenth = base.clone();
     sixteenth["semantic_graph"]["nodes"][expression]["semantic_form"] = json!("future_expression");
     refresh_identity(&mut sixteenth);
-    assert!(!schema_doc.is_valid(&sixteenth));
     assert_eq!(
         refused(&sixteenth, &evidence_for(&sixteenth)),
         refusal(
