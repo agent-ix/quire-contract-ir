@@ -2,6 +2,9 @@
 
 use std::collections::BTreeMap;
 
+use quire_mltl::request::{
+    self, ObservationInputs, RequestInput, TemporalInput, ValidatedTemporalRequest,
+};
 use quire_observation::authority::{self, clock::RangeRef, BoundaryRef, OpenClosed};
 use quire_spec_language::protocol_artifact::{
     native_temporal::{self as native_owner, request as native_request, EvidenceRef},
@@ -12,10 +15,7 @@ use quire_spec_language::protocol_artifact::{
 };
 use quire_spec_language::temporal as native_model;
 use sha2::{Digest as _, Sha256};
-use tl_mltl::wire::{
-    request::{self, ObservationInputs, RequestInput, TemporalInput, ValidatedTemporalRequest},
-    OwnerLimits, OwnerReadError, OwnerReadErrorCode, ValidatedTrace,
-};
+use tl_mltl::wire::{OwnerLimits, OwnerReadError, OwnerReadErrorCode, ValidatedTrace};
 use tl_mltl::{
     ClockBinding, ClockSample, ExactNumber, PositionHistoryDocument, PositionObservation,
     TraceDocument, TraceSchemaVersion,

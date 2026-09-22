@@ -6,12 +6,11 @@ use quire_observation::authority::{
 };
 use quire_observation::{
     admit, AdmissionOutcome, AdmissionRequest, AdmittedRecord, Anchor, ClockRange, Digest,
-    Identity, Member, ObservationBinding, PackageSelection, ProducerSelection,
-    QualifiedObservation, ResourceLimits, ScopeKind, ScopeSelection, Subject, SubjectKind,
-    ValueState, Visibility, NATIVE_LINKED_PACKAGE_FORMAT, PRODUCER_INTERFACE_VERSION,
+    Identity, Member, ObservationBinding, PackageSelection, QualifiedObservation, ResourceLimits,
+    ScopeKind, ScopeSelection, SubjectKind, ValueState, Visibility, NATIVE_LINKED_PACKAGE_FORMAT,
 };
 
-use super::result_fixture::Fixture;
+use super::result_fixture::{order_subject, producer_bundle, Fixture, ORDER_KIND};
 
 pub struct TemporalAuthority {
     qualified: Box<QualifiedObservation>,
@@ -278,10 +277,8 @@ fn qualified_event(
     family: ClockFixture,
 ) -> Box<QualifiedObservation> {
     let binding_identity = id(format!("binding:{tag}"));
-    let record_subject = Subject {
-        kind: SubjectKind::Order,
-        identity: id(format!("order:{tag}")),
-    };
+    let producer = producer_bundle();
+    let record_subject = order_subject(&producer, tag);
     let mut request = AdmissionRequest {
         package: PackageSelection {
             format: NATIVE_LINKED_PACKAGE_FORMAT.to_owned(),
@@ -289,14 +286,7 @@ fn qualified_event(
             revision: id("1"),
             digest: digest(1),
         },
-        producer: ProducerSelection {
-            interface_version: PRODUCER_INTERFACE_VERSION.to_owned(),
-            document_identity: id(format!("producer:{tag}")),
-            document_digest: digest(2),
-            model_identity: id(format!("model:{tag}")),
-            configuration_identity: id(format!("configuration:{tag}")),
-            configuration_digest: digest(3),
-        },
+        producer,
         binding: ObservationBinding {
             identity: binding_identity.clone(),
             source_identity: id(format!("source:{tag}")),
@@ -304,7 +294,8 @@ fn qualified_event(
             signal_identity: id(format!("signal:{tag}")),
             trigger_identity: id(trigger_identity),
             unit: id("unit"),
-            subject_kind: SubjectKind::Order,
+            subject_kind: SubjectKind::new(ORDER_KIND.to_vec())
+                .expect("fixture subject kind is non-empty"),
             required: true,
         },
         expected_subject: record_subject.clone(),

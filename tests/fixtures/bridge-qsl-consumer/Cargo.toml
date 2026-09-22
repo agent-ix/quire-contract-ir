@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 quire-contract-ir = { path = "../../.." }
-quire-spec-language = { git = "https://github.com/agent-ix/quire-spec-language", rev = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07", default-features = false }
+quire-spec-language = { git = "https://github.com/agent-ix/quire-spec-language", rev = "2736b62b2f741496590d099d71478b3044d638d6", default-features = false }

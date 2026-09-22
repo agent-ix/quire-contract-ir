@@ -1,5 +1,10 @@
 //! Structural join of independent formula-wide QSL and TL owner results.
 
+use quire_mltl::{
+    contract_ir::{MappedOutcome, NonValueKind, ValidatedMappedResult as TlView},
+    report::{ResultRelationKind as TlRelation, SettlementBasis as TlSettlement},
+    request::AxisReference,
+};
 use quire_spec_language::{
     protocol_artifact::native_temporal::{
         result::{
@@ -10,13 +15,6 @@ use quire_spec_language::{
         EvidenceRef,
     },
     temporal::{Closure as NativeClosure, Completeness as NativeCompleteness},
-};
-use tl_mltl::{
-    mapping::contract_ir::{MappedOutcome, NonValueKind, ValidatedMappedResult as TlView},
-    wire::{
-        report::{ResultRelationKind as TlRelation, SettlementBasis as TlSettlement},
-        request::AxisReference,
-    },
 };
 
 use crate::bridge::{BridgeDigest, BridgeError, BridgeErrorCode, BridgeLimits};

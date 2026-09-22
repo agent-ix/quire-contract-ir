@@ -50,8 +50,9 @@ The workspace Cargo graph SHALL have these directions:
 ```text
 quire-contract-model -> quire-spec-language -> quire-protocol
 quire-contract-model -> quire-contract-ir
+quire-observation + tl-mltl -> quire-mltl
 quire-spec-language + quire-observation + quire-protocol
-  + tl-syntax + tl-mltl -> quire-contract-ir
+  + tl-syntax + tl-mltl + quire-mltl -> quire-contract-ir
 ```
 
 Arrows point from dependency to consumer. No package may depend, directly or

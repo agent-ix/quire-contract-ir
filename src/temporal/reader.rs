@@ -1,8 +1,8 @@
 //! Strict projection decision readback by complete independent re-derivation.
 
+use quire_mltl::contract_ir::ValidatedMappedResult as TlMappedResult;
 use quire_spec_language::protocol_artifact::native_temporal::result::ValidatedResult as NativeTemporalResult;
 use quire_spec_language::protocol_artifact::temporal_subject::ValidatedTemporalSubject;
-use tl_mltl::mapping::contract_ir::ValidatedMappedResult as TlMappedResult;
 
 use crate::{
     bridge::{canonical, BridgeError, BridgeErrorCode, BridgeLimits},

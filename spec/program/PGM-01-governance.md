@@ -8,7 +8,7 @@ code: contract-program-governance-v1
 
 PGM-01 is the single normative governance source for `quire-contract-ir`,
 `quire-contract-runtime`, `quire-contract-codegen`, `quire-analyze`,
-`tl-syntax`, `tl-parse`, `tl-rewrite`, and `tl-mltl`. A workstream specification
+`tl-syntax`, `tl-parse`, `tl-rewrite`, `tl-mltl`, and `quire-mltl`. A workstream specification
 shall cite `ix://agent-ix/quire-contract-ir/PGM-01`; it shall not fork or weaken
 this policy. A local constraint may be stricter when it identifies PGM-01 as its
 baseline and describes the delta.
@@ -115,6 +115,7 @@ decision open.
 | `tl-parse` | direct development tool | Parsed output is a derivation; deployment of the parser changes the project boundary. |
 | `tl-rewrite`; rewrite proof records | analysis/evidence tool | Domain results retain source/output/profile identity and do not establish semantic preservation alone. |
 | `tl-mltl`; reference evaluation reports | analysis/evidence tool | Domain results support comparison but do not accredit a production monitor. |
+| `quire-mltl` | analysis/evidence tool | Ports `tl-mltl`'s `wire::request`/`wire::report`/`mapping::contract_ir` onto `quire-observation`'s owner-assertion views; the one deliberate exception to `tl-mltl`'s independence from the agent-ix/Quire ecosystem. Domain results carry the same comparison-only boundary as `tl-mltl` and do not accredit a production monitor. |
 | R2U2/C2PO integrations and monitor inputs | external engine adapter | External engine/version/configuration and adapter identity are mandatory. |
 
 When actual deployment differs from the primary class, the authoritative
