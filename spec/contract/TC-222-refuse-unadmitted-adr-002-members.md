@@ -13,7 +13,7 @@ relationships:
 
 ## Description
 
-Verify FR-344-AC-1 and FR-344-AC-2: a `quire.checked-package/v2` document
+Verify FR-344-AC-1, FR-344-AC-2 and FR-344-AC-3: a `quire.checked-package/v2` document
 attempting to
 carry a supertype list, an abstractness flag, a subsets edge, a redefines
 edge or a population node — the five ADR-002 members this reader has no
@@ -43,11 +43,16 @@ baseline vector), construct one mutated document per case:
    shape verbatim: `{"identity": ..., "displayName": ..., "kind": {...},
    "members": [...], "extent": "closed", "origin": {...}}` — no `term`
    member.
-5. The same case 4 body, additionally wrapped to look like the closed
-   `aggregate` term shape (`{"term": "aggregate", "members": [...]}`) with
-   the population's real members nested inside, to confirm a producer
-   cannot get population content admitted as an ordinary `relation` node
-   by shaping it to fit the generic grammar.
+5. The same case 4 body with a single `"term": "aggregate"` member added
+   alongside its existing members, so the body object is
+   `{"term": "aggregate", "identity": ..., "displayName": ..., "kind":
+   {...}, "members": [...], "extent": "closed", "origin": {...}}` — the
+   population's own `identity`, `displayName`, `kind`, `extent` and
+   `origin` remain siblings of `term` and `members` at the body root, and
+   are not nested inside the `members` array. This confirms a producer
+   cannot get population content admitted as an ordinary `relation` node by
+   naming a closed term arm over it while leaving its real members in
+   place.
 
 ## Expected Results
 
@@ -55,19 +60,34 @@ Every case refuses before any declaration is built:
 
 - Cases 1 refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag`.
 - Case 2 refuses `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`.
-- Case 3 refuses `unknown_member` (or the strict-parse duplicate/unknown-member
-  refusal FR-038-AC-1/AC-2 already exercise) before the node's own shape is
-  further validated.
+- Case 3 refuses `unknown_member` at `document`. The whole wire is decoded
+  once through `decode_closed::<CheckedPackageWireV2>`, and
+  `CheckedSemanticNodeV2` carries `#[serde(deny_unknown_fields)]`, so an
+  extra top-level node member makes that single decode fail with serde's
+  `unknown field` error, which `decode_closed` classifies as
+  `unknown_member` at the fixed `"document"` path. The refusal therefore
+  precedes every graph-level check — no node tag, form or body of any node
+  is reached — and its locus names the document rather than the offending
+  node, which is the reader's behavior at this layer and not an omission
+  this test case works around.
 - Case 4 refuses `invalid_semantic_graph` at `semantic_graph.nodes.body.term`,
   a path distinct from case 5's: the object carries no `term` member, so it
   fails `validate_term`'s first extraction of `object.get("term")` — the
   reader's own `"semantic_graph.nodes.body.term"` path constant — before any
   term arm is tried. Case 5 refuses `invalid_semantic_graph` at
-  `semantic_graph.nodes.body` instead, because the population identity,
-  `displayName`, `kind`, `extent` and `origin` members have no home in the
-  `aggregate` term's own closed member set (`exact_members(object, &["term",
-  "members"])`), so the wrapped shape fails the same closed-set match an
-  unrelated extra member would.
+  `semantic_graph.nodes.body` instead: the body object does carry a `term`
+  string, so extraction succeeds and the `"aggregate"` arm is selected, but
+  that arm's guard is `exact_members(object, &["term", "members"])`, an
+  exact length-and-membership match. The population's `identity`,
+  `displayName`, `kind`, `extent` and `origin` remain siblings of `term` and
+  `members`, so the object has seven members where the arm admits two, the
+  guard fails, and no other arm's guard matches a `term` of `"aggregate"` —
+  the match falls to its final arm, whose refusal path is
+  `semantic_graph.nodes.body`. Nesting those five members inside the
+  `members` array instead would satisfy `exact_members` and reach the
+  `aggregate` arm's own per-element walk, which refuses at
+  `semantic_graph.nodes.body.term` — case 4's locus, not this one's — so
+  this case's fixture is built with them as siblings.
 
 No case admits the document with the mutated node dropped, downgraded to
 an existing form, or partially interpreted; each refusal names the exact
@@ -75,7 +95,8 @@ node and structural path.
 
 ## Status
 
-Planned. FR-344-AC-1 and FR-344-AC-2 already hold as an emergent property of FR-038's
+Planned. FR-344-AC-1, FR-344-AC-2 and FR-344-AC-3 already hold as an emergent
+property of FR-038's
 existing closed grammars (`CheckedNodeTag::from_wire`, `tag.forms()`,
 `#[serde(deny_unknown_fields)]`, `exact_members`); this test case gives
 that property its own named regression rather than leave it implicit and
