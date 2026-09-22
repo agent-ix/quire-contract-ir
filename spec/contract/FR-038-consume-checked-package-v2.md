@@ -109,6 +109,29 @@ evidence. An array carrying both a repeated entry and an entry whose digest
 the evidence does not attest therefore always refuses as `malformed_wire`,
 never as `stale_dependency`, regardless of which defect appears first.
 
+Every other `model_selections` defect is decided the same way.
+
+The reader shall select the array's single refusal under this total order over
+defect classes, so that an array carrying two defects has one determined
+outcome rather than a position-dependent one:
+
+1. A repeated entry anywhere in the array refuses as `malformed_wire` at
+   `lock.model_selections`.
+2. An entry whose `digest_domain` is not `sha256-jcs` refuses as
+   `digest_domain_mismatch` at `lock.model_selections`.
+3. An entry with an empty `identity`, an empty `version` or a `digest` that is
+   not a SHA-256 hex digest refuses as `malformed_wire` at
+   `lock.model_selections`.
+4. An entry whose digest the domain package evidence does not attest refuses
+   as `stale_dependency` at `lock.model_selections`.
+
+Each class is evaluated over the whole array before the next class is
+evaluated over any of it. The refusal an array draws is therefore the code of
+the least class it carries a defect of, whatever order the defective entries
+appear in. Within one class the reader draws no distinction: every entry of a
+class refuses with that class's own code at the one array path, so which entry
+of a class is named is not an observable of the contract.
+
 When a node is an enum declaration, enum member, dimension or declared unit, the
 reader shall reconstruct the closed nominal preimage, require
 `node_id.digest` to equal the SHA-256 of its canonical bytes, require the owner
@@ -269,6 +292,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
 | FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-18 | A self-typed node's own body-root `literal.type` — the literal that is the node's body — naming itself is exempt from the reference-cycle check and admits with no declared `recursion_group`. The same `literal.type` self-reference nested one level deeper, inside that node's own `aggregate` member, `binding` value or `application` argument, is not exempt, and refuses as `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group` for want of a declared `recursion_group`, exactly like a self-typed node's `reference` body or `application.result_type` naming itself. | Test (TC-048) |
+| FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
 
 ## Dependencies
 

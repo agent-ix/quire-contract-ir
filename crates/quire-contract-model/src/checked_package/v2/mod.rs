@@ -836,16 +836,14 @@ fn validate_lock(
     // array is not meaningful to check. This order — not the reverse, and not
     // interleaved per entry — is what keeps the outcome for an array carrying
     // both defects independent of which one comes first in the array.
-    // It does NOT make the refusal code position-independent in general: the
-    // per-entry domain, shape and evidence checks below still short-circuit on
-    // the first failing entry, so two entries of different defect classes are
-    // still resolved by array position. That gap is #124; do not read this
-    // comment as a standing "structural before semantic" invariant and move
-    // those checks up here believing you are restoring a stated rule. Only the lock's copy is checked:
-    // the `same_non_graph_lock` equality above already requires
-    // `identity_preimage.model_selections` to equal `lock.model_selections`
-    // element-for-element, so a duplicate-free lock guarantees the mirrored
-    // preimage is too.
+    // The repeated-entry class is the first of the four this array's refusal
+    // code is drawn from; the remaining three are swept, in their own stated
+    // order, by `validate_domain_packages` below, so the code is decided by
+    // defect class throughout and never by array position. Only the lock's
+    // copy is checked: the `same_non_graph_lock` equality above already
+    // requires `identity_preimage.model_selections` to equal
+    // `lock.model_selections` element-for-element, so a duplicate-free lock
+    // guarantees the mirrored preimage is too.
     let mut models = BTreeSet::new();
     if !lock
         .model_selections
@@ -857,9 +855,7 @@ fn validate_lock(
             "lock.model_selections",
         ));
     }
-    for model in &lock.model_selections {
-        validate_domain_package(model, evidence)?;
-    }
+    validate_domain_packages(&lock.model_selections, evidence)?;
     let mut features = BTreeSet::new();
     if !lock
         .required_features
@@ -892,24 +888,42 @@ fn validate_unexported(
     Ok(())
 }
 
-/// Checks one domain package selection's domain, shape and `sha256-jcs`
+/// Checks every domain package selection's domain, shape and `sha256-jcs`
 /// digest against the domain package evidence. Raw artifact evidence is never
 /// consulted, so equal digest bytes in another domain cannot satisfy it.
-fn validate_domain_package(
-    model: &CheckedDomainPackageRef,
+///
+/// Each check sweeps the whole array before the next one begins, so the
+/// refusal an array carrying two different defects draws is decided by defect
+/// class and not by which defective entry the reader reaches first:
+/// declared-domain mismatch (`digest_domain_mismatch`) outranks a shape defect
+/// (`malformed_wire`), which outranks a digest the evidence does not attest
+/// (`stale_dependency`). Whole-array uniqueness, the fourth class, is checked
+/// by the caller before any of these. Within one class the reader does not
+/// distinguish entries: every entry of a class refuses with that class's code
+/// at this one array path, so which of several same-class entries is named is
+/// not an observable.
+fn validate_domain_packages(
+    models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
 ) -> Result<(), ValidationFailure> {
     const PATH: &str = "lock.model_selections";
-    if model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST {
+    if models
+        .iter()
+        .any(|model| model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST)
+    {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
             PATH,
         ));
     }
-    if !is_nonempty(&model.identity) || !is_nonempty(&model.version) || !is_digest(&model.digest) {
+    if models.iter().any(|model| {
+        !is_nonempty(&model.identity) || !is_nonempty(&model.version) || !is_digest(&model.digest)
+    }) {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, PATH));
     }
-    if evidence.domain_package_digest(&model.locator()) != Some(model.digest.as_ref()) {
+    if models.iter().any(|model| {
+        evidence.domain_package_digest(&model.locator()) != Some(model.digest.as_ref())
+    }) {
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, PATH));
     }
     Ok(())

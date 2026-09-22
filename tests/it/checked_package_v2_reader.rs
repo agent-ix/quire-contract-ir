@@ -1230,6 +1230,127 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
     }
 }
 
+/// Each `model_selections` defect class is swept over the whole array before
+/// the next class is evaluated over any of it, so an array carrying two
+/// classes refuses for the earlier class whichever entry comes first:
+/// repeated entry, then declared-domain mismatch, then shape defect, then a
+/// digest the evidence does not attest.
+///
+/// Three of the four adjacent boundaries are pinned below: (2,3) and (3,4)
+/// through `boundaries`, (1,4) through
+/// `tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position`
+/// above. The fourth,
+/// repeated-entry (1) against declared-domain-mismatch (2), is pinned at the
+/// end of this function -- separately, since a repeated entry needs two
+/// physical array slots rather than the single entry each other class uses.
+/// Unlike the other boundaries, this one does not regress under the
+/// per-entry short-circuit this ticket replaces: #122 already made the
+/// repeated-entry check a whole-array pass that runs before any per-entry
+/// class check, so it was already position-independent against every other
+/// class. Pinned anyway as a stated invariant, not a reproduction of a bug
+/// that predates this fix.
+///
+/// Tracing: TC-048, FR-038-AC-19
+#[trace("TC-048", "FR-038-AC-19")]
+#[test]
+fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position() {
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    // The owner joins this selection, so every array below carries it; the
+    // evidence built from it attests this entry and no other.
+    let joined = domain_package("test/orders");
+    let evidence = evidence_for(&model_owned_package(owner.clone(), json!([joined.clone()])));
+    // One entry per defect class, each naming its own identity so that no
+    // array below also repeats an entry.
+    let cross_domain = json!({
+        "identity": "test/cross-domain", "version": "1",
+        "digest_domain": "quire.compiled-model.bytes/v1", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let malformed = json!({
+        "identity": "", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let unattested = json!({
+        "identity": "test/other", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let lock_path = "lock.model_selections";
+    // Each adjacent class boundary, pinned in both orderings against the same
+    // expected code: an outcome decided by array position fails one ordering
+    // of each pair rather than passing both.
+    let boundaries = [
+        (
+            "cross-domain outranks malformed shape",
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            &cross_domain,
+            &malformed,
+        ),
+        (
+            "malformed shape outranks unattested digest",
+            CheckedPackageRefusalCode::MalformedWire,
+            &malformed,
+            &unattested,
+        ),
+    ];
+    for (boundary, code, earlier, later) in boundaries {
+        let earlier_first = model_owned_package(
+            owner.clone(),
+            json!([joined.clone(), earlier.clone(), later.clone()]),
+        );
+        let later_first = model_owned_package(
+            owner.clone(),
+            json!([joined.clone(), later.clone(), earlier.clone()]),
+        );
+        for (order, package) in [
+            ("earlier class first", &earlier_first),
+            ("later class first", &later_first),
+        ] {
+            assert_eq!(
+                refused(package, &evidence),
+                refusal(code, lock_path),
+                "{boundary}, {order}: the refusal is decided by defect class, not array position"
+            );
+        }
+    }
+    // The remaining boundary, class 1 (repeated entry, #122's whole-array uniqueness check)
+    // against class 2 (declared-domain mismatch): a repeated entry needs two physical array
+    // slots, so it doesn't fit the single-entry `boundaries` loop above. Both orderings still
+    // refuse `MalformedWire`, the duplicate check's own code, regardless of whether the
+    // repeated pair or the mismatched entry appears first.
+    let duplicated = json!({
+        "identity": "test/duplicated", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let duplicate_first = model_owned_package(
+        owner.clone(),
+        json!([
+            joined.clone(),
+            duplicated.clone(),
+            duplicated.clone(),
+            cross_domain.clone()
+        ]),
+    );
+    let mismatch_first = model_owned_package(
+        owner.clone(),
+        json!([
+            joined.clone(),
+            cross_domain.clone(),
+            duplicated.clone(),
+            duplicated.clone()
+        ]),
+    );
+    for (order, package) in [
+        ("duplicate pair first", &duplicate_first),
+        ("mismatched entry first", &mismatch_first),
+    ] {
+        assert_eq!(
+            refused(package, &evidence),
+            refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+            "repeated entry outranks declared-domain mismatch, {order}: the refusal is decided \
+             by defect class, not array position"
+        );
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]
