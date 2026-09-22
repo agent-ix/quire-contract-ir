@@ -19,8 +19,8 @@ path = "src/lib.rs"
 
 [dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
-quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc" }
-quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "34d1752e6c5f789a52ccf115b0694eedd96cdd46" }
+quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6" }
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "9606131bbc978c494e81df13a8301a5d8a72017a" }
 quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07", default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
