@@ -1104,11 +1104,23 @@ mod tests {
 
     /// `operation-law-mismatch` (role order): agent-ix/quire-contract-ir#171.
     /// [`INTEGER_DIV_IDENTITY`]'s one required role is `integer_division`; a
-    /// law naming any other role at that position must be refused.
+    /// law naming any other role at that position must be refused. The
+    /// definition is [`real_integer_division_truncating_definition`] (a
+    /// genuinely catalogued `integer_division` definition, not a dummy one)
+    /// deliberately: if the role check is skipped, the catalog-membership
+    /// and lock-selection checks further down key off the *catalogued*
+    /// entry's role, not the wire's declared role, so a dummy definition
+    /// would still be refused — just under a different cause
+    /// (`operation-law-mismatch` for an uncatalogued definition) — and this
+    /// test would not distinguish the role check being gone from it being
+    /// present.
     #[test]
     fn operation_defect_refuses_wrong_law_role() {
         let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
-        operation["laws"] = json!([law_json("not_integer_division", dummy_law_definition('b'))]);
+        operation["laws"] = json!([law_json(
+            "not_integer_division",
+            real_integer_division_truncating_definition()
+        )]);
         let node = custom_application_node(
             "binary",
             operation,
