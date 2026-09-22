@@ -34,18 +34,14 @@ const FAMILIES: [(&str, CheckedNodeTag); 13] = [
 ];
 
 /// Every family node's node key is `prefix.repeat(16)` except the four whose
-/// body is now a real `application` term (function, temporal, protocol,
-/// claim): their required `operation`/`result_type` members changed their
-/// preimage, so the vendored fixture gives them real computed digests
-/// instead of a repeated placeholder. `prefix` still labels and orders them.
+/// body is a real `application` term (function, temporal, protocol, claim):
+/// their required `operation`/`result_type` members change their preimage, so
+/// the fixture gives them the real computed `quire.application-node/v1` key
+/// instead of a repeated placeholder — see `checked_package::family_key`,
+/// which both the fixture builder and this lookup call, so the two can never
+/// drift apart. `prefix` still labels and orders them.
 fn key(prefix: &str) -> String {
-    match prefix {
-        "ffff" => "736baaed11db476bcb4e5d21d89942a7a60d8691a4e2d0f49c874727d4d40210".to_owned(),
-        "4040" => "3c321536f3d222c24ad9788ff5adfe45c596a025f3de9bf2acb08bc3b4199a22".to_owned(),
-        "5050" => "a4f5711b7fa43973d9701774c8874728b8a06ba92302ebe2445594e21c874c15".to_owned(),
-        "6060" => "a11fcc8981d4b33e71b7f9778a8dbe9026c0dad1f911075e9eebe43b7e80ad49".to_owned(),
-        _ => prefix.repeat(16),
-    }
+    checked_package::family_key(prefix)
 }
 
 fn id(prefix: &str) -> CheckedNodeId {
@@ -219,27 +215,30 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
 
     // failed at exactly one over the request's own work; siblings unaffected.
     // One for the request, then per visited node one plus its body terms plus
-    // its successor edges: eeee (1 + 1 reference + 2 edges), aaaa (1 + 1
-    // literal + 2 edges: its own semantic_type and its literal's own `type`,
-    // both self), dddd (1 + 1 literal + 2 edges: semantic_type and `type`,
-    // both aaaa) makes 1 + 4 + 4 + 4.
-    let exact = package.lower(&[id("eeee")], &profile(13));
+    // its successor edges: eeee (1 + 1 reference term + 4 edges: its own
+    // semantic_type `aaaa`, its two wire `dependencies` `aaaa`/`dddd`, and its
+    // `reference` body's own target `dddd`), aaaa (1 + 1 literal term + 2
+    // edges: its own semantic_type and its literal's own `type`, both self),
+    // dddd (1 + 1 aggregate term + 2 edges: semantic_type `aaaa` appearing
+    // once via the successor list's own leading entry and once via its one
+    // wire dependency) makes 1 + 6 + 4 + 4 = 15.
+    let exact = package.lower(&[id("eeee")], &profile(15));
     assert_eq!(
         lowered(&exact.records[0]).dependencies,
         vec![id("aaaa"), id("dddd")]
     );
-    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(12));
+    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(14));
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("eeee"),
-            limit: 12,
-            consumed: 13,
+            limit: 14,
+            consumed: 15,
         }
     );
     assert_eq!(
         result.records[1],
-        package.lower(&[id("aaaa")], &profile(12)).records[0]
+        package.lower(&[id("aaaa")], &profile(14)).records[0]
     );
     assert_eq!(lowered(&result.records[1]).node.node_id, id("aaaa"));
     assert_eq!(result.records[2], result.records[0]);
