@@ -2118,3 +2118,90 @@ fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
         )
     );
 }
+
+/// Gives the node at `position` a `declaration`-role occurrence and the
+/// declared name `name`.
+fn declare(package: &mut Value, position: usize, name: &[&str]) {
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    node["declaration"] = json!({"qualified_name": name});
+}
+
+/// Tracing: TC-048, FR-038-AC-21
+#[trace("TC-048", "FR-038-AC-21")]
+#[test]
+fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
+    // Nodes: 0 root, 1 declaring model ("Example::Widget"), 2 literal,
+    // 3 plain function, 4 application call.
+    let with_operation_defect = || {
+        let mut value = positive_operation_identities();
+        value["semantic_graph"]["nodes"][4]["body"]["operation"]["identity"] =
+            json!("quire.op.unknown");
+        checked_package::rekey_application_node(&mut value, 4);
+        value
+    };
+    // Control: the operation defect alone is refused at the operation stage.
+    let mut operation_only = with_operation_defect();
+    refresh_identity(&mut operation_only);
+    let control = refused(&operation_only, &evidence_for(&operation_only));
+    assert_eq!(
+        control.cause,
+        Some(CheckedPackageRefusalCause::UnknownOperation)
+    );
+    // With a second node declaring the same name, the declaration refusal wins.
+    let mut both = with_operation_defect();
+    declare(&mut both, 3, &["Example", "Widget"]);
+    checked_package::rebuild_source_map(&mut both);
+    refresh_identity(&mut both);
+    let declaring = digest_of(&both["semantic_graph"]["nodes"][1]);
+    let function = digest_of(&both["semantic_graph"]["nodes"][3]);
+    assert_eq!(
+        refused(&both, &evidence_for(&both)),
+        refusal_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            "semantic_graph.nodes.declaration",
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            declaring.min(function).as_str(),
+        )
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-21
+#[trace("TC-048", "FR-038-AC-21")]
+#[test]
+fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
+    let with_frame_defect = || {
+        let mut value = v2_all_families();
+        let frame = value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
+            .expect("frame node");
+        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] =
+            json!([checked_package::node_id(&"0123456789abcdef".repeat(4))]);
+        value
+    };
+    // Control: the frame defect alone is refused at the frame stage.
+    let mut frame_only = with_frame_defect();
+    refresh_identity(&mut frame_only);
+    let control = refused(&frame_only, &evidence_for(&frame_only));
+    assert_eq!(control.code, CheckedPackageRefusalCode::MissingDeclaration);
+    // Two plain nodes declaring one name: the declaration refusal wins.
+    let mut both = with_frame_defect();
+    declare(&mut both, 0, &["Example", "Dup"]);
+    declare(&mut both, 1, &["Example", "Dup"]);
+    checked_package::rebuild_source_map(&mut both);
+    refresh_identity(&mut both);
+    let first = digest_of(&both["semantic_graph"]["nodes"][0]);
+    let second = digest_of(&both["semantic_graph"]["nodes"][1]);
+    assert_eq!(
+        refused(&both, &evidence_for(&both)),
+        refusal_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            "semantic_graph.nodes.declaration",
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            first.min(second).as_str(),
+        )
+    );
+}

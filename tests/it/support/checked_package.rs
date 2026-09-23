@@ -758,6 +758,47 @@ fn fixture_lock(profile_selections: Vec<Value>) -> Value {
 /// hardcoded `generated` silently produced a `source_map` whose entry
 /// disagreed with the declaring node's own recorded occurrence, which
 /// `validate_source_map_entries` refuses as `invalid_source_map`.
+/// Rebuilds a fixture package's source map from its nodes' first
+/// occurrences, after a test changed a node's occurrences.
+pub fn rebuild_source_map(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
+    package["source_map"] = source_map_for(&nodes, &fixture_source());
+}
+
+/// Re-derives the application key of the node at `position` from its own
+/// members, after a test changed its body, and renames it everywhere it is
+/// referenced.
+pub fn rekey_application_node(package: &mut Value, position: usize) {
+    let node = package["semantic_graph"]["nodes"][position].clone();
+    let fresh = application_key(
+        node["node_tag"].as_str().expect("tag"),
+        node["semantic_form"].as_str().expect("form"),
+        &node["semantic_type"],
+        &node["body"],
+    );
+    let stale = node["node_id"].clone();
+    let mut renamed = stale.clone();
+    renamed["digest"] = json!(fresh);
+    rename(package, &stale, &renamed);
+}
+
+fn rename(value: &mut Value, from: &Value, to: &Value) {
+    if value == from {
+        *value = to.clone();
+        return;
+    }
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(|item| rename(item, from, to)),
+        Value::Object(members) => members
+            .values_mut()
+            .for_each(|member| rename(member, from, to)),
+        _ => {}
+    }
+}
+
 fn source_map_for(nodes: &[Value], source: &Value) -> Value {
     let entries = nodes
         .iter()
