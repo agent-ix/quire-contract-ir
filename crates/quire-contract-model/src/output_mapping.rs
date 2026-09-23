@@ -1210,43 +1210,57 @@ impl MappingCancellationToken {
     }
 }
 
-/// Deterministic allocation boundary used only to qualify all-or-nothing behavior.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MappingAllocationPoint {
-    /// Request obligation population.
-    RequestObligations,
-    /// Request canonical identity material.
-    RequestIdentity,
-    /// Complete mapping record population.
-    MappingRecords,
-    /// Complete mapping fragment population.
-    MappingFragments,
-    /// Absolute region population.
-    MappingRegions,
-    /// Final target byte buffer.
-    TargetBytes,
-    /// Final immutable record population.
-    PackageRecords,
-    /// Package identity material.
-    PackageIdentity,
-}
+/// Named allocation boundaries for deterministic fault qualification. The
+/// type exists in every build, because the mapping pipeline marks each
+/// boundary, but it is public only under the test-only `fault-injection`
+/// feature: it names internal allocation sites and is not part of the stable
+/// surface (FR-019).
+mod allocation {
+    /// Deterministic allocation boundary used only to qualify all-or-nothing behavior.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum MappingAllocationPoint {
+        /// Request obligation population.
+        RequestObligations,
+        /// Request canonical identity material.
+        RequestIdentity,
+        /// Complete mapping record population.
+        MappingRecords,
+        /// Complete mapping fragment population.
+        MappingFragments,
+        /// Absolute region population.
+        MappingRegions,
+        /// Final target byte buffer.
+        TargetBytes,
+        /// Final immutable record population.
+        PackageRecords,
+        /// Package identity material.
+        PackageIdentity,
+    }
 
-impl MappingAllocationPoint {
-    const fn path(self) -> &'static str {
-        match self {
-            Self::RequestObligations => "request.obligations",
-            Self::RequestIdentity => "request.identity",
-            Self::MappingRecords => "mapping.records",
-            Self::MappingFragments => "mapping.fragments",
-            Self::MappingRegions => "record.output_regions",
-            Self::TargetBytes => "package.target_bytes",
-            Self::PackageRecords => "package.records",
-            Self::PackageIdentity => "package.identity",
+    impl MappingAllocationPoint {
+        pub(super) const fn path(self) -> &'static str {
+            match self {
+                Self::RequestObligations => "request.obligations",
+                Self::RequestIdentity => "request.identity",
+                Self::MappingRecords => "mapping.records",
+                Self::MappingFragments => "mapping.fragments",
+                Self::MappingRegions => "record.output_regions",
+                Self::TargetBytes => "package.target_bytes",
+                Self::PackageRecords => "package.records",
+                Self::PackageIdentity => "package.identity",
+            }
         }
     }
 }
 
-/// Non-semantic execution controls for cancellation and deterministic fault qualification.
+#[cfg(feature = "fault-injection")]
+pub use allocation::MappingAllocationPoint;
+#[cfg(not(feature = "fault-injection"))]
+use allocation::MappingAllocationPoint;
+
+/// Non-semantic execution control: a caller-owned monotonic cancellation token,
+/// checked between pipeline stages. Under the test-only `fault-injection`
+/// feature it can also inject one deterministic allocation failure.
 #[derive(Clone, Debug, Default)]
 pub struct MappingExecutionControl {
     cancellation: MappingCancellationToken,
@@ -1275,6 +1289,9 @@ impl MappingExecutionControl {
     }
 
     /// Deterministically inject one allocation failure for local qualification.
+    /// Test-only: present only under the `fault-injection` feature, which is
+    /// outside the stable surface (FR-019).
+    #[cfg(feature = "fault-injection")]
     pub fn fail_allocation_at(point: MappingAllocationPoint) -> Self {
         Self {
             cancellation: MappingCancellationToken::new(),
@@ -2279,8 +2296,8 @@ impl AdmittedMappingRequest {
         )
     }
 
-    /// Validate and admit a request with monotonic cancellation and qualified
-    /// allocation-failure control. No partially populated request is exposed.
+    /// Validate and admit a request under a caller-owned cancellation token,
+    /// checked between stages. No partially populated request is exposed.
     pub fn admit_controlled(
         package: &BoundPackage,
         requested: Vec<RequestedMappingObligation>,
@@ -2535,8 +2552,8 @@ pub fn map_admitted_request<M: OutputMapper>(
     map_admitted_request_controlled(request, mapper, &control)
 }
 
-/// Invoke one exact-profile mapper with monotonic cancellation and qualified
-/// allocation-failure control. No partial record population is exposed.
+/// Invoke one exact-profile mapper under a caller-owned cancellation token,
+/// checked between stages. No partial record population is exposed.
 pub fn map_admitted_request_controlled<M: OutputMapper + ?Sized>(
     request: &AdmittedMappingRequest,
     mapper: &mut M,

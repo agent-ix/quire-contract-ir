@@ -53,7 +53,16 @@ dependency sets, and coverage classifications.
 
 ## Behavior
 
-The stable v0.1 surface is the public API re-exported by `quire_contract_ir`.
+The stable v0.1 surface is the public API re-exported by `quire_contract_ir`
+in a default-feature build. The model crate's `fault-injection` feature is
+test-only and outside that surface: it exposes `MappingAllocationPoint` and
+`MappingExecutionControl::fail_allocation_at`, which inject one deterministic
+allocation failure so the integration tests can qualify all-or-nothing output
+mapping, and only this package's own dev-dependency enables it. The
+cancellation surface those controls share is stable: `MappingCancellationToken`,
+`MappingExecutionControl::{active, cancelled, with_token}`, `admit_controlled`
+and `map_admitted_request_controlled` let a caller cancel a running mapping
+through a token it owns, checked between stages.
 Serde deserialization trait implementations are not part of that surface:
 untrusted package JSON enters through `ContractPackage::from_json_str` or
 `from_json_bytes`, while validated values remain serializable.
@@ -118,6 +127,7 @@ tests with default features under NFR-005; the crate remains `publish = false`.
 |---|---|---|
 | FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
 | FR-019-AC-3 | `hex_digest` renders SHA-256 as exactly 64 lowercase hexadecimal characters for empty and non-empty input, and `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
+| FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 
 ## Dependencies

@@ -4,6 +4,18 @@
 //! the `quire-contract-ir` compatibility bridge. It intentionally has no
 //! dependency on language, observation, protocol, temporal-logic, or bridge
 //! packages.
+//!
+//! The fault-injection surface is test-only: a default build does not export
+//! it (FR-019-AC-4).
+//!
+#![cfg_attr(
+    not(feature = "fault-injection"),
+    doc = "```compile_fail,E0432\nuse quire_contract_model::MappingAllocationPoint;\n```"
+)]
+#![cfg_attr(
+    not(feature = "fault-injection"),
+    doc = "```compile_fail,E0599\nlet _ = quire_contract_model::MappingExecutionControl::fail_allocation_at;\n```"
+)]
 
 mod binding;
 mod canonical;

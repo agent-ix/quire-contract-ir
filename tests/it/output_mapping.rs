@@ -2077,3 +2077,52 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
         MappingRequestErrorCode::UnknownObligation
     );
 }
+
+/// FR-019-AC-4 backstop: the fault-injection surface stays out of a default
+/// build. The behavioural proof is the model crate's feature-off
+/// `compile_fail` doctests (`make test` runs them); every workspace test
+/// build enables the feature through the root dev-dependency, so this reads
+/// the source instead. Every public re-export out of the private `allocation`
+/// module and `fail_allocation_at` must sit directly under the feature gate,
+/// and the module must stay private.
+///
+/// Tracing: TC-018, FR-019-AC-4
+#[trace("TC-018", "FR-019-AC-4")]
+#[test]
+fn tc_018_fault_injection_items_are_gated_out_of_the_default_surface() {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/quire-contract-model/src/output_mapping.rs"
+    ))
+    .expect("output_mapping.rs is readable");
+    let lines = source.lines().map(str::trim).collect::<Vec<_>>();
+    const GATE: &str = "#[cfg(feature = \"fault-injection\")]";
+    let gated = |position: usize| position > 0 && lines[position - 1] == GATE;
+    let exports = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with("pub use allocation::"))
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    assert!(!exports.is_empty(), "the gated re-export exists");
+    for position in exports {
+        assert!(
+            gated(position),
+            "ungated public re-export: {}",
+            lines[position]
+        );
+    }
+    let injector = lines
+        .iter()
+        .position(|line| line.starts_with("pub fn fail_allocation_at("))
+        .expect("fail_allocation_at exists");
+    assert!(gated(injector), "fail_allocation_at must be gated");
+    assert!(
+        lines.contains(&"mod allocation {"),
+        "the allocation module is private"
+    );
+    assert!(
+        !source.contains("pub mod allocation"),
+        "the allocation module is private"
+    );
+}

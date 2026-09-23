@@ -28,7 +28,7 @@ relationships:
 | FR-016 | FR-016-AC-1 through FR-016-AC-4 | TC-017 | ✅ implemented, including the caller byte budget on all five closed object kinds |
 | FR-017 | FR-017-AC-1, FR-017-AC-2 | TC-017 | ✅ implemented |
 | FR-018 | FR-018-AC-1 through FR-018-AC-3 | TC-018 | ✅ implemented |
-| FR-019 | FR-019-AC-1 through FR-019-AC-3 | TC-018 | ✅ implemented, including `hex_digest` and `expected_inventory` as declared stable surface |
+| FR-019 | FR-019-AC-1 through FR-019-AC-4 | TC-018 | ✅ implemented, including `hex_digest` and `expected_inventory` as declared stable surface |
 | FR-020 | FR-020-AC-1 through FR-020-AC-3 | TC-018 | ✅ implemented, including the exported per-file and fixture-count limits |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-025 | FR-025-AC-1 through FR-025-AC-8 | TC-038 | ✅ implemented against immutable QSL `f1700a92`, Quire Observation `9ac80e93`, Quire Protocol `34d1752e`, and tl-syntax `842d8255` owner revisions |

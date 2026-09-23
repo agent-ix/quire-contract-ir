@@ -69,6 +69,10 @@ fmt-check:
 .PHONY: lint
 lint:
 	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
+	# The workspace lane turns on the model's test-only fault-injection feature
+	# through the root dev-dependency; this lane checks the model as a consumer
+	# builds it, with the feature off.
+	$(CARGO) clippy --locked -p quire-contract-model -- -D warnings
 
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.
@@ -97,6 +101,9 @@ spec:
 .PHONY: test
 test: unit
 	$(CARGO) test --locked --workspace --all-targets -- --include-ignored
+	# The model's own doctests with its test-only fault-injection feature off:
+	# they prove a default build does not export that surface (FR-019-AC-4).
+	$(CARGO) test --locked -p quire-contract-model --doc
 
 .PHONY: build
 build:

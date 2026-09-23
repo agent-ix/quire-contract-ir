@@ -13,6 +13,13 @@ repository = "https://github.com/agent-ix/quire-contract-ir"
 name = "quire_contract_model"
 path = "src/lib.rs"
 
+[features]
+# Test-only deterministic allocation-failure injection for the output-mapping
+# pipeline. Outside the stable surface (FR-019); enabled only by the root
+# package's dev-dependency so the integration tests can qualify
+# all-or-nothing behaviour.
+fault-injection = []
+
 [dependencies]
 jsonschema = { version = "=0.17.1", default-features = false }
 # The home of `quire.checked-operation-catalog/v1`. This crate reads the catalog
