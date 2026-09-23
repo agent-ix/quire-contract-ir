@@ -16,8 +16,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
 };
-use serde::Serialize;
-use serde_json::{json, Value};
+use serde::{Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity domain of a lowered Contract IR node.
@@ -39,11 +38,12 @@ pub struct CompleteLoweringProfileV2 {
 }
 
 /// A Contract IR node lowered exactly from one admitted V2 node.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CompleteContractNodeV2 {
     /// Exact admitted node.
     pub node: CheckedSemanticNodeV2,
     /// Parsed family.
+    #[serde(serialize_with = "wire_tag")]
     pub node_tag: CheckedNodeTag,
     /// Exact source correspondence for this node.
     pub source_map: Vec<CheckedSourceMapEntry>,
@@ -121,11 +121,14 @@ pub enum CompleteLoweringRecordV2 {
 }
 
 /// An admitted node a lowered node reaches without itself being requested.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// It carries no `ir_id` or closure of its own: it is represented only as
+/// exact meaning some lowered node depends on.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ContractPackageDependencyV2 {
     /// Exact admitted node.
     pub node: CheckedSemanticNodeV2,
     /// Parsed family.
+    #[serde(serialize_with = "wire_tag")]
     pub node_tag: CheckedNodeTag,
     /// Exact source correspondence for this node.
     pub source_map: Vec<CheckedSourceMapEntry>,
@@ -169,7 +172,8 @@ impl CompleteContractPackageV2 {
         &self.dependencies
     }
 
-    /// Canonical encoding: sorted-key compact JSON of the whole package.
+    /// RFC 8785 canonical bytes of the whole package, the encoding the V2
+    /// reader requires of the checked package itself.
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
@@ -187,6 +191,16 @@ pub struct CompleteLoweringResultV2 {
     pub records: Vec<CompleteLoweringRecordV2>,
     /// The single canonical package holding every lowered node of the call.
     pub package: CompleteContractPackageV2,
+}
+
+/// The whole package as it is encoded; every member is a typed field, so a
+/// field added to a node type is carried into the bytes by construction.
+#[derive(Serialize)]
+struct ContractPackagePreimage<'a> {
+    version: &'static str,
+    source_package_id: &'a CheckedSemanticId,
+    lowered: &'a [CompleteContractNodeV2],
+    dependencies: &'a [ContractPackageDependencyV2],
 }
 
 #[derive(Serialize)]
@@ -254,20 +268,18 @@ impl CheckedPackageV2 {
             })
             .collect::<Vec<_>>();
         let lowered = lowered.into_values().collect::<Vec<_>>();
-        let canonical = json!({
-            "version": CONTRACT_PACKAGE_VERSION,
-            "source_package_id": self.package_id(),
-            "lowered": lowered.iter().map(lowered_value).collect::<Vec<_>>(),
-            "dependencies": dependencies.iter().map(|dependency| json!({
-                "node": dependency.node,
-                "node_tag": dependency.node_tag.as_wire(),
-                "source_map": dependency.source_map,
-            })).collect::<Vec<_>>(),
-        });
-        // Every member is a string-keyed map, string or array of those, so
-        // encoding cannot fail; `serde_json` without `preserve_order` sorts
-        // object keys, which makes these bytes canonical.
-        let canonical_bytes = serde_json::to_vec(&canonical).unwrap_or_default();
+        let preimage = ContractPackagePreimage {
+            version: CONTRACT_PACKAGE_VERSION,
+            source_package_id: self.package_id(),
+            lowered: &lowered,
+            dependencies: &dependencies,
+        };
+        // Every map in the preimage is string-keyed, so neither step can
+        // fail. Encoding through `Value` sorts every object's keys, which is
+        // the RFC 8785 form `CheckedPackageV2::read` requires of its input.
+        let canonical_bytes = serde_json::to_value(&preimage)
+            .and_then(|value| serde_json::to_vec(&value))
+            .expect("the package preimage has only string-keyed maps");
         CompleteContractPackageV2 {
             source_package_id: self.package_id().clone(),
             package_id: CheckedSemanticId {
@@ -484,17 +496,8 @@ impl CheckedPackageV2 {
     }
 }
 
-fn lowered_value(node: &CompleteContractNodeV2) -> Value {
-    json!({
-        "node": node.node,
-        "node_tag": node.node_tag.as_wire(),
-        "source_map": node.source_map,
-        "semantic_type": node.semantic_type,
-        "dependencies": node.dependencies,
-        "bounds": node.bounds,
-        "claims": node.claims,
-        "ir_id": node.ir_id,
-    })
+fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(tag.as_wire())
 }
 
 fn requires_bound(tag: CheckedNodeTag, form: &str) -> bool {

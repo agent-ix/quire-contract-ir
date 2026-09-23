@@ -37,12 +37,16 @@ The `ContractPackage` half of this output is a separate obligation from the
 per-item records. One lowering call assembles exactly one package from its
 `lowered` records alone: each lowered node once, ascending by key, plus the
 admitted nodes those reach that were not themselves lowered, so every reference
-inside the package resolves inside it. A refused request contributes no node.
-The package records the source package identity and its schema version
-(`quire.contract-ir.contract-package/v1`); its canonical bytes are the
-sorted-key compact JSON of the whole package, and its identity is the SHA-256
-of those bytes in that version's domain. Nodes refer to one another only by
-key, so the package is cycle-free as a value. This package is the single
+inside the package resolves inside it. A refused request contributes no node of its own; its node appears
+only when a lowered node reaches it, as exact reached meaning. A reached node
+carries its family and source correspondence but no `ir_id` or closure of its
+own. The package records the source package identity and its schema version
+(`quire.contract-ir.contract-package/v1`); its canonical bytes are the RFC 8785
+canonical bytes of the whole package, the same canonical form
+[FR-038](./FR-038-consume-checked-package-v2.md) requires of the checked
+package, and its identity is the SHA-256 of those bytes in that version's
+domain. Nodes refer to one another only by key, so the package is cycle-free
+as a value. This package is the single
 Contract IR input that complete-V1 code generation consumes.
 
 ## Behavior

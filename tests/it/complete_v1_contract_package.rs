@@ -240,3 +240,136 @@ fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_ir::CompleteCon
         other => panic!("expected lowered record, got {other:?}"),
     }
 }
+
+/// Tracing: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_a_lowered_node_another_lowered_node_reaches_is_held_once() {
+    let package = admit(&mixed_fixture())
+        .lower(&[id("dddd"), id("cccc")], &mixed_profile())
+        .package;
+    let lowered = package
+        .lowered()
+        .iter()
+        .map(|node| node.node.node_id.clone())
+        .collect::<Vec<_>>();
+    let mut expected = vec![id("cccc"), id("dddd")];
+    expected.sort();
+    assert_eq!(lowered, expected);
+    // `cccc` is reached by `dddd` but lowered in its own right, so it is not
+    // repeated among the dependencies.
+    let dependencies = package
+        .dependencies()
+        .iter()
+        .map(|dependency| dependency.node.node_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(dependencies, vec![id("aaaa")]);
+}
+
+/// Tracing: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_package_bytes_carry_every_member_of_every_represented_node() {
+    let value = mixed_fixture();
+    let result = lower_mixed(&value);
+    let package = &result.package;
+    let decoded: Value = serde_json::from_slice(package.canonical_bytes()).expect("json");
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        keys(&decoded),
+        ["dependencies", "lowered", "source_package_id", "version"]
+    );
+    let wire_node = |key: &CheckedNodeId| {
+        value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["node_id"] == serde_json::to_value(key).expect("key"))
+            .cloned()
+            .expect("wire node")
+    };
+
+    let lowered = &decoded["lowered"][0];
+    let node = &package.lowered()[0];
+    assert_eq!(
+        keys(lowered),
+        [
+            "bounds",
+            "claims",
+            "dependencies",
+            "ir_id",
+            "node",
+            "node_tag",
+            "semantic_type",
+            "source_map"
+        ]
+    );
+    assert_eq!(lowered["node"], wire_node(&node.node.node_id));
+    assert_eq!(lowered["node_tag"], json!("value"));
+    assert_eq!(lowered["dependencies"], json!(node.dependencies));
+    assert_eq!(lowered["bounds"], json!([id("cccc")]));
+    assert_eq!(lowered["claims"], json!(node.claims));
+    assert_eq!(lowered["ir_id"], json!(node.ir_id));
+    assert_eq!(lowered["source_map"], json!(node.source_map));
+
+    for (position, dependency) in package.dependencies().iter().enumerate() {
+        let encoded = &decoded["dependencies"][position];
+        assert_eq!(keys(encoded), ["node", "node_tag", "source_map"]);
+        assert_eq!(encoded["node"], wire_node(&dependency.node.node_id));
+        assert_eq!(encoded["node_tag"], json!(dependency.node_tag.as_wire()));
+        assert_eq!(encoded["source_map"], json!(dependency.source_map));
+    }
+}
+
+/// Tracing: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_package_bytes_are_rfc_8785_key_ordered() {
+    let package = lower_mixed(&mixed_fixture()).package;
+    let bytes = std::str::from_utf8(package.canonical_bytes()).expect("utf-8");
+    assert!(bytes.starts_with("{\"dependencies\":["), "{bytes}");
+    let positions = ["\"lowered\":", "\"source_package_id\":", "\"version\":"]
+        .map(|member| bytes.rfind(member).expect(member));
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{bytes}"
+    );
+    assert!(!bytes.contains(": ") && !bytes.contains(", "), "{bytes}");
+}
+
+/// Tracing: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_a_refused_request_is_represented_only_as_reached_meaning() {
+    // `dddd` now also depends on `bbbb`: requested alone, `bbbb` reaches the
+    // unbounded `aaaa` with no bounding domain and is refused; `dddd` reaches
+    // both `bbbb` and the bound `cccc`, so it lowers and carries `bbbb` as
+    // exact reached meaning, never as a lowered node.
+    let mut value = mixed_fixture();
+    let bbbb = value["semantic_graph"]["nodes"][1]["node_id"].clone();
+    let cccc = value["semantic_graph"]["nodes"][2]["node_id"].clone();
+    let mut dependencies = vec![bbbb, cccc];
+    dependencies.sort_by_key(|key| key["digest"].as_str().map(str::to_owned));
+    value["semantic_graph"]["nodes"][3]["dependencies"] = json!(dependencies);
+    refresh_identity(&mut value);
+    let result = lower_mixed(&value);
+    let dispositions = result.records.iter().map(record_key).collect::<Vec<_>>();
+    assert_eq!(dispositions[0], ("lowered", &id("dddd")));
+    assert_eq!(dispositions[1], ("requires_bound", &id("bbbb")));
+    let package = &result.package;
+    assert!(package
+        .lowered()
+        .iter()
+        .all(|node| node.node.node_id != id("bbbb")));
+    assert!(package
+        .dependencies()
+        .iter()
+        .any(|dependency| dependency.node.node_id == id("bbbb")));
+}
