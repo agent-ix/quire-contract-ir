@@ -784,14 +784,44 @@ fn validate_declaration(
 }
 
 /// `DeclarationTagRules`: whether a node of this kind may never carry a
-/// `declaration`. Exhaustive over every form, so a new form is a compile
-/// error here until its rule is decided.
+/// `declaration`. The rule is stated per family, except `value`/`enum_value`,
+/// but every form is listed so a new form is a compile error here until its
+/// rule is decided.
 fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
-        K::Expression(_) | K::Relation(_) | K::State(_) | K::Temporal(_) | K::Correspondence(_) => {
-            true
-        }
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => false,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => false,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => false,
         K::Value(ValueForm::EnumValue) => true,
         K::Value(
             ValueForm::Literal
@@ -799,14 +829,89 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ValueForm::RecordValue
             | ValueForm::TupleValue
             | ValueForm::OptionValue,
-        )
-        | K::ScalarType(_)
-        | K::CompositeType(_)
-        | K::BoundedDomain(_)
-        | K::Function(_)
-        | K::Model(_)
-        | K::Protocol(_)
-        | K::Claim(_) => false,
+        ) => false,
+        K::Expression(
+            ExpressionForm::Reference
+            | ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => true,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => false,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => false,
+        K::Relation(
+            RelationForm::Relationship
+            | RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation,
+        ) => true,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => true,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => true,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => false,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => false,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => true,
     }
 }
 
@@ -848,7 +953,131 @@ fn validate_body(
 /// `BodyBindingRules`: only a `state`/`frame` node's body is the frame
 /// reference triple rather than a `SemanticTerm`.
 fn is_frame(kind: CheckedNodeKind) -> bool {
-    matches!(kind, CheckedNodeKind::State(StateForm::Frame))
+    use CheckedNodeKind as K;
+    match kind {
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => false,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => false,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => false,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => false,
+        K::Expression(
+            ExpressionForm::Reference
+            | ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => false,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => false,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => false,
+        K::Relation(
+            RelationForm::Relationship
+            | RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation,
+        ) => false,
+        K::State(StateForm::Frame) => true,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => false,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => false,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => false,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => false,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => false,
+    }
 }
 
 fn validate_frame_body(body: &Value) -> Result<u64, ValidationFailure> {

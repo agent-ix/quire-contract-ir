@@ -92,10 +92,14 @@ report `disposition`, alongside the diagnostic stage, code and cause and the
 occurrence role already typed on the wire. A selection role or disposition
 outside its vocabulary is a wire-shape refusal (`malformed_wire` at
 `document`); an unknown family or form keeps its own graph refusal below.
-Past intake no behaviour is chosen by comparing a wire string: every decision
-that depends on a node's kind matches the decoded enum exhaustively, over
-every form, with no catch-all arm, so adding a member is a compile error at
-each place that must decide what it means.
+Past intake no decision that depends on a node's family or form, a
+selection role or a disposition compares a wire string: each matches the
+decoded enum exhaustively, listing every form, with no catch-all arm, so
+adding a member is a compile error at each place that must decide what it
+means. The semantic term grammar inside a node's `body` (the `term` tag, an
+operation member's `kind`, a mode's `kind`) is not one of these enums: the
+body validators read it from the JSON at the wire edge, including when
+lowering re-walks an admitted body through the same validator.
 
 The reader shall recompute `package_id` as the SHA-256 of the RFC 8785
 canonical bytes of `identity_preimage` under `quire.package.semantic/v2`,

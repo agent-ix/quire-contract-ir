@@ -322,6 +322,14 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
         ),
         (
+            // The value is spelled like the serde message the reader
+            // classifies by; it must still refuse as a bad value, not as an
+            // unknown member.
+            "selection role spelled like a decoder message",
+            Box::new(|v| v["lock"]["edition"]["role"] = json!("unknown field")),
+            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+        ),
+        (
             "unknown capability disposition",
             Box::new(|v| v["capability_report"][0]["disposition"] = json!("deferred")),
             refusal(CheckedPackageRefusalCode::MalformedWire, "document"),

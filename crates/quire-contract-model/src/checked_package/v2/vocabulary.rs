@@ -15,6 +15,14 @@
 //! | selection role | `lock.*_selections.role`, `lock.edition.role` | [`CheckedSelectionRole`] |
 //! | capability disposition | `capability_report.disposition` | [`CheckedCapabilityDisposition`] |
 //!
+//! The semantic term grammar inside a node `body` is read at the wire edge
+//! as JSON, not decoded into an enum here: its `term` tag (`literal`,
+//! `reference`, `application`, ..., and `frame` for a frame body), an
+//! operation member's `kind` and an operation mode's `kind` are matched as
+//! strings by the body validators, both at intake and when lowering re-walks
+//! an admitted body through the same validator. The string-edge scan (IR-9)
+//! is what names and bounds those sites.
+//!
 //! Vocabularies decoded by serde at the wire edge ([`super::CheckedDiagnosticStage`],
 //! [`super::CheckedDiagnosticCode`], [`super::CheckedDiagnosticCause`] and
 //! `CheckedOccurrenceRole`) are already enums on the wire type and are not
@@ -64,9 +72,16 @@ macro_rules! closed_vocabulary {
 
         impl<'de> serde::Deserialize<'de> for $name {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let wire = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+                let wire = String::deserialize(deserializer)?;
+                // The error names the vocabulary, never the offending value:
+                // the reader classifies a decode failure by its message, so
+                // echoing wire text into it would let the input choose the
+                // refusal code.
                 Self::from_wire(&wire).ok_or_else(|| {
-                    serde::de::Error::unknown_variant(&wire, &[$($wire,)+])
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Other("a value outside the closed vocabulary"),
+                        &concat!("a ", stringify!($name), " member"),
+                    )
                 })
             }
         }
@@ -389,36 +404,72 @@ impl CheckedNodeKind {
     }
 
     /// Every kind, family by family in schema order, forms in schema order.
+    /// Walks `CheckedNodeTag::ALL` through an exhaustive match, so a new
+    /// family is a compile error here too.
     pub fn all() -> Vec<Self> {
-        let mut kinds = Vec::new();
-        kinds.extend(ScalarTypeForm::ALL.iter().copied().map(Self::ScalarType));
-        kinds.extend(
-            CompositeTypeForm::ALL
-                .iter()
-                .copied()
-                .map(Self::CompositeType),
-        );
-        kinds.extend(
-            BoundedDomainForm::ALL
-                .iter()
-                .copied()
-                .map(Self::BoundedDomain),
-        );
-        kinds.extend(ValueForm::ALL.iter().copied().map(Self::Value));
-        kinds.extend(ExpressionForm::ALL.iter().copied().map(Self::Expression));
-        kinds.extend(FunctionForm::ALL.iter().copied().map(Self::Function));
-        kinds.extend(ModelForm::ALL.iter().copied().map(Self::Model));
-        kinds.extend(RelationForm::ALL.iter().copied().map(Self::Relation));
-        kinds.extend(StateForm::ALL.iter().copied().map(Self::State));
-        kinds.extend(TemporalForm::ALL.iter().copied().map(Self::Temporal));
-        kinds.extend(ProtocolForm::ALL.iter().copied().map(Self::Protocol));
-        kinds.extend(ClaimForm::ALL.iter().copied().map(Self::Claim));
-        kinds.extend(
-            CorrespondenceForm::ALL
-                .iter()
-                .copied()
-                .map(Self::Correspondence),
-        );
-        kinds
+        CheckedNodeTag::ALL
+            .iter()
+            .flat_map(|tag| -> Vec<Self> {
+                match tag {
+                    CheckedNodeTag::ScalarType => ScalarTypeForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::ScalarType)
+                        .collect(),
+                    CheckedNodeTag::CompositeType => CompositeTypeForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::CompositeType)
+                        .collect(),
+                    CheckedNodeTag::BoundedDomain => BoundedDomainForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::BoundedDomain)
+                        .collect(),
+                    CheckedNodeTag::Value => {
+                        ValueForm::ALL.iter().copied().map(Self::Value).collect()
+                    }
+                    CheckedNodeTag::Expression => ExpressionForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Expression)
+                        .collect(),
+                    CheckedNodeTag::Function => FunctionForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Function)
+                        .collect(),
+                    CheckedNodeTag::Model => {
+                        ModelForm::ALL.iter().copied().map(Self::Model).collect()
+                    }
+                    CheckedNodeTag::Relation => RelationForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Relation)
+                        .collect(),
+                    CheckedNodeTag::State => {
+                        StateForm::ALL.iter().copied().map(Self::State).collect()
+                    }
+                    CheckedNodeTag::Temporal => TemporalForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Temporal)
+                        .collect(),
+                    CheckedNodeTag::Protocol => ProtocolForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Protocol)
+                        .collect(),
+                    CheckedNodeTag::Claim => {
+                        ClaimForm::ALL.iter().copied().map(Self::Claim).collect()
+                    }
+                    CheckedNodeTag::Correspondence => CorrespondenceForm::ALL
+                        .iter()
+                        .copied()
+                        .map(Self::Correspondence)
+                        .collect(),
+                }
+            })
+            .collect()
     }
 }

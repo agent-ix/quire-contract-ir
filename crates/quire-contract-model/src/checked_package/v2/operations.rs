@@ -550,16 +550,51 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
 }
 
 /// Whether an argument naming a node of this kind names a type itself
-/// rather than a value of its semantic type. Every type family is, and of
-/// the expressions only `reference`.
+/// rather than a value of its semantic type: every form of the five type
+/// families, and of the expressions only `reference`. Every form is listed.
 fn is_type_shaped(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
     match kind {
-        K::ScalarType(_)
-        | K::CompositeType(_)
-        | K::BoundedDomain(_)
-        | K::Relation(_)
-        | K::Function(_) => true,
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => true,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => true,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => true,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => false,
         K::Expression(ExpressionForm::Reference) => true,
         K::Expression(
             ExpressionForm::Call
@@ -577,13 +612,71 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::Deref
             | ExpressionForm::Reachability,
         ) => false,
-        K::Value(_)
-        | K::Model(_)
-        | K::State(_)
-        | K::Temporal(_)
-        | K::Protocol(_)
-        | K::Claim(_)
-        | K::Correspondence(_) => false,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => true,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => false,
+        K::Relation(
+            RelationForm::Relationship
+            | RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation,
+        ) => true,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => false,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => false,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => false,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => false,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => false,
     }
 }
 
@@ -1172,33 +1265,20 @@ mod tests {
                 ("relation", "population", "population"),
             ]
         );
-        let not_type_shaped = CheckedNodeKind::all()
-            .into_iter()
-            .filter(|kind| !is_type_shaped(*kind))
-            .map(|kind| kind.tag())
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            not_type_shaped
-                .into_iter()
-                .map(CheckedNodeTag::as_wire)
-                .collect::<Vec<_>>(),
-            [
-                "value",
-                "expression",
-                "model",
-                "state",
-                "temporal",
-                "protocol",
-                "claim",
-                "correspondence"
-            ]
-        );
-        assert!(is_type_shaped(CheckedNodeKind::Expression(
-            ExpressionForm::Reference
-        )));
-        assert!(!is_type_shaped(CheckedNodeKind::Expression(
-            ExpressionForm::Call
-        )));
+        // Type-shaped is the five type families, every form of each, plus
+        // the `reference` expression; checked for every one of the 98 kinds,
+        // so flipping any single form is caught.
+        for kind in CheckedNodeKind::all() {
+            let expected = matches!(
+                kind.tag(),
+                CheckedNodeTag::ScalarType
+                    | CheckedNodeTag::CompositeType
+                    | CheckedNodeTag::BoundedDomain
+                    | CheckedNodeTag::Relation
+                    | CheckedNodeTag::Function
+            ) || kind == CheckedNodeKind::Expression(ExpressionForm::Reference);
+            assert_eq!(is_type_shaped(kind), expected, "{kind:?}");
+        }
     }
 
     /// An `application` node whose `operation.identity` is absent from the
