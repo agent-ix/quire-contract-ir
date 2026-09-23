@@ -10,11 +10,11 @@
 //!
 #![cfg_attr(
     not(feature = "fault-injection"),
-    doc = "```compile_fail\nuse quire_contract_model::MappingAllocationPoint;\n```"
+    doc = "```compile_fail,E0432\nuse quire_contract_model::MappingAllocationPoint;\n```"
 )]
 #![cfg_attr(
     not(feature = "fault-injection"),
-    doc = "```compile_fail\nlet _ = quire_contract_model::MappingExecutionControl::fail_allocation_at;\n```"
+    doc = "```compile_fail,E0599\nlet _ = quire_contract_model::MappingExecutionControl::fail_allocation_at;\n```"
 )]
 
 mod binding;
