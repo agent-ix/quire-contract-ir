@@ -101,6 +101,9 @@ spec:
 .PHONY: test
 test: unit
 	$(CARGO) test --locked --workspace --all-targets -- --include-ignored
+	# The model's own doctests with its test-only fault-injection feature off:
+	# they prove a default build does not export that surface (FR-019-AC-4).
+	$(CARGO) test --locked -p quire-contract-model --doc
 
 .PHONY: build
 build:
