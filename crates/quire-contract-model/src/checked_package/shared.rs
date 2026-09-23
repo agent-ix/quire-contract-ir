@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 pub struct CheckedPackageReadLimits {
     /// Maximum canonical wire bytes.
     pub bytes: u64,
-    /// Maximum JSON nesting depth.
+    /// Maximum JSON nesting depth, counting each container as one level and
+    /// a scalar value as one level below its container: `[]` is depth 1,
+    /// `[1]` and `{"a":1}` are depth 2. A document within this limit is
+    /// parsed however deep it is, so a caller raising it accepts the parse
+    /// recursion that depth implies.
     pub depth: u64,
     /// Maximum semantic graph nodes.
     pub nodes: u64,

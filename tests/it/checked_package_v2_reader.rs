@@ -2308,3 +2308,42 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
         )
     );
 }
+
+/// Tracing: TC-048, FR-038-AC-3
+#[trace("TC-048", "FR-038-AC-3")]
+#[test]
+fn tc_048_nesting_beyond_the_parser_cap_is_incomplete_not_malformed() {
+    let evidence = evidence_for(&v2_all_families());
+    let limits = CheckedPackageReadLimits::bounded();
+    // Two hundred nested arrays: past serde_json's own recursion cap of 128
+    // as well as the default depth limit. The measured depth is reported.
+    let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+    match CheckedPackageV2::read(deep.as_bytes(), limits, &evidence) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => assert_eq!(
+            incomplete,
+            crate::support::checked_package::incomplete(
+                CheckedPackageLimit::Depth,
+                limits.depth,
+                200
+            )
+        ),
+        other => panic!("expected depth incompleteness, got {other:?}"),
+    }
+    // A caller whose limit admits that depth gets past the depth meter: the
+    // document is parsed and then refused for what it is, not for its depth.
+    let raised = CheckedPackageReadLimits {
+        depth: 300,
+        ..limits
+    };
+    assert!(matches!(
+        CheckedPackageV2::read(deep.as_bytes(), raised, &evidence),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    // A syntax error the parser reaches is still refused, however deep the
+    // document's valid prefix claims to go.
+    let malformed_shallow = format!("{}x{}", "[".repeat(3), "]".repeat(3));
+    assert_eq!(
+        refused_bytes(malformed_shallow.as_bytes(), &evidence),
+        refusal(CheckedPackageRefusalCode::MalformedWire, "document")
+    );
+}

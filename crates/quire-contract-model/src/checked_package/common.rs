@@ -116,7 +116,14 @@ pub(super) trait ArtifactDigests {
 /// Measures, parses and canonicalizes untrusted bytes exactly once.
 ///
 /// Order: byte limit, strict JSON (duplicate members), depth limit, canonical
-/// bytes.
+/// bytes. Depth is first measured on the text itself, without recursion, so
+/// the parser's own nesting cap never decides the outcome: a document within
+/// the caller's depth limit is parsed with that cap lifted (its nesting is
+/// then bounded by the caller's limit), and one beyond it is parsed under the
+/// cap: a syntax error the parser reaches before the cap is still refused,
+/// and a document the cap stops is reported `incomplete` with its measured
+/// depth. A syntax error lying deeper than the cap is not reached, so such a
+/// document is reported `incomplete`, not `malformed_wire`.
 pub(super) fn canonical_value(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -128,8 +135,17 @@ pub(super) fn canonical_value(
             bytes.len(),
         ));
     }
-    let value = match strict_json_value(bytes) {
+    let measured = text_depth(bytes);
+    let within_limit = !exceeds(measured, limits.depth);
+    let value = match strict_json_value(bytes, within_limit) {
         Ok(value) => value,
+        Err(StrictJsonError::TooDeep) => {
+            return Err(Stop::incomplete(
+                CheckedPackageLimit::Depth,
+                limits.depth,
+                measured,
+            ))
+        }
         Err(StrictJsonError::Duplicate(path)) => {
             return Err(Stop::Refused(
                 CheckedPackageRefusalCode::DuplicateMember,
@@ -567,20 +583,88 @@ fn visit_terms(
 enum StrictJsonError {
     Duplicate(Box<str>),
     Syntax,
+    /// The parser's own nesting cap stopped it: the text nests deeper than it
+    /// will recurse.
+    TooDeep,
 }
 
-fn strict_json_value(input: &[u8]) -> Result<Value, StrictJsonError> {
+/// serde_json's fixed message for its nesting cap. It is the library's text,
+/// never the input's, so matching it cannot let a document choose its outcome.
+const SERDE_JSON_RECURSION_LIMIT: &str = "recursion limit exceeded";
+
+fn strict_json_value(input: &[u8], lift_nesting_cap: bool) -> Result<Value, StrictJsonError> {
     let mut deserializer = serde_json::Deserializer::from_slice(input);
+    if lift_nesting_cap {
+        deserializer.disable_recursion_limit();
+    }
     StrictValue::deserialize(&mut deserializer)
         .map(|value| value.0)
         .map_err(|error| {
-            error
-                .to_string()
+            let message = error.to_string();
+            if message.starts_with(SERDE_JSON_RECURSION_LIMIT) {
+                return StrictJsonError::TooDeep;
+            }
+            message
                 .strip_prefix("duplicate JSON member at ")
                 .map_or(StrictJsonError::Syntax, |path| {
                     StrictJsonError::Duplicate(path.into())
                 })
         })
+}
+
+/// The nesting depth of JSON text under [`json_depth`]'s convention (a
+/// container is one level, and a scalar value one level below the container
+/// holding it; an object key is not a value), measured by one iterative pass
+/// over the bytes so arbitrarily deep input cannot exhaust the stack. It
+/// reads only structure and skips string contents, so it is exact for
+/// well-formed text and a bounded estimate otherwise.
+pub(super) fn text_depth(bytes: &[u8]) -> u64 {
+    let mut containers: Vec<bool> = Vec::new();
+    let mut expecting_key = false;
+    let mut deepest = 0_u64;
+    let level = |open: usize| u64::try_from(open).unwrap_or(u64::MAX);
+    let mut position = 0;
+    while let Some(&byte) = bytes.get(position) {
+        match byte {
+            b'"' => {
+                position += 1;
+                while let Some(&inner) = bytes.get(position) {
+                    match inner {
+                        b'\\' => position += 2,
+                        b'"' => break,
+                        _ => position += 1,
+                    }
+                }
+                if !expecting_key {
+                    deepest = deepest.max(level(containers.len()).saturating_add(1));
+                }
+                expecting_key = false;
+            }
+            b'{' | b'[' => {
+                containers.push(byte == b'{');
+                deepest = deepest.max(level(containers.len()));
+                expecting_key = byte == b'{';
+            }
+            b'}' | b']' => {
+                containers.pop();
+                expecting_key = false;
+            }
+            b',' => expecting_key = containers.last() == Some(&true),
+            b':' => expecting_key = false,
+            b' ' | b'\t' | b'\n' | b'\r' => {}
+            _ => {
+                deepest = deepest.max(level(containers.len()).saturating_add(1));
+                while bytes
+                    .get(position + 1)
+                    .is_some_and(|next| !b",:]}\" \t\n\r[{".contains(next))
+                {
+                    position += 1;
+                }
+            }
+        }
+        position += 1;
+    }
+    deepest
 }
 
 struct StrictValue(Value);
@@ -687,6 +771,10 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 
+/// Nesting depth of a parsed value: a container is one level and a scalar
+/// one level below the container holding it, so `1` is depth 1, `[]` depth
+/// 1, `[1]` depth 2 and `{"a":1}` depth 2. [`CheckedPackageReadLimits::depth`]
+/// is charged in this unit.
 pub(super) fn json_depth(value: &Value) -> u64 {
     match value {
         Value::Array(values) => values
@@ -766,5 +854,39 @@ mod tests {
                 "{value}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::{json_depth, text_depth};
+    use serde_json::Value;
+
+    /// `text_depth` measures unparsed text in `json_depth`'s unit.
+    #[test]
+    fn text_depth_agrees_with_json_depth() {
+        for text in [
+            "1",
+            "\"x\"",
+            "[]",
+            "{}",
+            "[1]",
+            "{\"a\":1}",
+            "{\"a\":[{\"b\":\"x\"}]}",
+            "[[],[[1]],{\"k\":{}}]",
+            "{\"a\":\"[[[{{\\\"\",\"b\":[true,null,-1.5e3]}",
+            " [ { \"a\" : [ ] } ] ",
+        ] {
+            let value: Value = serde_json::from_str(text).expect("valid JSON");
+            assert_eq!(text_depth(text.as_bytes()), json_depth(&value), "{text}");
+        }
+    }
+
+    /// Depth far beyond any parser recursion is measured without recursing.
+    #[test]
+    fn text_depth_measures_deep_nesting_iteratively() {
+        let depth = 100_000;
+        let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        assert_eq!(text_depth(text.as_bytes()), 100_000);
     }
 }

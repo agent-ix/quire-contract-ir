@@ -78,7 +78,15 @@ they supplied are open work on agent-ix/quire-contract-ir#166.
 
 The reader shall measure raw bytes against the byte limit, parse strict JSON
 once (duplicate members refuse, nesting charged against the depth limit),
-require canonical bytes, and read `contract_version` exactly once. It shall
+require canonical bytes, and read `contract_version` exactly once. Depth counts
+each container as one level and a scalar value as one level below its
+container, so `[]` is depth 1 and `[1]` and `{"a":1}` are depth 2. The reader
+measures depth on the text before it parses, without recursion, so a
+document deeper than the depth limit returns `incomplete` with its measured
+depth whatever the JSON parser's own nesting cap; a document within the limit
+is parsed however deep it is. A syntax error the parser reaches is refused
+first; one lying deeper than the parser's nesting cap in an over-limit
+document is not reached, and that document is `incomplete`. It shall
 admit only `quire.checked-package/v2`; any other version, or a missing or
 malformed `contract_version`, refuses before any version-specific decoding
 begins. This is a refusal control, not a compatibility layer: it never
