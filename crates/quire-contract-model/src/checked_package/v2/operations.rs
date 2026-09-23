@@ -59,8 +59,10 @@
 
 use super::operation_catalog::{operation_catalog, OperationCatalogEntry};
 use super::{
-    CheckedArtifactRef, CheckedNodeId, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2,
-    WorkMeter,
+    BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, ClaimForm,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
+    RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::digest_json;
 use crate::checked_package::common::ValidationFailure;
@@ -200,6 +202,7 @@ struct OperationLeafWire {
 /// against the upstream description.
 pub(super) fn validate_operations(
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
@@ -209,7 +212,7 @@ pub(super) fn validate_operations(
         if !is_application(&node.body) {
             continue;
         }
-        if let Some(failure) = operation_defect(node, nodes, index, lock, meter)? {
+        if let Some(failure) = operation_defect(node, nodes, kinds, index, lock, meter)? {
             return Err(failure);
         }
     }
@@ -219,6 +222,7 @@ pub(super) fn validate_operations(
 fn operation_defect(
     node: &CheckedSemanticNodeV2,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
@@ -296,7 +300,8 @@ fn operation_defect(
         // consulted at all.
         let selected = if catalog.is_profile_role(role) {
             lock.profile_selections.iter().any(|selection| {
-                selection.role.as_ref() == role.as_ref() && selection.definition == law.definition
+                CheckedSelectionRole::from_wire(role) == Some(selection.role)
+                    && selection.definition == law.definition
             })
         } else {
             let catalogued = catalog.law_role_definitions(role);
@@ -355,7 +360,7 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) = check_operands(node, entry, &arguments, nodes, index, catalog) {
+    if let Some(failure) = check_operands(node, entry, &arguments, nodes, kinds, index, catalog) {
         return Ok(Some(failure));
     }
     if let Some(name) = wire_member_kind {
@@ -365,12 +370,12 @@ fn operation_defect(
             }
         }
     }
-    if let Some(failure) =
-        check_mode_type(node, entry, &operation, &arguments, nodes, index, catalog)
-    {
+    if let Some(failure) = check_mode_type(
+        node, entry, &operation, &arguments, nodes, kinds, index, catalog,
+    ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(node, &operation, &arguments, nodes, index) {
+    if let Some(failure) = check_leaves(node, &operation, &arguments, nodes, kinds, index) {
         return Ok(Some(failure));
     }
     Ok(None)
@@ -391,12 +396,13 @@ fn operation_defect(
 fn argument_family(
     argument: &Value,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
     match argument.get("term").and_then(Value::as_str) {
         Some("reference") => {
-            let type_node = operand_type_node(argument, nodes, index)?;
-            resolve_family(&type_node, nodes, index, 0)
+            let type_node = operand_type_node(argument, nodes, kinds, index)?;
+            resolve_family(&type_node, nodes, kinds, index, 0)
         }
         Some("binding") => Some("binder"),
         _ => None,
@@ -412,50 +418,287 @@ fn argument_type_id(argument: &Value) -> Option<CheckedNodeId> {
     serde_json::from_value(argument.get("target")?.clone()).ok()
 }
 
+/// The operation catalog's operand family a node of this kind denotes
+/// directly, or `None` when it has none of its own (a `bounded_domain` then
+/// resolves through its semantic type). Exhaustive over every form.
+fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
+    use CheckedNodeKind as K;
+    match kind {
+        K::ScalarType(
+            form @ (ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Enum),
+        ) => Some(form.as_wire()),
+        K::ScalarType(ScalarTypeForm::Dimension | ScalarTypeForm::Unit) => None,
+        K::CompositeType(
+            form @ (CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Reference),
+        ) => Some(form.as_wire()),
+        K::CompositeType(CompositeTypeForm::Alias) => None,
+        K::Relation(RelationForm::Population) => Some("population"),
+        K::Relation(
+            RelationForm::Relationship | RelationForm::Membership | RelationForm::CausalRelation,
+        ) => None,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => Some("function"),
+        // The catalog's `reference` family: an identity/pointer expression
+        // (a `reference` term naming a relationship end or declaration),
+        // never `composite_type`'s same-named nullable-wrapper form.
+        K::Expression(ExpressionForm::Reference) => Some("reference"),
+        K::Expression(
+            ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => None,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => None,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => None,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => None,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => None,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => None,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => None,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => None,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => None,
+    }
+}
+
+/// Whether an argument naming a node of this kind names a type itself
+/// rather than a value of its semantic type: every form of the five type
+/// families, and of the expressions only `reference`. Every form is listed.
+fn is_type_shaped(kind: CheckedNodeKind) -> bool {
+    use CheckedNodeKind as K;
+    match kind {
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => true,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => true,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => true,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => false,
+        K::Expression(ExpressionForm::Reference) => true,
+        K::Expression(
+            ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => false,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => true,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => false,
+        K::Relation(
+            RelationForm::Relationship
+            | RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation,
+        ) => true,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => false,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => false,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => false,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => false,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => false,
+    }
+}
+
 fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     depth: u8,
 ) -> Option<&'static str> {
     if depth > 8 {
         return None;
     }
-    let node = &nodes[*index.get(type_id)?];
-    let tag = CheckedNodeTag::from_wire(&node.node_tag)?;
-    let form = node.semantic_form.as_ref();
-    let direct = match (tag, form) {
-        (CheckedNodeTag::ScalarType, "boolean") => Some("boolean"),
-        (CheckedNodeTag::ScalarType, "integer") => Some("integer"),
-        (CheckedNodeTag::ScalarType, "rational") => Some("rational"),
-        (CheckedNodeTag::ScalarType, "decimal") => Some("decimal"),
-        (CheckedNodeTag::ScalarType, "float32") => Some("float32"),
-        (CheckedNodeTag::ScalarType, "float64") => Some("float64"),
-        (CheckedNodeTag::ScalarType, "text") => Some("text"),
-        (CheckedNodeTag::ScalarType, "enum") => Some("enum"),
-        (CheckedNodeTag::CompositeType, "option") => Some("option"),
-        (CheckedNodeTag::CompositeType, "sequence") => Some("sequence"),
-        (CheckedNodeTag::CompositeType, "set") => Some("set"),
-        (CheckedNodeTag::CompositeType, "bag") => Some("bag"),
-        (CheckedNodeTag::CompositeType, "ordered_set") => Some("ordered_set"),
-        (CheckedNodeTag::CompositeType, "record") => Some("record"),
-        (CheckedNodeTag::CompositeType, "tuple") => Some("tuple"),
-        (CheckedNodeTag::CompositeType, "reference") => Some("reference"),
-        (CheckedNodeTag::Relation, "population") => Some("population"),
-        (CheckedNodeTag::Function, "pure_function" | "predicate" | "recursive_function") => {
-            Some("function")
-        }
-        // The catalog's `reference` family: an identity/pointer expression
-        // (a `reference` term naming a relationship end or declaration),
-        // never `composite_type`'s same-named nullable-wrapper form.
-        (CheckedNodeTag::Expression, "reference") => Some("reference"),
-        _ => None,
-    };
+    let position = *index.get(type_id)?;
+    let node = &nodes[position];
+    let kind = *kinds.get(position)?;
+    let direct = operand_family(kind);
     if direct.is_some() {
         return direct;
     }
-    if tag == CheckedNodeTag::BoundedDomain {
-        return resolve_family(&node.semantic_type, nodes, index, depth + 1);
+    if kind.tag() == CheckedNodeTag::BoundedDomain {
+        return resolve_family(&node.semantic_type, nodes, kinds, index, depth + 1);
     }
     None
 }
@@ -465,6 +708,7 @@ fn check_operands(
     entry: &OperationCatalogEntry,
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
@@ -485,7 +729,7 @@ fn check_operands(
         return ineligible();
     }
     for (position, expected) in entry.operands.iter().enumerate() {
-        if let Some(actual) = argument_family(&arguments[position], nodes, index) {
+        if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index) {
             if !catalog.family_fits(actual, expected) {
                 return ineligible();
             }
@@ -493,7 +737,7 @@ fn check_operands(
     }
     if let Some(rest_family) = &entry.rest {
         for argument in &arguments[required..] {
-            if let Some(actual) = argument_family(argument, nodes, index) {
+            if let Some(actual) = argument_family(argument, nodes, kinds, index) {
                 if !catalog.family_fits(actual, rest_family) {
                     return ineligible();
                 }
@@ -514,7 +758,7 @@ fn check_operands(
             "same_family" => {
                 let families: Option<Vec<&str>> = indices
                     .iter()
-                    .map(|position| argument_family(&arguments[*position], nodes, index))
+                    .map(|position| argument_family(&arguments[*position], nodes, kinds, index))
                     .collect();
                 if let Some(families) = families {
                     if families.windows(2).any(|pair| pair[0] != pair[1]) {
@@ -583,21 +827,13 @@ fn check_field_member(
 fn operand_type_node(
     argument: &Value,
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<CheckedNodeId> {
     let target = argument_type_id(argument)?;
-    let target_node = &nodes[*index.get(&target)?];
-    let tag = CheckedNodeTag::from_wire(&target_node.node_tag)?;
-    let type_shaped = matches!(
-        tag,
-        CheckedNodeTag::ScalarType
-            | CheckedNodeTag::CompositeType
-            | CheckedNodeTag::BoundedDomain
-            | CheckedNodeTag::Relation
-            | CheckedNodeTag::Function
-    ) || (tag == CheckedNodeTag::Expression
-        && target_node.semantic_form.as_ref() == "reference");
-    if type_shaped {
+    let position = *index.get(&target)?;
+    let target_node = &nodes[position];
+    if is_type_shaped(*kinds.get(position)?) {
         Some(target)
     } else {
         Some(target_node.semantic_type.clone())
@@ -650,6 +886,7 @@ fn check_mode_type(
     operation: &OperationWire,
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
@@ -659,10 +896,10 @@ fn check_mode_type(
     }
     for (position, expected) in entry.operands.iter().enumerate() {
         let argument = arguments.get(position)?;
-        let Some(type_id) = operand_type_node(argument, nodes, index) else {
+        let Some(type_id) = operand_type_node(argument, nodes, kinds, index) else {
             continue;
         };
-        let Some(actual_family) = resolve_family(&type_id, nodes, index, 0) else {
+        let Some(actual_family) = resolve_family(&type_id, nodes, kinds, index, 0) else {
             continue;
         };
         if !catalog.family_fits(actual_family, expected) {
@@ -689,6 +926,7 @@ fn check_leaves(
     operation: &OperationWire,
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<ValidationFailure> {
     for leaf in &operation.leaves {
@@ -701,7 +939,7 @@ fn check_leaves(
         };
         let Some(record_type) = arguments
             .first()
-            .and_then(|argument| operand_type_node(argument, nodes, index))
+            .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
         else {
             continue;
         };
@@ -725,11 +963,12 @@ fn check_leaves(
 #[cfg(test)]
 mod tests {
     use super::{
-        operation_catalog, operation_defect, validate_application_keys, CheckedNodeId,
+        is_type_shaped, operand_family, operation_catalog, operation_defect,
+        validate_application_keys, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSemanticNodeV2, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
-        NODE_ID_PATH, OPERATION_ARGUMENTS_PATH, OPERATION_LAWS_PATH, OPERATION_MEMBER_PATH,
-        OPERATION_MODE_PATH, OPERATION_PATH, OPERATOR_PATH,
+        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
+        APPLICATION_NODE_VERSION, NODE_ID_PATH, OPERATION_ARGUMENTS_PATH, OPERATION_LAWS_PATH,
+        OPERATION_MEMBER_PATH, OPERATION_MODE_PATH, OPERATION_PATH, OPERATOR_PATH,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{CheckedArtifactRef, CheckedRevision, CheckedSelection};
@@ -929,7 +1168,7 @@ mod tests {
         CheckedPackageLockV2 {
             sources: Vec::new(),
             edition: CheckedSelection {
-                role: Box::from("edition"),
+                role: CheckedSelectionRole::Edition,
                 definition: placeholder,
             },
             profile_selections: Vec::new(),
@@ -948,7 +1187,18 @@ mod tests {
         index.insert(&node.node_id, 0);
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
-        operation_defect(node, nodes, &index, &lock, &mut meter)
+        operation_defect(node, nodes, &kinds_of(nodes), &index, &lock, &mut meter)
+    }
+
+    /// Each node's kind, decoded as intake decodes it.
+    fn kinds_of(nodes: &[CheckedSemanticNodeV2]) -> Vec<CheckedNodeKind> {
+        nodes
+            .iter()
+            .map(|node| {
+                let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("test node tag");
+                CheckedNodeKind::decode(tag, &node.semantic_form).expect("test node form")
+            })
+            .collect()
     }
 
     /// Like [`defect_for`], but for a multi-node graph: `nodes[0]` is the
@@ -963,7 +1213,72 @@ mod tests {
         }
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
-        operation_defect(&nodes[0], &nodes, &index, &lock, &mut meter)
+        operation_defect(
+            &nodes[0],
+            &nodes,
+            &kinds_of(&nodes),
+            &index,
+            &lock,
+            &mut meter,
+        )
+    }
+
+    /// The operand classification over every kind the closed vocabularies
+    /// produce: which catalog family a node denotes directly, and whether an
+    /// argument naming it names a type. Pinned whole, so an edit to either
+    /// exhaustive table that moves any one form is caught here.
+    #[test]
+    fn operand_classification_is_exactly_the_catalog_mapping() {
+        let families = CheckedNodeKind::all()
+            .into_iter()
+            .filter_map(|kind| {
+                Some((
+                    kind.tag().as_wire(),
+                    kind.form_wire(),
+                    operand_family(kind)?,
+                ))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            families,
+            [
+                ("scalar_type", "boolean", "boolean"),
+                ("scalar_type", "integer", "integer"),
+                ("scalar_type", "rational", "rational"),
+                ("scalar_type", "decimal", "decimal"),
+                ("scalar_type", "float32", "float32"),
+                ("scalar_type", "float64", "float64"),
+                ("scalar_type", "text", "text"),
+                ("scalar_type", "enum", "enum"),
+                ("composite_type", "option", "option"),
+                ("composite_type", "sequence", "sequence"),
+                ("composite_type", "set", "set"),
+                ("composite_type", "bag", "bag"),
+                ("composite_type", "ordered_set", "ordered_set"),
+                ("composite_type", "record", "record"),
+                ("composite_type", "tuple", "tuple"),
+                ("composite_type", "reference", "reference"),
+                ("expression", "reference", "reference"),
+                ("function", "pure_function", "function"),
+                ("function", "predicate", "function"),
+                ("function", "recursive_function", "function"),
+                ("relation", "population", "population"),
+            ]
+        );
+        // Type-shaped is the five type families, every form of each, plus
+        // the `reference` expression; checked for every one of the 98 kinds,
+        // so flipping any single form is caught.
+        for kind in CheckedNodeKind::all() {
+            let expected = matches!(
+                kind.tag(),
+                CheckedNodeTag::ScalarType
+                    | CheckedNodeTag::CompositeType
+                    | CheckedNodeTag::BoundedDomain
+                    | CheckedNodeTag::Relation
+                    | CheckedNodeTag::Function
+            ) || kind == CheckedNodeKind::Expression(ExpressionForm::Reference);
+            assert_eq!(is_type_shaped(kind), expected, "{kind:?}");
+        }
     }
 
     /// An `application` node whose `operation.identity` is absent from the

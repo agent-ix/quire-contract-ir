@@ -7,7 +7,11 @@
 
 use super::natural::coprime;
 use super::CheckedPackageLockV2;
-use super::{CheckedNodeTag, CheckedSemanticNodeV2, WorkMeter};
+use super::{
+    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+};
 use crate::checked_package::common::{digest_json, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -152,13 +156,136 @@ enum NominalKind {
 }
 
 impl NominalKind {
-    fn required_by(tag: CheckedNodeTag, form: &str) -> Option<Self> {
-        match (tag, form) {
-            (CheckedNodeTag::ScalarType, "enum") => Some(Self::EnumDeclaration),
-            (CheckedNodeTag::Value, "enum_value") => Some(Self::EnumMember),
-            (CheckedNodeTag::ScalarType, "dimension") => Some(Self::Dimension),
-            (CheckedNodeTag::ScalarType, "unit") => Some(Self::Unit),
-            _ => None,
+    /// The nominal identity a node of this kind must carry, if any. Only the
+    /// four nominal forms carry one; every other form is decided here too, so
+    /// a new form is a compile error until it is.
+    fn required_by(kind: CheckedNodeKind) -> Option<Self> {
+        use CheckedNodeKind as K;
+        match kind {
+            K::ScalarType(ScalarTypeForm::Enum) => Some(Self::EnumDeclaration),
+            K::Value(ValueForm::EnumValue) => Some(Self::EnumMember),
+            K::ScalarType(ScalarTypeForm::Dimension) => Some(Self::Dimension),
+            K::ScalarType(ScalarTypeForm::Unit) => Some(Self::Unit),
+            K::ScalarType(
+                ScalarTypeForm::Boolean
+                | ScalarTypeForm::Integer
+                | ScalarTypeForm::Rational
+                | ScalarTypeForm::Decimal
+                | ScalarTypeForm::Float32
+                | ScalarTypeForm::Float64
+                | ScalarTypeForm::Text,
+            ) => None,
+            K::CompositeType(
+                CompositeTypeForm::Option
+                | CompositeTypeForm::Sequence
+                | CompositeTypeForm::Set
+                | CompositeTypeForm::Bag
+                | CompositeTypeForm::OrderedSet
+                | CompositeTypeForm::Record
+                | CompositeTypeForm::Tuple
+                | CompositeTypeForm::Alias
+                | CompositeTypeForm::Reference,
+            ) => None,
+            K::BoundedDomain(
+                BoundedDomainForm::IntegerRange
+                | BoundedDomainForm::RationalRange
+                | BoundedDomainForm::DecimalRange
+                | BoundedDomainForm::FloatRounding
+                | BoundedDomainForm::TextBounds
+                | BoundedDomainForm::CollectionBounds
+                | BoundedDomainForm::ModelPopulation,
+            ) => None,
+            K::Value(
+                ValueForm::Literal
+                | ValueForm::CollectionValue
+                | ValueForm::RecordValue
+                | ValueForm::TupleValue
+                | ValueForm::OptionValue,
+            ) => None,
+            K::Expression(
+                ExpressionForm::Reference
+                | ExpressionForm::Call
+                | ExpressionForm::Unary
+                | ExpressionForm::Binary
+                | ExpressionForm::Conditional
+                | ExpressionForm::Let
+                | ExpressionForm::Quantify
+                | ExpressionForm::Collection
+                | ExpressionForm::Conversion
+                | ExpressionForm::Query
+                | ExpressionForm::PreRead
+                | ExpressionForm::PresenceRead
+                | ExpressionForm::ValueRead
+                | ExpressionForm::Deref
+                | ExpressionForm::Reachability,
+            ) => None,
+            K::Function(
+                FunctionForm::PureFunction
+                | FunctionForm::Predicate
+                | FunctionForm::RecursiveFunction,
+            ) => None,
+            K::Model(
+                ModelForm::ModelImport
+                | ModelForm::ObjectType
+                | ModelForm::ValueType
+                | ModelForm::VariantType
+                | ModelForm::RecordValueType
+                | ModelForm::EventType
+                | ModelForm::StateMachine
+                | ModelForm::Process
+                | ModelForm::PersistenceInterface
+                | ModelForm::Namespace
+                | ModelForm::FieldDeclaration
+                | ModelForm::OperationDeclaration
+                | ModelForm::ClauseMemberDeclaration
+                | ModelForm::SystemsInterface
+                | ModelForm::SystemsPart
+                | ModelForm::SystemsPort
+                | ModelForm::SystemsConnection
+                | ModelForm::SystemsAllocation,
+            ) => None,
+            K::Relation(
+                RelationForm::Relationship
+                | RelationForm::Population
+                | RelationForm::Membership
+                | RelationForm::CausalRelation,
+            ) => None,
+            K::State(
+                StateForm::StateClause
+                | StateForm::Frame
+                | StateForm::Transition
+                | StateForm::OperationAnchor
+                | StateForm::Snapshot,
+            ) => None,
+            K::Temporal(
+                TemporalForm::TemporalClause
+                | TemporalForm::Formula
+                | TemporalForm::Clock
+                | TemporalForm::Window
+                | TemporalForm::Activation
+                | TemporalForm::Deadline,
+            ) => None,
+            K::Protocol(
+                ProtocolForm::ProtocolClause
+                | ProtocolForm::Role
+                | ProtocolForm::Channel
+                | ProtocolForm::Queue
+                | ProtocolForm::Control
+                | ProtocolForm::Obligation
+                | ProtocolForm::Compensation,
+            ) => None,
+            K::Claim(
+                ClaimForm::VerificationClaim
+                | ClaimForm::AnalysisClaim
+                | ClaimForm::Hyperproperty
+                | ClaimForm::SynthesisRequest,
+            ) => None,
+            K::Correspondence(
+                CorrespondenceForm::SourceLocus
+                | CorrespondenceForm::ModelCorrespondence
+                | CorrespondenceForm::BindingRole
+                | CorrespondenceForm::ProfileCorrespondence,
+            ) => None,
         }
     }
 
@@ -196,18 +323,19 @@ fn require(condition: bool) -> Result<(), ValidationFailure> {
 }
 
 /// Validates every node's nominal binding, key re-derivation, owner join,
-/// semantic rules and cross-field joins. `tags` holds each node's parsed tag.
+/// semantic rules and cross-field joins. `kinds` holds each node's decoded
+/// kind.
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
-    tags: &[CheckedNodeTag],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = NominalGraph { nodes, index };
     let mut roots = BTreeSet::new();
-    for (node, tag) in nodes.iter().zip(tags) {
-        let required = NominalKind::required_by(*tag, &node.semantic_form);
+    for (node, kind) in nodes.iter().zip(kinds) {
+        let required = NominalKind::required_by(*kind);
         let preimage = match (required, &node.nominal_identity_preimage) {
             (None, None) => continue,
             (Some(kind), Some(preimage)) if NominalKind::of(preimage) == kind => preimage,

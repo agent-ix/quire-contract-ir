@@ -55,7 +55,7 @@ wire (FR-322, FR-340), the seven members are not uniformly missing:
 - **Embedded meaning vocabulary** is FR-208's closed Quire meaning id set,
   and the wire already carries it as `semantic_form` — FR-038 already
   validates a `model` node against the closed eighteen-meaning list and
-  every other tag against its own closed `forms()` list, refusing an
+  every other tag against its own closed form enum, refusing an
   unrecognized value as `invalid_semantic_graph`
   ([FR-038-AC-2](./FR-038-consume-checked-package-v2.md),
   FR-038-AC-17). `filament-core-data#184`/#193 states its
@@ -67,11 +67,11 @@ wire (FR-322, FR-340), the seven members are not uniformly missing:
   redefines edge** and **population node** — have no admission or
   lowering disposition on the `quire.checked-package/v2` wire today. Four
   of the five (every member but population) have no `(node_tag,
-  semantic_form)` slot in `CheckedNodeTag::ALL`/`forms()` at all, so any
+  semantic_form)` slot in `CheckedNodeKind` at all, so any
   wire content attempting to carry one refuses at the tag or form gate
   before reaching a body. `population` is a partial exception:
   `relation`/`population` is already a recognized `(tag, form)` pair
-  (`CheckedNodeTag::Relation::forms()`), but no dedicated body validator
+  (`CheckedNodeKind::Relation(RelationForm::Population)`), but no dedicated body validator
   exists for it — a `relation`/`population` node's `body` falls through to
   the generic closed `SemanticTerm` grammar (`validate_term`), which
   `filament-core-data#184`/#193's published `population` shape
@@ -150,7 +150,7 @@ whole package before any declaration is built, never interpret or drop
 the offending member. This FR does not change that behavior; it names it
 as the acceptance criteria for these five members, once per shape a
 producer can encode one in: a `node_tag` outside `CheckedNodeTag::ALL` or
-a `semantic_form` outside that tag's `forms()` refuses at the graph's tag
+a `semantic_form` outside that tag's closed form enum refuses at the graph's tag
 and form gates; an extra member on an otherwise-admitted node object
 refuses earlier still, in the strict closed-schema decode of the whole
 document, as `unknown_member` at `document`; and a body that satisfies no
@@ -181,7 +181,7 @@ recorded in Dependencies and Status instead.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-344-AC-1 | A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's `forms()`, refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag` or `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`, before any declaration is built and with the document never admitted with the offending node dropped. | Test (TC-222) |
+| FR-344-AC-1 | A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag` or `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`, before any declaration is built and with the document never admitted with the offending node dropped. | Test (TC-222) |
 | FR-344-AC-2 | A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph`, never admitted as an ordinary `relation` term: at `semantic_graph.nodes.body.term` when the body carries no `term` member at all — the case of `filament-core-data#184`/#193's published population shape, which carries no `term` member — and at `semantic_graph.nodes.body` when it carries a `term` value that matches no arm's own closed member set. | Test (TC-222) |
 | FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which extend a `model`/`field_declaration` node rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at `document`, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
 

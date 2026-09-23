@@ -12,10 +12,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, NominalIdentityPreimage,
+    CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -313,6 +313,26 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 CheckedPackageRefusalCode::UnknownRequiredCapability,
                 "capability_report",
             ),
+        ),
+        (
+            // Closed vocabularies decode at the wire edge: a value outside one
+            // is a wire-shape refusal before any semantic check runs.
+            "unknown selection role",
+            Box::new(|v| v["lock"]["edition"]["role"] = json!("future_role")),
+            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+        ),
+        (
+            // The value is spelled like the serde message the reader
+            // classifies by; it must still refuse as a bad value, not as an
+            // unknown member.
+            "selection role spelled like a decoder message",
+            Box::new(|v| v["lock"]["edition"]["role"] = json!("unknown field")),
+            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+        ),
+        (
+            "unknown capability disposition",
+            Box::new(|v| v["capability_report"][0]["disposition"] = json!("deferred")),
+            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
         ),
         (
             "unavailable required feature",
@@ -1957,7 +1977,7 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
 }
 
 /// FR-038-AC-17's closed `expression` form list: every one of the fifteen
-/// `CheckedNodeTag::Expression.forms()` admits as a node form, and a
+/// `ExpressionForm::ALL` admits as a node form, and a
 /// sixteenth, undeclared form refuses as `invalid_semantic_graph`.
 /// `tc_048_model_export_is_not_a_v2_model_form` already covers the same
 /// pattern for the eighteen `model` forms — this test is the `expression`
@@ -1976,10 +1996,10 @@ fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
         .iter()
         .position(|node| node["node_tag"] == json!("expression"))
         .expect("all-families fixture carries an expression node");
-    assert_eq!(CheckedNodeTag::Expression.forms().len(), 15);
-    for form in CheckedNodeTag::Expression.forms() {
+    assert_eq!(ExpressionForm::ALL.len(), 15);
+    for form in ExpressionForm::ALL {
         let mut value = base.clone();
-        value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form);
+        value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form.as_wire());
         refresh_identity(&mut value);
         admitted(&value);
     }

@@ -10,7 +10,11 @@
 //! A refused request contributes nothing to it, so the package never holds a
 //! substitute for meaning it could not represent.
 
-use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
+use super::{
+    BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
+    ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
+    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
+};
 use crate::checked_package::common::{digest_bytes, digest_json, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
@@ -254,7 +258,7 @@ impl CheckedPackageV2 {
             .filter(|key| !lowered.contains_key(*key))
             .collect::<BTreeSet<_>>();
         let nodes = &self.graph().nodes;
-        let tags = self.node_tags();
+        let kinds = self.node_kinds();
         let dependencies = reached
             .into_iter()
             .filter_map(|key| {
@@ -262,7 +266,7 @@ impl CheckedPackageV2 {
                 let node = nodes.get(position)?;
                 Some(ContractPackageDependencyV2 {
                     node: node.clone(),
-                    node_tag: *tags.get(position)?,
+                    node_tag: kinds.get(position)?.tag(),
                     source_map: self.node_source_map(&node.node_id),
                 })
             })
@@ -322,7 +326,7 @@ impl CheckedPackageV2 {
             };
         };
         let nodes = &self.graph().nodes;
-        let tags = self.node_tags();
+        let kinds = self.node_kinds();
         let mut visited = BTreeSet::from([start]);
         let mut queue = VecDeque::from([start]);
         while let Some(position) = queue.pop_front() {
@@ -330,8 +334,7 @@ impl CheckedPackageV2 {
             if work > profile.work_limit {
                 return failed(work);
             }
-            let Some((node, node_tag)) = nodes.get(position).zip(tags.get(position).copied())
-            else {
+            let Some((node, kind)) = nodes.get(position).zip(kinds.get(position).copied()) else {
                 continue;
             };
             let mut successors = vec![node.semantic_type.clone()];
@@ -340,12 +343,9 @@ impl CheckedPackageV2 {
             // target; a failure is terminal for this request. `validate_body`
             // is the same admission dispatch the reader used, so a package it
             // admitted re-walks identically here.
-            let walked = super::validate_body(
-                node_tag,
-                &node.semantic_form,
-                &node.body,
-                &mut |target, _path| successors.push(target.clone()),
-            );
+            let walked = super::validate_body(kind, &node.body, &mut |target, _path| {
+                successors.push(target.clone())
+            });
             let terms = match walked {
                 Ok(terms) => terms,
                 Err(ValidationFailure::Refused(code, path)) => {
@@ -405,21 +405,21 @@ impl CheckedPackageV2 {
         }
         let reachable = visited
             .iter()
-            .filter_map(|position| Some((nodes.get(*position)?, *tags.get(*position)?)))
+            .filter_map(|position| Some((nodes.get(*position)?, *kinds.get(*position)?)))
             .collect::<Vec<_>>();
         let mut ordered = reachable.clone();
         ordered.sort_by(|left, right| left.0.node_id.cmp(&right.0.node_id));
-        if let Some((node, tag)) = ordered
+        if let Some((node, kind)) = ordered
             .iter()
-            .find(|(_, tag)| !profile.supported_tags.contains(tag))
+            .find(|(_, kind)| !profile.supported_tags.contains(&kind.tag()))
         {
             return CompleteLoweringRecordV2::Unsupported {
                 node_id: request.clone(),
                 unsupported_node_id: node.node_id.clone(),
-                node_tag: *tag,
+                node_tag: kind.tag(),
             };
         }
-        let Some((node, tag)) = nodes.get(start).zip(tags.get(start).copied()) else {
+        let Some((node, kind)) = nodes.get(start).zip(kinds.get(start).copied()) else {
             return CompleteLoweringRecordV2::InvalidInput {
                 node_id: request.clone(),
             };
@@ -430,16 +430,16 @@ impl CheckedPackageV2 {
         // `dependencies` — the requested node is never its own bound or claim.
         let bounds = ordered
             .iter()
-            .filter(|(candidate, tag)| {
-                *tag == CheckedNodeTag::BoundedDomain && candidate.node_id != node.node_id
+            .filter(|(candidate, kind)| {
+                kind.tag() == CheckedNodeTag::BoundedDomain && candidate.node_id != node.node_id
             })
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
         if profile.require_bounds {
-            if let Some((node, _)) = ordered.iter().find(|(node, tag)| {
-                requires_bound(*tag, &node.semantic_form)
-                    && !ordered.iter().any(|(domain, domain_tag)| {
-                        *domain_tag == CheckedNodeTag::BoundedDomain
+            if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
+                requires_bound(*kind)
+                    && !ordered.iter().any(|(domain, domain_kind)| {
+                        domain_kind.tag() == CheckedNodeTag::BoundedDomain
                             && domain.semantic_type == node.node_id
                     })
             }) {
@@ -456,8 +456,8 @@ impl CheckedPackageV2 {
             .collect::<Vec<_>>();
         let claims = ordered
             .iter()
-            .filter(|(candidate, tag)| {
-                *tag == CheckedNodeTag::Claim && candidate.node_id != node.node_id
+            .filter(|(candidate, kind)| {
+                kind.tag() == CheckedNodeTag::Claim && candidate.node_id != node.node_id
             })
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
@@ -480,7 +480,7 @@ impl CheckedPackageV2 {
         CompleteLoweringRecordV2::Lowered {
             node: Box::new(CompleteContractNodeV2 {
                 node: node.clone(),
-                node_tag: tag,
+                node_tag: kind.tag(),
                 source_map: self.node_source_map(&node.node_id),
                 semantic_type: node.semantic_type.clone(),
                 dependencies,
@@ -500,20 +500,137 @@ fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok,
     serializer.serialize_str(tag.as_wire())
 }
 
-fn requires_bound(tag: CheckedNodeTag, form: &str) -> bool {
-    match tag {
-        CheckedNodeTag::ScalarType => matches!(form, "integer" | "rational" | "decimal" | "text"),
-        CheckedNodeTag::CompositeType => matches!(form, "sequence" | "set" | "bag" | "ordered_set"),
-        CheckedNodeTag::BoundedDomain
-        | CheckedNodeTag::Value
-        | CheckedNodeTag::Expression
-        | CheckedNodeTag::Function
-        | CheckedNodeTag::Model
-        | CheckedNodeTag::Relation
-        | CheckedNodeTag::State
-        | CheckedNodeTag::Temporal
-        | CheckedNodeTag::Protocol
-        | CheckedNodeTag::Claim
-        | CheckedNodeTag::Correspondence => false,
+/// Whether a node of this kind is an unbounded numeric, text or collection
+/// type that `require_bounds` needs a reachable bounding domain for.
+/// Exhaustive over every form.
+fn requires_bound(kind: CheckedNodeKind) -> bool {
+    use CheckedNodeKind as K;
+    match kind {
+        K::ScalarType(
+            ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Text,
+        ) => true,
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => false,
+        K::CompositeType(
+            CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet,
+        ) => true,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => false,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => false,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => false,
+        K::Expression(
+            ExpressionForm::Reference
+            | ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => false,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => false,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ObjectType
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::Process
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::FieldDeclaration
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => false,
+        K::Relation(
+            RelationForm::Relationship
+            | RelationForm::Population
+            | RelationForm::Membership
+            | RelationForm::CausalRelation,
+        ) => false,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => false,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => false,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => false,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => false,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => false,
     }
 }

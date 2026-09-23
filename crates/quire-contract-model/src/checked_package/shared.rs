@@ -269,7 +269,7 @@ pub struct CheckedArtifactRef {
 #[serde(deny_unknown_fields)]
 pub struct CheckedSelection {
     /// The closed selection role.
-    pub role: Box<str>,
+    pub role: super::v2::CheckedSelectionRole,
     /// Selected definition artifact.
     pub definition: CheckedArtifactRef,
 }
@@ -307,5 +307,5 @@ pub struct CheckedCapability {
     /// Capability identifier.
     pub feature: Box<str>,
     /// Producer/model disposition.
-    pub disposition: Box<str>,
+    pub disposition: super::v2::CheckedCapabilityDisposition,
 }

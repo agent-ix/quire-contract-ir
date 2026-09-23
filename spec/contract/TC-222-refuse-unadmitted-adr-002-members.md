@@ -29,7 +29,7 @@ baseline vector), construct one mutated document per case:
    (e.g. `"supertype"`), chosen to mimic a producer attempting to carry a
    supertype list or an abstractness flag as its own top-level tag.
 2. A node whose `node_tag` is `"model"` and whose `semantic_form` is a
-   synthetic value outside `CheckedNodeTag::Model::forms()` (e.g.
+   synthetic value outside `ModelForm` (e.g.
    `"abstract_flag"`), chosen to mimic a producer attempting to carry the
    abstractness flag as a new form of an existing tag.
 3. A node whose `node_tag` is `"model"`, `semantic_form` is
@@ -97,7 +97,7 @@ node and structural path.
 
 Planned. FR-344-AC-1, FR-344-AC-2 and FR-344-AC-3 already hold as an emergent
 property of FR-038's
-existing closed grammars (`CheckedNodeTag::from_wire`, `tag.forms()`,
+existing closed grammars (`CheckedNodeTag::from_wire`, `CheckedNodeKind::decode`,
 `#[serde(deny_unknown_fields)]`, `exact_members`); this test case gives
 that property its own named regression rather than leave it implicit and
 untested. It requires no reader or lowerer change — only new fixtures and
