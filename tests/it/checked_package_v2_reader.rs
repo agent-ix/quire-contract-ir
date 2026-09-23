@@ -2202,6 +2202,9 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
             "semantic_graph.nodes.declaration",
             Some(CheckedPackageRefusalCause::AmbiguousName),
             first.min(second).as_str(),
+        )
+    );
+}
 
 /// The first `reference` target anywhere in a body term.
 fn first_reference(term: &Value) -> Option<Value> {
@@ -2304,11 +2307,4 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             &checked_package::family_key("ffff"),
         )
     );
-}
-
-fn digest_of(node: &Value) -> String {
-    node["node_id"]["digest"]
-        .as_str()
-        .expect("digest")
-        .to_owned()
 }
