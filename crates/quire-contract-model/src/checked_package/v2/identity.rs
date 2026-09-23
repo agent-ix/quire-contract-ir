@@ -271,7 +271,12 @@ fn validate_owner(
         }),
         // The lock selects whole domain packages; the node is not a lock
         // member, so the join is by package identity and the node is only
-        // required to be present.
+        // required to be present. `validate_lock` refuses a
+        // `model_selections` array holding two entries with the same
+        // identity but different versions before this join ever runs, so
+        // the lock guarantees at most one selection per model identity —
+        // that single-selection invariant is what makes joining by identity
+        // alone (and not also by version) sound.
         NominalOwner::Model { identity, node } => {
             !node.is_empty()
                 && lock

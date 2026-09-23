@@ -117,12 +117,22 @@ outcome rather than a position-dependent one:
 
 1. A repeated entry anywhere in the array refuses as `malformed_wire` at
    `lock.model_selections`.
-2. An entry whose `digest_domain` is not `sha256-jcs` refuses as
+2. Two entries naming the same `identity` with different `version` values
+   refuse as `malformed_wire` at `lock.model_selections`. The nominal `model`
+   owner (below) joins `lock.model_selections` by identity alone, not by the
+   full `(identity, version)` locator, so the lock must guarantee at most one
+   selection per model identity for that join to be sound; two selections of
+   one identity at different versions would make which version an owner of
+   that identity names ambiguous. Two entries sharing both `identity` and
+   `version`, differing only in `digest`, are not this class: they share one
+   locator, so class 5 below already refuses them deterministically, and this
+   class is not widened to reach them.
+3. An entry whose `digest_domain` is not `sha256-jcs` refuses as
    `digest_domain_mismatch` at `lock.model_selections`.
-3. An entry with an empty `identity`, an empty `version` or a `digest` that is
+4. An entry with an empty `identity`, an empty `version` or a `digest` that is
    not a SHA-256 hex digest refuses as `malformed_wire` at
    `lock.model_selections`.
-4. An entry whose digest the domain package evidence does not attest refuses
+5. An entry whose digest the domain package evidence does not attest refuses
    as `stale_dependency` at `lock.model_selections`.
 
 Each class is evaluated over the whole array before the next class is
@@ -130,7 +140,11 @@ evaluated over any of it. The refusal an array draws is therefore the code of
 the least class it carries a defect of, whatever order the defective entries
 appear in. Within one class the reader draws no distinction: every entry of a
 class refuses with that class's own code at the one array path, so which entry
-of a class is named is not an observable of the contract.
+of a class is named is not an observable of the contract. Classes 1 and 2
+both refuse as `malformed_wire` at the same path, and an exact repeated entry
+is also a same-identity pair, so an array carrying only that overlap is not
+attributable to one class over the other; nothing observable depends on which
+of the two is credited.
 
 When a node is an enum declaration, enum member, dimension or declared unit, the
 reader shall reconstruct the closed nominal preimage, require
@@ -293,6 +307,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-18 | A self-typed node's own body-root `literal.type` — the literal that is the node's body — naming itself is exempt from the reference-cycle check and admits with no declared `recursion_group`. The same `literal.type` self-reference nested one level deeper, inside that node's own `aggregate` member, `binding` value or `application` argument, is not exempt, and refuses as `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group` for want of a declared `recursion_group`, exactly like a self-typed node's `reference` body or `application.result_type` naming itself. | Test (TC-048) |
 | FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
+| FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and independently attested by the package evidence; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. | Test (TC-048) |
 
 ## Dependencies
 

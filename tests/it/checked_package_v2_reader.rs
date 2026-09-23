@@ -1351,6 +1351,62 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
     }
 }
 
+/// A `lock.model_selections` array holding two selections of one identity at
+/// different versions refuses as `malformed_wire` even when both selections
+/// are individually well-formed and individually attested: the nominal
+/// `model` owner joins by identity alone (`identity::validate_owner`), so
+/// admitting two versions under one identity would leave that join ambiguous
+/// -- which version an owner of the identity names is undecidable. This is a
+/// distinct rule from FR-038-AC-10's whole-item `uniqueItems` refusal, which
+/// requires every member (including `version`) to match verbatim and so
+/// never reaches a pair that differs by version; it is also distinct from
+/// AC-10's same-identity-*and*-same-version-different-digest case, which
+/// shares one locator and so continues to refuse deterministically as
+/// `stale_dependency` -- this rule is not widened to reach it.
+///
+/// Tracing: TC-048, FR-038-AC-20
+#[trace("TC-048", "FR-038-AC-20")]
+#[test]
+fn tc_048_model_selection_same_identity_different_version_refuses_as_malformed_wire() {
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let lock_path = "lock.model_selections";
+
+    // Two selections of one identity at different versions: each has its own
+    // locator (identity, version), so each is individually well-formed and
+    // individually attestable by the package evidence -- this rule refuses
+    // the pair before either digest is ever checked against evidence.
+    let version_one = domain_package("test/orders");
+    let mut version_two = domain_package("test/orders");
+    version_two["version"] = json!("2");
+    let both_versions = model_owned_package(
+        owner.clone(),
+        json!([version_one.clone(), version_two.clone()]),
+    );
+    assert_eq!(
+        refused(&both_versions, &evidence_for(&both_versions)),
+        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+        "same identity, different versions, both individually attested"
+    );
+
+    // The same pair, reversed: the outcome is decided by defect class, not
+    // by which entry the reader reaches first (mirroring FR-038-AC-11's
+    // array-position independence for the pre-existing classes).
+    let reversed = model_owned_package(owner.clone(), json!([version_two, version_one.clone()]));
+    assert_eq!(
+        refused(&reversed, &evidence_for(&reversed)),
+        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+        "same pair, reversed array order"
+    );
+
+    // Two different identities never trigger this rule and still admit.
+    let other_identity = json!({
+        "identity": "test/other", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+    });
+    let distinct_identities = model_owned_package(owner, json!([version_one, other_identity]));
+    admitted(&distinct_identities);
+}
+
 /// Tracing: TC-048, FR-038-AC-2
 #[trace("TC-048", "FR-038-AC-2")]
 #[test]

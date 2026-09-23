@@ -855,6 +855,45 @@ fn validate_lock(
             "lock.model_selections",
         ));
     }
+    // The nominal `Model` owner (`identity::validate_owner`) joins
+    // `lock.model_selections` by identity alone, not by locator
+    // (identity, version): it trusts the lock to hold at most one
+    // selection per identity. Two selections that name the same identity
+    // but different versions would each individually pass the
+    // whole-item-uniqueness check above (they are distinct items) and the
+    // per-entry evidence check below (each has its own valid locator, so
+    // each can be legitimately attested on its own) — so without this
+    // check, an owner naming that identity would ambiguously join both,
+    // and two packages selecting different versions of one model could
+    // derive the same nominal node key. This is a distinct defect class
+    // from the exact-repeat check just above: an exact repeat (identity,
+    // version, digest domain and digest all equal) is also a same-identity
+    // pair, so the two classes overlap, but both refuse with this same
+    // code and path, so which one an overlapping array is attributed to is
+    // not an observable and their relative order is unconstrained. Two
+    // selections sharing identity *and* version but differing only in
+    // digest are deliberately left alone here — same locator, so the
+    // evidence check below already refuses them deterministically as
+    // `stale_dependency` (evidence attests at most one digest per
+    // locator), per FR-038-AC-10 — this check widens only to a different
+    // version, not to a same-version digest disagreement. Like the
+    // exact-repeat check, this is a whole-array pass run before any
+    // per-entry evidence check, so the outcome does not depend on array
+    // position (FR-038-AC-11).
+    let mut model_versions: BTreeMap<&str, &str> = BTreeMap::new();
+    for model in &lock.model_selections {
+        match model_versions.get(model.identity.as_ref()) {
+            Some(version) if *version != model.version.as_ref() => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    "lock.model_selections",
+                ));
+            }
+            _ => {
+                model_versions.insert(model.identity.as_ref(), model.version.as_ref());
+            }
+        }
+    }
     validate_domain_packages(&lock.model_selections, evidence)?;
     let mut features = BTreeSet::new();
     if !lock
