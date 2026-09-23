@@ -69,6 +69,10 @@ fmt-check:
 .PHONY: lint
 lint:
 	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
+	# The workspace lane turns on the model's test-only fault-injection feature
+	# through the root dev-dependency; this lane checks the model as a consumer
+	# builds it, with the feature off.
+	$(CARGO) clippy --locked -p quire-contract-model -- -D warnings
 
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.

@@ -74,9 +74,12 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         assert_eq!(dependency["kind"], Value::Null);
         assert_eq!(dependency["optional"], false);
     }
+    // FR-028 admits no optional feature that reintroduces an owner or bridge
+    // dependency. The one feature the model declares is the test-only
+    // `fault-injection` switch (FR-019), and it enables nothing.
     assert_eq!(
-        model["features"].as_object().map(|features| features.len()),
-        Some(0)
+        model["features"],
+        serde_json::json!({ "fault-injection": [] })
     );
 
     let bridge_dependencies = bridge["dependencies"]

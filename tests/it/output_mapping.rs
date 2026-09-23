@@ -2077,3 +2077,46 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
         MappingRequestErrorCode::UnknownObligation
     );
 }
+
+/// FR-019: the fault-injection surface stays out of a default build. Every
+/// workspace test build enables the feature through the root dev-dependency,
+/// so no in-workspace compile can observe its absence; this reads the source
+/// instead. Each gated item must sit directly under its
+/// `#[cfg(feature = "fault-injection")]`, and the module defining
+/// `MappingAllocationPoint` must stay private, so deleting either gate or
+/// publishing the module fails here.
+///
+/// Tracing: TC-018, FR-019-AC-1
+#[trace("TC-018", "FR-019-AC-1")]
+#[test]
+fn tc_018_fault_injection_items_are_gated_out_of_the_default_surface() {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/quire-contract-model/src/output_mapping.rs"
+    ))
+    .expect("output_mapping.rs is readable");
+    let lines = source.lines().map(str::trim).collect::<Vec<_>>();
+    const GATE: &str = "#[cfg(feature = \"fault-injection\")]";
+    for item in [
+        "pub use allocation::MappingAllocationPoint;",
+        "pub fn fail_allocation_at(point: MappingAllocationPoint) -> Self {",
+    ] {
+        let position = lines
+            .iter()
+            .position(|line| *line == item)
+            .unwrap_or_else(|| panic!("`{item}` must exist"));
+        assert_eq!(
+            lines.get(position.wrapping_sub(1)).copied(),
+            Some(GATE),
+            "`{item}` must be gated by the fault-injection feature"
+        );
+    }
+    assert!(
+        lines.contains(&"mod allocation {"),
+        "the allocation module is private"
+    );
+    assert!(
+        !source.contains("pub mod allocation"),
+        "the allocation module is private"
+    );
+}

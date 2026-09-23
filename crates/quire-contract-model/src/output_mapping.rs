@@ -1258,7 +1258,9 @@ pub use allocation::MappingAllocationPoint;
 #[cfg(not(feature = "fault-injection"))]
 use allocation::MappingAllocationPoint;
 
-/// Non-semantic execution controls for cancellation and deterministic fault qualification.
+/// Non-semantic execution control: a caller-owned monotonic cancellation token,
+/// checked between pipeline stages. Under the test-only `fault-injection`
+/// feature it can also inject one deterministic allocation failure.
 #[derive(Clone, Debug, Default)]
 pub struct MappingExecutionControl {
     cancellation: MappingCancellationToken,
@@ -2294,8 +2296,8 @@ impl AdmittedMappingRequest {
         )
     }
 
-    /// Validate and admit a request with monotonic cancellation and qualified
-    /// allocation-failure control. No partially populated request is exposed.
+    /// Validate and admit a request under a caller-owned cancellation token,
+    /// checked between stages. No partially populated request is exposed.
     pub fn admit_controlled(
         package: &BoundPackage,
         requested: Vec<RequestedMappingObligation>,
@@ -2550,8 +2552,8 @@ pub fn map_admitted_request<M: OutputMapper>(
     map_admitted_request_controlled(request, mapper, &control)
 }
 
-/// Invoke one exact-profile mapper with monotonic cancellation and qualified
-/// allocation-failure control. No partial record population is exposed.
+/// Invoke one exact-profile mapper under a caller-owned cancellation token,
+/// checked between stages. No partial record population is exposed.
 pub fn map_admitted_request_controlled<M: OutputMapper + ?Sized>(
     request: &AdmittedMappingRequest,
     mapper: &mut M,

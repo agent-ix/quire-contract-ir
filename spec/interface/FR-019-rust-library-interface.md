@@ -58,7 +58,11 @@ in a default-feature build. The model crate's `fault-injection` feature is
 test-only and outside that surface: it exposes `MappingAllocationPoint` and
 `MappingExecutionControl::fail_allocation_at`, which inject one deterministic
 allocation failure so the integration tests can qualify all-or-nothing output
-mapping, and only this package's own dev-dependency enables it.
+mapping, and only this package's own dev-dependency enables it. The
+cancellation surface those controls share is stable: `MappingCancellationToken`,
+`MappingExecutionControl::{active, cancelled, with_token}`, `admit_controlled`
+and `map_admitted_request_controlled` let a caller cancel a running mapping
+through a token it owns, checked between stages.
 Serde deserialization trait implementations are not part of that surface:
 untrusted package JSON enters through `ContractPackage::from_json_str` or
 `from_json_bytes`, while validated values remain serializable.
