@@ -4,19 +4,26 @@
 //! closure reachable through `semantic_type`, `dependencies` and body
 //! reference targets. A non-lowered record carries no node, and no record
 //! depends on a sibling request.
+//!
+//! One call also assembles a single canonical `ContractPackage` (FR-035,
+//! I12): every lowered node of the call plus the admitted nodes they reach.
+//! A refused request contributes nothing to it, so the package never holds a
+//! substitute for meaning it could not represent.
 
 use super::{CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2};
-use crate::checked_package::common::{digest_json, ValidationFailure};
+use crate::checked_package::common::{digest_bytes, digest_json, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
 };
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity domain of a lowered Contract IR node.
 pub const CONTRACT_IR_SEMANTIC_DOMAIN: &str = "quire.contract-ir.semantic/v1";
 const LOWERED_NODE_PREIMAGE: &str = "quire.contract-ir.lowered-node/v1";
+/// Schema version and identity domain of a complete-V1 `ContractPackage`.
+pub const CONTRACT_PACKAGE_VERSION: &str = "quire.contract-ir.contract-package/v1";
 
 /// What a caller's backend can lower.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,11 +38,12 @@ pub struct CompleteLoweringProfileV2 {
 }
 
 /// A Contract IR node lowered exactly from one admitted V2 node.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CompleteContractNodeV2 {
     /// Exact admitted node.
     pub node: CheckedSemanticNodeV2,
     /// Parsed family.
+    #[serde(serialize_with = "wire_tag")]
     pub node_tag: CheckedNodeTag,
     /// Exact source correspondence for this node.
     pub source_map: Vec<CheckedSourceMapEntry>,
@@ -112,13 +120,87 @@ pub enum CompleteLoweringRecordV2 {
     },
 }
 
-/// Independent per-item outcomes for one V2 package identity.
+/// An admitted node a lowered node reaches without itself being requested.
+/// It carries no `ir_id` or closure of its own: it is represented only as
+/// exact meaning some lowered node depends on.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ContractPackageDependencyV2 {
+    /// Exact admitted node.
+    pub node: CheckedSemanticNodeV2,
+    /// Parsed family.
+    #[serde(serialize_with = "wire_tag")]
+    pub node_tag: CheckedNodeTag,
+    /// Exact source correspondence for this node.
+    pub source_map: Vec<CheckedSourceMapEntry>,
+}
+
+/// The canonical target-neutral package one lowering call emits.
+///
+/// It holds every `lowered` node of the call once, ascending by key, and the
+/// admitted nodes those reach that were not themselves lowered, so every
+/// reference inside it resolves inside it. Nodes refer to one another by key
+/// only, so the package is cycle-free as a value. Only
+/// [`CheckedPackageV2::lower`] builds one; its bytes and identity are fixed
+/// at construction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompleteContractPackageV2 {
+    source_package_id: CheckedSemanticId,
+    lowered: Vec<CompleteContractNodeV2>,
+    dependencies: Vec<ContractPackageDependencyV2>,
+    canonical_bytes: Box<[u8]>,
+    package_id: CheckedSemanticId,
+}
+
+impl CompleteContractPackageV2 {
+    /// Schema version of this package.
+    pub const fn version(&self) -> &'static str {
+        CONTRACT_PACKAGE_VERSION
+    }
+
+    /// Identity of the admitted package this was lowered from.
+    pub fn source_package_id(&self) -> &CheckedSemanticId {
+        &self.source_package_id
+    }
+
+    /// Every lowered node of the call, once each, ascending by key.
+    pub fn lowered(&self) -> &[CompleteContractNodeV2] {
+        &self.lowered
+    }
+
+    /// Reachable admitted nodes that were not lowered, ascending by key.
+    pub fn dependencies(&self) -> &[ContractPackageDependencyV2] {
+        &self.dependencies
+    }
+
+    /// RFC 8785 canonical bytes of the whole package, the encoding the V2
+    /// reader requires of the checked package itself.
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    /// `quire.contract-ir.contract-package/v1` digest of the canonical bytes.
+    pub fn package_id(&self) -> &CheckedSemanticId {
+        &self.package_id
+    }
+}
+
+/// One lowering call's output: the package and its per-item accounting.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompleteLoweringResultV2 {
-    /// Identity of the admitted source package.
-    pub package_id: CheckedSemanticId,
     /// One record per request, in request order.
     pub records: Vec<CompleteLoweringRecordV2>,
+    /// The single canonical package holding every lowered node of the call.
+    pub package: CompleteContractPackageV2,
+}
+
+/// The whole package as it is encoded; every member is a typed field, so a
+/// field added to a node type is carried into the bytes by construction.
+#[derive(Serialize)]
+struct ContractPackagePreimage<'a> {
+    version: &'static str,
+    source_package_id: &'a CheckedSemanticId,
+    lowered: &'a [CompleteContractNodeV2],
+    dependencies: &'a [ContractPackageDependencyV2],
 }
 
 #[derive(Serialize)]
@@ -147,11 +229,76 @@ impl CheckedPackageV2 {
         let records = requested
             .iter()
             .map(|request| self.lower_one(request, profile, &index))
-            .collect();
-        CompleteLoweringResultV2 {
-            package_id: self.package_id().clone(),
-            records,
+            .collect::<Vec<_>>();
+        let package = self.assemble(&records, &index);
+        CompleteLoweringResultV2 { records, package }
+    }
+
+    /// Builds the call's package from its `lowered` records alone.
+    fn assemble(
+        &self,
+        records: &[CompleteLoweringRecordV2],
+        index: &BTreeMap<&CheckedNodeId, usize>,
+    ) -> CompleteContractPackageV2 {
+        let mut lowered = BTreeMap::new();
+        for record in records {
+            if let CompleteLoweringRecordV2::Lowered { node } = record {
+                lowered
+                    .entry(node.node.node_id.clone())
+                    .or_insert_with(|| (**node).clone());
+            }
         }
+        let reached = lowered
+            .values()
+            .flat_map(|node| node.dependencies.iter())
+            .filter(|key| !lowered.contains_key(*key))
+            .collect::<BTreeSet<_>>();
+        let nodes = &self.graph().nodes;
+        let tags = self.node_tags();
+        let dependencies = reached
+            .into_iter()
+            .filter_map(|key| {
+                let position = *index.get(key)?;
+                let node = nodes.get(position)?;
+                Some(ContractPackageDependencyV2 {
+                    node: node.clone(),
+                    node_tag: *tags.get(position)?,
+                    source_map: self.node_source_map(&node.node_id),
+                })
+            })
+            .collect::<Vec<_>>();
+        let lowered = lowered.into_values().collect::<Vec<_>>();
+        let preimage = ContractPackagePreimage {
+            version: CONTRACT_PACKAGE_VERSION,
+            source_package_id: self.package_id(),
+            lowered: &lowered,
+            dependencies: &dependencies,
+        };
+        // Every map in the preimage is string-keyed, so neither step can
+        // fail. Encoding through `Value` sorts every object's keys, which is
+        // the RFC 8785 form `CheckedPackageV2::read` requires of its input.
+        let canonical_bytes = serde_json::to_value(&preimage)
+            .and_then(|value| serde_json::to_vec(&value))
+            .expect("the package preimage has only string-keyed maps");
+        CompleteContractPackageV2 {
+            source_package_id: self.package_id().clone(),
+            package_id: CheckedSemanticId {
+                domain: CONTRACT_PACKAGE_VERSION.into(),
+                algorithm: "sha256".into(),
+                digest: digest_bytes(&canonical_bytes).into_boxed_str(),
+            },
+            lowered,
+            dependencies,
+            canonical_bytes: canonical_bytes.into_boxed_slice(),
+        }
+    }
+
+    fn node_source_map(&self, node_id: &CheckedNodeId) -> Vec<CheckedSourceMapEntry> {
+        self.source_map()
+            .iter()
+            .filter(|entry| &entry.node_id == node_id)
+            .cloned()
+            .collect()
     }
 
     fn lower_one(
@@ -334,12 +481,7 @@ impl CheckedPackageV2 {
             node: Box::new(CompleteContractNodeV2 {
                 node: node.clone(),
                 node_tag: tag,
-                source_map: self
-                    .source_map()
-                    .iter()
-                    .filter(|entry| entry.node_id == node.node_id)
-                    .cloned()
-                    .collect(),
+                source_map: self.node_source_map(&node.node_id),
                 semantic_type: node.semantic_type.clone(),
                 dependencies,
                 bounds,
@@ -352,6 +494,10 @@ impl CheckedPackageV2 {
             }),
         }
     }
+}
+
+fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(tag.as_wire())
 }
 
 fn requires_bound(tag: CheckedNodeTag, form: &str) -> bool {

@@ -85,7 +85,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         .map(|(prefix, _)| id(prefix))
         .collect::<Vec<_>>();
     let result = package.lower(&requested, &profile(u64::MAX));
-    assert_eq!(result.package_id, *package.package_id());
+    assert_eq!(result.package.source_package_id(), package.package_id());
     assert_eq!(result.records.len(), FAMILIES.len());
     for (position, ((prefix, tag), record)) in FAMILIES.iter().zip(&result.records).enumerate() {
         let node = lowered(record);

@@ -34,11 +34,20 @@ drawn from the closed seven-member vocabulary
 `body_incomplete`.
 
 The `ContractPackage` half of this output is a separate obligation from the
-per-item records and is stated here so that it has an acceptance criterion that
-can fail. It is not currently produced: the V2 lowering path returns the item
-records alongside the admitted `package_id` and assembles no package artifact,
-which is [issue #110](https://github.com/agent-ix/quire-contract-ir/issues/110).
-Until that issue closes, FR-035-AC-5 is unbacked and the matrix says so.
+per-item records. One lowering call assembles exactly one package from its
+`lowered` records alone: each lowered node once, ascending by key, plus the
+admitted nodes those reach that were not themselves lowered, so every reference
+inside the package resolves inside it. A refused request contributes no node of its own; its node appears
+only when a lowered node reaches it, as exact reached meaning. A reached node
+carries its family and source correspondence but no `ir_id` or closure of its
+own. The package records the source package identity and its schema version
+(`quire.contract-ir.contract-package/v1`); its canonical bytes are the RFC 8785
+canonical bytes of the whole package, the same canonical form
+[FR-038](./FR-038-consume-checked-package-v2.md) requires of the checked
+package, and its identity is the SHA-256 of those bytes in that version's
+domain. Nodes refer to one another only by key, so the package is cycle-free
+as a value. This package is the single
+Contract IR input that complete-V1 code generation consumes.
 
 ## Behavior
 
