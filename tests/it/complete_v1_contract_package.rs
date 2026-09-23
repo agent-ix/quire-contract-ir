@@ -96,7 +96,8 @@ fn record_key(record: &CompleteLoweringRecordV2) -> (&'static str, &CheckedNodeI
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
-    let result = lower_mixed(&mixed_fixture());
+    let admitted = admit(&mixed_fixture());
+    let result = admitted.lower(&mixed_request(), &mixed_profile());
     let dispositions = result.records.iter().map(record_key).collect::<Vec<_>>();
     assert_eq!(
         dispositions,
@@ -111,7 +112,7 @@ fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
 
     let package = &result.package;
     assert_eq!(package.version(), CONTRACT_PACKAGE_VERSION);
-    assert_eq!(package.source_package_id(), &result.package_id);
+    assert_eq!(package.source_package_id(), admitted.package_id());
 
     // Every lowered node of the call, once, exactly as its record carries it.
     assert_eq!(package.lowered().len(), 1);

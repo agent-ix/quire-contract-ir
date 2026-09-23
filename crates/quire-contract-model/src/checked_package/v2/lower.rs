@@ -180,11 +180,9 @@ impl CompleteContractPackageV2 {
     }
 }
 
-/// Independent per-item outcomes for one V2 package identity.
+/// One lowering call's output: the package and its per-item accounting.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompleteLoweringResultV2 {
-    /// Identity of the admitted source package.
-    pub package_id: CheckedSemanticId,
     /// One record per request, in request order.
     pub records: Vec<CompleteLoweringRecordV2>,
     /// The single canonical package holding every lowered node of the call.
@@ -219,11 +217,7 @@ impl CheckedPackageV2 {
             .map(|request| self.lower_one(request, profile, &index))
             .collect::<Vec<_>>();
         let package = self.assemble(&records, &index);
-        CompleteLoweringResultV2 {
-            package_id: self.package_id().clone(),
-            records,
-            package,
-        }
+        CompleteLoweringResultV2 { records, package }
     }
 
     /// Builds the call's package from its `lowered` records alone.

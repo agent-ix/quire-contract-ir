@@ -69,10 +69,10 @@ they supplied are open work on agent-ix/quire-contract-ir#166.
   consumer written to the vocabulary shall handle all seven, because a record
   kind that exists and is undeclared is a consumer that is incomplete by
   construction.
-- The lowering result carries the admitted package's `package_id` alongside the
-  records. It is not an aggregate package artifact; see
-  [FR-035](./FR-035-complete-v1-contract-package-lowering.md) for the
-  `ContractPackage` obligation, which this path does not discharge.
+- The lowering result carries the records alongside the call's canonical
+  `ContractPackage`, which records the admitted package's `package_id` as its
+  source identity; see
+  [FR-035](./FR-035-complete-v1-contract-package-lowering.md).
 
 ## Behavior
 
