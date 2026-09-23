@@ -748,6 +748,34 @@ fn fixture_lock(profile_selections: Vec<Value>) -> Value {
     })
 }
 
+/// Rebuilds a fixture package's source map from its nodes' first
+/// occurrences, after a test changed a node's occurrences.
+pub fn rebuild_source_map(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
+    package["source_map"] = source_map_for(&nodes, &fixture_source());
+}
+
+/// Re-derives the application key of the node at `position` from its own
+/// members, after a test changed its body, and renames it everywhere it is
+/// referenced.
+pub fn rekey_application_node(package: &mut Value, position: usize) {
+    let node = package["semantic_graph"]["nodes"][position].clone();
+    let fresh = application_key(
+        node["node_tag"].as_str().expect("tag"),
+        node["semantic_form"].as_str().expect("form"),
+        &node["semantic_type"],
+        &node["body"],
+    );
+    let stale = node["node_id"]["digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned();
+    replace_digest(package, &stale, &fresh);
+}
+
 /// One entry per node, sourced from the node's own single occurrence rather
 /// than a hardcoded `generated` role: every node this generator builds
 /// carries exactly one entry in its own `occurrences` array, but that entry's

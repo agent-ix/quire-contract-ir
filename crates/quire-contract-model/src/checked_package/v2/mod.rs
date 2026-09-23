@@ -1474,6 +1474,66 @@ fn frame_defect(
     None
 }
 
+/// FR-322's declaration-name refusals, after the nominal checks and before
+/// frame and operation checks. First, a node carrying both a `declaration` and
+/// a nominal preimage that fixes a name must declare exactly that name, else
+/// `invalid_package` / `declaration-nominal-mismatch`. Then no two nodes may
+/// declare the same `qualified_name`, else `ambiguous_declaration` /
+/// `ambiguous-name`. Each sweep reports at the first offending node in
+/// ascending node-id digest order, the iteration order of `index`; for an
+/// ambiguous name that is the lowest-digest node sharing it. FR-322 orders
+/// both before any operation refusal but not against each other: this reader
+/// checks the nominal join first. Takes no work meter: every name compared
+/// here was already charged when `validate_graph`'s per-node loop admitted it.
+fn validate_declaration_names(
+    nodes: &[CheckedSemanticNodeV2],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Result<(), ValidationFailure> {
+    const PATH: &str = "semantic_graph.nodes.declaration";
+    for (&node_id, &position) in index {
+        let node = &nodes[position];
+        let (Some(declaration), Some(preimage)) =
+            (&node.declaration, &node.nominal_identity_preimage)
+        else {
+            continue;
+        };
+        if preimage
+            .qualified_declaration()
+            .is_some_and(|name| name != declaration.qualified_name.as_slice())
+        {
+            return Err(refuse_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                PATH,
+                Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
+                node_id.clone(),
+            ));
+        }
+    }
+    let mut holders: BTreeMap<&[Box<str>], Vec<&CheckedNodeId>> = BTreeMap::new();
+    for (&node_id, &position) in index {
+        if let Some(declaration) = &nodes[position].declaration {
+            holders
+                .entry(declaration.qualified_name.as_slice())
+                .or_default()
+                .push(node_id);
+        }
+    }
+    if let Some(first) = holders
+        .values()
+        .filter(|ids| ids.len() > 1)
+        .filter_map(|ids| ids.first())
+        .min()
+    {
+        return Err(refuse_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            PATH,
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            (*first).clone(),
+        ));
+    }
+    Ok(())
+}
+
 /// FR-340 frame-body semantics: entry eligibility, canonical member order and
 /// cross-defect refusal precedence. Runs once every node's own identity is
 /// known (`index`/`tags`, built by `validate_graph`'s per-node loop),
@@ -1611,6 +1671,7 @@ fn validate_graph(
     // the same node first if it ran first.
     validate_application_keys(&graph.nodes, &index, meter)?;
     validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
+    validate_declaration_names(&graph.nodes, &index)?;
     validate_frame_semantics(&graph.nodes, &kinds, &index)?;
     validate_operations(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());

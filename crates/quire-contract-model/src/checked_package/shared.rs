@@ -96,14 +96,12 @@ pub enum CheckedPackageRefusalCode {
     /// An application node's argument, member or leaf is ill-typed against
     /// its catalogued operation.
     IllTyped,
+    /// Two nodes carry the same declared `qualified_name`.
+    AmbiguousDeclaration,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
-/// FR-322's closed `DiagnosticCausePairing` (`schema.json`). Only the causes
-/// this reader currently produces; FR-322's remaining cause tags — ambiguous
-/// declarations and `declaration-nominal-mismatch` (the upstream description names it a
-/// reader-stage cause; this reader does not produce it) — belong to stages
-/// this reader does not yet implement.
+/// FR-322's closed `DiagnosticCausePairing` (`schema.json`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckedPackageRefusalCause {
     /// `missing-name`: an entry naming no node of the graph, or a node that
@@ -142,6 +140,12 @@ pub enum CheckedPackageRefusalCause {
     /// `operator-ineligible`: an argument's arity, type or named member does
     /// not fit the catalogued entry's operands, constraints or member.
     OperatorIneligible,
+    /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
+    /// differs from its nominal identity preimage's `qualified_declaration`.
+    DeclarationNominalMismatch,
+    /// `ambiguous-name`: another node carries the same declared
+    /// `qualified_name`.
+    AmbiguousName,
 }
 
 /// A typed refusal with a stable code and structural path.

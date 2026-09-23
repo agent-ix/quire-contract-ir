@@ -300,6 +300,18 @@ impl NominalKind {
 }
 
 impl NominalIdentityPreimage {
+    /// The declared name this preimage fixes, for the forms that carry one:
+    /// an enum declaration, a dimension or a declared unit. An enum member
+    /// is named through its declaration, not by a name of its own.
+    pub(crate) fn qualified_declaration(&self) -> Option<&[Box<str>]> {
+        match self {
+            Self::EnumDeclaration(declaration) => Some(&declaration.qualified_declaration),
+            Self::Dimension(dimension) => Some(&dimension.qualified_declaration),
+            Self::Unit(unit) => Some(&unit.qualified_declaration),
+            Self::EnumMember(_) => None,
+        }
+    }
+
     /// Lowercase SHA-256 of the canonical preimage bytes.
     pub fn digest(&self) -> Option<String> {
         serde_json::to_value(self)
