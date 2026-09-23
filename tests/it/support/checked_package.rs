@@ -170,16 +170,16 @@ pub fn locked_artifacts(package: &Value) -> Vec<Value> {
 
 /// Attested evidence for every locked artifact plus the complete-value feature.
 pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
-    evidence_for_except(package, &Value::Null)
+    evidence_for_except(package, None)
 }
 
 /// [`evidence_for`] without an attestation for `skipped`, a locked artifact,
 /// so a test can attest that locator itself (evidence holds one digest per
 /// locator).
-pub fn evidence_for_except(package: &Value, skipped: &Value) -> CheckedPackageEvidence {
+pub fn evidence_for_except(package: &Value, skipped: Option<&Value>) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
     for artifact in locked_artifacts(package) {
-        if artifact == *skipped {
+        if Some(&artifact) == skipped {
             continue;
         }
         evidence
@@ -197,13 +197,15 @@ pub fn evidence_for_except(package: &Value, skipped: &Value) -> CheckedPackageEv
         .unwrap_or_default()
     {
         let digest = model["digest"].as_str().expect("model digest");
-        // Evidence holds one digest per locator. A lock that selects one
+        // Evidence holds one digest per locator, so a lock selecting one
         // package twice with different digests (a defect some tests build)
-        // is attested for its first selection only; the reader refuses the
-        // lock itself before evidence decides anything.
+        // is attested for its first selection only; the reader then refuses
+        // the other as a digest the evidence does not attest.
         match evidence.insert_domain_package_digest(domain_package_locator(&model), digest) {
             Ok(()) | Err(EvidenceRefusal::ConflictingAttestation) => {}
-            Err(EvidenceRefusal::MalformedDigest) => panic!("fixture digest {digest} is malformed"),
+            Err(EvidenceRefusal::MalformedDigest) => {
+                panic!("fixture digest {digest} is malformed")
+            }
         }
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);

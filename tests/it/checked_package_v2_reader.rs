@@ -520,7 +520,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         refused(&base, &CheckedPackageEvidence::new()),
         refusal(CheckedPackageRefusalCode::StaleDependency, "lock.sources")
     );
-    let mut stale_catalog = evidence_for_except(&base, &base["diagnostics"]["catalog"]);
+    let mut stale_catalog = evidence_for_except(&base, Some(&base["diagnostics"]["catalog"]));
     stale_catalog
         .insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64))
         .expect("a fresh locator");
@@ -531,7 +531,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             "diagnostics.catalog"
         )
     );
-    let mut byte_evidence = evidence_for_except(&base, &base["lock"]["sources"][0]);
+    let mut byte_evidence = evidence_for_except(&base, Some(&base["lock"]["sources"][0]));
     byte_evidence
         .insert_artifact_bytes(locator(&base["lock"]["sources"][0]), b"not the source")
         .expect("a fresh locator");
