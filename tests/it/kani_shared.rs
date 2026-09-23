@@ -2,8 +2,8 @@ use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
     FiniteObject, FiniteReference, GeneratorProvenance, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
-    PROFILE,
+    KaniProviderResult, ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds,
+    SemanticFamily, PROFILE,
 };
 
 fn selection() -> ProfileSelection {
@@ -212,4 +212,75 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
     let genuine = KaniOutcome::proved_from_checks(1, "clause:demo", "profile");
     assert_eq!(genuine, KaniOutcome::proved("clause:demo", "profile"));
     assert_eq!(genuine.boolean_claim(), Some(true));
+}
+
+/// The O-16 proof column, one row per kind. The exhaustive match (no
+/// wildcard) makes a new `KaniOutcomeKind` a compile error here until its row
+/// is written, and `every_kind` lists each variant the match names.
+fn o16_row(kind: &KaniOutcomeKind) -> (KaniProviderResult, &'static str) {
+    match kind {
+        KaniOutcomeKind::Proved => (KaniProviderResult::Proved, "proved"),
+        KaniOutcomeKind::Counterexample => (KaniProviderResult::Refuted, "refuted"),
+        KaniOutcomeKind::Refused
+        | KaniOutcomeKind::InvalidInput
+        | KaniOutcomeKind::IncompleteInput => (KaniProviderResult::Declined, "declined"),
+        KaniOutcomeKind::Unavailable => (KaniProviderResult::Unsupported, "unsupported"),
+        KaniOutcomeKind::TimedOut
+        | KaniOutcomeKind::ResourceExhausted
+        | KaniOutcomeKind::Cancelled => (KaniProviderResult::Incomplete, "incomplete"),
+        KaniOutcomeKind::Inconclusive => (KaniProviderResult::Inconclusive, "inconclusive"),
+    }
+}
+
+fn every_kind() -> [KaniOutcomeKind; 10] {
+    [
+        KaniOutcomeKind::Proved,
+        KaniOutcomeKind::Counterexample,
+        KaniOutcomeKind::Refused,
+        KaniOutcomeKind::InvalidInput,
+        KaniOutcomeKind::IncompleteInput,
+        KaniOutcomeKind::Unavailable,
+        KaniOutcomeKind::TimedOut,
+        KaniOutcomeKind::ResourceExhausted,
+        KaniOutcomeKind::Cancelled,
+        KaniOutcomeKind::Inconclusive,
+    ]
+}
+
+/// Tracing: TC-223, FR-031-AC-5
+#[trace("TC-223", "FR-031-AC-5")]
+#[test]
+fn tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result() {
+    for kind in every_kind() {
+        let (result, wire) = o16_row(&kind);
+        assert_eq!(kind.provider_result(), result, "{kind:?}");
+        assert_eq!(
+            serde_json::to_value(result).expect("result"),
+            serde_json::json!(wire)
+        );
+    }
+    // The record keeps each outcome's cause, so kinds sharing a result stay
+    // apart.
+    let declined = [
+        KaniOutcomeKind::Refused,
+        KaniOutcomeKind::InvalidInput,
+        KaniOutcomeKind::IncompleteInput,
+    ]
+    .map(|kind| {
+        let code = format!("{kind:?}");
+        KaniOutcome::non_success(kind, code, "source", "context").provider_record()
+    });
+    assert!(declined
+        .iter()
+        .all(|record| record.result == KaniProviderResult::Declined));
+    let causes = declined
+        .iter()
+        .map(|record| record.cause.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(causes.len(), 3);
+    // A zero-check proof built through `proved_from_checks` is already
+    // `Inconclusive`, so it records `inconclusive` with its vacuity cause.
+    let vacuous = KaniOutcome::proved_from_checks(0, "source", "context").provider_record();
+    assert_eq!(vacuous.result, KaniProviderResult::Inconclusive);
+    assert_eq!(vacuous.cause, "kani_vacuous_proof");
 }

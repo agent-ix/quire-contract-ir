@@ -23,7 +23,7 @@ pub use arithmetic::{lower_checked_arithmetic, ArithmeticLowering, CheckedArithm
 pub use collections::{lower_query, CollectionLowering, CollectionQuery, QueryKind};
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
 pub use objects::{lower_reaches, GraphLowering, GraphRequest};
-pub use outcome::{KaniOutcome, KaniOutcomeKind};
+pub use outcome::{KaniOutcome, KaniOutcomeKind, KaniProviderRecord, KaniProviderResult};
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };
