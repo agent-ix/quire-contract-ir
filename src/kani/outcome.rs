@@ -29,25 +29,16 @@ pub enum KaniOutcomeKind {
 }
 
 impl KaniOutcomeKind {
-    /// Every outcome kind, in declaration order.
-    pub const ALL: [Self; 10] = [
-        Self::Proved,
-        Self::Counterexample,
-        Self::Refused,
-        Self::InvalidInput,
-        Self::IncompleteInput,
-        Self::Unavailable,
-        Self::TimedOut,
-        Self::ResourceExhausted,
-        Self::Cancelled,
-        Self::Inconclusive,
-    ];
-
     /// The QSpec FR-331 terminal result a Kani run ending in this kind
     /// records: QSL ADR-013's O-16 proof column, implemented here as its one
-    /// total map (C-09). The outcome's typed cause travels with the result
-    /// unchanged, so the three refusal kinds stay distinguishable inside
-    /// `declined` and the three limit kinds inside `incomplete`.
+    /// total map (C-09). It reads the kind alone; [`KaniOutcome::provider_record`]
+    /// pairs the result with the outcome's typed cause.
+    ///
+    /// O-16 records `proved` only for a proof with at least one SUCCESS check.
+    /// That is a precondition on how the outcome was built, not something
+    /// this map can see: [`KaniOutcome::proved_from_checks`] turns a
+    /// zero-check proof into `Inconclusive` before it gets here, while
+    /// [`KaniOutcome::proved`] records whatever its caller asserts.
     pub const fn provider_result(&self) -> KaniProviderResult {
         match self {
             Self::Proved => KaniProviderResult::Proved,
@@ -64,14 +55,13 @@ impl KaniOutcomeKind {
     }
 }
 
-/// The QSpec FR-331 `results` values a Kani run can record. FR-331 has two
-/// more that no Kani outcome produces: `tested` is never a proof result, and
-/// `failed` is for an invariant breaking while mapping, which this total map
-/// cannot do.
+/// The QSpec FR-331 `results` values a Kani run can record. FR-331's other
+/// two values, `tested` and `failed`, are not produced by any Kani outcome
+/// kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KaniProviderResult {
-    /// `proved`: the obligation was proved with at least one SUCCESS check.
+    /// `proved`: the obligation was proved.
     Proved,
     /// `refuted`: a concrete counterexample was found.
     Refuted,
@@ -84,6 +74,18 @@ pub enum KaniProviderResult {
     Incomplete,
     /// `inconclusive`: no qualified interpretation, including a vacuous proof.
     Inconclusive,
+}
+
+/// One FR-331 terminal record for a Kani run: the result together with the
+/// outcome's typed cause, so outcomes that share a result stay
+/// distinguishable (the three refusal kinds inside `declined`, the three
+/// limit kinds inside `incomplete`).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct KaniProviderRecord {
+    /// The terminal result.
+    pub result: KaniProviderResult,
+    /// The outcome's stable machine-readable cause code, unchanged.
+    pub cause: String,
 }
 
 /// Typed output which cannot manufacture a Boolean for a non-success state.
@@ -100,6 +102,15 @@ pub struct KaniOutcome {
 }
 
 impl KaniOutcome {
+    /// This outcome's FR-331 terminal record: [`KaniOutcomeKind::provider_result`]
+    /// of its kind, with its cause code carried unchanged.
+    pub fn provider_record(&self) -> KaniProviderRecord {
+        KaniProviderRecord {
+            result: self.kind.provider_result(),
+            cause: self.code.clone(),
+        }
+    }
+
     /// Constructs a proof result.
     pub fn proved(source_id: impl Into<String>, context: impl Into<String>) -> Self {
         Self::new(KaniOutcomeKind::Proved, "kani_proved", source_id, context)
