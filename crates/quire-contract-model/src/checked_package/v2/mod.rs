@@ -1867,7 +1867,18 @@ fn validate_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedNodeKind, FrameMember, ModelForm, RelationForm};
+    use super::{is_frame, CheckedNodeKind, FrameMember, ModelForm, RelationForm, StateForm};
+
+    /// `BodyBindingRules`: exactly one kind, `state`/`frame`, has the frame
+    /// reference-triple body; every other kind's body is a `SemanticTerm`.
+    #[test]
+    fn exactly_one_kind_has_a_frame_body() {
+        let frames = CheckedNodeKind::all()
+            .into_iter()
+            .filter(|kind| is_frame(*kind))
+            .collect::<Vec<_>>();
+        assert_eq!(frames, [CheckedNodeKind::State(StateForm::Frame)]);
+    }
 
     /// FR-340 admits exactly six `(member, kind)` pairs: `modifies` takes a
     /// relation's `relationship` or a model's `field_declaration`; `creates`
