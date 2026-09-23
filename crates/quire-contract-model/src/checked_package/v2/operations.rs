@@ -21,18 +21,15 @@
 //!    entry, in ascending node-id digest order, reporting the first node
 //!    that fails.
 //!
+//! A node's `recursion` preimage member is FR-322's `{size, ordinal}` of the
+//! node within its `recursion_group` in graph order (`null` outside a group),
+//! and each body `reference` to a member of that group is keyed as
+//! `{term: "group_reference", ordinal}` (see [`application_preimage`]).
+//!
 //! Scope this reader does not cover, narrower than the upstream contract
 //! description's full generality and not exercised by an admitted fixture or
-//! upstream vector,
-//! except where noted below: a node's own `recursion` preimage member is
-//! encoded here as the bare `recursion_group` label rather than the upstream
-//! description's `group_reference` ordinal substitution (no upstream
-//! application node carries one) — unlike every other item in this list, this one is a
-//! **false-refusal risk, not a silent no-op**: the two encodings yield
-//! different digests, so a legitimate application node inside a recursion
-//! group is refused `invalid_package`/`stale-node-key` rather than admitted.
-//! The remaining items are silent no-ops (never a false refusal), not a
-//! silent admission of something the upstream corpus requires rejected: an
+//! upstream vector. Each item is a silent no-op (never a false refusal), not
+//! a silent admission of something the upstream corpus requires rejected: an
 //! `operation.member` of kind `position`, `element`, `relationship_end`,
 //! `type_argument` or `operation` is checked for presence and kind only, not
 //! that its `declaration` resolves to a real, eligible node (`field` is the
@@ -95,41 +92,31 @@ fn is_application(body: &Value) -> bool {
 }
 
 /// Every application node's `node_id` re-derived from its own visible
-/// members, in ascending digest order, reporting the first stale one. See
-/// the module doc for the one narrowing from the upstream contract
-/// description: a recursion-group member is encoded as its bare label, never
-/// the `group_reference` ordinal substitution, because no upstream
-/// application node carries one.
+/// members, in ascending digest order, reporting the first stale one.
 pub(super) fn validate_application_keys(
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    // Each recursion group's members, in graph order.
+    let mut groups: BTreeMap<&str, Vec<&CheckedNodeId>> = BTreeMap::new();
+    for node in nodes {
+        if let Some(label) = node.recursion_group.as_deref() {
+            groups.entry(label).or_default().push(&node.node_id);
+        }
+    }
     for (&node_id, &position) in index {
         let node = &nodes[position];
         if !is_application(&node.body) {
             continue;
         }
         meter.charge(1)?;
-        let declaration = node
-            .declaration
-            .as_ref()
-            .map(|declaration| json!({ "qualified_name": declaration.qualified_name }));
-        let semantic_type = serde_json::to_value(&node.semantic_type).map_err(|_| {
-            ValidationFailure::Refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                NODE_ID_PATH,
-            )
-        })?;
-        let preimage = json!({
-            "version": APPLICATION_NODE_VERSION,
-            "node_tag": node.node_tag.as_ref(),
-            "semantic_form": node.semantic_form.as_ref(),
-            "semantic_type": semantic_type,
-            "declaration": declaration,
-            "recursion": node.recursion_group.as_deref(),
-            "body": node.body,
-        });
+        let group = node
+            .recursion_group
+            .as_deref()
+            .and_then(|label| groups.get(label))
+            .map_or(&[][..], Vec::as_slice);
+        let preimage = application_preimage(node, group)?;
         let computed = digest_json(&preimage).map_err(|_| {
             ValidationFailure::Refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -146,6 +133,99 @@ pub(super) fn validate_application_keys(
         }
     }
     Ok(())
+}
+
+/// QSpec FR-322's `application_node_preimage` for `node`, given its
+/// recursion group's members in graph order (empty outside a group):
+/// `{version, node_tag, semantic_form, semantic_type, declaration, recursion,
+/// body}`, where `recursion` is `{size, ordinal}` of the node within the group
+/// or `null`, and each body `reference` to a group member becomes
+/// `{term: "group_reference", ordinal}`.
+fn application_preimage(
+    node: &CheckedSemanticNodeV2,
+    group: &[&CheckedNodeId],
+) -> Result<Value, ValidationFailure> {
+    let invalid = || {
+        ValidationFailure::Refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            NODE_ID_PATH,
+        )
+    };
+    let declaration = node
+        .declaration
+        .as_ref()
+        .map(|declaration| json!({ "qualified_name": declaration.qualified_name }));
+    let semantic_type = serde_json::to_value(&node.semantic_type).map_err(|_| invalid())?;
+    let recursion = match node.recursion_group {
+        None => Value::Null,
+        Some(_) => {
+            let ordinal = group
+                .iter()
+                .position(|member| **member == node.node_id)
+                .ok_or_else(invalid)?;
+            json!({ "size": group.len(), "ordinal": ordinal })
+        }
+    };
+    Ok(json!({
+        "version": APPLICATION_NODE_VERSION,
+        "node_tag": node.node_tag.as_ref(),
+        "semantic_form": node.semantic_form.as_ref(),
+        "semantic_type": semantic_type,
+        "declaration": declaration,
+        "recursion": recursion,
+        "body": group_references(&node.body, group),
+    }))
+}
+
+/// `term` with every `reference` to a recursion-group member rewritten as
+/// `{term: "group_reference", ordinal}`, walking application arguments,
+/// aggregate members and binding values, the SemanticTerm positions that hold
+/// terms. The body grammar is read here as the wire's JSON, like every body
+/// validator.
+fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
+    if group.is_empty() {
+        return term.clone();
+    }
+    let mut rewritten = term.clone();
+    match term.get("term").and_then(Value::as_str) {
+        Some("reference") => {
+            let target = term
+                .get("target")
+                .and_then(|target| serde_json::from_value::<CheckedNodeId>(target.clone()).ok());
+            if let Some(ordinal) =
+                target.and_then(|target| group.iter().position(|member| **member == target))
+            {
+                return json!({ "term": "group_reference", "ordinal": ordinal });
+            }
+        }
+        Some("application") => {
+            if let Some(arguments) = term.get("arguments").and_then(Value::as_array) {
+                rewritten["arguments"] = Value::Array(
+                    arguments
+                        .iter()
+                        .map(|argument| group_references(argument, group))
+                        .collect(),
+                );
+            }
+        }
+        Some("aggregate") => {
+            if let Some(members) = term.get("members").and_then(Value::as_array) {
+                rewritten["members"] = Value::Array(
+                    members
+                        .iter()
+                        .map(|member| group_references(member, group))
+                        .collect(),
+                );
+            }
+        }
+        Some("binding") => {
+            if let Some(value) = term.get("value") {
+                rewritten["value"] = group_references(value, group);
+            }
+        }
+        _ => {}
+    }
+    rewritten
 }
 
 #[derive(Deserialize)]
@@ -963,7 +1043,7 @@ fn check_leaves(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_type_shaped, operand_family, operation_catalog, operation_defect,
+        application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
         CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
@@ -1221,6 +1301,124 @@ mod tests {
             &lock,
             &mut meter,
         )
+    }
+
+    fn key(fill: u8) -> String {
+        format!("{fill:02x}").repeat(32)
+    }
+
+    fn node_ref(fill: u8) -> serde_json::Value {
+        json!({ "domain": "quire.checked-semantic-node/v1", "digest": key(fill) })
+    }
+
+    fn reference(fill: u8) -> serde_json::Value {
+        json!({ "term": "reference", "target": node_ref(fill) })
+    }
+
+    fn add(arguments: Vec<serde_json::Value>) -> serde_json::Value {
+        json!({
+            "term": "application",
+            "operator": "binary",
+            "operation": {
+                "identity": "quire.op.integer.add",
+                "laws": [], "mode": null, "member": null, "leaves": []
+            },
+            "result_type": node_ref(3),
+            "arguments": arguments,
+        })
+    }
+
+    fn grouped_node(id: u8, body: serde_json::Value) -> CheckedSemanticNodeV2 {
+        serde_json::from_value(json!({
+            "node_id": node_ref(id),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "function",
+            "semantic_form": "function",
+            "semantic_type": node_ref(3),
+            "dependencies": [],
+            "occurrences": [],
+            "recursion_group": "g",
+            "declaration": { "qualified_name": ["pkg", "total"] },
+            "body": body,
+        }))
+        .expect("node")
+    }
+
+    /// QSpec FR-322's application preimage for a recursion-group member,
+    /// byte for byte the vector quire-spec-language's `application_key`
+    /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
+    /// of 2, its reference to member 0 becomes a `group_reference`, and its
+    /// reference outside the group stays a reference.
+    #[test]
+    fn application_preimage_matches_the_qsl_pinned_group_vector() {
+        let node = grouped_node(2, add(vec![reference(1), reference(9)]));
+        let one = typed(&key(1));
+        let group = [&one, &node.node_id];
+        let preimage = application_preimage(&node, &group).expect("preimage");
+        // Spelled literally, as quire-spec-language's own vector does, rather
+        // than produced by the serializer under test.
+        let literal_ref = |fill: u8| {
+            format!(
+                r#"{{"digest":"{}","domain":"quire.checked-semantic-node/v1"}}"#,
+                key(fill)
+            )
+        };
+        let three = literal_ref(3);
+        let nine = literal_ref(9);
+        let expected = format!(
+            concat!(
+                r#"{{"body":{{"arguments":[{{"ordinal":0,"term":"group_reference"}},"#,
+                r#"{{"target":{nine},"term":"reference"}}],"#,
+                r#""operation":{{"identity":"quire.op.integer.add","laws":[],"leaves":[],"member":null,"mode":null}},"#,
+                r#""operator":"binary","result_type":{three},"term":"application"}},"#,
+                r#""declaration":{{"qualified_name":["pkg","total"]}},"#,
+                r#""node_tag":"function","recursion":{{"ordinal":1,"size":2}},"#,
+                r#""semantic_form":"function","semantic_type":{three},"#,
+                r#""version":"quire.application-node/v1"}}"#,
+            ),
+            nine = nine,
+            three = three,
+        );
+        assert_eq!(
+            String::from_utf8(serde_json::to_vec(&preimage).expect("bytes")).expect("utf-8"),
+            expected
+        );
+    }
+
+    /// Group references are rewritten in every nested term position, as in
+    /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
+    #[test]
+    fn group_references_are_rewritten_in_every_nested_term() {
+        let body = json!({
+            "term": "aggregate",
+            "members": [
+                { "term": "binding", "name": "x", "value": reference(2) },
+                add(vec![reference(1), add(vec![reference(2), reference(9)])]),
+            ],
+        });
+        let node = grouped_node(1, body);
+        let two = typed(&key(2));
+        let group = [&node.node_id, &two];
+        let preimage = application_preimage(&node, &group).expect("preimage");
+        let group_reference =
+            |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
+        let members = &preimage["body"]["members"];
+        assert_eq!(members[0]["value"], group_reference(1));
+        assert_eq!(members[1]["arguments"][0], group_reference(0));
+        assert_eq!(
+            members[1]["arguments"][1]["arguments"][0],
+            group_reference(1)
+        );
+        assert_eq!(members[1]["arguments"][1]["arguments"][1], reference(9));
+        assert_eq!(preimage["recursion"], json!({ "size": 2, "ordinal": 0 }));
+    }
+
+    fn typed(digest: &str) -> CheckedNodeId {
+        serde_json::from_value(json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": digest
+        }))
+        .expect("node id")
     }
 
     /// The operand classification over every kind the closed vocabularies

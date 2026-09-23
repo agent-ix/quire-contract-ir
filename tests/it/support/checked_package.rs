@@ -451,16 +451,73 @@ fn application_key(
     semantic_type: &Value,
     body: &Value,
 ) -> String {
+    application_preimage_key(
+        node_tag,
+        semantic_form,
+        semantic_type,
+        &Value::Null,
+        &Value::Null,
+        body,
+    )
+}
+
+/// SHA-256 of the RFC-8785 bytes of FR-322's `quire.application-node/v1`
+/// preimage, the one builder both fixture keys and grouped keys use.
+fn application_preimage_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: &Value,
+    declaration: &Value,
+    recursion: &Value,
+    body: &Value,
+) -> String {
     let preimage = json!({
         "version": APPLICATION_NODE_VERSION,
         "node_tag": node_tag,
         "semantic_form": semantic_form,
         "semantic_type": semantic_type,
-        "declaration": Value::Null,
-        "recursion": Value::Null,
+        "declaration": declaration,
+        "recursion": recursion,
         "body": body,
     });
     sha256_hex(&canonical(&preimage))
+}
+/// QSpec FR-322's `quire.application-node/v1` key for a node inside a
+/// recursion group: `recursion` is `{size, ordinal}` of `node` among
+/// `group` (member node ids in graph order), and each body `reference` to a
+/// group member is keyed as `{term: "group_reference", ordinal}`. Written
+/// here from FR-322's text, independently of the reader.
+pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
+    fn rewrite(term: &Value, group: &[Value]) -> Value {
+        let mut term = term.clone();
+        if term["term"] == "reference" {
+            if let Some(ordinal) = group.iter().position(|member| *member == term["target"]) {
+                return json!({"term": "group_reference", "ordinal": ordinal});
+            }
+        }
+        for key in ["arguments", "members"] {
+            if let Some(items) = term.get(key).and_then(Value::as_array).cloned() {
+                term[key] = Value::Array(items.iter().map(|item| rewrite(item, group)).collect());
+            }
+        }
+        if term["term"] == "binding" {
+            let value = rewrite(&term["value"], group);
+            term["value"] = value;
+        }
+        term
+    }
+    let ordinal = group
+        .iter()
+        .position(|member| *member == node["node_id"])
+        .expect("node is a group member");
+    application_preimage_key(
+        node["node_tag"].as_str().expect("tag"),
+        node["semantic_form"].as_str().expect("form"),
+        &node["semantic_type"],
+        &node.get("declaration").cloned().unwrap_or(Value::Null),
+        &json!({"size": group.len(), "ordinal": ordinal}),
+        &rewrite(&node["body"], group),
+    )
 }
 
 /// The exact 64-hex-digit node key this generator assigns to a family or
