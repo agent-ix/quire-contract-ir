@@ -5,8 +5,9 @@ type: MeasurementPlan
 status: proposed
 owner: kreneskyp
 metric: bounded_kani_profile_parity
-definition_version: quire-contract-ir.bounded-kani-parity/v2
+definition_version: quire-contract-ir.bounded-kani-parity/v3
 stage: gate
+ground_truth_kind: mechanical
 objective:
   direction: higher
   bound: 1.0
@@ -20,6 +21,32 @@ statistical_design:
   decision_rule:
     comparator: ge
     threshold: 1.0
+protected_apparatus:
+  - tests/it/kani_shared.rs
+  - tests/it/kani_arithmetic.rs
+  - tests/it/kani_objects.rs
+  - tests/it/kani_collections.rs
+  - tests/it/kani_replay.rs
+  - tests/fixtures/native-rule-model.json
+  - tests/fixtures/kani-concrete-playback.txt
+negative_controls:
+  - kind: apparatus-edit
+    description: >-
+      the per-family Kani proof harnesses and their native-model and
+      concrete-playback fixtures are protected, so editing one alongside the
+      change it grades changes the recorded digests the exact
+      executable/options binding is compared against
+  - kind: suppressed-observation
+    description: >-
+      a declared profile-matrix entry with no executed case counts as a
+      disagreeing case rather than an omission from the denominator, so
+      skipping a matrix entry lowers the ratio instead of leaving it
+      unaffected
+  - kind: selective-reporting
+    description: >-
+      every matrix entry's native and Kani corpus cases must run twice with
+      the exact executable/options digests recorded, so a clean repetition
+      cannot be reported in place of one that disagreed
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-002
     type: measures

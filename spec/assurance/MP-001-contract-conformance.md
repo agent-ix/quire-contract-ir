@@ -5,8 +5,9 @@ type: MeasurementPlan
 status: proposed
 owner: kreneskyp
 metric: contract_ir_conformance
-definition_version: quire-contract-ir.measurement/v2
+definition_version: quire-contract-ir.measurement/v3
 stage: gate
+ground_truth_kind: mechanical
 objective:
   direction: higher
   bound: 1.0
@@ -20,6 +21,34 @@ statistical_design:
   decision_rule:
     comparator: ge
     threshold: 1.0
+protected_apparatus:
+  - Makefile
+  - src/bin/quire-contract-conformance.rs
+  - scripts/generate_conformance_corpus.py
+  - corpus/contract-v0.1/manifest.json
+  - corpus/contract-v0.1/inventory.json
+  - corpus/contract-v0.1/inputs/**
+  - corpus/contract-v0.1/expectations/**
+  - corpus/contract-v0.1/canonical/**
+  - corpus/contract-v0.1/schemas/**
+negative_controls:
+  - kind: apparatus-edit
+    description: >-
+      the conformance runner, the corpus-generating script, the manifest, and
+      every authored input, expectation, canonical byte file, and schema carry
+      adjacent SHA-256 sidecars, so editing the harness or any corpus file
+      alongside the change it grades changes the recorded digests
+  - kind: suppressed-observation
+    description: >-
+      the runner derives observable coverage from each fixture's declarative
+      input and actual result and rejects an unobserved `covers` token before
+      comparing expectations, so a run that exercises fewer manifest-listed
+      fixtures or boundary tokens than declared is visible rather than passing
+  - kind: selective-reporting
+    description: >-
+      the complete conformance runner is required to run twice
+      (`statistical_design.repetitions: 2`), so a clean repetition cannot be
+      reported in place of one that produced an unmatched expectation
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-001
     type: measures
