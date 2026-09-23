@@ -5,16 +5,21 @@ type: MeasurementPlan
 status: proposed
 owner: kreneskyp
 metric: bounded_kani_profile_parity
-definition_version: quire-contract-ir.bounded-kani-parity/v1
+definition_version: quire-contract-ir.bounded-kani-parity/v2
 stage: gate
+objective:
+  direction: higher
+  bound: 1.0
 statistical_design:
   population: every declared profile-matrix entry and every manifest-listed valid, invalid, incomplete, resource-boundary, counterexample, and replay corpus case
   sampling: exhaustive
   repetitions: 2
-  estimator: exact per-case agreement divided by declared cases, reported by typed outcome kind
+  estimator: proportion
   error_model: profile drift, input-validation omission, generator drift, Kani/tool variation, and native replay disagreement
   uncertainty: each unavailable, timeout, exhausted, cancelled, refused, invalid, incomplete, or inconclusive case remains separately reported
-  decision_rule: any missing matrix entry, unexpected outcome, provenance mismatch, invalid-input assumption, or native replay disagreement fails the candidate gate
+  decision_rule:
+    comparator: ge
+    threshold: 1.0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-002
     type: measures
@@ -34,5 +39,7 @@ The population is every matrix entry and every declared valid, invalid, incomple
 For every matrix entry, execute its declared native and Kani corpus cases twice with the exact executable/options digests. Compare support/refusal/inconclusive classification, validated input outcome, resource outcome, artifact/provenance identity, and native replay. Record complete per-case evidence rather than only an aggregate rate.
 
 ## Interpretation
+
+The `proportion` estimate is cases with exact per-case agreement divided by declared cases, reported separately for each typed outcome kind. A case agrees only when its classification and outcome match the matrix, its artifact/provenance identity matches the declared digests, it assumed nothing about invalid input, and native replay agrees. A declared matrix entry with no executed case counts as a disagreeing case, never as an omission from the denominator.
 
 The target is exact matrix parity and exact counterexample replay agreement. Any non-success outcome is retained as that outcome; it is neither omitted nor counted as Boolean proof. Only the named human owner judges sufficiency.

@@ -5,16 +5,21 @@ type: MeasurementPlan
 status: proposed
 owner: kreneskyp
 metric: contract_ir_conformance
-definition_version: quire-contract-ir.measurement/v1
+definition_version: quire-contract-ir.measurement/v2
 stage: gate
+objective:
+  direction: higher
+  bound: 1.0
 statistical_design:
   population: every manifest-listed valid and invalid v0.1 fixture plus generated canonicalization properties
   sampling: exhaustive fixture execution and deterministic seeded property cases
   repetitions: 2
-  estimator: exact matched expectations divided by declared expectations
+  estimator: proportion
   error_model: schema/model drift, platform serialization differences, fixture omission, and test-harness defects
   uncertainty: report each case and repetition; no aggregate hides an invalid, skipped, or inconclusive case
-  decision_rule: any mismatch, missing fixture, digest drift, unbound criterion, or blocking review finding fails the candidate gate
+  decision_rule:
+    comparator: ge
+    threshold: 1.0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-001
     type: measures
@@ -44,6 +49,14 @@ code review, and gap analysis. Retain exact subject, commands, tool/environment
 identities, per-case outputs, checksum graph, findings, and limitations.
 
 ## Interpretation
+
+The `proportion` estimate is exactly matched expectations divided by declared
+expectations. A declared fixture that is missing, or a canonical byte or digest
+that drifts from its golden, is an unmatched expectation. The candidate gate
+fails when `statistical_design.decision_rule` does not hold, and it also fails
+on any requirement criterion without a backing test or any unresolved blocking
+review finding; those two conditions are checked alongside the ratio because
+they are not expectations and never enter its denominator.
 
 The target is 100% expectation match, 100% trace backing, zero orphan false
 coverage, zero public panic, and zero unresolved blocking finding. A skipped
