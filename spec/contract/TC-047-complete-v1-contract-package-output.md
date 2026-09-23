@@ -27,9 +27,10 @@ repeat.
 One canonical cycle-free versioned `ContractPackage` carries every `lowered`
 node of the call once, plus the admitted nodes those reach, and no other node:
 a refused request's node appears only as meaning a lowered node reaches. The
-canonical bytes are RFC 8785 and carry every member of every represented node. Repeated identical calls
-produce identical canonical bytes and digest. Mutating any represented node
-changes them.
+canonical bytes are RFC 8785 and carry every member of every represented node.
+Repeated identical calls produce identical canonical bytes and digest, whatever
+the request order. Changing a represented node's source correspondence changes
+them.
 
 ## Status
 
