@@ -75,7 +75,7 @@ pub fn fixture_for_temporal(temporal_ordinal: usize) -> Fixture {
     let declarations = loaded.declarations();
     let inventories = loaded.inventories(&declarations);
     let expected = loaded.expected(&inventories);
-    let admitted = quire_protocol::admit_and_link_v2(loaded.offer(), &expected, loaded.limits())
+    let admitted = quire_protocol::intake::v2::admit(loaded.offer(), &expected, loaded.limits())
         .into_result()
         .expect("strict v2 package");
     let temporal_declaration = admitted
