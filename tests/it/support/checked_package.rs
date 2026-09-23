@@ -748,16 +748,6 @@ fn fixture_lock(profile_selections: Vec<Value>) -> Value {
     })
 }
 
-/// One entry per node, sourced from the node's own single occurrence rather
-/// than a hardcoded `generated` role: every node this generator builds
-/// carries exactly one entry in its own `occurrences` array, but that entry's
-/// role is `declaration` for a declaring node (see `build_operation_identities`'s
-/// `declaring_node`) and `generated` for every other one. Reading the role
-/// and ordinal back from the node itself, rather than re-asserting
-/// `generated` here, is what keeps this function correct for both — a
-/// hardcoded `generated` silently produced a `source_map` whose entry
-/// disagreed with the declaring node's own recorded occurrence, which
-/// `validate_source_map_entries` refuses as `invalid_source_map`.
 /// Rebuilds a fixture package's source map from its nodes' first
 /// occurrences, after a test changed a node's occurrences.
 pub fn rebuild_source_map(package: &mut Value) {
@@ -779,26 +769,23 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
         &node["semantic_type"],
         &node["body"],
     );
-    let stale = node["node_id"].clone();
-    let mut renamed = stale.clone();
-    renamed["digest"] = json!(fresh);
-    rename(package, &stale, &renamed);
+    let stale = node["node_id"]["digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned();
+    replace_digest(package, &stale, &fresh);
 }
 
-fn rename(value: &mut Value, from: &Value, to: &Value) {
-    if value == from {
-        *value = to.clone();
-        return;
-    }
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| rename(item, from, to)),
-        Value::Object(members) => members
-            .values_mut()
-            .for_each(|member| rename(member, from, to)),
-        _ => {}
-    }
-}
-
+/// One entry per node, sourced from the node's own single occurrence rather
+/// than a hardcoded `generated` role: every node this generator builds
+/// carries exactly one entry in its own `occurrences` array, but that entry's
+/// role is `declaration` for a declaring node (see `build_operation_identities`'s
+/// `declaring_node`) and `generated` for every other one. Reading the role
+/// and ordinal back from the node itself, rather than re-asserting
+/// `generated` here, is what keeps this function correct for both — a
+/// hardcoded `generated` silently produced a `source_map` whose entry
+/// disagreed with the declaring node's own recorded occurrence, which
+/// `validate_source_map_entries` refuses as `invalid_source_map`.
 fn source_map_for(nodes: &[Value], source: &Value) -> Value {
     let entries = nodes
         .iter()
