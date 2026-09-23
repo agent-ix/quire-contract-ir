@@ -114,6 +114,15 @@ every node tag, family form and semantic term, reference and dependency
 resolution, cycles outside one explicit `recursion_group`, and the total
 source map.
 
+Package evidence is the staleness trust root, so it holds at most one
+well-formed digest per locator. Recording a digest that is not 64 lowercase
+hexadecimal characters is refused as a malformed attestation, and recording a
+different digest for a locator that already holds one is refused as a
+conflicting attestation; the first stands, and re-recording the same digest
+changes nothing. A staleness verdict therefore never depends on the order a
+caller merged its evidence sources in, and two spellings of one digest are
+never two attestations.
+
 For `model_selections`, whole-array uniqueness is checked before any entry's
 digest is evaluated against evidence, so an array carrying both a repeated
 entry and an entry the evidence does not attest has one determined outcome
@@ -347,6 +356,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
 | FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and independently attested by the package evidence; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. This criterion is class 2 of the total order below and outranks class 3 (`digest_domain_mismatch`) and class 5 (`stale_dependency`): a same-identity, different-version pair refuses `malformed_wire` even when one of its entries also carries a declared-domain mismatch or a digest the evidence does not attest, whichever of the two entries carries that second defect. | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
+| FR-038-AC-22 | Recording a second, different digest for an attested raw-artifact or domain-package locator is refused as a conflicting attestation and the first digest stands; re-recording the same digest is accepted; and a digest that is uppercase, short or non-hexadecimal is refused as malformed and never stored. | Test (TC-048) |
 
 ## Dependencies
 

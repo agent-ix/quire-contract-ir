@@ -5,17 +5,17 @@
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{
-    self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
-    nominal_fixture_members, nominal_package, positive_operation_identities, refresh_identity,
-    refusal, refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
-    COMPLETE_VALUE_FEATURE,
+    self, all_families_read_work, canonical, evidence_for, evidence_for_except, incomplete,
+    json_depth, locator, nominal_fixture_members, nominal_package, positive_operation_identities,
+    refresh_identity, refusal, refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal,
+    ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
+    CheckedPackageV2ReadResult, EvidenceRefusal, ExpressionForm, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -520,8 +520,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         refused(&base, &CheckedPackageEvidence::new()),
         refusal(CheckedPackageRefusalCode::StaleDependency, "lock.sources")
     );
-    let mut stale_catalog = evidence_for(&base);
-    stale_catalog.insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64));
+    let mut stale_catalog = evidence_for_except(&base, Some(&base["diagnostics"]["catalog"]));
+    stale_catalog
+        .insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64))
+        .expect("a fresh locator");
     assert_eq!(
         refused(&base, &stale_catalog),
         refusal(
@@ -529,18 +531,22 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             "diagnostics.catalog"
         )
     );
-    let mut byte_evidence = evidence_for(&base);
-    byte_evidence.insert_artifact_bytes(locator(&base["lock"]["sources"][0]), b"not the source");
+    let mut byte_evidence = evidence_for_except(&base, Some(&base["lock"]["sources"][0]));
+    byte_evidence
+        .insert_artifact_bytes(locator(&base["lock"]["sources"][0]), b"not the source")
+        .expect("a fresh locator");
     assert_eq!(
         refused(&base, &byte_evidence),
         refusal(CheckedPackageRefusalCode::StaleDependency, "lock.sources")
     );
     let mut unsupported = CheckedPackageEvidence::new();
     for artifact in checked_package::locked_artifacts(&base) {
-        unsupported.insert_artifact_digest(
-            locator(&artifact),
-            artifact["digest"].as_str().expect("digest"),
-        );
+        unsupported
+            .insert_artifact_digest(
+                locator(&artifact),
+                artifact["digest"].as_str().expect("digest"),
+            )
+            .expect("each artifact once");
     }
     assert_eq!(
         refused(&base, &unsupported),
@@ -1128,14 +1134,16 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         refusal(CheckedPackageRefusalCode::StaleDependency, lock_path)
     );
     let mut raw_only = evidence_for(&v2_nominal());
-    raw_only.insert_artifact_digest(
-        locator(&json!({
-            "authority": "agent-ix", "identity": "test/orders",
-            "revision": {"namespace": "git", "value": "1"},
-            "digest_domain": "sha256-jcs"
-        })),
-        DOMAIN_PACKAGE_DIGEST,
-    );
+    raw_only
+        .insert_artifact_digest(
+            locator(&json!({
+                "authority": "agent-ix", "identity": "test/orders",
+                "revision": {"namespace": "git", "value": "1"},
+                "digest_domain": "sha256-jcs"
+            })),
+            DOMAIN_PACKAGE_DIGEST,
+        )
+        .expect("a fresh raw locator");
     assert_eq!(
         refused(&base, &raw_only),
         refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
@@ -2306,5 +2314,56 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             Some(CheckedPackageRefusalCause::StaleNodeKey),
             &checked_package::family_key("ffff"),
         )
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-22
+#[trace("TC-048", "FR-038-AC-22")]
+#[test]
+fn tc_048_evidence_holds_one_well_formed_digest_per_locator() {
+    let base = v2_all_families();
+    let catalog = locator(&base["diagnostics"]["catalog"]);
+    let attested = base["diagnostics"]["catalog"]["digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned();
+    let mut evidence = evidence_for(&base);
+    // Re-attesting the same digest is accepted and changes nothing.
+    assert_eq!(
+        evidence.insert_artifact_digest(catalog.clone(), attested.clone()),
+        Ok(())
+    );
+    // A different digest for the same locator is refused, whichever order the
+    // two attestations arrive in, and the first one stands.
+    assert_eq!(
+        evidence.insert_artifact_digest(catalog.clone(), "4".repeat(64)),
+        Err(EvidenceRefusal::ConflictingAttestation)
+    );
+    assert_eq!(
+        evidence.insert_artifact_bytes(catalog.clone(), b"other bytes"),
+        Err(EvidenceRefusal::ConflictingAttestation)
+    );
+    assert!(matches!(
+        read(&base, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    // Malformed digests are refused at the boundary: uppercase, short and
+    // non-hex spellings are never stored as attestations.
+    let mut fresh = CheckedPackageEvidence::new();
+    for malformed in ["AB".repeat(32), "ab".repeat(31), "g".repeat(64)] {
+        assert_eq!(
+            fresh.insert_artifact_digest(catalog.clone(), malformed),
+            Err(EvidenceRefusal::MalformedDigest)
+        );
+    }
+    let model = json!({"identity": "test/orders", "version": "1"});
+    let locator = checked_package::domain_package_locator(&model);
+    assert_eq!(
+        fresh.insert_domain_package_digest(locator.clone(), "5".repeat(64)),
+        Ok(())
+    );
+    assert_eq!(
+        fresh.insert_domain_package_digest(locator, "6".repeat(64)),
+        Err(EvidenceRefusal::ConflictingAttestation)
     );
 }
