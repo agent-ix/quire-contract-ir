@@ -33,7 +33,7 @@ use super::shared::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
 /// The I04 transport version admitted by the V2 reader.
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
@@ -836,14 +836,15 @@ fn validate_lock(
     // array is not meaningful to check. This order — not the reverse, and not
     // interleaved per entry — is what keeps the outcome for an array carrying
     // both defects independent of which one comes first in the array.
-    // The repeated-entry class is the first of the four this array's refusal
-    // code is drawn from; the remaining three are swept, in their own stated
-    // order, by `validate_domain_packages` below, so the code is decided by
-    // defect class throughout and never by array position. Only the lock's
-    // copy is checked: the `same_non_graph_lock` equality above already
-    // requires `identity_preimage.model_selections` to equal
-    // `lock.model_selections` element-for-element, so a duplicate-free lock
-    // guarantees the mirrored preimage is too.
+    // Class 1 (repeated entry) of the five classes FR-038 orders this array's
+    // refusal code by; class 2 (same identity, different version) is swept
+    // immediately below, and the remaining three, in their own stated order,
+    // by `validate_domain_packages` below — so the code is decided by defect
+    // class throughout and never by array position. Only the lock's copy is
+    // checked: the `same_non_graph_lock` equality above already requires
+    // `identity_preimage.model_selections` to equal `lock.model_selections`
+    // element-for-element, so a duplicate-free lock guarantees the mirrored
+    // preimage is too.
     let mut models = BTreeSet::new();
     if !lock
         .model_selections
@@ -855,42 +856,32 @@ fn validate_lock(
             "lock.model_selections",
         ));
     }
-    // The nominal `Model` owner (`identity::validate_owner`) joins
-    // `lock.model_selections` by identity alone, not by locator
-    // (identity, version): it trusts the lock to hold at most one
-    // selection per identity. Two selections that name the same identity
-    // but different versions would each individually pass the
-    // whole-item-uniqueness check above (they are distinct items) and the
-    // per-entry evidence check below (each has its own valid locator, so
-    // each can be legitimately attested on its own) — so without this
-    // check, an owner naming that identity would ambiguously join both,
-    // and two packages selecting different versions of one model could
-    // derive the same nominal node key. This is a distinct defect class
-    // from the exact-repeat check just above: an exact repeat (identity,
-    // version, digest domain and digest all equal) is also a same-identity
-    // pair, so the two classes overlap, but both refuse with this same
-    // code and path, so which one an overlapping array is attributed to is
-    // not an observable and their relative order is unconstrained. Two
-    // selections sharing identity *and* version but differing only in
-    // digest are deliberately left alone here — same locator, so the
-    // evidence check below already refuses them deterministically as
-    // `stale_dependency` (evidence attests at most one digest per
-    // locator), per FR-038-AC-10 — this check widens only to a different
-    // version, not to a same-version digest disagreement. Like the
-    // exact-repeat check, this is a whole-array pass run before any
-    // per-entry evidence check, so the outcome does not depend on array
-    // position (FR-038-AC-11).
+    // Class 2: two selections naming the same identity at different
+    // versions. The nominal `Model` owner (`identity::validate_owner`) joins
+    // `lock.model_selections` by identity alone, so the lock must guarantee
+    // at most one selection per identity for that join to stay unambiguous
+    // (FR-038 carries the full rationale, including its scope: this rule
+    // guarantees at most one selection per identity within one lock, not a
+    // version-independent node key across packages, which is a separate,
+    // tracked concern). A same-identity, same-version pair differing only in
+    // digest is not this class — it shares one locator, so class 5 below
+    // already refuses it deterministically as `stale_dependency` per
+    // FR-038-AC-10, and this check does not widen to reach it. Swept over the
+    // whole array before any per-entry check, so the outcome does not depend
+    // on array position (FR-038-AC-11), and before `validate_domain_packages`
+    // below, so this class outranks classes 3 and 5 (FR-038-AC-20).
     let mut model_versions: BTreeMap<&str, &str> = BTreeMap::new();
     for model in &lock.model_selections {
-        match model_versions.get(model.identity.as_ref()) {
-            Some(version) if *version != model.version.as_ref() => {
+        match model_versions.entry(model.identity.as_ref()) {
+            Entry::Occupied(entry) if *entry.get() != model.version.as_ref() => {
                 return Err(refuse(
                     CheckedPackageRefusalCode::MalformedWire,
                     "lock.model_selections",
                 ));
             }
-            _ => {
-                model_versions.insert(model.identity.as_ref(), model.version.as_ref());
+            Entry::Occupied(_) => {}
+            Entry::Vacant(entry) => {
+                entry.insert(model.version.as_ref());
             }
         }
     }
@@ -931,13 +922,15 @@ fn validate_unexported(
 /// digest against the domain package evidence. Raw artifact evidence is never
 /// consulted, so equal digest bytes in another domain cannot satisfy it.
 ///
-/// Each check sweeps the whole array before the next one begins, so the
-/// refusal an array carrying two different defects draws is decided by defect
-/// class and not by which defective entry the reader reaches first:
-/// declared-domain mismatch (`digest_domain_mismatch`) outranks a shape defect
-/// (`malformed_wire`), which outranks a digest the evidence does not attest
-/// (`stale_dependency`). Whole-array uniqueness, the fourth class, is checked
-/// by the caller before any of these. Within one class the reader does not
+/// Checks classes 3 through 5 of FR-038's five-class `model_selections`
+/// order. Each check sweeps the whole array before the next one begins, so
+/// the refusal an array carrying two different defects draws is decided by
+/// defect class and not by which defective entry the reader reaches first:
+/// declared-domain mismatch (`digest_domain_mismatch`, class 3) outranks a
+/// shape defect (`malformed_wire`, class 4), which outranks a digest the
+/// evidence does not attest (`stale_dependency`, class 5). Classes 1
+/// (repeated entry) and 2 (same identity, different version) are checked by
+/// the caller before any of these. Within one class the reader does not
 /// distinguish entries: every entry of a class refuses with that class's code
 /// at this one array path, so which of several same-class entries is named is
 /// not an observable.

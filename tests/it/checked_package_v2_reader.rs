@@ -1232,15 +1232,19 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
 
 /// Each `model_selections` defect class is swept over the whole array before
 /// the next class is evaluated over any of it, so an array carrying two
-/// classes refuses for the earlier class whichever entry comes first:
+/// classes refuses for the earlier class whichever entry comes first. This
+/// function pins the boundaries among FR-038's classes 1, 3, 4 and 5 --
 /// repeated entry, then declared-domain mismatch, then shape defect, then a
-/// digest the evidence does not attest.
+/// digest the evidence does not attest. Class 2 (same identity, different
+/// version) is pinned separately, against classes 3 and 5, by
+/// `tc_048_model_selection_same_identity_different_version_refuses_as_malformed_wire`
+/// below.
 ///
-/// Three of the four adjacent boundaries are pinned below: (2,3) and (3,4)
-/// through `boundaries`, (1,4) through
+/// Three of the four adjacent boundaries among 1, 3, 4 and 5 are pinned
+/// below: (3,4) and (4,5) through `boundaries`, (1,5) through
 /// `tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position`
 /// above. The fourth,
-/// repeated-entry (1) against declared-domain-mismatch (2), is pinned at the
+/// repeated-entry (1) against declared-domain-mismatch (3), is pinned at the
 /// end of this function -- separately, since a repeated entry needs two
 /// physical array slots rather than the single entry each other class uses.
 /// Unlike the other boundaries, this one does not regress under the
@@ -1312,7 +1316,7 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
         }
     }
     // The remaining boundary, class 1 (repeated entry, #122's whole-array uniqueness check)
-    // against class 2 (declared-domain mismatch): a repeated entry needs two physical array
+    // against class 3 (declared-domain mismatch): a repeated entry needs two physical array
     // slots, so it doesn't fit the single-entry `boundaries` loop above. Both orderings still
     // refuse `MalformedWire`, the duplicate check's own code, regardless of whether the
     // repeated pair or the mismatched entry appears first.
@@ -1362,7 +1366,13 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
 /// never reaches a pair that differs by version; it is also distinct from
 /// AC-10's same-identity-*and*-same-version-different-digest case, which
 /// shares one locator and so continues to refuse deterministically as
-/// `stale_dependency` -- this rule is not widened to reach it.
+/// `stale_dependency` -- this rule is not widened to reach it. This rule is
+/// class 2 of FR-038's five-class `model_selections` order and is swept
+/// before `validate_domain_packages`, so it outranks class 3
+/// (`digest_domain_mismatch`) and class 5 (`stale_dependency`): a
+/// same-identity, different-version pair refuses `malformed_wire` even when
+/// one of its entries also carries a domain-mismatch or an unattested-digest
+/// defect.
 ///
 /// Tracing: TC-048, FR-038-AC-20
 #[trace("TC-048", "FR-038-AC-20")]
@@ -1391,12 +1401,70 @@ fn tc_048_model_selection_same_identity_different_version_refuses_as_malformed_w
     // The same pair, reversed: the outcome is decided by defect class, not
     // by which entry the reader reaches first (mirroring FR-038-AC-11's
     // array-position independence for the pre-existing classes).
-    let reversed = model_owned_package(owner.clone(), json!([version_two, version_one.clone()]));
+    let reversed = model_owned_package(
+        owner.clone(),
+        json!([version_two.clone(), version_one.clone()]),
+    );
     assert_eq!(
         refused(&reversed, &evidence_for(&reversed)),
         refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
         "same pair, reversed array order"
     );
+
+    // This class is swept before `validate_domain_packages` below, so it
+    // outranks both classes 3 and 5 (FR-038-AC-20): a same-identity,
+    // different-version pair still refuses `malformed_wire`, never
+    // `digest_domain_mismatch` or `stale_dependency`, even when the later
+    // entry also carries one of those defects.
+    let mut version_two_wrong_domain = version_two.clone();
+    version_two_wrong_domain["digest_domain"] = json!("quire.compiled-model.bytes/v1");
+    let outranks_domain_mismatch = model_owned_package(
+        owner.clone(),
+        json!([version_one.clone(), version_two_wrong_domain.clone()]),
+    );
+    let outranks_domain_mismatch_reversed = model_owned_package(
+        owner.clone(),
+        json!([version_two_wrong_domain, version_one.clone()]),
+    );
+    for (name, package) in [
+        (
+            "version 1 then domain-mismatched version 2",
+            &outranks_domain_mismatch,
+        ),
+        (
+            "domain-mismatched version 2 then version 1",
+            &outranks_domain_mismatch_reversed,
+        ),
+    ] {
+        assert_eq!(
+            refused(package, &evidence_for(package)),
+            refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+            "{name}: class 2 outranks class 3 (digest_domain_mismatch)"
+        );
+    }
+
+    // Evidence attests only the `@1` selection, so `@2` would otherwise be
+    // `stale_dependency` -- class 2 must still be decided first.
+    let single_version_evidence = evidence_for(&model_owned_package(
+        owner.clone(),
+        json!([version_one.clone()]),
+    ));
+    let outranks_stale = model_owned_package(
+        owner.clone(),
+        json!([version_one.clone(), version_two.clone()]),
+    );
+    let outranks_stale_reversed =
+        model_owned_package(owner.clone(), json!([version_two, version_one.clone()]));
+    for (name, package) in [
+        ("version 1 then version 2", &outranks_stale),
+        ("version 2 then version 1", &outranks_stale_reversed),
+    ] {
+        assert_eq!(
+            refused(package, &single_version_evidence),
+            refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+            "{name}: class 2 outranks class 5 (stale_dependency)"
+        );
+    }
 
     // Two different identities never trigger this rule and still admit.
     let other_identity = json!({
