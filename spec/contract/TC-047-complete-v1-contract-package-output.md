@@ -31,6 +31,4 @@ changes them.
 
 ## Status
 
-Planned. The complete-V1 lowering path emits no `ContractPackage`
-([issue #110](https://github.com/agent-ix/quire-contract-ir/issues/110)), so
-FR-035-AC-5 is unbacked and the matrix records it as planned rather than green.
+Implemented in `tests/it/complete_v1_contract_package.rs`.
