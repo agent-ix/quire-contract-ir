@@ -12,9 +12,11 @@ mod lower;
 mod natural;
 mod operation_catalog;
 mod operations;
+mod vocabulary;
 
 pub use identity::*;
 pub use lower::*;
+pub use vocabulary::*;
 
 use operations::{validate_application_keys, validate_operations};
 
@@ -45,219 +47,6 @@ const SOURCE_BYTES: &str = "quire.source.bytes/v1";
 const DEFINITION_BYTES: &str = "quire.definition.bytes/v1";
 /// The digest domain of a selected domain package.
 pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
-const SELECTION_ROLES: [&str; 7] = [
-    "language",
-    "edition",
-    "profile",
-    "dependency",
-    "binding_contract",
-    "temporal_profile",
-    "protocol_profile",
-];
-const DISPOSITIONS: [&str; 3] = ["available", "unimplemented", "unsupported"];
-
-/// The closed V2 semantic node family.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum CheckedNodeTag {
-    /// `scalar_type`.
-    ScalarType,
-    /// `composite_type`.
-    CompositeType,
-    /// `bounded_domain`.
-    BoundedDomain,
-    /// `value`.
-    Value,
-    /// `expression`.
-    Expression,
-    /// `function`.
-    Function,
-    /// `model`.
-    Model,
-    /// `relation`.
-    Relation,
-    /// `state`.
-    State,
-    /// `temporal`.
-    Temporal,
-    /// `protocol`.
-    Protocol,
-    /// `claim`.
-    Claim,
-    /// `correspondence`.
-    Correspondence,
-}
-
-impl CheckedNodeTag {
-    /// Every V2 node family, in schema order.
-    pub const ALL: [Self; 13] = [
-        Self::ScalarType,
-        Self::CompositeType,
-        Self::BoundedDomain,
-        Self::Value,
-        Self::Expression,
-        Self::Function,
-        Self::Model,
-        Self::Relation,
-        Self::State,
-        Self::Temporal,
-        Self::Protocol,
-        Self::Claim,
-        Self::Correspondence,
-    ];
-
-    /// Parses a wire tag; `None` for a tag outside V2.
-    pub fn from_wire(tag: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|candidate| candidate.as_wire() == tag)
-    }
-
-    /// The exact wire tag.
-    pub const fn as_wire(self) -> &'static str {
-        match self {
-            Self::ScalarType => "scalar_type",
-            Self::CompositeType => "composite_type",
-            Self::BoundedDomain => "bounded_domain",
-            Self::Value => "value",
-            Self::Expression => "expression",
-            Self::Function => "function",
-            Self::Model => "model",
-            Self::Relation => "relation",
-            Self::State => "state",
-            Self::Temporal => "temporal",
-            Self::Protocol => "protocol",
-            Self::Claim => "claim",
-            Self::Correspondence => "correspondence",
-        }
-    }
-
-    /// The closed semantic forms of this family.
-    pub const fn forms(self) -> &'static [&'static str] {
-        match self {
-            Self::ScalarType => &[
-                "boolean",
-                "integer",
-                "rational",
-                "decimal",
-                "float32",
-                "float64",
-                "text",
-                "dimension",
-                "unit",
-                "enum",
-            ],
-            Self::CompositeType => &[
-                "option",
-                "sequence",
-                "set",
-                "bag",
-                "ordered_set",
-                "record",
-                "tuple",
-                "alias",
-                "reference",
-            ],
-            Self::BoundedDomain => &[
-                "integer_range",
-                "rational_range",
-                "decimal_range",
-                "float_rounding",
-                "text_bounds",
-                "collection_bounds",
-                "model_population",
-            ],
-            Self::Value => &[
-                "literal",
-                "enum_value",
-                "collection_value",
-                "record_value",
-                "tuple_value",
-                "option_value",
-            ],
-            Self::Expression => &[
-                "reference",
-                "call",
-                "unary",
-                "binary",
-                "conditional",
-                "let",
-                "quantify",
-                "collection",
-                "conversion",
-                "query",
-                "pre_read",
-                "presence_read",
-                "value_read",
-                "deref",
-                "reachability",
-            ],
-            Self::Function => &["pure_function", "predicate", "recursive_function"],
-            Self::Model => &[
-                "model_import",
-                "object_type",
-                "value_type",
-                "variant_type",
-                "record_value_type",
-                "event_type",
-                "state_machine",
-                "process",
-                "persistence_interface",
-                "namespace",
-                "field_declaration",
-                "operation_declaration",
-                "clause_member_declaration",
-                "systems_interface",
-                "systems_part",
-                "systems_port",
-                "systems_connection",
-                "systems_allocation",
-            ],
-            Self::Relation => &[
-                "relationship",
-                "population",
-                "membership",
-                "causal_relation",
-            ],
-            Self::State => &[
-                "state_clause",
-                "frame",
-                "transition",
-                "operation_anchor",
-                "snapshot",
-            ],
-            Self::Temporal => &[
-                "temporal_clause",
-                "formula",
-                "clock",
-                "window",
-                "activation",
-                "deadline",
-            ],
-            Self::Protocol => &[
-                "protocol_clause",
-                "role",
-                "channel",
-                "queue",
-                "control",
-                "obligation",
-                "compensation",
-            ],
-            Self::Claim => &[
-                "verification_claim",
-                "analysis_claim",
-                "hyperproperty",
-                "synthesis_request",
-            ],
-            Self::Correspondence => &[
-                "source_locus",
-                "model_correspondence",
-                "binding_role",
-                "profile_correspondence",
-            ],
-        }
-    }
-}
-
 /// A node's declared qualified name (FR-208). Present exactly where the
 /// schema's `DeclarationOccurrenceRule` requires it and forbidden where
 /// `DeclarationTagRules` forbids it; see [`validate_declaration`].
@@ -573,7 +362,7 @@ pub enum CheckedPackageV2ReadResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
-    tags: Vec<CheckedNodeTag>,
+    kinds: Vec<CheckedNodeKind>,
 }
 
 /// Cumulative validation work against one caller limit.
@@ -669,8 +458,8 @@ impl CheckedPackageV2 {
                 "document",
             ));
         }
-        let tags = validate(&wire, limits, evidence)?;
-        Ok(Self { wire, tags })
+        let kinds = validate(&wire, limits, evidence)?;
+        Ok(Self { wire, kinds })
     }
 
     /// The versioned semantic package identity.
@@ -693,9 +482,9 @@ impl CheckedPackageV2 {
         &self.wire.semantic_graph
     }
 
-    /// The parsed family of each graph node, in graph order.
-    pub fn node_tags(&self) -> &[CheckedNodeTag] {
-        &self.tags
+    /// Each graph node's decoded family and form, in graph order.
+    pub fn node_kinds(&self) -> &[CheckedNodeKind] {
+        &self.kinds
     }
 
     /// The exact source map.
@@ -718,7 +507,7 @@ fn validate(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
-) -> Result<Vec<CheckedNodeTag>, ValidationFailure> {
+) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
         return Err(refuse(
             CheckedPackageRefusalCode::UnknownContractVersion,
@@ -763,7 +552,7 @@ fn validate(
     }
     validate_lock(wire, evidence)?;
     let mut meter = WorkMeter::new(limits.work);
-    let tags = validate_graph(wire, limits, &mut meter)?;
+    let kinds = validate_graph(wire, limits, &mut meter)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -776,7 +565,7 @@ fn validate(
     )?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    Ok(tags)
+    Ok(kinds)
 }
 
 fn same_non_graph_lock(
@@ -806,12 +595,6 @@ fn validate_lock(
         .chain(&lock.profile_selections)
         .chain(&lock.dependency_selections);
     for selection in selections {
-        if !SELECTION_ROLES.contains(&selection.role.as_ref()) {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                "lock.selection.role",
-            ));
-        }
         validate_unexported(
             &selection.definition,
             DEFINITION_BYTES,
@@ -978,20 +761,12 @@ fn validate_node_id(id: &CheckedNodeId, path: &'static str) -> Result<(), Valida
 /// for every other family it is present exactly when the node carries a
 /// `declaration`-role occurrence.
 fn validate_declaration(
-    tag: CheckedNodeTag,
-    form: &str,
+    kind: CheckedNodeKind,
     occurrences: &[CheckedOccurrence],
     declaration: Option<&CheckedDeclaration>,
 ) -> Result<(), ValidationFailure> {
     const PATH: &str = "semantic_graph.nodes.declaration";
-    let forced_absent = matches!(
-        tag,
-        CheckedNodeTag::Expression
-            | CheckedNodeTag::Relation
-            | CheckedNodeTag::State
-            | CheckedNodeTag::Temporal
-            | CheckedNodeTag::Correspondence
-    ) || (tag == CheckedNodeTag::Value && form == "enum_value");
+    let forced_absent = declaration_forbidden(kind);
     let required = !forced_absent
         && occurrences
             .iter()
@@ -1006,6 +781,33 @@ fn validate_declaration(
         identity::validate_qualified_name(&declaration.qualified_name, PATH)?;
     }
     Ok(())
+}
+
+/// `DeclarationTagRules`: whether a node of this kind may never carry a
+/// `declaration`. Exhaustive over every form, so a new form is a compile
+/// error here until its rule is decided.
+fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
+    use CheckedNodeKind as K;
+    match kind {
+        K::Expression(_) | K::Relation(_) | K::State(_) | K::Temporal(_) | K::Correspondence(_) => {
+            true
+        }
+        K::Value(ValueForm::EnumValue) => true,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        )
+        | K::ScalarType(_)
+        | K::CompositeType(_)
+        | K::BoundedDomain(_)
+        | K::Function(_)
+        | K::Model(_)
+        | K::Protocol(_)
+        | K::Claim(_) => false,
+    }
 }
 
 /// Minimal structural admission for one node body. Every node validates as
@@ -1030,18 +832,23 @@ const BODY_CREATES_PATH: &str = "semantic_graph.nodes.body.creates";
 const BODY_DELETES_PATH: &str = "semantic_graph.nodes.body.deletes";
 
 fn validate_body(
-    tag: CheckedNodeTag,
-    form: &str,
+    kind: CheckedNodeKind,
     body: &Value,
     visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
 ) -> Result<u64, ValidationFailure> {
-    if tag == CheckedNodeTag::State && form == "frame" {
+    if is_frame(kind) {
         validate_frame_body(body)
     } else {
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         validate_term(body, TermGrammar::V2, true, visit)
     }
+}
+
+/// `BodyBindingRules`: only a `state`/`frame` node's body is the frame
+/// reference triple rather than a `SemanticTerm`.
+fn is_frame(kind: CheckedNodeKind) -> bool {
+    matches!(kind, CheckedNodeKind::State(StateForm::Frame))
 }
 
 fn validate_frame_body(body: &Value) -> Result<u64, ValidationFailure> {
@@ -1143,37 +950,162 @@ impl FrameMember {
     }
 
     /// FR-340's closed eligibility table (FR-340-AC-1 through AC-4 upstream):
-    /// the single source of truth for which (member, node tag, semantic
-    /// form) triples a frame entry may name. Exhaustive over `(self, tag)`
-    /// with no wildcard arm — every one of `FrameMember`'s 3 variants against
-    /// every one of `CheckedNodeTag`'s 13 is its own arm, so a new
-    /// `CheckedNodeTag` variant fails to compile here until a considered
-    /// decision is written for it, rather than silently falling through to
-    /// `false`. `form` is a wire string, not a closed Rust type (see
-    /// [`CheckedNodeTag::forms`]), so the admitted forms within an eligible
-    /// `(member, tag)` pair are still an exact string match; the exhaustive
-    /// unit test `tc_053_frame_member_admits_exactly_the_closed_eligible_triples`
-    /// below independently walks every `(member, tag, form)` triple
-    /// `CheckedNodeTag::ALL`/`.forms()` can produce and pins the eligible
-    /// count at exactly 6.
-    fn admits(self, tag: CheckedNodeTag, form: &str) -> bool {
-        use CheckedNodeTag::{
-            BoundedDomain, Claim, CompositeType, Correspondence, Expression, Function, Model,
-            Protocol, Relation, ScalarType, State, Temporal, Value,
-        };
+    /// the single source of truth for which (member, node kind) pairs a frame
+    /// entry may name. [`frame_eligibility`] decides every form of every
+    /// family with no wildcard, so a new form fails to compile until its
+    /// eligibility is decided.
+    fn admits(self, kind: CheckedNodeKind) -> bool {
+        let eligibility = frame_eligibility(kind);
         match self {
-            Self::Modifies => match tag {
-                Relation => form == "relationship",
-                Model => form == "field_declaration",
-                ScalarType | CompositeType | BoundedDomain | Value | Expression | Function
-                | State | Temporal | Protocol | Claim | Correspondence => false,
-            },
-            Self::Creates | Self::Deletes => match tag {
-                Model => matches!(form, "object_type" | "process"),
-                ScalarType | CompositeType | BoundedDomain | Value | Expression | Function
-                | Relation | State | Temporal | Protocol | Claim | Correspondence => false,
-            },
+            Self::Modifies => eligibility.modifies,
+            Self::Creates | Self::Deletes => eligibility.creates_or_deletes,
         }
+    }
+}
+
+/// Which frame members may name a node of one kind.
+struct FrameEligibility {
+    modifies: bool,
+    creates_or_deletes: bool,
+}
+
+/// FR-340's eligibility for every form: `modifies` takes a relation's
+/// `relationship` or a model's `field_declaration`; `creates` and `deletes`
+/// take a model's `object_type` or `process`. Nothing else is eligible.
+fn frame_eligibility(kind: CheckedNodeKind) -> FrameEligibility {
+    use CheckedNodeKind as K;
+    const NONE: FrameEligibility = FrameEligibility {
+        modifies: false,
+        creates_or_deletes: false,
+    };
+    const MODIFIES: FrameEligibility = FrameEligibility {
+        modifies: true,
+        creates_or_deletes: false,
+    };
+    const CREATES_OR_DELETES: FrameEligibility = FrameEligibility {
+        modifies: false,
+        creates_or_deletes: true,
+    };
+    match kind {
+        K::Relation(RelationForm::Relationship) => MODIFIES,
+        K::Relation(
+            RelationForm::Population | RelationForm::Membership | RelationForm::CausalRelation,
+        ) => NONE,
+        K::Model(ModelForm::FieldDeclaration) => MODIFIES,
+        K::Model(ModelForm::ObjectType | ModelForm::Process) => CREATES_OR_DELETES,
+        K::Model(
+            ModelForm::ModelImport
+            | ModelForm::ValueType
+            | ModelForm::VariantType
+            | ModelForm::RecordValueType
+            | ModelForm::EventType
+            | ModelForm::StateMachine
+            | ModelForm::PersistenceInterface
+            | ModelForm::Namespace
+            | ModelForm::OperationDeclaration
+            | ModelForm::ClauseMemberDeclaration
+            | ModelForm::SystemsInterface
+            | ModelForm::SystemsPart
+            | ModelForm::SystemsPort
+            | ModelForm::SystemsConnection
+            | ModelForm::SystemsAllocation,
+        ) => NONE,
+        K::ScalarType(
+            ScalarTypeForm::Boolean
+            | ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Unit
+            | ScalarTypeForm::Enum,
+        ) => NONE,
+        K::CompositeType(
+            CompositeTypeForm::Option
+            | CompositeTypeForm::Sequence
+            | CompositeTypeForm::Set
+            | CompositeTypeForm::Bag
+            | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Record
+            | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Alias
+            | CompositeTypeForm::Reference,
+        ) => NONE,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds
+            | BoundedDomainForm::ModelPopulation,
+        ) => NONE,
+        K::Value(
+            ValueForm::Literal
+            | ValueForm::EnumValue
+            | ValueForm::CollectionValue
+            | ValueForm::RecordValue
+            | ValueForm::TupleValue
+            | ValueForm::OptionValue,
+        ) => NONE,
+        K::Expression(
+            ExpressionForm::Reference
+            | ExpressionForm::Call
+            | ExpressionForm::Unary
+            | ExpressionForm::Binary
+            | ExpressionForm::Conditional
+            | ExpressionForm::Let
+            | ExpressionForm::Quantify
+            | ExpressionForm::Collection
+            | ExpressionForm::Conversion
+            | ExpressionForm::Query
+            | ExpressionForm::PreRead
+            | ExpressionForm::PresenceRead
+            | ExpressionForm::ValueRead
+            | ExpressionForm::Deref
+            | ExpressionForm::Reachability,
+        ) => NONE,
+        K::Function(
+            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
+        ) => NONE,
+        K::State(
+            StateForm::StateClause
+            | StateForm::Frame
+            | StateForm::Transition
+            | StateForm::OperationAnchor
+            | StateForm::Snapshot,
+        ) => NONE,
+        K::Temporal(
+            TemporalForm::TemporalClause
+            | TemporalForm::Formula
+            | TemporalForm::Clock
+            | TemporalForm::Window
+            | TemporalForm::Activation
+            | TemporalForm::Deadline,
+        ) => NONE,
+        K::Protocol(
+            ProtocolForm::ProtocolClause
+            | ProtocolForm::Role
+            | ProtocolForm::Channel
+            | ProtocolForm::Queue
+            | ProtocolForm::Control
+            | ProtocolForm::Obligation
+            | ProtocolForm::Compensation,
+        ) => NONE,
+        K::Claim(
+            ClaimForm::VerificationClaim
+            | ClaimForm::AnalysisClaim
+            | ClaimForm::Hyperproperty
+            | ClaimForm::SynthesisRequest,
+        ) => NONE,
+        K::Correspondence(
+            CorrespondenceForm::SourceLocus
+            | CorrespondenceForm::ModelCorrespondence
+            | CorrespondenceForm::BindingRole
+            | CorrespondenceForm::ProfileCorrespondence,
+        ) => NONE,
     }
 }
 
@@ -1229,8 +1161,7 @@ struct MeaningDefect {
 fn frame_defect(
     frame_id: &CheckedNodeId,
     frame: &CheckedSemanticNodeV2,
-    nodes: &[CheckedSemanticNodeV2],
-    tags: &[CheckedNodeTag],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<ValidationFailure> {
     let declared: BTreeSet<&CheckedNodeId> = frame.dependencies.iter().collect();
@@ -1276,7 +1207,7 @@ fn frame_defect(
                 });
                 continue;
             };
-            if !member.admits(tags[position], nodes[position].semantic_form.as_ref()) {
+            if !member.admits(kinds[position]) {
                 meaning_defects.push(MeaningDefect {
                     member_index,
                     digest: entry.digest.clone(),
@@ -1338,15 +1269,15 @@ fn frame_defect(
 /// bodies" section) rather than uncharged and unbounded.
 fn validate_frame_semantics(
     nodes: &[CheckedSemanticNodeV2],
-    tags: &[CheckedNodeTag],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
     for (&node_id, &position) in index {
         let node = &nodes[position];
-        if tags[position] != CheckedNodeTag::State || node.semantic_form.as_ref() != "frame" {
+        if !is_frame(kinds[position]) {
             continue;
         }
-        if let Some(failure) = frame_defect(node_id, node, nodes, tags, index) {
+        if let Some(failure) = frame_defect(node_id, node, kinds, index) {
             return Err(failure);
         }
     }
@@ -1357,7 +1288,7 @@ fn validate_graph(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
-) -> Result<Vec<CheckedNodeTag>, ValidationFailure> {
+) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let graph = &wire.semantic_graph;
     if graph.graph_version.as_ref() != GRAPH_V2 || graph.nodes.is_empty() {
         return Err(refuse(
@@ -1374,7 +1305,7 @@ fn validate_graph(
         ));
     }
     let mut index = BTreeMap::new();
-    let mut tags = Vec::with_capacity(graph.nodes.len());
+    let mut kinds = Vec::with_capacity(graph.nodes.len());
     let mut references = Vec::with_capacity(graph.nodes.len());
     let mut edges = 0_u64;
     for (position, node) in graph.nodes.iter().enumerate() {
@@ -1397,19 +1328,14 @@ fn validate_graph(
                 "semantic_graph.nodes.node_tag",
             ));
         };
-        if !tag.forms().contains(&node.semantic_form.as_ref()) {
+        let Some(kind) = CheckedNodeKind::decode(tag, &node.semantic_form) else {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 "semantic_graph.nodes.semantic_form",
             ));
-        }
-        tags.push(tag);
-        validate_declaration(
-            tag,
-            &node.semantic_form,
-            &node.occurrences,
-            node.declaration.as_ref(),
-        )?;
+        };
+        kinds.push(kind);
+        validate_declaration(kind, &node.occurrences, node.declaration.as_ref())?;
         validate_node_id(&node.semantic_type, "semantic_graph.nodes.semantic_type")?;
         for dependency in &node.dependencies {
             validate_node_id(dependency, "semantic_graph.nodes.dependencies")?;
@@ -1429,7 +1355,7 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_body(tag, &node.semantic_form, &node.body, &mut |target, site| {
+        let work = validate_body(kind, &node.body, &mut |target, site| {
             targets.push((target.clone(), site))
         })?;
         meter.charge(work)?;
@@ -1448,16 +1374,16 @@ fn validate_graph(
         }
     }
     // Declaration and frame checks (FR-322/FR-340) run here, against `index`
-    // and `tags` alone, before the dependency/body-target edges below are
+    // and `kinds` alone, before the dependency/body-target edges below are
     // resolved against the graph: a frame `dependencies` entry naming no
     // real node is FR-340's own `missing_declaration` refusal (`frame_defect`
     // resolves each entry itself), not the generic unresolved-reference
     // `invalid_semantic_graph` the edge-resolution loop below would raise for
     // the same node first if it ran first.
     validate_application_keys(&graph.nodes, &index, meter)?;
-    validate_nominal_nodes(&graph.nodes, &tags, &index, &wire.lock, meter)?;
-    validate_frame_semantics(&graph.nodes, &tags, &index)?;
-    validate_operations(&graph.nodes, &index, &wire.lock, meter)?;
+    validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
+    validate_frame_semantics(&graph.nodes, &kinds, &index)?;
+    validate_operations(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path| {
@@ -1512,7 +1438,7 @@ fn validate_graph(
             "identity_preimage.identity_projection",
         ));
     }
-    Ok(tags)
+    Ok(kinds)
 }
 
 /// Every strongly connected component that forms a cycle must share one
@@ -1641,15 +1567,9 @@ fn validate_capabilities(
 ) -> Result<(), ValidationFailure> {
     let mut reported = BTreeMap::new();
     for capability in &wire.capability_report {
-        if !DISPOSITIONS.contains(&capability.disposition.as_ref()) {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                "capability_report.disposition",
-            ));
-        }
         if !is_nonempty(&capability.feature)
             || reported
-                .insert(capability.feature.as_ref(), capability.disposition.as_ref())
+                .insert(capability.feature.as_ref(), capability.disposition)
                 .is_some()
         {
             return Err(refuse(
@@ -1659,7 +1579,9 @@ fn validate_capabilities(
         }
     }
     for feature in &wire.lock.required_features {
-        if reported.get(feature.as_ref()) != Some(&"available") || !evidence.supports(feature) {
+        if reported.get(feature.as_ref()) != Some(&CheckedCapabilityDisposition::Available)
+            || !evidence.supports(feature)
+        {
             return Err(refuse(
                 CheckedPackageRefusalCode::UnknownRequiredCapability,
                 "capability_report",
@@ -1716,67 +1638,59 @@ fn validate_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedNodeTag, FrameMember};
+    use super::{CheckedNodeKind, FrameMember, ModelForm, RelationForm};
 
-    /// The exact closed set of `(member, tag, form)` triples FR-340 admits:
-    /// `modifies` takes a relation's `relationship` form or a model's
-    /// `field_declaration` form; `creates` and `deletes` each take a
-    /// model's `object_type` or `process` form. Every other triple the
-    /// closed `CheckedNodeTag::ALL` × `.forms()` table can produce is
-    /// refused. This enumerates the full cross product rather than sampling
-    /// it, so a `FrameMember::admits` edit that accidentally widens or
-    /// narrows eligibility for any tag/form pair fails here, not only in an
-    /// end-to-end fixture test.
+    /// FR-340 admits exactly six `(member, kind)` pairs: `modifies` takes a
+    /// relation's `relationship` or a model's `field_declaration`; `creates`
+    /// and `deletes` each take a model's `object_type` or `process`. This
+    /// walks every member against every kind the closed vocabularies can
+    /// produce, so a `frame_eligibility` edit that widens or narrows any pair
+    /// fails here. The kind count is pinned too: a new form must also pass
+    /// through `frame_eligibility`'s exhaustive match, and this test states
+    /// that the population it decided over is the one it walked.
     ///
     /// Tracing: TC-053, FR-038-AC-12
     #[test]
-    fn tc_053_frame_member_admits_exactly_the_closed_eligible_triples() {
-        let eligible: [(FrameMember, CheckedNodeTag, &str); 6] = [
-            (
-                FrameMember::Modifies,
-                CheckedNodeTag::Relation,
-                "relationship",
-            ),
-            (
-                FrameMember::Modifies,
-                CheckedNodeTag::Model,
-                "field_declaration",
-            ),
-            (FrameMember::Creates, CheckedNodeTag::Model, "object_type"),
-            (FrameMember::Creates, CheckedNodeTag::Model, "process"),
-            (FrameMember::Deletes, CheckedNodeTag::Model, "object_type"),
-            (FrameMember::Deletes, CheckedNodeTag::Model, "process"),
-        ];
-
-        let mut checked = 0usize;
-        for member in FrameMember::ALL {
-            for tag in CheckedNodeTag::ALL {
-                for form in tag.forms() {
-                    checked += 1;
-                    let expected = eligible
-                        .iter()
-                        .any(|&(m, t, f)| m == member && t == tag && f == *form);
-                    assert_eq!(
-                        member.admits(tag, form),
-                        expected,
-                        "{:?}.admits({:?}, {form:?}) should be {expected}",
-                        member,
-                        tag,
-                    );
-                }
-            }
-        }
-        // Sanity: the enumeration actually walked every declared eligible
-        // triple (catches a typo in `eligible` that would otherwise pass
-        // vacuously if `forms()` ever dropped one of these forms).
-        for &(member, tag, form) in &eligible {
-            assert!(
-                member.admits(tag, form),
-                "declared-eligible triple {:?}/{:?}/{form:?} was not admitted",
-                member,
-                tag
-            );
-        }
-        assert!(checked > eligible.len(), "cross product degenerated");
+    fn tc_053_frame_member_admits_exactly_the_closed_eligible_pairs() {
+        let kinds = CheckedNodeKind::all();
+        assert_eq!(
+            kinds.len(),
+            98,
+            "the closed form set changed; decide its frame eligibility"
+        );
+        let admitted = FrameMember::ALL
+            .into_iter()
+            .flat_map(|member| kinds.iter().map(move |kind| (member, *kind)))
+            .filter(|(member, kind)| member.admits(*kind))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            admitted,
+            vec![
+                (
+                    FrameMember::Modifies,
+                    CheckedNodeKind::Model(ModelForm::FieldDeclaration)
+                ),
+                (
+                    FrameMember::Modifies,
+                    CheckedNodeKind::Relation(RelationForm::Relationship)
+                ),
+                (
+                    FrameMember::Creates,
+                    CheckedNodeKind::Model(ModelForm::ObjectType)
+                ),
+                (
+                    FrameMember::Creates,
+                    CheckedNodeKind::Model(ModelForm::Process)
+                ),
+                (
+                    FrameMember::Deletes,
+                    CheckedNodeKind::Model(ModelForm::ObjectType)
+                ),
+                (
+                    FrameMember::Deletes,
+                    CheckedNodeKind::Model(ModelForm::Process)
+                ),
+            ]
+        );
     }
 }
