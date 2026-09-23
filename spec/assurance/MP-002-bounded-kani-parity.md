@@ -5,16 +5,21 @@ type: MeasurementPlan
 status: proposed
 owner: kreneskyp
 metric: bounded_kani_profile_parity
-definition_version: quire-contract-ir.bounded-kani-parity/v1
+definition_version: quire-contract-ir.bounded-kani-parity/v2
 stage: gate
+objective:
+  direction: higher
+  bound: 1.0
 statistical_design:
   population: every declared profile-matrix entry and every manifest-listed valid, invalid, incomplete, resource-boundary, counterexample, and replay corpus case
   sampling: exhaustive
   repetitions: 2
-  estimator: exact per-case agreement divided by declared cases, reported by typed outcome kind
+  estimator: proportion
   error_model: profile drift, input-validation omission, generator drift, Kani/tool variation, and native replay disagreement
   uncertainty: each unavailable, timeout, exhausted, cancelled, refused, invalid, incomplete, or inconclusive case remains separately reported
-  decision_rule: any missing matrix entry, unexpected outcome, provenance mismatch, invalid-input assumption, or native replay disagreement fails the candidate gate
+  decision_rule:
+    comparator: ge
+    threshold: 1.0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-002
     type: measures
