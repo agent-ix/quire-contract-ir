@@ -2,8 +2,8 @@ use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
     FiniteObject, FiniteReference, GeneratorProvenance, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
-    PROFILE,
+    KaniProviderResult, ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds,
+    SemanticFamily, PROFILE,
 };
 
 fn selection() -> ProfileSelection {
@@ -212,4 +212,87 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
     let genuine = KaniOutcome::proved_from_checks(1, "clause:demo", "profile");
     assert_eq!(genuine, KaniOutcome::proved("clause:demo", "profile"));
     assert_eq!(genuine.boolean_claim(), Some(true));
+}
+
+/// Tracing: TC-223, FR-031-AC-5
+#[trace("TC-223", "FR-031-AC-5")]
+#[test]
+fn tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result() {
+    // QSL ADR-013 O-16 proof column, one row per kind, written out rather
+    // than derived so a changed arm fails here and not only in review.
+    let expected = [
+        (
+            KaniOutcomeKind::Proved,
+            KaniProviderResult::Proved,
+            "proved",
+        ),
+        (
+            KaniOutcomeKind::Counterexample,
+            KaniProviderResult::Refuted,
+            "refuted",
+        ),
+        (
+            KaniOutcomeKind::Refused,
+            KaniProviderResult::Declined,
+            "declined",
+        ),
+        (
+            KaniOutcomeKind::InvalidInput,
+            KaniProviderResult::Declined,
+            "declined",
+        ),
+        (
+            KaniOutcomeKind::IncompleteInput,
+            KaniProviderResult::Declined,
+            "declined",
+        ),
+        (
+            KaniOutcomeKind::Unavailable,
+            KaniProviderResult::Unsupported,
+            "unsupported",
+        ),
+        (
+            KaniOutcomeKind::TimedOut,
+            KaniProviderResult::Incomplete,
+            "incomplete",
+        ),
+        (
+            KaniOutcomeKind::ResourceExhausted,
+            KaniProviderResult::Incomplete,
+            "incomplete",
+        ),
+        (
+            KaniOutcomeKind::Cancelled,
+            KaniProviderResult::Incomplete,
+            "incomplete",
+        ),
+        (
+            KaniOutcomeKind::Inconclusive,
+            KaniProviderResult::Inconclusive,
+            "inconclusive",
+        ),
+    ];
+    assert_eq!(
+        KaniOutcomeKind::ALL.to_vec(),
+        expected
+            .iter()
+            .map(|(kind, _, _)| kind.clone())
+            .collect::<Vec<_>>(),
+        "ALL must name each of the ten kinds exactly once, in declaration order"
+    );
+    for (kind, result, wire) in expected {
+        assert_eq!(kind.provider_result(), result, "{kind:?}");
+        assert_eq!(
+            serde_json::to_value(result).expect("result"),
+            serde_json::json!(wire)
+        );
+    }
+    // A vacuous proof is already `Inconclusive` before the map runs, so it
+    // records `inconclusive` and never `proved`.
+    let vacuous = KaniOutcome::proved_from_checks(0, "source", "context");
+    assert_eq!(
+        vacuous.kind.provider_result(),
+        KaniProviderResult::Inconclusive
+    );
+    assert_eq!(vacuous.code, "kani_vacuous_proof");
 }

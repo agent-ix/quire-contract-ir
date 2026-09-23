@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
+  - target: ix://agent-ix/quire-specification/FR-331
+    type: references
 ---
 # FR-031: Dispatch bounded Kani modules with replayable provenance
 
@@ -32,6 +34,8 @@ Oracle, strategy, lowering, and harness generators are explicit interfaces with 
 
 A `counterexample` serializes exact ABI/profile identities, concrete finite population/snapshots/invocation, selected bounds, strategy seed where used, evaluated witness, and provenance; the packet is Contract IR's. Deserialization validates the same input ABI before replay. The codegen replay adapter reconstructs the packet's input and invokes the QSL complete-V1 executor entry `value::expression::CheckedPackage::call`, which must reproduce the counterexample's outcome and relevant witness; identity mismatch, invalid reconstruction, unavailable executor, or disagreement is a typed non-success result, not a repaired replay. A `proved` result does not serialize a counterexample.
 
+Each Kani outcome kind records exactly one QSpec FR-331 terminal result, through one exhaustive map Contract IR owns (QSL ADR-013 O-16 proof column, C-09): `Proved` records `proved`; `Counterexample` records `refuted`; `Refused`, `InvalidInput` and `IncompleteInput` record `declined`; `Unavailable` records `unsupported`; `TimedOut`, `ResourceExhausted` and `Cancelled` record `incomplete`; and `Inconclusive` records `inconclusive`. The outcome's typed cause travels with the result unchanged, so kinds that share a result stay distinguishable. A vacuous proof is already `Inconclusive` with cause `kani_vacuous_proof` before the map runs, so it never records `proved`. No kind records `tested` or `failed`.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -40,6 +44,7 @@ A `counterexample` serializes exact ABI/profile identities, concrete finite popu
 | FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
 | FR-031-AC-3 | Every serialized counterexample either reproduces through the QSL complete-V1 executor entry `value::expression::CheckedPackage::call` with the same outcome/witness or returns a typed non-success disagreement; proof, refusal, and inconclusive results never masquerade as replayed counterexamples. | Test (TC-054) |
 | FR-031-AC-4 | An evaluated witness is parsed from a backend transcript and carries the concrete values that transcript recorded, untyped; it is typed only against a schema the generator declared, and a disagreement between the two — in arity, in byte width, or with the backend's own decoded value — is a typed refusal naming its cause, never an inferred value. A transcript that witnesses reachability or a bound rather than falsity is refused as a counterexample witness. | Test (TC-221) |
+| FR-031-AC-5 | Each of the ten Kani outcome kinds maps to exactly the one FR-331 terminal result the O-16 proof column gives it (`proved`, `refuted`, `declined` ×3, `unsupported`, `incomplete` ×3, `inconclusive`), through one exhaustive map; a vacuous proof records `inconclusive`, and no kind records `tested` or `failed`. | Test (TC-223) |
 
 ## Dependencies
 
@@ -78,3 +83,6 @@ also carries `replay_with_native_runtime`, which invokes the executor itself.
 
 AC-4, the witness vocabulary, is implemented by IR #139 and verified by
 TC-221.
+
+AC-5, the proof-result map, is implemented as
+`KaniOutcomeKind::provider_result` and verified by TC-223.

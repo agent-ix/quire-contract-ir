@@ -28,6 +28,64 @@ pub enum KaniOutcomeKind {
     Inconclusive,
 }
 
+impl KaniOutcomeKind {
+    /// Every outcome kind, in declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::Proved,
+        Self::Counterexample,
+        Self::Refused,
+        Self::InvalidInput,
+        Self::IncompleteInput,
+        Self::Unavailable,
+        Self::TimedOut,
+        Self::ResourceExhausted,
+        Self::Cancelled,
+        Self::Inconclusive,
+    ];
+
+    /// The QSpec FR-331 terminal result a Kani run ending in this kind
+    /// records: QSL ADR-013's O-16 proof column, implemented here as its one
+    /// total map (C-09). The outcome's typed cause travels with the result
+    /// unchanged, so the three refusal kinds stay distinguishable inside
+    /// `declined` and the three limit kinds inside `incomplete`.
+    pub const fn provider_result(&self) -> KaniProviderResult {
+        match self {
+            Self::Proved => KaniProviderResult::Proved,
+            Self::Counterexample => KaniProviderResult::Refuted,
+            Self::Refused | Self::InvalidInput | Self::IncompleteInput => {
+                KaniProviderResult::Declined
+            }
+            Self::Unavailable => KaniProviderResult::Unsupported,
+            Self::TimedOut | Self::ResourceExhausted | Self::Cancelled => {
+                KaniProviderResult::Incomplete
+            }
+            Self::Inconclusive => KaniProviderResult::Inconclusive,
+        }
+    }
+}
+
+/// The QSpec FR-331 `results` values a Kani run can record. FR-331 has two
+/// more that no Kani outcome produces: `tested` is never a proof result, and
+/// `failed` is for an invariant breaking while mapping, which this total map
+/// cannot do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KaniProviderResult {
+    /// `proved`: the obligation was proved with at least one SUCCESS check.
+    Proved,
+    /// `refuted`: a concrete counterexample was found.
+    Refuted,
+    /// `declined`: the run refused the request; the item keeps its
+    /// `supported` disposition.
+    Declined,
+    /// `unsupported`: the solver or backend was absent after negotiation.
+    Unsupported,
+    /// `incomplete`: a timeout, a cancellation or an exhausted resource.
+    Incomplete,
+    /// `inconclusive`: no qualified interpretation, including a vacuous proof.
+    Inconclusive,
+}
+
 /// Typed output which cannot manufacture a Boolean for a non-success state.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct KaniOutcome {
