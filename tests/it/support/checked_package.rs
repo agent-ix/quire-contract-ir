@@ -463,6 +463,46 @@ fn application_key(
     sha256_hex(&canonical(&preimage))
 }
 
+/// QSpec FR-322's `quire.application-node/v1` key for a node inside a
+/// recursion group: `recursion` is `{size, ordinal}` of `node` among
+/// `group` (member node ids in graph order), and each body `reference` to a
+/// group member is keyed as `{term: "group_reference", ordinal}`. Written
+/// here from FR-322's text, independently of the reader.
+pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
+    fn rewrite(term: &Value, group: &[Value]) -> Value {
+        let mut term = term.clone();
+        if term["term"] == "reference" {
+            if let Some(ordinal) = group.iter().position(|member| *member == term["target"]) {
+                return json!({"term": "group_reference", "ordinal": ordinal});
+            }
+        }
+        for key in ["arguments", "members"] {
+            if let Some(items) = term.get(key).and_then(Value::as_array).cloned() {
+                term[key] = Value::Array(items.iter().map(|item| rewrite(item, group)).collect());
+            }
+        }
+        if term["term"] == "binding" {
+            let value = rewrite(&term["value"], group);
+            term["value"] = value;
+        }
+        term
+    }
+    let ordinal = group
+        .iter()
+        .position(|member| *member == node["node_id"])
+        .expect("node is a group member");
+    let preimage = json!({
+        "version": APPLICATION_NODE_VERSION,
+        "node_tag": node["node_tag"],
+        "semantic_form": node["semantic_form"],
+        "semantic_type": node["semantic_type"],
+        "declaration": node.get("declaration").cloned().unwrap_or(Value::Null),
+        "recursion": {"size": group.len(), "ordinal": ordinal},
+        "body": rewrite(&node["body"], group),
+    });
+    sha256_hex(&canonical(&preimage))
+}
+
 /// The exact 64-hex-digit node key this generator assigns to a family or
 /// supporting node's `prefix` in [`build_v2_all_families`]: `prefix.repeat(16)`
 /// for every plain node, except the four whose body is a real `application`

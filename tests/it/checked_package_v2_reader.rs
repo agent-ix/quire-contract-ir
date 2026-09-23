@@ -2202,6 +2202,67 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
             "semantic_graph.nodes.declaration",
             Some(CheckedPackageRefusalCause::AmbiguousName),
             first.min(second).as_str(),
+
+/// The first `reference` target anywhere in a body term.
+fn first_reference(term: &Value) -> Option<Value> {
+    if term["term"] == "reference" {
+        return Some(term["target"].clone());
+    }
+    ["arguments", "members"]
+        .iter()
+        .filter_map(|key| term.get(*key).and_then(Value::as_array))
+        .flatten()
+        .chain(term.get("value"))
+        .find_map(first_reference)
+}
+
+/// Tracing: TC-048, FR-038-AC-17
+#[trace("TC-048", "FR-038-AC-17")]
+#[test]
+fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
+    let base = v2_all_families();
+    let nodes = base["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let function = nodes
+        .iter()
+        .position(|node| node["node_id"]["digest"] == json!(checked_package::family_key("ffff")))
+        .expect("function application node");
+    let target = first_reference(&nodes[function]["body"]).expect("the call references a node");
+    let referenced = nodes
+        .iter()
+        .position(|node| node["node_id"] == target)
+        .expect("referenced node");
+    // Put the application node and the node it references in one group.
+    let mut grouped = base.clone();
+    for position in [function, referenced] {
+        grouped["semantic_graph"]["nodes"][position]["recursion_group"] = json!("g");
+    }
+    let group = [function.min(referenced), function.max(referenced)]
+        .map(|position| grouped["semantic_graph"]["nodes"][position]["node_id"].clone());
+    let stale = grouped["semantic_graph"]["nodes"][function]["node_id"].clone();
+    let fresh_digest = checked_package::application_key_in_group(
+        &grouped["semantic_graph"]["nodes"][function],
+        &group,
+    );
+    let mut fresh = stale.clone();
+    fresh["digest"] = json!(fresh_digest);
+    replace_everywhere(&mut grouped, &stale, &fresh);
+    refresh_identity(&mut grouped);
+    admitted(&grouped);
+
+    // A key derived as if the node were outside any group is stale once it
+    // joins one.
+    let mut bare = base.clone();
+    for position in [function, referenced] {
+        bare["semantic_graph"]["nodes"][position]["recursion_group"] = json!("g");
+    }
+    refresh_identity(&mut bare);
+    assert_eq!(
+        refused(&bare, &evidence_for(&bare)),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            "semantic_graph.nodes.node_id",
+            Some(CheckedPackageRefusalCause::StaleNodeKey),
+            &checked_package::family_key("ffff"),
         )
     );
 }
