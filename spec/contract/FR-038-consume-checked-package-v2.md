@@ -77,12 +77,14 @@ they supplied are open work on agent-ix/quire-contract-ir#166.
 ## Behavior
 
 The reader shall measure raw bytes against the byte limit, parse strict JSON
-once (duplicate members refuse, nesting charged against the depth limit),
+(duplicate members refuse, nesting charged against the depth limit, a document
+at the limit admitted),
 require canonical bytes, and read `contract_version` exactly once. Depth counts
 each container as one level and a scalar value as one level below its
 container, so `[]` is depth 1 and `[1]` and `{"a":1}` are depth 2. The strict
 syntax and member validation that measures depth builds no value and runs on a
-stack grown onto the heap, so a syntax or duplicate-member defect anywhere in
+stack grown onto the heap, with memory bounded by the byte limit, so a syntax
+or duplicate-member defect anywhere in
 the document refuses before depth is charged, however deep the document is,
 and the JSON parser's own nesting cap never decides the outcome. A document
 deeper than the depth limit then returns `incomplete` with its measured depth.
