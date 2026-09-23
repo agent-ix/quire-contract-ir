@@ -50,6 +50,14 @@ identities, per-case outputs, checksum graph, findings, and limitations.
 
 ## Interpretation
 
+The `proportion` estimate is exactly matched expectations divided by declared
+expectations. A declared fixture that is missing, or a canonical byte or digest
+that drifts from its golden, is an unmatched expectation. The candidate gate
+fails when `statistical_design.decision_rule` does not hold, and it also fails
+on any requirement criterion without a backing test or any unresolved blocking
+review finding; those two conditions are checked alongside the ratio because
+they are not expectations and never enter its denominator.
+
 The target is 100% expectation match, 100% trace backing, zero orphan false
 coverage, zero public panic, and zero unresolved blocking finding. A skipped
 platform, unavailable external service, or disabled CI remains explicit and

@@ -40,4 +40,6 @@ For every matrix entry, execute its declared native and Kani corpus cases twice 
 
 ## Interpretation
 
+The `proportion` estimate is cases with exact per-case agreement divided by declared cases, reported separately for each typed outcome kind. A case agrees only when its classification and outcome match the matrix, its artifact/provenance identity matches the declared digests, it assumed nothing about invalid input, and native replay agrees. A declared matrix entry with no executed case counts as a disagreeing case, never as an omission from the denominator.
+
 The target is exact matrix parity and exact counterexample replay agreement. Any non-success outcome is retained as that outcome; it is neither omitted nor counted as Boolean proof. Only the named human owner judges sufficiency.
