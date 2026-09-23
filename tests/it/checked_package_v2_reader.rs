@@ -2014,3 +2014,107 @@ fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
         )
     );
 }
+
+fn digest_of(node: &Value) -> String {
+    node["node_id"]["digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned()
+}
+
+/// Tracing: TC-048, FR-038-AC-21
+#[trace("TC-048", "FR-038-AC-21")]
+#[test]
+fn tc_048_declared_name_must_equal_its_nominal_preimage_name() {
+    // Node 1 of the nominal fixture is the enum declaration; its preimage
+    // fixes `qualified_declaration`, so its declared name must equal it.
+    let mut value = v2_nominal();
+    let declaration = 1;
+    value["semantic_graph"]["nodes"][declaration]["declaration"]["qualified_name"] =
+        json!(["Example", "Renamed"]);
+    refresh_identity(&mut value);
+    assert_eq!(
+        refused(&value, &evidence_for(&value)),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            "semantic_graph.nodes.declaration",
+            Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
+            &digest_of(&value["semantic_graph"]["nodes"][declaration]),
+        )
+    );
+}
+
+/// The nominal fixture with its dimension renamed to its unit's declared name,
+/// re-keyed through every dependant so every nominal join still holds: the
+/// only remaining defect is two nodes declaring one name. Returns the package
+/// and the two nodes' key digests.
+fn with_shared_name() -> (Value, [String; 2]) {
+    let version = |preimage: &Value| preimage["version"].as_str().map(str::to_owned);
+    let mut members = nominal_fixture_members();
+    // Dependency order, so one rekey pass carries the rename to every
+    // dependant: a unit names its dimension's key.
+    let order = [
+        "quire.enum-declaration-node/v1",
+        "quire.enum-member-node/v1",
+        "quire.dimension-node/v1",
+        "quire.unit-node/v1",
+    ];
+    members.sort_by_key(|(preimage, _)| {
+        order
+            .iter()
+            .position(|kind| version(preimage).as_deref() == Some(*kind))
+            .expect("known nominal kind")
+    });
+    let unit_name = members[3].0["qualified_declaration"].clone();
+    members[2].0["qualified_declaration"] = unit_name;
+    let (mut preimages, keys): (Vec<_>, Vec<_>) = members.into_iter().unzip();
+    let fresh = rekey(&mut preimages, &keys);
+    let digests = [fresh[2].clone(), fresh[3].clone()];
+    let mut value = nominal_package(&preimages.into_iter().zip(fresh).collect::<Vec<_>>());
+    refresh_identity(&mut value);
+    (value, digests)
+}
+
+/// Tracing: TC-048, FR-038-AC-21
+#[trace("TC-048", "FR-038-AC-21")]
+#[test]
+fn tc_048_two_nodes_declaring_one_name_refuse_as_ambiguous() {
+    let (value, digests) = with_shared_name();
+    let least = digests.iter().min().expect("two digests");
+    assert_eq!(
+        refused(&value, &evidence_for(&value)),
+        refusal_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            "semantic_graph.nodes.declaration",
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            least,
+        )
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-21
+#[trace("TC-048", "FR-038-AC-21")]
+#[test]
+fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
+    // Both defects at once: the shared name, and the enum declaration's
+    // declared name moved off its preimage's. The nominal join runs first.
+    let (mut value, _) = with_shared_name();
+    let declaration = value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["semantic_form"] == json!("enum"))
+        .expect("enum declaration");
+    value["semantic_graph"]["nodes"][declaration]["declaration"]["qualified_name"] =
+        json!(["Example", "Renamed"]);
+    refresh_identity(&mut value);
+    assert_eq!(
+        refused(&value, &evidence_for(&value)),
+        refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            "semantic_graph.nodes.declaration",
+            Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
+            &digest_of(&value["semantic_graph"]["nodes"][declaration]),
+        )
+    );
+}
