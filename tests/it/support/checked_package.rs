@@ -27,7 +27,7 @@ use quire_contract_ir::{
     CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, EvidenceRefusal,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -170,12 +170,24 @@ pub fn locked_artifacts(package: &Value) -> Vec<Value> {
 
 /// Attested evidence for every locked artifact plus the complete-value feature.
 pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
+    evidence_for_except(package, &Value::Null)
+}
+
+/// [`evidence_for`] without an attestation for `skipped`, a locked artifact,
+/// so a test can attest that locator itself (evidence holds one digest per
+/// locator).
+pub fn evidence_for_except(package: &Value, skipped: &Value) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
     for artifact in locked_artifacts(package) {
-        evidence.insert_artifact_digest(
-            locator(&artifact),
-            artifact["digest"].as_str().expect("artifact digest"),
-        );
+        if artifact == *skipped {
+            continue;
+        }
+        evidence
+            .insert_artifact_digest(
+                locator(&artifact),
+                artifact["digest"].as_str().expect("artifact digest"),
+            )
+            .expect("a fixture attests each locked artifact once");
     }
     // A lock's compiled-model selections are `sha256-jcs` domain packages,
     // typed separately from raw byte artifacts.
@@ -185,7 +197,14 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
         .unwrap_or_default()
     {
         let digest = model["digest"].as_str().expect("model digest");
-        evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
+        // Evidence holds one digest per locator. A lock that selects one
+        // package twice with different digests (a defect some tests build)
+        // is attested for its first selection only; the reader refuses the
+        // lock itself before evidence decides anything.
+        match evidence.insert_domain_package_digest(domain_package_locator(&model), digest) {
+            Ok(()) | Err(EvidenceRefusal::ConflictingAttestation) => {}
+            Err(EvidenceRefusal::MalformedDigest) => panic!("fixture digest {digest} is malformed"),
+        }
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence
