@@ -53,7 +53,12 @@ dependency sets, and coverage classifications.
 
 ## Behavior
 
-The stable v0.1 surface is the public API re-exported by `quire_contract_ir`.
+The stable v0.1 surface is the public API re-exported by `quire_contract_ir`
+in a default-feature build. The model crate's `fault-injection` feature is
+test-only and outside that surface: it exposes `MappingAllocationPoint` and
+`MappingExecutionControl::fail_allocation_at`, which inject one deterministic
+allocation failure so the integration tests can qualify all-or-nothing output
+mapping, and only this package's own dev-dependency enables it.
 Serde deserialization trait implementations are not part of that surface:
 untrusted package JSON enters through `ContractPackage::from_json_str` or
 `from_json_bytes`, while validated values remain serializable.

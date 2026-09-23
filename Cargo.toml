@@ -32,6 +32,7 @@ tl-syntax = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-syntax",
 tl-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-mltl", rev = "22862189ac4eb515ab84928faec25b2eac47d835" }
 
 [dev-dependencies]
+quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", tag = "v0.1.1" }
 jsonschema = { version = "=0.17.1", default-features = false }
 quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "53cc03c639e2e26528132d34d96dc56449df78e8" }
