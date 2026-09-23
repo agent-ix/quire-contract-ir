@@ -22,6 +22,8 @@ statistical_design:
     comparator: ge
     threshold: 1.0
 protected_apparatus:
+  - Makefile
+  - tests/it/main.rs
   - tests/it/kani_shared.rs
   - tests/it/kani_arithmetic.rs
   - tests/it/kani_objects.rs
@@ -32,21 +34,27 @@ protected_apparatus:
 negative_controls:
   - kind: apparatus-edit
     description: >-
-      the per-family Kani proof harnesses and their native-model and
-      concrete-playback fixtures are protected, so editing one alongside the
-      change it grades changes the recorded digests the exact
-      executable/options binding is compared against
+      the Makefile test recipe, the integration-test module list, the
+      shared and per-family bounded-Kani contract tests that declare the
+      profile matrix and its cases, and the native-model and captured
+      concrete-playback fixtures that replay is checked against are
+      protected, so editing one alongside the change it grades changes the
+      recorded digests; the `src/kani` implementation is the subject under
+      measurement and is deliberately not protected
   - kind: suppressed-observation
     description: >-
       a declared profile-matrix entry with no executed case counts as a
-      disagreeing case rather than an omission from the denominator, so
-      skipping a matrix entry lowers the ratio instead of leaving it
-      unaffected
+      disagreeing case rather than an omission from the denominator, and the
+      matrix, its cases and the module list that compiles each family's tests
+      are protected apparatus, so skipping a matrix entry or dropping a whole
+      family lowers the ratio or registers as an apparatus change instead of
+      leaving the ratio unaffected
   - kind: selective-reporting
     description: >-
-      every matrix entry's native and Kani corpus cases must run twice with
-      the exact executable/options digests recorded, so a clean repetition
-      cannot be reported in place of one that disagreed
+      the proportion is taken over both repetitions of every matrix entry's
+      native and Kani corpus cases together
+      (`statistical_design.repetitions: 2`), so a clean repetition cannot be
+      reported in place of one that disagreed
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-002
     type: measures

@@ -24,6 +24,8 @@ statistical_design:
 protected_apparatus:
   - Makefile
   - src/bin/quire-contract-conformance.rs
+  - crates/quire-contract-model/src/conformance.rs
+  - schemas/conformance-trace-map-v1.json
   - scripts/generate_conformance_corpus.py
   - corpus/contract-v0.1/manifest.json
   - corpus/contract-v0.1/inventory.json
@@ -34,10 +36,15 @@ protected_apparatus:
 negative_controls:
   - kind: apparatus-edit
     description: >-
-      the conformance runner, the corpus-generating script, the manifest, and
-      every authored input, expectation, canonical byte file, and schema carry
-      adjacent SHA-256 sidecars, so editing the harness or any corpus file
-      alongside the change it grades changes the recorded digests
+      the Makefile recipe, the runner binary and the model crate's
+      conformance module that reads the manifest, derives observed coverage
+      and compares expectations, the embedded coverage-to-criterion trace map,
+      the corpus-generating script, and every manifest, inventory, input,
+      expectation, canonical byte file and schema are protected, so editing
+      one alongside the change it grades changes the recorded digests; the
+      manifest also pins the SHA-256 of each schema, inventory, input,
+      expectation and canonical byte file, and the runner refuses a corpus
+      file whose bytes no longer match its pinned digest
   - kind: suppressed-observation
     description: >-
       the runner derives observable coverage from each fixture's declarative
@@ -47,8 +54,9 @@ negative_controls:
   - kind: selective-reporting
     description: >-
       the complete conformance runner is required to run twice
-      (`statistical_design.repetitions: 2`), so a clean repetition cannot be
-      reported in place of one that produced an unmatched expectation
+      (`statistical_design.repetitions: 2`) and exits non-zero when any
+      fixture mismatches, so a clean repetition cannot be reported in place of
+      one that produced an unmatched expectation
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AP-001
     type: measures
