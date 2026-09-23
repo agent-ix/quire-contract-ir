@@ -2221,38 +2221,77 @@ fn first_reference(term: &Value) -> Option<Value> {
 #[test]
 fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
     let base = v2_all_families();
-    let nodes = base["semantic_graph"]["nodes"].as_array().expect("nodes");
-    let function = nodes
-        .iter()
-        .position(|node| node["node_id"]["digest"] == json!(checked_package::family_key("ffff")))
-        .expect("function application node");
-    let target = first_reference(&nodes[function]["body"]).expect("the call references a node");
-    let referenced = nodes
-        .iter()
-        .position(|node| node["node_id"] == target)
-        .expect("referenced node");
-    // Put the application node and the node it references in one group.
-    let mut grouped = base.clone();
-    for position in [function, referenced] {
-        grouped["semantic_graph"]["nodes"][position]["recursion_group"] = json!("g");
-    }
-    let group = [function.min(referenced), function.max(referenced)]
-        .map(|position| grouped["semantic_graph"]["nodes"][position]["node_id"].clone());
-    let stale = grouped["semantic_graph"]["nodes"][function]["node_id"].clone();
-    let fresh_digest = checked_package::application_key_in_group(
-        &grouped["semantic_graph"]["nodes"][function],
-        &group,
-    );
-    let mut fresh = stale.clone();
-    fresh["digest"] = json!(fresh_digest);
-    replace_everywhere(&mut grouped, &stale, &fresh);
-    refresh_identity(&mut grouped);
-    admitted(&grouped);
+    let position_of = |value: &Value, test: &dyn Fn(&Value) -> bool| {
+        value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(test)
+            .expect("node")
+    };
+    let function_key = json!(checked_package::family_key("ffff"));
+    let function = position_of(&base, &|node| node["node_id"]["digest"] == function_key);
+    let target = first_reference(&base["semantic_graph"]["nodes"][function]["body"])
+        .expect("the call references a node");
+    // Groups the application node with the node it calls, placing the
+    // application first or second in graph order, and re-keys it by FR-322.
+    // Returns the package and the group's key digests in graph order.
+    let grouped = |application_first: bool| {
+        let mut value = base.clone();
+        let nodes = value["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        let function = nodes
+            .iter()
+            .position(|node| node["node_id"]["digest"] == function_key)
+            .expect("function");
+        let referenced = nodes
+            .iter()
+            .position(|node| node["node_id"] == target)
+            .expect("referenced");
+        if (function < referenced) != application_first {
+            nodes.swap(function, referenced);
+        }
+        let (function, referenced) = (function.min(referenced), function.max(referenced));
+        let (function, referenced) = if application_first {
+            (function, referenced)
+        } else {
+            (referenced, function)
+        };
+        for position in [function, referenced] {
+            nodes[position]["recursion_group"] = json!("g");
+        }
+        let group = [function.min(referenced), function.max(referenced)]
+            .map(|position| nodes[position]["node_id"].clone());
+        let stale = nodes[function]["node_id"].clone();
+        let fresh_digest = checked_package::application_key_in_group(&nodes[function], &group);
+        let mut fresh = stale.clone();
+        fresh["digest"] = json!(fresh_digest);
+        replace_everywhere(&mut value, &stale, &fresh);
+        refresh_identity(&mut value);
+        let nodes = value["semantic_graph"]["nodes"].as_array().expect("nodes");
+        let in_graph_order = [function.min(referenced), function.max(referenced)]
+            .map(|position| digest_of(&nodes[position]));
+        (value, in_graph_order)
+    };
+    // FR-322 orders a group by graph position, not by key. Use the placement
+    // whose graph order disagrees with digest order, so ordering the group by
+    // key instead would derive a different key and refuse.
+    let (value, order) = [true, false]
+        .into_iter()
+        .map(grouped)
+        .find(|(_, order)| order[0] > order[1])
+        .expect("one placement puts the higher digest first in graph order");
+    assert!(order[0] > order[1]);
+    admitted(&value);
 
     // A key derived as if the node were outside any group is stale once it
     // joins one.
     let mut bare = base.clone();
-    for position in [function, referenced] {
+    for position in [
+        function,
+        position_of(&base, &|node| node["node_id"] == target),
+    ] {
         bare["semantic_graph"]["nodes"][position]["recursion_group"] = json!("g");
     }
     refresh_identity(&mut bare);
@@ -2265,4 +2304,11 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             &checked_package::family_key("ffff"),
         )
     );
+}
+
+fn digest_of(node: &Value) -> String {
+    node["node_id"]["digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned()
 }

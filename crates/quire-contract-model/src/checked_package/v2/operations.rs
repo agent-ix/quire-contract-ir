@@ -1355,8 +1355,16 @@ mod tests {
         let one = typed(&key(1));
         let group = [&one, &node.node_id];
         let preimage = application_preimage(&node, &group).expect("preimage");
-        let three = serde_json::to_string(&node_ref(3)).expect("ref");
-        let nine = serde_json::to_string(&node_ref(9)).expect("ref");
+        // Spelled literally, as quire-spec-language's own vector does, rather
+        // than produced by the serializer under test.
+        let literal_ref = |fill: u8| {
+            format!(
+                r#"{{"digest":"{}","domain":"quire.checked-semantic-node/v1"}}"#,
+                key(fill)
+            )
+        };
+        let three = literal_ref(3);
+        let nine = literal_ref(9);
         let expected = format!(
             concat!(
                 r#"{{"body":{{"arguments":[{{"ordinal":0,"term":"group_reference"}},"#,

@@ -451,18 +451,37 @@ fn application_key(
     semantic_type: &Value,
     body: &Value,
 ) -> String {
+    application_preimage_key(
+        node_tag,
+        semantic_form,
+        semantic_type,
+        &Value::Null,
+        &Value::Null,
+        body,
+    )
+}
+
+/// SHA-256 of the RFC-8785 bytes of FR-322's `quire.application-node/v1`
+/// preimage, the one builder both fixture keys and grouped keys use.
+fn application_preimage_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: &Value,
+    declaration: &Value,
+    recursion: &Value,
+    body: &Value,
+) -> String {
     let preimage = json!({
         "version": APPLICATION_NODE_VERSION,
         "node_tag": node_tag,
         "semantic_form": semantic_form,
         "semantic_type": semantic_type,
-        "declaration": Value::Null,
-        "recursion": Value::Null,
+        "declaration": declaration,
+        "recursion": recursion,
         "body": body,
     });
     sha256_hex(&canonical(&preimage))
 }
-
 /// QSpec FR-322's `quire.application-node/v1` key for a node inside a
 /// recursion group: `recursion` is `{size, ordinal}` of `node` among
 /// `group` (member node ids in graph order), and each body `reference` to a
@@ -491,16 +510,14 @@ pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
         .iter()
         .position(|member| *member == node["node_id"])
         .expect("node is a group member");
-    let preimage = json!({
-        "version": APPLICATION_NODE_VERSION,
-        "node_tag": node["node_tag"],
-        "semantic_form": node["semantic_form"],
-        "semantic_type": node["semantic_type"],
-        "declaration": node.get("declaration").cloned().unwrap_or(Value::Null),
-        "recursion": {"size": group.len(), "ordinal": ordinal},
-        "body": rewrite(&node["body"], group),
-    });
-    sha256_hex(&canonical(&preimage))
+    application_preimage_key(
+        node["node_tag"].as_str().expect("tag"),
+        node["semantic_form"].as_str().expect("form"),
+        &node["semantic_type"],
+        &node.get("declaration").cloned().unwrap_or(Value::Null),
+        &json!({"size": group.len(), "ordinal": ordinal}),
+        &rewrite(&node["body"], group),
+    )
 }
 
 /// The exact 64-hex-digit node key this generator assigns to a family or
