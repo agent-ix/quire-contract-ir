@@ -120,6 +120,7 @@ closed_vocabulary! {
         Dimension => "dimension",
         Unit => "unit",
         Enum => "enum",
+        CompoundUnit => "compound_unit",
     }
 }
 
@@ -160,6 +161,7 @@ closed_vocabulary! {
         RecordValue => "record_value",
         TupleValue => "tuple_value",
         OptionValue => "option_value",
+        Parameter => "parameter",
     }
 }
 

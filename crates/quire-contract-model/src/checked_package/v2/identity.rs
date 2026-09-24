@@ -173,7 +173,8 @@ impl NominalKind {
                 | ScalarTypeForm::Decimal
                 | ScalarTypeForm::Float32
                 | ScalarTypeForm::Float64
-                | ScalarTypeForm::Text,
+                | ScalarTypeForm::Text
+                | ScalarTypeForm::CompoundUnit,
             ) => None,
             K::CompositeType(
                 CompositeTypeForm::Option
@@ -200,7 +201,8 @@ impl NominalKind {
                 | ValueForm::CollectionValue
                 | ValueForm::RecordValue
                 | ValueForm::TupleValue
-                | ValueForm::OptionValue,
+                | ValueForm::OptionValue
+                | ValueForm::Parameter,
             ) => None,
             K::Expression(
                 ExpressionForm::Reference

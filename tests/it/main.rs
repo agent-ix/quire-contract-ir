@@ -18,6 +18,7 @@ mod support;
 mod canonicalization;
 mod checked_package_v2_frame_bodies;
 mod checked_package_v2_lowering;
+mod checked_package_v2_qsl_parameters;
 mod checked_package_v2_reader;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;

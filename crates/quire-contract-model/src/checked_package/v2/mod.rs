@@ -12,6 +12,7 @@ mod lower;
 mod natural;
 mod operation_catalog;
 mod operations;
+mod structural;
 mod vocabulary;
 
 pub use identity::*;
@@ -19,6 +20,7 @@ pub use lower::*;
 pub use vocabulary::*;
 
 use operations::{validate_application_keys, validate_operations};
+use structural::validate_structural_nodes;
 
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
@@ -802,6 +804,8 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum,
         ) => false,
+        // QSL FR-094: a compound unit is anonymous and never declares.
+        K::ScalarType(ScalarTypeForm::CompoundUnit) => true,
         K::CompositeType(
             CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -822,7 +826,9 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | BoundedDomainForm::CollectionBounds
             | BoundedDomainForm::ModelPopulation,
         ) => false,
-        K::Value(ValueForm::EnumValue) => true,
+        // QSL FR-092: a parameter names its binder's value; it declares no
+        // name of its own.
+        K::Value(ValueForm::EnumValue | ValueForm::Parameter) => true,
         K::Value(
             ValueForm::Literal
             | ValueForm::CollectionValue
@@ -965,7 +971,8 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Text
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
-            | ScalarTypeForm::Enum,
+            | ScalarTypeForm::Enum
+            | ScalarTypeForm::CompoundUnit,
         ) => false,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -993,7 +1000,8 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
-            | ValueForm::OptionValue,
+            | ValueForm::OptionValue
+            | ValueForm::Parameter,
         ) => false,
         K::Expression(
             ExpressionForm::Reference
@@ -1249,7 +1257,8 @@ fn frame_eligibility(kind: CheckedNodeKind) -> FrameEligibility {
             | ScalarTypeForm::Text
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
-            | ScalarTypeForm::Enum,
+            | ScalarTypeForm::Enum
+            | ScalarTypeForm::CompoundUnit,
         ) => NONE,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -1277,7 +1286,8 @@ fn frame_eligibility(kind: CheckedNodeKind) -> FrameEligibility {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
-            | ValueForm::OptionValue,
+            | ValueForm::OptionValue
+            | ValueForm::Parameter,
         ) => NONE,
         K::Expression(
             ExpressionForm::Reference
@@ -1669,6 +1679,10 @@ fn validate_graph(
     // resolves each entry itself), not the generic unresolved-reference
     // `invalid_semantic_graph` the edge-resolution loop below would raise for
     // the same node first if it ran first.
+    // Graph-shape body and dependency rules FR-322 orders before the
+    // stale-key stage: the structural forms' bodies and the
+    // application-node dependency join.
+    validate_structural_nodes(&graph.nodes, &kinds, &index)?;
     validate_application_keys(&graph.nodes, &index, meter)?;
     validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     validate_declaration_names(&graph.nodes, &index)?;
@@ -1956,7 +1970,7 @@ mod tests {
         let kinds = CheckedNodeKind::all();
         assert_eq!(
             kinds.len(),
-            98,
+            100,
             "the closed form set changed; decide its frame eligibility"
         );
         let admitted = FrameMember::ALL

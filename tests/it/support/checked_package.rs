@@ -74,7 +74,7 @@ pub fn all_families_read_work() -> u64 {
 /// `all_families_read_work() == ALL_FAMILIES_READ_WORK`, so a future change
 /// to `v2/lower.rs`'s charge model that moves the real boundary is caught
 /// here instead of silently absorbed by a measurement that moves with it.
-pub const ALL_FAMILIES_READ_WORK: u64 = 77;
+pub const ALL_FAMILIES_READ_WORK: u64 = 78;
 
 pub fn v2_all_families() -> Value {
     build_v2_all_families()
@@ -1073,7 +1073,9 @@ fn build_v2_all_families() -> Value {
             function_call_body()["operation"].clone(),
             &aaaa,
             vec![json!({"term": "reference", "target": node_id(&f8080)})],
-            &[],
+            // FR-322's application-node join: exactly the body's reference
+            // targets.
+            &[f8080.as_str()],
         ),
         plain_node(
             &f1010,
@@ -1267,7 +1269,7 @@ fn build_operation_identities() -> Value {
         }),
         &root,
         vec![json!({"term": "reference", "target": node_id(&func)})],
-        &[root.as_str()],
+        &[func.as_str()],
     );
 
     let nodes = vec![

@@ -514,7 +514,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Text
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
-        K::ScalarType(ScalarTypeForm::Dimension | ScalarTypeForm::Unit) => None,
+        K::ScalarType(
+            ScalarTypeForm::Dimension | ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit,
+        ) => None,
         K::CompositeType(
             form @ (CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -568,7 +570,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
-            | ValueForm::OptionValue,
+            | ValueForm::OptionValue
+            | ValueForm::Parameter,
         ) => None,
         K::Model(
             ModelForm::ModelImport
@@ -645,7 +648,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Text
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
-            | ScalarTypeForm::Enum,
+            | ScalarTypeForm::Enum
+            | ScalarTypeForm::CompoundUnit,
         ) => true,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -673,7 +677,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
-            | ValueForm::OptionValue,
+            | ValueForm::OptionValue
+            | ValueForm::Parameter,
         ) => false,
         K::Expression(ExpressionForm::Reference) => true,
         K::Expression(
@@ -1464,7 +1469,7 @@ mod tests {
             ]
         );
         // Type-shaped is the five type families, every form of each, plus
-        // the `reference` expression; checked for every one of the 98 kinds,
+        // the `reference` expression; checked for every one of the 100 kinds,
         // so flipping any single form is caught.
         for kind in CheckedNodeKind::all() {
             let expected = matches!(
