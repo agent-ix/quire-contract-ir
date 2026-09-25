@@ -42,5 +42,6 @@ mod kani_shared;
 mod output_mapping;
 mod predicate_projection;
 mod predicate_valuation;
+mod string_edge;
 mod temporal_projection;
 mod toolchain_policy;

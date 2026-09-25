@@ -24,10 +24,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exact_members, exceeds, first_difference,
-    is_digest, is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
-    validate_term, visit_reference, ReferenceMember, ReferenceSite, ReferenceVisitor, Step,
-    TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    body_term, canonical_value, count, decode_closed, digest_json, exact_members, exceeds,
+    first_difference, is_digest, is_nonempty, node_pointer, validate_locked_artifact,
+    validate_source_map_entries, validate_term, visit_reference, ReferenceMember, ReferenceSite,
+    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -540,6 +540,7 @@ impl CheckedPackageV2 {
     }
 
     /// Selects V2 exactly, decodes the closed wire, and validates it.
+    // string-edge: intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
         value: Value,
         limits: CheckedPackageReadLimits,
@@ -629,11 +630,10 @@ impl CheckedPackageV2 {
     }
 }
 
-fn validate(
-    wire: &CheckedPackageWireV2,
-    limits: CheckedPackageReadLimits,
-    evidence: &CheckedPackageEvidence,
-) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
+/// Checks the package's fixed wire tags: contract version, digest domain,
+/// digest algorithm and identity preimage version.
+// string-edge: intake: checks the fixed version, domain and algorithm tags of the package.
+fn check_package_header(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
         return Err(ValidationFailure::unknown_contract_version(
             &wire.contract_version,
@@ -663,6 +663,15 @@ fn validate(
             member_pointer(&["identity_preimage", "version"]),
         ));
     }
+    Ok(())
+}
+
+fn validate(
+    wire: &CheckedPackageWireV2,
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
+    check_package_header(wire)?;
     let unserializable = |_| {
         refuse(
             CheckedPackageRefusalCode::MalformedWire,
@@ -886,6 +895,7 @@ fn validate_lock(
 /// predecessor refuses `invalid_package` / `invalid-value` at that entry.
 /// The identity preimage's copy equals the lock's (checked by the caller),
 /// so only the lock is checked.
+// string-edge: intake: checks the fixed domain and algorithm tags of each selection.
 fn validate_dependency_selections(
     selections: &[CheckedDependencySelection],
 ) -> Result<(), ValidationFailure> {
@@ -977,6 +987,7 @@ fn validate_unexported(
 /// but naming different digests are one locator selected twice: the later
 /// row refuses `stale_dependency` at its `digest`, whatever documents the
 /// caller supplied.
+// string-edge: intake: checks the fixed digest domain of each domain package selection.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
@@ -1044,6 +1055,7 @@ fn validate_domain_packages(
 
 /// Requires a node key in the node domain with a lowercase digest; `at`
 /// names the key.
+// string-edge: intake: checks the fixed domain tag of a node id.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
@@ -1408,7 +1420,7 @@ fn validate_frame_body(body: &Value, at: &Trail<'_>) -> Result<u64, ValidationFa
             at.pointer(),
         ));
     }
-    if object.get("term").and_then(Value::as_str) != Some("frame") {
+    if body_term(body) != Some(BodyTerm::Frame) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key("term").pointer(),
@@ -1937,6 +1949,44 @@ fn body_reference_pointer(
     found.unwrap_or_else(|| node_pointer(position).key("body"))
 }
 
+/// Checks the graph's fixed version tag.
+// string-edge: intake: checks the fixed graph version tag.
+fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationFailure> {
+    if graph.graph_version.as_ref() != GRAPH_V2 {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            member_pointer(&["semantic_graph", "graph_version"]),
+        ));
+    }
+    Ok(())
+}
+
+/// Checks a node's fixed schema version and decodes its tag and form once.
+// string-edge: intake: checks the fixed schema version and decodes the node tag and form.
+fn decode_node_kind(
+    node: &CheckedSemanticNodeV2,
+    at: impl Fn(&str) -> JsonPointer,
+) -> Result<CheckedNodeKind, ValidationFailure> {
+    if node.schema_version.as_ref() != GRAPH_V2 {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at("schema_version"),
+        ));
+    }
+    let Some(tag) = CheckedNodeTag::from_wire(&node.node_tag) else {
+        return Err(refuse(
+            CheckedPackageRefusalCode::UnsupportedNodeTag,
+            at("node_tag"),
+        ));
+    };
+    CheckedNodeKind::decode(tag, &node.semantic_form).ok_or_else(|| {
+        refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at("semantic_form"),
+        )
+    })
+}
+
 fn validate_graph(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -1944,12 +1994,7 @@ fn validate_graph(
     models: &[DomainModel],
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let graph = &wire.semantic_graph;
-    if graph.graph_version.as_ref() != GRAPH_V2 {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            member_pointer(&["semantic_graph", "graph_version"]),
-        ));
-    }
+    check_graph_version(graph)?;
     if graph.nodes.is_empty() {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -1981,24 +2026,7 @@ fn validate_graph(
                 at("node_id"),
             ));
         }
-        if node.schema_version.as_ref() != GRAPH_V2 {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("schema_version"),
-            ));
-        }
-        let Some(tag) = CheckedNodeTag::from_wire(&node.node_tag) else {
-            return Err(refuse(
-                CheckedPackageRefusalCode::UnsupportedNodeTag,
-                at("node_tag"),
-            ));
-        };
-        let Some(kind) = CheckedNodeKind::decode(tag, &node.semantic_form) else {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("semantic_form"),
-            ));
-        };
+        let kind = decode_node_kind(node, at)?;
         kinds.push(kind);
         validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
         validate_node_id(&node.semantic_type, || at("semantic_type"))?;

@@ -198,6 +198,7 @@ impl JsonPointer {
 
     /// Parses an RFC 6901 pointer: empty, or `/`-prefixed reference tokens in
     /// which every `~` begins `~0` or `~1`.
+    // string-edge: parses the RFC 6901 pointer text of a refusal.
     pub fn parse(pointer: &str) -> Option<Self> {
         if !pointer.is_empty() && !pointer.starts_with('/') {
             return None;

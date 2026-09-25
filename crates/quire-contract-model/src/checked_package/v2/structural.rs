@@ -37,13 +37,14 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
+use super::{BodyTerm, LiteralKind};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ClaimForm,
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     NominalIdentityPreimage, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
     ValueForm,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::{body_term, literal_kind, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -293,11 +294,11 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<D
         return Some(Defect::Body);
     };
     let name_ok = binding(name, "name")
-        .and_then(|value| literal(value, "text", ScalarTypeForm::Text, graph))
+        .and_then(|value| literal(value, LiteralKind::Text, ScalarTypeForm::Text, graph))
         .and_then(Value::as_str)
         .is_some_and(|text| !text.is_empty());
     let level_ok = binding(level, "level")
-        .and_then(|value| literal(value, "integer", ScalarTypeForm::Integer, graph))
+        .and_then(|value| literal(value, LiteralKind::Integer, ScalarTypeForm::Integer, graph))
         .and_then(Value::as_str)
         .is_some_and(is_non_negative_integer);
     if !name_ok {
@@ -357,7 +358,7 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
             )
     });
     let exponent_ok = binding(exponent, "exponent")
-        .and_then(|value| literal(value, "integer", ScalarTypeForm::Integer, graph))
+        .and_then(|value| literal(value, LiteralKind::Integer, ScalarTypeForm::Integer, graph))
         .and_then(Value::as_str)
         .is_some_and(is_nonzero_integer);
     (is_root_unit && exponent_ok).then_some(unit)
@@ -376,13 +377,13 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
         let Some(object) = term.as_object() else {
             continue;
         };
-        match object.get("term").and_then(Value::as_str) {
-            Some("reference") => {
+        match body_term(term) {
+            Some(BodyTerm::Reference) => {
                 if let Some(target) = reference_target(term) {
                     join.insert(target);
                 }
             }
-            Some("application") => {
+            Some(BodyTerm::Application) => {
                 contains_application = true;
                 let declaration = object
                     .get("operation")
@@ -394,11 +395,12 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
                 join.extend(declaration);
                 pending.extend(terms(object, "arguments"));
             }
-            Some("aggregate") => pending.extend(terms(object, "members")),
-            Some("binding") => pending.extend(object.get("value")),
+            Some(BodyTerm::Aggregate) => pending.extend(terms(object, "members")),
+            Some(BodyTerm::Binding) => pending.extend(object.get("value")),
             // A literal names only its type annotation, which is not a
-            // dependency; the body grammar has no other term.
-            _ => {}
+            // dependency, and a frame is never a nested term; a tag outside
+            // the vocabulary is refused before this stage.
+            Some(BodyTerm::Literal | BodyTerm::Frame) | None => {}
         }
     }
     contains_application.then_some(join)
@@ -415,7 +417,7 @@ fn terms<'a>(object: &'a Map<String, Value>, key: &str) -> impl Iterator<Item = 
 /// An `aggregate` term's members.
 fn aggregate_members(term: &Value) -> Option<&[Value]> {
     let object = term.as_object()?;
-    (object.get("term").and_then(Value::as_str) == Some("aggregate"))
+    (body_term(term) == Some(BodyTerm::Aggregate))
         .then(|| object.get("members").and_then(Value::as_array))
         .flatten()
         .map(Vec::as_slice)
@@ -424,7 +426,7 @@ fn aggregate_members(term: &Value) -> Option<&[Value]> {
 /// A `binding` term's value, when the binding is named `name`.
 fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
     let object = term.as_object()?;
-    (object.get("term").and_then(Value::as_str) == Some("binding")
+    (body_term(term) == Some(BodyTerm::Binding)
         && object.get("name").and_then(Value::as_str) == Some(name))
     .then(|| object.get("value"))
     .flatten()
@@ -433,7 +435,7 @@ fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
 /// A `reference` term's target.
 fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let object = term.as_object()?;
-    if object.get("term").and_then(Value::as_str) != Some("reference") {
+    if body_term(term) != Some(BodyTerm::Reference) {
         return None;
     }
     serde_json::from_value(object.get("target")?.clone()).ok()
@@ -443,14 +445,12 @@ fn reference_target(term: &Value) -> Option<CheckedNodeId> {
 /// `type` names a `scalar_type` node of form `type_form`.
 fn literal<'a>(
     term: &'a Value,
-    value_kind: &str,
+    value_kind: LiteralKind,
     type_form: ScalarTypeForm,
     graph: &Graph<'_>,
 ) -> Option<&'a Value> {
     let object = term.as_object()?;
-    if object.get("term").and_then(Value::as_str) != Some("literal")
-        || object.get("value_kind").and_then(Value::as_str) != Some(value_kind)
-    {
+    if body_term(term) != Some(BodyTerm::Literal) || literal_kind(term) != Some(value_kind) {
         return None;
     }
     let ty: CheckedNodeId = serde_json::from_value(object.get("type")?.clone()).ok()?;

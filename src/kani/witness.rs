@@ -253,11 +253,11 @@ impl Witness {
 
         let mut assertion_block: Option<&str> = None;
         let mut saw_cover = false;
-        let mut other_kind: Option<&str> = None;
+        let mut saw_other_kind = false;
         for sub in sub_blocks {
-            let (kind_text, _) = locate_check_kind(sub, source_id, context)?;
-            match kind_text {
-                "assertion" => {
+            let (kind, _) = locate_check_kind(sub, source_id, context)?;
+            match kind {
+                TranscriptCheckKind::Assertion => {
                     if assertion_block.is_some() {
                         return Err(KaniOutcome::non_success(
                             KaniOutcomeKind::Refused,
@@ -268,10 +268,8 @@ impl Witness {
                     }
                     assertion_block = Some(sub);
                 }
-                "cover" => saw_cover = true,
-                _ => {
-                    other_kind.get_or_insert(kind_text);
-                }
+                TranscriptCheckKind::Cover => saw_cover = true,
+                TranscriptCheckKind::Other => saw_other_kind = true,
             }
         }
 
@@ -284,7 +282,7 @@ impl Witness {
                     context,
                 ));
             }
-            if other_kind.is_some() {
+            if saw_other_kind {
                 // F7: `context` already carries the caller's identifying
                 // context (profile revision / check text), matching every
                 // other refusal in this function; the cause is named by the
@@ -319,10 +317,10 @@ impl Witness {
             .ok_or_else(|| refuse("kani_witness_harness_missing"))?
             .to_owned();
 
-        let (kind_text, after_kind) = locate_check_kind(sub_block, source_id, context)?;
-        let check = match kind_text {
-            "assertion" => WitnessCheck::Assertion,
-            "cover" => {
+        let (kind, after_kind) = locate_check_kind(sub_block, source_id, context)?;
+        let check = match kind {
+            TranscriptCheckKind::Assertion => WitnessCheck::Assertion,
+            TranscriptCheckKind::Cover => {
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::Refused,
                     "kani_witness_cover_refused",
@@ -330,9 +328,9 @@ impl Witness {
                     context,
                 ));
             }
-            _ => {
+            TranscriptCheckKind::Other => {
                 // F7: see the matching comment in `derive` — `context`, not
-                // `kind_text`, is what this function passes as context
+                // the kind text, is what this function passes as context
                 // everywhere else.
                 return Err(KaniOutcome::non_success(
                     KaniOutcomeKind::Refused,
@@ -526,13 +524,18 @@ fn comment_agrees(value: &WitnessValue, comment: &str) -> bool {
         WitnessValue::Integer(expected) => comment
             .parse::<i64>()
             .is_ok_and(|parsed| parsed == *expected),
-        WitnessValue::Boolean(expected) => match comment.to_ascii_lowercase().as_str() {
-            "true" => *expected,
-            "false" => !*expected,
-            "1" => *expected,
-            "0" => !*expected,
-            _ => false,
-        },
+        WitnessValue::Boolean(expected) => boolean_comment(comment) == Some(*expected),
+    }
+}
+
+/// Kani's decoded-value comment for a Boolean, decoded: `true`/`1` and
+/// `false`/`0` in any case, `None` for anything else.
+// string-edge: decodes the wire text of Kani's decoded-value comment.
+fn boolean_comment(comment: &str) -> Option<bool> {
+    match comment.to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
     }
 }
 
@@ -557,6 +560,7 @@ fn find_all(haystack: &str, needle: &str) -> Vec<usize> {
 /// fooled by caller-controlled contract text earlier in the block (Kani
 /// appends it to the harness doc line) that happens to contain the same
 /// words.
+// string-edge: locates the transcript's `Check for` line by its text.
 fn find_check_line(text: &str) -> Option<usize> {
     let marker = "/// Check for `";
     let mut offset = 0usize;
@@ -570,18 +574,41 @@ fn find_check_line(text: &str) -> Option<usize> {
     None
 }
 
+/// The check kind Kani names in a transcript's `Check for` clause, decoded
+/// once where the transcript text is read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TranscriptCheckKind {
+    /// `assertion`: the only kind that witnesses falsity.
+    Assertion,
+    /// `cover`: a reached cover statement.
+    Cover,
+    /// Any other kind Kani reports.
+    Other,
+}
+
+impl TranscriptCheckKind {
+    // string-edge: decodes the wire text of the transcript's check kind.
+    fn decode(text: &str) -> Self {
+        match text {
+            "assertion" => Self::Assertion,
+            "cover" => Self::Cover,
+            _ => Self::Other,
+        }
+    }
+}
+
 /// Locates the `Check for` clause's check-kind text within `sub_block` (a
 /// single, already-delimited `Test generated for harness` block), anchored
 /// to the doc-comment line that declares it (see [`find_check_line`]).
 ///
-/// Returns `(kind_text, after_kind)`, where `after_kind` is the remainder of
+/// Returns `(kind, after_kind)`, where `after_kind` is the remainder of
 /// `sub_block` immediately following the kind's closing backtick — the
 /// `: "..."` clause a full parse still needs to extract.
 fn locate_check_kind<'a>(
     sub_block: &'a str,
     source_id: &str,
     context: &str,
-) -> Result<(&'a str, &'a str), KaniOutcome> {
+) -> Result<(TranscriptCheckKind, &'a str), KaniOutcome> {
     let refuse = || {
         KaniOutcome::non_success(
             KaniOutcomeKind::InvalidInput,
@@ -594,7 +621,10 @@ fn locate_check_kind<'a>(
     let check_start = find_check_line(sub_block).ok_or_else(refuse)?;
     let after_marker = &sub_block[check_start + check_marker.len()..];
     let kind_end = after_marker.find('`').ok_or_else(refuse)?;
-    Ok((&after_marker[..kind_end], &after_marker[kind_end + 1..]))
+    Ok((
+        TranscriptCheckKind::decode(&after_marker[..kind_end]),
+        &after_marker[kind_end + 1..],
+    ))
 }
 
 /// Returns the text between `start_marker` and the next `end` character.

@@ -21,7 +21,10 @@
 //! the deleted bytes here, under any name or path, is still not one of the
 //! options.
 
-use super::CheckedArtifactRef;
+use super::{
+    ApplicationOperator, CheckedArtifactRef, LawRole, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind,
+};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -48,7 +51,7 @@ pub(super) struct OperationCatalogEntry {
     /// Catalogued `OperationIdentity`.
     pub(super) identity: Box<str>,
     /// Required application `operator` class.
-    pub(super) operator: Box<str>,
+    pub(super) operator: ApplicationOperator,
     /// Fixed leading operand families or group names, in order.
     pub(super) operands: Vec<Box<str>>,
     /// The family or group name every operand past `operands` must fit, or
@@ -58,11 +61,11 @@ pub(super) struct OperationCatalogEntry {
     /// (`check_inner_result`), the other forms are not.
     pub(super) result: Box<str>,
     /// Required law roles, in order.
-    pub(super) laws: Vec<Box<str>>,
+    pub(super) laws: Vec<LawRole>,
     /// Required mode kind, or `None` when the operation carries no mode.
-    pub(super) mode: Option<Box<str>>,
+    pub(super) mode: Option<OperationModeKind>,
     /// Required member kind, or `None` when the operation carries no member.
-    pub(super) member: Option<Box<str>>,
+    pub(super) member: Option<OperationMemberKind>,
     /// Cross-operand constraints.
     pub(super) constraints: Vec<OperationConstraint>,
     /// The leaf source this operation compares, or `None` when it carries no
@@ -74,7 +77,7 @@ pub(super) struct OperationCatalogEntry {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct OperationConstraint {
-    pub(super) kind: Box<str>,
+    pub(super) kind: OperationConstraintKind,
     pub(super) operands: Vec<u64>,
     #[allow(dead_code)]
     pub(super) family: Option<Box<str>>,
@@ -93,11 +96,12 @@ struct OperationCatalogWire {
     #[allow(dead_code)]
     families: Vec<Box<str>>,
     groups: BTreeMap<Box<str>, Vec<Box<str>>>,
-    law_roles: BTreeMap<Box<str>, Vec<CheckedArtifactRef>>,
+    law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
+    #[allow(dead_code)]
     profile_law_roles: Vec<Box<str>>,
     #[allow(dead_code)]
     modes: BTreeMap<Box<str>, Vec<Box<str>>>,
-    type_pinned_modes: BTreeMap<Box<str>, Vec<Box<str>>>,
+    type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
     #[allow(dead_code)]
     member_kinds: Vec<Box<str>>,
     #[allow(dead_code)]
@@ -113,9 +117,8 @@ struct OperationCatalogWire {
 pub(super) struct OperationCatalog {
     operations: BTreeMap<Box<str>, OperationCatalogEntry>,
     groups: BTreeMap<Box<str>, Vec<Box<str>>>,
-    law_roles: BTreeMap<Box<str>, Vec<CheckedArtifactRef>>,
-    profile_law_roles: Vec<Box<str>>,
-    type_pinned_modes: BTreeMap<Box<str>, Vec<Box<str>>>,
+    law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
+    type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
 }
 
 impl OperationCatalog {
@@ -126,17 +129,8 @@ impl OperationCatalog {
 
     /// Every catalogued definition of a value law role (e.g.
     /// `integer_division`), if `role` names one.
-    pub(super) fn law_role_definitions(&self, role: &str) -> Option<&[CheckedArtifactRef]> {
-        self.law_roles.get(role).map(Vec::as_slice)
-    }
-
-    /// Whether `role` is a clause/profile law role (`temporal_profile`,
-    /// `protocol_profile`), joined against the lock's `profile_selections`
-    /// rather than its `definition_selections`.
-    pub(super) fn is_profile_role(&self, role: &str) -> bool {
-        self.profile_law_roles
-            .iter()
-            .any(|candidate| **candidate == *role)
+    pub(super) fn law_role_definitions(&self, role: LawRole) -> Option<&[CheckedArtifactRef]> {
+        self.law_roles.get(&role).map(Vec::as_slice)
     }
 
     /// Whether `actual` is `expected` itself or a member of the group
@@ -151,8 +145,8 @@ impl OperationCatalog {
 
     /// Whether a mode `kind` (`rounding`, `text_profile`) is one whose value
     /// an operand or leaf's own type authoritatively pins.
-    pub(super) fn is_type_pinned_mode(&self, kind: &str) -> bool {
-        self.type_pinned_modes.contains_key(kind)
+    pub(super) fn is_type_pinned_mode(&self, kind: OperationModeKind) -> bool {
+        self.type_pinned_modes.contains_key(&kind)
     }
 }
 
@@ -190,7 +184,6 @@ pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
         operations,
         groups: wire.groups,
         law_roles: wire.law_roles,
-        profile_law_roles: wire.profile_law_roles,
         type_pinned_modes: wire.type_pinned_modes,
     }
 }
@@ -216,6 +209,70 @@ mod tests {
             quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1_SHA256,
             "the operation catalog's bytes do not match the digest its home publishes for them"
         );
+    }
+
+    /// Every catalog vocabulary the reader decodes into an enum is exactly
+    /// the enum's member set, and `LawRole::selection_role` is `Some` for
+    /// exactly the catalog's profile law roles.
+    ///
+    /// Tracing: TC-048
+    /// ACs: FR-038-AC-34
+    #[test]
+    fn tc_048_the_catalog_vocabularies_are_the_decoded_enums() {
+        use std::collections::BTreeSet;
+        let wire: OperationCatalogWire =
+            serde_json::from_str(CATALOG_BYTES).expect("the catalog is valid");
+        let words = |list: &[Box<str>]| -> BTreeSet<String> {
+            list.iter().map(|word| word.to_string()).collect()
+        };
+        let members = |all: Vec<&'static str>| -> BTreeSet<String> {
+            all.into_iter().map(str::to_owned).collect()
+        };
+        assert_eq!(
+            words(&wire.member_kinds),
+            members(
+                OperationMemberKind::ALL
+                    .iter()
+                    .map(|k| k.as_wire())
+                    .collect()
+            )
+        );
+        assert_eq!(
+            words(&wire.constraint_kinds),
+            members(
+                OperationConstraintKind::ALL
+                    .iter()
+                    .map(|k| k.as_wire())
+                    .collect()
+            )
+        );
+        assert_eq!(
+            wire.modes
+                .keys()
+                .map(|k| k.to_string())
+                .collect::<BTreeSet<_>>(),
+            members(OperationModeKind::ALL.iter().map(|k| k.as_wire()).collect())
+        );
+        let value_roles: BTreeSet<String> = wire
+            .law_roles
+            .keys()
+            .map(|role| role.as_wire().to_owned())
+            .collect();
+        let profile_roles = words(&wire.profile_law_roles);
+        assert_eq!(
+            value_roles
+                .union(&profile_roles)
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            members(LawRole::ALL.iter().map(|k| k.as_wire()).collect())
+        );
+        for role in LawRole::ALL {
+            assert_eq!(
+                role.selection_role().is_some(),
+                profile_roles.contains(role.as_wire()),
+                "{role:?}: a selection role exactly for a catalog profile role"
+            );
+        }
     }
 
     /// The reader refuses a catalog of another vocabulary identity rather than

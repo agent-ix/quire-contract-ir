@@ -39,6 +39,7 @@ pub fn read_checked_package(
     }
 }
 
+// string-edge: the reader's version dispatch: the one read of `contract_version`.
 fn dispatch(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
