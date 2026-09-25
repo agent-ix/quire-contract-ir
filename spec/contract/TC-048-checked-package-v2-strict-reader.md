@@ -15,8 +15,10 @@ relationships:
 Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
 FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors, and
 FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
-"Model-owned members") against a self-built domain package document. QSpec's
-own TC-280 and TC-281 vectors run through the same reader under
+"Model-owned members") against a self-built domain package document, and
+FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
+`DependencySelection` entries of a self-built package. QSpec's
+own TC-280, TC-281 and `dependency-selection-vectors.json` vectors run through the same reader under
 `make qspec-vectors`, which reads them from the checkout `QSPEC_DIR` names.
 
 ## Test Procedure
@@ -88,6 +90,20 @@ owner; give two nodes no identity. Compare the whole refusal and its pointer
 with the expected one. Read with the `work` limit at zero, and with each work
 limit one below what the direct read and a member resolution used, and check
 the pointer of the `incomplete` outcome resolves in the lock.
+
+## Dependency selections (FR-038-AC-31 through FR-038-AC-33)
+
+Set the lock's and identity preimage's `dependency_selections` to two
+`DependencySelection` entries in ascending identity order, re-derive the
+package id and read: it admits, and both members read back as supplied.
+Change one entry's `package_id` and check the package id changes. Mutate one
+entry at a time to a wrong-domain, empty-identity, short-digest, bare-digest,
+`version`-less or `Selection`-shaped entry and read. Repeat an identity,
+adjacent and not, and reverse two entries, and read. Order two identities
+whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
+cause and pointer with the expected one. Run QSpec's valid package, six entry
+mutations and three order vectors through the same reader under
+`make qspec-vectors`.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 

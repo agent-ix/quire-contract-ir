@@ -152,6 +152,20 @@ pub struct CheckedDomainPackageRef {
     pub digest: Box<str>,
 }
 
+/// One selected library dependency (QSpec `DependencySelection`, FR-322
+/// `dependency_selections`): the library identity and version an import
+/// names, and the dependency's own semantic package identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedDependencySelection {
+    /// Library identity; the sort and uniqueness key of the array.
+    pub identity: Box<str>,
+    /// Library version string.
+    pub version: Box<str>,
+    /// The dependency's `quire.package.semantic/v2` package identity.
+    pub package_id: CheckedSemanticId,
+}
+
 /// The exact immutable V2 package lock.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -168,8 +182,8 @@ pub struct CheckedPackageLockV2 {
     pub model_selections: Vec<CheckedDomainPackageRef>,
     /// Required features.
     pub required_features: Vec<Box<str>>,
-    /// Dependency selections.
-    pub dependency_selections: Vec<CheckedSelection>,
+    /// Dependency selections: one per library identity, ascending.
+    pub dependency_selections: Vec<CheckedDependencySelection>,
 }
 
 /// The non-circular V2 package identity preimage.
@@ -188,8 +202,8 @@ pub struct CheckedPackageIdentityPreimageV2 {
     pub model_selections: Vec<CheckedDomainPackageRef>,
     /// Required features.
     pub required_features: Vec<Box<str>>,
-    /// Dependency selections.
-    pub dependency_selections: Vec<CheckedSelection>,
+    /// Dependency selections: one per library identity, ascending.
+    pub dependency_selections: Vec<CheckedDependencySelection>,
     /// Ordered graph identity projection.
     pub identity_projection: Vec<CheckedNodeProjectionV2>,
 }
@@ -435,6 +449,57 @@ fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFa
     ValidationFailure::Refused(refusal)
 }
 
+/// Members every `dependency_selections` entry requires.
+const DEPENDENCY_SELECTION_MEMBERS: [&str; 3] = ["identity", "version", "package_id"];
+
+/// An entry of `dependency_selections` that both lacks a required member and
+/// carries a member outside the closed shape (a `Selection` or a
+/// `DefinitionRef` where a `DependencySelection` belongs) is the wrong shape
+/// as a whole: `malformed_wire` at the entry, not `unknown_member` at
+/// whichever extra member the decoder met first. An entry carrying every
+/// required member keeps the decoder's `unknown_member` at the extra member.
+fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) -> ValidationFailure {
+    let ValidationFailure::Refused(mut refusal) = failure else {
+        return failure;
+    };
+    if refusal.code != CheckedPackageRefusalCode::UnknownMember {
+        return ValidationFailure::Refused(refusal);
+    }
+    let entry = refusal.path.as_ref().and_then(|path| {
+        let text = path.as_str();
+        [
+            "/lock/dependency_selections/",
+            "/identity_preimage/dependency_selections/",
+        ]
+        .iter()
+        .find_map(|prefix| text.strip_prefix(prefix))
+        .and_then(|rest| rest.split_once('/'))
+        .filter(|(index, member)| {
+            !index.is_empty()
+                && index.bytes().all(|byte| byte.is_ascii_digit())
+                && !member.is_empty()
+                && !member.contains('/')
+        })
+        .and_then(|_| text.rsplit_once('/'))
+        .map(|(entry, _)| entry.to_owned())
+    });
+    if let Some(entry) = entry {
+        let lacks_member = value
+            .pointer(&entry)
+            .and_then(Value::as_object)
+            .is_some_and(|object| {
+                DEPENDENCY_SELECTION_MEMBERS
+                    .iter()
+                    .any(|member| !object.contains_key(*member))
+            });
+        if lacks_member {
+            refusal.code = CheckedPackageRefusalCode::MalformedWire;
+            refusal.path = JsonPointer::parse(&entry);
+        }
+    }
+    ValidationFailure::Refused(refusal)
+}
+
 /// Whether `path` is one of the two positions the wire types a
 /// `nominal_identity_preimage` at: `/semantic_graph/nodes/{n}/…` or
 /// `/identity_preimage/identity_projection/{n}/…`. A member of that name
@@ -501,7 +566,8 @@ impl CheckedPackageV2 {
             }
         }
         let wire = decode_closed::<CheckedPackageWireV2>(&value)
-            .map_err(|failure| locate_in_preimage(failure, &value))?;
+            .map_err(|failure| locate_in_preimage(failure, &value))
+            .map_err(|failure| classify_dependency_entry_shape(failure, &value))?;
         // A lossless decode: no member was defaulted, nulled or dropped.
         match serde_json::to_value(&wire) {
             Ok(decoded) if decoded == value => {}
@@ -717,18 +783,14 @@ fn validate_lock(
         evidence,
         &|| member_pointer(&["lock", "edition", "definition"]),
     )?;
-    for (member, selections) in [
-        ("profile_selections", &lock.profile_selections),
-        ("dependency_selections", &lock.dependency_selections),
-    ] {
-        for (index, selection) in selections.iter().enumerate() {
-            validate_unexported(&selection.definition, DEFINITION_BYTES, evidence, &|| {
-                member_pointer(&["lock", member])
-                    .index(index)
-                    .key("definition")
-            })?;
-        }
+    for (index, selection) in lock.profile_selections.iter().enumerate() {
+        validate_unexported(&selection.definition, DEFINITION_BYTES, evidence, &|| {
+            member_pointer(&["lock", "profile_selections"])
+                .index(index)
+                .key("definition")
+        })?;
     }
+    validate_dependency_selections(&lock.dependency_selections)?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
         validate_unexported(definition, DEFINITION_BYTES, evidence, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
@@ -812,6 +874,69 @@ fn validate_lock(
         &|| member_pointer(&["diagnostics", "catalog"]),
     )?;
     Ok(models)
+}
+
+/// Checks `lock.dependency_selections` (FR-322): each entry's `package_id`
+/// domain and shape, then one entry per identity, then strictly ascending
+/// UTF-8 byte order of `identity`. Each condition sweeps the whole array
+/// before the next, so the refusal is decided by defect class and not by
+/// array position. A repeated identity refuses `invalid_package` /
+/// `conflicting-definition` at the repeating entry, the later of the two
+/// entries FR-322 names as loci; an entry not strictly after its
+/// predecessor refuses `invalid_package` / `invalid-value` at that entry.
+/// The identity preimage's copy equals the lock's (checked by the caller),
+/// so only the lock is checked.
+fn validate_dependency_selections(
+    selections: &[CheckedDependencySelection],
+) -> Result<(), ValidationFailure> {
+    let at = |index: usize| member_pointer(&["lock", "dependency_selections"]).index(index);
+    if let Some(index) = selections
+        .iter()
+        .position(|entry| entry.package_id.domain.as_ref() != PACKAGE_DOMAIN_V2)
+    {
+        return Err(refuse(
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            at(index).key("package_id").key("domain"),
+        ));
+    }
+    let malformed = selections.iter().enumerate().find_map(|(index, entry)| {
+        if !is_nonempty(&entry.identity) {
+            Some(at(index).key("identity"))
+        } else if !is_nonempty(&entry.version) {
+            Some(at(index).key("version"))
+        } else if entry.package_id.algorithm.as_ref() != "sha256" {
+            Some(at(index).key("package_id").key("algorithm"))
+        } else if !is_digest(&entry.package_id.digest) {
+            Some(at(index).key("package_id").key("digest"))
+        } else {
+            None
+        }
+    });
+    if let Some(path) = malformed {
+        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
+    }
+    let mut identities = BTreeSet::new();
+    if let Some(repeat) = selections
+        .iter()
+        .position(|entry| !identities.insert(entry.identity.as_ref()))
+    {
+        return Err(ValidationFailure::refused_because(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at(repeat),
+            CheckedPackageRefusalCause::ConflictingDefinition,
+        ));
+    }
+    if let Some(index) = selections
+        .windows(2)
+        .position(|pair| pair[0].identity >= pair[1].identity)
+    {
+        return Err(ValidationFailure::refused_because(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at(index + 1),
+            CheckedPackageRefusalCause::InvalidValue,
+        ));
+    }
+    Ok(())
 }
 
 /// Checks one locked raw artifact at `at` and that it carries no `export`.
@@ -2287,7 +2412,36 @@ fn validate_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_frame, CheckedNodeKind, FrameMember, ModelForm, RelationForm, StateForm};
+    use super::{
+        is_frame, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId, FrameMember,
+        ModelForm, RelationForm, StateForm, DEPENDENCY_SELECTION_MEMBERS,
+    };
+
+    /// The members `classify_dependency_entry_shape` treats as required are
+    /// exactly the members of `CheckedDependencySelection`.
+    #[test]
+    fn dependency_selection_required_members_match_the_type() {
+        let entry = CheckedDependencySelection {
+            identity: "a".into(),
+            version: "1".into(),
+            package_id: CheckedSemanticId {
+                domain: "d".into(),
+                algorithm: "sha256".into(),
+                digest: "0".into(),
+            },
+        };
+        let value = serde_json::to_value(entry).expect("serializes");
+        let mut members: Vec<&str> = value
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut required = DEPENDENCY_SELECTION_MEMBERS.to_vec();
+        members.sort_unstable();
+        required.sort_unstable();
+        assert_eq!(members, required);
+    }
 
     /// `BodyBindingRules`: exactly one kind, `state`/`frame`, has the frame
     /// reference-triple body; every other kind's body is a `SemanticTerm`.

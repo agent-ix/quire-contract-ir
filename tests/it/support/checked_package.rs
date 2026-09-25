@@ -161,11 +161,6 @@ pub fn locked_artifacts(package: &Value) -> Vec<Value> {
             .map(|selection| selection["definition"].clone()),
     );
     artifacts.extend(list("definition_selections"));
-    artifacts.extend(
-        list("dependency_selections")
-            .into_iter()
-            .map(|selection| selection["definition"].clone()),
-    );
     artifacts.push(package["diagnostics"]["catalog"].clone());
     artifacts
 }

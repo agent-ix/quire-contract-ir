@@ -308,6 +308,32 @@ they belong to, so an exhausted limit is `incomplete` with the pointer
 `/lock/model_selections/<i>`. Each model declaration node key computed in step
 2 is one validation visit at its row.
 
+### Dependency selections
+
+`lock.dependency_selections` and `identity_preimage.dependency_selections` are
+the same array of closed `DependencySelection` entries, `{identity, version,
+package_id}`, one per library identity, in strictly ascending UTF-8 byte order
+of `identity` (QSpec FR-322, STD-105). `package_id` is the dependency's own
+`quire.package.semantic/v2` `{domain, algorithm, digest}`. Every entry's
+`package_id` enters the importing package's `package_id`. The reader checks the
+lock's array, in this order, each check over the whole array before the next:
+
+1. A `package_id` whose `domain` is not `quire.package.semantic/v2` refuses
+   `digest_domain_mismatch` at that entry's `package_id.domain`.
+2. An empty `identity` or `version`, an `algorithm` other than `sha256` or a
+   `digest` that is not a SHA-256 hex digest refuses `malformed_wire` at that
+   member.
+3. An entry repeating an earlier entry's `identity` refuses `invalid_package`
+   with cause `conflicting-definition` at the repeating entry.
+4. An entry whose `identity` is not strictly after its predecessor's in UTF-8
+   byte order refuses `invalid_package` with cause `invalid-value` at that
+   entry.
+
+An entry that lacks a required member and carries a member outside the closed
+shape (a `Selection` or `DefinitionRef` where a `DependencySelection` belongs)
+refuses `malformed_wire` at the entry; an entry carrying every required member
+and one more refuses `unknown_member` at the extra member.
+
 ### Parameter and compound-unit nodes, and the application dependency join
 
 A `value` node may carry the `parameter` form and a `scalar_type` node the
@@ -507,6 +533,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; an `Int[lo, hi]` value type and every multiplicity give the member type whose node key equals QSL FR-092's key for it. | Test (TC-048) |
 | FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
+| FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. QSpec's published two-entry package (`dependency-selection-vectors.json`, read from `QSPEC_DIR`) admits and its recorded `package_id` recomputes from the entries. | Test (TC-048) |
+| FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `version`, `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry; and each of QSpec's six entry mutations refuses with the code its vector records, at the mutated entry. | Test (TC-048) |
+| FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. QSpec's `order_vectors` decide the same way through the reader. | Test (TC-048) |
 
 ## Dependencies
 

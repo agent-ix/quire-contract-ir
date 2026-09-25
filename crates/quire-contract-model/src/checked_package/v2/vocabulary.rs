@@ -291,7 +291,6 @@ closed_vocabulary! {
         Language => "language",
         Edition => "edition",
         Profile => "profile",
-        Dependency => "dependency",
         BindingContract => "binding_contract",
         TemporalProfile => "temporal_profile",
         ProtocolProfile => "protocol_profile",

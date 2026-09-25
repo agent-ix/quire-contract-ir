@@ -171,6 +171,12 @@ pub enum CheckedPackageRefusalCause {
     /// `unpreserved-model-meaning`: a domain package multiplicity has
     /// `lower > upper`.
     UnpreservedModelMeaning,
+    /// `conflicting-definition`: two `dependency_selections` entries name one
+    /// library identity.
+    ConflictingDefinition,
+    /// `invalid-value`: a `dependency_selections` entry's identity is not
+    /// strictly after its predecessor's in UTF-8 byte order.
+    InvalidValue,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader
