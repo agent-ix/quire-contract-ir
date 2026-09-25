@@ -256,12 +256,12 @@ pub struct TargetSelection {
 impl TargetSelection {
     #[must_use]
     pub fn current() -> Self {
-        const QSL: &str = "2736b62b2f741496590d099d71478b3044d638d6";
+        const QSL: &str = "51245876e0d406aeed3047c608ad478b53b19205";
         const TLS: &str = "4a5614193d21e5ae99950ae683b04ba0ec931358";
         const TLM: &str = "452f013a3168512603d427bce3360bc14c1175a6";
         const QMLTL: &str = "06bd57fd1a3f4920029ce171f1e95211e0816086";
         const QOBS: &str = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6";
-        const QPROTOCOL: &str = "9606131bbc978c494e81df13a8301a5d8a72017a";
+        const QPROTOCOL: &str = "02684bff9dd46e0d57f2792d831f4e81b0888493";
         const QCI_PREDICATE: &str = "202210cf6339208740299ae4050d6f16908d557e";
         let select = |contract: &str, version: &str, repo: &str, revision: &str, bytes: &[u8]| {
             ContractSelection::new(contract, version, repo, revision, BridgeDigest::raw(bytes))

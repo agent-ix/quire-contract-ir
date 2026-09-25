@@ -20,8 +20,8 @@ path = "src/lib.rs"
 [dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6" }
-quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "9606131bbc978c494e81df13a8301a5d8a72017a" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "2736b62b2f741496590d099d71478b3044d638d6", default-features = false }
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "02684bff9dd46e0d57f2792d831f4e81b0888493" }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
 serde_stacker = "=0.1.11"
@@ -47,7 +47,7 @@ agent-ix-baseline-producer = { version = "=0.0.0", git = "https://github.com/age
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", tag = "v0.1.1" }
 jsonschema = { version = "=0.17.1", default-features = false }
 quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "53cc03c639e2e26528132d34d96dc56449df78e8" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "2736b62b2f741496590d099d71478b3044d638d6", default-features = false }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
 sha2 = "=0.10.9"
 
 [profile.release]
