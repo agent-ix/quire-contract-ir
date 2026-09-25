@@ -113,10 +113,16 @@ pub(super) trait ArtifactDigests {
     fn artifact_digest(&self, locator: &CheckedArtifactLocator) -> Option<Cow<'_, str>>;
 }
 
-/// Measures, parses and canonicalizes untrusted bytes exactly once.
+/// Measures, parses and canonicalizes untrusted bytes.
 ///
-/// Order: byte limit, strict JSON (duplicate members), depth limit, canonical
-/// bytes.
+/// Order, as FR-322 states it: byte limit, strict syntax and member
+/// validation, depth limit, canonical bytes. The first parse pass,
+/// [`strict_json_shape`], checks syntax and duplicate members and measures
+/// depth without building a value, on a stack that grows onto the heap, so a
+/// syntax or duplicate-member defect anywhere in the document is refused
+/// before depth is charged, however deep the document is. Only a document
+/// within the depth limit is then parsed into a value, so nothing downstream
+/// ever holds a value deeper than [`CheckedPackageReadLimits::MAXIMUM_DEPTH`].
 pub(super) fn canonical_value(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -128,29 +134,24 @@ pub(super) fn canonical_value(
             bytes.len(),
         ));
     }
-    let value = match strict_json_value(bytes) {
-        Ok(value) => value,
-        Err(StrictJsonError::Duplicate(path)) => {
-            return Err(Stop::Refused(
-                CheckedPackageRefusalCode::DuplicateMember,
-                path,
-            ))
+    let depth_limit = limits.depth.min(CheckedPackageReadLimits::MAXIMUM_DEPTH);
+    let refused = |error: StrictJsonError| match error {
+        StrictJsonError::Duplicate(path) => {
+            Stop::Refused(CheckedPackageRefusalCode::DuplicateMember, path)
         }
-        Err(StrictJsonError::Syntax) => {
-            return Err(Stop::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                "document",
-            ))
+        StrictJsonError::Syntax => {
+            Stop::refused(CheckedPackageRefusalCode::MalformedWire, "document")
         }
     };
-    let depth = json_depth(&value);
-    if exceeds(depth, limits.depth) {
+    let depth = strict_json_shape(bytes).map_err(refused)?;
+    if exceeds(depth, depth_limit) {
         return Err(Stop::incomplete(
             CheckedPackageLimit::Depth,
-            limits.depth,
+            depth_limit,
             depth,
         ));
     }
+    let value = strict_json_value(bytes).map_err(refused)?;
     let canonical = serde_json::to_vec(&value)
         .map_err(|_| Stop::refused(CheckedPackageRefusalCode::MalformedWire, "document"))?;
     if canonical.as_slice() != bytes {
@@ -569,21 +570,106 @@ enum StrictJsonError {
     Syntax,
 }
 
-fn strict_json_value(input: &[u8]) -> Result<Value, StrictJsonError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(input);
-    StrictValue::deserialize(&mut deserializer)
-        .map(|value| value.0)
-        .map_err(|error| {
-            error
-                .to_string()
-                .strip_prefix("duplicate JSON member at ")
-                .map_or(StrictJsonError::Syntax, |path| {
-                    StrictJsonError::Duplicate(path.into())
-                })
-        })
+impl StrictJsonError {
+    /// serde_json renders a custom error as its message followed by
+    /// ` at line L column C`; the position is always last, so it is removed
+    /// from the end and the duplicate member's own name is what remains.
+    fn classify(error: &serde_json::Error) -> Self {
+        let message = error.to_string();
+        let position = format!(" at line {} column {}", error.line(), error.column());
+        let message = message.strip_suffix(&position).unwrap_or(&message);
+        message
+            .strip_prefix("duplicate JSON member at ")
+            .map_or(Self::Syntax, |path| Self::Duplicate(path.into()))
+    }
 }
 
-struct StrictValue(Value);
+/// Parses a document already known to be within the depth limit. The
+/// parser's own nesting cap is lifted, because depth was charged in the first
+/// pass and a document at the limit must be admitted.
+fn strict_json_value(input: &[u8]) -> Result<Value, StrictJsonError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(input);
+    deserializer.disable_recursion_limit();
+    Strict::<Value>::deserialize(&mut deserializer)
+        .map(|strict| strict.0)
+        .map_err(|error| StrictJsonError::classify(&error))
+}
+
+/// The first parse pass: strict syntax and duplicate-member validation and
+/// the document's depth in [`json_depth`]'s unit, building no value. Nesting
+/// recurses on a stack that `stacker` and `serde_stacker` grow onto the heap,
+/// the crate's idiom for untrusted nesting, so depth cannot exhaust the
+/// caller's stack and serde_json's own nesting cap never decides the outcome.
+/// Its memory grows with the document, so the byte limit bounds it.
+fn strict_json_shape(input: &[u8]) -> Result<u64, StrictJsonError> {
+    stacker::maybe_grow(16 * 1024 * 1024, 16 * 1024 * 1024, || {
+        let mut deserializer = serde_json::Deserializer::from_slice(input);
+        deserializer.disable_recursion_limit();
+        let Strict(Depth(depth)) =
+            Strict::<Depth>::deserialize(serde_stacker::Deserializer::new(&mut deserializer))
+                .map_err(|error| StrictJsonError::classify(&error))?;
+        deserializer
+            .end()
+            .map_err(|error| StrictJsonError::classify(&error))?;
+        Ok(depth)
+    })
+}
+
+/// What one strict JSON parse produces from each construct. The grammar
+/// itself — scalars, finite numbers, the number token, duplicate members —
+/// is written once, in [`Strict`]; a sink only decides what to keep.
+trait StrictSink: Sized {
+    /// A scalar value.
+    fn scalar(value: Value) -> Self;
+    /// An array of already-admitted elements.
+    fn array(elements: Vec<Self>) -> Self;
+    /// An object of already-admitted members, with unique names.
+    fn object(members: Vec<(String, Self)>) -> Self;
+}
+
+impl StrictSink for Value {
+    fn scalar(value: Value) -> Self {
+        value
+    }
+    fn array(elements: Vec<Self>) -> Self {
+        Value::Array(elements)
+    }
+    fn object(members: Vec<(String, Self)>) -> Self {
+        Value::Object(members.into_iter().collect())
+    }
+}
+
+/// A strict value reduced to its depth in [`json_depth`]'s unit.
+struct Depth(u64);
+
+impl StrictSink for Depth {
+    fn scalar(_: Value) -> Self {
+        Depth(1)
+    }
+    fn array(elements: Vec<Self>) -> Self {
+        Depth(
+            elements
+                .iter()
+                .map(|depth| depth.0)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1),
+        )
+    }
+    fn object(members: Vec<(String, Self)>) -> Self {
+        Depth(
+            members
+                .iter()
+                .map(|(_, depth)| depth.0)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1),
+        )
+    }
+}
+
+/// One strict JSON value, collected by `S`.
+struct Strict<S>(S);
 
 /// The single member name serde_json uses to hand a number's source text to a
 /// visitor when its `arbitrary_precision` feature is on. Feature unification
@@ -606,87 +692,94 @@ fn number_from_token<E: serde::de::Error>(text: &str) -> Result<Value, E> {
         .ok_or_else(|| E::custom("non-finite JSON number"))
 }
 
-impl<'de> Deserialize<'de> for StrictValue {
+impl<'de, S: StrictSink> Deserialize<'de> for Strict<S> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct Visitor;
-        impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = StrictValue;
+        struct Visitor<S>(std::marker::PhantomData<S>);
+        impl<'de, S: StrictSink> serde::de::Visitor<'de> for Visitor<S> {
+            type Value = Strict<S>;
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("strict JSON value")
             }
             fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Bool(value)))
+                Ok(Strict(S::scalar(Value::Bool(value))))
             }
             fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Number(value.into())))
+                Ok(Strict(S::scalar(Value::Number(value.into()))))
             }
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Number(value.into())))
+                Ok(Strict(S::scalar(Value::Number(value.into()))))
             }
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
                 serde_json::Number::from_f64(value)
-                    .map(|number| StrictValue(Value::Number(number)))
+                    .map(|number| Strict(S::scalar(Value::Number(number))))
                     .ok_or_else(|| E::custom("non-finite JSON number"))
             }
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                Ok(StrictValue(Value::String(value.to_owned())))
+                Ok(Strict(S::scalar(Value::String(value.to_owned()))))
             }
             fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::String(value)))
+                Ok(Strict(S::scalar(Value::String(value))))
             }
             fn visit_none<E>(self) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Null))
+                Ok(Strict(S::scalar(Value::Null)))
             }
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
-                Ok(StrictValue(Value::Null))
+                Ok(Strict(S::scalar(Value::Null)))
             }
             fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let mut values = Vec::new();
-                while let Some(value) = access.next_element::<StrictValue>()? {
-                    values.push(value.0);
+                let mut elements = Vec::new();
+                while let Some(Strict(element)) = access.next_element::<Strict<S>>()? {
+                    elements.push(element);
                 }
-                Ok(StrictValue(Value::Array(values)))
+                Ok(Strict(S::array(elements)))
             }
             fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::MapAccess<'de>,
             {
-                let mut map = Map::new();
                 let Some(first) = access.next_key::<String>()? else {
-                    return Ok(StrictValue(Value::Object(map)));
+                    return Ok(Strict(S::object(Vec::new())));
                 };
                 if first == SERDE_JSON_NUMBER_TOKEN {
                     let digits = access.next_value::<String>()?;
-                    return number_from_token(&digits).map(StrictValue);
+                    return number_from_token(&digits).map(|number| Strict(S::scalar(number)));
                 }
-                let value = access.next_value::<StrictValue>()?;
-                map.insert(first, value.0);
-                while let Some((key, value)) = access.next_entry::<String, StrictValue>()? {
-                    if map.insert(key.clone(), value.0).is_some() {
+                let Strict(value) = access.next_value::<Strict<S>>()?;
+                let mut names = BTreeSet::from([first.clone()]);
+                let mut members = vec![(first, value)];
+                while let Some((key, Strict(value))) = access.next_entry::<String, Strict<S>>()? {
+                    if !names.insert(key.clone()) {
                         return Err(serde::de::Error::custom(format!(
                             "duplicate JSON member at {key}"
                         )));
                     }
+                    members.push((key, value));
                 }
-                Ok(StrictValue(Value::Object(map)))
+                Ok(Strict(S::object(members)))
             }
         }
-        deserializer.deserialize_any(Visitor)
+        deserializer.deserialize_any(Visitor(std::marker::PhantomData))
     }
 }
 
+/// Nesting depth of a parsed value: a container is one level and a scalar
+/// one level below the container holding it, so `1` is depth 1, `[]` depth
+/// 1, `[1]` depth 2 and `{"a":1}` depth 2. [`CheckedPackageReadLimits::depth`]
+/// is charged in this unit. The reader measures it in its first parse pass;
+/// this form over a parsed value is the tests' independent statement of it.
+#[cfg(test)]
 pub(super) fn json_depth(value: &Value) -> u64 {
     match value {
         Value::Array(values) => values
@@ -766,5 +859,70 @@ mod tests {
                 "{value}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::{json_depth, strict_json_shape, StrictJsonError};
+    use serde_json::Value;
+
+    /// The first pass measures depth in `json_depth`'s unit.
+    #[test]
+    fn strict_json_shape_agrees_with_json_depth() {
+        for text in [
+            "1",
+            "\"x\"",
+            "[]",
+            "{}",
+            "[1]",
+            "{\"a\":1}",
+            "{\"a\":[{\"b\":\"x\"}]}",
+            "[[],[[1]],{\"k\":{}}]",
+            "{\"a\":\"[[[{{\\\"\",\"b\":[true,null,-1.5e3]}",
+        ] {
+            let value: Value = serde_json::from_str(text).expect("valid JSON");
+            assert_eq!(
+                strict_json_shape(text.as_bytes()).expect("strict JSON"),
+                json_depth(&value),
+                "{text}"
+            );
+        }
+    }
+
+    /// FR-322: equal-limit input is admitted. A document of exactly the
+    /// maximum depth parses; one level deeper is incomplete.
+    #[test]
+    fn a_document_at_the_depth_limit_is_admitted() {
+        use super::{canonical_value, Stop};
+        use crate::checked_package::shared::{CheckedPackageLimit, CheckedPackageReadLimits};
+        let limits = CheckedPackageReadLimits::bounded();
+        let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let at_limit = nested(128);
+        assert!(canonical_value(at_limit.as_bytes(), limits).is_ok());
+        let over = nested(129);
+        assert!(matches!(
+            canonical_value(over.as_bytes(), limits),
+            Err(Stop::Incomplete(CheckedPackageLimit::Depth, 128, 129))
+        ));
+    }
+
+    /// Depth far past serde_json's own nesting cap is measured, and a
+    /// duplicate member or syntax error anywhere is still found first.
+    #[test]
+    fn strict_json_shape_measures_deep_nesting_and_finds_later_defects() {
+        let depth = 100_000;
+        let deep = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        assert_eq!(strict_json_shape(deep.as_bytes()).expect("strict"), 100_000);
+        let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
+        assert!(matches!(
+            strict_json_shape(duplicate.as_bytes()),
+            Err(StrictJsonError::Duplicate(path)) if &*path == "a"
+        ));
+        let malformed = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
+        assert!(matches!(
+            strict_json_shape(malformed.as_bytes()),
+            Err(StrictJsonError::Syntax)
+        ));
     }
 }
