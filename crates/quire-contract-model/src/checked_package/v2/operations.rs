@@ -1384,9 +1384,7 @@ fn check_mode_type(
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
     let mode = operation.mode.as_ref()?;
-    let Some(mode_kind) = mode.kind_class() else {
-        return None;
-    };
+    let mode_kind = mode.kind_class()?;
     if !catalog.is_type_pinned_mode(mode_kind) {
         return None;
     }
