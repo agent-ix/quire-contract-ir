@@ -36,7 +36,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
 };
-use model_members::{admit_selection, DomainModel, ModelOwners};
+use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
@@ -611,8 +611,8 @@ fn validate(
             member_pointer(&["package_id", "digest"]),
         ));
     }
-    let models = validate_lock(wire, evidence)?;
     let mut meter = WorkMeter::new(limits.work);
+    let models = validate_lock(wire, evidence, &mut meter)?;
     let kinds = validate_graph(wire, limits, &mut meter, &models)?;
     validate_source_map_entries(
         wire.semantic_graph
@@ -694,6 +694,7 @@ fn non_graph_lock_difference(
 fn validate_lock(
     wire: &CheckedPackageWireV2,
     evidence: &CheckedPackageEvidence,
+    meter: &mut WorkMeter,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let lock = &wire.lock;
     if lock.sources.is_empty() {
@@ -792,7 +793,7 @@ fn validate_lock(
             }
         }
     }
-    let models = validate_domain_packages(&lock.model_selections, evidence)?;
+    let models = validate_domain_packages(&lock.model_selections, evidence, meter)?;
     let mut features = BTreeSet::new();
     if let Some(index) = lock
         .required_features
@@ -845,13 +846,16 @@ fn validate_unexported(
 /// any of these. Class 5, the selection's evidence, is FR-322 step 1: each
 /// row in lock order is admitted under FR-154's four checks and its
 /// declarations read, and the first refusal is the read's, at the row (or
-/// the row member it is about). Two rows sharing one identity and version
+/// the row member it is about). The parse and read of each document are
+/// charged to `meter`, and an exhausted `work` limit is `incomplete` at the
+/// row (`/lock/model_selections/<i>`). Two rows sharing one identity and version
 /// but naming different digests are one locator selected twice: the later
 /// row refuses `stale_dependency` at its `digest`, whatever documents the
 /// caller supplied.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
+    meter: &mut WorkMeter,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);
@@ -895,15 +899,19 @@ fn validate_domain_packages(
         .iter()
         .enumerate()
         .map(|(index, model)| {
-            admit_selection(model, evidence).map_err(|refused| {
-                let path = refused
-                    .member
-                    .map_or_else(|| row(index), |member| at(index, member));
-                ValidationFailure::refused_because(
-                    refused.refusal.code,
-                    path,
-                    refused.refusal.cause,
-                )
+            let mut budget = Budget::new(meter, index);
+            admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
+                SelectionFailure::Limit(failure) => failure,
+                SelectionFailure::Refused(refused) => {
+                    let path = refused
+                        .member
+                        .map_or_else(|| row(index), |member| at(index, member));
+                    ValidationFailure::refused_because(
+                        refused.refusal.code,
+                        path,
+                        refused.refusal.cause,
+                    )
+                }
             })
         })
         .collect()

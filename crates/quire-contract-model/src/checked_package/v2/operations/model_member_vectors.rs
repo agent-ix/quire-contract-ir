@@ -6,8 +6,8 @@
 //! The vectors and the operation catalog they are decided against are read
 //! at run time from the quire-specification checkout `QSPEC_DIR` names;
 //! nothing of QSpec is copied into this repository. Each test skips (and
-//! passes) when `QSPEC_DIR` is unset; `make conformance` sets it and fails
-//! when a test did not run.
+//! passes) when `QSPEC_DIR` is unset; `make qspec-vectors` requires it and
+//! fails when a test printed no `conformance:` line.
 //!
 //! The vectors' `domain_package` is a projection of the declaration records
 //! FR-154 intake reads, not a Semantic IR document, so [`read_projection`]
@@ -15,9 +15,9 @@
 //! builds from a real document.
 
 use super::super::model_members::{
-    admit_document, declaration_key, member_name, CollectionKind, DeclarationForm, DomainModel,
-    FieldDecl, IntegerBounds, MemberKind, MemberType, ModelOwners, Multiplicity, ObjectTypeDecl,
-    OperationDecl, TypedSlot,
+    admit_document, declaration_key, member_name, Budget, CollectionKind, DeclarationForm,
+    DomainModel, FieldDecl, IntegerBounds, MemberKind, MemberType, ModelOwners, Multiplicity,
+    ObjectTypeDecl, OperationDecl, SelectionFailure, TypedSlot,
 };
 use super::super::operation_catalog::{parse_catalog, OperationCatalog};
 use super::super::{CheckedDomainPackageRef, CheckedPackageLockV2, CheckedSemanticNodeV2};
@@ -280,7 +280,6 @@ impl CaseGraph {
     }
 
     /// An application node.
-    #[allow(clippy::too_many_arguments)]
     fn application(
         &mut self,
         form: &str,
@@ -591,8 +590,14 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
                     &node_vector(&vectors, text(member, "declaration"))["preimage"]["owner"],
                     "node",
                 );
+                let mut meter = WorkMeter::new(u64::MAX);
                 let resolved = model
-                    .resolve(owner_node, kind, text(member, "name"))
+                    .resolve(
+                        owner_node,
+                        kind,
+                        text(member, "name"),
+                        &mut Budget::new(&mut meter, 0),
+                    )
                     .expect("the member resolves");
                 assert_eq!(
                     resolved.identity(),
@@ -651,16 +656,19 @@ fn tc_280_selection_cases_admit_the_selected_document() {
                 )
             })
             .collect();
+        let mut meter = WorkMeter::new(u64::MAX);
         let decided = match admit_document(
             &row,
             supplied.get(row.digest.as_ref()).map(Vec::as_slice),
             projection_identity,
+            &mut Budget::new(&mut meter, 0),
         ) {
             Ok(_) => json!({"admission": "passed"}),
-            Err(refused) => json!({"refused": {
+            Err(SelectionFailure::Refused(refused)) => json!({"refused": {
                 "code": code_wire(refused.refusal.code),
                 "cause": cause_wire(refused.refusal.cause),
             }}),
+            Err(SelectionFailure::Limit(_)) => panic!("no limit is reached"),
         };
         assert_eq!(decided, case["expected"], "{}", text(case, "name"));
     }

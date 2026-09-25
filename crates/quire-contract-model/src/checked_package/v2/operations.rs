@@ -54,7 +54,9 @@
 //! silently bypasses every operand-family check ([`check_operands`],
 //! [`check_mode_type`], [`check_leaves`]) that consults it.
 
-use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
+use super::model_members::{
+    Budget, MemberKind, MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved,
+};
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
     BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
@@ -506,7 +508,9 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) = check_operands(application, entry, &arguments, graph, owners, catalog) {
+    if let Some(failure) =
+        check_operands(application, entry, &arguments, graph, owners, catalog, meter)?
+    {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
@@ -530,7 +534,8 @@ fn operation_defect(
                     &arguments,
                     graph,
                     owners,
-                ) {
+                    meter,
+                )? {
                     return Ok(Some(failure));
                 }
             }
@@ -896,7 +901,8 @@ fn check_operands(
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
-) -> Option<ValidationFailure> {
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
         kinds,
@@ -907,11 +913,11 @@ fn check_operands(
     // names the one argument at fault.
     let ineligible = |argument: Option<usize>| {
         let arguments_at = application.body(&["arguments"]);
-        Some(application.refuse(
+        Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             argument.map_or_else(|| arguments_at.clone(), |at| arguments_at.clone().index(at)),
             CheckedPackageRefusalCause::OperatorIneligible,
-        ))
+        )))
     };
     if entry.rest.is_none() {
         if arguments.len() != required {
@@ -977,15 +983,16 @@ fn check_operands(
                         arguments,
                         graph,
                         owners,
-                    ) {
-                        return Some(failure);
+                        meter,
+                    )? {
+                        return Ok(Some(failure));
                     }
                 }
             }
             _ => {}
         }
     }
-    None
+    Ok(None)
 }
 
 /// The `operation.member.declaration` an application names.
@@ -1027,33 +1034,60 @@ fn check_conforming_reference(
     arguments: &[Value],
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
-) -> Option<ValidationFailure> {
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let at = |position: usize| application.body(&["arguments"]).index(position);
-    let ineligible = || model_refusal(application, at(operands[1]), ModelRefusal::ineligible());
+    let ineligible = |position: usize| {
+        Ok(Some(model_refusal(
+            application,
+            at(position),
+            ModelRefusal::ineligible(),
+        )))
+    };
     let mut recovered = Vec::with_capacity(2);
     for position in operands {
-        let type_id =
-            operand_type_node(&arguments[position], graph.nodes, graph.kinds, graph.index)?;
-        let Some(target) = reference_target(&type_id, graph) else {
-            return Some(ineligible());
+        let Some(type_id) =
+            operand_type_node(&arguments[position], graph.nodes, graph.kinds, graph.index)
+        else {
+            return Ok(None);
         };
-        let target_node = &graph.nodes[*graph.index.get(&target)?];
+        let Some(target) = reference_target(&type_id, graph) else {
+            return ineligible(position);
+        };
+        let Some(target_position) = graph.index.get(&target) else {
+            return Ok(None);
+        };
+        let target_node = &graph.nodes[*target_position];
         if !owners.is_model_declaration_node(target_node) {
-            return Some(ineligible());
+            return ineligible(position);
         }
         match owners.recover(target_node) {
             Ok(owner) => recovered.push(owner),
-            Err(refusal) => return Some(model_refusal(application, at(position), refusal)),
+            Err(refusal) => {
+                return Ok(Some(model_refusal(application, at(position), refusal)));
+            }
         }
     }
     let [a, b] = recovered.as_slice() else {
-        return None;
+        return Ok(None);
     };
-    let conforms = a.object_type().is_some()
-        && b.object_type().is_some()
-        && std::ptr::eq(a.package, b.package)
-        && a.package.conforms(a.node, b.node);
-    (!conforms).then(ineligible)
+    // A declaration that is no object type is the fault of its own operand;
+    // two documents, or two types that do not conform, fault the pair, whose
+    // refusal is at the second operand.
+    for (position, owner) in operands.into_iter().zip([a, b]) {
+        if owner.object_type().is_none() {
+            return ineligible(position);
+        }
+    }
+    if !std::ptr::eq(a.package, b.package) {
+        return ineligible(operands[1]);
+    }
+    let mut budget = Budget::new(meter, a.selection);
+    if a.package.conforms(a.node, b.node, &mut budget)? {
+        Ok(None)
+    } else {
+        ineligible(operands[1])
+    }
 }
 
 /// The `inner:<n>` result form over a `reference` operand
@@ -1106,11 +1140,13 @@ fn check_model_member(
     arguments: &[Value],
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
-) -> Option<ValidationFailure> {
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let member_at = |member: &str| application.body(&["operation", "member", member]);
     let argument_at = |position: usize| application.body(&["arguments"]).index(position);
-    let refuse =
-        |path: JsonPointer, refusal: ModelRefusal| Some(model_refusal(application, path, refusal));
+    let refuse = |path: JsonPointer, refusal: ModelRefusal| {
+        Ok(Some(model_refusal(application, path, refusal)))
+    };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
     let type_node = |position: usize| {
         arguments
@@ -1133,9 +1169,11 @@ fn check_model_member(
     let Some(object) = owner.object_type() else {
         return ineligible(member_at("name"));
     };
-    let resolved = match owner.package.resolve(owner.node, kind, name) {
+    let mut budget = Budget::new(meter, owner.selection);
+    let resolved = match owner.package.resolve(owner.node, kind, name, &mut budget) {
         Ok(resolved) => resolved,
-        Err(refusal) => return refuse(member_at("name"), refusal),
+        Err(ModelFailure::Refused(refusal)) => return refuse(member_at("name"), refusal),
+        Err(ModelFailure::Limit(failure)) => return Err(failure),
     };
     let member_type = match resolved {
         Resolved::Field(field) => owner.package.field_type(field),
@@ -1143,8 +1181,7 @@ fn check_model_member(
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver =
-                super::model_members::MemberType::Reference(declaring.node_id.digest.clone());
+            let receiver = MemberType::Reference(declaring.node_id.digest.clone());
             if type_node(0).map(|id| id.digest) != Some(receiver.node_key().into()) {
                 return ineligible(argument_at(0));
             }
@@ -1178,7 +1215,7 @@ fn check_model_member(
     if result_type != Some(member_type.node_key().as_str()) {
         return ineligible(application.body(&["result_type"]));
     }
-    None
+    Ok(None)
 }
 
 /// The one `operation.member` shape an upstream mutation exercises in full: a
