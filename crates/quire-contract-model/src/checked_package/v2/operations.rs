@@ -520,15 +520,20 @@ fn operation_defect(
     // Outer `Some` is a member on the wire; inner `None` is a `kind` outside
     // the catalog's vocabulary, which no entry's member matches.
     let wire_member_kind = operation.member_kind_class();
+    let member_mismatch = || {
+        refuse(
+            member_or_operation("member"),
+            CheckedPackageRefusalCause::OperationMemberMismatch,
+        )
+    };
     match (entry.member, wire_member_kind) {
         (None, None) => {}
-        (Some(kind), Some(Some(wire_kind))) if kind == wire_kind => {}
-        _ => {
-            return refuse(
-                member_or_operation("member"),
-                CheckedPackageRefusalCause::OperationMemberMismatch,
-            )
+        (Some(kind), Some(Some(wire_kind))) => {
+            if kind != wire_kind {
+                return member_mismatch();
+            }
         }
+        (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
 
     let arguments = body
@@ -1360,7 +1365,7 @@ fn record_field_type(
 /// "literal", ..., "value": "nearest-even"}}`.
 fn type_pin(
     type_id: &CheckedNodeId,
-    kind: &str,
+    kind: OperationModeKind,
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<Box<str>> {
@@ -1368,7 +1373,7 @@ fn type_pin(
     let members = node.body.get("members")?.as_array()?;
     let binding = members.iter().find(|entry| {
         body_term(entry) == Some(BodyTerm::Binding)
-            && entry.get("name").and_then(Value::as_str) == Some(kind)
+            && entry.get("name").and_then(Value::as_str) == Some(kind.as_wire())
     })?;
     binding.get("value")?.get("value")?.as_str().map(Box::from)
 }
@@ -1399,7 +1404,7 @@ fn check_mode_type(
         if !catalog.family_fits(actual_family, expected) {
             continue;
         }
-        if let Some(pinned) = type_pin(&type_id, &mode.kind, nodes, index) {
+        if let Some(pinned) = type_pin(&type_id, mode_kind, nodes, index) {
             if pinned.as_ref() != mode.value.as_ref() {
                 return Some(application.refuse(
                     CheckedPackageRefusalCode::InvalidPackage,
@@ -1424,6 +1429,10 @@ fn check_leaves(
 ) -> Option<ValidationFailure> {
     for (leaf_index, leaf) in operation.leaves.iter().enumerate() {
         let Some(mode) = &leaf.mode else { continue };
+        // A kind outside the catalog's vocabulary pins nothing.
+        let Some(mode_kind) = mode.kind_class() else {
+            continue;
+        };
         let [segment] = leaf.path.as_slice() else {
             continue;
         };
@@ -1439,7 +1448,7 @@ fn check_leaves(
         let Some(field_type) = record_field_type(&record_type, field, nodes, index) else {
             continue;
         };
-        if let Some(pinned) = type_pin(&field_type, &mode.kind, nodes, index) {
+        if let Some(pinned) = type_pin(&field_type, mode_kind, nodes, index) {
             if pinned.as_ref() != mode.value.as_ref() {
                 return Some(
                     application.refuse(

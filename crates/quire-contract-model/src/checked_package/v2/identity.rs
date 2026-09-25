@@ -154,7 +154,6 @@ where
 /// `version` selects, with the tag removed, and then the internally tagged
 /// `owner` the same way, so the pointer names the member at fault. `at` is
 /// the preimage's pointer and `preimage` its value.
-// string-edge: intake error localisation: reads the preimage version tag to pick its decoder.
 pub(in crate::checked_package) fn locate_preimage_failure(
     at: JsonPointer,
     preimage: &Value,
@@ -201,7 +200,6 @@ fn decode_failure<T: serde::de::DeserializeOwned>(
 /// `at`, checking members in the order the decoder reads them: the first
 /// member outside the `kind`'s closed set or not a string, else the owner
 /// itself for a missing member.
-// string-edge: intake error localisation: reads the owner `kind` tag to pick its member set.
 fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
     let Some(object) = owner.as_object() else {
         return at;

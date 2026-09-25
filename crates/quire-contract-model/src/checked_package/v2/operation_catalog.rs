@@ -211,6 +211,70 @@ mod tests {
         );
     }
 
+    /// Every catalog vocabulary the reader decodes into an enum is exactly
+    /// the enum's member set, and `LawRole::selection_role` is `Some` for
+    /// exactly the catalog's profile law roles.
+    ///
+    /// Tracing: TC-048
+    /// ACs: FR-038-AC-34
+    #[test]
+    fn tc_048_the_catalog_vocabularies_are_the_decoded_enums() {
+        use std::collections::BTreeSet;
+        let wire: OperationCatalogWire =
+            serde_json::from_str(CATALOG_BYTES).expect("the catalog is valid");
+        let words = |list: &[Box<str>]| -> BTreeSet<String> {
+            list.iter().map(|word| word.to_string()).collect()
+        };
+        let members = |all: Vec<&'static str>| -> BTreeSet<String> {
+            all.into_iter().map(str::to_owned).collect()
+        };
+        assert_eq!(
+            words(&wire.member_kinds),
+            members(
+                OperationMemberKind::ALL
+                    .iter()
+                    .map(|k| k.as_wire())
+                    .collect()
+            )
+        );
+        assert_eq!(
+            words(&wire.constraint_kinds),
+            members(
+                OperationConstraintKind::ALL
+                    .iter()
+                    .map(|k| k.as_wire())
+                    .collect()
+            )
+        );
+        assert_eq!(
+            wire.modes
+                .keys()
+                .map(|k| k.to_string())
+                .collect::<BTreeSet<_>>(),
+            members(OperationModeKind::ALL.iter().map(|k| k.as_wire()).collect())
+        );
+        let value_roles: BTreeSet<String> = wire
+            .law_roles
+            .keys()
+            .map(|role| role.as_wire().to_owned())
+            .collect();
+        let profile_roles = words(&wire.profile_law_roles);
+        assert_eq!(
+            value_roles
+                .union(&profile_roles)
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            members(LawRole::ALL.iter().map(|k| k.as_wire()).collect())
+        );
+        for role in LawRole::ALL {
+            assert_eq!(
+                role.selection_role().is_some(),
+                profile_roles.contains(role.as_wire()),
+                "{role:?}: a selection role exactly for a catalog profile role"
+            );
+        }
+    }
+
     /// The reader refuses a catalog of another vocabulary identity rather than
     /// applying v1 rules to it. Paired with the digest check above: that one
     /// catches changed bytes, this one catches a deliberate version change.

@@ -347,7 +347,11 @@ and constraint kinds. The functions that read wire text (the reader's version,
 domain and algorithm checks, the body-member readers, the catalog and
 domain-package readers, the vocabulary decoders themselves) carry a
 `// string-edge:` marker naming why; a comparison of a user value that selects
-no behaviour is listed with its reason in `tests/it/string_edge.rs`. The bounded-Kani
+no behaviour is listed with its reason in `tests/it/string_edge.rs`. The gate is
+an ordinary integration test scanning for those markers, not the
+`#[string_edge]` attribute and `xtask string-edge` scan of quire-spec-language,
+because `quire-contract-model` may not depend on quire-spec-language and a
+comment marker needs no macro crate. The bounded-Kani
 modules under `src/kani/` read Kani's transcript text the same way: the check
 kind and the Boolean decoded-value comment are decoded once, where the
 transcript is read.

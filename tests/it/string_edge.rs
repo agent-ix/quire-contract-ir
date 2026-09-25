@@ -39,6 +39,56 @@ const ROOTS: &[&str] = &[
 /// Comparisons of a user value that select no behaviour: `(file, fn, reason)`.
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "crates/quire-contract-model/src/checked_package/common.rs",
+        "decode_closed",
+        "classifies a serde decode failure by its message text to choose between the unknown-member and malformed-wire refusals; the message is serde's own, not a wire vocabulary",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/identity.rs",
+        "locate_preimage_failure",
+        "localises an error: reads the preimage's own `version` text to pick the decoder that names the member at fault; duplicates the preimage-version vocabulary and selects only a pointer, never an admission",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/identity.rs",
+        "locate_owner_failure",
+        "localises an error: reads the owner's `kind` text to pick the member set that names the member at fault; selects only a pointer, never an admission",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/mod.rs",
+        "classify_dependency_entry_shape",
+        "parses the reader's own refusal pointer to localise an error",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/mod.rs",
+        "is_typed_preimage_position",
+        "parses the reader's own refusal pointer to localise an error",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/operations.rs",
+        "check_model_member",
+        "compares two node-key digest texts; digests, not vocabulary",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/operations.rs",
+        "check_field_member",
+        "looks a declared member up by its name; the name is the user's, no behaviour selected",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/operations.rs",
+        "record_field_type",
+        "looks a record field up by its name; the name is the user's, no behaviour selected",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/operations.rs",
+        "type_pin",
+        "finds the binding a type declares for a mode kind by comparing the binding's name with the decoded kind's wire text; a name lookup, no behaviour selected",
+    ),
+    (
+        "crates/quire-contract-model/src/checked_package/v2/structural.rs",
+        "binding",
+        "looks a binding up by its name; the name is the user's, no behaviour selected",
+    ),
+    (
         "crates/quire-contract-model/src/checked_package/v2/identity.rs",
         "integer_magnitude",
         "lexical check of a decimal integer's text (`0`, a leading `-`); the text is a number, not a vocabulary member",
@@ -195,7 +245,12 @@ fn reads_a_string(code: &str) -> bool {
             let const_side = is_const_ident(leading_word(right));
             let as_ref_both = (left.ends_with(".as_ref()") || left.ends_with(".as_str()"))
                 && (right.contains(".as_ref()") || right.contains(".as_str()"));
-            if literal_side || const_side || as_ref_both {
+            if literal_side
+                || const_side
+                || as_ref_both
+                || derived_from_text(operand_left(left))
+                || derived_from_text(operand_right(right))
+            {
                 return true;
             }
         }
@@ -220,6 +275,18 @@ fn reads_a_string(code: &str) -> bool {
     {
         return true;
     }
+    // `let`/`if let`/`while let` with a string in the pattern.
+    if let Some(at) = code.find("let ") {
+        if let Some(eq) = code[at..].find(" = ") {
+            if code[at..at + eq].contains('"') {
+                return true;
+            }
+        }
+    }
+    // Membership of a string in a literal list, or a substring test.
+    if (code.contains("].contains(") && code.contains('"')) || code.contains(".contains(\"") {
+        return true;
+    }
     // Prefix/suffix tests and decode calls.
     [
         ".starts_with(",
@@ -230,6 +297,34 @@ fn reads_a_string(code: &str) -> bool {
     ]
     .iter()
     .any(|needle| code.contains(needle))
+}
+
+/// Whether an operand was read as text from the wire, or is a vocabulary
+/// member's wire text, rather than a decoded enum.
+fn derived_from_text(operand: &str) -> bool {
+    operand.contains(".as_str()")
+        || operand.contains("Value::as_str")
+        || operand.contains(".as_wire()")
+}
+
+/// The tail of `left` that belongs to the comparison's left operand.
+fn operand_left(left: &str) -> &str {
+    let cut = ["&&", "||", "if ", "{", "return "]
+        .iter()
+        .filter_map(|separator| left.rfind(separator).map(|at| at + separator.len()))
+        .max()
+        .unwrap_or(0);
+    &left[cut..]
+}
+
+/// The head of `right` that belongs to the comparison's right operand.
+fn operand_right(right: &str) -> &str {
+    let cut = ["&&", "||", " {", ";"]
+        .iter()
+        .filter_map(|separator| right.find(separator))
+        .min()
+        .unwrap_or(right.len());
+    &right[..cut]
 }
 
 /// The name of the function declared on `line`, if any.
@@ -245,6 +340,55 @@ fn fn_name(line: &str) -> Option<String> {
 
 fn indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
+}
+
+/// The type an `impl` header names, if `line` is one.
+fn impl_type(line: &str) -> Option<String> {
+    let rest = line.trim_start().strip_prefix("impl")?;
+    if !(rest.starts_with(' ') || rest.starts_with('<')) {
+        return None;
+    }
+    // Skip generics after `impl`, then take the type after `for` if present.
+    let header = rest.split('{').next().unwrap_or(rest);
+    let target = header.rsplit(" for ").next().unwrap_or(header);
+    let target = if header.contains(" for ") {
+        target
+    } else if let Some(end) = header.rfind('>') {
+        // `impl<T> Type` names the text after the generics.
+        if header.trim_start().starts_with('<') {
+            &header[end + 1..]
+        } else {
+            header
+        }
+    } else {
+        header
+    };
+    let name: String = target
+        .trim()
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != '<' && *c != '{')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// `Type::name` for a method, `name` for a free function; `index` is the
+/// line of the function's declaration.
+fn qualified_fn(index: usize, raw: &[&str], code: &[String], skipped: &[bool]) -> Option<String> {
+    let name = fn_name(&code[index])?;
+    let here = indent(raw[index]);
+    let owner = (0..index).rev().find(|&up| {
+        let trimmed = raw[up].trim_start();
+        !skipped[up]
+            && !trimmed.is_empty()
+            && !trimmed.starts_with("//")
+            && !trimmed.starts_with("#[")
+            && !trimmed.starts_with('}')
+            && indent(raw[up]) < here
+    });
+    match owner.and_then(|up| impl_type(raw[up])) {
+        Some(owner) => Some(format!("{owner}::{name}")),
+        None => Some(name),
+    }
 }
 
 /// Scans one source text; `test_module_names` receives each out-of-line
@@ -320,7 +464,7 @@ fn scan_source(file: &str, source: &str, test_module_names: &mut BTreeSet<String
             continue;
         }
         // Register a wire-edge marker for each function that carries one.
-        if let Some(name) = fn_name(text) {
+        if let Some(name) = qualified_fn(index, &raw, &code, &skipped) {
             let mut up = index;
             while up > 0 {
                 let above = raw[up - 1].trim_start();
@@ -339,12 +483,12 @@ fn scan_source(file: &str, source: &str, test_module_names: &mut BTreeSet<String
         }
         let here = indent(raw[index]);
         let func = if fn_name(text).is_some() {
-            fn_name(text)
+            qualified_fn(index, &raw, &code, &skipped)
         } else {
             (0..index)
                 .rev()
                 .find(|&up| !skipped[up] && fn_name(&code[up]).is_some() && indent(raw[up]) < here)
-                .and_then(|up| fn_name(&code[up]))
+                .and_then(|up| qualified_fn(up, &raw, &code, &skipped))
         }
         .unwrap_or_else(|| "<item>".to_owned());
         hit_functions.insert(func.clone());
@@ -387,8 +531,9 @@ fn scan_repository() -> (Vec<Hit>, Vec<String>) {
     for dir in ROOTS {
         collect_files(&root.join(dir), &mut files);
     }
-    let mut test_modules = BTreeSet::new();
     let mut scans = Vec::new();
+    // Files that are `#[cfg(test)] mod x;` of the file that declares them.
+    let mut test_files: BTreeSet<PathBuf> = BTreeSet::new();
     for path in &files {
         let relative = path
             .strip_prefix(root)
@@ -396,43 +541,62 @@ fn scan_repository() -> (Vec<Hit>, Vec<String>) {
             .to_string_lossy()
             .replace('\\', "/");
         let source = fs::read_to_string(path).expect("source");
-        scans.push((
-            path.clone(),
-            relative.clone(),
-            scan_source(&relative, &source, &mut test_modules),
-        ));
+        let mut declared = BTreeSet::new();
+        let scan = scan_source(&relative, &source, &mut declared);
+        let dir = path.parent().expect("a file has a directory");
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        // `mod x;` in `a.rs` is `x.rs` beside it when `a` is `mod`/`lib`/`main`,
+        // else `a/x.rs`; either may be `x/mod.rs`.
+        let homes = if matches!(stem, "mod" | "lib" | "main") {
+            vec![dir.to_path_buf()]
+        } else {
+            vec![dir.join(stem)]
+        };
+        for name in declared {
+            for home in &homes {
+                test_files.insert(home.join(format!("{name}.rs")));
+                test_files.insert(home.join(&name).join("mod.rs"));
+            }
+        }
+        scans.push((path.clone(), relative, scan));
     }
     let mut hits = Vec::new();
     let mut stale = Vec::new();
     for (path, relative, scan) in scans {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if stem == "tests" || test_modules.contains(stem) {
+        if test_files.contains(&path) {
             continue;
         }
-        for (func, (reason, used)) in scan.edges {
-            if reason.is_empty() {
-                stale.push(format!(
-                    "{relative}: `{func}` has a string-edge marker with no reason"
-                ));
-            }
-            if !used {
-                stale.push(format!(
-                    "{relative}: `{func}` is marked string-edge but reads no string"
-                ));
-            }
-        }
+        stale.extend(edge_problems(&relative, &scan));
         hits.extend(scan.hits);
     }
     (hits, stale)
 }
 
+/// Markers with no reason, and markers on a function that reads no string.
+fn edge_problems(file: &str, scan: &Scan) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (func, (reason, used)) in &scan.edges {
+        if reason.is_empty() {
+            problems.push(format!(
+                "{file}: `{func}` has a string-edge marker with no reason"
+            ));
+        }
+        if !used {
+            problems.push(format!(
+                "{file}: `{func}` is marked string-edge but reads no string"
+            ));
+        }
+    }
+    problems
+}
+
 /// Splits hits into those the allow-list covers and those it does not, and
 /// reports allow-list rows that matched nothing.
-fn apply_allow_list(hits: Vec<Hit>) -> (Vec<Hit>, Vec<String>) {
+fn apply_allow_list(hits: Vec<Hit>, allowed: &[(&str, &str, &str)]) -> (Vec<Hit>, Vec<String>) {
     let mut used = BTreeSet::new();
     let mut remaining = Vec::new();
     for hit in hits {
-        match ALLOWED
+        match allowed
             .iter()
             .position(|(file, func, _)| *file == hit.file && *func == hit.func)
         {
@@ -443,7 +607,7 @@ fn apply_allow_list(hits: Vec<Hit>) -> (Vec<Hit>, Vec<String>) {
         }
     }
     let mut stale = Vec::new();
-    for (row, (file, func, reason)) in ALLOWED.iter().enumerate() {
+    for (row, (file, func, reason)) in allowed.iter().enumerate() {
         if reason.trim().is_empty() {
             stale.push(format!("allow-list row {file}::{func} has no reason"));
         }
@@ -462,7 +626,7 @@ fn apply_allow_list(hits: Vec<Hit>) -> (Vec<Hit>, Vec<String>) {
 #[test]
 fn tc_048_no_wire_string_is_matched_after_intake() {
     let (hits, marker_problems) = scan_repository();
-    let (unlisted, allow_problems) = apply_allow_list(hits);
+    let (unlisted, allow_problems) = apply_allow_list(hits, ALLOWED);
     let mut report = String::new();
     for hit in &unlisted {
         report.push_str(&format!(
@@ -508,6 +672,34 @@ fn tc_048_the_scan_detects_each_kind_of_string_read() {
         ),
         ("prefix test", "fn f(k: &str) -> bool {\n    k.starts_with(\"x\")\n}\n"),
         ("downstream decode", "fn f(k: &str) {\n    let _ = Role::from_wire(k);\n}\n"),
+        (
+            "let-else with a string pattern",
+            "fn f(x: &Value) {\n    let Some(\"reference\") = x.get(\"term\").and_then(Value::as_str) else {\n        return;\n    };\n}\n",
+        ),
+        (
+            "if-let with a string pattern",
+            "fn f(x: Option<&str>) {\n    if let Some(\"a\") = x {}\n}\n",
+        ),
+        (
+            "text compared with an as_wire result",
+            "fn f(x: &Value, k: Kind) -> bool {\n    x.get(\"kind\").and_then(Value::as_str) != Some(k.as_wire())\n}\n",
+        ),
+        (
+            "as_str compared with a variable",
+            "fn f(a: &String, b: &str) -> bool {\n    a.as_str() == b\n}\n",
+        ),
+        (
+            "membership in a literal list",
+            "fn f(k: &str) -> bool {\n    [\"a\", \"b\"].contains(&k)\n}\n",
+        ),
+        (
+            "substring test against a literal",
+            "fn f(k: &str) -> bool {\n    k.contains(\"a\")\n}\n",
+        ),
+        (
+            "constant match arm",
+            "fn f(k: &str) -> u8 {\n    match k {\n        VERSION => 1,\n        _ => 0,\n    }\n}\n",
+        ),
         (
             "Option-wrapped literal",
             "fn f(k: Option<&str>) -> bool {\n    k != Some(\"a\")\n}\n",
@@ -570,5 +762,63 @@ fn tc_048_the_scan_ignores_enums_comments_tests_and_marked_edges() {
         marked.edges.get("f"),
         Some(&("reads the wire tag".to_owned(), false)),
         "a marker on a function that reads no string is reported as unused"
+    );
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-34
+#[trace("TC-048", "FR-038-AC-34")]
+#[test]
+fn tc_048_stale_allow_list_rows_and_empty_marker_reasons_fail() {
+    let hit = |func: &str| Hit {
+        file: "a.rs".to_owned(),
+        line: 1,
+        func: func.to_owned(),
+        text: String::new(),
+    };
+    let allowed: &[(&str, &str, &str)] = &[
+        ("a.rs", "read", "a user value"),
+        ("a.rs", "gone", "a function that no longer reads a string"),
+        ("a.rs", "silent", ""),
+    ];
+    let (unlisted, problems) = apply_allow_list(vec![hit("read"), hit("other")], allowed);
+    assert_eq!(unlisted, vec![hit("other")], "an unlisted read is reported");
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("gone") && p.contains("matches no string read")),
+        "a stale allow-list row is reported: {problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("silent") && p.contains("no reason")),
+        "an allow-list row with no reason is reported: {problems:?}"
+    );
+
+    let empty = scan_source(
+        "case.rs",
+        "// string-edge:\nfn f(k: &str) -> bool {\n    k == \"a\"\n}\n",
+        &mut BTreeSet::new(),
+    );
+    let problems = edge_problems("case.rs", &empty);
+    assert!(
+        problems.iter().any(|p| p.contains("no reason")),
+        "a marker with an empty reason is reported: {problems:?}"
+    );
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-34
+#[trace("TC-048", "FR-038-AC-34")]
+#[test]
+fn tc_048_a_marker_covers_its_own_method_not_a_namesake() {
+    let source = "impl A {\n    // string-edge: decodes A\n    fn decode(k: &str) -> bool {\n        k == \"a\"\n    }\n}\nimpl B {\n    fn decode(k: &str) -> bool {\n        k == \"b\"\n    }\n}\n";
+    let scan = scan_source("case.rs", source, &mut BTreeSet::new());
+    let funcs: Vec<&str> = scan.hits.iter().map(|hit| hit.func.as_str()).collect();
+    assert_eq!(
+        funcs,
+        ["B::decode"],
+        "only the unmarked namesake is reported"
     );
 }
