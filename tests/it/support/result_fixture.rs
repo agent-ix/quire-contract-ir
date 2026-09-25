@@ -24,10 +24,11 @@ use quire_observation::{
 use quire_protocol::closure::{AssessmentExecution, GlobalConformanceClosure};
 use quire_protocol::repro::{CorpusIdentity, ReproductionInputs, Seed, ToolchainIdentity};
 use quire_protocol::result::{
-    self, Activation, Adequacy, Assumption, AssumptionState, AxisInputs, Claim, ClaimKind,
-    ClaimStrength, CorrectionInput, CorrectionRelation, DecisionSupport, DependenceRelation,
-    GlobalConformanceInput, GlobalPremise, Input, Limitation, Limits, Participation, PremiseKind,
-    ProtocolAdequacy, ProvenanceRecord, Settlement, SettlementBasis, Truth,
+    self, test_support, Activation, Adequacy, Assumption, AssumptionState, AxisInputs, Claim,
+    ClaimKind, ClaimStrength, CorrectionInput, CorrectionRelation, DecisionSupport,
+    DependenceRelation, GlobalConformanceInput, GlobalPremise, Input, Limitation, Limits,
+    Participation, PremiseKind, ProtocolAdequacy, ProvenanceRecord, Settlement, SettlementBasis,
+    Truth,
 };
 use quire_protocol::{v2, wire as w};
 use quire_spec_language::protocol_artifact::{checked_predicate, temporal_subject};
@@ -152,38 +153,13 @@ pub fn fixture_from_package(admitted: &v2::AdmittedPackage, temporal_declaration
     }
 }
 
-// BLOCKED (TL-181 follow-up, not fixed by this change): `quire_protocol::result::produce`
-// and `produce_bounded` went from `pub` to `pub(crate)` in quire-protocol commit
-// ed753b8 / PR #88 ("Harden post-merge Protocol result boundaries"), landed on the
-// `9606131` main this crate now pins. There is no remaining public function that
-// takes a caller-built `result::Input` and returns a `Document`/`ValidatedResult`;
-// `quire_protocol::result::reader::read` itself calls the sealed `produce`
-// internally to re-derive the expected canonical bytes, so it cannot be used to
-// bypass the seal either. The module doc at `quire_protocol::result` states the
-// intended replacement: "Canonical production is an Engine-owned transition, not
-// an external wire-shaped input seam."
-//
-// The only remaining public path to a `result::ValidatedResult` is
-// `quire_protocol::assessment::with_result_assessment_after_resolving`, which
-// requires (verified against quire-protocol's own `tests/it002_observation_temporal.rs`
-// and `tests/tc_002_binding_model.rs`, the only current external callers): a real
-// `model::v2::LinkedAssessment` context built from a `StaticBindingDefinition` and
-// `RuntimeBindingSet`/`StaticSlot` binding model quire-contract-ir does not use
-// anywhere else in this crate; a `v3::AdmittedPackage` activation-mapping context
-// (`admitted_activation_map`-style, a second admission pass); real
-// `quire_spec_language::protocol_artifact::native_temporal::v2::{produce, evaluate}`
-// request/result values (these ARE still public and can be driven from the same
-// `authority::progress`/`closure`/`completeness::View` objects this fixture already
-// builds); and a `ProducerResolutionRequest`/`VersionLockManifest`/`ResolutionBudget`
-// producer-resolution round trip (see `tests/support/producer_selection.rs` in
-// quire-protocol for the selection-digest oracle that requires).
-//
-// This is a net-new integration surface, not a rename: quire-protocol's own
-// `it002_observation_temporal.rs` (this pattern's origin) is 1300+ lines.
-// Reimplementing it here needs its own scoped ticket/session rather than a
-// blind, unverified multi-hundred-line addition folded into this pin-bump PR.
-// Everything else in this file (the FR-287 `QualifiedSubject`/`AdmittedStaticBundle`
-// producer fixture above, and the `tl_mltl` -> `quire_mltl` import moves) is fixed.
+// quire-protocol seals canonical production (`result::produce`) to the
+// crate; its Engine derives truth and settlement from real activation. These
+// fixtures choose truth, settlement and execution directly, so they build
+// results through the `test-support` feature's constructors (enabled on this
+// crate's quire-protocol dev-dependency only, TL-194). Each constructor runs
+// the canonical producer and then the strict reader, so a fixture result
+// satisfies every invariant a production result does.
 pub fn validated_result(fixture: &Fixture) -> result::ValidatedResult {
     validated_result_with(
         fixture,
@@ -203,16 +179,7 @@ pub fn validated_result_with(
     input.execution = execution;
     input.truth = truth;
     input.settlement.basis = settlement;
-    let document = result::produce(input.clone(), Limits::owner_max()).expect("canonical result");
-    result::read(
-        document.bytes(),
-        result::Expected {
-            input,
-            enclosing_digest: document.digest(),
-        },
-        Limits::owner_max(),
-    )
-    .expect("strict result reader")
+    test_support::validated_result(input, Limits::owner_max()).expect("canonical result")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -275,16 +242,7 @@ pub fn validated_result_for_temporal_predicate<'a>(
     input.settlement.supporting_progress_identities =
         vec![decision_progress.identity().as_str().to_owned()];
     input.decision_support[0].observation_identity = observation_identity.to_owned();
-    let document = result::produce(input.clone(), Limits::owner_max()).expect("temporal result");
-    result::read(
-        document.bytes(),
-        result::Expected {
-            input,
-            enclosing_digest: document.digest(),
-        },
-        Limits::owner_max(),
-    )
-    .expect("temporal result strict reader")
+    test_support::validated_result(input, Limits::owner_max()).expect("temporal result")
 }
 
 pub fn validated_result_with_outside_gap(
@@ -306,16 +264,7 @@ pub fn validated_result_with_outside_gap(
     } else {
         &fixture.decision.completeness_incomplete
     };
-    let document = result::produce(input.clone(), Limits::owner_max()).expect("gap result");
-    result::read(
-        document.bytes(),
-        result::Expected {
-            input,
-            enclosing_digest: document.digest(),
-        },
-        Limits::owner_max(),
-    )
-    .expect("gap result strict reader")
+    test_support::validated_result(input, Limits::owner_max()).expect("gap result")
 }
 
 pub fn corrected_result(
@@ -327,22 +276,16 @@ pub fn corrected_result(
     input.truth = Truth::Unavailable;
     input.settlement.basis = SettlementBasis::Unavailable;
     input.provenance.input_identity = "input:corrected".into();
-    input.correction = Some(CorrectionInput {
+    // Correction is not yet a production capability upstream (quire-protocol
+    // Task-006); `corrected_result` is its test-only stand-in.
+    let correction = CorrectionInput {
         relation: CorrectionRelation::Invalidates,
         predecessor,
         contradicted_premise_identity: "premise:branch",
         corrected_input_identity: "input:corrected",
-    });
-    let document = result::produce(input.clone(), Limits::owner_max()).expect("corrected result");
-    result::read(
-        document.bytes(),
-        result::Expected {
-            input,
-            enclosing_digest: document.digest(),
-        },
-        Limits::owner_max(),
-    )
-    .expect("corrected result strict reader")
+    };
+    test_support::corrected_result(input, correction, Limits::owner_max())
+        .expect("corrected result")
 }
 
 pub fn contradicted_non_value(fixture: &Fixture) -> result::ValidatedResult {
@@ -351,17 +294,7 @@ pub fn contradicted_non_value(fixture: &Fixture) -> result::ValidatedResult {
     input.truth = Truth::Unavailable;
     input.settlement.basis = SettlementBasis::Unavailable;
     input.completeness = &fixture.decision.completeness_contradicted;
-    let document =
-        result::produce(input.clone(), Limits::owner_max()).expect("contradicted result");
-    result::read(
-        document.bytes(),
-        result::Expected {
-            input,
-            enclosing_digest: document.digest(),
-        },
-        Limits::owner_max(),
-    )
-    .expect("contradicted result strict reader")
+    test_support::validated_result(input, Limits::owner_max()).expect("contradicted result")
 }
 
 pub fn availability(

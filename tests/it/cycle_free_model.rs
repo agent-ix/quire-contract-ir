@@ -161,7 +161,7 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             "quire-observation",
             "2bdeb833a330bfa777c19eb4c28c423f856f3ba6",
         ),
-        ("quire-protocol", "02684bff9dd46e0d57f2792d831f4e81b0888493"),
+        ("quire-protocol", "a84dfdd305562eb0695304d08361a280c22e07c6"),
         (
             "quire-spec-language",
             "51245876e0d406aeed3047c608ad478b53b19205",
