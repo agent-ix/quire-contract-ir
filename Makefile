@@ -52,7 +52,7 @@ help:
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
 	@echo "  make deny             - Run all cargo-deny policy checks"
 	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
-	@echo "  make qspec-vectors    - Run QSpec's model-member vectors (TC-280/281); needs QSPEC_DIR"
+	@echo "  make qspec-vectors    - Run QSpec's model-member and dependency-selection vectors; needs QSPEC_DIR"
 	@echo "  make ci               - All local release gates"
 
 # =============================================================================
@@ -108,11 +108,12 @@ test: unit
 
 # QSpec's model-member vectors (TC-280, TC-281) are read at run time from the
 # quire-specification checkout QSPEC_DIR names; nothing of QSpec is copied here.
-# Each of the six tests skips (and passes) when QSPEC_DIR is unset, so a plain
+# The six model-member tests and the dependency-selection test (IR-287, STD-105)
+# each skip (and pass) when QSPEC_DIR is unset, so a plain
 # `make test` cannot tell a run from a skip. This target requires QSPEC_DIR and
 # fails unless every test printed its `conformance:` line and none skipped. It
 # is not part of `make ci`, which must run on machines without a QSpec checkout.
-QSPEC_VECTOR_TESTS := 6
+QSPEC_VECTOR_TESTS := 7
 QSPEC_VECTORS_LOG := target/qspec-vectors.log
 
 .PHONY: qspec-vectors
@@ -120,6 +121,7 @@ qspec-vectors:
 	@test -n "$(QSPEC_DIR)" || { echo "qspec-vectors: set QSPEC_DIR to a quire-specification checkout" >&2; exit 1; }
 	@mkdir -p $(dir $(QSPEC_VECTORS_LOG))
 	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-model --lib model_member_vectors -- --nocapture --test-threads=1 > $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
+	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-ir --test it dependency_selection_vectors -- --nocapture --test-threads=1 >> $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
 	@! grep -q "skipped:" $(QSPEC_VECTORS_LOG) || { echo "qspec-vectors: a vector test skipped" >&2; exit 1; }
 	@ran=$$(grep -c "conformance:" $(QSPEC_VECTORS_LOG)); \
 	test "$$ran" -eq $(QSPEC_VECTOR_TESTS) || { echo "qspec-vectors: $$ran of $(QSPEC_VECTOR_TESTS) tests printed a conformance line" >&2; exit 1; }
