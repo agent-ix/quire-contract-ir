@@ -19,6 +19,7 @@ use std::{
     collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use qsl_foundation::{ByteDigest, Source, SourceIdentity};
@@ -29,8 +30,9 @@ use quire_spec_language::{
     formal_source::FormalSource,
     model_source::{self, ModelSourceLimits},
     native_model::{ModelLimits, NativeModel},
-    protocol_artifact::{self as artifact, v2, wire as w},
+    protocol_artifact::{self as artifact, handoff::write_v2, v2, wire as w},
 };
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
 // Absence
@@ -196,8 +198,7 @@ impl fmt::Display for Absence {
 pub use artifact::handoff::{
     MutationManifest, SelectedArtifactLimits, SelectedDeclaration, SelectedModel, SelectionV2,
     MUTATION_MANIFEST_FORMAT, PUBLISHED_ARTIFACT_REFERENCE_FILE, PUBLISHED_CHECKSUMS_FILE,
-    PUBLISHED_HANDOFF, PUBLISHED_MUTATION_MANIFEST_FILE, PUBLISHED_OFFER_FILE,
-    PUBLISHED_SELECTION_FILE,
+    PUBLISHED_MUTATION_MANIFEST_FILE, PUBLISHED_OFFER_FILE, PUBLISHED_SELECTION_FILE,
 };
 
 /// A's selected ceilings as this platform's `Limits`.
@@ -240,6 +241,74 @@ pub fn selected_limits(selected: &SelectedArtifactLimits) -> Result<artifact::Li
 }
 
 // ---------------------------------------------------------------------------
+// The producer's written handoff
+// ---------------------------------------------------------------------------
+
+/// The `/2` handoff directory, written once per test process.
+///
+/// It is published as `<target>/qsl-producer/handoff-<sha256 of SHA256SUMS>`:
+/// equal names mean equal handoffs, so repeated test runs reuse one directory
+/// instead of piling up copies. A published directory is never replaced, so a
+/// process still reading one is undisturbed.
+fn written_handoff() -> Result<&'static Path, Absence> {
+    static WRITTEN: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    WRITTEN
+        .get_or_init(write_handoff)
+        .as_deref()
+        .map_err(|cause| Absence::Unreadable {
+            path: PathBuf::from("handoff::write_v2"),
+            cause: cause.clone(),
+        })
+}
+
+fn write_handoff() -> Result<PathBuf, String> {
+    // `<target>/<profile>/deps/<test binary>`.
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("cannot locate the test executable: {error}"))?;
+    let base = executable
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|target| target.join("qsl-producer"))
+        .ok_or_else(|| format!("{} is not under a target directory", executable.display()))?;
+    let fresh = base.join(format!("fresh-{}", std::process::id()));
+    remove_dir_if_present(&fresh)?;
+    fs::create_dir_all(&fresh)
+        .map_err(|error| format!("cannot create {}: {error}", fresh.display()))?;
+    write_v2(&fresh).map_err(|error| format!("QSL write_v2 failed: {error}"))?;
+    let sums = fresh.join(PUBLISHED_CHECKSUMS_FILE);
+    let bytes =
+        fs::read(&sums).map_err(|error| format!("cannot read {}: {error}", sums.display()))?;
+    let name: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let published = base.join(format!("handoff-{name}"));
+    if !published.is_dir() {
+        // Losing a race to a concurrent process leaves the same content there.
+        let _ = fs::rename(&fresh, &published);
+    }
+    remove_dir_if_present(&fresh)?;
+    if published.is_dir() {
+        Ok(published)
+    } else {
+        Err(format!(
+            "cannot publish the handoff at {}",
+            published.display()
+        ))
+    }
+}
+
+fn remove_dir_if_present(directory: &Path) -> Result<(), String> {
+    match fs::remove_dir_all(directory) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("cannot remove {}: {error}", directory.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The loaded handoff
 // ---------------------------------------------------------------------------
 
@@ -260,9 +329,13 @@ pub struct Handoff {
 }
 
 impl Handoff {
-    /// Load the handoff published inside the exactly pinned producer crate.
+    /// Load a complete handoff written by the pinned producer's public writer.
+    ///
+    /// QSL's committed `PUBLISHED_HANDOFF` carries no `dependencies/` bytes, so
+    /// it cannot be admitted. `handoff::write_v2` (QSL feature `handoff-writer`,
+    /// enabled on this crate's dev-dependency) writes the complete handoff.
     pub fn load() -> Result<Self, Absence> {
-        Self::load_from(Path::new(PUBLISHED_HANDOFF))
+        Self::load_from(written_handoff()?)
     }
 
     /// Load the handoff published under `root`.
