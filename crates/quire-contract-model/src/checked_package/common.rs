@@ -44,6 +44,22 @@ impl ValidationFailure {
         })
     }
 
+    /// A refusal about the value at `path` carrying the cause this stage
+    /// determined, not located at any graph node.
+    pub(super) fn refused_because(
+        code: CheckedPackageRefusalCode,
+        path: JsonPointer,
+        cause: CheckedPackageRefusalCause,
+    ) -> Self {
+        Self::Refused(CheckedPackageRefusal {
+            code,
+            path: Some(path),
+            cause: Some(cause),
+            locus: None,
+            contract_version: None,
+        })
+    }
+
     /// A refusal about the byte stream rather than any value: malformed JSON
     /// or non-canonical bytes.
     pub(super) fn refused_bytes(code: CheckedPackageRefusalCode) -> Self {
@@ -788,7 +804,7 @@ fn visit_terms(
 /// `duplicate_member` at that member, any other syntax error as
 /// `malformed_wire` with no pointer. Nesting is bounded by serde_json's own
 /// recursion limit.
-fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure> {
+pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure> {
     let duplicate = RefCell::new(None);
     let mut deserializer = serde_json::Deserializer::from_slice(input);
     let seed = StrictSeed {
