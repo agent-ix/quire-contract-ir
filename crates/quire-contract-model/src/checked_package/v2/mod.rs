@@ -23,17 +23,17 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exact_members, exceeds, is_digest,
-    is_nonempty, validate_locked_artifact, validate_source_map_entries, validate_term,
-    visit_reference, ReferenceSite, Stop, TermGrammar, ValidationFailure, BODY_TYPE_PATH,
-    NODE_DOMAIN,
+    canonical_value, count, decode_closed, digest_json, exact_members, exceeds,
+    first_difference, is_digest, is_nonempty, node_pointer, validate_locked_artifact,
+    validate_source_map_entries, validate_term, visit_reference, ReferenceMember, ReferenceSite,
+    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion,
+    CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -384,13 +384,20 @@ impl WorkMeter {
         self.consumed
     }
 
-    pub(super) fn charge(&mut self, work: u64) -> Result<(), ValidationFailure> {
+    /// Charges `work` for the value at `at`, which an exhausted budget
+    /// reports as the value whose charge failed.
+    pub(super) fn charge(
+        &mut self,
+        work: u64,
+        at: impl FnOnce() -> JsonPointer,
+    ) -> Result<(), ValidationFailure> {
         self.consumed = self.consumed.saturating_add(work);
         if exceeds(self.consumed, self.limit) {
-            Err(ValidationFailure::Incomplete(
+            Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Work,
                 self.limit,
                 self.consumed,
+                Some(at()),
             ))
         } else {
             Ok(())
@@ -398,19 +405,25 @@ impl WorkMeter {
     }
 }
 
-fn refuse(code: CheckedPackageRefusalCode, path: &'static str) -> ValidationFailure {
-    ValidationFailure::Refused(code, path)
+fn refuse(code: CheckedPackageRefusalCode, path: JsonPointer) -> ValidationFailure {
+    ValidationFailure::refused(code, path)
 }
 
 /// A refusal located at a specific graph node, carrying the cause this stage
 /// determined (if any) and the node key of the offending entry or node.
 fn refuse_at(
     code: CheckedPackageRefusalCode,
-    path: &'static str,
+    path: JsonPointer,
     cause: Option<CheckedPackageRefusalCause>,
     locus: CheckedNodeId,
 ) -> ValidationFailure {
-    ValidationFailure::RefusedAt(code, path, cause, locus)
+    ValidationFailure::refused_at(code, path, cause, locus)
+}
+
+/// The pointer of a fixed member path from the document root.
+fn member_pointer(keys: &[&str]) -> JsonPointer {
+    keys.iter()
+        .fold(JsonPointer::root(), |pointer, key| pointer.key(key))
 }
 
 impl CheckedPackageV2 {
@@ -436,29 +449,43 @@ impl CheckedPackageV2 {
         value: Value,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
-    ) -> Result<Self, Stop> {
+    ) -> Result<Self, ValidationFailure> {
         match value.get("contract_version") {
             Some(Value::String(version)) if version == CHECKED_PACKAGE_V2 => {}
-            Some(Value::String(_)) => {
-                return Err(Stop::refused(
-                    CheckedPackageRefusalCode::UnknownContractVersion,
-                    "contract_version",
+            Some(Value::String(version)) => {
+                return Err(ValidationFailure::unknown_contract_version(version))
+            }
+            Some(_) => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    member_pointer(&["contract_version"]),
                 ))
             }
-            _ => {
-                return Err(Stop::refused(
+            // Absent, or the document is not an object: the document is the
+            // value at fault.
+            None => {
+                return Err(refuse(
                     CheckedPackageRefusalCode::MalformedWire,
-                    "contract_version",
+                    JsonPointer::root(),
                 ))
             }
         }
-        let wire = decode_closed::<CheckedPackageWireV2>(value.clone())?;
+        let wire = decode_closed::<CheckedPackageWireV2>(&value)?;
         // A lossless decode: no member was defaulted, nulled or dropped.
-        if serde_json::to_value(&wire).ok().as_ref() != Some(&value) {
-            return Err(Stop::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                "document",
-            ));
+        match serde_json::to_value(&wire) {
+            Ok(decoded) if decoded == value => {}
+            Ok(decoded) => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    first_difference(JsonPointer::root(), &value, &decoded),
+                ))
+            }
+            Err(_) => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    JsonPointer::root(),
+                ))
+            }
         }
         let kinds = validate(&wire, limits, evidence)?;
         Ok(Self { wire, kinds })
@@ -511,45 +538,46 @@ fn validate(
     evidence: &CheckedPackageEvidence,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
-        return Err(refuse(
-            CheckedPackageRefusalCode::UnknownContractVersion,
-            "contract_version",
+        return Err(ValidationFailure::unknown_contract_version(
+            &wire.contract_version,
         ));
     }
     if wire.package_id.domain.as_ref() != PACKAGE_DOMAIN_V2 {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
-            "package_id.domain",
+            member_pointer(&["package_id", "domain"]),
         ));
     }
-    if wire.package_id.algorithm.as_ref() != "sha256" || !is_digest(&wire.package_id.digest) {
+    if wire.package_id.algorithm.as_ref() != "sha256" {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            "package_id",
+            member_pointer(&["package_id", "algorithm"]),
+        ));
+    }
+    if !is_digest(&wire.package_id.digest) {
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            member_pointer(&["package_id", "digest"]),
         ));
     }
     if wire.identity_preimage.version.as_ref() != IDENTITY_PREIMAGE_V2 {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            "identity_preimage.version",
+            member_pointer(&["identity_preimage", "version"]),
         ));
     }
-    let preimage = serde_json::to_value(&wire.identity_preimage).map_err(|_| {
+    let unserializable = |_| {
         refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            "identity_preimage",
+            member_pointer(&["identity_preimage"]),
         )
-    })?;
-    let computed = digest_json(&preimage).map_err(|_| {
-        refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            "identity_preimage",
-        )
-    })?;
+    };
+    let preimage = serde_json::to_value(&wire.identity_preimage).map_err(unserializable)?;
+    let computed = digest_json(&preimage).map_err(unserializable)?;
     if computed != wire.package_id.digest.as_ref() {
         return Err(refuse(
             CheckedPackageRefusalCode::StaleDependency,
-            "package_id.digest",
+            member_pointer(&["package_id", "digest"]),
         ));
     }
     validate_lock(wire, evidence)?;
@@ -570,16 +598,64 @@ fn validate(
     Ok(kinds)
 }
 
-fn same_non_graph_lock(
+/// The pointer of the first lock value that differs from its mirror in the
+/// identity preimage, or `None` when every mirrored member is equal.
+fn non_graph_lock_difference(
     preimage: &CheckedPackageIdentityPreimageV2,
     lock: &CheckedPackageLockV2,
-) -> bool {
-    preimage.edition == lock.edition
-        && preimage.profile_selections == lock.profile_selections
-        && preimage.definition_selections == lock.definition_selections
-        && preimage.model_selections == lock.model_selections
-        && preimage.required_features == lock.required_features
-        && preimage.dependency_selections == lock.dependency_selections
+) -> Option<JsonPointer> {
+    fn differing<T: PartialEq + Serialize>(
+        member: &str,
+        lock: &T,
+        preimage: &T,
+    ) -> Option<JsonPointer> {
+        if lock == preimage {
+            return None;
+        }
+        let at = member_pointer(&["lock", member]);
+        Some(
+            match (serde_json::to_value(lock), serde_json::to_value(preimage)) {
+                (Ok(lock), Ok(preimage)) => first_difference(at, &lock, &preimage),
+                _ => at,
+            },
+        )
+    }
+    differing("edition", &lock.edition, &preimage.edition)
+        .or_else(|| {
+            differing(
+                "profile_selections",
+                &lock.profile_selections,
+                &preimage.profile_selections,
+            )
+        })
+        .or_else(|| {
+            differing(
+                "definition_selections",
+                &lock.definition_selections,
+                &preimage.definition_selections,
+            )
+        })
+        .or_else(|| {
+            differing(
+                "model_selections",
+                &lock.model_selections,
+                &preimage.model_selections,
+            )
+        })
+        .or_else(|| {
+            differing(
+                "required_features",
+                &lock.required_features,
+                &preimage.required_features,
+            )
+        })
+        .or_else(|| {
+            differing(
+                "dependency_selections",
+                &lock.dependency_selections,
+                &preimage.dependency_selections,
+            )
+        })
 }
 
 fn validate_lock(
@@ -587,30 +663,39 @@ fn validate_lock(
     evidence: &CheckedPackageEvidence,
 ) -> Result<(), ValidationFailure> {
     let lock = &wire.lock;
-    if lock.sources.is_empty() || !same_non_graph_lock(&wire.identity_preimage, lock) {
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, "lock"));
+    if lock.sources.is_empty() {
+        return Err(refuse(
+            CheckedPackageRefusalCode::StaleDependency,
+            member_pointer(&["lock", "sources"]),
+        ));
     }
-    for source in &lock.sources {
-        validate_unexported(source, SOURCE_BYTES, evidence, "lock.sources")?;
+    if let Some(path) = non_graph_lock_difference(&wire.identity_preimage, lock) {
+        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
-    let selections = std::iter::once(&lock.edition)
-        .chain(&lock.profile_selections)
-        .chain(&lock.dependency_selections);
-    for selection in selections {
-        validate_unexported(
-            &selection.definition,
-            DEFINITION_BYTES,
-            evidence,
-            "lock.selection",
-        )?;
+    for (index, source) in lock.sources.iter().enumerate() {
+        validate_unexported(source, SOURCE_BYTES, evidence, &|| {
+            member_pointer(&["lock", "sources"]).index(index)
+        })?;
     }
-    for definition in &lock.definition_selections {
-        validate_unexported(
-            definition,
-            DEFINITION_BYTES,
-            evidence,
-            "lock.definition_selections",
-        )?;
+    validate_unexported(&lock.edition.definition, DEFINITION_BYTES, evidence, &|| {
+        member_pointer(&["lock", "edition", "definition"])
+    })?;
+    for (member, selections) in [
+        ("profile_selections", &lock.profile_selections),
+        ("dependency_selections", &lock.dependency_selections),
+    ] {
+        for (index, selection) in selections.iter().enumerate() {
+            validate_unexported(&selection.definition, DEFINITION_BYTES, evidence, &|| {
+                member_pointer(&["lock", member])
+                    .index(index)
+                    .key("definition")
+            })?;
+        }
+    }
+    for (index, definition) in lock.definition_selections.iter().enumerate() {
+        validate_unexported(definition, DEFINITION_BYTES, evidence, &|| {
+            member_pointer(&["lock", "definition_selections"]).index(index)
+        })?;
     }
     // Whole-array uniqueness is checked before any entry's digest is
     // evaluated against evidence: a `model_selections` array that repeats an
@@ -630,15 +715,16 @@ fn validate_lock(
     // `identity_preimage.model_selections` to equal `lock.model_selections`
     // element-for-element, so a duplicate-free lock guarantees the mirrored
     // preimage is too.
+    let models_pointer = || member_pointer(&["lock", "model_selections"]);
     let mut models = BTreeSet::new();
-    if !lock
+    if let Some(repeat) = lock
         .model_selections
         .iter()
-        .all(|model| models.insert(model))
+        .position(|model| !models.insert(model))
     {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            "lock.model_selections",
+            models_pointer().index(repeat),
         ));
     }
     // Class 2: two selections naming the same identity at different
@@ -656,12 +742,12 @@ fn validate_lock(
     // on array position (FR-038-AC-11), and before `validate_domain_packages`
     // below, so this class outranks classes 3 and 5 (FR-038-AC-20).
     let mut model_versions: BTreeMap<&str, &str> = BTreeMap::new();
-    for model in &lock.model_selections {
+    for (index, model) in lock.model_selections.iter().enumerate() {
         match model_versions.entry(model.identity.as_ref()) {
             Entry::Occupied(entry) if *entry.get() != model.version.as_ref() => {
                 return Err(refuse(
                     CheckedPackageRefusalCode::MalformedWire,
-                    "lock.model_selections",
+                    models_pointer().index(index).key("version"),
                 ));
             }
             Entry::Occupied(_) => {}
@@ -672,33 +758,34 @@ fn validate_lock(
     }
     validate_domain_packages(&lock.model_selections, evidence)?;
     let mut features = BTreeSet::new();
-    if !lock
+    if let Some(index) = lock
         .required_features
         .iter()
-        .all(|feature| is_nonempty(feature) && features.insert(feature))
+        .position(|feature| !(is_nonempty(feature) && features.insert(feature)))
     {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,
-            "lock.required_features",
+            member_pointer(&["lock", "required_features"]).index(index),
         ));
     }
-    validate_unexported(
-        &wire.diagnostics.catalog,
-        DEFINITION_BYTES,
-        evidence,
-        "diagnostics.catalog",
-    )
+    validate_unexported(&wire.diagnostics.catalog, DEFINITION_BYTES, evidence, &|| {
+        member_pointer(&["diagnostics", "catalog"])
+    })
 }
 
+/// Checks one locked raw artifact at `at` and that it carries no `export`.
 fn validate_unexported(
     artifact: &CheckedArtifactRef,
     domain: &str,
     evidence: &CheckedPackageEvidence,
-    path: &'static str,
+    at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    validate_locked_artifact(artifact, domain, evidence, path)?;
+    validate_locked_artifact(artifact, domain, evidence, at)?;
     if artifact.export.is_some() {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            at().key("export"),
+        ));
     }
     Ok(())
 }
@@ -715,46 +802,69 @@ fn validate_unexported(
 /// shape defect (`malformed_wire`, class 4), which outranks a digest the
 /// evidence does not attest (`stale_dependency`, class 5). Classes 1
 /// (repeated entry) and 2 (same identity, different version) are checked by
-/// the caller before any of these. Within one class the reader does not
-/// distinguish entries: every entry of a class refuses with that class's code
-/// at this one array path, so which of several same-class entries is named is
-/// not an observable.
+/// the caller before any of these. Array position never decides the code;
+/// within the refusing class, the pointer names the first entry of that class
+/// in array order, at the member at fault.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
 ) -> Result<(), ValidationFailure> {
-    const PATH: &str = "lock.model_selections";
-    if models
+    let at = |index: usize, member: &str| {
+        member_pointer(&["lock", "model_selections"])
+            .index(index)
+            .key(member)
+    };
+    if let Some(index) = models
         .iter()
-        .any(|model| model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST)
+        .position(|model| model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST)
     {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
-            PATH,
+            at(index, "digest_domain"),
         ));
     }
-    if models.iter().any(|model| {
-        !is_nonempty(&model.identity) || !is_nonempty(&model.version) || !is_digest(&model.digest)
-    }) {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, PATH));
+    let malformed = models.iter().enumerate().find_map(|(index, model)| {
+        if !is_nonempty(&model.identity) {
+            Some(at(index, "identity"))
+        } else if !is_nonempty(&model.version) {
+            Some(at(index, "version"))
+        } else if !is_digest(&model.digest) {
+            Some(at(index, "digest"))
+        } else {
+            None
+        }
+    });
+    if let Some(path) = malformed {
+        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
     }
-    if models.iter().any(|model| {
+    if let Some(index) = models.iter().position(|model| {
         evidence.domain_package_digest(&model.locator()) != Some(model.digest.as_ref())
     }) {
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, PATH));
+        return Err(refuse(
+            CheckedPackageRefusalCode::StaleDependency,
+            at(index, "digest"),
+        ));
     }
     Ok(())
 }
 
-fn validate_node_id(id: &CheckedNodeId, path: &'static str) -> Result<(), ValidationFailure> {
-    if id.domain.as_ref() == NODE_DOMAIN && is_digest(&id.digest) {
-        Ok(())
+/// Requires a node key in the node domain with a lowercase digest; `at`
+/// names the key.
+fn validate_node_id(
+    id: &CheckedNodeId,
+    at: impl FnOnce() -> JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let member = if id.domain.as_ref() != NODE_DOMAIN {
+        "domain"
+    } else if !is_digest(&id.digest) {
+        "digest"
     } else {
-        Err(refuse(
-            CheckedPackageRefusalCode::DigestDomainMismatch,
-            path,
-        ))
-    }
+        return Ok(());
+    };
+    Err(refuse(
+        CheckedPackageRefusalCode::DigestDomainMismatch,
+        at().key(member),
+    ))
 }
 
 /// Enforces the schema's `DeclarationTagRules` and `DeclarationOccurrenceRule`
@@ -766,23 +876,31 @@ fn validate_declaration(
     kind: CheckedNodeKind,
     occurrences: &[CheckedOccurrence],
     declaration: Option<&CheckedDeclaration>,
+    position: usize,
 ) -> Result<(), ValidationFailure> {
-    const PATH: &str = "semantic_graph.nodes.declaration";
     let forced_absent = declaration_forbidden(kind);
     let required = !forced_absent
         && occurrences
             .iter()
             .any(|occurrence| occurrence.role == CheckedOccurrenceRole::Declaration);
-    if required != declaration.is_some() {
-        return Err(refuse(
+    match (required, declaration) {
+        (true, None) => Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            PATH,
-        ));
+            node_pointer(position),
+        )),
+        (false, Some(_)) => Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(position).key("declaration"),
+        )),
+        (true, Some(declaration)) => {
+            identity::validate_qualified_name(&declaration.qualified_name, &|| {
+                node_pointer(position)
+                    .key("declaration")
+                    .key("qualified_name")
+            })
+        }
+        (false, None) => Ok(()),
     }
-    if let Some(declaration) = declaration {
-        identity::validate_qualified_name(&declaration.qualified_name, PATH)?;
-    }
-    Ok(())
 }
 
 /// `DeclarationTagRules`: whether a node of this kind may never carry a
@@ -935,24 +1053,19 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
 /// Entry eligibility, canonical member order and refusal precedence across a
 /// frame's own violations are [`validate_frame_semantics`]'s job, run once
 /// the whole graph's identity and dependency edges are known (FR-340).
-/// Structural path of a frame body's `modifies` array and its entries.
-const BODY_MODIFIES_PATH: &str = "semantic_graph.nodes.body.modifies";
-/// Structural path of a frame body's `creates` array and its entries.
-const BODY_CREATES_PATH: &str = "semantic_graph.nodes.body.creates";
-/// Structural path of a frame body's `deletes` array and its entries.
-const BODY_DELETES_PATH: &str = "semantic_graph.nodes.body.deletes";
-
+/// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
 fn validate_body(
     kind: CheckedNodeKind,
     body: &Value,
-    visit: &mut dyn FnMut(&CheckedNodeId, ReferenceSite),
+    at: &Trail<'_>,
+    visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
     if is_frame(kind) {
-        validate_frame_body(body)
+        validate_frame_body(body, at)
     } else {
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
-        validate_term(body, TermGrammar::V2, true, visit)
+        validate_term(body, TermGrammar::V2, true, at, visit)
     }
 }
 
@@ -1088,71 +1201,66 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
     }
 }
 
-fn validate_frame_body(body: &Value) -> Result<u64, ValidationFailure> {
-    const PATH: &str = "semantic_graph.nodes.body";
+fn validate_frame_body(body: &Value, at: &Trail<'_>) -> Result<u64, ValidationFailure> {
     let Value::Object(object) = body else {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            PATH,
+            at.pointer(),
         ));
     };
-    if !exact_members(object, &["term", "modifies", "creates", "deletes"])
-        || object.get("term").and_then(Value::as_str) != Some("frame")
-    {
+    if !exact_members(object, &["term", "modifies", "creates", "deletes"]) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            PATH,
+            at.pointer(),
+        ));
+    }
+    if object.get("term").and_then(Value::as_str) != Some("frame") {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.key("term").pointer(),
         ));
     }
     let mut work = 1_u64;
-    for (key, path) in [
-        ("modifies", BODY_MODIFIES_PATH),
-        ("creates", BODY_CREATES_PATH),
-        ("deletes", BODY_DELETES_PATH),
-    ] {
-        work = work.saturating_add(visit_node_refs(object.get(key), path, &mut |_, _| {})?);
+    for member in FrameMember::ALL {
+        let key = member.wire_key();
+        work = work.saturating_add(visit_node_refs(object.get(key), &at.key(key))?);
     }
     Ok(work)
 }
 
-/// Validates one frame reference array, reporting each unique target to
-/// `visit` tagged with the array's own `path` (`modifies`, `creates` or
-/// `deletes`) rather than a path shared across all three.
-/// Reports each unique target once, in digest-ascending order (the iteration
-/// order of the `BTreeSet` deduplicating them) rather than the wire array's
-/// own order. This is safe: `seen` has already rejected a repeated entry
-/// before this loop runs, so re-ordering here changes neither which targets
-/// are visited nor the refusal outcome for a malformed array, only the
-/// sequence `validate_recursion`'s Tarjan walk later traverses the resulting
-/// successor edges in — which does not affect which nodes end up in a
-/// `recursion_group`.
-fn visit_node_refs(
-    value: Option<&Value>,
-    path: &'static str,
-    visit: &mut dyn FnMut(&CheckedNodeId, &'static str),
-) -> Result<u64, ValidationFailure> {
+/// Validates one frame reference array at `at` (`modifies`, `creates` or
+/// `deletes`): every entry a well-formed node key and none repeated. A
+/// repeated entry refuses at its second occurrence. Every entry's shape is
+/// checked before any repeat, so a shape defect anywhere outranks a repeat.
+/// A frame body reports no reference targets to its caller: its
+/// declaration-level meaning comes from `dependencies` (FR-340).
+fn visit_node_refs(value: Option<&Value>, at: &Trail<'_>) -> Result<u64, ValidationFailure> {
     let Some(Value::Array(values)) = value else {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            path,
+            at.pointer(),
         ));
     };
-    let mut seen = BTreeSet::new();
     let mut targets = Vec::with_capacity(values.len());
-    let work = values.iter().try_fold(0_u64, |work, entry| {
-        visit_reference(Some(entry), path, false, &mut |target, _site| {
-            targets.push(target.clone())
-        })
-        .map(|charged| work.saturating_add(charged))
-    })?;
-    if !targets.into_iter().all(|target| seen.insert(target)) {
+    let work = values
+        .iter()
+        .enumerate()
+        .try_fold(0_u64, |work, (index, entry)| {
+            visit_reference(
+                entry,
+                ReferenceMember::FrameEntry,
+                false,
+                &at.index(index),
+                &mut |target, _site, _at| targets.push(target.clone()),
+            )
+            .map(|charged| work.saturating_add(charged))
+        })?;
+    let mut seen = BTreeSet::new();
+    if let Some(repeat) = targets.into_iter().position(|target| !seen.insert(target)) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            path,
+            at.index(repeat).pointer(),
         ));
-    }
-    for target in &seen {
-        visit(target, path);
     }
     Ok(work)
 }
@@ -1175,14 +1283,6 @@ impl FrameMember {
             Self::Modifies => "modifies",
             Self::Creates => "creates",
             Self::Deletes => "deletes",
-        }
-    }
-
-    const fn path(self) -> &'static str {
-        match self {
-            Self::Modifies => BODY_MODIFIES_PATH,
-            Self::Creates => BODY_CREATES_PATH,
-            Self::Deletes => BODY_DELETES_PATH,
         }
     }
 
@@ -1373,13 +1473,15 @@ fn frame_entries(body: &Value, key: &str) -> Vec<CheckedNodeId> {
 /// FR-340's precedence sort key — member group first, then ascending entry
 /// digest — kept as their own fields (not derived from `locus`/`path`) so the
 /// sort in [`frame_defect`] cannot silently drift from the fields it reports.
+/// `member` and `entry_index` locate the entry in the wire body.
 struct MeaningDefect {
     member_index: u8,
     digest: Box<str>,
     code: CheckedPackageRefusalCode,
     cause: CheckedPackageRefusalCause,
     locus: CheckedNodeId,
-    path: &'static str,
+    member: FrameMember,
+    entry_index: usize,
 }
 
 /// The single refusal FR-340 selects for one frame node's body, or `None`
@@ -1400,6 +1502,7 @@ struct MeaningDefect {
 fn frame_defect(
     frame_id: &CheckedNodeId,
     frame: &CheckedSemanticNodeV2,
+    frame_position: usize,
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<ValidationFailure> {
@@ -1414,7 +1517,7 @@ fn frame_defect(
         {
             order_defect = true;
         }
-        for entry in entries {
+        for (entry_index, entry) in entries.into_iter().enumerate() {
             // `FrameMember::ALL` has exactly 3 members, so `enumerate()`
             // never reaches a value `u8` cannot hold.
             let member_index = u8::try_from(member_index).expect("FrameMember::ALL has 3 members");
@@ -1425,7 +1528,8 @@ fn frame_defect(
                     code: CheckedPackageRefusalCode::MissingDeclaration,
                     cause: CheckedPackageRefusalCause::MissingName,
                     locus: entry,
-                    path: member.path(),
+                    member,
+                    entry_index,
                 });
                 continue;
             }
@@ -1442,7 +1546,8 @@ fn frame_defect(
                     code: CheckedPackageRefusalCode::MissingDeclaration,
                     cause: CheckedPackageRefusalCause::MissingName,
                     locus: entry,
-                    path: member.path(),
+                    member,
+                    entry_index,
                 });
                 continue;
             };
@@ -1453,7 +1558,8 @@ fn frame_defect(
                     code: CheckedPackageRefusalCode::InvalidModelBinding,
                     cause: CheckedPackageRefusalCause::MalformedDeclaration,
                     locus: entry,
-                    path: member.path(),
+                    member,
+                    entry_index,
                 });
             }
         }
@@ -1468,7 +1574,10 @@ fn frame_defect(
             .expect("checked nonempty above");
         return Some(refuse_at(
             winner.code,
-            winner.path,
+            node_pointer(frame_position)
+                .key("body")
+                .key(winner.member.wire_key())
+                .index(winner.entry_index),
             Some(winner.cause),
             winner.locus,
         ));
@@ -1476,7 +1585,7 @@ fn frame_defect(
     if order_defect {
         return Some(refuse_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body",
+            node_pointer(frame_position).key("body"),
             None,
             frame_id.clone(),
         ));
@@ -1499,7 +1608,11 @@ fn validate_declaration_names(
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Result<(), ValidationFailure> {
-    const PATH: &str = "semantic_graph.nodes.declaration";
+    let name_pointer = |position: usize| {
+        node_pointer(position)
+            .key("declaration")
+            .key("qualified_name")
+    };
     for (&node_id, &position) in index {
         let node = &nodes[position];
         let (Some(declaration), Some(preimage)) =
@@ -1513,22 +1626,22 @@ fn validate_declaration_names(
         {
             return Err(refuse_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                PATH,
+                name_pointer(position),
                 Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
                 node_id.clone(),
             ));
         }
     }
-    let mut holders: BTreeMap<&[Box<str>], Vec<&CheckedNodeId>> = BTreeMap::new();
+    let mut holders: BTreeMap<&[Box<str>], Vec<(&CheckedNodeId, usize)>> = BTreeMap::new();
     for (&node_id, &position) in index {
         if let Some(declaration) = &nodes[position].declaration {
             holders
                 .entry(declaration.qualified_name.as_slice())
                 .or_default()
-                .push(node_id);
+                .push((node_id, position));
         }
     }
-    if let Some(first) = holders
+    if let Some((first, position)) = holders
         .values()
         .filter(|ids| ids.len() > 1)
         .filter_map(|ids| ids.first())
@@ -1536,7 +1649,7 @@ fn validate_declaration_names(
     {
         return Err(refuse_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            PATH,
+            name_pointer(*position),
             Some(CheckedPackageRefusalCause::AmbiguousName),
             (*first).clone(),
         ));
@@ -1576,12 +1689,25 @@ fn validate_frame_semantics(
         if !is_frame(kinds[position]) {
             continue;
         }
-        if let Some(failure) = frame_defect(node_id, node, kinds, index) {
+        if let Some(failure) = frame_defect(node_id, node, position, kinds, index) {
             return Err(failure);
         }
     }
     Ok(())
 }
+
+/// Which member of a node supplied one graph edge, so a charge on that edge
+/// can name the value that carried it.
+#[derive(Clone, Copy, Debug)]
+enum EdgeSite {
+    SemanticType,
+    Dependency(usize),
+    /// The body reference at this index of the node's recorded references.
+    Reference(usize),
+}
+
+/// One body reference target, the site that carried it, and its pointer.
+type BodyReference = (CheckedNodeId, ReferenceSite, JsonPointer);
 
 fn validate_graph(
     wire: &CheckedPackageWireV2,
@@ -1589,86 +1715,118 @@ fn validate_graph(
     meter: &mut WorkMeter,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let graph = &wire.semantic_graph;
-    if graph.graph_version.as_ref() != GRAPH_V2 || graph.nodes.is_empty() {
+    if graph.graph_version.as_ref() != GRAPH_V2 {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph",
+            member_pointer(&["semantic_graph", "graph_version"]),
+        ));
+    }
+    if graph.nodes.is_empty() {
+        return Err(refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            member_pointer(&["semantic_graph", "nodes"]),
         ));
     }
     let node_count = count(graph.nodes.len());
     if exceeds(node_count, limits.nodes) {
-        return Err(ValidationFailure::Incomplete(
+        // The first node past the ceiling is the one whose charge failed.
+        return Err(ValidationFailure::incomplete(
             CheckedPackageLimit::Nodes,
             limits.nodes,
             node_count,
+            Some(node_pointer(
+                usize::try_from(limits.nodes).unwrap_or(usize::MAX),
+            )),
         ));
     }
     let mut index = BTreeMap::new();
     let mut kinds = Vec::with_capacity(graph.nodes.len());
-    let mut references = Vec::with_capacity(graph.nodes.len());
+    let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
     let mut edges = 0_u64;
     for (position, node) in graph.nodes.iter().enumerate() {
-        validate_node_id(&node.node_id, "semantic_graph.nodes.node_id")?;
+        let at = |member: &str| node_pointer(position).key(member);
+        validate_node_id(&node.node_id, || at("node_id"))?;
         if index.insert(&node.node_id, position).is_some() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.node_id",
+                at("node_id"),
             ));
         }
         if node.schema_version.as_ref() != GRAPH_V2 {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.schema_version",
+                at("schema_version"),
             ));
         }
         let Some(tag) = CheckedNodeTag::from_wire(&node.node_tag) else {
             return Err(refuse(
                 CheckedPackageRefusalCode::UnsupportedNodeTag,
-                "semantic_graph.nodes.node_tag",
+                at("node_tag"),
             ));
         };
         let Some(kind) = CheckedNodeKind::decode(tag, &node.semantic_form) else {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.semantic_form",
+                at("semantic_form"),
             ));
         };
         kinds.push(kind);
-        validate_declaration(kind, &node.occurrences, node.declaration.as_ref())?;
-        validate_node_id(&node.semantic_type, "semantic_graph.nodes.semantic_type")?;
-        for dependency in &node.dependencies {
-            validate_node_id(dependency, "semantic_graph.nodes.dependencies")?;
+        validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
+        validate_node_id(&node.semantic_type, || at("semantic_type"))?;
+        for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
+            validate_node_id(dependency, || at("dependencies").index(dependency_index))?;
         }
         if node.recursion_group.as_deref().is_some_and(str::is_empty) {
             return Err(refuse(
                 CheckedPackageRefusalCode::MalformedWire,
-                "semantic_graph.nodes.recursion_group",
+                at("recursion_group"),
             ));
         }
+        let edges_before = edges;
         edges = edges.saturating_add(count(node.dependencies.len()));
         if exceeds(edges, limits.edges) {
-            return Err(ValidationFailure::Incomplete(
+            // `edges_before` was admitted, so the dependency that took the
+            // counter one past the ceiling is the one whose charge failed.
+            let first_over = limits.edges.saturating_sub(edges_before);
+            return Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Edges,
                 limits.edges,
                 edges,
+                Some(at("dependencies").index(usize::try_from(first_over).unwrap_or(usize::MAX))),
             ));
         }
         let mut targets = Vec::new();
-        let work = validate_body(kind, &node.body, &mut |target, site| {
-            targets.push((target.clone(), site))
-        })?;
-        meter.charge(work)?;
+        let body_steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(position),
+            Step::Key("body"),
+        ];
+        let work = validate_body(
+            kind,
+            &node.body,
+            &Trail::Base(&body_steps),
+            &mut |target, site, target_at| {
+                targets.push((target.clone(), site, target_at.pointer()));
+            },
+        )?;
+        meter.charge(work, || at("body"))?;
         references.push(targets);
         let mut occurrences = BTreeSet::new();
-        if node.occurrences.is_empty()
-            || !node
-                .occurrences
-                .iter()
-                .all(|occurrence| occurrences.insert(occurrence))
+        if node.occurrences.is_empty() {
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSourceMap,
+                at("occurrences"),
+            ));
+        }
+        if let Some(repeat) = node
+            .occurrences
+            .iter()
+            .position(|occurrence| !occurrences.insert(occurrence))
         {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
-                "semantic_graph.nodes.occurrences",
+                at("occurrences").index(repeat),
             ));
         }
     }
@@ -1690,23 +1848,23 @@ fn validate_graph(
     validate_operations(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
-        let resolve = |id: &CheckedNodeId, path| {
-            index.get(id).copied().ok_or(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                path,
-            ))
+        let resolve = |id: &CheckedNodeId, path: &dyn Fn() -> JsonPointer| {
+            index.get(id).copied().ok_or_else(|| {
+                refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, path())
+            })
         };
-        let semantic_type = resolve(&node.semantic_type, "semantic_graph.nodes.semantic_type")?;
+        let at = |member: &str| node_pointer(position).key(member);
+        let semantic_type = resolve(&node.semantic_type, &|| at("semantic_type"))?;
         let mut successors = Vec::new();
         if semantic_type != position {
-            successors.push(semantic_type);
+            successors.push((semantic_type, EdgeSite::SemanticType));
         }
-        for dependency in &node.dependencies {
-            successors.push(resolve(dependency, "semantic_graph.nodes.dependencies")?);
+        for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
+            let target = resolve(dependency, &|| at("dependencies").index(dependency_index))?;
+            successors.push((target, EdgeSite::Dependency(dependency_index)));
         }
-        for (target, site) in targets {
-            let site: ReferenceSite = *site;
-            let target = resolve(target, site.path)?;
+        for (reference_index, (target, site, target_at)) in targets.iter().enumerate() {
+            let target = resolve(target, &|| target_at.clone())?;
             // Only a self-typed node's own top-level `literal.type` — the
             // literal that *is* the node body, e.g. a self-typed scalar's
             // `literal.type` — may name itself from its body without that
@@ -1716,41 +1874,59 @@ fn validate_graph(
             // carve-out is keyed on that member *and* on `is_body_root`, not
             // on node identity alone: a `literal.type` nested inside an
             // `aggregate` member, a `binding` value or an `application`
-            // argument reports the same `BODY_TYPE_PATH` but with
+            // argument reports the same `ReferenceMember::Type` but with
             // `is_body_root: false`, and does not qualify — nor does a
             // `reference` body or an `application.result_type`
             // self-referencing a self-typed node. Both still resolve through
             // `recursion_group` or refuse, exactly like every other 1-node
             // cycle reached by this loop.
-            let is_self_typed_literal_type =
-                site.is_body_root && site.path == BODY_TYPE_PATH && semantic_type == position;
+            let is_self_typed_literal_type = site.is_body_root
+                && site.member == ReferenceMember::Type
+                && semantic_type == position;
             if target != position || !is_self_typed_literal_type {
-                successors.push(target);
+                successors.push((target, EdgeSite::Reference(reference_index)));
             }
         }
         adjacency.push(successors);
     }
-    validate_recursion(&graph.nodes, &adjacency, meter)?;
+    let edge_pointer = |vertex: usize, site: EdgeSite| match site {
+        EdgeSite::SemanticType => node_pointer(vertex).key("semantic_type"),
+        EdgeSite::Dependency(dependency) => node_pointer(vertex)
+            .key("dependencies")
+            .index(dependency),
+        EdgeSite::Reference(reference) => references
+            .get(vertex)
+            .and_then(|targets| targets.get(reference))
+            .map_or_else(|| node_pointer(vertex).key("body"), |(_, _, at)| at.clone()),
+    };
+    validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
     let projection = graph
         .nodes
         .iter()
         .map(CheckedNodeProjectionV2::from)
         .collect::<Vec<_>>();
     if projection != wire.identity_preimage.identity_projection {
-        return Err(refuse(
-            CheckedPackageRefusalCode::StaleDependency,
-            "identity_preimage.identity_projection",
-        ));
+        let at = member_pointer(&["identity_preimage", "identity_projection"]);
+        let path = match (
+            serde_json::to_value(&wire.identity_preimage.identity_projection),
+            serde_json::to_value(&projection),
+        ) {
+            (Ok(retained), Ok(computed)) => first_difference(at, &retained, &computed),
+            _ => at,
+        };
+        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     Ok(kinds)
 }
 
 /// Every strongly connected component that forms a cycle must share one
-/// explicit `recursion_group`. Iterative Tarjan; each edge costs one work.
+/// explicit `recursion_group`. Iterative Tarjan; each edge costs one work,
+/// charged at the member that carried the edge (`edge_pointer`).
 fn validate_recursion(
     nodes: &[CheckedSemanticNodeV2],
-    adjacency: &[Vec<usize>],
+    adjacency: &[Vec<(usize, EdgeSite)>],
     meter: &mut WorkMeter,
+    edge_pointer: &dyn Fn(usize, EdgeSite) -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     const UNVISITED: usize = usize::MAX;
     let size = adjacency.len();
@@ -1778,8 +1954,8 @@ fn validate_recursion(
                 .get(vertex)
                 .and_then(|edges| edges.get(edge))
                 .copied();
-            if let Some(successor) = successor {
-                meter.charge(1)?;
+            if let Some((successor, site)) = successor {
+                meter.charge(1, || edge_pointer(vertex, site))?;
                 if let Some(frame) = calls.last_mut() {
                     frame.1 = edge.saturating_add(1);
                 }
@@ -1824,19 +2000,32 @@ fn validate_recursion(
             let cyclic = component.len() > 1
                 || adjacency
                     .get(vertex)
-                    .is_some_and(|edges| edges.contains(&vertex));
+                    .is_some_and(|edges| edges.iter().any(|(target, _)| *target == vertex));
             if cyclic {
-                let mut groups = component.iter().map(|member| {
+                let group_of = |member: usize| {
                     nodes
-                        .get(*member)
+                        .get(member)
                         .and_then(|node| node.recursion_group.as_ref())
-                });
-                let first = groups.next().flatten();
-                if first.is_none() || !groups.all(|group| group == first) {
-                    return Err(refuse(
-                        CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        "semantic_graph.nodes.recursion_group",
-                    ));
+                };
+                let first = component.first().and_then(|member| group_of(*member));
+                // The first member (in component order) lacking the shared
+                // group: its `recursion_group` when it carries a different
+                // one, else the node object that lacks the member.
+                let offender = if first.is_none() {
+                    component.first().copied()
+                } else {
+                    component
+                        .iter()
+                        .copied()
+                        .find(|member| group_of(*member) != first)
+                };
+                if let Some(member) = offender {
+                    let path = if group_of(member).is_some() {
+                        node_pointer(member).key("recursion_group")
+                    } else {
+                        node_pointer(member)
+                    };
+                    return Err(refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, path));
                 }
             }
         }
@@ -1869,28 +2058,39 @@ fn validate_capabilities(
     wire: &CheckedPackageWireV2,
     evidence: &CheckedPackageEvidence,
 ) -> Result<(), ValidationFailure> {
+    let report = || member_pointer(&["capability_report"]);
     let mut reported = BTreeMap::new();
-    for capability in &wire.capability_report {
+    for (index, capability) in wire.capability_report.iter().enumerate() {
         if !is_nonempty(&capability.feature)
             || reported
-                .insert(capability.feature.as_ref(), capability.disposition)
+                .insert(capability.feature.as_ref(), (capability.disposition, index))
                 .is_some()
         {
             return Err(refuse(
                 CheckedPackageRefusalCode::UnknownRequiredCapability,
-                "capability_report",
+                report().index(index).key("feature"),
             ));
         }
     }
-    for feature in &wire.lock.required_features {
-        if reported.get(feature.as_ref()) != Some(&CheckedCapabilityDisposition::Available)
-            || !evidence.supports(feature)
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::UnknownRequiredCapability,
-                "capability_report",
-            ));
-        }
+    for (index, feature) in wire.lock.required_features.iter().enumerate() {
+        let path = match reported.get(feature.as_ref()) {
+            // Unreported: the report lacks the capability.
+            None => report(),
+            Some((disposition, reported_at))
+                if *disposition != CheckedCapabilityDisposition::Available =>
+            {
+                report().index(*reported_at).key("disposition")
+            }
+            // Reported available, but this reader does not support it.
+            Some(_) if !evidence.supports(feature) => {
+                member_pointer(&["lock", "required_features"]).index(index)
+            }
+            Some(_) => continue,
+        };
+        return Err(refuse(
+            CheckedPackageRefusalCode::UnknownRequiredCapability,
+            path,
+        ));
     }
     Ok(())
 }
@@ -1900,12 +2100,15 @@ fn validate_diagnostics(
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let entries = || member_pointer(&["diagnostics", "entries"]);
     let diagnostics = count(wire.diagnostics.entries.len());
     if exceeds(diagnostics, limits.diagnostics) {
-        return Err(ValidationFailure::Incomplete(
+        // The first entry past the ceiling is the one whose charge failed.
+        return Err(ValidationFailure::incomplete(
             CheckedPackageLimit::Diagnostics,
             limits.diagnostics,
             diagnostics,
+            Some(entries().index(usize::try_from(limits.diagnostics).unwrap_or(usize::MAX))),
         ));
     }
     let nodes = wire
@@ -1914,25 +2117,48 @@ fn validate_diagnostics(
         .iter()
         .map(|node| &node.node_id)
         .collect::<BTreeSet<_>>();
-    for entry in &wire.diagnostics.entries {
-        for detail in &entry.details {
-            let mut resolved = true;
-            let work = validate_term(detail, TermGrammar::V2, false, &mut |target, _site| {
-                resolved &= nodes.contains(target);
-            })?;
-            meter.charge(work)?;
-            if !resolved {
+    for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
+        for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail_steps = [
+                Step::Key("diagnostics"),
+                Step::Key("entries"),
+                Step::Index(entry_index),
+                Step::Key("details"),
+                Step::Index(detail_index),
+            ];
+            let detail_at = Trail::Base(&detail_steps);
+            let mut unresolved = None;
+            let work = validate_term(
+                detail,
+                TermGrammar::V2,
+                false,
+                &detail_at,
+                &mut |target, _site, target_at| {
+                    if unresolved.is_none() && !nodes.contains(target) {
+                        unresolved = Some(target_at.pointer());
+                    }
+                },
+            )?;
+            meter.charge(work, || detail_at.pointer())?;
+            if let Some(path) = unresolved {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    "diagnostics.entries.details",
+                    path,
                 ));
             }
         }
-        for region in &entry.loci {
-            if !wire.lock.sources.contains(&region.source) || region.start >= region.end {
+        for (locus_index, region) in entry.loci.iter().enumerate() {
+            let locus = || entries().index(entry_index).key("loci").index(locus_index);
+            if !wire.lock.sources.contains(&region.source) {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSourceMap,
-                    "diagnostics.entries.loci",
+                    locus().key("source"),
+                ));
+            }
+            if region.start >= region.end {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::InvalidSourceMap,
+                    locus(),
                 ));
             }
         }

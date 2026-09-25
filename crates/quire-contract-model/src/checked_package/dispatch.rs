@@ -1,10 +1,10 @@
 //! Exact I04 contract-version refusal before any decode.
 
-use super::common::{canonical_value, Stop};
+use super::common::{canonical_value, ValidationFailure};
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode,
+    CheckedPackageRefusalCode, JsonPointer,
 };
 use super::v2::{CheckedPackageV2, CHECKED_PACKAGE_V2};
 use serde_json::Value;
@@ -43,31 +43,36 @@ fn dispatch(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
-) -> Result<CheckedPackageDispatchResult, Stop> {
+) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
     let value = canonical_value(bytes, limits)?;
     let version = match &value {
         Value::Object(members) => match members.get("contract_version") {
             Some(Value::String(version)) => version.clone(),
-            _ => {
-                return Err(Stop::refused(
+            // Present with the wrong kind: the member is the value at fault.
+            Some(_) => {
+                return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::MalformedWire,
-                    "contract_version",
+                    JsonPointer::root().key("contract_version"),
+                ))
+            }
+            // Absent: the document lacks it.
+            None => {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    JsonPointer::root(),
                 ))
             }
         },
         _ => {
-            return Err(Stop::refused(
+            return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
-                "document",
+                JsonPointer::root(),
             ))
         }
     };
     match version.as_str() {
         CHECKED_PACKAGE_V2 => CheckedPackageV2::admit_value(value, limits, evidence)
             .map(|package| CheckedPackageDispatchResult::AdmittedV2(Box::new(package))),
-        _ => Err(Stop::refused(
-            CheckedPackageRefusalCode::UnknownContractVersion,
-            "contract_version",
-        )),
+        _ => Err(ValidationFailure::unknown_contract_version(&version)),
     }
 }

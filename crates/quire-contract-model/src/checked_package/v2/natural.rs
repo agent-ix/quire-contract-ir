@@ -4,6 +4,7 @@
 
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::JsonPointer;
 use std::cmp::Ordering;
 
 /// Little-endian base-2^32 limbs with no most-significant zero limbs.
@@ -13,10 +14,14 @@ struct Natural(Vec<u32>);
 impl Natural {
     /// Parses ASCII decimal digits already validated by the caller. Each digit
     /// touches every limb accumulated so far, and is charged that many units.
-    fn parse(digits: &str, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+    fn parse(
+        digits: &str,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Self, ValidationFailure> {
         let mut limbs = Vec::new();
         for byte in digits.bytes() {
-            meter.charge(limb_work(limbs.len()))?;
+            meter.charge(limb_work(limbs.len()), at)?;
             let mut carry = u64::from(byte.wrapping_sub(b'0'));
             for limb in &mut limbs {
                 let product = u64::from(*limb) * 10 + carry;
@@ -108,14 +113,16 @@ impl PartialOrd for Natural {
 
 /// Returns whether `gcd(numerator, denominator) == 1` for canonical decimal
 /// magnitudes (no sign). Binary GCD; each halving costs the limbs it shifts and
-/// each compare-and-subtract step costs the limbs of the larger operand.
+/// each compare-and-subtract step costs the limbs of the larger operand, all
+/// charged at `at`, the rational whose reduction is being decided.
 pub(super) fn coprime(
     numerator: &str,
     denominator: &str,
     meter: &mut WorkMeter,
+    at: &dyn Fn() -> JsonPointer,
 ) -> Result<bool, ValidationFailure> {
-    let mut left = Natural::parse(numerator, meter)?;
-    let mut right = Natural::parse(denominator, meter)?;
+    let mut left = Natural::parse(numerator, meter, at)?;
+    let mut right = Natural::parse(denominator, meter, at)?;
     if left.is_zero() {
         return Ok(right.is_one());
     }
@@ -127,14 +134,14 @@ pub(super) fn coprime(
     }
     loop {
         while left.is_even() {
-            meter.charge(left.work())?;
+            meter.charge(left.work(), at)?;
             left.halve();
         }
         while right.is_even() {
-            meter.charge(right.work())?;
+            meter.charge(right.work(), at)?;
             right.halve();
         }
-        meter.charge(left.work().max(right.work()))?;
+        meter.charge(left.work().max(right.work()), at)?;
         match left.cmp(&right) {
             Ordering::Equal => return Ok(left.is_one()),
             Ordering::Less => right.subtract(&left),
@@ -148,9 +155,14 @@ mod tests {
     use super::*;
     use crate::checked_package::shared::CheckedPackageLimit;
 
+    /// The rational a charge is reported at in these tests.
+    fn at() -> JsonPointer {
+        JsonPointer::root().key("scale")
+    }
+
     fn check(numerator: &str, denominator: &str) -> bool {
         let mut meter = WorkMeter::new(u64::MAX);
-        coprime(numerator, denominator, &mut meter).expect("unbounded work")
+        coprime(numerator, denominator, &mut meter, &at).expect("unbounded work")
     }
 
     /// Tracing: TC-048, FR-038-AC-5
@@ -173,7 +185,7 @@ mod tests {
 
     fn work_of(numerator: &str, denominator: &str) -> u64 {
         let mut meter = WorkMeter::new(u64::MAX);
-        coprime(numerator, denominator, &mut meter).expect("unbounded work");
+        coprime(numerator, denominator, &mut meter, &at).expect("unbounded work");
         meter.consumed()
     }
 
@@ -181,7 +193,7 @@ mod tests {
     #[test]
     fn tc_048_charges_work_and_stops_at_the_limit() {
         let mut meter = WorkMeter::new(3);
-        assert!(coprime("12345", "7", &mut meter).is_err());
+        assert!(coprime("12345", "7", &mut meter, &at).is_err());
 
         // Exact and one-over budgets for a multi-limb decision, computed by
         // hand for 2^64 + 1 over 1:
@@ -198,14 +210,15 @@ mod tests {
         let exact = 132;
         assert_eq!(work_of(numerator, denominator), exact);
         let mut meter = WorkMeter::new(exact);
-        assert_eq!(coprime(numerator, denominator, &mut meter), Ok(true));
+        assert_eq!(coprime(numerator, denominator, &mut meter, &at), Ok(true));
         let mut meter = WorkMeter::new(exact - 1);
         assert_eq!(
-            coprime(numerator, denominator, &mut meter),
-            Err(ValidationFailure::Incomplete(
+            coprime(numerator, denominator, &mut meter, &at),
+            Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Work,
                 exact - 1,
-                exact
+                exact,
+                Some(at())
             ))
         );
     }
@@ -217,7 +230,7 @@ mod tests {
         // a long magnitude costs superlinearly more than its digit count.
         let digits = "9".repeat(2_000);
         let mut meter = WorkMeter::new(u64::MAX);
-        let limbs = Natural::parse(&digits, &mut meter)
+        let limbs = Natural::parse(&digits, &mut meter, &at)
             .expect("unbounded work")
             .0
             .len();
@@ -229,12 +242,11 @@ mod tests {
         let budget = 1_000_000;
         let mut meter = WorkMeter::new(budget);
         assert!(matches!(
-            coprime(&huge, "1", &mut meter),
-            Err(ValidationFailure::Incomplete(
-                CheckedPackageLimit::Work,
-                1_000_000,
-                _
-            ))
+            coprime(&huge, "1", &mut meter, &at),
+            Err(ValidationFailure::Incomplete(incomplete))
+                if incomplete.limit_kind == CheckedPackageLimit::Work
+                    && incomplete.limit == 1_000_000
+                    && incomplete.path == Some(at())
         ));
     }
 }

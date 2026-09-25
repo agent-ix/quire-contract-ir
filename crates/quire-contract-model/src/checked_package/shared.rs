@@ -148,19 +148,111 @@ pub enum CheckedPackageRefusalCause {
     AmbiguousName,
 }
 
-/// A typed refusal with a stable code and structural path.
+/// An RFC 6901 JSON pointer into the checked-package document the reader
+/// was given.
+///
+/// The reader builds every pointer from its own traversal position, with
+/// concrete array indices and `~0`/`~1` escaping, and every pointer it
+/// returns resolves in that document: a refusal about a member the document
+/// lacks points at the object that lacks it. The empty pointer names the whole
+/// document.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct JsonPointer(Box<str>);
+
+impl JsonPointer {
+    /// The pointer to the whole document.
+    pub fn root() -> Self {
+        Self::default()
+    }
+
+    /// Parses an RFC 6901 pointer: empty, or `/`-prefixed reference tokens in
+    /// which every `~` begins `~0` or `~1`.
+    pub fn parse(pointer: &str) -> Option<Self> {
+        if !pointer.is_empty() && !pointer.starts_with('/') {
+            return None;
+        }
+        let mut bytes = pointer.bytes();
+        while let Some(byte) = bytes.next() {
+            if byte == b'~' && !matches!(bytes.next(), Some(b'0' | b'1')) {
+                return None;
+            }
+        }
+        Some(Self(pointer.into()))
+    }
+
+    /// Wraps text the reader assembled with [`push_key`]/[`push_index`].
+    pub(super) fn from_escaped(text: String) -> Self {
+        Self(text.into())
+    }
+
+    /// The pointer text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// This pointer extended by one object member name, escaped per RFC 6901.
+    pub fn key(self, key: &str) -> Self {
+        let mut text = String::from(self.0);
+        push_key(&mut text, key);
+        Self(text.into())
+    }
+
+    /// This pointer extended by one array index.
+    pub fn index(self, index: usize) -> Self {
+        let mut text = String::from(self.0);
+        push_index(&mut text, index);
+        Self(text.into())
+    }
+}
+
+pub(super) fn push_key(text: &mut String, key: &str) {
+    text.push('/');
+    for character in key.chars() {
+        match character {
+            '~' => text.push_str("~0"),
+            '/' => text.push_str("~1"),
+            other => text.push(other),
+        }
+    }
+}
+
+pub(super) fn push_index(text: &mut String, index: usize) {
+    use std::fmt::Write as _;
+    // Writing to a `String` cannot fail.
+    let _ = write!(text, "/{index}");
+}
+
+impl std::fmt::Display for JsonPointer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for JsonPointer {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A typed refusal with a stable code and the location of the value it is
+/// about.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedPackageRefusal {
     /// The condition callers can distinguish without parsing prose.
     pub code: CheckedPackageRefusalCode,
-    /// The closed-schema path at which admission failed.
-    pub path: Box<str>,
+    /// The RFC 6901 pointer of the value the refusal is about; absent when
+    /// the refusal concerns the byte stream rather than a value (malformed
+    /// JSON, non-canonical bytes).
+    pub path: Option<JsonPointer>,
     /// The cause tag paired with `code` under FR-322's `DiagnosticCausePairing`,
     /// present exactly when this reader determined one.
     pub cause: Option<CheckedPackageRefusalCause>,
     /// The node key of the offending entry or node, present whenever this
     /// reader located the refusal at a specific graph node.
     pub locus: Option<CheckedNodeId>,
+    /// The `contract_version` string the reader read, present exactly when
+    /// `code` is [`CheckedPackageRefusalCode::UnknownContractVersion`].
+    pub contract_version: Option<Box<str>>,
 }
 
 /// A typed non-conclusive outcome caused by the first exhausted limit.
@@ -172,6 +264,10 @@ pub struct CheckedPackageIncomplete {
     pub limit: u64,
     /// Counter value at the failed charge.
     pub consumed: u64,
+    /// The RFC 6901 pointer of the value whose charge failed; present for
+    /// every limit except [`CheckedPackageLimit::Bytes`], which is charged
+    /// before any value is parsed.
+    pub path: Option<JsonPointer>,
 }
 
 /// Exact source material used to prove a lock entry is not stale.
