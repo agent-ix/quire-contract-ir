@@ -433,13 +433,35 @@ fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFa
         return failure;
     };
     if let Some(path) = refusal.path.take() {
-        let is_preimage = path.as_str().ends_with("/nominal_identity_preimage");
         refusal.path = Some(match value.pointer(path.as_str()) {
-            Some(preimage) if is_preimage => identity::locate_preimage_failure(path, preimage),
+            Some(preimage) if is_typed_preimage_position(&path) => {
+                identity::locate_preimage_failure(path, preimage)
+            }
             _ => path,
         });
     }
     ValidationFailure::Refused(refusal)
+}
+
+/// Whether `path` is one of the two positions the wire types a
+/// `nominal_identity_preimage` at: `/semantic_graph/nodes/{n}/…` or
+/// `/identity_preimage/identity_projection/{n}/…`. A member of that name
+/// anywhere else is not a preimage (an unknown member, say) and is never
+/// re-located.
+fn is_typed_preimage_position(path: &JsonPointer) -> bool {
+    let text = path.as_str();
+    [
+        "/semantic_graph/nodes/",
+        "/identity_preimage/identity_projection/",
+    ]
+    .iter()
+    .any(|prefix| {
+        text.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix("/nominal_identity_preimage"))
+            .is_some_and(|index| {
+                !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+            })
+    })
 }
 
 impl CheckedPackageV2 {
@@ -1729,8 +1751,42 @@ enum EdgeSite {
     Reference(usize),
 }
 
-/// One body reference target, the site that carried it, and its pointer.
-type BodyReference = (CheckedNodeId, ReferenceSite, JsonPointer);
+/// One body reference target and the site that carried it. Its pointer is
+/// built only on refusal, by [`body_reference_pointer`].
+type BodyReference = (CheckedNodeId, ReferenceSite);
+
+/// The pointer of the `reference`-th target a node's body walk reports,
+/// found by re-running that same walk and materializing the trail only at
+/// that target. The body was admitted by the first walk, so the walk is
+/// deterministic and reaches it; the body pointer is the fallback.
+fn body_reference_pointer(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    position: usize,
+    reference: usize,
+) -> JsonPointer {
+    let body_steps = [
+        Step::Key("semantic_graph"),
+        Step::Key("nodes"),
+        Step::Index(position),
+        Step::Key("body"),
+    ];
+    let mut seen = 0_usize;
+    let mut found = None;
+    // The walk already succeeded once; a failure here only means no pointer.
+    let _ = validate_body(
+        kind,
+        &node.body,
+        &Trail::Base(&body_steps),
+        &mut |_target, _site, target_at| {
+            if seen == reference && found.is_none() {
+                found = Some(target_at.pointer());
+            }
+            seen = seen.saturating_add(1);
+        },
+    );
+    found.unwrap_or_else(|| node_pointer(position).key("body"))
+}
 
 fn validate_graph(
     wire: &CheckedPackageWireV2,
@@ -1829,8 +1885,8 @@ fn validate_graph(
             kind,
             &node.body,
             &Trail::Base(&body_steps),
-            &mut |target, site, target_at| {
-                targets.push((target.clone(), site, target_at.pointer()));
+            &mut |target, site, _target_at| {
+                targets.push((target.clone(), site));
             },
         )?;
         meter.charge(work, || at("body"))?;
@@ -1870,6 +1926,13 @@ fn validate_graph(
     validate_frame_semantics(&graph.nodes, &kinds, &index)?;
     validate_operations(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
+    let reference_pointer = |position: usize, reference: usize| match (
+        graph.nodes.get(position),
+        kinds.get(position),
+    ) {
+        (Some(node), Some(kind)) => body_reference_pointer(node, *kind, position, reference),
+        _ => node_pointer(position).key("body"),
+    };
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path: &dyn Fn() -> JsonPointer| {
             index
@@ -1887,8 +1950,8 @@ fn validate_graph(
             let target = resolve(dependency, &|| at("dependencies").index(dependency_index))?;
             successors.push((target, EdgeSite::Dependency(dependency_index)));
         }
-        for (reference_index, (target, site, target_at)) in targets.iter().enumerate() {
-            let target = resolve(target, &|| target_at.clone())?;
+        for (reference_index, (target, site)) in targets.iter().enumerate() {
+            let target = resolve(target, &|| reference_pointer(position, reference_index))?;
             // Only a self-typed node's own top-level `literal.type` — the
             // literal that *is* the node body, e.g. a self-typed scalar's
             // `literal.type` — may name itself from its body without that
@@ -1918,10 +1981,7 @@ fn validate_graph(
         EdgeSite::Dependency(dependency) => {
             node_pointer(vertex).key("dependencies").index(dependency)
         }
-        EdgeSite::Reference(reference) => references
-            .get(vertex)
-            .and_then(|targets| targets.get(reference))
-            .map_or_else(|| node_pointer(vertex).key("body"), |(_, _, at)| at.clone()),
+        EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
     let projection = graph

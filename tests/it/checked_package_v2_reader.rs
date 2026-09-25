@@ -196,6 +196,27 @@ fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
         assert_eq!(mutated.pointer(place), Some(&json!(1)), "{name}");
     }
 
+    // An unknown member that happens to be named like the typed nominal
+    // preimage is still just an unknown member at that key: only the two
+    // positions the wire types a preimage at are ever looked inside.
+    for place in [
+        "/capability_report/0/nominal_identity_preimage",
+        "/lock/nominal_identity_preimage",
+    ] {
+        let mut mutated = base.clone();
+        let (parent, key) = place.rsplit_once('/').expect("member pointer");
+        mutated
+            .pointer_mut(parent)
+            .and_then(Value::as_object_mut)
+            .expect("parent object")
+            .insert(key.to_owned(), json!({"version": 1}));
+        assert_eq!(
+            refused(&mutated, &evidence),
+            refusal(CheckedPackageRefusalCode::UnknownMember, place),
+            "{place}"
+        );
+    }
+
     // A repeated member is located by the strict parse itself, before any
     // decoding, with the same escaping.
     let bytes = canonical(&base);
