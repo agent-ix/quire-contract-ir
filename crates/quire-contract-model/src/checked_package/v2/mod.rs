@@ -2412,7 +2412,36 @@ fn validate_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_frame, CheckedNodeKind, FrameMember, ModelForm, RelationForm, StateForm};
+    use super::{
+        is_frame, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId, FrameMember,
+        ModelForm, RelationForm, StateForm, DEPENDENCY_SELECTION_MEMBERS,
+    };
+
+    /// The members `classify_dependency_entry_shape` treats as required are
+    /// exactly the members of `CheckedDependencySelection`.
+    #[test]
+    fn dependency_selection_required_members_match_the_type() {
+        let entry = CheckedDependencySelection {
+            identity: "a".into(),
+            version: "1".into(),
+            package_id: CheckedSemanticId {
+                domain: "d".into(),
+                algorithm: "sha256".into(),
+                digest: "0".into(),
+            },
+        };
+        let value = serde_json::to_value(entry).expect("serializes");
+        let mut members: Vec<&str> = value
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut required = DEPENDENCY_SELECTION_MEMBERS.to_vec();
+        members.sort_unstable();
+        required.sort_unstable();
+        assert_eq!(members, required);
+    }
 
     /// `BodyBindingRules`: exactly one kind, `state`/`frame`, has the frame
     /// reference-triple body; every other kind's body is a `SemanticTerm`.
