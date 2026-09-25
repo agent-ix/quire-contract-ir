@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Real source/model/definition inputs shared by the composed type controls.
 
+use qsl_foundation::{ByteDigest, Source, SourceIdentity};
 use quire_contract_model_owner as ir;
 use quire_spec_language::formal_source::FormalSource;
 use quire_spec_language::linking::composed::binding;
@@ -13,7 +14,7 @@ use quire_spec_language::linking::composed::{
 };
 use quire_spec_language::model_source::{self, ModelSourceLimits};
 use quire_spec_language::native_model::{ModelLimits, NativeModel, NativeModelProfile};
-use quire_spec_language::{ByteDigest, Limits, Source, SourceIdentity};
+use quire_spec_language::Limits;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -186,6 +187,8 @@ fn try_model_with(
     let text = serde_json::to_string_pretty(&document).unwrap();
     let source = Source::read(
         SourceIdentity {
+            authority: "test".into(),
+            revision_namespace: "test".into(),
             identity: format!("model:{name}"),
             revision: "authored".into(),
         },
@@ -236,6 +239,8 @@ pub fn source(name: &str, model: &NativeModel, body: &str) -> Source {
     ));
     Source::read(
         SourceIdentity {
+            authority: "test".into(),
+            revision_namespace: "test".into(),
             identity: format!("unit:{name}"),
             revision: "authored".into(),
         },
@@ -325,8 +330,8 @@ pub fn with_binding_inputs_and_inventory<T>(
                 rule.path,
                 RuleInput {
                     path: rule.path,
-                    digest: ByteDigest::of(rule.bytes),
-                    bytes: rule.bytes,
+                    digest: ByteDigest::of(rule.path.as_bytes()),
+                    bytes: rule.path.as_bytes(),
                 },
             )
         })

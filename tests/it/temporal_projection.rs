@@ -9,6 +9,7 @@ use quire_contract_ir::{
         TemporalCauseDimension as Dim, TemporalDecision, TemporalProjectionKind,
     },
 };
+use quire_mltl::{contract_ir as tl_contract_ir, report as tl_report};
 use quire_observation::authority::OpenClosed;
 use quire_protocol::result::{
     contract_ir::{self, MappingSelection},
@@ -22,7 +23,7 @@ use quire_spec_language::{
     linking::composed::definition_source::RegisteredDefinition,
     protocol_artifact::{self as qsl_artifact, native as qsl_native, v2, wire as qsl_wire},
 };
-use tl_mltl::{mapping, wire, wire::OwnerLimits};
+use tl_mltl::wire::OwnerLimits;
 
 use crate::support::native_protocol::{
     Inputs as NativeInputs, TemporalDefinitionExpectation, Unit,
@@ -301,24 +302,23 @@ fn tc_039_future_projection_uses_exact_owner_views_and_rereads() {
     .into_result()
     .expect("native temporal result reader");
 
-    let result_document = wire::report::evaluate(
+    let result_document = tl_report::evaluate(
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL evaluation result");
-    let tl_result = wire::report::read(
+    let tl_result = tl_report::read(
         result_document.bytes(),
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL result reader");
-    let tl_selection = mapping::contract_ir::MappingSelection::for_result(&tl_result);
-    let tl_document =
-        mapping::contract_ir::map(&tl_result, &tl_selection, OwnerLimits::owner_max())
-            .expect("TL result mapping");
-    let tl_mapped = mapping::contract_ir::read(
+    let tl_selection = tl_contract_ir::MappingSelection::for_result(&tl_result);
+    let tl_document = tl_contract_ir::map(&tl_result, &tl_selection, OwnerLimits::owner_max())
+        .expect("TL result mapping");
+    let tl_mapped = tl_contract_ir::read(
         tl_document.bytes(),
         &tl_result,
         &tl_selection,
@@ -435,27 +435,27 @@ fn tc_039_future_projection_uses_exact_owner_views_and_rereads() {
     )
     .into_result()
     .expect("corrected native result reader");
-    let corrected_tl_document = wire::report::evaluate(
+    let corrected_tl_document = tl_report::evaluate(
         corrected_projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Superseding(&tl_result),
+        tl_report::ResultRelationInput::Superseding(&tl_result),
         OwnerLimits::owner_max(),
     )
     .expect("corrected TL result");
-    let corrected_tl = wire::report::read(
+    let corrected_tl = tl_report::read(
         corrected_tl_document.bytes(),
         corrected_projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Superseding(&tl_result),
+        tl_report::ResultRelationInput::Superseding(&tl_result),
         OwnerLimits::owner_max(),
     )
     .expect("corrected TL result reader");
-    let corrected_selection = mapping::contract_ir::MappingSelection::for_result(&corrected_tl);
-    let corrected_map_document = mapping::contract_ir::map(
+    let corrected_selection = tl_contract_ir::MappingSelection::for_result(&corrected_tl);
+    let corrected_map_document = tl_contract_ir::map(
         &corrected_tl,
         &corrected_selection,
         OwnerLimits::owner_max(),
     )
     .expect("corrected TL mapping");
-    let corrected_map = mapping::contract_ir::read(
+    let corrected_map = tl_contract_ir::read(
         corrected_map_document.bytes(),
         &corrected_tl,
         &corrected_selection,
@@ -588,23 +588,23 @@ fn tc_039_fixed_sample_requests_are_owner_read_and_evaluated_independently() {
     )
     .into_result()
     .expect("fixed native reader");
-    let tl_document = wire::report::evaluate(
+    let tl_document = tl_report::evaluate(
         projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("fixed TL result");
-    let tl = wire::report::read(
+    let tl = tl_report::read(
         tl_document.bytes(),
         projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("fixed TL reader");
-    let selection = mapping::contract_ir::MappingSelection::for_result(&tl);
+    let selection = tl_contract_ir::MappingSelection::for_result(&tl);
     let mapped_document =
-        mapping::contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("fixed map");
-    let mapped = mapping::contract_ir::read(
+        tl_contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("fixed map");
+    let mapped = tl_contract_ir::read(
         mapped_document.bytes(),
         &tl,
         &selection,
@@ -786,23 +786,23 @@ fn tc_039_open_future_pending_remains_a_non_boolean_agreement() {
     )
     .into_result()
     .expect("open native reader");
-    let tl_document = wire::report::evaluate(
+    let tl_document = tl_report::evaluate(
         projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("open TL result");
-    let tl = wire::report::read(
+    let tl = tl_report::read(
         tl_document.bytes(),
         projection.validated().tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("open TL reader");
-    let selection = mapping::contract_ir::MappingSelection::for_result(&tl);
+    let selection = tl_contract_ir::MappingSelection::for_result(&tl);
     let mapped_document =
-        mapping::contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("open map");
-    let mapped = mapping::contract_ir::read(
+        tl_contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("open map");
+    let mapped = tl_contract_ir::read(
         mapped_document.bytes(),
         &tl,
         &selection,
@@ -916,23 +916,23 @@ fn tc_039_past_origin_false_extension_builds_formula_v2_and_history() {
         )
         .into_result()
         .expect("past native reader");
-        let tl_document = wire::report::evaluate(
+        let tl_document = tl_report::evaluate(
             projection.validated().tl_request(),
-            wire::report::ResultRelationInput::Original,
+            tl_report::ResultRelationInput::Original,
             OwnerLimits::owner_max(),
         )
         .expect("past TL result");
-        let tl = wire::report::read(
+        let tl = tl_report::read(
             tl_document.bytes(),
             projection.validated().tl_request(),
-            wire::report::ResultRelationInput::Original,
+            tl_report::ResultRelationInput::Original,
             OwnerLimits::owner_max(),
         )
         .expect("past TL reader");
-        let selection = mapping::contract_ir::MappingSelection::for_result(&tl);
+        let selection = tl_contract_ir::MappingSelection::for_result(&tl);
         let mapped_document =
-            mapping::contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("past map");
-        let mapped = mapping::contract_ir::read(
+            tl_contract_ir::map(&tl, &selection, OwnerLimits::owner_max()).expect("past map");
+        let mapped = tl_contract_ir::read(
             mapped_document.bytes(),
             &tl,
             &selection,
@@ -1019,24 +1019,23 @@ fn tc_039_each_activation_uses_its_own_checked_guard_valuation() {
             )
             .into_result()
             .expect("each native result reader");
-            let tl_document = wire::report::evaluate(
+            let tl_document = tl_report::evaluate(
                 projection.validated().tl_request(),
-                wire::report::ResultRelationInput::Original,
+                tl_report::ResultRelationInput::Original,
                 OwnerLimits::owner_max(),
             )
             .expect("each TL result");
-            let tl = wire::report::read(
+            let tl = tl_report::read(
                 tl_document.bytes(),
                 projection.validated().tl_request(),
-                wire::report::ResultRelationInput::Original,
+                tl_report::ResultRelationInput::Original,
                 OwnerLimits::owner_max(),
             )
             .expect("each TL reader");
-            let selection = mapping::contract_ir::MappingSelection::for_result(&tl);
-            let mapped_document =
-                mapping::contract_ir::map(&tl, &selection, OwnerLimits::owner_max())
-                    .expect("each TL map");
-            let mapped = mapping::contract_ir::read(
+            let selection = tl_contract_ir::MappingSelection::for_result(&tl);
+            let mapped_document = tl_contract_ir::map(&tl, &selection, OwnerLimits::owner_max())
+                .expect("each TL map");
+            let mapped = tl_contract_ir::read(
                 mapped_document.bytes(),
                 &tl,
                 &selection,
@@ -1520,23 +1519,23 @@ fn evaluate_owner_agreement(
     )
     .into_result()
     .expect("native operator result reader");
-    let tl_document = wire::report::evaluate(
+    let tl_document = tl_report::evaluate(
         projection.tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL operator result");
-    let tl = wire::report::read(
+    let tl = tl_report::read(
         tl_document.bytes(),
         projection.tl_request(),
-        wire::report::ResultRelationInput::Original,
+        tl_report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL operator result reader");
-    let selection = mapping::contract_ir::MappingSelection::for_result(&tl);
-    let mapped_document = mapping::contract_ir::map(&tl, &selection, OwnerLimits::owner_max())
+    let selection = tl_contract_ir::MappingSelection::for_result(&tl);
+    let mapped_document = tl_contract_ir::map(&tl, &selection, OwnerLimits::owner_max())
         .expect("TL operator mapping");
-    let mapped = mapping::contract_ir::read(
+    let mapped = tl_contract_ir::read(
         mapped_document.bytes(),
         &tl,
         &selection,

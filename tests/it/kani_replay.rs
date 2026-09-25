@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use ix_trace_rs::trace;
+use qsl_foundation::{Source, SourceIdentity};
 use quire_contract_ir::kani::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket, FiniteInput,
     FiniteObject, KaniOutcome, KaniOutcomeKind, NativeReplayAgreement, PopulationCompleteness,
@@ -18,7 +19,7 @@ use quire_spec_language::runtime::{
     ObjectIdentity, ObservationSelection, Population, RuntimeInput, Snapshot, SnapshotDraft,
     ValueId, ValueNode,
 };
-use quire_spec_language::{link_native, parse, Limits, LinkLimits, Source, SourceIdentity};
+use quire_spec_language::{link_native, parse, Limits, LinkLimits};
 
 fn symbol(name: &str) -> ir::SymbolName {
     ir::SymbolName::new(name).expect("test symbol")
@@ -31,6 +32,8 @@ fn owner() -> ir::RequirementRef {
 fn native_model() -> NativeModel {
     let source = Source::read(
         SourceIdentity {
+            authority: "test".into(),
+            revision_namespace: "test".into(),
             identity: "test:kani-replay-model".into(),
             revision: "1".into(),
         },
@@ -64,6 +67,8 @@ fn object(model: &NativeModel) -> ObjectIdentity {
 fn native_request(model: &NativeModel) -> (RuntimeInput, ExecutionSelection) {
     let snapshot = Snapshot::new(
         SourceIdentity {
+            authority: "test".into(),
+            revision_namespace: "test".into(),
             identity: "test:kani-replay-state".into(),
             revision: "1".into(),
         },
@@ -141,6 +146,8 @@ fn native_package<'a>(models: &'a [NativeModel]) -> NativePackage<'a> {
     );
     let unit = parse(
         SourceIdentity {
+            authority: "test".into(),
+            revision_namespace: "test".into(),
             identity: "test:kani-replay-rule".into(),
             revision: "1".into(),
         },

@@ -48,7 +48,7 @@ pub struct ValidatedTemporalProjection {
     pub(crate) native_request_bytes: Vec<u8>,
     pub(crate) input: ValidatedTemporalInput,
     pub(crate) history_requirement: Option<tl_mltl::past::requirement::ValidatedHistoryRequirement>,
-    pub(crate) request: tl_mltl::wire::request::ValidatedTemporalRequest,
+    pub(crate) request: quire_mltl::request::ValidatedTemporalRequest,
     pub(crate) request_bytes: Vec<u8>,
     pub(crate) occurrences: Vec<FormulaOccurrence>,
     pub(crate) valuations: Vec<TemporalValuationRow>,
@@ -133,11 +133,11 @@ impl ValidatedTemporalProjection {
         &self.native_request_bytes
     }
     #[must_use]
-    pub const fn request(&self) -> &tl_mltl::wire::request::ValidatedTemporalRequest {
+    pub const fn request(&self) -> &quire_mltl::request::ValidatedTemporalRequest {
         &self.request
     }
     #[must_use]
-    pub const fn tl_request(&self) -> &tl_mltl::wire::request::ValidatedTemporalRequest {
+    pub const fn tl_request(&self) -> &quire_mltl::request::ValidatedTemporalRequest {
         &self.request
     }
     #[must_use]

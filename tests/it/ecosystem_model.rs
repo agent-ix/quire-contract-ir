@@ -11,13 +11,14 @@ use quire_contract_ir::{
     predicate,
     temporal::{self, ObservationViews, PositionValuations},
 };
+use quire_mltl::{contract_ir as tl_mapping, report};
 use quire_observation::authority::OpenClosed;
 use quire_protocol::result::{contract_ir as protocol_map, Limits as ResultLimits, Truth};
 use quire_spec_language::protocol_artifact::native_temporal::result::{
     self as native_result, Relation as NativeRelation,
 };
 use serde_json::{json, Value};
-use tl_mltl::{mapping as tl_mapping, wire, wire::OwnerLimits};
+use tl_mltl::wire::OwnerLimits;
 
 const QSPEC: &str = "983b0b28c479241fb066cbe4db3fc0980362de36";
 const TL_SYNTAX: &str = "842d82553f045eb69a7f38745756d968254fc25e";
@@ -28,7 +29,17 @@ const QSL: &str = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07";
 const QOBS: &str = "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc";
 const QPROTOCOL: &str = "34d1752e6c5f789a52ccf115b0694eedd96cdd46";
 const QCI: &str = "0c450731626f40fd90c99e787cc0f7f5e053904c";
+// Repository nodes are the frozen Task-011 campaign snapshot: the QSL, QOBS,
+// QPROTOCOL, TL_SYNTAX and TL_MLTL revisions below are the campaign's, not the
+// current pins. Contract nodes come from `TargetSelection::current()` and carry
+// the live pins. The manifest reader checks only that a contract's repository
+// is a manifest repository, never that the revisions agree, so this mismatch is
+// not refused. IR-292 tracks enforcing FR-027 for selections.
 const CAMPAIGN: &str = "agent-ix/tl-syntax#52/PLAN-010/Task-011";
+
+/// The three quire-mltl contracts the bridge consumes but this manifest cannot
+/// name: its reader's repository set is closed at nine.
+const QUIRE_MLTL_GAP: &str = "TL-181 moved these to quire-mltl; the closed nine-repository reader cannot name that repository";
 
 fn repository_revisions() -> [(&'static str, &'static str); 9] {
     [
@@ -276,6 +287,10 @@ fn manifest_value() -> Value {
         "nodes": nodes,
         "edges": edges,
         "gaps": [{
+            "identity": "gap:quire-mltl-contracts",
+            "requirement": "ix://agent-ix/quire-contract-ir/FR-026",
+            "description": QUIRE_MLTL_GAP
+        }, {
             "identity": "gap:quire-protocol-8",
             "requirement": "ix://agent-ix/quire-protocol/FR-006",
             "description": "Protocol issue 8 remains open beyond the exact result-mapping surface consumed by FR-025 and FR-026"
@@ -335,13 +350,16 @@ fn owner_selections() -> Vec<ContractSelection> {
         temporal.trace(),
         temporal.history(),
         temporal.history_requirement(),
-        temporal.request(),
-        temporal.evaluator_report(),
+        // `request`, `evaluator_report`, and `tl_mapping` are deliberately excluded from
+        // this sweep. FR-027-AC-1 fixes this manifest to the exact nine-repository
+        // Task-011 set; those three axes now select `agent-ix/quire-mltl` (TL-181),
+        // a tenth repository this frozen historical campaign never named, and
+        // `owner_component` has no entry for it. Expanding the closed set to cover
+        // them would misrepresent Task-011's own scope rather than describe it.
         temporal.native_request(),
         temporal.native_result(),
         temporal.protocol_result(),
         temporal.protocol_mapping(),
-        temporal.tl_mapping(),
     ]
     .into_iter()
     .cloned()
@@ -413,7 +431,15 @@ fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
         .expect("bounded model export");
     assert_eq!(model.manifest_identity(), checked.identity());
     assert_eq!(model.counts().repositories, 9);
-    assert_eq!(model.counts().gaps, 1);
+    assert_eq!(model.counts().gaps, 2);
+    assert!(
+        checked
+            .gaps()
+            .iter()
+            .any(|gap| gap.identity == "gap:quire-mltl-contracts"
+                && gap.description == QUIRE_MLTL_GAP),
+        "the omitted quire-mltl contracts must stay recorded as a manifest gap"
+    );
     assert_eq!(model.adjacency().len(), model.topological_order().len());
     let validated = ecosystem_model::read(model.bytes(), &checked, EcosystemLimits::default())
         .expect("independent model re-export");
@@ -618,13 +644,13 @@ fn tc_040_manifest_selection_executes_the_real_owner_bridge_path_end_to_end() {
         target.trace(),
         target.history(),
         target.history_requirement(),
-        target.request(),
-        target.evaluator_report(),
+        // `request`, `evaluator_report` and `tl_mapping` select quire-mltl (TL-181),
+        // which this frozen nine-repository manifest never names; `owner_selections`
+        // excludes them for the same reason.
         target.native_request(),
         target.native_result(),
         target.protocol_result(),
         target.protocol_mapping(),
-        target.tl_mapping(),
     ] {
         assert!(manifest_selects_contract(checked.nodes(), selection));
     }
@@ -651,24 +677,23 @@ fn tc_040_manifest_selection_executes_the_real_owner_bridge_path_end_to_end() {
     )
     .into_result()
     .expect("native owner reader");
-    let tl_document = wire::report::evaluate(
+    let tl_document = report::evaluate(
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL owner result");
-    let tl = wire::report::read(
+    let tl = report::read(
         tl_document.bytes(),
         projection.validated().request(),
-        wire::report::ResultRelationInput::Original,
+        report::ResultRelationInput::Original,
         OwnerLimits::owner_max(),
     )
     .expect("TL owner reader");
-    let tl_selection = tl_mapping::contract_ir::MappingSelection::for_result(&tl);
+    let tl_selection = tl_mapping::MappingSelection::for_result(&tl);
     let tl_map_document =
-        tl_mapping::contract_ir::map(&tl, &tl_selection, OwnerLimits::owner_max())
-            .expect("TL owner map");
-    let tl_mapped = tl_mapping::contract_ir::read(
+        tl_mapping::map(&tl, &tl_selection, OwnerLimits::owner_max()).expect("TL owner map");
+    let tl_mapped = tl_mapping::read(
         tl_map_document.bytes(),
         &tl,
         &tl_selection,

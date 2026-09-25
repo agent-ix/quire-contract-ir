@@ -46,7 +46,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
     assert!(decision.operation().is_none());
     assert_eq!(
         decision.availability_contract().revision(),
-        "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc"
+        "2bdeb833a330bfa777c19eb4c28c423f856f3ba6"
     );
     assert_eq!(
         decision.availability_contract().schema_digest(),
@@ -57,7 +57,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .result_contract()
             .expect("result selection")
             .revision(),
-        "34d1752e6c5f789a52ccf115b0694eedd96cdd46"
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
     );
     assert_eq!(
         decision
@@ -71,7 +71,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .mapping_contract()
             .expect("mapping selection")
             .revision(),
-        "34d1752e6c5f789a52ccf115b0694eedd96cdd46"
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
     );
     assert_eq!(
         decision

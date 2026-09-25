@@ -62,6 +62,7 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         "tl-parse",
         "tl-mltl",
         "tl-rewrite",
+        "quire-mltl",
     ];
     for dependency in model_dependencies {
         let name = dependency["name"]
@@ -158,14 +159,14 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
     for (owner, revision) in [
         (
             "quire-observation",
-            "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc",
+            "2bdeb833a330bfa777c19eb4c28c423f856f3ba6",
         ),
-        ("quire-protocol", "34d1752e6c5f789a52ccf115b0694eedd96cdd46"),
+        ("quire-protocol", "035fed1a4903dac5d5ef8c08b80195d3f11dadde"),
         (
             "quire-spec-language",
-            "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07",
+            "9395be4268e650ca2753204d6d306c9cd7b453ec",
         ),
-        ("tl-syntax", "842d82553f045eb69a7f38745756d968254fc25e"),
+        ("tl-syntax", "4a5614193d21e5ae99950ae683b04ba0ec931358"),
     ] {
         assert!(
             production.iter().any(|id| names[id] == owner),
@@ -282,7 +283,7 @@ fn tc_041_bridge_and_real_qsl_owner_api_compose_without_a_cycle() {
     let qsl_source = qsl["source"]
         .as_str()
         .expect("QSL composition dependency must retain its immutable git source");
-    assert!(qsl_source.contains("f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07"));
+    assert!(qsl_source.contains("9395be4268e650ca2753204d6d306c9cd7b453ec"));
     let bridge = package(&composition, "quire-contract-ir");
     assert_eq!(bridge["source"], Value::Null);
 
