@@ -51,9 +51,11 @@ they supplied are open work on agent-ix/quire-contract-ir#166.
 ## Outputs
 
 - A closed read result: admitted, refused or incomplete (limit kind, limit,
-  consumed). A refusal carries a typed code and the structural path at which
-  admission failed, so a caller distinguishes the condition and locates it
-  without parsing prose. A frame-body refusal additionally carries the cause
+  consumed, and the location of the value whose charge failed). A refusal
+  carries a typed code and the location of the value it is about, so a caller
+  distinguishes the condition and locates it without parsing prose. An
+  `unknown_contract_version` refusal also carries the `contract_version`
+  string the reader read. A frame-body refusal additionally carries the cause
   tag FR-322's `DiagnosticCausePairing` pairs with that code — `missing-name`
   with `missing_declaration`, `malformed-declaration` with
   `invalid_model_binding` — and the node key of the offending entry or, for a
@@ -76,6 +78,61 @@ they supplied are open work on agent-ix/quire-contract-ir#166.
 
 ## Behavior
 
+### Locating refusals and limits
+
+Every location the reader reports is an RFC 6901 JSON pointer into the
+document it was given. The reader builds it from its own position while it
+walks the document: each object member name is escaped (`~` as `~0`, `/` as
+`~1`) and each array element is named by its index. It is never rebuilt from
+member names afterwards. Every pointer resolves in that document. A refusal
+about a value points at that value. A refusal about a member the document
+lacks points at the object that lacks it. The empty pointer names the whole
+document.
+
+A refusal about the byte stream rather than a value carries no pointer. These
+are malformed JSON and non-canonical bytes. A repeated member points at that
+member. A closed-schema decode refusal points where the decoder stopped: at
+an unknown member, at the object missing a required member, or at a value of
+the wrong kind. Inside a nominal identity preimage, and inside its owner,
+serde reads the members from a buffer it does not track. There the reader
+decodes the variant the preimage's `version` (or the owner's `kind`) selects,
+so the pointer still names the member at fault.
+
+A refusal located at a graph node points at the node's member the failed
+check read. Examples are its `node_id`, its `dependencies` (or one entry of
+them), its `declaration.qualified_name`, one frame entry, one `aggregate`
+member, or an `operation` law, mode or member. A reference that resolves to no
+node points at that reference. A stale preimage or lock mirror points at the
+first value, in document order, where the retained copy differs from the one
+the reader derived. Within a `lock.model_selections` defect class, the
+pointer names the first entry of that class in array order. The array
+position never decides the code. A cycle without one shared
+`recursion_group` points at the lowest-positioned member at fault: at its
+`recursion_group` when it carries a different one, else at the node, which
+lacks the member. Where this specification names the location of a refusal
+as a dotted member path, such as `lock.model_selections`, the returned
+pointer names that member at its concrete indices, or the object that lacks
+it.
+
+An `unknown_contract_version` refusal points at `/contract_version` and
+carries the version string read there.
+
+An incomplete outcome carries the pointer of the value whose charge failed,
+for every limit except the byte limit. The byte limit is charged before any
+value is parsed. The others are charged as follows:
+
+- The depth limit at the first value, in document order, nested one level
+  past it.
+- The node limit at the first node past it.
+- The edge limit at the dependency that took the count past it.
+- The occurrence limit at the source-map entry or region that did.
+- The diagnostic limit at the first entry past it.
+- The work limit at the value whose validation took the meter past it: a
+  node body, a nominal preimage member, an `operation`, a graph edge's
+  member, or a diagnostic detail.
+
+### Reading
+
 The reader shall measure raw bytes against the byte limit, parse strict JSON
 once (duplicate members refuse, nesting charged against the depth limit),
 require canonical bytes, and read `contract_version` exactly once. It shall
@@ -90,8 +147,8 @@ intake: the node family (`node_tag`), each family's semantic forms
 family cannot be represented), the lock selection `role` and the capability
 report `disposition`, alongside the diagnostic stage, code and cause and the
 occurrence role already typed on the wire. A selection role or disposition
-outside its vocabulary is a wire-shape refusal (`malformed_wire` at
-`document`); an unknown family or form keeps its own graph refusal below.
+outside its vocabulary is a wire-shape refusal (`malformed_wire` at that
+value); an unknown family or form keeps its own graph refusal below.
 Past intake no decision that depends on a node's family or form, a
 selection role or a disposition compares a wire string: each matches the
 decoded enum exhaustively, listing every form, with no catch-all arm, so
@@ -393,6 +450,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
 | FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers, and its structural and application keys equal QSL FR-092's vectors; a parameter with a negative, non-canonical or missing level, an empty or wrongly typed name, an extra binding, a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
+| FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. No refusal code changes. | Test (TC-048) |
+| FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
+| FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: depth at the first value nested one level past it, nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
 
 ## Dependencies
 

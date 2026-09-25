@@ -131,7 +131,7 @@ For a document carrying any of the five members in any of the three shapes
 a producer can encode one in today — a new `node_tag`, a new
 `semantic_form` of an admitted tag, or an extra member of an admitted node
 — a typed refusal (`unsupported_node_tag`, `invalid_semantic_graph` or
-`unknown_member`) carrying the structural path at which admission failed,
+`unknown_member`) carrying the RFC 6901 pointer of the value at fault (FR-038),
 never a lowered record, and never a package admitted with that member's
 content dropped. This FR adds no lowering-disposition kind: FR-038's
 seven-member record vocabulary (`lowered`, `unsupported`, `requires_bound`,
@@ -153,7 +153,7 @@ producer can encode one in: a `node_tag` outside `CheckedNodeTag::ALL` or
 a `semantic_form` outside that tag's closed form enum refuses at the graph's tag
 and form gates; an extra member on an otherwise-admitted node object
 refuses earlier still, in the strict closed-schema decode of the whole
-document, as `unknown_member` at `document`; and a body that satisfies no
+document, as `unknown_member` at that member's pointer; and a body that satisfies no
 branch of the closed `SemanticTerm` grammar refuses at the body. Admission
 and lowering for these five is out of scope for this FR and stays blocked
 on the one thing this repository does not own — the QSpec wire-carrier
@@ -183,7 +183,7 @@ recorded in Dependencies and Status instead.
 | --- | --- | --- |
 | FR-344-AC-1 | A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag` or `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`, before any declaration is built and with the document never admitted with the offending node dropped. | Test (TC-222) |
 | FR-344-AC-2 | A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph`, never admitted as an ordinary `relation` term: at `semantic_graph.nodes.body.term` when the body carries no `term` member at all — the case of `filament-core-data#184`/#193's published population shape, which carries no `term` member — and at `semantic_graph.nodes.body` when it carries a `term` value that matches no arm's own closed member set. | Test (TC-222) |
-| FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which extend a `model`/`field_declaration` node rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at `document`, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
+| FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which extend a `model`/`field_declaration` node rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at the pointer of the extra member, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
 
 ## Dependencies
 

@@ -23,10 +23,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exact_members, exceeds,
-    first_difference, is_digest, is_nonempty, node_pointer, validate_locked_artifact,
-    validate_source_map_entries, validate_term, visit_reference, ReferenceMember, ReferenceSite,
-    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    canonical_value, count, decode_closed, digest_json, exact_members, exceeds, first_difference,
+    is_digest, is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
+    validate_term, visit_reference, ReferenceMember, ReferenceSite, ReferenceVisitor, Step,
+    TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
 use super::shared::{
@@ -486,9 +486,8 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let wire = decode_closed::<CheckedPackageWireV2>(&value).map_err(|failure| {
-            locate_in_preimage(failure, &value)
-        })?;
+        let wire = decode_closed::<CheckedPackageWireV2>(&value)
+            .map_err(|failure| locate_in_preimage(failure, &value))?;
         // A lossless decode: no member was defaulted, nulled or dropped.
         match serde_json::to_value(&wire) {
             Ok(decoded) if decoded == value => {}
@@ -695,9 +694,12 @@ fn validate_lock(
             member_pointer(&["lock", "sources"]).index(index)
         })?;
     }
-    validate_unexported(&lock.edition.definition, DEFINITION_BYTES, evidence, &|| {
-        member_pointer(&["lock", "edition", "definition"])
-    })?;
+    validate_unexported(
+        &lock.edition.definition,
+        DEFINITION_BYTES,
+        evidence,
+        &|| member_pointer(&["lock", "edition", "definition"]),
+    )?;
     for (member, selections) in [
         ("profile_selections", &lock.profile_selections),
         ("dependency_selections", &lock.dependency_selections),
@@ -786,9 +788,12 @@ fn validate_lock(
             member_pointer(&["lock", "required_features"]).index(index),
         ));
     }
-    validate_unexported(&wire.diagnostics.catalog, DEFINITION_BYTES, evidence, &|| {
-        member_pointer(&["diagnostics", "catalog"])
-    })
+    validate_unexported(
+        &wire.diagnostics.catalog,
+        DEFINITION_BYTES,
+        evidence,
+        &|| member_pointer(&["diagnostics", "catalog"]),
+    )
 }
 
 /// Checks one locked raw artifact at `at` and that it carries no `export`.
@@ -1867,9 +1872,10 @@ fn validate_graph(
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path: &dyn Fn() -> JsonPointer| {
-            index.get(id).copied().ok_or_else(|| {
-                refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, path())
-            })
+            index
+                .get(id)
+                .copied()
+                .ok_or_else(|| refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, path()))
         };
         let at = |member: &str| node_pointer(position).key(member);
         let semantic_type = resolve(&node.semantic_type, &|| at("semantic_type"))?;
@@ -1909,9 +1915,9 @@ fn validate_graph(
     }
     let edge_pointer = |vertex: usize, site: EdgeSite| match site {
         EdgeSite::SemanticType => node_pointer(vertex).key("semantic_type"),
-        EdgeSite::Dependency(dependency) => node_pointer(vertex)
-            .key("dependencies")
-            .index(dependency),
+        EdgeSite::Dependency(dependency) => {
+            node_pointer(vertex).key("dependencies").index(dependency)
+        }
         EdgeSite::Reference(reference) => references
             .get(vertex)
             .and_then(|targets| targets.get(reference))
@@ -2046,7 +2052,10 @@ fn validate_recursion(
                     } else {
                         node_pointer(member)
                     };
-                    return Err(refuse(CheckedPackageRefusalCode::InvalidSemanticGraph, path));
+                    return Err(refuse(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        path,
+                    ));
                 }
             }
         }
@@ -2177,10 +2186,7 @@ fn validate_diagnostics(
                 ));
             }
             if region.start >= region.end {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    locus(),
-                ));
+                return Err(refuse(CheckedPackageRefusalCode::InvalidSourceMap, locus()));
             }
         }
     }

@@ -6,9 +6,10 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
-    nominal_fixture_members, nominal_package, positive_operation_identities, refresh_identity,
-    pointer as support_pointer, refusal, refusal_at, refusal_bytes, rekey, sha256_hex,
-    unknown_version, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
+    nominal_fixture_members, nominal_package, pointer as support_pointer,
+    positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes, rekey,
+    sha256_hex, unknown_version, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -20,7 +21,6 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 
 type Mutation = Box<dyn Fn(&mut Value)>;
-
 
 fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -86,8 +86,8 @@ fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: Check
 /// current contract; every other version, and every malformed document, is
 /// refused before any version-specific decoding.
 ///
-/// Tracing: TC-048, FR-038-AC-1
-#[trace("TC-048", "FR-038-AC-1")]
+/// Tracing: TC-048, FR-038-AC-1, FR-038-AC-24, FR-038-AC-25
+#[trace("TC-048", "FR-038-AC-1", "FR-038-AC-24", "FR-038-AC-25")]
 #[test]
 fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
     let fixture = v2_all_families();
@@ -108,7 +108,10 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
     for malformed in [json!(2), json!(null), json!(["quire.checked-package/v2"])] {
         assert_dispatch_refused(
             dispatch(&with_version(malformed), &evidence),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "/contract_version"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+            ),
         );
     }
     let mut absent = fixture.clone();
@@ -141,7 +144,10 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
     );
     assert_dispatch_refused(
         dispatch(duplicate.as_bytes(), &evidence),
-        refusal(CheckedPackageRefusalCode::DuplicateMember, "/contract_version"),
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version",
+        ),
     );
     let mut spaced = b" ".to_vec();
     spaced.extend_from_slice(&bytes);
@@ -155,6 +161,50 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
         dispatch(&bytes, &evidence),
         CheckedPackageDispatchResult::AdmittedV2(_)
     ));
+}
+
+/// A refusal's pointer is built from the reader's own position, escaping
+/// `~` as `~0` and `/` as `~1` in every member name and naming array
+/// elements by index, so it resolves to the exact value in the document the
+/// reader was given — including a member the reader has never heard of.
+///
+/// Tracing: TC-048, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-24")]
+#[test]
+fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    for (name, place) in [
+        ("top level", "/a~1b~0c"),
+        ("node member", "/semantic_graph/nodes/3/a~1b~0c"),
+        ("lock source member", "/lock/sources/0/~1~0"),
+    ] {
+        let mut mutated = base.clone();
+        let (parent, key) = place.rsplit_once('/').expect("member pointer");
+        let key = key.replace("~1", "/").replace("~0", "~");
+        mutated
+            .pointer_mut(parent)
+            .and_then(Value::as_object_mut)
+            .expect("parent object")
+            .insert(key, json!(1));
+        let refusal_found = refused(&mutated, &evidence);
+        assert_eq!(
+            refusal_found,
+            refusal(CheckedPackageRefusalCode::UnknownMember, place),
+            "{name}"
+        );
+        assert_eq!(mutated.pointer(place), Some(&json!(1)), "{name}");
+    }
+
+    // A repeated member is located by the strict parse itself, before any
+    // decoding, with the same escaping.
+    let bytes = canonical(&base);
+    let text = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
+    let duplicate = format!(r#"{{"x/y~":1,"x/y~":2,{}"#, &text[1..]);
+    assert_eq!(
+        refused_bytes(duplicate.as_bytes(), &evidence),
+        refusal(CheckedPackageRefusalCode::DuplicateMember, "/x~1y~0")
+    );
 }
 
 /// Five structural mutations against document-level members every
@@ -205,8 +255,8 @@ fn structural_mutation_replacement(pointer: &str) -> Value {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2
-#[trace("TC-048", "FR-038-AC-2")]
+/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_every_structural_mutation() {
     for base in [v2_all_families(), v2_nominal()] {
@@ -232,8 +282,8 @@ fn tc_048_v2_reader_refuses_every_structural_mutation() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2
-#[trace("TC-048", "FR-038-AC-2")]
+/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let base = v2_all_families();
@@ -249,7 +299,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             .as_bytes(),
             &evidence
         ),
-        refusal(CheckedPackageRefusalCode::DuplicateMember, "/contract_version")
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version"
+        )
     );
     let mut spaced = bytes.clone();
     spaced.push(b'\n');
@@ -328,7 +381,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             // is a wire-shape refusal before any semantic check runs.
             "unknown selection role",
             Box::new(|v| v["lock"]["edition"]["role"] = json!("future_role")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "/lock/edition/role"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/lock/edition/role",
+            ),
         ),
         (
             // The value is spelled like the serde message the reader
@@ -336,7 +392,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             // unknown member.
             "selection role spelled like a decoder message",
             Box::new(|v| v["lock"]["edition"]["role"] = json!("unknown field")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "/lock/edition/role"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/lock/edition/role",
+            ),
         ),
         (
             "unknown capability disposition",
@@ -474,7 +533,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         let mut mutated = base.clone();
         mutate(&mut mutated);
         match read(&mutated, &evidence) {
-            CheckedPackageV2ReadResult::Refused(actual) => assert_eq!(actual, expected, "{name}"),
+            CheckedPackageV2ReadResult::Refused(actual) => {
+                assert_eq!(actual, expected, "{name}");
+                // Every pointer resolves in the document the reader was given.
+                let path = actual.path.expect("a refusal about a value");
+                assert!(mutated.pointer(path.as_str()).is_some(), "{name}: {path}");
+            }
             other => panic!("{name}: expected refusal, got {other:?}"),
         }
     }
@@ -536,7 +600,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     // With no evidence, the first locked source's locator is unattested.
     assert_eq!(
         refused(&base, &CheckedPackageEvidence::new()),
-        refusal(CheckedPackageRefusalCode::StaleDependency, "/lock/sources/0")
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            "/lock/sources/0"
+        )
     );
     let mut stale_catalog = evidence_for(&base);
     stale_catalog.insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64));
@@ -578,8 +645,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     ));
 }
 
-/// Tracing: TC-048, FR-038-AC-3
-#[trace("TC-048", "FR-038-AC-3")]
+/// Tracing: TC-048, FR-038-AC-3, FR-038-AC-26
+#[trace("TC-048", "FR-038-AC-3", "FR-038-AC-26")]
 #[test]
 fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let mut value = v2_nominal();
@@ -1166,18 +1233,26 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
             ),
             "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/export",
         ),
-        ("compiled-model lock reference", {
-            let mut value = base.clone();
-            value["lock"]["model_selections"] = json!([compiled_ref]);
-            refresh_identity(&mut value);
-            value
-        }, "/identity_preimage/model_selections/0/authority"),
-        ("domain package reference with export", {
-            let mut value = base.clone();
-            value["lock"]["model_selections"][0]["export"] = json!("Status");
-            refresh_identity(&mut value);
-            value
-        }, "/identity_preimage/model_selections/0/export"),
+        (
+            "compiled-model lock reference",
+            {
+                let mut value = base.clone();
+                value["lock"]["model_selections"] = json!([compiled_ref]);
+                refresh_identity(&mut value);
+                value
+            },
+            "/identity_preimage/model_selections/0/authority",
+        ),
+        (
+            "domain package reference with export",
+            {
+                let mut value = base.clone();
+                value["lock"]["model_selections"][0]["export"] = json!("Status");
+                refresh_identity(&mut value);
+                value
+            },
+            "/identity_preimage/model_selections/0/export",
+        ),
     ];
     let evidence = evidence_for(&base);
     for (name, mutated, path) in retired {
@@ -1663,8 +1738,8 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-9
-#[trace("TC-048", "FR-038-AC-9")]
+/// Tracing: TC-048, FR-038-AC-9, FR-038-AC-26
+#[trace("TC-048", "FR-038-AC-9", "FR-038-AC-26")]
 #[test]
 fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     // FR-038-AC-9: the shipped default policy is exactly these seven values.

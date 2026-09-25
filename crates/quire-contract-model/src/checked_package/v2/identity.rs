@@ -602,14 +602,17 @@ fn validate_enum_declaration(
     validate_qualified_name(&declaration.qualified_declaration, &|| {
         site.preimage(&["qualified_declaration"])
     })?;
-    require(!declaration.members.is_empty(), || site.preimage(&["members"]))?;
+    require(!declaration.members.is_empty(), || {
+        site.preimage(&["members"])
+    })?;
     let member_at = |index: usize| site.preimage(&["members"]).index(index);
     let mut seen = BTreeSet::new();
     for (index, member) in declaration.members.iter().enumerate() {
         meter.charge(1, || member_at(index))?;
-        require(is_identifier(member) && seen.insert(member.as_ref()), || {
-            member_at(index)
-        })?;
+        require(
+            is_identifier(member) && seen.insert(member.as_ref()),
+            || member_at(index),
+        )?;
     }
     if !declaration.ordered {
         // Identifiers are escape-free ASCII, so JCS key order is byte order.
@@ -787,9 +790,10 @@ fn validate_unit_path(
         let Some(NominalIdentityPreimage::Unit(target_unit)) = graph.preimage(target) else {
             return Err(invalid(link_at(from)));
         };
-        require(target_unit.dimension_node_id == unit.dimension_node_id, || {
-            link_at(from)
-        })?;
+        require(
+            target_unit.dimension_node_id == unit.dimension_node_id,
+            || link_at(from),
+        )?;
         // `graph.preimage` resolved `target`, so it is indexed.
         from = graph.index.get(target).copied().unwrap_or(from);
         next = target_unit.target_unit_node_id.as_ref();

@@ -5,18 +5,18 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
+use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
-use super::shared::{push_index, push_key};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
-use std::cell::RefCell;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -272,15 +272,15 @@ pub(super) fn first_difference(base: JsonPointer, original: &Value, other: &Valu
     let (mut left, mut right) = (original, other);
     loop {
         let next = match (left, right) {
-            (Value::Object(left_members), Value::Object(right_members)) => {
-                left_members.iter().find_map(|(key, left_value)| {
-                    match right_members.get(key) {
-                        Some(right_value) if right_value == left_value => None,
-                        Some(right_value) => Some((Step::Key(key.as_str()), left_value, Some(right_value))),
-                        None => Some((Step::Key(key.as_str()), left_value, None)),
+            (Value::Object(left_members), Value::Object(right_members)) => left_members
+                .iter()
+                .find_map(|(key, left_value)| match right_members.get(key) {
+                    Some(right_value) if right_value == left_value => None,
+                    Some(right_value) => {
+                        Some((Step::Key(key.as_str()), left_value, Some(right_value)))
                     }
-                })
-            }
+                    None => Some((Step::Key(key.as_str()), left_value, None)),
+                }),
             (Value::Array(left_items), Value::Array(right_items))
                 if left_items.len() == right_items.len() =>
             {
@@ -380,14 +380,20 @@ pub(super) fn validate_locked_artifact(
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, member));
     }
     if !is_digest(&artifact.digest) {
-        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, &["digest"]));
+        return Err(refuse(
+            CheckedPackageRefusalCode::MalformedWire,
+            &["digest"],
+        ));
     }
     let locator = artifact_locator(artifact);
     let Some(digest) = context.artifact_digest(&locator) else {
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, &[]));
     };
     if digest.as_ref() != artifact.digest.as_ref() {
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, &["digest"]));
+        return Err(refuse(
+            CheckedPackageRefusalCode::StaleDependency,
+            &["digest"],
+        ));
     }
     Ok(())
 }
@@ -402,9 +408,8 @@ pub(super) fn validate_source_map_entries<'a>(
     context: &dyn ArtifactDigests,
 ) -> Result<(), ValidationFailure> {
     let entry_pointer = |entry: usize| JsonPointer::root().key("source_map").index(entry);
-    let region_pointer = |entry: usize, region: usize| {
-        entry_pointer(entry).key("regions").index(region)
-    };
+    let region_pointer =
+        |entry: usize, region: usize| entry_pointer(entry).key("regions").index(region);
     let mut expected = BTreeSet::new();
     for (node_id, occurrences) in nodes {
         for occurrence in occurrences {
@@ -584,7 +589,14 @@ pub(super) fn validate_term(
                     .get("value")
                     .is_some_and(|value| is_literal_value(value, grammar)) =>
         {
-            visit_member(object, "type", ReferenceMember::Type, is_body_root, at, visit)
+            visit_member(
+                object,
+                "type",
+                ReferenceMember::Type,
+                is_body_root,
+                at,
+                visit,
+            )
         }
         "reference" if exact_members(object, &["term", "target"]) => visit_member(
             object,
@@ -668,7 +680,10 @@ pub(super) fn visit_reference(
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
     let target = CheckedNodeId::deserialize(value).map_err(|_| {
-        ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at.pointer())
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.pointer(),
+        )
     })?;
     if target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest) {
         visit(
@@ -953,7 +968,9 @@ impl<'a> Iterator for Children<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Array(values) => values.next().map(|(index, value)| (Step::Index(index), value)),
+            Self::Array(values) => values
+                .next()
+                .map(|(index, value)| (Step::Index(index), value)),
             Self::Object(members) => members
                 .next()
                 .map(|(key, value)| (Step::Key(key.as_str()), value)),
@@ -993,9 +1010,94 @@ fn first_value_at_level(root: &Value, level: u64) -> Option<JsonPointer> {
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_value, is_literal_value, TermGrammar, ValidationFailure};
-    use crate::checked_package::shared::{CheckedPackageReadLimits, CheckedPackageRefusalCode};
+    use super::{
+        canonical_value, first_difference, first_value_at_level, is_literal_value, Step,
+        TermGrammar, Trail, ValidationFailure,
+    };
+    use crate::checked_package::shared::{
+        CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
+    };
     use serde_json::{json, Number, Value};
+
+    /// A trail materializes as an RFC 6901 pointer: `~` and `/` escaped in
+    /// every member name, array elements by index, the empty pointer for the
+    /// document itself; and the text round-trips through `JsonPointer::parse`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-24
+    #[test]
+    fn tc_048_trails_materialize_as_escaped_rfc_6901_pointers() {
+        let base = [Step::Key("semantic_graph"), Step::Key("nodes")];
+        let root = Trail::Base(&base);
+        let node = root.index(7);
+        let member = node.key("a/b~c");
+        let deeper = member.index(0);
+        assert_eq!(
+            deeper.pointer().as_str(),
+            "/semantic_graph/nodes/7/a~1b~0c/0"
+        );
+        assert_eq!(Trail::Base(&[]).pointer(), JsonPointer::root());
+        assert_eq!(JsonPointer::root().as_str(), "");
+        assert_eq!(
+            JsonPointer::root().key("~1").index(2).as_str(),
+            "/~01/2",
+            "an escape sequence spelled in a key is itself escaped"
+        );
+        assert_eq!(
+            JsonPointer::parse("/semantic_graph/nodes/7/a~1b~0c/0"),
+            Some(deeper.pointer())
+        );
+        for invalid in ["semantic_graph", "/a~", "/a~2", "/~x"] {
+            assert_eq!(JsonPointer::parse(invalid), None, "{invalid}");
+        }
+    }
+
+    /// The depth charge that fails is the first value, in document order, one
+    /// level deeper than the limit; the scan uses its own stack.
+    ///
+    /// Tracing: TC-048, FR-038-AC-26
+    #[test]
+    fn tc_048_depth_is_charged_at_the_first_value_past_the_limit() {
+        let value = json!({"a": [1, {"b": 2}], "c": {"d": {"e": 3}}});
+        let at = |level| first_value_at_level(&value, level).map(|p| p.as_str().to_owned());
+        assert_eq!(at(1).as_deref(), Some(""));
+        assert_eq!(at(2).as_deref(), Some("/a"));
+        assert_eq!(at(3).as_deref(), Some("/a/0"));
+        assert_eq!(at(4).as_deref(), Some("/a/1/b"));
+        assert_eq!(at(5), None);
+        let limits = CheckedPackageReadLimits {
+            depth: 3,
+            ..CheckedPackageReadLimits::bounded()
+        };
+        let bytes = serde_json::to_vec(&value).expect("bytes");
+        assert_eq!(
+            canonical_value(&bytes, limits),
+            Err(ValidationFailure::incomplete(
+                crate::checked_package::shared::CheckedPackageLimit::Depth,
+                3,
+                4_u64,
+                JsonPointer::parse("/a/1/b"),
+            ))
+        );
+    }
+
+    /// A lossy decode is located at the first member it changed or dropped.
+    ///
+    /// Tracing: TC-048, FR-038-AC-24
+    #[test]
+    fn tc_048_first_difference_names_the_changed_member() {
+        let original = json!({"a": {"b": [1, {"c": null}], "d": 1}});
+        let decoded = json!({"a": {"b": [1, {}], "d": 1}});
+        assert_eq!(
+            first_difference(JsonPointer::root(), &original, &decoded).as_str(),
+            "/a/b/1/c"
+        );
+        let shorter = json!({"a": {"b": [1], "d": 1}});
+        assert_eq!(
+            first_difference(JsonPointer::root().key("x"), &original, &shorter).as_str(),
+            "/x/a/b",
+            "an array whose length changed is itself the value at fault"
+        );
+    }
 
     /// Tracing: TC-048, FR-038-AC-2
     #[test]

@@ -65,3 +65,20 @@ time and re-read. The package admits and every node lowers; each mutation
 refuses as `invalid_semantic_graph` at the member it breaks, located at the
 mutated node, and the dimensionless compound unit admits.
 
+## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
+
+For every refusal above, compare the whole refusal, including its pointer,
+with the expected one. Check that each pointer resolves in the mutated
+document. Add an unknown member whose name holds `~` and `/` at the top
+level, on a node and on a locked source, and repeat a top-level member whose
+name holds both. Dispatch the unknown versions again and read the version
+each refusal carries. For each one-over limit, compare the pointer the
+`incomplete` outcome carries and check that it resolves.
+
+Each refusal points at exactly the value its mutation changed, with `~`
+escaped as `~0`, `/` as `~1`, and array elements by index. A missing member
+is located at the object that lacks it. Malformed JSON and non-canonical
+bytes carry no pointer. Every refusal code is unchanged. Each
+`unknown_contract_version` refusal carries the exact string read, including
+the empty one. Each one-over limit other than the byte limit names the value
+whose charge failed, and that pointer resolves; the byte limit names none.

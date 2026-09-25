@@ -206,7 +206,10 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
             .as_bytes(),
             &evidence,
         ),
-        refusal(CheckedPackageRefusalCode::DuplicateMember, "/contract_version")
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version"
+        )
     );
     let mut spaced = bytes.clone();
     spaced.push(b'\n');

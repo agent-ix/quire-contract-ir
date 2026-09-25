@@ -61,8 +61,8 @@ use super::{
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
     RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{decoder_pointer, digest_json, node_pointer};
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::common::{decoder_pointer, digest_json, node_pointer};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -86,11 +86,10 @@ impl Application<'_> {
 
     /// `/semantic_graph/nodes/{n}/body` extended by `members`.
     fn body(self, members: &[&str]) -> JsonPointer {
-        members
-            .iter()
-            .fold(node_pointer(self.position).key("body"), |pointer, member| {
-                pointer.key(member)
-            })
+        members.iter().fold(
+            node_pointer(self.position).key("body"),
+            |pointer, member| pointer.key(member),
+        )
     }
 
     fn refuse(
@@ -481,15 +480,9 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) = check_operands(
-        application,
-        entry,
-        &arguments,
-        nodes,
-        kinds,
-        index,
-        catalog,
-    ) {
+    if let Some(failure) =
+        check_operands(application, entry, &arguments, nodes, kinds, index, catalog)
+    {
         return Ok(Some(failure));
     }
     if let Some(name) = wire_member_kind {
@@ -511,8 +504,7 @@ fn operation_defect(
     ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(application, &operation, &arguments, nodes, kinds, index)
-    {
+    if let Some(failure) = check_leaves(application, &operation, &arguments, nodes, kinds, index) {
         return Ok(Some(failure));
     }
     Ok(None)
@@ -1090,15 +1082,17 @@ fn check_leaves(
         };
         if let Some(pinned) = type_pin(&field_type, &mode.kind, nodes, index) {
             if pinned.as_ref() != mode.value.as_ref() {
-                return Some(application.refuse(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    application
-                        .body(&["operation", "leaves"])
-                        .index(leaf_index)
-                        .key("mode")
-                        .key("value"),
-                    CheckedPackageRefusalCause::OperationModeTypeMismatch,
-                ));
+                return Some(
+                    application.refuse(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        application
+                            .body(&["operation", "leaves"])
+                            .index(leaf_index)
+                            .key("mode")
+                            .key("value"),
+                        CheckedPackageRefusalCause::OperationModeTypeMismatch,
+                    ),
+                );
             }
         }
     }
@@ -1109,10 +1103,10 @@ fn check_leaves(
 mod tests {
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
+        validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
         CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
-        Application, APPLICATION_NODE_VERSION,
+        APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{
@@ -1450,7 +1444,8 @@ mod tests {
                 position: 0,
             },
             &group,
-        ).expect("preimage");
+        )
+        .expect("preimage");
         // Spelled literally, as quire-spec-language's own vector does, rather
         // than produced by the serializer under test.
         let literal_ref = |fill: u8| {
@@ -1501,7 +1496,8 @@ mod tests {
                 position: 0,
             },
             &group,
-        ).expect("preimage");
+        )
+        .expect("preimage");
         let group_reference =
             |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
         let members = &preimage["body"]["members"];
