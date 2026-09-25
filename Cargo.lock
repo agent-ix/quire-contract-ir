@@ -1291,8 +1291,9 @@ dependencies = [
  "agent-ix-baseline-producer",
  "ix-trace-rs",
  "jsonschema 0.17.1",
+ "qsl-foundation",
  "quire-contract-model 0.1.0",
- "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=53cc03c639e2e26528132d34d96dc56449df78e8)",
+ "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=dc03aa4ecfbce9958efe6d766497d44c44e1200a)",
  "quire-mltl",
  "quire-observation",
  "quire-protocol",
@@ -1316,19 +1317,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "serde_stacker",
- "sha2",
- "stacker",
-]
-
-[[package]]
-name = "quire-contract-model"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?rev=53cc03c639e2e26528132d34d96dc56449df78e8#53cc03c639e2e26528132d34d96dc56449df78e8"
-dependencies = [
- "jsonschema 0.17.1",
- "serde",
- "serde_json",
  "serde_stacker",
  "sha2",
  "stacker",

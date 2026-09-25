@@ -46,7 +46,8 @@ quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model
 agent-ix-baseline-producer = { version = "=0.0.0", git = "https://github.com/agent-ix/filament-core-data", rev = "a6fe662542770e6acbec4917cfe1772b349ee414" }
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", tag = "v0.1.1" }
 jsonschema = { version = "=0.17.1", default-features = false }
-quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "53cc03c639e2e26528132d34d96dc56449df78e8" }
+quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "dc03aa4ecfbce9958efe6d766497d44c44e1200a" }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205" }
 quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
 sha2 = "=0.10.9"
 
