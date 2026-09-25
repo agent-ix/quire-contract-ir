@@ -20,7 +20,7 @@ path = "src/lib.rs"
 [dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6" }
-quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "02684bff9dd46e0d57f2792d831f4e81b0888493" }
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "a84dfdd305562eb0695304d08361a280c22e07c6" }
 quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
@@ -50,6 +50,10 @@ quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1
 qsl-foundation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205" }
 quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
 sha2 = "=0.10.9"
+# Same pin as [dependencies]; tests only. `test-support` exposes
+# quire_protocol::result::test_support, the validated-result constructors
+# tests/it/support/result_fixture.rs builds its results with (TL-194).
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "a84dfdd305562eb0695304d08361a280c22e07c6", features = ["test-support"] }
 
 [profile.release]
 lto = "thin"

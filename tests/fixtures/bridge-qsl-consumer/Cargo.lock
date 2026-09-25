@@ -1399,7 +1399,7 @@ dependencies = [
 [[package]]
 name = "quire-protocol"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-protocol?rev=02684bff9dd46e0d57f2792d831f4e81b0888493#02684bff9dd46e0d57f2792d831f4e81b0888493"
+source = "git+https://github.com/agent-ix/quire-protocol?rev=a84dfdd305562eb0695304d08361a280c22e07c6#a84dfdd305562eb0695304d08361a280c22e07c6"
 dependencies = [
  "engineering-assurance",
  "jsonschema 0.17.1",
@@ -1926,7 +1926,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys",
