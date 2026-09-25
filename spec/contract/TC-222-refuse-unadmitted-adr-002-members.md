@@ -58,40 +58,41 @@ baseline vector), construct one mutated document per case:
 
 Every case refuses before any declaration is built:
 
-- Cases 1 refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag`.
-- Case 2 refuses `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`.
-- Case 3 refuses `unknown_member` at `document`. The whole wire is decoded
-  once through `decode_closed::<CheckedPackageWireV2>`, and
-  `CheckedSemanticNodeV2` carries `#[serde(deny_unknown_fields)]`, so an
-  extra top-level node member makes that single decode fail with serde's
-  `unknown field` error, which `decode_closed` classifies as
-  `unknown_member` at the fixed `"document"` path. The refusal therefore
-  precedes every graph-level check — no node tag, form or body of any node
-  is reached — and its locus names the document rather than the offending
-  node, which is the reader's behavior at this layer and not an omission
-  this test case works around.
-- Case 4 refuses `invalid_semantic_graph` at `semantic_graph.nodes.body.term`,
-  a path distinct from case 5's: the object carries no `term` member, so it
-  fails `validate_term`'s first extraction of `object.get("term")` — the
-  reader's own `"semantic_graph.nodes.body.term"` path constant — before any
-  term arm is tried. Case 5 refuses `invalid_semantic_graph` at
-  `semantic_graph.nodes.body` instead: the body object does carry a `term`
-  string, so extraction succeeds and the `"aggregate"` arm is selected, but
-  that arm's guard is `exact_members(object, &["term", "members"])`, an
-  exact length-and-membership match. The population's `identity`,
-  `displayName`, `kind`, `extent` and `origin` remain siblings of `term` and
-  `members`, so the object has seven members where the arm admits two, the
-  guard fails, and no other arm's guard matches a `term` of `"aggregate"` —
-  the match falls to its final arm, whose refusal path is
-  `semantic_graph.nodes.body`. Nesting those five members inside the
-  `members` array instead would satisfy `exact_members` and reach the
-  `aggregate` arm's own per-element walk, which refuses at
-  `semantic_graph.nodes.body.term` — case 4's locus, not this one's — so
-  this case's fixture is built with them as siblings.
+Each location below is the RFC 6901 pointer FR-038 defines, with `{n}` the
+mutated node's graph position.
+
+- Case 1 refuses `unsupported_node_tag` at `/semantic_graph/nodes/{n}/node_tag`.
+- Case 2 refuses `invalid_semantic_graph` at
+  `/semantic_graph/nodes/{n}/semantic_form`.
+- Case 3 refuses `unknown_member` at the extra member itself. The whole
+  wire is decoded once through `decode_closed::<CheckedPackageWireV2>`, and
+  `CheckedSemanticNodeV2` carries `#[serde(deny_unknown_fields)]`. An extra
+  top-level node member makes that one decode fail with serde's `unknown
+  field` error. `decode_closed` classifies it as `unknown_member` and points
+  at the member where the decoder stopped. If the fixture also mirrors the
+  node into `identity_preimage.identity_projection`, the decoder reaches
+  that copy first and points there. The refusal precedes every graph-level
+  check: no node tag, form or body of any node is reached.
+- Case 4 refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/body`.
+  The object carries no `term` member, so `validate_term` refuses at the
+  object that lacks it, before any term arm is tried.
+- Case 5 also refuses `invalid_semantic_graph` at
+  `/semantic_graph/nodes/{n}/body`, for a different reason. The body object
+  does carry a `term` string, so the `"aggregate"` arm is selected. That arm's
+  guard is `exact_members(object, &["term", "members"])`, an exact
+  length-and-membership match. The population's `identity`, `displayName`,
+  `kind`, `extent` and `origin` remain siblings of `term` and `members`, so
+  the object has seven members where the arm admits two. The guard fails, no
+  other arm matches a `term` of `"aggregate"`, and the match falls to its
+  final arm, which refuses at the term itself. If those five members were
+  nested inside the `members` array instead, `exact_members` would pass. The
+  arm's own per-element walk would then refuse at
+  `/semantic_graph/nodes/{n}/body/members/{i}`, so this case's fixture is
+  built with them as siblings.
 
 No case admits the document with the mutated node dropped, downgraded to
 an existing form, or partially interpreted; each refusal names the exact
-node and structural path.
+node and the pointer of the value at fault.
 
 ## Status
 

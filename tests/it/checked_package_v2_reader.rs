@@ -6,8 +6,9 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
-    nominal_fixture_members, nominal_package, positive_operation_identities, refresh_identity,
-    refusal, refusal_at, rekey, sha256_hex, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
+    nominal_fixture_members, nominal_package, pointer as support_pointer,
+    positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes, rekey,
+    sha256_hex, unknown_version, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
     COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
@@ -20,8 +21,6 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 
 type Mutation = Box<dyn Fn(&mut Value)>;
-
-const NOMINAL_PATH: &str = "semantic_graph.nodes.nominal_identity_preimage";
 
 fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -66,22 +65,20 @@ fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
     }
 }
 
-fn nominal(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
-    refusal(code, NOMINAL_PATH)
+/// `invalid_semantic_graph`, the code of every nominal-stage refusal, at
+/// `path`.
+fn nominal(path: &str) -> CheckedPackageRefusal {
+    refusal(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
 }
 
 fn dispatch(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageDispatchResult {
     read_checked_package(bytes, CheckedPackageReadLimits::bounded(), evidence)
 }
 
-fn assert_dispatch_refused(
-    result: CheckedPackageDispatchResult,
-    code: CheckedPackageRefusalCode,
-    path: &str,
-) {
+fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: CheckedPackageRefusal) {
     match result {
-        CheckedPackageDispatchResult::Refused(actual) => assert_eq!(actual, refusal(code, path)),
-        other => panic!("expected {code:?} at {path}, got {other:?}"),
+        CheckedPackageDispatchResult::Refused(actual) => assert_eq!(actual, expected),
+        other => panic!("expected {expected:?}, got {other:?}"),
     }
 }
 
@@ -89,8 +86,8 @@ fn assert_dispatch_refused(
 /// current contract; every other version, and every malformed document, is
 /// refused before any version-specific decoding.
 ///
-/// Tracing: TC-048, FR-038-AC-1
-#[trace("TC-048", "FR-038-AC-1")]
+/// Tracing: TC-048, FR-038-AC-1, FR-038-AC-24, FR-038-AC-25
+#[trace("TC-048", "FR-038-AC-1", "FR-038-AC-24", "FR-038-AC-25")]
 #[test]
 fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
     let fixture = v2_all_families();
@@ -100,18 +97,21 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
         value["contract_version"] = version;
         canonical(&value)
     };
+    // An unknown version is refused at `/contract_version`, naming the
+    // version string the reader read there.
     for unknown in ["quire.checked-package/v3", "quire.checked-package/v0", ""] {
         assert_dispatch_refused(
             dispatch(&with_version(json!(unknown)), &evidence),
-            CheckedPackageRefusalCode::UnknownContractVersion,
-            "contract_version",
+            unknown_version(unknown),
         );
     }
     for malformed in [json!(2), json!(null), json!(["quire.checked-package/v2"])] {
         assert_dispatch_refused(
             dispatch(&with_version(malformed), &evidence),
-            CheckedPackageRefusalCode::MalformedWire,
-            "contract_version",
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+            ),
         );
     }
     let mut absent = fixture.clone();
@@ -119,20 +119,20 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
         .as_object_mut()
         .expect("fixture object")
         .remove("contract_version");
+    // Absent: the document object lacks the member, so the refusal points
+    // at the document (the empty pointer), as it does for a non-object
+    // document. Malformed JSON is about no value and carries no pointer.
     assert_dispatch_refused(
         dispatch(&canonical(&absent), &evidence),
-        CheckedPackageRefusalCode::MalformedWire,
-        "contract_version",
+        refusal(CheckedPackageRefusalCode::MalformedWire, ""),
     );
     assert_dispatch_refused(
         dispatch(b"[]", &evidence),
-        CheckedPackageRefusalCode::MalformedWire,
-        "document",
+        refusal(CheckedPackageRefusalCode::MalformedWire, ""),
     );
     assert_dispatch_refused(
         dispatch(b"{\"contract_version\":", &evidence),
-        CheckedPackageRefusalCode::MalformedWire,
-        "document",
+        refusal_bytes(CheckedPackageRefusalCode::MalformedWire),
     );
 
     // The strict parse runs once, before any version is selected.
@@ -142,17 +142,18 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
         "{{\"contract_version\":\"quire.checked-package/v0\",{}",
         body.trim_start_matches('{')
     );
-    assert!(matches!(
+    assert_dispatch_refused(
         dispatch(duplicate.as_bytes(), &evidence),
-        CheckedPackageDispatchResult::Refused(ref refused)
-            if refused.code == CheckedPackageRefusalCode::DuplicateMember
-    ));
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version",
+        ),
+    );
     let mut spaced = b" ".to_vec();
     spaced.extend_from_slice(&bytes);
     assert_dispatch_refused(
         dispatch(&spaced, &evidence),
-        CheckedPackageRefusalCode::NoncanonicalWire,
-        "document",
+        refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire),
     );
 
     // A recognized version still admits through the same entry point.
@@ -160,6 +161,71 @@ fn tc_048_reader_refuses_unknown_absent_and_malformed_versions() {
         dispatch(&bytes, &evidence),
         CheckedPackageDispatchResult::AdmittedV2(_)
     ));
+}
+
+/// A refusal's pointer is built from the reader's own position, escaping
+/// `~` as `~0` and `/` as `~1` in every member name and naming array
+/// elements by index, so it resolves to the exact value in the document the
+/// reader was given — including a member the reader has never heard of.
+///
+/// Tracing: TC-048, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-24")]
+#[test]
+fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    for (name, place) in [
+        ("top level", "/a~1b~0c"),
+        ("node member", "/semantic_graph/nodes/3/a~1b~0c"),
+        ("lock source member", "/lock/sources/0/~1~0"),
+    ] {
+        let mut mutated = base.clone();
+        let (parent, key) = place.rsplit_once('/').expect("member pointer");
+        let key = key.replace("~1", "/").replace("~0", "~");
+        mutated
+            .pointer_mut(parent)
+            .and_then(Value::as_object_mut)
+            .expect("parent object")
+            .insert(key, json!(1));
+        let refusal_found = refused(&mutated, &evidence);
+        assert_eq!(
+            refusal_found,
+            refusal(CheckedPackageRefusalCode::UnknownMember, place),
+            "{name}"
+        );
+        assert_eq!(mutated.pointer(place), Some(&json!(1)), "{name}");
+    }
+
+    // An unknown member that happens to be named like the typed nominal
+    // preimage is still just an unknown member at that key: only the two
+    // positions the wire types a preimage at are ever looked inside.
+    for place in [
+        "/capability_report/0/nominal_identity_preimage",
+        "/lock/nominal_identity_preimage",
+    ] {
+        let mut mutated = base.clone();
+        let (parent, key) = place.rsplit_once('/').expect("member pointer");
+        mutated
+            .pointer_mut(parent)
+            .and_then(Value::as_object_mut)
+            .expect("parent object")
+            .insert(key.to_owned(), json!({"version": 1}));
+        assert_eq!(
+            refused(&mutated, &evidence),
+            refusal(CheckedPackageRefusalCode::UnknownMember, place),
+            "{place}"
+        );
+    }
+
+    // A repeated member is located by the strict parse itself, before any
+    // decoding, with the same escaping.
+    let bytes = canonical(&base);
+    let text = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
+    let duplicate = format!(r#"{{"x/y~":1,"x/y~":2,{}"#, &text[1..]);
+    assert_eq!(
+        refused_bytes(duplicate.as_bytes(), &evidence),
+        refusal(CheckedPackageRefusalCode::DuplicateMember, "/x~1y~0")
+    );
 }
 
 /// Five structural mutations against document-level members every
@@ -210,8 +276,8 @@ fn structural_mutation_replacement(pointer: &str) -> Value {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2
-#[trace("TC-048", "FR-038-AC-2")]
+/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_every_structural_mutation() {
     for base in [v2_all_families(), v2_nominal()] {
@@ -229,13 +295,16 @@ fn tc_048_v2_reader_refuses_every_structural_mutation() {
             for candidate in [&mutated, &rederived] {
                 let actual = refused(candidate, &evidence);
                 assert_eq!(actual.code, code, "{id}");
+                // The refusal points at exactly the value the mutation
+                // replaced.
+                assert_eq!(actual.path, Some(support_pointer(pointer)), "{id}");
             }
         }
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-2
-#[trace("TC-048", "FR-038-AC-2")]
+/// Tracing: TC-048, FR-038-AC-2, FR-038-AC-24
+#[trace("TC-048", "FR-038-AC-2", "FR-038-AC-24")]
 #[test]
 fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let base = v2_all_families();
@@ -250,32 +319,40 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             )
             .as_bytes(),
             &evidence
+        ),
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version"
         )
-        .code,
-        CheckedPackageRefusalCode::DuplicateMember
     );
     let mut spaced = bytes.clone();
     spaced.push(b'\n');
     assert_eq!(
         refused_bytes(&spaced, &evidence),
-        refusal(CheckedPackageRefusalCode::NoncanonicalWire, "document")
+        refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
     );
 
     let cases: Vec<(&str, Mutation, CheckedPackageRefusal)> = vec![
         (
             "unknown top-level member",
             Box::new(|v| v["future"] = json!(1)),
-            refusal(CheckedPackageRefusalCode::UnknownMember, "document"),
+            refusal(CheckedPackageRefusalCode::UnknownMember, "/future"),
         ),
         (
             "unknown node member",
             Box::new(|v| v["semantic_graph"]["nodes"][0]["future"] = json!(1)),
-            refusal(CheckedPackageRefusalCode::UnknownMember, "document"),
+            refusal(
+                CheckedPackageRefusalCode::UnknownMember,
+                "/semantic_graph/nodes/0/future",
+            ),
         ),
         (
             "wrong member kind",
             Box::new(|v| v["semantic_graph"]["nodes"][0]["dependencies"] = json!("none")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/semantic_graph/nodes/0/dependencies",
+            ),
         ),
         (
             "missing member",
@@ -285,7 +362,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                     .expect("diagnostics")
                     .remove("entries");
             }),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            // The object lacking the member is the value at fault.
+            refusal(CheckedPackageRefusalCode::MalformedWire, "/diagnostics"),
         ),
         (
             "null recursion group",
@@ -293,7 +371,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][1]["recursion_group"] = Value::Null;
                 refresh_identity(v);
             }),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            // The identity projection's mirror of the null member is the
+            // first value the lossy decode dropped.
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/identity_preimage/identity_projection/1/recursion_group",
+            ),
         ),
         (
             "empty recursion group",
@@ -303,7 +386,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                "semantic_graph.nodes.recursion_group",
+                "/semantic_graph/nodes/1/recursion_group",
             ),
         ),
         (
@@ -311,7 +394,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             Box::new(|v| v["capability_report"] = json!([])),
             refusal(
                 CheckedPackageRefusalCode::UnknownRequiredCapability,
-                "capability_report",
+                "/capability_report",
             ),
         ),
         (
@@ -319,7 +402,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             // is a wire-shape refusal before any semantic check runs.
             "unknown selection role",
             Box::new(|v| v["lock"]["edition"]["role"] = json!("future_role")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/lock/edition/role",
+            ),
         ),
         (
             // The value is spelled like the serde message the reader
@@ -327,19 +413,25 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             // unknown member.
             "selection role spelled like a decoder message",
             Box::new(|v| v["lock"]["edition"]["role"] = json!("unknown field")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/lock/edition/role",
+            ),
         ),
         (
             "unknown capability disposition",
             Box::new(|v| v["capability_report"][0]["disposition"] = json!("deferred")),
-            refusal(CheckedPackageRefusalCode::MalformedWire, "document"),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/capability_report/0/disposition",
+            ),
         ),
         (
             "unavailable required feature",
             Box::new(|v| v["capability_report"][0]["disposition"] = json!("unsupported")),
             refusal(
                 CheckedPackageRefusalCode::UnknownRequiredCapability,
-                "capability_report",
+                "/capability_report/0/disposition",
             ),
         ),
         (
@@ -353,7 +445,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.body.target",
+                "/semantic_graph/nodes/4/body/target",
             ),
         ),
         (
@@ -364,7 +456,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.dependencies",
+                "/semantic_graph/nodes/1/dependencies/0",
             ),
         ),
         (
@@ -372,14 +464,14 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             Box::new(|v| {
                 v["source_map"].as_array_mut().expect("source map").pop();
             }),
-            refusal(CheckedPackageRefusalCode::InvalidSourceMap, "source_map"),
+            refusal(CheckedPackageRefusalCode::InvalidSourceMap, "/source_map"),
         ),
         (
             "unlocked source region",
             Box::new(|v| v["source_map"][0]["regions"][0]["source"]["identity"] = json!("other")),
             refusal(
                 CheckedPackageRefusalCode::InvalidSourceMap,
-                "source_map.regions.source",
+                "/source_map/0/regions/0/source",
             ),
         ),
         (
@@ -389,7 +481,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::StaleDependency,
-                "identity_preimage.identity_projection",
+                "/identity_preimage/identity_projection/0/body/value",
             ),
         ),
         (
@@ -397,7 +489,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             Box::new(|v| v["package_id"]["digest"] = json!("0".repeat(64))),
             refusal(
                 CheckedPackageRefusalCode::StaleDependency,
-                "package_id.digest",
+                "/package_id/digest",
             ),
         ),
         (
@@ -408,7 +500,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             }),
             refusal(
                 CheckedPackageRefusalCode::MalformedWire,
-                "identity_preimage.version",
+                "/identity_preimage/version",
             ),
         ),
         (
@@ -420,9 +512,11 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][2]["dependencies"] = json!([first]);
                 refresh_identity(v);
             }),
+            // Neither node carries the member the cycle requires; the
+            // lower-positioned one is named.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.recursion_group",
+                "/semantic_graph/nodes/1",
             ),
         ),
         (
@@ -436,9 +530,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][2]["recursion_group"] = json!("right");
                 refresh_identity(v);
             }),
+            // Node 1 sets the group; node 2's differs.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.recursion_group",
+                "/semantic_graph/nodes/2/recursion_group",
             ),
         ),
         (
@@ -448,9 +543,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][1]["dependencies"] = json!([own]);
                 refresh_identity(v);
             }),
+            // The node lacks the `recursion_group` member its cycle needs.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.recursion_group",
+                "/semantic_graph/nodes/1",
             ),
         ),
     ];
@@ -458,7 +554,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         let mut mutated = base.clone();
         mutate(&mut mutated);
         match read(&mutated, &evidence) {
-            CheckedPackageV2ReadResult::Refused(actual) => assert_eq!(actual, expected, "{name}"),
+            CheckedPackageV2ReadResult::Refused(actual) => {
+                assert_eq!(actual, expected, "{name}");
+                // Every pointer resolves in the document the reader was given.
+                let path = actual.path.expect("a refusal about a value");
+                assert!(mutated.pointer(path.as_str()).is_some(), "{name}: {path}");
+            }
             other => panic!("{name}: expected refusal, got {other:?}"),
         }
     }
@@ -487,11 +588,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         }]);
         changed
     });
-    let integer_refusal = refusal(
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "semantic_graph.nodes.body",
-    );
-    for build in [body, detail] {
+    // Each refuses at the literal term itself.
+    for (build, at) in [
+        (body, "/semantic_graph/nodes/0/body"),
+        (detail, "/diagnostics/entries/0/details/0"),
+    ] {
+        let integer_refusal = refusal(CheckedPackageRefusalCode::InvalidSemanticGraph, at);
         let integer = build(json!(-7));
         assert!(matches!(
             read(&integer, &evidence),
@@ -516,9 +618,13 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     assert_eq!(admitted(&grouped).graph().nodes.len(), 18);
 
     // Evidence the caller must supply: every locked digest and the feature.
+    // With no evidence, the first locked source's locator is unattested.
     assert_eq!(
         refused(&base, &CheckedPackageEvidence::new()),
-        refusal(CheckedPackageRefusalCode::StaleDependency, "lock.sources")
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            "/lock/sources/0"
+        )
     );
     let mut stale_catalog = evidence_for(&base);
     stale_catalog.insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64));
@@ -526,14 +632,17 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         refused(&base, &stale_catalog),
         refusal(
             CheckedPackageRefusalCode::StaleDependency,
-            "diagnostics.catalog"
+            "/diagnostics/catalog/digest"
         )
     );
     let mut byte_evidence = evidence_for(&base);
     byte_evidence.insert_artifact_bytes(locator(&base["lock"]["sources"][0]), b"not the source");
     assert_eq!(
         refused(&base, &byte_evidence),
-        refusal(CheckedPackageRefusalCode::StaleDependency, "lock.sources")
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            "/lock/sources/0/digest"
+        )
     );
     let mut unsupported = CheckedPackageEvidence::new();
     for artifact in checked_package::locked_artifacts(&base) {
@@ -544,9 +653,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     }
     assert_eq!(
         refused(&base, &unsupported),
+        // Reported available, but the reader does not support it.
         refusal(
             CheckedPackageRefusalCode::UnknownRequiredCapability,
-            "capability_report"
+            "/lock/required_features/0"
         )
     );
     unsupported.support_feature(COMPLETE_VALUE_FEATURE);
@@ -556,8 +666,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     ));
 }
 
-/// Tracing: TC-048, FR-038-AC-3
-#[trace("TC-048", "FR-038-AC-3")]
+/// Tracing: TC-048, FR-038-AC-3, FR-038-AC-26
+#[trace("TC-048", "FR-038-AC-3", "FR-038-AC-26")]
 #[test]
 fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let mut value = v2_nominal();
@@ -590,43 +700,81 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         }
         other => panic!("exact limits must admit, got {other:?}"),
     }
+    // Each one-over limit names the value whose charge failed: the byte limit
+    // is charged before any value exists; depth, at the first value nested one
+    // level too deep; nodes, at the first node past the ceiling; edges and
+    // occurrences, at the first dependency or source-map region past it;
+    // diagnostics, at the first entry past it; work, at the value whose
+    // validation took the meter over.
     type Narrow = fn(&mut CheckedPackageReadLimits) -> u64;
-    let narrowings: [(CheckedPackageLimit, Narrow); 7] = [
-        (CheckedPackageLimit::Bytes, |l| {
-            l.bytes -= 1;
-            l.bytes
-        }),
-        (CheckedPackageLimit::Depth, |l| {
-            l.depth -= 1;
-            l.depth
-        }),
-        (CheckedPackageLimit::Nodes, |l| {
-            l.nodes -= 1;
-            l.nodes
-        }),
-        (CheckedPackageLimit::Edges, |l| {
-            l.edges -= 1;
-            l.edges
-        }),
-        (CheckedPackageLimit::Occurrences, |l| {
-            l.occurrences -= 1;
-            l.occurrences
-        }),
-        (CheckedPackageLimit::Diagnostics, |l| {
-            l.diagnostics -= 1;
-            l.diagnostics
-        }),
-        (CheckedPackageLimit::Work, |l| {
-            l.work -= 1;
-            l.work
-        }),
+    let narrowings: [(CheckedPackageLimit, Narrow, Option<&str>); 7] = [
+        (
+            CheckedPackageLimit::Bytes,
+            |l| {
+                l.bytes -= 1;
+                l.bytes
+            },
+            None,
+        ),
+        (
+            CheckedPackageLimit::Depth,
+            |l| {
+                l.depth -= 1;
+                l.depth
+            },
+            Some("/diagnostics/entries/0/loci/0/source/revision/namespace"),
+        ),
+        (
+            CheckedPackageLimit::Nodes,
+            |l| {
+                l.nodes -= 1;
+                l.nodes
+            },
+            Some("/semantic_graph/nodes/3"),
+        ),
+        (
+            CheckedPackageLimit::Edges,
+            |l| {
+                l.edges -= 1;
+                l.edges
+            },
+            Some("/semantic_graph/nodes/2/dependencies/0"),
+        ),
+        (
+            CheckedPackageLimit::Occurrences,
+            |l| {
+                l.occurrences -= 1;
+                l.occurrences
+            },
+            Some("/source_map/3/regions/0"),
+        ),
+        (
+            CheckedPackageLimit::Diagnostics,
+            |l| {
+                l.diagnostics -= 1;
+                l.diagnostics
+            },
+            Some("/diagnostics/entries/0"),
+        ),
+        (
+            CheckedPackageLimit::Work,
+            |l| {
+                l.work -= 1;
+                l.work
+            },
+            Some("/diagnostics/entries/0/details/0"),
+        ),
     ];
-    for (kind, narrow) in narrowings {
+    for (kind, narrow, path) in narrowings {
         let mut limits = exact;
         let limit = narrow(&mut limits);
         match CheckedPackageV2::read(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Incomplete(actual) => {
-                assert_eq!(actual, incomplete(kind, limit, limit + 1), "{kind:?}");
+                assert_eq!(actual, incomplete(kind, limit, limit + 1, path), "{kind:?}");
+                // The pointer resolves in the package the reader was given.
+                if let Some(path) = path {
+                    assert!(value.pointer(path).is_some(), "{kind:?} {path}");
+                }
             }
             other => panic!("{kind:?} one over must be incomplete, got {other:?}"),
         }
@@ -651,7 +799,8 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         CheckedPackageV2ReadResult::Incomplete(incomplete(
             CheckedPackageLimit::Work,
             all_families_read_work - 1,
-            all_families_read_work
+            all_families_read_work,
+            Some("/semantic_graph/nodes/17/dependencies/3")
         ))
     );
 }
@@ -763,9 +912,14 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             "{name}"
         );
         if name == "model selection" {
+            // The lock's array differs from its preimage mirror in length, so
+            // the array itself is the value at fault.
             assert_eq!(
                 stale,
-                refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
+                refusal(
+                    CheckedPackageRefusalCode::StaleDependency,
+                    "/lock/model_selections"
+                )
             );
         }
         refresh_identity(&mut changed);
@@ -864,7 +1018,8 @@ fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference(
 
     assert_eq!(
         refused(&package, &evidence_for(&package)),
-        nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
+        // The declaration's preimage no longer derives its own key.
+        nominal("/semantic_graph/nodes/1/node_id"),
         "declaration checks must refuse before the dangling dependency edge is resolved"
     );
 }
@@ -878,7 +1033,10 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
     let declaration = 1;
     let unit = 2;
     let dimension = 3;
-    let cases: Vec<(&str, Mutation)> = vec![
+    // Each refuses at the member the failed check read. The member node
+    // (position 0) is checked first, so a declaration it cannot resolve is
+    // reported at its own `declaration_node_id`.
+    let cases: Vec<(&str, Mutation, &str)> = vec![
         (
             "absent required preimage",
             Box::new(move |v| {
@@ -887,6 +1045,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                     .expect("node")
                     .remove("nominal_identity_preimage");
             }),
+            "/semantic_graph/nodes/0/nominal_identity_preimage/declaration_node_id",
         ),
         (
             "swapped preimage kind",
@@ -894,6 +1053,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 v["semantic_graph"]["nodes"][declaration]["nominal_identity_preimage"] =
                     v["semantic_graph"]["nodes"][member]["nominal_identity_preimage"].clone();
             }),
+            "/semantic_graph/nodes/0/nominal_identity_preimage/declaration_node_id",
         ),
         (
             "preimage not deriving the node key",
@@ -901,6 +1061,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 v["semantic_graph"]["nodes"][unit]["nominal_identity_preimage"]
                     ["qualified_declaration"] = json!(["Example", "centimetre"]);
             }),
+            "/semantic_graph/nodes/2/node_id",
         ),
         (
             "unexpected preimage",
@@ -917,18 +1078,21 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 // targets, rather than tripping that unrelated rule first.
                 nodes[member]["declaration"] = json!({"qualified_name": ["Example", "Member"]});
             }),
+            "/semantic_graph/nodes/0/nominal_identity_preimage",
         ),
         (
             "member body case",
             Box::new(move |v| {
                 v["semantic_graph"]["nodes"][member]["body"]["value"] = json!("DONE");
             }),
+            "/semantic_graph/nodes/0/body",
         ),
         (
             "member dependencies",
             Box::new(move |v| {
                 v["semantic_graph"]["nodes"][member]["dependencies"] = json!([]);
             }),
+            "/semantic_graph/nodes/0/dependencies",
         ),
         (
             "unit semantic type",
@@ -936,6 +1100,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 v["semantic_graph"]["nodes"][unit]["semantic_type"] =
                     v["semantic_graph"]["nodes"][unit]["node_id"].clone();
             }),
+            "/semantic_graph/nodes/2/semantic_type",
         ),
         (
             "dimension semantic type",
@@ -943,6 +1108,7 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 v["semantic_graph"]["nodes"][dimension]["semantic_type"] =
                     v["semantic_graph"]["nodes"][declaration]["node_id"].clone();
             }),
+            "/semantic_graph/nodes/3/semantic_type",
         ),
         (
             "owner outside lock",
@@ -951,15 +1117,16 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                 let replacement = v["lock"]["definition_selections"].clone();
                 v["identity_preimage"]["definition_selections"] = replacement;
             }),
+            "/semantic_graph/nodes/3/nominal_identity_preimage/owner",
         ),
     ];
-    for (name, mutate) in cases {
+    for (name, mutate, path) in cases {
         let mut mutated = base.clone();
         mutate(&mut mutated);
         refresh_identity(&mut mutated);
         assert_eq!(
             refused(&mutated, &evidence_for(&mutated)),
-            nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
+            nominal(path),
             "{name}"
         );
     }
@@ -1051,7 +1218,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     for (name, mutated) in joins {
         assert_eq!(
             refused(&mutated, &evidence_for(&mutated)),
-            nominal(CheckedPackageRefusalCode::InvalidSemanticGraph),
+            nominal("/semantic_graph/nodes/0/nominal_identity_preimage/owner"),
             "{name}"
         );
     }
@@ -1064,6 +1231,8 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         "digest_domain": "quire.compiled-model.bytes/v1",
         "digest": DOMAIN_PACKAGE_DIGEST, "export": "Status"
     });
+    // Each points at the first unknown member, inside the internally tagged
+    // preimage and owner as well as in the lock.
     let retired = [
         (
             "compiled-model owner with export",
@@ -1072,6 +1241,9 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
                        "identity": "test/orders", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
+            // The decoder reads the identity projection's mirror of the node
+            // first, and names the first unknown member of its owner.
+            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/authority",
         ),
         (
             "domain package owner with export",
@@ -1080,52 +1252,65 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
                        "node": "ix://test/orders/Status", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
+            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/export",
         ),
-        ("compiled-model lock reference", {
-            let mut value = base.clone();
-            value["lock"]["model_selections"] = json!([compiled_ref]);
-            refresh_identity(&mut value);
-            value
-        }),
-        ("domain package reference with export", {
-            let mut value = base.clone();
-            value["lock"]["model_selections"][0]["export"] = json!("Status");
-            refresh_identity(&mut value);
-            value
-        }),
+        (
+            "compiled-model lock reference",
+            {
+                let mut value = base.clone();
+                value["lock"]["model_selections"] = json!([compiled_ref]);
+                refresh_identity(&mut value);
+                value
+            },
+            "/identity_preimage/model_selections/0/authority",
+        ),
+        (
+            "domain package reference with export",
+            {
+                let mut value = base.clone();
+                value["lock"]["model_selections"][0]["export"] = json!("Status");
+                refresh_identity(&mut value);
+                value
+            },
+            "/identity_preimage/model_selections/0/export",
+        ),
     ];
     let evidence = evidence_for(&base);
-    for (name, mutated) in retired {
+    for (name, mutated, path) in retired {
         assert_eq!(
             refused(&mutated, &evidence),
-            refusal(CheckedPackageRefusalCode::UnknownMember, "document"),
+            refusal(CheckedPackageRefusalCode::UnknownMember, path),
             "{name}"
         );
     }
 
-    // Domain, shape and evidence are checked in the domain package domain.
-    let lock_path = "lock.model_selections";
+    // Domain, shape and evidence are checked in the domain package domain,
+    // each at the member of the one selection it is about.
+    let model = |member: &str| format!("/lock/model_selections/0/{member}");
     let mut compiled_domain = base.clone();
     compiled_domain["lock"]["model_selections"][0]["digest_domain"] =
         json!("quire.compiled-model.bytes/v1");
     refresh_identity(&mut compiled_domain);
     assert_eq!(
         refused(&compiled_domain, &evidence),
-        refusal(CheckedPackageRefusalCode::DigestDomainMismatch, lock_path)
+        refusal(
+            CheckedPackageRefusalCode::DigestDomainMismatch,
+            &model("digest_domain")
+        )
     );
     let mut empty_version = base.clone();
     empty_version["lock"]["model_selections"][0]["version"] = json!("");
     refresh_identity(&mut empty_version);
     assert_eq!(
         refused(&empty_version, &evidence),
-        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+        refusal(CheckedPackageRefusalCode::MalformedWire, &model("version"))
     );
     let mut other_version = base.clone();
     other_version["lock"]["model_selections"][0]["version"] = json!("2");
     refresh_identity(&mut other_version);
     assert_eq!(
         refused(&other_version, &evidence),
-        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path)
+        refusal(CheckedPackageRefusalCode::StaleDependency, &model("digest"))
     );
     let mut raw_only = evidence_for(&v2_nominal());
     raw_only.insert_artifact_digest(
@@ -1138,7 +1323,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     );
     assert_eq!(
         refused(&base, &raw_only),
-        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
+        refusal(CheckedPackageRefusalCode::StaleDependency, &model("digest")),
         "equal digest bytes attested as a raw artifact never satisfy a domain package"
     );
 }
@@ -1148,7 +1333,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
 #[test]
 fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let lock_path = "lock.model_selections";
 
     // A verbatim repeat (identity, version, digest_domain and digest all
     // equal) violates the closed schema's `uniqueItems` on `model_selections`;
@@ -1161,7 +1345,11 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     );
     assert_eq!(
         refused(&duplicated, &evidence_for(&duplicated)),
-        refusal(CheckedPackageRefusalCode::MalformedWire, lock_path)
+        // The second occurrence is the repeat.
+        refusal(
+            CheckedPackageRefusalCode::MalformedWire,
+            "/lock/model_selections/1"
+        )
     );
 
     // The same repeat, confined to the lock and left unmirrored in the
@@ -1180,7 +1368,11 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
     );
     assert_eq!(
         refused(&lock_only, &evidence_for(&lock_only)),
-        refusal(CheckedPackageRefusalCode::StaleDependency, "lock")
+        // The lock's array differs from its preimage mirror in length.
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            "/lock/model_selections"
+        )
     );
 
     // Two selections sharing identity and version but differing in digest
@@ -1195,7 +1387,12 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
         model_owned_package(owner, json!([domain_package("test/orders"), other_digest]));
     assert_eq!(
         refused(&distinct_digest, &evidence_for(&distinct_digest)),
-        refusal(CheckedPackageRefusalCode::StaleDependency, lock_path),
+        refusal(
+            CheckedPackageRefusalCode::StaleDependency,
+            // Evidence attests the later digest for the shared locator, so
+            // the first entry's digest is the unattested one.
+            "/lock/model_selections/0/digest"
+        ),
         "same identity/version but differing digest is not a duplicate under this criterion"
     );
 }
@@ -1235,16 +1432,23 @@ fn tc_048_model_selection_duplicate_outranks_stale_digest_regardless_of_position
             domain_package("test/orders")
         ]),
     );
-    for (name, package) in [
-        ("duplicate before stale", &duplicate_before_stale),
-        ("stale before duplicate", &stale_before_duplicate),
+    // The code never depends on position; the pointer names the repeat's
+    // second occurrence wherever it sits.
+    for (name, package, repeat) in [
+        (
+            "duplicate before stale",
+            &duplicate_before_stale,
+            "/lock/model_selections/1",
+        ),
+        (
+            "stale before duplicate",
+            &stale_before_duplicate,
+            "/lock/model_selections/2",
+        ),
     ] {
         assert_eq!(
             refused(package, &evidence),
-            refusal(
-                CheckedPackageRefusalCode::MalformedWire,
-                "lock.model_selections"
-            ),
+            refusal(CheckedPackageRefusalCode::MalformedWire, repeat),
             "{name}: the uniqueness check runs over the whole array before any digest is evaluated"
         );
     }
@@ -1297,25 +1501,27 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
         "identity": "test/other", "version": "1",
         "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
     });
-    let lock_path = "lock.model_selections";
     // Each adjacent class boundary, pinned in both orderings against the same
     // expected code: an outcome decided by array position fails one ordering
-    // of each pair rather than passing both.
+    // of each pair rather than passing both. The pointer follows the
+    // earlier-class entry to wherever it sits, at the member at fault.
     let boundaries = [
         (
             "cross-domain outranks malformed shape",
             CheckedPackageRefusalCode::DigestDomainMismatch,
             &cross_domain,
             &malformed,
+            "digest_domain",
         ),
         (
             "malformed shape outranks unattested digest",
             CheckedPackageRefusalCode::MalformedWire,
             &malformed,
             &unattested,
+            "identity",
         ),
     ];
-    for (boundary, code, earlier, later) in boundaries {
+    for (boundary, code, earlier, later, member) in boundaries {
         let earlier_first = model_owned_package(
             owner.clone(),
             json!([joined.clone(), earlier.clone(), later.clone()]),
@@ -1324,13 +1530,13 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
             owner.clone(),
             json!([joined.clone(), later.clone(), earlier.clone()]),
         );
-        for (order, package) in [
-            ("earlier class first", &earlier_first),
-            ("later class first", &later_first),
+        for (order, package, at) in [
+            ("earlier class first", &earlier_first, 1),
+            ("later class first", &later_first, 2),
         ] {
             assert_eq!(
                 refused(package, &evidence),
-                refusal(code, lock_path),
+                refusal(code, &format!("/lock/model_selections/{at}/{member}")),
                 "{boundary}, {order}: the refusal is decided by defect class, not array position"
             );
         }
@@ -1362,13 +1568,21 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
             duplicated.clone()
         ]),
     );
-    for (order, package) in [
-        ("duplicate pair first", &duplicate_first),
-        ("mismatched entry first", &mismatch_first),
+    for (order, package, repeat) in [
+        (
+            "duplicate pair first",
+            &duplicate_first,
+            "/lock/model_selections/2",
+        ),
+        (
+            "mismatched entry first",
+            &mismatch_first,
+            "/lock/model_selections/3",
+        ),
     ] {
         assert_eq!(
             refused(package, &evidence),
-            refusal(CheckedPackageRefusalCode::MalformedWire, lock_path),
+            refusal(CheckedPackageRefusalCode::MalformedWire, repeat),
             "repeated entry outranks declared-domain mismatch, {order}: the refusal is decided \
              by defect class, not array position"
         );
@@ -1399,7 +1613,9 @@ fn tc_048_model_selection_refusal_is_decided_by_defect_class_not_array_position(
 #[test]
 fn tc_048_model_selection_same_identity_different_version_refuses_as_malformed_wire() {
     let owner = model_owner("test/orders", "ix://test/orders/Status");
-    let lock_path = "lock.model_selections";
+    // Whichever order the pair takes, the later entry's `version` is the one
+    // that conflicts with the identity's first selection.
+    let lock_path = "/lock/model_selections/1/version";
 
     // Two selections of one identity at different versions: each has its own
     // locator (identity, version), so each is individually well-formed and
@@ -1538,13 +1754,13 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         refused(&export, &evidence_for(&export)),
         refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.semantic_form"
+            &format!("/semantic_graph/nodes/{model}/semantic_form")
         )
     );
 }
 
-/// Tracing: TC-048, FR-038-AC-9
-#[trace("TC-048", "FR-038-AC-9")]
+/// Tracing: TC-048, FR-038-AC-9, FR-038-AC-26
+#[trace("TC-048", "FR-038-AC-9", "FR-038-AC-26")]
 #[test]
 fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     // FR-038-AC-9: the shipped default policy is exactly these seven values.
@@ -1670,9 +1886,20 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
         );
         match read_with(set, hi - 1) {
             CheckedPackageV2ReadResult::Incomplete(report) => {
+                // Every limit but the byte limit names the value it charged,
+                // and that pointer resolves in the package read.
+                let path = report.path.as_ref().map(|path| path.as_str().to_owned());
+                assert_eq!(
+                    path.is_some(),
+                    kind != CheckedPackageLimit::Bytes,
+                    "{kind:?} pointer presence"
+                );
+                if let Some(path) = &path {
+                    assert!(value.pointer(path).is_some(), "{kind:?} {path}");
+                }
                 assert_eq!(
                     report,
-                    incomplete(kind, hi - 1, hi),
+                    incomplete(kind, hi - 1, hi, path.as_deref()),
                     "{kind:?} one below its true measured consumption"
                 );
             }
@@ -1694,8 +1921,8 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// member but `literal.type`. Nor is it reachable through a `literal.type`
 /// that names itself from *inside* another term nested in the body — an
 /// `aggregate` member, a `binding` value or an `application` argument — even
-/// though `validate_term`'s recursive walk reports every one of those with
-/// the same `BODY_TYPE_PATH` structural path: only the body's own outermost
+/// though `validate_term`'s recursive walk reports every one of those as the
+/// same `literal.type` member: only the body's own outermost
 /// term is the node's `literal.type` in FR-322's sense (FR-038-AC-18).
 ///
 /// Tracing: TC-048, FR-038-AC-18
@@ -1706,9 +1933,11 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
     let other_id = base["semantic_graph"]["nodes"][1]["semantic_type"].clone();
 
+    // The node lacks the `recursion_group` member its self-cycle requires,
+    // so the refusal points at the node.
     let recursion_group_refusal = refusal(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "semantic_graph.nodes.recursion_group",
+        "/semantic_graph/nodes/1",
     );
     // An `application`-termed body embedding a literal self-reference to its
     // own node_id is, once `validate_application_keys` exists, a
@@ -1722,7 +1951,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // never touch `validate_application_keys`, still exercise it directly).
     let stale_application_key_refusal = refusal_at(
         CheckedPackageRefusalCode::InvalidPackage,
-        "semantic_graph.nodes.node_id",
+        "/semantic_graph/nodes/1/node_id",
         Some(CheckedPackageRefusalCause::StaleNodeKey),
         own_id["digest"].as_str().expect("own_id digest"),
     );
@@ -1748,8 +1977,8 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // Negative: the same self-typed `literal.type` self-reference, nested
     // one level inside an `aggregate` member instead of being the body's own
     // top-level term, is still a genuine 1-node cycle. `validate_term`
-    // reports this nested literal's `type` at the same `BODY_TYPE_PATH` path
-    // as the body-root case, so the carve-out must not key on the path
+    // reports this nested literal's `type` as the same `literal.type` member
+    // as the body-root case, so the carve-out must not key on the member
     // alone.
     assert_self_cycle_refused(
         json!({
@@ -1898,9 +2127,10 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
                     .expect("node object")
                     .remove("declaration");
             },
+            // The node lacks the member it requires.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.declaration",
+                &format!("/semantic_graph/nodes/{declaring_node}"),
             ),
         ),
         (
@@ -1912,9 +2142,10 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
                     .expect("body object")
                     .remove("type");
             },
+            // The term lacks a member its closed shape requires.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.body",
+                &format!("/semantic_graph/nodes/{literal_node}/body"),
             ),
         ),
         (
@@ -1926,9 +2157,10 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
                     .expect("body object")
                     .remove("operation");
             },
+            // The term lacks a member its closed shape requires.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.body",
+                &format!("/semantic_graph/nodes/{application_node}/body"),
             ),
         ),
         (
@@ -1940,9 +2172,10 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
                     .expect("body object")
                     .remove("result_type");
             },
+            // The term lacks a member its closed shape requires.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "semantic_graph.nodes.body",
+                &format!("/semantic_graph/nodes/{application_node}/body"),
             ),
         ),
     ];
@@ -2010,7 +2243,7 @@ fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
         refused(&sixteenth, &evidence_for(&sixteenth)),
         refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.semantic_form"
+            &format!("/semantic_graph/nodes/{expression}/semantic_form")
         )
     );
 }
@@ -2020,6 +2253,18 @@ fn digest_of(node: &Value) -> String {
         .as_str()
         .expect("digest")
         .to_owned()
+}
+
+/// The pointer of the declared name of the node keyed `digest` in `package`:
+/// a declaration-name refusal is located at that name.
+fn declared_name_at(package: &Value, digest: &str) -> String {
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| digest_of(node) == digest)
+        .expect("node with that key");
+    format!("/semantic_graph/nodes/{position}/declaration/qualified_name")
 }
 
 /// Tracing: TC-048, FR-038-AC-21
@@ -2037,7 +2282,7 @@ fn tc_048_declared_name_must_equal_its_nominal_preimage_name() {
         refused(&value, &evidence_for(&value)),
         refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
-            "semantic_graph.nodes.declaration",
+            &format!("/semantic_graph/nodes/{declaration}/declaration/qualified_name"),
             Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
             &digest_of(&value["semantic_graph"]["nodes"][declaration]),
         )
@@ -2085,7 +2330,7 @@ fn tc_048_two_nodes_declaring_one_name_refuse_as_ambiguous() {
         refused(&value, &evidence_for(&value)),
         refusal_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            "semantic_graph.nodes.declaration",
+            &declared_name_at(&value, least),
             Some(CheckedPackageRefusalCause::AmbiguousName),
             least,
         )
@@ -2112,7 +2357,7 @@ fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
         refused(&value, &evidence_for(&value)),
         refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
-            "semantic_graph.nodes.declaration",
+            &format!("/semantic_graph/nodes/{declaration}/declaration/qualified_name"),
             Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
             &digest_of(&value["semantic_graph"]["nodes"][declaration]),
         )
@@ -2159,7 +2404,7 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
         refused(&both, &evidence_for(&both)),
         refusal_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            "semantic_graph.nodes.declaration",
+            &declared_name_at(&both, declaring.clone().min(function.clone()).as_str()),
             Some(CheckedPackageRefusalCause::AmbiguousName),
             declaring.min(function).as_str(),
         )
@@ -2199,7 +2444,7 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
         refused(&both, &evidence_for(&both)),
         refusal_at(
             CheckedPackageRefusalCode::AmbiguousDeclaration,
-            "semantic_graph.nodes.declaration",
+            &declared_name_at(&both, first.clone().min(second.clone()).as_str()),
             Some(CheckedPackageRefusalCause::AmbiguousName),
             first.min(second).as_str(),
         )
@@ -2302,7 +2547,12 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
         refused(&bare, &evidence_for(&bare)),
         refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
-            "semantic_graph.nodes.node_id",
+            &format!(
+                "/semantic_graph/nodes/{}/node_id",
+                position_of(&bare, &|node| {
+                    node["node_id"]["digest"] == checked_package::family_key("ffff")
+                })
+            ),
             Some(CheckedPackageRefusalCause::StaleNodeKey),
             &checked_package::family_key("ffff"),
         )

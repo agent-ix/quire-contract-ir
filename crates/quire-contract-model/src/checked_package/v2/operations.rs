@@ -61,30 +61,45 @@ use super::{
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
     RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::digest_json;
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
+use crate::checked_package::common::{decoder_pointer, digest_json, node_pointer};
+use crate::checked_package::shared::{
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-const NODE_ID_PATH: &str = "semantic_graph.nodes.node_id";
-const OPERATION_PATH: &str = "semantic_graph.nodes.body.operation";
-const OPERATOR_PATH: &str = "semantic_graph.nodes.body.operator";
-const OPERATION_LAWS_PATH: &str = "semantic_graph.nodes.body.operation.laws";
-const OPERATION_MODE_PATH: &str = "semantic_graph.nodes.body.operation.mode";
-const OPERATION_MEMBER_PATH: &str = "semantic_graph.nodes.body.operation.member";
-const OPERATION_ARGUMENTS_PATH: &str = "semantic_graph.nodes.body.arguments";
-
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
-fn refuse_at(
-    code: CheckedPackageRefusalCode,
-    path: &'static str,
-    cause: CheckedPackageRefusalCause,
-    node: &CheckedSemanticNodeV2,
-) -> ValidationFailure {
-    ValidationFailure::RefusedAt(code, path, Some(cause), node.node_id.clone())
+/// One application node under validation, and pointers into its body.
+#[derive(Clone, Copy)]
+struct Application<'a> {
+    node: &'a CheckedSemanticNodeV2,
+    position: usize,
+}
+
+impl Application<'_> {
+    fn node_id(self) -> JsonPointer {
+        node_pointer(self.position).key("node_id")
+    }
+
+    /// `/semantic_graph/nodes/{n}/body` extended by `members`.
+    fn body(self, members: &[&str]) -> JsonPointer {
+        members.iter().fold(
+            node_pointer(self.position).key("body"),
+            |pointer, member| pointer.key(member),
+        )
+    }
+
+    fn refuse(
+        self,
+        code: CheckedPackageRefusalCode,
+        path: JsonPointer,
+        cause: CheckedPackageRefusalCause,
+    ) -> ValidationFailure {
+        ValidationFailure::refused_at(code, path, Some(cause), self.node.node_id.clone())
+    }
 }
 
 fn is_application(body: &Value) -> bool {
@@ -110,25 +125,25 @@ pub(super) fn validate_application_keys(
         if !is_application(&node.body) {
             continue;
         }
-        meter.charge(1)?;
+        let application = Application { node, position };
+        meter.charge(1, || application.node_id())?;
         let group = node
             .recursion_group
             .as_deref()
             .and_then(|label| groups.get(label))
             .map_or(&[][..], Vec::as_slice);
-        let preimage = application_preimage(node, group)?;
+        let preimage = application_preimage(application, group)?;
         let computed = digest_json(&preimage).map_err(|_| {
-            ValidationFailure::Refused(
+            ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                NODE_ID_PATH,
+                application.node_id(),
             )
         })?;
         if computed != node_id.digest.as_ref() {
-            return Err(refuse_at(
+            return Err(application.refuse(
                 CheckedPackageRefusalCode::InvalidPackage,
-                NODE_ID_PATH,
+                application.node_id(),
                 CheckedPackageRefusalCause::StaleNodeKey,
-                node,
             ));
         }
     }
@@ -142,13 +157,14 @@ pub(super) fn validate_application_keys(
 /// or `null`, and each body `reference` to a group member becomes
 /// `{term: "group_reference", ordinal}`.
 fn application_preimage(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     group: &[&CheckedNodeId],
 ) -> Result<Value, ValidationFailure> {
+    let node = application.node;
     let invalid = || {
-        ValidationFailure::Refused(
+        ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            NODE_ID_PATH,
+            application.node_id(),
         )
     };
     let declaration = node
@@ -292,7 +308,8 @@ pub(super) fn validate_operations(
         if !is_application(&node.body) {
             continue;
         }
-        if let Some(failure) = operation_defect(node, nodes, kinds, index, lock, meter)? {
+        let application = Application { node, position };
+        if let Some(failure) = operation_defect(application, nodes, kinds, index, lock, meter)? {
             return Err(failure);
         }
     }
@@ -300,13 +317,14 @@ pub(super) fn validate_operations(
 }
 
 fn operation_defect(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let node = application.node;
     let Some(body) = node.body.as_object() else {
         return Ok(None);
     };
@@ -314,61 +332,76 @@ fn operation_defect(
     let Some(operation_value) = body.get("operation") else {
         return Ok(None);
     };
-    let Ok(operation) = serde_json::from_value::<OperationWire>(operation_value.clone()) else {
-        return Ok(Some(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            OPERATION_PATH,
-        )));
+    let operation = match serde_path_to_error::deserialize::<_, OperationWire>(operation_value) {
+        Ok(operation) => operation,
+        Err(error) => {
+            return Ok(Some(ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                decoder_pointer(application.body(&["operation"]), error.path()),
+            )))
+        }
     };
     meter.charge(
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
+        || application.body(&["operation"]),
     )?;
+    let refuse = |path: JsonPointer, cause| {
+        Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            path,
+            cause,
+        )))
+    };
+    let law_at = |law: usize, member: &str| {
+        application
+            .body(&["operation", "laws"])
+            .index(law)
+            .key(member)
+    };
 
     let catalog = operation_catalog();
     let Some(entry) = catalog.entry(&operation.identity) else {
-        return Ok(Some(refuse_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            OPERATION_PATH,
+        return refuse(
+            application.body(&["operation", "identity"]),
             CheckedPackageRefusalCause::UnknownOperation,
-            node,
-        )));
+        );
     };
     if operator != entry.operator.as_ref() {
-        return Ok(Some(refuse_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            OPERATOR_PATH,
+        return refuse(
+            application.body(&["operator"]),
             CheckedPackageRefusalCause::OperationClassMismatch,
-            node,
-        )));
+        );
     }
-    let leaf_required = entry.leaves.is_some();
-    if operation.laws.len() < entry.laws.len() || (leaf_required && operation.leaves.is_empty()) {
-        return Ok(Some(refuse_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            OPERATION_LAWS_PATH,
+    if operation.laws.len() < entry.laws.len() {
+        return refuse(
+            application.body(&["operation", "laws"]),
             CheckedPackageRefusalCause::OperationLawMissing,
-            node,
-        )));
+        );
+    }
+    if entry.leaves.is_some() && operation.leaves.is_empty() {
+        return refuse(
+            application.body(&["operation", "leaves"]),
+            CheckedPackageRefusalCause::OperationLawMissing,
+        );
     }
     if operation.laws.len() > entry.laws.len() {
         // Too many, not too few: a law the catalogued entry admits no role
-        // for is a mismatch against what it declares, not a shortfall.
-        return Ok(Some(refuse_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            OPERATION_LAWS_PATH,
+        // for is a mismatch against what it declares, not a shortfall. The
+        // first law past the catalogued roles is the one at fault.
+        return refuse(
+            application
+                .body(&["operation", "laws"])
+                .index(entry.laws.len()),
             CheckedPackageRefusalCause::OperationLawMismatch,
-            node,
-        )));
+        );
     }
-    for (law, role) in operation.laws.iter().zip(entry.laws.iter()) {
+    for (law_index, (law, role)) in operation.laws.iter().zip(entry.laws.iter()).enumerate() {
         if law.role.as_ref() != role.as_ref() {
-            return Ok(Some(refuse_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+            return refuse(
+                law_at(law_index, "role"),
                 CheckedPackageRefusalCause::OperationLawMismatch,
-                node,
-            )));
+            );
         }
         // A clause/profile role (`temporal_profile`, `protocol_profile`) has
         // no fixed catalogued definition list of its own — any published
@@ -387,34 +420,43 @@ fn operation_defect(
             let catalogued = catalog.law_role_definitions(role);
             let known = catalogued.is_some_and(|definitions| definitions.contains(&law.definition));
             if !known {
-                return Ok(Some(refuse_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    OPERATION_LAWS_PATH,
+                return refuse(
+                    law_at(law_index, "definition"),
                     CheckedPackageRefusalCause::OperationLawMismatch,
-                    node,
-                )));
+                );
             }
             lock.definition_selections.contains(&law.definition)
         };
         if !selected {
-            return Ok(Some(refuse_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+            return refuse(
+                law_at(law_index, "definition"),
                 CheckedPackageRefusalCause::OperationLawUnselected,
-                node,
-            )));
+            );
         }
     }
+    // A member present on the wire is the value at fault; an absent one is
+    // a defect of the `operation` object that lacks it.
+    let member_or_operation = |member: &str| {
+        if operation_value.get(member).is_some() {
+            application.body(&["operation", member])
+        } else {
+            application.body(&["operation"])
+        }
+    };
     match (&entry.mode, &operation.mode) {
         (None, None) => {}
         (Some(kind), Some(mode)) if mode.kind.as_ref() == kind.as_ref() => {}
-        _ => {
-            return Ok(Some(refuse_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+        (Some(_), Some(_)) => {
+            return refuse(
+                application.body(&["operation", "mode", "kind"]),
                 CheckedPackageRefusalCause::OperationModeMismatch,
-                node,
-            )))
+            )
+        }
+        (None, Some(_)) | (Some(_), None) => {
+            return refuse(
+                member_or_operation("mode"),
+                CheckedPackageRefusalCause::OperationModeMismatch,
+            )
         }
     }
     let wire_member_kind = operation
@@ -426,12 +468,10 @@ fn operation_defect(
         (None, None) => {}
         (Some(kind), Some(wire_kind)) if kind.as_ref() == wire_kind => {}
         _ => {
-            return Ok(Some(refuse_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MEMBER_PATH,
+            return refuse(
+                member_or_operation("member"),
                 CheckedPackageRefusalCause::OperationMemberMismatch,
-                node,
-            )))
+            )
         }
     }
 
@@ -440,22 +480,31 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) = check_operands(node, entry, &arguments, nodes, kinds, index, catalog) {
+    if let Some(failure) =
+        check_operands(application, entry, &arguments, nodes, kinds, index, catalog)
+    {
         return Ok(Some(failure));
     }
     if let Some(name) = wire_member_kind {
         if name == "field" {
-            if let Some(failure) = check_field_member(node, &operation, nodes, index) {
+            if let Some(failure) = check_field_member(application, &operation, nodes, index) {
                 return Ok(Some(failure));
             }
         }
     }
     if let Some(failure) = check_mode_type(
-        node, entry, &operation, &arguments, nodes, kinds, index, catalog,
+        application,
+        entry,
+        &operation,
+        &arguments,
+        nodes,
+        kinds,
+        index,
+        catalog,
     ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(node, &operation, &arguments, nodes, kinds, index) {
+    if let Some(failure) = check_leaves(application, &operation, &arguments, nodes, kinds, index) {
         return Ok(Some(failure));
     }
     Ok(None)
@@ -789,7 +838,7 @@ fn resolve_family(
 }
 
 fn check_operands(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     entry: &OperationCatalogEntry,
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
@@ -798,33 +847,35 @@ fn check_operands(
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
     let required = entry.operands.len();
-    let ineligible = || {
-        Some(refuse_at(
+    // `None` names the `arguments` array itself (an arity defect); `Some`
+    // names the one argument at fault.
+    let ineligible = |argument: Option<usize>| {
+        let arguments_at = application.body(&["arguments"]);
+        Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            OPERATION_ARGUMENTS_PATH,
+            argument.map_or_else(|| arguments_at.clone(), |at| arguments_at.clone().index(at)),
             CheckedPackageRefusalCause::OperatorIneligible,
-            node,
         ))
     };
     if entry.rest.is_none() {
         if arguments.len() != required {
-            return ineligible();
+            return ineligible(None);
         }
     } else if arguments.len() < required {
-        return ineligible();
+        return ineligible(None);
     }
     for (position, expected) in entry.operands.iter().enumerate() {
         if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index) {
             if !catalog.family_fits(actual, expected) {
-                return ineligible();
+                return ineligible(Some(position));
             }
         }
     }
     if let Some(rest_family) = &entry.rest {
-        for argument in &arguments[required..] {
+        for (offset, argument) in arguments[required..].iter().enumerate() {
             if let Some(actual) = argument_family(argument, nodes, kinds, index) {
                 if !catalog.family_fits(actual, rest_family) {
-                    return ineligible();
+                    return ineligible(Some(required.saturating_add(offset)));
                 }
             }
         }
@@ -846,8 +897,8 @@ fn check_operands(
                     .map(|position| argument_family(&arguments[*position], nodes, kinds, index))
                     .collect();
                 if let Some(families) = families {
-                    if families.windows(2).any(|pair| pair[0] != pair[1]) {
-                        return ineligible();
+                    if let Some(pair) = families.windows(2).position(|pair| pair[0] != pair[1]) {
+                        return ineligible(indices.get(pair.saturating_add(1)).copied());
                     }
                 }
             }
@@ -857,8 +908,8 @@ fn check_operands(
                     .map(|position| argument_type_id(&arguments[*position]))
                     .collect();
                 if let Some(types) = types {
-                    if types.windows(2).any(|pair| pair[0] != pair[1]) {
-                        return ineligible();
+                    if let Some(pair) = types.windows(2).position(|pair| pair[0] != pair[1]) {
+                        return ineligible(indices.get(pair.saturating_add(1)).copied());
                     }
                 }
             }
@@ -874,7 +925,7 @@ fn check_operands(
 /// `binding` members, one per field, exactly the shape the record-type
 /// fixture nodes carry).
 fn check_field_member(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     operation: &OperationWire,
     nodes: &[CheckedSemanticNodeV2],
     index: &BTreeMap<&CheckedNodeId, usize>,
@@ -892,11 +943,10 @@ fn check_field_member(
     if declared {
         None
     } else {
-        Some(refuse_at(
+        Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            OPERATION_MEMBER_PATH,
+            application.body(&["operation", "member", "name"]),
             CheckedPackageRefusalCause::OperatorIneligible,
-            node,
         ))
     }
 }
@@ -966,7 +1016,7 @@ fn type_pin(
 }
 
 fn check_mode_type(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     entry: &OperationCatalogEntry,
     operation: &OperationWire,
     arguments: &[Value],
@@ -992,11 +1042,10 @@ fn check_mode_type(
         }
         if let Some(pinned) = type_pin(&type_id, &mode.kind, nodes, index) {
             if pinned.as_ref() != mode.value.as_ref() {
-                return Some(refuse_at(
+                return Some(application.refuse(
                     CheckedPackageRefusalCode::InvalidPackage,
-                    OPERATION_MODE_PATH,
+                    application.body(&["operation", "mode", "value"]),
                     CheckedPackageRefusalCause::OperationModeTypeMismatch,
-                    node,
                 ));
             }
         }
@@ -1007,14 +1056,14 @@ fn check_mode_type(
 /// The one leaf-path shape an upstream mutation exercises: `["field:<name>"]`
 /// against the first operand's record type. Any other path is not resolved.
 fn check_leaves(
-    node: &CheckedSemanticNodeV2,
+    application: Application<'_>,
     operation: &OperationWire,
     arguments: &[Value],
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<ValidationFailure> {
-    for leaf in &operation.leaves {
+    for (leaf_index, leaf) in operation.leaves.iter().enumerate() {
         let Some(mode) = &leaf.mode else { continue };
         let [segment] = leaf.path.as_slice() else {
             continue;
@@ -1033,12 +1082,17 @@ fn check_leaves(
         };
         if let Some(pinned) = type_pin(&field_type, &mode.kind, nodes, index) {
             if pinned.as_ref() != mode.value.as_ref() {
-                return Some(refuse_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    OPERATION_MODE_PATH,
-                    CheckedPackageRefusalCause::OperationModeTypeMismatch,
-                    node,
-                ));
+                return Some(
+                    application.refuse(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        application
+                            .body(&["operation", "leaves"])
+                            .index(leaf_index)
+                            .key("mode")
+                            .key("value"),
+                        CheckedPackageRefusalCause::OperationModeTypeMismatch,
+                    ),
+                );
             }
         }
     }
@@ -1049,14 +1103,29 @@ fn check_leaves(
 mod tests {
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
+        validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
         CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
-        APPLICATION_NODE_VERSION, NODE_ID_PATH, OPERATION_ARGUMENTS_PATH, OPERATION_LAWS_PATH,
-        OPERATION_MEMBER_PATH, OPERATION_MODE_PATH, OPERATION_PATH, OPERATOR_PATH,
+        APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
-    use crate::checked_package::shared::{CheckedArtifactRef, CheckedRevision, CheckedSelection};
+    use crate::checked_package::shared::{
+        CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
+    };
+
+    fn pointer(text: &str) -> JsonPointer {
+        JsonPointer::parse(text).expect("test pointer")
+    }
+
+    /// The located refusal `operation_defect` builds, at `path`.
+    fn refused_at(
+        code: CheckedPackageRefusalCode,
+        path: &str,
+        cause: Option<CheckedPackageRefusalCause>,
+        locus: CheckedNodeId,
+    ) -> ValidationFailure {
+        ValidationFailure::refused_at(code, pointer(path), cause, locus)
+    }
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
@@ -1272,7 +1341,14 @@ mod tests {
         index.insert(&node.node_id, 0);
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
-        operation_defect(node, nodes, &kinds_of(nodes), &index, &lock, &mut meter)
+        operation_defect(
+            Application { node, position: 0 },
+            nodes,
+            &kinds_of(nodes),
+            &index,
+            &lock,
+            &mut meter,
+        )
     }
 
     /// Each node's kind, decoded as intake decodes it.
@@ -1299,7 +1375,10 @@ mod tests {
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         operation_defect(
-            &nodes[0],
+            Application {
+                node: &nodes[0],
+                position: 0,
+            },
             &nodes,
             &kinds_of(&nodes),
             &index,
@@ -1359,7 +1438,14 @@ mod tests {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
         let one = typed(&key(1));
         let group = [&one, &node.node_id];
-        let preimage = application_preimage(&node, &group).expect("preimage");
+        let preimage = application_preimage(
+            Application {
+                node: &node,
+                position: 0,
+            },
+            &group,
+        )
+        .expect("preimage");
         // Spelled literally, as quire-spec-language's own vector does, rather
         // than produced by the serializer under test.
         let literal_ref = |fill: u8| {
@@ -1404,7 +1490,14 @@ mod tests {
         let node = grouped_node(1, body);
         let two = typed(&key(2));
         let group = [&node.node_id, &two];
-        let preimage = application_preimage(&node, &group).expect("preimage");
+        let preimage = application_preimage(
+            Application {
+                node: &node,
+                position: 0,
+            },
+            &group,
+        )
+        .expect("preimage");
         let group_reference =
             |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
         let members = &preimage["body"]["members"];
@@ -1498,9 +1591,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_PATH,
+                "/semantic_graph/nodes/0/body/operation/identity",
                 Some(CheckedPackageRefusalCause::UnknownOperation),
                 node.node_id.clone(),
             ))),
@@ -1549,9 +1642,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATOR_PATH,
+                "/semantic_graph/nodes/0/body/operator",
                 Some(CheckedPackageRefusalCause::OperationClassMismatch),
                 node.node_id.clone(),
             ))),
@@ -1578,9 +1671,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws",
                 Some(CheckedPackageRefusalCause::OperationLawMissing),
                 node.node_id.clone(),
             ))),
@@ -1609,9 +1702,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1652,9 +1745,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/role",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1684,9 +1777,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/definition",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1722,9 +1815,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/definition",
                 Some(CheckedPackageRefusalCause::OperationLawUnselected),
                 node.node_id.clone(),
             ))),
@@ -1751,9 +1844,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/mode",
                 Some(CheckedPackageRefusalCause::OperationModeMismatch),
                 node.node_id.clone(),
             ))),
@@ -1780,9 +1873,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MEMBER_PATH,
+                "/semantic_graph/nodes/0/body/operation/member",
                 Some(CheckedPackageRefusalCause::OperationMemberMismatch),
                 node.node_id.clone(),
             ))),
@@ -1810,9 +1903,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                OPERATION_ARGUMENTS_PATH,
+                "/semantic_graph/nodes/0/body/arguments",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node.node_id.clone(),
             ))),
@@ -1868,9 +1961,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                OPERATION_MEMBER_PATH,
+                "/semantic_graph/nodes/0/body/operation/member/name",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 root.node_id.clone(),
             ))),
@@ -1922,9 +2015,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/mode/value",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 root.node_id.clone(),
             ))),
@@ -2001,9 +2094,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/leaves/0/mode/value",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 root.node_id.clone(),
             ))),
@@ -2031,9 +2124,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ValidationFailure::RefusedAt(
+            Err(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                NODE_ID_PATH,
+                "/semantic_graph/nodes/0/node_id",
                 Some(CheckedPackageRefusalCause::StaleNodeKey),
                 node.node_id.clone(),
             )),
@@ -2076,9 +2169,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::Refused(
+            Ok(Some(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                OPERATION_PATH,
+                pointer("/semantic_graph/nodes/0/body/operation"),
             ))),
             "an operation member that does not deserialize as OperationWire must be refused \
              as invalid_semantic_graph, got {result:?}"

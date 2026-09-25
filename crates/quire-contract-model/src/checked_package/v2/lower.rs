@@ -15,7 +15,7 @@ use super::{
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{digest_bytes, digest_json, ValidationFailure};
+use crate::checked_package::common::{digest_bytes, digest_json, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
@@ -343,50 +343,32 @@ impl CheckedPackageV2 {
             // target; a failure is terminal for this request. `validate_body`
             // is the same admission dispatch the reader used, so a package it
             // admitted re-walks identically here.
-            let walked = super::validate_body(kind, &node.body, &mut |target, _path| {
-                successors.push(target.clone())
-            });
+            let body_steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(position),
+                Step::Key("body"),
+            ];
+            let walked = super::validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&body_steps),
+                &mut |target, _site, _at| successors.push(target.clone()),
+            );
             let terms = match walked {
                 Ok(terms) => terms,
-                Err(ValidationFailure::Refused(code, path)) => {
+                Err(ValidationFailure::Refused(refusal)) => {
                     return CompleteLoweringRecordV2::InvalidBody {
                         node_id: request.clone(),
                         body_node_id: node.node_id.clone(),
-                        refusal: CheckedPackageRefusal {
-                            code,
-                            path: path.into(),
-                            cause: None,
-                            locus: None,
-                        },
+                        refusal,
                     };
                 }
-                // `validate_body` never returns `RefusedAt` — only
-                // `validate_frame_semantics` (run separately by the reader,
-                // never by this re-walk) constructs it — but the two share
-                // one `ValidationFailure` type, so this arm carries the same
-                // cause/locus through rather than asserting an impossibility
-                // this match cannot itself guarantee.
-                Err(ValidationFailure::RefusedAt(code, path, cause, locus)) => {
-                    return CompleteLoweringRecordV2::InvalidBody {
-                        node_id: request.clone(),
-                        body_node_id: node.node_id.clone(),
-                        refusal: CheckedPackageRefusal {
-                            code,
-                            path: path.into(),
-                            cause,
-                            locus: Some(locus),
-                        },
-                    };
-                }
-                Err(ValidationFailure::Incomplete(limit_kind, limit, consumed)) => {
+                Err(ValidationFailure::Incomplete(incomplete)) => {
                     return CompleteLoweringRecordV2::BodyIncomplete {
                         node_id: request.clone(),
                         body_node_id: node.node_id.clone(),
-                        incomplete: CheckedPackageIncomplete {
-                            limit_kind,
-                            limit,
-                            consumed,
-                        },
+                        incomplete,
                     };
                 }
             };

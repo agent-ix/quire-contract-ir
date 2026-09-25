@@ -12,10 +12,12 @@ use super::{
     CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
     ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{digest_json, ValidationFailure};
-use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
+use crate::checked_package::common::{
+    decoder_pointer, digest_json, node_pointer, ValidationFailure,
+};
+use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The closed nominal identity preimage carried by a V2 node.
@@ -144,6 +146,79 @@ where
     D: Deserializer<'de>,
 {
     Option::<CheckedNodeId>::deserialize(deserializer)
+}
+
+/// Locates a decode failure the wire decoder could place no deeper than a
+/// nominal preimage: an internally tagged object whose members serde reads
+/// from a buffer it does not track. Decodes the variant the preimage's own
+/// `version` selects, with the tag removed, and then the internally tagged
+/// `owner` the same way, so the pointer names the member at fault. `at` is
+/// the preimage's pointer and `preimage` its value.
+pub(in crate::checked_package) fn locate_preimage_failure(
+    at: JsonPointer,
+    preimage: &Value,
+) -> JsonPointer {
+    let Some(object) = preimage.as_object() else {
+        return at;
+    };
+    let version = match object.get("version") {
+        Some(Value::String(version)) => version.as_str(),
+        Some(_) => return at.key("version"),
+        None => return at,
+    };
+    let mut members = object.clone();
+    members.remove("version");
+    let members = Value::Object(members);
+    let failure = match version {
+        "quire.enum-declaration-node/v1" => decode_failure::<EnumDeclarationPreimage>(&members),
+        "quire.enum-member-node/v1" => decode_failure::<EnumMemberPreimage>(&members),
+        "quire.dimension-node/v1" => decode_failure::<DimensionPreimage>(&members),
+        "quire.unit-node/v1" => decode_failure::<UnitPreimage>(&members),
+        _ => return at.key("version"),
+    };
+    let Some(path) = failure else {
+        return at;
+    };
+    let located = decoder_pointer(at.clone(), &path);
+    if located == at.clone().key("owner") {
+        if let Some(owner) = object.get("owner") {
+            return locate_owner_failure(located, owner);
+        }
+    }
+    located
+}
+
+fn decode_failure<T: serde::de::DeserializeOwned>(
+    value: &Value,
+) -> Option<serde_path_to_error::Path> {
+    serde_path_to_error::deserialize::<_, T>(value)
+        .err()
+        .map(|error| error.path().clone())
+}
+
+/// Locates a decode failure inside an internally tagged [`NominalOwner`] at
+/// `at`, checking members in the order the decoder reads them: the first
+/// member outside the `kind`'s closed set or not a string, else the owner
+/// itself for a missing member.
+fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
+    let Some(object) = owner.as_object() else {
+        return at;
+    };
+    let members: &[&str] = match object.get("kind") {
+        Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
+            &["kind", "authority", "identity"]
+        }
+        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
+        Some(_) => return at.key("kind"),
+        None => return at,
+    };
+    match object
+        .iter()
+        .find(|(key, value)| !members.contains(&key.as_str()) || !value.is_string())
+    {
+        Some((key, _)) => at.key(key),
+        None => at,
+    }
 }
 
 /// Which nominal preimage a `(node_tag, semantic_form)` pair requires.
@@ -322,23 +397,42 @@ impl NominalIdentityPreimage {
     }
 }
 
-const PATH: &str = "semantic_graph.nodes.nominal_identity_preimage";
-
-fn invalid() -> ValidationFailure {
-    ValidationFailure::Refused(CheckedPackageRefusalCode::InvalidSemanticGraph, PATH)
+fn invalid(path: JsonPointer) -> ValidationFailure {
+    ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
 }
 
-fn require(condition: bool) -> Result<(), ValidationFailure> {
+/// Refuses at the pointer `at` builds unless `condition` holds.
+fn require(condition: bool, at: impl FnOnce() -> JsonPointer) -> Result<(), ValidationFailure> {
     if condition {
         Ok(())
     } else {
-        Err(invalid())
+        Err(invalid(at()))
+    }
+}
+
+/// One node under validation: the node, its graph position and pointers to
+/// its members and to members of its nominal preimage.
+struct Site<'a> {
+    node: &'a CheckedSemanticNodeV2,
+    position: usize,
+}
+
+impl Site<'_> {
+    fn member(&self, member: &str) -> JsonPointer {
+        node_pointer(self.position).key(member)
+    }
+
+    fn preimage(&self, members: &[&str]) -> JsonPointer {
+        members.iter().fold(
+            self.member("nominal_identity_preimage"),
+            |pointer, member| pointer.key(member),
+        )
     }
 }
 
 /// Validates every node's nominal binding, key re-derivation, owner join,
 /// semantic rules and cross-field joins. `kinds` holds each node's decoded
-/// kind.
+/// kind. Each refusal points at the member it is about.
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
@@ -348,30 +442,38 @@ pub(super) fn validate_nominal_nodes(
 ) -> Result<(), ValidationFailure> {
     let graph = NominalGraph { nodes, index };
     let mut roots = BTreeSet::new();
-    for (node, kind) in nodes.iter().zip(kinds) {
+    for (position, (node, kind)) in nodes.iter().zip(kinds).enumerate() {
+        let site = Site { node, position };
         let required = NominalKind::required_by(*kind);
         let preimage = match (required, &node.nominal_identity_preimage) {
             (None, None) => continue,
             (Some(kind), Some(preimage)) if NominalKind::of(preimage) == kind => preimage,
-            _ => return Err(invalid()),
+            // Required and absent: the node lacks the member.
+            (Some(_), None) => return Err(invalid(node_pointer(position))),
+            _ => return Err(invalid(site.preimage(&[]))),
         };
-        meter.charge(1)?;
-        require(preimage.digest().as_deref() == Some(node.node_id.digest.as_ref()))?;
+        meter.charge(1, || site.preimage(&[]))?;
+        require(
+            preimage.digest().as_deref() == Some(node.node_id.digest.as_ref()),
+            || site.member("node_id"),
+        )?;
         match preimage {
             NominalIdentityPreimage::EnumDeclaration(declaration) => {
-                validate_enum_declaration(declaration, lock, meter)?;
+                validate_enum_declaration(declaration, &site, lock, meter)?;
             }
             NominalIdentityPreimage::EnumMember(member) => {
-                validate_enum_member(node, member, &graph)?;
+                validate_enum_member(&site, member, &graph)?;
             }
             NominalIdentityPreimage::Dimension(dimension) => {
-                validate_dimension(node, dimension, &graph, lock, meter)?;
+                validate_dimension(&site, dimension, &graph, lock, meter)?;
             }
             NominalIdentityPreimage::Unit(unit) => {
-                validate_unit(node, unit, &graph, lock, meter)?;
+                validate_unit(&site, unit, &graph, lock, meter)?;
                 if unit.target_unit_node_id.is_none() {
                     // A dimension has exactly one targetless root unit.
-                    require(roots.insert(unit.dimension_node_id.clone()))?;
+                    require(roots.insert(unit.dimension_node_id.clone()), || {
+                        site.preimage(&["target_unit_node_id"])
+                    })?;
                 }
             }
         }
@@ -396,6 +498,7 @@ impl NominalGraph<'_> {
 fn validate_owner(
     owner: &NominalOwner,
     lock: &CheckedPackageLockV2,
+    at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let joined = match owner {
         NominalOwner::Source {
@@ -427,7 +530,7 @@ fn validate_owner(
                     .any(|model| model.identity == *identity)
         }
     };
-    require(joined)
+    require(joined, at)
 }
 
 /// ASCII identifier grammar shared with the closed `Declaration` member.
@@ -440,22 +543,19 @@ fn is_identifier(value: &str) -> bool {
 }
 
 /// A nonempty qualified name whose every segment is an ASCII identifier.
-/// Shared by the three nominal preimage kinds that carry one (each call
-/// passing this module's own `PATH`) and by `super::validate_declaration`'s
-/// `Declaration.qualified_name` check (passing its own path), so the
+/// Shared by the three nominal preimage kinds that carry one and by
+/// `super::validate_declaration`'s `Declaration.qualified_name` check, so the
 /// grammar is checked in exactly one place regardless of which member holds
-/// the name.
+/// the name. `at` names the array; an empty name refuses there and a bad
+/// segment at that segment.
 pub(super) fn validate_qualified_name(
     name: &[Box<str>],
-    path: &'static str,
+    at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    if !name.is_empty() && name.iter().all(|segment| is_identifier(segment)) {
-        Ok(())
-    } else {
-        Err(ValidationFailure::Refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            path,
-        ))
+    require(!name.is_empty(), at)?;
+    match name.iter().position(|segment| !is_identifier(segment)) {
+        Some(segment) => Err(invalid(at().index(segment))),
+        None => Ok(()),
     }
 }
 
@@ -477,55 +577,81 @@ fn positive_integer(value: &str) -> bool {
         && bytes.all(|byte| byte.is_ascii_digit())
 }
 
+/// Validates the rational at `at`: a canonical numerator, a positive
+/// denominator, and the pair reduced (its GCD work charged at `at`).
 fn validate_rational(
     rational: &CheckedRational,
     meter: &mut WorkMeter,
+    at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    let numerator = integer_magnitude(&rational.numerator).ok_or_else(invalid)?;
-    require(positive_integer(&rational.denominator))?;
-    require(coprime(numerator, &rational.denominator, meter)?)
+    let numerator =
+        integer_magnitude(&rational.numerator).ok_or_else(|| invalid(at().key("numerator")))?;
+    require(positive_integer(&rational.denominator), || {
+        at().key("denominator")
+    })?;
+    require(coprime(numerator, &rational.denominator, meter, at)?, at)
 }
 
 fn validate_enum_declaration(
     declaration: &EnumDeclarationPreimage,
+    site: &Site<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_owner(&declaration.owner, lock)?;
-    validate_qualified_name(&declaration.qualified_declaration, PATH)?;
-    require(!declaration.members.is_empty())?;
+    validate_owner(&declaration.owner, lock, || site.preimage(&["owner"]))?;
+    validate_qualified_name(&declaration.qualified_declaration, &|| {
+        site.preimage(&["qualified_declaration"])
+    })?;
+    require(!declaration.members.is_empty(), || {
+        site.preimage(&["members"])
+    })?;
+    let member_at = |index: usize| site.preimage(&["members"]).index(index);
     let mut seen = BTreeSet::new();
-    for member in &declaration.members {
-        meter.charge(1)?;
-        require(is_identifier(member) && seen.insert(member.as_ref()))?;
+    for (index, member) in declaration.members.iter().enumerate() {
+        meter.charge(1, || member_at(index))?;
+        require(
+            is_identifier(member) && seen.insert(member.as_ref()),
+            || member_at(index),
+        )?;
     }
     if !declaration.ordered {
         // Identifiers are escape-free ASCII, so JCS key order is byte order.
-        require(
-            declaration
-                .members
-                .windows(2)
-                .all(|pair| matches!(pair, [left, right] if left < right)),
-        )?;
+        // The later member of the first out-of-order pair is at fault.
+        if let Some(pair) = declaration
+            .members
+            .windows(2)
+            .position(|pair| !matches!(pair, [left, right] if left < right))
+        {
+            return Err(invalid(member_at(pair.saturating_add(1))));
+        }
     }
     Ok(())
 }
 
 fn validate_enum_member(
-    node: &CheckedSemanticNodeV2,
+    site: &Site<'_>,
     member: &EnumMemberPreimage,
     graph: &NominalGraph<'_>,
 ) -> Result<(), ValidationFailure> {
-    require(is_identifier(&member.case))?;
+    let node = site.node;
+    require(is_identifier(&member.case), || site.preimage(&["case"]))?;
     let Some(NominalIdentityPreimage::EnumDeclaration(declaration)) =
         graph.preimage(&member.declaration_node_id)
     else {
-        return Err(invalid());
+        return Err(invalid(site.preimage(&["declaration_node_id"])));
     };
-    require(declaration.members.contains(&member.case))?;
-    require(node.semantic_type == member.declaration_node_id)?;
-    require(node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id))?;
-    let declared_type = serde_json::to_value(&member.declaration_node_id).map_err(|_| invalid())?;
+    require(declaration.members.contains(&member.case), || {
+        site.preimage(&["case"])
+    })?;
+    require(node.semantic_type == member.declaration_node_id, || {
+        site.member("semantic_type")
+    })?;
+    require(
+        node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id),
+        || site.member("dependencies"),
+    )?;
+    let declared_type = serde_json::to_value(&member.declaration_node_id)
+        .map_err(|_| invalid(site.preimage(&["declaration_node_id"])))?;
     require(
         node.body
             == json!({
@@ -534,38 +660,50 @@ fn validate_enum_member(
                 "value_kind": "enum",
                 "value": member.case.as_ref(),
             }),
+        || site.member("body"),
     )
 }
 
 fn validate_dimension(
-    node: &CheckedSemanticNodeV2,
+    site: &Site<'_>,
     dimension: &DimensionPreimage,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_owner(&dimension.owner, lock)?;
-    validate_qualified_name(&dimension.qualified_declaration, PATH)?;
-    require(node.semantic_type == node.node_id)?;
+    let node = site.node;
+    validate_owner(&dimension.owner, lock, || site.preimage(&["owner"]))?;
+    validate_qualified_name(&dimension.qualified_declaration, &|| {
+        site.preimage(&["qualified_declaration"])
+    })?;
+    require(node.semantic_type == node.node_id, || {
+        site.member("semantic_type")
+    })?;
+    let term_at = |index: usize| site.preimage(&["terms"]).index(index);
     let mut keys = Vec::with_capacity(dimension.terms.len());
     let mut bases = BTreeSet::new();
-    for term in &dimension.terms {
-        meter.charge(1)?;
-        let magnitude = integer_magnitude(&term.exponent).ok_or_else(invalid)?;
-        require(magnitude != "0")?;
-        require(bases.insert(&term.dimension_node_id))?;
+    for (index, term) in dimension.terms.iter().enumerate() {
+        meter.charge(1, || term_at(index))?;
+        let exponent_at = || term_at(index).key("exponent");
+        let magnitude = integer_magnitude(&term.exponent).ok_or_else(|| invalid(exponent_at()))?;
+        require(magnitude != "0", exponent_at)?;
+        let base_at = || term_at(index).key("dimension_node_id");
+        require(bases.insert(&term.dimension_node_id), base_at)?;
         let Some(NominalIdentityPreimage::Dimension(base)) =
             graph.preimage(&term.dimension_node_id)
         else {
-            return Err(invalid());
+            return Err(invalid(base_at()));
         };
-        require(base.terms.is_empty())?;
-        keys.push(serde_json::to_vec(term).map_err(|_| invalid())?);
+        require(base.terms.is_empty(), base_at)?;
+        keys.push(serde_json::to_vec(term).map_err(|_| invalid(term_at(index)))?);
     }
-    require(
-        keys.windows(2)
-            .all(|pair| matches!(pair, [left, right] if left < right)),
-    )?;
+    // The later term of the first out-of-order pair is at fault.
+    if let Some(pair) = keys
+        .windows(2)
+        .position(|pair| !matches!(pair, [left, right] if left < right))
+    {
+        return Err(invalid(term_at(pair.saturating_add(1))));
+    }
     let mut expected = dimension
         .terms
         .iter()
@@ -574,40 +712,55 @@ fn validate_dimension(
     let mut actual = node.dependencies.iter().collect::<Vec<_>>();
     expected.sort();
     actual.sort();
-    require(expected == actual)
+    require(expected == actual, || site.member("dependencies"))
 }
 
 fn validate_unit(
-    node: &CheckedSemanticNodeV2,
+    site: &Site<'_>,
     unit: &UnitPreimage,
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_owner(&unit.owner, lock)?;
-    validate_qualified_name(&unit.qualified_declaration, PATH)?;
-    require(matches!(
-        graph.preimage(&unit.dimension_node_id),
-        Some(NominalIdentityPreimage::Dimension(_))
-    ))?;
-    validate_rational(&unit.scale, meter)?;
-    validate_rational(&unit.offset, meter)?;
-    require(node.semantic_type == unit.dimension_node_id)?;
+    let node = site.node;
+    validate_owner(&unit.owner, lock, || site.preimage(&["owner"]))?;
+    validate_qualified_name(&unit.qualified_declaration, &|| {
+        site.preimage(&["qualified_declaration"])
+    })?;
+    require(
+        matches!(
+            graph.preimage(&unit.dimension_node_id),
+            Some(NominalIdentityPreimage::Dimension(_))
+        ),
+        || site.preimage(&["dimension_node_id"]),
+    )?;
+    validate_rational(&unit.scale, meter, &|| site.preimage(&["scale"]))?;
+    validate_rational(&unit.offset, meter, &|| site.preimage(&["offset"]))?;
+    require(node.semantic_type == unit.dimension_node_id, || {
+        site.member("semantic_type")
+    })?;
     let mut expected = vec![&unit.dimension_node_id];
     match &unit.target_unit_node_id {
         None => {
-            require(is_rational(&unit.scale, "1", "1") && is_rational(&unit.offset, "0", "1"))?;
+            require(is_rational(&unit.scale, "1", "1"), || {
+                site.preimage(&["scale"])
+            })?;
+            require(is_rational(&unit.offset, "0", "1"), || {
+                site.preimage(&["offset"])
+            })?;
         }
         Some(target) => {
-            require(unit.scale.numerator.as_ref() != "0")?;
+            require(unit.scale.numerator.as_ref() != "0", || {
+                site.preimage(&["scale", "numerator"])
+            })?;
             expected.push(target);
-            validate_unit_path(node, unit, graph, meter)?;
+            validate_unit_path(site, unit, graph, meter)?;
         }
     }
     let mut actual = node.dependencies.iter().collect::<Vec<_>>();
     expected.sort();
     actual.sort();
-    require(expected == actual)
+    require(expected == actual, || site.member("dependencies"))
 }
 
 fn is_rational(rational: &CheckedRational, numerator: &str, denominator: &str) -> bool {
@@ -615,21 +768,34 @@ fn is_rational(rational: &CheckedRational, numerator: &str, denominator: &str) -
 }
 
 /// Follows targets to a root; every hop is a same-dimension unit, acyclic.
+/// Each hop is charged, and refused, at the `target_unit_node_id` that names
+/// it — this node's own for the first hop, the previous unit's after that.
 fn validate_unit_path(
-    node: &CheckedSemanticNodeV2,
+    site: &Site<'_>,
     unit: &UnitPreimage,
     graph: &NominalGraph<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut visited = BTreeSet::from([&node.node_id]);
+    let link_at = |position: usize| {
+        node_pointer(position)
+            .key("nominal_identity_preimage")
+            .key("target_unit_node_id")
+    };
+    let mut visited = BTreeSet::from([&site.node.node_id]);
+    let mut from = site.position;
     let mut next = unit.target_unit_node_id.as_ref();
     while let Some(target) = next {
-        meter.charge(1)?;
-        require(visited.insert(target))?;
+        meter.charge(1, || link_at(from))?;
+        require(visited.insert(target), || link_at(from))?;
         let Some(NominalIdentityPreimage::Unit(target_unit)) = graph.preimage(target) else {
-            return Err(invalid());
+            return Err(invalid(link_at(from)));
         };
-        require(target_unit.dimension_node_id == unit.dimension_node_id)?;
+        require(
+            target_unit.dimension_node_id == unit.dimension_node_id,
+            || link_at(from),
+        )?;
+        // `graph.preimage` resolved `target`, so it is indexed.
+        from = graph.index.get(target).copied().unwrap_or(from);
         next = target_unit.target_unit_node_id.as_ref();
     }
     Ok(())

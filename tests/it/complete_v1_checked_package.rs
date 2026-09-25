@@ -11,7 +11,8 @@
 
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, incomplete, json_depth, refresh_identity,
-    refusal, typed_node_id, v2_all_families, ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
+    refusal, refusal_bytes, typed_node_id, unknown_version, v2_all_families,
+    ALL_FAMILIES_READ_WORK, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -193,7 +194,9 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
     let text = std::str::from_utf8(&bytes).expect("UTF-8 fixture");
 
     // Strict wire: a duplicated top-level member and a leading byte outside
-    // the canonical form both refuse before any node is considered.
+    // the canonical form both refuse before any node is considered. The
+    // duplicate names the repeated member; the non-canonical byte stream is
+    // about no value, so it carries no pointer.
     assert_eq!(
         refused_bytes(
             format!(
@@ -202,24 +205,26 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
             )
             .as_bytes(),
             &evidence,
+        ),
+        refusal(
+            CheckedPackageRefusalCode::DuplicateMember,
+            "/contract_version"
         )
-        .code,
-        CheckedPackageRefusalCode::DuplicateMember
     );
     let mut spaced = bytes.clone();
     spaced.push(b'\n');
     assert_eq!(
         refused_bytes(&spaced, &evidence),
-        refusal(CheckedPackageRefusalCode::NoncanonicalWire, "document")
+        refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
     );
 
     // version: an unrecognised contract_version refuses before any node,
-    // lock, or identity member is examined.
+    // lock, or identity member is examined, naming the version it read.
     let mut wrong_version = base.clone();
     wrong_version["contract_version"] = json!("quire.checked-package/v1");
     assert_eq!(
-        refused(&wrong_version, &evidence).code,
-        CheckedPackageRefusalCode::UnknownContractVersion
+        refused(&wrong_version, &evidence),
+        unknown_version("quire.checked-package/v1")
     );
 
     // identity: a tampered package digest refuses without admitting any node.
@@ -229,7 +234,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         refused(&stale_identity, &evidence),
         refusal(
             CheckedPackageRefusalCode::StaleDependency,
-            "package_id.digest"
+            "/package_id/digest"
         )
     );
 
@@ -242,7 +247,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         .pop();
     assert_eq!(
         refused(&missing_source, &evidence),
-        refusal(CheckedPackageRefusalCode::InvalidSourceMap, "source_map")
+        refusal(CheckedPackageRefusalCode::InvalidSourceMap, "/source_map")
     );
 
     // anchor: a source region rebound to an unlocked source refuses.
@@ -252,7 +257,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         refused(&unlocked_anchor, &evidence_for(&unlocked_anchor)),
         refusal(
             CheckedPackageRefusalCode::InvalidSourceMap,
-            "source_map.regions.source",
+            "/source_map/0/regions/0/source",
         )
     );
 
@@ -266,7 +271,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         refused(&dangling_dependency, &evidence_for(&dangling_dependency)),
         refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.dependencies",
+            "/semantic_graph/nodes/1/dependencies/0",
         )
     );
 
@@ -286,7 +291,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         refused(&dangling_target, &evidence_for(&dangling_target)),
         refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.body.target",
+            &format!("/semantic_graph/nodes/{expression}/body/target"),
         )
     );
 
@@ -298,7 +303,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         refused(&unknown_tag, &evidence),
         refusal(
             CheckedPackageRefusalCode::UnsupportedNodeTag,
-            "semantic_graph.nodes.node_tag",
+            "/semantic_graph/nodes/0/node_tag",
         )
     );
 
@@ -356,6 +361,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Bytes,
         exact.bytes,
+        None,
     );
     exact.bytes += 1;
 
@@ -366,6 +372,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Depth,
         exact.depth,
+        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/revision/namespace"),
     );
     exact.depth += 1;
 
@@ -376,6 +383,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Nodes,
         exact.nodes,
+        Some("/semantic_graph/nodes/17"),
     );
     exact.nodes += 1;
 
@@ -386,6 +394,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Occurrences,
         exact.occurrences,
+        Some("/source_map/17/regions/0"),
     );
     exact.occurrences += 1;
 
@@ -396,6 +405,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Work,
         exact.work,
+        Some("/semantic_graph/nodes/17/dependencies/3"),
     );
 
     // edges: node 1 (composite_type) carries no dependency edges in the base
@@ -422,6 +432,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &edge_evidence,
         CheckedPackageLimit::Edges,
         edges_with_one_more - 1,
+        Some("/semantic_graph/nodes/17/dependencies/3"),
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly
@@ -450,6 +461,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &diagnostic_evidence,
         CheckedPackageLimit::Diagnostics,
         0,
+        Some("/diagnostics/entries/0"),
     );
 }
 
@@ -459,10 +471,16 @@ fn assert_incomplete(
     evidence: &CheckedPackageEvidence,
     kind: CheckedPackageLimit,
     limit: u64,
+    path: Option<&str>,
 ) {
     match CheckedPackageV2::read(bytes, limits, evidence) {
         CheckedPackageV2ReadResult::Incomplete(actual) => {
-            assert_eq!(actual, incomplete(kind, limit, limit + 1), "{kind:?}");
+            assert_eq!(actual, incomplete(kind, limit, limit + 1, path), "{kind:?}");
+            // The pointer resolves in the package the reader was given.
+            if let Some(path) = path {
+                let package: Value = serde_json::from_slice(bytes).expect("fixture JSON");
+                assert!(package.pointer(path).is_some(), "{kind:?} {path}");
+            }
         }
         other => panic!("{kind:?} one over must be incomplete, got {other:?}"),
     }

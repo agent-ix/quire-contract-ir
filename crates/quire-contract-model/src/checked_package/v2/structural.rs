@@ -43,14 +43,33 @@ use super::{
     NominalIdentityPreimage, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
     ValueForm,
 };
-use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-const BODY_PATH: &str = "semantic_graph.nodes.body";
-const DEPENDENCIES_PATH: &str = "semantic_graph.nodes.dependencies";
-const SEMANTIC_TYPE_PATH: &str = "semantic_graph.nodes.semantic_type";
+/// The member of one node a structural defect is about.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Defect {
+    SemanticType,
+    Dependencies,
+    /// The node body itself.
+    Body,
+    /// One member of the node body's `aggregate`.
+    BodyMember(usize),
+}
+
+impl Defect {
+    fn pointer(self, position: usize) -> JsonPointer {
+        let node = node_pointer(position);
+        match self {
+            Self::SemanticType => node.key("semantic_type"),
+            Self::Dependencies => node.key("dependencies"),
+            Self::Body => node.key("body"),
+            Self::BodyMember(member) => node.key("body").key("members").index(member),
+        }
+    }
+}
 
 /// The graph one stage reads: each node with its decoded kind, by key.
 struct Graph<'a> {
@@ -230,10 +249,10 @@ pub(super) fn validate_structural_nodes(
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
-        let refuse = |path| {
-            ValidationFailure::RefusedAt(
+        let refuse = |defect: Defect| {
+            ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                path,
+                defect.pointer(position),
                 None,
                 node_id.clone(),
             )
@@ -243,21 +262,21 @@ pub(super) fn validate_structural_nodes(
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, &graph),
             None => None,
         };
-        if let Some(path) = defect {
-            return Err(refuse(path));
+        if let Some(defect) = defect {
+            return Err(refuse(defect));
         }
         if let Some(expected) = application_dependencies(&node.body) {
             if !node.dependencies.iter().eq(expected.iter()) {
-                return Err(refuse(DEPENDENCIES_PATH));
+                return Err(refuse(Defect::Dependencies));
             }
         }
     }
     Ok(())
 }
 
-/// The first rule a `value`/`parameter` node breaks, as the path it breaks
+/// The first rule a `value`/`parameter` node breaks, as the member it breaks
 /// it at.
-fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<&'static str> {
+fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
     let is_binder_type = node.semantic_type != node.node_id
         && graph.kind(&node.semantic_type).is_some_and(|kind| {
             matches!(
@@ -268,10 +287,10 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<&
             )
         });
     if !is_binder_type {
-        return Some(SEMANTIC_TYPE_PATH);
+        return Some(Defect::SemanticType);
     }
     let Some([name, level]) = aggregate_members(&node.body) else {
-        return Some(BODY_PATH);
+        return Some(Defect::Body);
     };
     let name_ok = binding(name, "name")
         .and_then(|value| literal(value, "text", ScalarTypeForm::Text, graph))
@@ -281,37 +300,40 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<&
         .and_then(|value| literal(value, "integer", ScalarTypeForm::Integer, graph))
         .and_then(Value::as_str)
         .is_some_and(is_non_negative_integer);
-    if !(name_ok && level_ok) {
-        return Some(BODY_PATH);
+    if !name_ok {
+        return Some(Defect::BodyMember(0));
+    }
+    if !level_ok {
+        return Some(Defect::BodyMember(1));
     }
     if !node.dependencies.is_empty() {
-        return Some(DEPENDENCIES_PATH);
+        return Some(Defect::Dependencies);
     }
     None
 }
 
-/// The first rule a `scalar_type`/`compound_unit` node breaks, as the path
+/// The first rule a `scalar_type`/`compound_unit` node breaks, as the member
 /// it breaks it at.
-fn compound_unit_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<&'static str> {
+fn compound_unit_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<Defect> {
     if node.semantic_type != node.node_id {
-        return Some(SEMANTIC_TYPE_PATH);
+        return Some(Defect::SemanticType);
     }
     let Some(terms) = aggregate_members(&node.body) else {
-        return Some(BODY_PATH);
+        return Some(Defect::Body);
     };
     let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
-    for term in terms {
+    for (index, term) in terms.iter().enumerate() {
         let Some(unit) = compound_unit_term(term, graph) else {
-            return Some(BODY_PATH);
+            return Some(Defect::BodyMember(index));
         };
         // Strictly ascending: canonical order and no repeated unit.
         if units.last().is_some_and(|previous| *previous >= unit) {
-            return Some(BODY_PATH);
+            return Some(Defect::BodyMember(index));
         }
         units.push(unit);
     }
     if node.dependencies != units {
-        return Some(DEPENDENCIES_PATH);
+        return Some(Defect::Dependencies);
     }
     None
 }

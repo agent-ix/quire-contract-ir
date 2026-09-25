@@ -27,7 +27,7 @@ use quire_contract_ir::{
     CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, JsonPointer,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -362,12 +362,42 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
     package
 }
 
+/// Parses an expected RFC 6901 pointer.
+pub fn pointer(text: &str) -> JsonPointer {
+    JsonPointer::parse(text).unwrap_or_else(|| panic!("not an RFC 6901 pointer: {text:?}"))
+}
+
+/// A refusal about the value at the RFC 6901 pointer `path`.
 pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRefusal {
     CheckedPackageRefusal {
         code,
-        path: path.into(),
+        path: Some(pointer(path)),
         cause: None,
         locus: None,
+        contract_version: None,
+    }
+}
+
+/// A refusal about the byte stream rather than a value: it carries no path.
+pub fn refusal_bytes(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
+    CheckedPackageRefusal {
+        code,
+        path: None,
+        cause: None,
+        locus: None,
+        contract_version: None,
+    }
+}
+
+/// `unknown_contract_version` at `/contract_version`, carrying the version
+/// string the reader read there.
+pub fn unknown_version(version: &str) -> CheckedPackageRefusal {
+    CheckedPackageRefusal {
+        code: CheckedPackageRefusalCode::UnknownContractVersion,
+        path: Some(pointer("/contract_version")),
+        cause: None,
+        locus: None,
+        contract_version: Some(version.into()),
     }
 }
 
@@ -382,21 +412,26 @@ pub fn refusal_at(
 ) -> CheckedPackageRefusal {
     CheckedPackageRefusal {
         code,
-        path: path.into(),
+        path: Some(pointer(path)),
         cause,
         locus: Some(typed_node_id(locus_digest)),
+        contract_version: None,
     }
 }
 
+/// The incomplete outcome for `kind`, charged at the value `path` names
+/// (`None` only for the byte limit).
 pub fn incomplete(
     kind: CheckedPackageLimit,
     limit: u64,
     consumed: u64,
+    path: Option<&str>,
 ) -> CheckedPackageIncomplete {
     CheckedPackageIncomplete {
         limit_kind: kind,
         limit,
         consumed,
+        path: path.map(pointer),
     }
 }
 
