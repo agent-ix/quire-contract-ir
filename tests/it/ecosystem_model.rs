@@ -622,13 +622,13 @@ fn tc_040_manifest_selection_executes_the_real_owner_bridge_path_end_to_end() {
         target.trace(),
         target.history(),
         target.history_requirement(),
-        target.request(),
-        target.evaluator_report(),
+        // `request`, `evaluator_report` and `tl_mapping` select quire-mltl (TL-181),
+        // which this frozen nine-repository manifest never names; `owner_selections`
+        // excludes them for the same reason.
         target.native_request(),
         target.native_result(),
         target.protocol_result(),
         target.protocol_mapping(),
-        target.tl_mapping(),
     ] {
         assert!(manifest_selects_contract(checked.nodes(), selection));
     }

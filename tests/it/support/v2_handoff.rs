@@ -275,8 +275,8 @@ fn write_handoff() -> Result<PathBuf, String> {
     remove_dir_if_present(&fresh)?;
     fs::create_dir_all(&fresh)
         .map_err(|error| format!("cannot create {}: {error}", fresh.display()))?;
-    write_v2(&fresh).map_err(|error| format!("QSL write_v2 failed: {error}"))?;
-    let sums = fresh.join(PUBLISHED_CHECKSUMS_FILE);
+    write_v2(&fresh.join("v2")).map_err(|error| format!("QSL write_v2 failed: {error}"))?;
+    let sums = fresh.join("v2").join(PUBLISHED_CHECKSUMS_FILE);
     let bytes =
         fs::read(&sums).map_err(|error| format!("cannot read {}: {error}", sums.display()))?;
     let name: String = Sha256::digest(&bytes)
@@ -290,7 +290,7 @@ fn write_handoff() -> Result<PathBuf, String> {
     }
     remove_dir_if_present(&fresh)?;
     if published.is_dir() {
-        Ok(published)
+        Ok(published.join("v2"))
     } else {
         Err(format!(
             "cannot publish the handoff at {}",
