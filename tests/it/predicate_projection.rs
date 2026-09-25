@@ -366,11 +366,11 @@ fn tc_038_owner_schema_and_selection_digests_are_exact() {
     );
     assert_eq!(
         current.signal_catalog().revision(),
-        "842d82553f045eb69a7f38745756d968254fc25e"
+        "4a5614193d21e5ae99950ae683b04ba0ec931358"
     );
     assert_eq!(
         current.proposition_map().revision(),
-        "842d82553f045eb69a7f38745756d968254fc25e"
+        "4a5614193d21e5ae99950ae683b04ba0ec931358"
     );
     assert_eq!(
         current.native().schema_digest(),

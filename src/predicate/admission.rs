@@ -56,14 +56,14 @@ impl TargetSelection {
                 "tl-syntax.signal-catalog/v1",
                 "0.1.0",
                 "agent-ix/tl-syntax",
-                "842d82553f045eb69a7f38745756d968254fc25e",
+                "4a5614193d21e5ae99950ae683b04ba0ec931358",
                 BridgeDigest::raw(tl_syntax::SIGNAL_CATALOG_V1_SCHEMA_BYTES),
             ),
             ContractSelection::new(
                 "tl-syntax.proposition-map/v1",
                 "0.1.0",
                 "agent-ix/tl-syntax",
-                "842d82553f045eb69a7f38745756d968254fc25e",
+                "4a5614193d21e5ae99950ae683b04ba0ec931358",
                 BridgeDigest::raw(tl_syntax::PROPOSITION_MAP_V1_SCHEMA_BYTES),
             ),
         )
