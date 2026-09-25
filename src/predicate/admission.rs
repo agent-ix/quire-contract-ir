@@ -43,6 +43,9 @@ impl TargetSelection {
     #[must_use]
     pub fn current() -> Self {
         Self::new(
+            // Intentionally frozen at the QSL revision whose schema bytes it
+            // names (they are unchanged since); the revision string is hashed
+            // into every predicate_ref, so moving it changes them all.
             ContractSelection::new(
                 "quire.checked-predicate/v1",
                 "0.2.0",

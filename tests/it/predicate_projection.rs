@@ -360,6 +360,7 @@ fn tc_038_projection_reader_rejects_noncanonical_unknown_and_trailing_bytes() {
 #[test]
 fn tc_038_owner_schema_and_selection_digests_are_exact() {
     let current = TargetSelection::current();
+    // Frozen at the revision whose schema bytes `native` names; hashed into every predicate_ref.
     assert_eq!(
         current.native().revision(),
         "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07"
