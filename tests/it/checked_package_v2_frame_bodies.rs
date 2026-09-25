@@ -16,13 +16,17 @@ use quire_contract_ir::{
 };
 use serde_json::Value;
 
-/// Mirrors the reader's private `BODY_MODIFIES_PATH` (`v2/mod.rs`).
-const BODY_MODIFIES_PATH: &str = "semantic_graph.nodes.body.modifies";
-/// Mirrors the reader's private generic frame-body path used for a
-/// canonical-order defect (`v2/mod.rs`'s `frame_defect`, the `order_defect`
-/// branch) — distinct from any one member's own path, since an order defect
-/// is located at the frame node itself, not at a member entry.
-const BODY_PATH: &str = "semantic_graph.nodes.body";
+/// The RFC 6901 pointer of entry `entry` of the frame node at `index`'s
+/// `modifies` member: a meaning-join defect is located at the entry itself.
+fn modifies_entry(index: usize, entry: usize) -> String {
+    format!("/semantic_graph/nodes/{index}/body/modifies/{entry}")
+}
+
+/// The pointer of the frame node at `index`'s body: a canonical-order defect
+/// is located at the frame body, not at any one member entry.
+fn frame_body(index: usize) -> String {
+    format!("/semantic_graph/nodes/{index}/body")
+}
 
 fn read(value: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
@@ -151,7 +155,7 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
         refusal,
         refusal_at(
             CheckedPackageRefusalCode::InvalidModelBinding,
-            BODY_MODIFIES_PATH,
+            &modifies_entry(index, 0),
             Some(CheckedPackageRefusalCause::MalformedDeclaration),
             &object_type_digest,
         ),
@@ -200,7 +204,7 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
             refused(&package),
             refusal_at(
                 CheckedPackageRefusalCode::MissingDeclaration,
-                BODY_MODIFIES_PATH,
+                &modifies_entry(index, 0),
                 Some(CheckedPackageRefusalCause::MissingName),
                 &digest,
             ),
@@ -246,10 +250,11 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     lower_frame["body"]["deletes"] = Value::Array(vec![process, object_type]);
 
     let mut package = base.clone();
-    package["semantic_graph"]["nodes"]
+    let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
-        .expect("nodes")
-        .push(lower_frame);
+        .expect("nodes");
+    let lower_index = nodes.len();
+    nodes.push(lower_frame);
 
     // The published frame's own body: a meaning-join defect, an entry naming
     // a real node it never declared as a dependency.
@@ -261,7 +266,7 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
         refused(&package),
         refusal_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            BODY_PATH,
+            &frame_body(lower_index),
             None,
             &lower_digest,
         ),

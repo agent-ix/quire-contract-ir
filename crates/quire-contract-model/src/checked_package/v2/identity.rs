@@ -12,10 +12,12 @@ use super::{
     CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
     ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{digest_json, node_pointer, ValidationFailure};
+use crate::checked_package::common::{
+    decoder_pointer, digest_json, node_pointer, ValidationFailure,
+};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The closed nominal identity preimage carried by a V2 node.
@@ -144,6 +146,79 @@ where
     D: Deserializer<'de>,
 {
     Option::<CheckedNodeId>::deserialize(deserializer)
+}
+
+/// Locates a decode failure the wire decoder could place no deeper than a
+/// nominal preimage: an internally tagged object whose members serde reads
+/// from a buffer it does not track. Decodes the variant the preimage's own
+/// `version` selects, with the tag removed, and then the internally tagged
+/// `owner` the same way, so the pointer names the member at fault. `at` is
+/// the preimage's pointer and `preimage` its value.
+pub(in crate::checked_package) fn locate_preimage_failure(
+    at: JsonPointer,
+    preimage: &Value,
+) -> JsonPointer {
+    let Some(object) = preimage.as_object() else {
+        return at;
+    };
+    let version = match object.get("version") {
+        Some(Value::String(version)) => version.as_str(),
+        Some(_) => return at.key("version"),
+        None => return at,
+    };
+    let mut members = object.clone();
+    members.remove("version");
+    let members = Value::Object(members);
+    let failure = match version {
+        "quire.enum-declaration-node/v1" => decode_failure::<EnumDeclarationPreimage>(&members),
+        "quire.enum-member-node/v1" => decode_failure::<EnumMemberPreimage>(&members),
+        "quire.dimension-node/v1" => decode_failure::<DimensionPreimage>(&members),
+        "quire.unit-node/v1" => decode_failure::<UnitPreimage>(&members),
+        _ => return at.key("version"),
+    };
+    let Some(path) = failure else {
+        return at;
+    };
+    let located = decoder_pointer(at.clone(), &path);
+    if located == at.clone().key("owner") {
+        if let Some(owner) = object.get("owner") {
+            return locate_owner_failure(located, owner);
+        }
+    }
+    located
+}
+
+fn decode_failure<T: serde::de::DeserializeOwned>(
+    value: &Value,
+) -> Option<serde_path_to_error::Path> {
+    serde_path_to_error::deserialize::<_, T>(value)
+        .err()
+        .map(|error| error.path().clone())
+}
+
+/// Locates a decode failure inside an internally tagged [`NominalOwner`] at
+/// `at`, checking members in the order the decoder reads them: the first
+/// member outside the `kind`'s closed set or not a string, else the owner
+/// itself for a missing member.
+fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
+    let Some(object) = owner.as_object() else {
+        return at;
+    };
+    let members: &[&str] = match object.get("kind") {
+        Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
+            &["kind", "authority", "identity"]
+        }
+        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
+        Some(_) => return at.key("kind"),
+        None => return at,
+    };
+    match object
+        .iter()
+        .find(|(key, value)| !members.contains(&key.as_str()) || !value.is_string())
+    {
+        Some((key, _)) => at.key(key),
+        None => at,
+    }
 }
 
 /// Which nominal preimage a `(node_tag, semantic_form)` pair requires.

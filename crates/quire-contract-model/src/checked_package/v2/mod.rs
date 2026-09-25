@@ -426,6 +426,22 @@ fn member_pointer(keys: &[&str]) -> JsonPointer {
         .fold(JsonPointer::root(), |pointer, key| pointer.key(key))
 }
 
+/// Carries a decode refusal the decoder located at a nominal preimage down to
+/// the member at fault (see [`identity::locate_preimage_failure`]).
+fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFailure {
+    let ValidationFailure::Refused(mut refusal) = failure else {
+        return failure;
+    };
+    if let Some(path) = refusal.path.take() {
+        let is_preimage = path.as_str().ends_with("/nominal_identity_preimage");
+        refusal.path = Some(match value.pointer(path.as_str()) {
+            Some(preimage) if is_preimage => identity::locate_preimage_failure(path, preimage),
+            _ => path,
+        });
+    }
+    ValidationFailure::Refused(refusal)
+}
+
 impl CheckedPackageV2 {
     /// Reads one canonical V2 value without exposing a partial package.
     pub fn read(
@@ -470,7 +486,9 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let wire = decode_closed::<CheckedPackageWireV2>(&value)?;
+        let wire = decode_closed::<CheckedPackageWireV2>(&value).map_err(|failure| {
+            locate_in_preimage(failure, &value)
+        })?;
         // A lossless decode: no member was defaulted, nulled or dropped.
         match serde_json::to_value(&wire) {
             Ok(decoded) if decoded == value => {}
@@ -2007,10 +2025,13 @@ fn validate_recursion(
                         .get(member)
                         .and_then(|node| node.recursion_group.as_ref())
                 };
+                // Members in graph order: the lowest-positioned member sets
+                // the group the others must share. The refusal names that
+                // member when it has no group, else the first member whose
+                // group differs — its `recursion_group` when it carries one,
+                // else the node object that lacks the member.
+                component.sort_unstable();
                 let first = component.first().and_then(|member| group_of(*member));
-                // The first member (in component order) lacking the shared
-                // group: its `recursion_group` when it carries a different
-                // one, else the node object that lacks the member.
                 let offender = if first.is_none() {
                     component.first().copied()
                 } else {

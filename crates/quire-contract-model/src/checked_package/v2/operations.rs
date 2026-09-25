@@ -1112,11 +1112,26 @@ mod tests {
         validate_application_keys, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
         CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
-        APPLICATION_NODE_VERSION, NODE_ID_PATH, OPERATION_ARGUMENTS_PATH, OPERATION_LAWS_PATH,
-        OPERATION_MEMBER_PATH, OPERATION_MODE_PATH, OPERATION_PATH, OPERATOR_PATH,
+        Application, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
-    use crate::checked_package::shared::{CheckedArtifactRef, CheckedRevision, CheckedSelection};
+    use crate::checked_package::shared::{
+        CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
+    };
+
+    fn pointer(text: &str) -> JsonPointer {
+        JsonPointer::parse(text).expect("test pointer")
+    }
+
+    /// The located refusal `operation_defect` builds, at `path`.
+    fn refused_at(
+        code: CheckedPackageRefusalCode,
+        path: &str,
+        cause: Option<CheckedPackageRefusalCause>,
+        locus: CheckedNodeId,
+    ) -> ValidationFailure {
+        ValidationFailure::refused_at(code, pointer(path), cause, locus)
+    }
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
@@ -1332,7 +1347,14 @@ mod tests {
         index.insert(&node.node_id, 0);
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
-        operation_defect(node, nodes, &kinds_of(nodes), &index, &lock, &mut meter)
+        operation_defect(
+            Application { node, position: 0 },
+            nodes,
+            &kinds_of(nodes),
+            &index,
+            &lock,
+            &mut meter,
+        )
     }
 
     /// Each node's kind, decoded as intake decodes it.
@@ -1359,7 +1381,10 @@ mod tests {
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         operation_defect(
-            &nodes[0],
+            Application {
+                node: &nodes[0],
+                position: 0,
+            },
             &nodes,
             &kinds_of(&nodes),
             &index,
@@ -1419,7 +1444,13 @@ mod tests {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
         let one = typed(&key(1));
         let group = [&one, &node.node_id];
-        let preimage = application_preimage(&node, &group).expect("preimage");
+        let preimage = application_preimage(
+            Application {
+                node: &node,
+                position: 0,
+            },
+            &group,
+        ).expect("preimage");
         // Spelled literally, as quire-spec-language's own vector does, rather
         // than produced by the serializer under test.
         let literal_ref = |fill: u8| {
@@ -1464,7 +1495,13 @@ mod tests {
         let node = grouped_node(1, body);
         let two = typed(&key(2));
         let group = [&node.node_id, &two];
-        let preimage = application_preimage(&node, &group).expect("preimage");
+        let preimage = application_preimage(
+            Application {
+                node: &node,
+                position: 0,
+            },
+            &group,
+        ).expect("preimage");
         let group_reference =
             |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
         let members = &preimage["body"]["members"];
@@ -1558,9 +1595,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_PATH,
+                "/semantic_graph/nodes/0/body/operation/identity",
                 Some(CheckedPackageRefusalCause::UnknownOperation),
                 node.node_id.clone(),
             ))),
@@ -1609,9 +1646,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATOR_PATH,
+                "/semantic_graph/nodes/0/body/operator",
                 Some(CheckedPackageRefusalCause::OperationClassMismatch),
                 node.node_id.clone(),
             ))),
@@ -1638,9 +1675,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws",
                 Some(CheckedPackageRefusalCause::OperationLawMissing),
                 node.node_id.clone(),
             ))),
@@ -1669,9 +1706,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1712,9 +1749,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/role",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1744,9 +1781,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/definition",
                 Some(CheckedPackageRefusalCause::OperationLawMismatch),
                 node.node_id.clone(),
             ))),
@@ -1782,9 +1819,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_LAWS_PATH,
+                "/semantic_graph/nodes/0/body/operation/laws/0/definition",
                 Some(CheckedPackageRefusalCause::OperationLawUnselected),
                 node.node_id.clone(),
             ))),
@@ -1811,9 +1848,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/mode",
                 Some(CheckedPackageRefusalCause::OperationModeMismatch),
                 node.node_id.clone(),
             ))),
@@ -1840,9 +1877,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MEMBER_PATH,
+                "/semantic_graph/nodes/0/body/operation/member",
                 Some(CheckedPackageRefusalCause::OperationMemberMismatch),
                 node.node_id.clone(),
             ))),
@@ -1870,9 +1907,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                OPERATION_ARGUMENTS_PATH,
+                "/semantic_graph/nodes/0/body/arguments",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node.node_id.clone(),
             ))),
@@ -1928,9 +1965,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                OPERATION_MEMBER_PATH,
+                "/semantic_graph/nodes/0/body/operation/member/name",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 root.node_id.clone(),
             ))),
@@ -1982,9 +2019,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/mode/value",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 root.node_id.clone(),
             ))),
@@ -2061,9 +2098,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::RefusedAt(
+            Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                OPERATION_MODE_PATH,
+                "/semantic_graph/nodes/0/body/operation/leaves/0/mode/value",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 root.node_id.clone(),
             ))),
@@ -2091,9 +2128,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ValidationFailure::RefusedAt(
+            Err(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                NODE_ID_PATH,
+                "/semantic_graph/nodes/0/node_id",
                 Some(CheckedPackageRefusalCause::StaleNodeKey),
                 node.node_id.clone(),
             )),
@@ -2136,9 +2173,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Some(ValidationFailure::Refused(
+            Ok(Some(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                OPERATION_PATH,
+                pointer("/semantic_graph/nodes/0/body/operation"),
             ))),
             "an operation member that does not deserialize as OperationWire must be refused \
              as invalid_semantic_graph, got {result:?}"

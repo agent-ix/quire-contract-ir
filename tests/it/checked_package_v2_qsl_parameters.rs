@@ -28,9 +28,15 @@ type Mutation = Box<dyn Fn(&mut Value)>;
 
 const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const APPLICATION_NODE: &str = "quire.application-node/v1";
-const BODY: &str = "semantic_graph.nodes.body";
-const DEPENDENCIES: &str = "semantic_graph.nodes.dependencies";
-const SEMANTIC_TYPE: &str = "semantic_graph.nodes.semantic_type";
+// Pointer suffixes below `/semantic_graph/nodes/{n}`: each structural
+// refusal names the member it is about.
+const BODY: &str = "/body";
+const NAME_BINDING: &str = "/body/members/0";
+const LEVEL_BINDING: &str = "/body/members/1";
+const FIRST_TERM: &str = "/body/members/0";
+const SECOND_TERM: &str = "/body/members/1";
+const DEPENDENCIES: &str = "/dependencies";
+const SEMANTIC_TYPE: &str = "/semantic_type";
 
 /// QSL FR-092 golden vector keys (quire-spec-language
 /// `spec/functional/FR-092-key-type-parameter-and-declared-nodes.md`).
@@ -318,10 +324,12 @@ fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
     package
 }
 
-fn invalid_at(package: &Value, position: usize, path: &str) -> CheckedPackageRefusal {
+/// `invalid_semantic_graph` at the node at `position`, pointing at `member`
+/// (a pointer suffix below that node).
+fn invalid_at(package: &Value, position: usize, member: &str) -> CheckedPackageRefusal {
     refusal_at(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
-        path,
+        &format!("/semantic_graph/nodes/{position}{member}"),
         None,
         &node_key(package, position),
     )
@@ -376,26 +384,33 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     let integer_literal_name = |node: &mut Value| {
         node["body"]["members"][0]["value"]["type"] = node_id(T2_INTEGER);
     };
-    let body_cases: [(&str, Mutation); 9] = [
+    // A body that is not the two-binding aggregate refuses at the body; a
+    // defective binding refuses at that binding.
+    let body_cases: [(&str, Mutation, &str); 9] = [
         (
             "reference body",
             Box::new(|node| node["body"] = reference(T1_BOOLEAN)),
+            BODY,
         ),
         (
             "literal body",
             Box::new(|node| node["body"] = literal(T3_TEXT, "text", "a")),
+            BODY,
         ),
         (
             "negative level",
             Box::new(|node| node["body"] = parameter_body("a", "-1")),
+            LEVEL_BINDING,
         ),
         (
             "non-canonical level",
             Box::new(|node| node["body"] = parameter_body("a", "00")),
+            LEVEL_BINDING,
         ),
         (
             "empty name",
             Box::new(|node| node["body"] = parameter_body("", "0")),
+            NAME_BINDING,
         ),
         (
             "missing level",
@@ -405,6 +420,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
                     .expect("members")
                     .pop();
             }),
+            BODY,
         ),
         (
             "bindings swapped",
@@ -414,8 +430,13 @@ fn tc_048_a_malformed_parameter_node_refuses() {
                     .expect("members")
                     .reverse();
             }),
+            NAME_BINDING,
         ),
-        ("name typed at Integer", Box::new(integer_literal_name)),
+        (
+            "name typed at Integer",
+            Box::new(integer_literal_name),
+            NAME_BINDING,
+        ),
         (
             "extra binding",
             Box::new(|node| {
@@ -424,11 +445,16 @@ fn tc_048_a_malformed_parameter_node_refuses() {
                     .expect("members")
                     .push(binding("level", literal(T2_INTEGER, "integer", "2")));
             }),
+            BODY,
         ),
     ];
-    for (case, mutate) in body_cases {
+    for (case, mutate, member) in body_cases {
         let package = mutated(P1, mutate);
-        assert_eq!(refused(&package), invalid_at(&package, P1, BODY), "{case}");
+        assert_eq!(
+            refused(&package),
+            invalid_at(&package, P1, member),
+            "{case}"
+        );
     }
 
     let with_dependency = mutated(P1, |node| {
@@ -454,7 +480,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
         refused(&declared),
         refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "semantic_graph.nodes.declaration"
+            &format!("/semantic_graph/nodes/{P1}/declaration")
         )
     );
 }
@@ -471,7 +497,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&zero_exponent),
-        invalid_at(&zero_exponent, COMPOUND, BODY)
+        invalid_at(&zero_exponent, COMPOUND, FIRST_TERM)
     );
 
     // A term names a root unit, never a dimension.
@@ -481,7 +507,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_dimension),
-        invalid_at(&names_dimension, COMPOUND, BODY)
+        invalid_at(&names_dimension, COMPOUND, FIRST_TERM)
     );
 
     let repeated_unit = mutated(COMPOUND, |node| {
@@ -493,7 +519,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&repeated_unit),
-        invalid_at(&repeated_unit, COMPOUND, BODY)
+        invalid_at(&repeated_unit, COMPOUND, SECOND_TERM)
     );
 
     let undeclared_dependency = mutated(COMPOUND, |node| node["dependencies"] = json!([]));
@@ -537,7 +563,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&descending),
-        invalid_at(&descending, COMPOUND, BODY)
+        invalid_at(&descending, COMPOUND, SECOND_TERM)
     );
 
     // A term names a root unit, never a unit with a target.
@@ -548,7 +574,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     });
     assert_eq!(
         refused(&names_non_root),
-        invalid_at(&names_non_root, COMPOUND, BODY)
+        invalid_at(&names_non_root, COMPOUND, FIRST_TERM)
     );
 
     // The empty body is the dimensionless unit, with no dependencies.
