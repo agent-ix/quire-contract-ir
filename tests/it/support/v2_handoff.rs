@@ -21,6 +21,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use qsl_foundation::{ByteDigest, Source, SourceIdentity};
 use quire_contract_model_owner::{
     SourceDocumentId, SourceIdentity as IrSourceIdentity, SourceRevision,
 };
@@ -29,7 +30,6 @@ use quire_spec_language::{
     model_source::{self, ModelSourceLimits},
     native_model::{ModelLimits, NativeModel},
     protocol_artifact::{self as artifact, v2, wire as w},
-    ByteDigest, Source, SourceIdentity,
 };
 
 // ---------------------------------------------------------------------------
@@ -523,6 +523,7 @@ impl Handoff {
                 sources: &inventories.sources,
                 dependencies: &inventories.dependencies,
                 models: &inventories.models,
+                domain_packages: &[],
             },
             temporal: &inventories.temporal,
         }
@@ -751,6 +752,8 @@ fn admit_model(
 ) -> Result<NativeModel, Absence> {
     let source = Source::read(
         SourceIdentity {
+            authority: selected.source.native.authority.clone(),
+            revision_namespace: selected.source.native.revision_namespace.clone(),
             identity: selected.source.native.identity.clone(),
             revision: selected.source.native.revision.clone(),
         },
