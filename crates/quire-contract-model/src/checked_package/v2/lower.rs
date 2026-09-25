@@ -518,7 +518,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
-            | ScalarTypeForm::Enum,
+            | ScalarTypeForm::Enum
+            | ScalarTypeForm::CompoundUnit,
         ) => false,
         K::CompositeType(
             CompositeTypeForm::Sequence
@@ -548,7 +549,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
-            | ValueForm::OptionValue,
+            | ValueForm::OptionValue
+            | ValueForm::Parameter,
         ) => false,
         K::Expression(
             ExpressionForm::Reference

@@ -201,6 +201,50 @@ occurrence-free identity projection it compares against
 `declaration`, a literal `type` or an application `operation` refuses rather
 than admitting a projection that disagrees with the graph.
 
+### Parameter and compound-unit nodes, and the application dependency join
+
+A `value` node may carry the `parameter` form and a `scalar_type` node the
+`compound_unit` form: the parameter node QSL FR-092 builds for each binder
+(a function parameter, a `let` name, a query, `count`, `sum`, `fold` or
+`reduce` binder) and the anonymous quantity type QSL FR-094 builds for a
+product, quotient or power of units. QSpec FR-322's published form list
+does not yet name either; QSL proposes both, and the reader admits them in
+exactly the shapes QSL fixes.
+
+A `value`/`parameter` node carries no `declaration`. Its `semantic_type` is
+its binder's type: a `scalar_type`, `composite_type` or `bounded_domain`
+node other than itself. Its body is exactly `aggregate{[binding "name" = a
+non-empty `text` literal typed at a `scalar_type`/`text` node, binding
+"level" = an `integer` literal typed at a `scalar_type`/`integer` node whose
+value is a canonical non-negative decimal string]}`, and its `dependencies`
+is empty.
+
+A `scalar_type`/`compound_unit` node carries no `declaration` and is its own
+semantic type. Its body is an `aggregate` of terms, each exactly
+`aggregate{[binding "unit" = reference to a root `scalar_type`/`unit` node
+(its nominal preimage has no target unit), binding "exponent" = an `integer`
+literal typed at a `scalar_type`/`integer` node whose value is a canonical
+nonzero decimal string]}`, strictly ascending by unit node key. Its
+`dependencies` is exactly those unit keys in that order. The empty body is
+the dimensionless unit.
+
+A node whose body contains an `application` term at any depth has
+`dependencies` exactly the unique, digest-ascending reference targets and
+operation member declarations of its body (FR-322
+`application_node_preimage`); a `result_type` or literal `type` is not a
+dependency. The join applies to every node whose body contains an
+application, not only to a node whose body root is one: that is the set of
+nodes QSL's emitter writes the join for. A member `declaration` that is not
+a node key is left to the operation stage's refusal.
+
+Any violation refuses as `invalid_semantic_graph` at the member that breaks
+the rule (`semantic_graph.nodes.body`, `.dependencies` or `.semantic_type`),
+located at the offending node, at the first such node in ascending node-id
+digest order. A `declaration` on either form refuses as the declaration rule
+above does. These are graph-shape refusals: they precede the stale-key
+stage. The reader re-derives neither form's node key: QSL keys both by its
+proposed `quire.structural-node/v1` preimage, which QSpec does not publish.
+
 ### Frame bodies
 
 A `state` node of `semantic_form` `frame` carries a frame body, and only a
@@ -347,6 +391,8 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
 | FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and independently attested by the package evidence; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. This criterion is class 2 of the total order below and outranks class 3 (`digest_domain_mismatch`) and class 5 (`stale_dependency`): a same-identity, different-version pair refuses `malformed_wire` even when one of its entries also carries a declared-domain mismatch or a digest the evidence does not attest, whichever of the two entries carries that second defect. | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
+| FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers, and its structural and application keys equal QSL FR-092's vectors; a parameter with a negative, non-canonical or missing level, an empty or wrongly typed name, an extra binding, a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
+| FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 
 ## Dependencies
 
