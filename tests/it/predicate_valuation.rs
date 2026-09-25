@@ -57,7 +57,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .result_contract()
             .expect("result selection")
             .revision(),
-        "a84dfdd305562eb0695304d08361a280c22e07c6"
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
     );
     assert_eq!(
         decision
@@ -71,7 +71,7 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
             .mapping_contract()
             .expect("mapping selection")
             .revision(),
-        "a84dfdd305562eb0695304d08361a280c22e07c6"
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
     );
     assert_eq!(
         decision

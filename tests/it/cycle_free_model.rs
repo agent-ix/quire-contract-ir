@@ -161,10 +161,10 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             "quire-observation",
             "2bdeb833a330bfa777c19eb4c28c423f856f3ba6",
         ),
-        ("quire-protocol", "a84dfdd305562eb0695304d08361a280c22e07c6"),
+        ("quire-protocol", "035fed1a4903dac5d5ef8c08b80195d3f11dadde"),
         (
             "quire-spec-language",
-            "51245876e0d406aeed3047c608ad478b53b19205",
+            "9395be4268e650ca2753204d6d306c9cd7b453ec",
         ),
         ("tl-syntax", "4a5614193d21e5ae99950ae683b04ba0ec931358"),
     ] {
@@ -283,7 +283,7 @@ fn tc_041_bridge_and_real_qsl_owner_api_compose_without_a_cycle() {
     let qsl_source = qsl["source"]
         .as_str()
         .expect("QSL composition dependency must retain its immutable git source");
-    assert!(qsl_source.contains("51245876e0d406aeed3047c608ad478b53b19205"));
+    assert!(qsl_source.contains("9395be4268e650ca2753204d6d306c9cd7b453ec"));
     let bridge = package(&composition, "quire-contract-ir");
     assert_eq!(bridge["source"], Value::Null);
 

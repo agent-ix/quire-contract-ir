@@ -543,7 +543,7 @@ fn result_contract_selection() -> ContractSelection {
         quire_protocol::result::CONTRACT,
         "0.1.0",
         "agent-ix/quire-protocol",
-        "a84dfdd305562eb0695304d08361a280c22e07c6",
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde",
         BridgeDigest::raw(quire_protocol::result::SCHEMA_BYTES),
     )
 }
@@ -553,7 +553,7 @@ fn mapping_contract_selection() -> ContractSelection {
         quire_protocol::result::contract_ir::CONTRACT,
         "0.1.0",
         "agent-ix/quire-protocol",
-        "a84dfdd305562eb0695304d08361a280c22e07c6",
+        "035fed1a4903dac5d5ef8c08b80195d3f11dadde",
         BridgeDigest::raw(quire_protocol::result::contract_ir::SCHEMA_BYTES),
     )
 }

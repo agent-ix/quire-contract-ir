@@ -20,8 +20,8 @@ path = "src/lib.rs"
 [dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 quire-observation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-observation", rev = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6" }
-quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "a84dfdd305562eb0695304d08361a280c22e07c6" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "035fed1a4903dac5d5ef8c08b80195d3f11dadde" }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "9395be4268e650ca2753204d6d306c9cd7b453ec", default-features = false }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
 serde_stacker = "=0.1.11"
@@ -39,21 +39,21 @@ tl-mltl = { version = "=0.3.0", git = "https://github.com/agent-ix/tl-mltl", rev
 # tl-mltl's OwnerLimits/ValidatedTrace), so quire-mltl is pinned to the rev
 # that moves it onto tl-mltl v0.3.0 (agent-ix/quire-mltl#5); its v0.1.0 tag
 # still pins the pre-0.3 tl-mltl.
-quire-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-mltl", rev = "06bd57fd1a3f4920029ce171f1e95211e0816086" }
+quire-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-mltl", rev = "128929b2e3868861677c6a748e2973e6476c74c3" }
 
 [dev-dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
 agent-ix-baseline-producer = { version = "=0.0.0", git = "https://github.com/agent-ix/filament-core-data", rev = "a6fe662542770e6acbec4917cfe1772b349ee414" }
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", tag = "v0.1.1" }
 jsonschema = { version = "=0.17.1", default-features = false }
-quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "dc03aa4ecfbce9958efe6d766497d44c44e1200a" }
-qsl-foundation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205" }
-quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "51245876e0d406aeed3047c608ad478b53b19205", default-features = false }
+quire-contract-model-owner = { package = "quire-contract-model", version = "=0.1.0", git = "https://github.com/agent-ix/quire-contract-ir", rev = "7b1ec7a19f031dcea433293a25af57f0bb6a14f8" }
+qsl-foundation = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "9395be4268e650ca2753204d6d306c9cd7b453ec" }
+quire-spec-language = { version = "=0.2.0", git = "https://github.com/agent-ix/quire-spec-language", rev = "9395be4268e650ca2753204d6d306c9cd7b453ec", default-features = false, features = ["handoff-writer"] }
 sha2 = "=0.10.9"
 # Same pin as [dependencies]; tests only. `test-support` exposes
 # quire_protocol::result::test_support, the validated-result constructors
 # tests/it/support/result_fixture.rs builds its results with (TL-194).
-quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "a84dfdd305562eb0695304d08361a280c22e07c6", features = ["test-support"] }
+quire-protocol = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-protocol", rev = "035fed1a4903dac5d5ef8c08b80195d3f11dadde", features = ["test-support"] }
 
 [profile.release]
 lto = "thin"
