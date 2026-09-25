@@ -334,6 +334,24 @@ shape (a `Selection` or `DefinitionRef` where a `DependencySelection` belongs)
 refuses `malformed_wire` at the entry; an entry carrying every required member
 and one more refuses `unknown_member` at the extra member.
 
+### Closed vocabularies are decoded once
+
+Every closed vocabulary the reader depends on is decoded to an enum where its
+wire text is read, and everything past that read matches the enum, exhaustively
+and without a catch-all arm, so a member added to a vocabulary is a compile
+error at each site that must decide what it means. The vocabularies are the
+node family and its forms, selection role, capability disposition, the
+semantic term's `term` tag, a literal's `value_kind`, an application's
+`operator`, and the operation catalog's law roles, mode kinds, member kinds
+and constraint kinds. The functions that read wire text (the reader's version,
+domain and algorithm checks, the body-member readers, the catalog and
+domain-package readers, the vocabulary decoders themselves) carry a
+`// string-edge:` marker naming why; a comparison of a user value that selects
+no behaviour is listed with its reason in `tests/it/string_edge.rs`. The bounded-Kani
+modules under `src/kani/` read Kani's transcript text the same way: the check
+kind and the Boolean decoded-value comment are decoded once, where the
+transcript is read.
+
 ### Parameter and compound-unit nodes, and the application dependency join
 
 A `value` node may carry the `parameter` form and a `scalar_type` node the
@@ -536,6 +554,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. QSpec's published two-entry package (`dependency-selection-vectors.json`, read from `QSPEC_DIR`) admits and its recorded `package_id` recomputes from the entries. | Test (TC-048) |
 | FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `version`, `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry; and each of QSpec's six entry mutations refuses with the code its vector records, at the mutated entry. | Test (TC-048) |
 | FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. QSpec's `order_vectors` decide the same way through the reader. | Test (TC-048) |
+| FR-038-AC-34 | Non-test source under `src/kani/` and the model crate's `checked_package/` reads no wire string after intake: an `==`/`!=` against a string literal or constant, a string `match` arm or `matches!` pattern, a `starts_with`/`strip_prefix` test or a `from_wire` call outside a function marked `// string-edge:` or listed with its reason in the test's allow-list fails the gate, as does a marker or allow-list row whose function reads no string. | Test (TC-048) |
 
 ## Dependencies
 

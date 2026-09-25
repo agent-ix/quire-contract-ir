@@ -17,7 +17,8 @@ FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors, and
 FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
-`DependencySelection` entries of a self-built package. QSpec's
+`DependencySelection` entries of a self-built package, and FR-038-AC-34
+against the reader's and the bounded-Kani modules' own source. QSpec's
 own TC-280, TC-281 and `dependency-selection-vectors.json` vectors run through the same reader under
 `make qspec-vectors`, which reads them from the checkout `QSPEC_DIR` names.
 
@@ -104,6 +105,17 @@ whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one. Run QSpec's valid package, six entry
 mutations and three order vectors through the same reader under
 `make qspec-vectors`.
+
+## String edge (FR-038-AC-34)
+
+Scan the non-test source of `src/kani/` and `checked_package/` for string
+reads and compare the unmarked, unlisted ones with the empty set. Scan a
+synthetic source for each kind of read (literal and constant comparison,
+`as_ref` comparison, match arm, or-pattern, `matches!`, prefix test, downstream
+`from_wire`, `Some("..")` comparison) and require a hit, and for enum
+comparisons, comments, a `#[cfg(test)]` module and a marked edge and require
+none. Reintroduce one string match in a function that is not an edge and
+confirm the gate names it.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 
