@@ -59,13 +59,16 @@ use super::model_members::{
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
-    BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
-    CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
-    RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+    BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
+    CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm, OperationConstraintKind,
+    OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{decoder_pointer, digest_json, node_pointer};
+use crate::checked_package::common::{
+    application_operator, body_term, decoder_pointer, digest_json, node_pointer,
+};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -106,7 +109,7 @@ impl Application<'_> {
 }
 
 fn is_application(body: &Value) -> bool {
-    body.get("term").and_then(Value::as_str) == Some("application")
+    body_term(body) == Some(BodyTerm::Application)
 }
 
 /// Every application node's `node_id` re-derived from its own visible
@@ -206,8 +209,8 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
         return term.clone();
     }
     let mut rewritten = term.clone();
-    match term.get("term").and_then(Value::as_str) {
-        Some("reference") => {
+    match body_term(term) {
+        Some(BodyTerm::Reference) => {
             let target = term
                 .get("target")
                 .and_then(|target| serde_json::from_value::<CheckedNodeId>(target.clone()).ok());
@@ -217,7 +220,7 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
                 return json!({ "term": "group_reference", "ordinal": ordinal });
             }
         }
-        Some("application") => {
+        Some(BodyTerm::Application) => {
             if let Some(arguments) = term.get("arguments").and_then(Value::as_array) {
                 rewritten["arguments"] = Value::Array(
                     arguments
@@ -227,7 +230,7 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
                 );
             }
         }
-        Some("aggregate") => {
+        Some(BodyTerm::Aggregate) => {
             if let Some(members) = term.get("members").and_then(Value::as_array) {
                 rewritten["members"] = Value::Array(
                     members
@@ -237,12 +240,12 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
                 );
             }
         }
-        Some("binding") => {
+        Some(BodyTerm::Binding) => {
             if let Some(value) = term.get("value") {
                 rewritten["value"] = group_references(value, group);
             }
         }
-        _ => {}
+        Some(BodyTerm::Literal | BodyTerm::Frame) | None => {}
     }
     rewritten
 }
@@ -257,6 +260,17 @@ struct OperationWire {
     leaves: Vec<OperationLeafWire>,
 }
 
+impl OperationWire {
+    /// The wire member's decoded `kind`: `None` when the operation carries no
+    /// member (or one without a string `kind`), `Some(None)` when the `kind`
+    /// is outside the catalog's vocabulary.
+    // string-edge: decodes the wire member kind.
+    fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
+        let kind = self.member.as_ref()?.get("kind")?.as_str()?;
+        Some(OperationMemberKind::from_wire(kind))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OperationLawWire {
@@ -264,11 +278,27 @@ struct OperationLawWire {
     definition: CheckedArtifactRef,
 }
 
+impl OperationLawWire {
+    /// The law's decoded role; `None` outside the catalog's vocabulary.
+    // string-edge: decodes the wire law role.
+    fn role_class(&self) -> Option<LawRole> {
+        LawRole::from_wire(&self.role)
+    }
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 struct OperationModeWire {
     kind: Box<str>,
     value: Box<str>,
+}
+
+impl OperationModeWire {
+    /// The mode's decoded kind; `None` outside the catalog's vocabulary.
+    // string-edge: decodes the wire mode kind.
+    fn kind_class(&self) -> Option<OperationModeKind> {
+        OperationModeKind::from_wire(&self.kind)
+    }
 }
 
 #[derive(Deserialize)]
@@ -357,7 +387,7 @@ fn operation_defect(
     let Some(body) = node.body.as_object() else {
         return Ok(None);
     };
-    let operator = body.get("operator").and_then(Value::as_str).unwrap_or("");
+    let operator = application_operator(&node.body);
     let Some(operation_value) = body.get("operation") else {
         return Ok(None);
     };
@@ -395,7 +425,7 @@ fn operation_defect(
             CheckedPackageRefusalCause::UnknownOperation,
         );
     };
-    if operator != entry.operator.as_ref() {
+    if operator != Some(entry.operator) {
         return refuse(
             application.body(&["operator"]),
             CheckedPackageRefusalCause::OperationClassMismatch,
@@ -425,7 +455,8 @@ fn operation_defect(
         );
     }
     for (law_index, (law, role)) in operation.laws.iter().zip(entry.laws.iter()).enumerate() {
-        if law.role.as_ref() != role.as_ref() {
+        let role = *role;
+        if law.role_class() != Some(role) {
             return refuse(
                 law_at(law_index, "role"),
                 CheckedPackageRefusalCause::OperationLawMismatch,
@@ -439,10 +470,9 @@ fn operation_defect(
         // `text_profile`) is closed over `law_roles`, so a definition
         // outside that fixed list is a mismatch before the lock is
         // consulted at all.
-        let selected = if catalog.is_profile_role(role) {
+        let selected = if let Some(selection_role) = role.selection_role() {
             lock.profile_selections.iter().any(|selection| {
-                CheckedSelectionRole::from_wire(role) == Some(selection.role)
-                    && selection.definition == law.definition
+                selection.role == selection_role && selection.definition == law.definition
             })
         } else {
             let catalogued = catalog.law_role_definitions(role);
@@ -473,7 +503,7 @@ fn operation_defect(
     };
     match (&entry.mode, &operation.mode) {
         (None, None) => {}
-        (Some(kind), Some(mode)) if mode.kind.as_ref() == kind.as_ref() => {}
+        (Some(kind), Some(mode)) if mode.kind_class() == Some(*kind) => {}
         (Some(_), Some(_)) => {
             return refuse(
                 application.body(&["operation", "mode", "kind"]),
@@ -487,14 +517,12 @@ fn operation_defect(
             )
         }
     }
-    let wire_member_kind = operation
-        .member
-        .as_ref()
-        .and_then(|member| member.get("kind"))
-        .and_then(Value::as_str);
-    match (&entry.member, wire_member_kind) {
+    // Outer `Some` is a member on the wire; inner `None` is a `kind` outside
+    // the catalog's vocabulary, which no entry's member matches.
+    let wire_member_kind = operation.member_kind_class();
+    match (entry.member, wire_member_kind) {
         (None, None) => {}
-        (Some(kind), Some(wire_kind)) if kind.as_ref() == wire_kind => {}
+        (Some(kind), Some(Some(wire_kind))) if kind == wire_kind => {}
         _ => {
             return refuse(
                 member_or_operation("member"),
@@ -522,16 +550,25 @@ fn operation_defect(
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
         return Ok(Some(failure));
     }
-    let member_kind = match wire_member_kind {
-        Some("field") => Some(MemberKind::Field),
-        Some("operation") => Some(MemberKind::Operation),
-        _ => None,
+    let member_kind = match wire_member_kind.flatten() {
+        Some(OperationMemberKind::Field) => Some(MemberKind::Field),
+        Some(OperationMemberKind::Operation) => Some(MemberKind::Operation),
+        Some(
+            OperationMemberKind::Position
+            | OperationMemberKind::Element
+            | OperationMemberKind::RelationshipEnd
+            | OperationMemberKind::TypeArgument
+            | OperationMemberKind::ProfileOperator,
+        )
+        | None => None,
     };
     if let Some(kind) = member_kind {
-        let declaring = member_declaration(&operation)
-            .and_then(|declaration| Some(&nodes[*index.get(&declaration)?]));
+        let declaring = member_declaration(&operation).and_then(|declaration| {
+            let position = *index.get(&declaration)?;
+            Some((&nodes[position], kinds[position].tag()))
+        });
         match declaring {
-            Some(declaring) if owners.is_model_declaration_node(declaring) => {
+            Some((declaring, tag)) if owners.is_model_declaration_node(declaring, tag) => {
                 if let Some(failure) = check_model_member(
                     application,
                     &operation,
@@ -589,20 +626,21 @@ fn argument_family(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
-    match argument.get("term").and_then(Value::as_str) {
-        Some("reference") => {
+    match body_term(argument) {
+        Some(BodyTerm::Reference) => {
             let type_node = operand_type_node(argument, nodes, kinds, index)?;
             resolve_family(&type_node, nodes, kinds, index, 0)
         }
-        Some("binding") => Some("binder"),
-        _ => None,
+        Some(BodyTerm::Binding) => Some("binder"),
+        Some(BodyTerm::Literal | BodyTerm::Application | BodyTerm::Aggregate | BodyTerm::Frame)
+        | None => None,
     }
 }
 
 /// The direct (unreduced) type-node id an argument's target carries, used by
 /// [`check_mode_type`]/[`check_leaves`] to find a type-pinned mode.
 fn argument_type_id(argument: &Value) -> Option<CheckedNodeId> {
-    if argument.get("term").and_then(Value::as_str) != Some("reference") {
+    if body_term(argument) != Some(BodyTerm::Reference) {
         return None;
     }
     serde_json::from_value(argument.get("target")?.clone()).ok()
@@ -958,8 +996,8 @@ fn check_operands(
         if indices.iter().any(|position| *position >= arguments.len()) {
             continue;
         }
-        match constraint.kind.as_ref() {
-            "same_family" => {
+        match constraint.kind {
+            OperationConstraintKind::SameFamily => {
                 let families: Option<Vec<&str>> = indices
                     .iter()
                     .map(|position| argument_family(&arguments[*position], nodes, kinds, index))
@@ -970,7 +1008,7 @@ fn check_operands(
                     }
                 }
             }
-            "same_type" => {
+            OperationConstraintKind::SameType => {
                 let types: Option<Vec<CheckedNodeId>> = indices
                     .iter()
                     .map(|position| argument_type_id(&arguments[*position]))
@@ -981,7 +1019,7 @@ fn check_operands(
                     }
                 }
             }
-            "conforming_reference" => {
+            OperationConstraintKind::ConformingReference => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_conforming_reference(
                         application,
@@ -995,7 +1033,21 @@ fn check_operands(
                     }
                 }
             }
-            _ => {}
+            // The catalog declares these, and this reader enforces none of
+            // them (see the module documentation); each is named so a member
+            // added to the vocabulary is a compile error here.
+            OperationConstraintKind::SameDimension
+            | OperationConstraintKind::InnerType
+            | OperationConstraintKind::MemberOf
+            | OperationConstraintKind::MemberFamily
+            | OperationConstraintKind::BoundFamily
+            | OperationConstraintKind::BoundIsMember
+            | OperationConstraintKind::ExactConversion
+            | OperationConstraintKind::RangeNarrowing
+            | OperationConstraintKind::RationalNarrowing
+            | OperationConstraintKind::ScaleReduction
+            | OperationConstraintKind::PromotesExact
+            | OperationConstraintKind::UniformRest => {}
         }
     }
     Ok(None)
@@ -1064,7 +1116,7 @@ fn check_conforming_reference(
             return Ok(None);
         };
         let target_node = &graph.nodes[*target_position];
-        if !owners.is_model_declaration_node(target_node) {
+        if !owners.is_model_declaration_node(target_node, graph.kinds[*target_position].tag()) {
             return ineligible(position);
         }
         match owners.recover(target_node) {
@@ -1101,6 +1153,7 @@ fn check_conforming_reference(
 /// the operand's `Reference<X>` names, and that node has a family, so a
 /// `deref` of a relationship reference types nothing an operand admits.
 /// Other `inner:<n>` operands are not checked here.
+// string-edge: parses the catalog's `inner:<n>` result-form text.
 fn check_inner_result(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
@@ -1242,7 +1295,7 @@ fn check_field_member(
     let declaring = &nodes[*index.get(&declaration)?];
     let members = declaring.body.get("members")?.as_array()?;
     let declared = members.iter().any(|entry| {
-        entry.get("term").and_then(Value::as_str) == Some("binding")
+        body_term(entry) == Some(BodyTerm::Binding)
             && entry.get("name").and_then(Value::as_str) == Some(name)
     });
     if declared {
@@ -1290,11 +1343,11 @@ fn record_field_type(
     let declaring = &nodes[*index.get(record_type)?];
     let members = declaring.body.get("members")?.as_array()?;
     let binding = members.iter().find(|entry| {
-        entry.get("term").and_then(Value::as_str) == Some("binding")
+        body_term(entry) == Some(BodyTerm::Binding)
             && entry.get("name").and_then(Value::as_str) == Some(field)
     })?;
     let value = binding.get("value")?;
-    if value.get("term").and_then(Value::as_str) != Some("reference") {
+    if body_term(value) != Some(BodyTerm::Reference) {
         return None;
     }
     serde_json::from_value(value.get("target")?.clone()).ok()
@@ -1314,7 +1367,7 @@ fn type_pin(
     let node = &nodes[*index.get(type_id)?];
     let members = node.body.get("members")?.as_array()?;
     let binding = members.iter().find(|entry| {
-        entry.get("term").and_then(Value::as_str) == Some("binding")
+        body_term(entry) == Some(BodyTerm::Binding)
             && entry.get("name").and_then(Value::as_str) == Some(kind)
     })?;
     binding.get("value")?.get("value")?.as_str().map(Box::from)
@@ -1331,7 +1384,10 @@ fn check_mode_type(
     catalog: &super::operation_catalog::OperationCatalog,
 ) -> Option<ValidationFailure> {
     let mode = operation.mode.as_ref()?;
-    if !catalog.is_type_pinned_mode(&mode.kind) {
+    let Some(mode_kind) = mode.kind_class() else {
+        return None;
+    };
+    if !catalog.is_type_pinned_mode(mode_kind) {
         return None;
     }
     for (position, expected) in entry.operands.iter().enumerate() {
@@ -1409,12 +1465,13 @@ mod model_member_vectors;
 
 #[cfg(test)]
 mod tests {
+    use super::super::CheckedSelectionRole;
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, Graph, ModelOwners,
-        ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
+        CheckedSemanticNodeV2, ExpressionForm, Graph, ModelOwners, ValidationFailure, WorkMeter,
+        APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{
@@ -1937,7 +1994,7 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!("{CATALOGUED_IDENTITY} must be catalogued for this control to be meaningful")
             });
-        assert_eq!(entry.operator.as_ref(), "binary");
+        assert_eq!(entry.operator.as_wire(), "binary");
         assert_eq!(entry.operands.len(), 2);
 
         let node = application_node(CATALOGUED_IDENTITY, "binary");

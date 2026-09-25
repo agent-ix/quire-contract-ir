@@ -15,13 +15,16 @@
 //! | selection role | `lock.*_selections.role`, `lock.edition.role` | [`CheckedSelectionRole`] |
 //! | capability disposition | `capability_report.disposition` | [`CheckedCapabilityDisposition`] |
 //!
-//! The semantic term grammar inside a node `body` is read at the wire edge
-//! as JSON, not decoded into an enum here: its `term` tag (`literal`,
-//! `reference`, `application`, ..., and `frame` for a frame body), an
-//! operation member's `kind` and an operation mode's `kind` are matched as
-//! strings by the body validators, both at intake and when lowering re-walks
-//! an admitted body through the same validator. The string-edge scan (IR-9)
-//! is what names and bounds those sites.
+//! The semantic term grammar inside a node `body` stays JSON, so its closed
+//! members are decoded by the `common` edge readers (`body_term`,
+//! `literal_kind`, `application_operator`) into [`BodyTerm`], [`LiteralKind`]
+//! and [`ApplicationOperator`]; the operation catalog's roles, modes, member
+//! kinds and constraint kinds ([`LawRole`], [`OperationModeKind`],
+//! [`OperationMemberKind`], [`OperationConstraintKind`]) are decoded when the
+//! catalog is parsed, and an operation's wire mode, member and role are
+//! decoded once where the reader compares them with the catalog. The
+//! `string_edge` integration test fails when anything else reads one of these
+//! wire strings, and lists the functions that are the edge.
 //!
 //! Vocabularies decoded by serde at the wire edge ([`super::CheckedDiagnosticStage`],
 //! [`super::CheckedDiagnosticCode`], [`super::CheckedDiagnosticCause`] and
@@ -33,11 +36,11 @@
 macro_rules! closed_vocabulary {
     (
         $(#[$meta:meta])*
-        $name:ident { $($variant:ident => $wire:literal,)+ }
+        $vis:vis $name:ident { $($variant:ident => $wire:literal,)+ }
     ) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-        pub enum $name {
+        $vis enum $name {
             $(
                 #[doc = concat!("`", $wire, "`.")]
                 $variant,
@@ -56,6 +59,7 @@ macro_rules! closed_vocabulary {
             }
 
             /// Decodes a wire string; `None` outside the vocabulary.
+            // string-edge: the one place a vocabulary's wire string is read.
             pub fn from_wire(wire: &str) -> Option<Self> {
                 Self::ALL
                     .iter()
@@ -71,6 +75,7 @@ macro_rules! closed_vocabulary {
         }
 
         impl<'de> serde::Deserialize<'de> for $name {
+            // string-edge: serde decode of the wire string into the enum.
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let wire = String::deserialize(deserializer)?;
                 // The error names the vocabulary, never the offending value:
@@ -90,7 +95,7 @@ macro_rules! closed_vocabulary {
 
 closed_vocabulary! {
     /// The closed V2 semantic node family.
-    CheckedNodeTag {
+    pub CheckedNodeTag {
         ScalarType => "scalar_type",
         CompositeType => "composite_type",
         BoundedDomain => "bounded_domain",
@@ -109,7 +114,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `scalar_type` semantic forms.
-    ScalarTypeForm {
+    pub ScalarTypeForm {
         Boolean => "boolean",
         Integer => "integer",
         Rational => "rational",
@@ -126,7 +131,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `composite_type` semantic forms.
-    CompositeTypeForm {
+    pub CompositeTypeForm {
         Option => "option",
         Sequence => "sequence",
         Set => "set",
@@ -141,7 +146,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `bounded_domain` semantic forms.
-    BoundedDomainForm {
+    pub BoundedDomainForm {
         IntegerRange => "integer_range",
         RationalRange => "rational_range",
         DecimalRange => "decimal_range",
@@ -154,7 +159,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `value` semantic forms.
-    ValueForm {
+    pub ValueForm {
         Literal => "literal",
         EnumValue => "enum_value",
         CollectionValue => "collection_value",
@@ -167,7 +172,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `expression` semantic forms.
-    ExpressionForm {
+    pub ExpressionForm {
         Reference => "reference",
         Call => "call",
         Unary => "unary",
@@ -188,7 +193,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `function` semantic forms.
-    FunctionForm {
+    pub FunctionForm {
         PureFunction => "pure_function",
         Predicate => "predicate",
         RecursiveFunction => "recursive_function",
@@ -197,7 +202,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `model` semantic forms.
-    ModelForm {
+    pub ModelForm {
         ModelImport => "model_import",
         ObjectType => "object_type",
         ValueType => "value_type",
@@ -221,7 +226,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `relation` semantic forms.
-    RelationForm {
+    pub RelationForm {
         Relationship => "relationship",
         Population => "population",
         Membership => "membership",
@@ -231,7 +236,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `state` semantic forms.
-    StateForm {
+    pub StateForm {
         StateClause => "state_clause",
         Frame => "frame",
         Transition => "transition",
@@ -242,7 +247,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `temporal` semantic forms.
-    TemporalForm {
+    pub TemporalForm {
         TemporalClause => "temporal_clause",
         Formula => "formula",
         Clock => "clock",
@@ -254,7 +259,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `protocol` semantic forms.
-    ProtocolForm {
+    pub ProtocolForm {
         ProtocolClause => "protocol_clause",
         Role => "role",
         Channel => "channel",
@@ -267,7 +272,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `claim` semantic forms.
-    ClaimForm {
+    pub ClaimForm {
         VerificationClaim => "verification_claim",
         AnalysisClaim => "analysis_claim",
         Hyperproperty => "hyperproperty",
@@ -277,7 +282,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed `correspondence` semantic forms.
-    CorrespondenceForm {
+    pub CorrespondenceForm {
         SourceLocus => "source_locus",
         ModelCorrespondence => "model_correspondence",
         BindingRole => "binding_role",
@@ -287,7 +292,7 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed V2 lock selection role.
-    CheckedSelectionRole {
+    pub CheckedSelectionRole {
         Language => "language",
         Edition => "edition",
         Profile => "profile",
@@ -299,10 +304,130 @@ closed_vocabulary! {
 
 closed_vocabulary! {
     /// The closed V2 capability-report disposition.
-    CheckedCapabilityDisposition {
+    pub CheckedCapabilityDisposition {
         Available => "available",
         Unimplemented => "unimplemented",
         Unsupported => "unsupported",
+    }
+}
+
+// The vocabularies below are decoded at the reader's wire edge like the ones
+// above, but nothing outside the reader names them, so they are not public.
+
+closed_vocabulary! {
+    /// The closed `term` tag of a semantic term or frame body (FR-208).
+    pub(in crate::checked_package) BodyTerm {
+        Literal => "literal",
+        Reference => "reference",
+        Application => "application",
+        Aggregate => "aggregate",
+        Binding => "binding",
+        Frame => "frame",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `literal.value_kind` vocabulary.
+    pub(in crate::checked_package) LiteralKind {
+        Boolean => "boolean",
+        Integer => "integer",
+        Rational => "rational",
+        Decimal => "decimal",
+        Float32Bits => "float32_bits",
+        Float64Bits => "float64_bits",
+        Text => "text",
+        Enum => "enum",
+        None => "none",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `application.operator` class vocabulary.
+    pub(in crate::checked_package) ApplicationOperator {
+        Call => "call",
+        Unary => "unary",
+        Binary => "binary",
+        Conditional => "conditional",
+        Let => "let",
+        Quantify => "quantify",
+        Collection => "collection",
+        Query => "query",
+        Convert => "convert",
+        Pre => "pre",
+        Present => "present",
+        Value => "value",
+        Deref => "deref",
+        Reaches => "reaches",
+        Temporal => "temporal",
+        ProtocolControl => "protocol_control",
+        StateTransition => "state_transition",
+        Claim => "claim",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed law role vocabulary of the operation catalog.
+    pub(in crate::checked_package) LawRole {
+        IntegerDivision => "integer_division",
+        IeeeProfile => "ieee_profile",
+        TextProfile => "text_profile",
+        TemporalProfile => "temporal_profile",
+        ProtocolProfile => "protocol_profile",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed operation `mode.kind` vocabulary of the operation catalog.
+    pub(in crate::checked_package) OperationModeKind {
+        Rounding => "rounding",
+        TextProfile => "text_profile",
+        Absence => "absence",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed operation `member.kind` vocabulary of the operation catalog.
+    pub(in crate::checked_package) OperationMemberKind {
+        Field => "field",
+        Position => "position",
+        Element => "element",
+        RelationshipEnd => "relationship_end",
+        Operation => "operation",
+        TypeArgument => "type_argument",
+        ProfileOperator => "profile_operator",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed cross-operand constraint vocabulary of the operation catalog.
+    pub(in crate::checked_package) OperationConstraintKind {
+        SameFamily => "same_family",
+        SameType => "same_type",
+        ConformingReference => "conforming_reference",
+        SameDimension => "same_dimension",
+        InnerType => "inner_type",
+        MemberOf => "member_of",
+        MemberFamily => "member_family",
+        BoundFamily => "bound_family",
+        BoundIsMember => "bound_is_member",
+        ExactConversion => "exact_conversion",
+        RangeNarrowing => "range_narrowing",
+        RationalNarrowing => "rational_narrowing",
+        ScaleReduction => "scale_reduction",
+        PromotesExact => "promotes_exact",
+        UniformRest => "uniform_rest",
+    }
+}
+
+impl LawRole {
+    /// The lock selection role that selects a clause/profile law, or `None`
+    /// for a value role, which is closed over the catalog's `law_roles`.
+    pub(in crate::checked_package) const fn selection_role(self) -> Option<CheckedSelectionRole> {
+        match self {
+            Self::TemporalProfile => Some(CheckedSelectionRole::TemporalProfile),
+            Self::ProtocolProfile => Some(CheckedSelectionRole::ProtocolProfile),
+            Self::IntegerDivision | Self::IeeeProfile | Self::TextProfile => None,
+        }
     }
 }
 
@@ -342,6 +467,7 @@ pub enum CheckedNodeKind {
 impl CheckedNodeKind {
     /// Decodes a wire form under an already decoded family; `None` when the
     /// form is not one of that family's forms.
+    // string-edge: decodes the wire form under its already decoded family.
     pub fn decode(tag: CheckedNodeTag, form: &str) -> Option<Self> {
         match tag {
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),

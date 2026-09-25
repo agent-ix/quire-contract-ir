@@ -11,6 +11,7 @@ use super::shared::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -370,6 +371,7 @@ pub(super) fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLoc
 /// Checks one locked artifact's domain, shape and digest against evidence.
 /// `at` names the artifact reference; each refusal points at the member it
 /// is about, or at the reference itself when its locator is unattested.
+// string-edge: intake check of a locked artifact's digest domain and digest text.
 pub(super) fn validate_locked_artifact(
     artifact: &CheckedArtifactRef,
     expected_domain: &str,
@@ -589,48 +591,56 @@ pub(super) fn validate_term(
     let Value::Object(object) = value else {
         return Err(invalid(at));
     };
-    let term = match object.get("term") {
-        Some(Value::String(term)) => term,
+    match object.get("term") {
+        Some(Value::String(_)) => {}
         Some(_) => return Err(invalid(&at.key("term"))),
         None => return Err(invalid(at)),
+    }
+    let Some(term) = body_term(value) else {
+        return Err(invalid(at));
     };
-    match term.as_str() {
-        "literal"
+    match term {
+        BodyTerm::Literal => {
             if exact_members(object, &["term", "type", "value_kind", "value"])
-                && object
-                    .get("value_kind")
-                    .and_then(Value::as_str)
-                    .is_some_and(is_literal_kind)
+                && literal_kind(value).is_some()
                 && object
                     .get("value")
-                    .is_some_and(|value| is_literal_value(value, grammar)) =>
-        {
-            visit_member(
-                object,
-                "type",
-                ReferenceMember::Type,
-                is_body_root,
-                at,
-                visit,
-            )
+                    .is_some_and(|value| is_literal_value(value, grammar))
+            {
+                visit_member(
+                    object,
+                    "type",
+                    ReferenceMember::Type,
+                    is_body_root,
+                    at,
+                    visit,
+                )
+            } else {
+                Err(invalid(at))
+            }
         }
-        "reference" if exact_members(object, &["term", "target"]) => visit_member(
-            object,
-            "target",
-            ReferenceMember::Target,
-            is_body_root,
-            at,
-            visit,
-        ),
-        "application"
-            if exact_members(
+        BodyTerm::Reference => {
+            if exact_members(object, &["term", "target"]) {
+                visit_member(
+                    object,
+                    "target",
+                    ReferenceMember::Target,
+                    is_body_root,
+                    at,
+                    visit,
+                )
+            } else {
+                Err(invalid(at))
+            }
+        }
+        BodyTerm::Application => {
+            if !(exact_members(
                 object,
                 &["term", "operator", "operation", "result_type", "arguments"],
-            ) && object
-                .get("operator")
-                .and_then(Value::as_str)
-                .is_some_and(is_operator) =>
-        {
+            ) && application_operator(value).is_some())
+            {
+                return Err(invalid(at));
+            }
             // The `operation` member's presence is checked here; its own
             // closed shape and catalog-law validation is
             // `v2::operations::validate_operations`'s job, run once the
@@ -648,22 +658,49 @@ pub(super) fn validate_term(
             let arguments_work = visit_terms(object, "arguments", grammar, at, visit)?;
             Ok(result_type_work.saturating_add(arguments_work))
         }
-        "aggregate" if exact_members(object, &["term", "members"]) => {
-            visit_terms(object, "members", grammar, at, visit)
+        BodyTerm::Aggregate => {
+            if exact_members(object, &["term", "members"]) {
+                visit_terms(object, "members", grammar, at, visit)
+            } else {
+                Err(invalid(at))
+            }
         }
-        "binding"
+        BodyTerm::Binding => {
             if exact_members(object, &["term", "name", "value"])
                 && object
                     .get("name")
                     .and_then(Value::as_str)
-                    .is_some_and(is_nonempty) =>
-        {
-            let value = object.get("value").unwrap_or(&Value::Null);
-            validate_term(value, grammar, false, &at.key("value"), visit)
-                .map(|work| work.saturating_add(1))
+                    .is_some_and(is_nonempty)
+            {
+                let value = object.get("value").unwrap_or(&Value::Null);
+                validate_term(value, grammar, false, &at.key("value"), visit)
+                    .map(|work| work.saturating_add(1))
+            } else {
+                Err(invalid(at))
+            }
         }
-        _ => Err(invalid(at)),
+        // A frame is a node body of its own, never a nested term.
+        BodyTerm::Frame => Err(invalid(at)),
     }
+}
+
+/// The `term` tag of a semantic term or frame body, decoded; `None` when the
+/// member is absent, not a string, or outside the vocabulary.
+// string-edge: reads the JSON `term` member of a body and decodes it once.
+pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
+    BodyTerm::from_wire(value.get("term")?.as_str()?)
+}
+
+/// A `literal` term's decoded `value_kind`.
+// string-edge: reads the JSON `value_kind` member of a literal and decodes it.
+pub(super) fn literal_kind(value: &Value) -> Option<LiteralKind> {
+    LiteralKind::from_wire(value.get("value_kind")?.as_str()?)
+}
+
+/// An `application` term's decoded `operator` class.
+// string-edge: reads the JSON `operator` member of an application and decodes it.
+pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
+    ApplicationOperator::from_wire(value.get("operator")?.as_str()?)
 }
 
 /// Reports the node reference held in `object[key]` (the term at `at`).
@@ -688,6 +725,7 @@ fn visit_member(
 /// [`ReferenceSite`] naming `member` and `is_body_root` to `visit`, and
 /// charges one unit of work. Shared by `reference.target`, `literal.type`,
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
+// string-edge: intake check of a node reference's domain and digest text.
 pub(super) fn visit_reference(
     value: &Value,
     member: ReferenceMember,
@@ -723,21 +761,6 @@ pub(super) fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> b
     object.len() == expected.len() && expected.iter().all(|member| object.contains_key(*member))
 }
 
-fn is_literal_kind(value: &str) -> bool {
-    matches!(
-        value,
-        "boolean"
-            | "integer"
-            | "rational"
-            | "decimal"
-            | "float32_bits"
-            | "float64_bits"
-            | "text"
-            | "enum"
-            | "none"
-    )
-}
-
 fn is_literal_value(value: &Value, grammar: TermGrammar) -> bool {
     match value {
         Value::Bool(_) | Value::String(_) | Value::Null => true,
@@ -746,30 +769,6 @@ fn is_literal_value(value: &Value, grammar: TermGrammar) -> bool {
         },
         Value::Array(_) | Value::Object(_) => false,
     }
-}
-
-fn is_operator(value: &str) -> bool {
-    matches!(
-        value,
-        "call"
-            | "unary"
-            | "binary"
-            | "conditional"
-            | "let"
-            | "quantify"
-            | "collection"
-            | "query"
-            | "convert"
-            | "pre"
-            | "present"
-            | "value"
-            | "deref"
-            | "reaches"
-            | "temporal"
-            | "protocol_control"
-            | "state_transition"
-            | "claim"
-    )
 }
 
 /// Validates each term in the `aggregate.members` or `application.arguments`
@@ -917,6 +916,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
             }
         }
     }
+    // string-edge: canonical-JSON front end: reads serde_json's number token.
     fn visit_map<A>(self, mut access: A) -> Result<Value, A::Error>
     where
         A: MapAccess<'de>,

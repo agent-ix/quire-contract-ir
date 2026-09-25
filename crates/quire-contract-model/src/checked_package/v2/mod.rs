@@ -24,10 +24,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exact_members, exceeds, first_difference,
-    is_digest, is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
-    validate_term, visit_reference, ReferenceMember, ReferenceSite, ReferenceVisitor, Step,
-    TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    body_term, canonical_value, count, decode_closed, digest_json, exact_members, exceeds,
+    first_difference, is_digest, is_nonempty, node_pointer, validate_locked_artifact,
+    validate_source_map_entries, validate_term, visit_reference, ReferenceMember, ReferenceSite,
+    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -458,6 +458,7 @@ const DEPENDENCY_SELECTION_MEMBERS: [&str; 3] = ["identity", "version", "package
 /// as a whole: `malformed_wire` at the entry, not `unknown_member` at
 /// whichever extra member the decoder met first. An entry carrying every
 /// required member keeps the decoder's `unknown_member` at the extra member.
+// string-edge: intake error localisation: reads the refusal pointer text.
 fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
@@ -505,6 +506,7 @@ fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) ->
 /// `/identity_preimage/identity_projection/{n}/…`. A member of that name
 /// anywhere else is not a preimage (an unknown member, say) and is never
 /// re-located.
+// string-edge: intake error localisation: reads the refusal pointer text.
 fn is_typed_preimage_position(path: &JsonPointer) -> bool {
     let text = path.as_str();
     [
@@ -540,6 +542,7 @@ impl CheckedPackageV2 {
     }
 
     /// Selects V2 exactly, decodes the closed wire, and validates it.
+    // string-edge: intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
         value: Value,
         limits: CheckedPackageReadLimits,
@@ -629,6 +632,7 @@ impl CheckedPackageV2 {
     }
 }
 
+// string-edge: intake: checks the fixed version, domain and algorithm tags of the package.
 fn validate(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
@@ -886,6 +890,7 @@ fn validate_lock(
 /// predecessor refuses `invalid_package` / `invalid-value` at that entry.
 /// The identity preimage's copy equals the lock's (checked by the caller),
 /// so only the lock is checked.
+// string-edge: intake: checks the fixed domain and algorithm tags of each selection.
 fn validate_dependency_selections(
     selections: &[CheckedDependencySelection],
 ) -> Result<(), ValidationFailure> {
@@ -977,6 +982,7 @@ fn validate_unexported(
 /// but naming different digests are one locator selected twice: the later
 /// row refuses `stale_dependency` at its `digest`, whatever documents the
 /// caller supplied.
+// string-edge: intake: checks the fixed digest domain of each domain package selection.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
@@ -1044,6 +1050,7 @@ fn validate_domain_packages(
 
 /// Requires a node key in the node domain with a lowercase digest; `at`
 /// names the key.
+// string-edge: intake: checks the fixed domain tag of a node id.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
@@ -1408,7 +1415,7 @@ fn validate_frame_body(body: &Value, at: &Trail<'_>) -> Result<u64, ValidationFa
             at.pointer(),
         ));
     }
-    if object.get("term").and_then(Value::as_str) != Some("frame") {
+    if body_term(body) != Some(BodyTerm::Frame) {
         return Err(refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key("term").pointer(),
@@ -1937,6 +1944,7 @@ fn body_reference_pointer(
     found.unwrap_or_else(|| node_pointer(position).key("body"))
 }
 
+// string-edge: intake: checks the fixed graph and schema versions and decodes each node tag.
 fn validate_graph(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,

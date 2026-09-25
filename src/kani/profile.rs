@@ -71,6 +71,7 @@ pub enum ProfileError {
 
 impl KaniProfile {
     /// Creates a profile only when its immutable selection and matrix are coherent.
+    // string-edge: validates the wire selection's profile family against the one admitted family.
     pub fn new(
         selection: ProfileSelection,
         capabilities: Vec<CapabilityEntry>,
