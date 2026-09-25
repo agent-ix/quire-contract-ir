@@ -96,8 +96,13 @@ pub enum CheckedPackageRefusalCode {
     /// An application node's argument, member or leaf is ill-typed against
     /// its catalogued operation.
     IllTyped,
-    /// Two nodes carry the same declared `qualified_name`.
+    /// Two nodes carry the same declared `qualified_name`, or a model-owned
+    /// member's name resolves to two exposed effective members.
     AmbiguousDeclaration,
+    /// The caller supplied no domain package document under a
+    /// `model_selections` digest (FR-154 admission, FR-322 "Model-owned
+    /// members" step 1).
+    MissingImport,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -144,8 +149,28 @@ pub enum CheckedPackageRefusalCause {
     /// differs from its nominal identity preimage's `qualified_declaration`.
     DeclarationNominalMismatch,
     /// `ambiguous-name`: another node carries the same declared
-    /// `qualified_name`.
+    /// `qualified_name`, or a model-owned member's name matches two exposed
+    /// effective members of its declaring type.
     AmbiguousName,
+    /// `missing-selection`: no document is supplied under a selected domain
+    /// package digest, or a model declaration node's owner is not a
+    /// lock-selected domain package declaration.
+    MissingSelection,
+    /// `digest-domain-mismatch`: a domain package selection's digest domain
+    /// is not `sha256-jcs`.
+    DigestDomainMismatch,
+    /// `byte-digest-mismatch`: the SHA-256 of a supplied domain package
+    /// document's RFC 8785 bytes is not the digest it was supplied under.
+    ByteDigestMismatch,
+    /// `wrong-model-selection`: a supplied domain package document's own
+    /// identity or version differs from its selection.
+    WrongModelSelection,
+    /// `conflicting-binding`: two declarations of one domain package share
+    /// one IR node identity.
+    ConflictingBinding,
+    /// `unpreserved-model-meaning`: a domain package multiplicity has
+    /// `lower > upper`.
+    UnpreservedModelMeaning,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

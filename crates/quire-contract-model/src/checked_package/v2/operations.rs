@@ -54,7 +54,10 @@
 //! silently bypasses every operand-family check ([`check_operands`],
 //! [`check_mode_type`], [`check_leaves`]) that consults it.
 
-use super::operation_catalog::{operation_catalog, OperationCatalogEntry};
+use super::model_members::{
+    Budget, MemberKind, MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved,
+};
+use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
     BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
     CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, ClaimForm,
@@ -301,29 +304,55 @@ pub(super) fn validate_operations(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
+    owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let graph = Graph {
+        nodes,
+        kinds,
+        index,
+    };
     for &position in index.values() {
         let node = &nodes[position];
         if !is_application(&node.body) {
             continue;
         }
         let application = Application { node, position };
-        if let Some(failure) = operation_defect(application, nodes, kinds, index, lock, meter)? {
+        if let Some(failure) = operation_defect(
+            application,
+            &graph,
+            lock,
+            owners,
+            operation_catalog(),
+            meter,
+        )? {
             return Err(failure);
         }
     }
     Ok(())
 }
 
+/// The admitted graph an application's checks read.
+#[derive(Clone, Copy)]
+struct Graph<'g> {
+    nodes: &'g [CheckedSemanticNodeV2],
+    kinds: &'g [CheckedNodeKind],
+    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+}
+
 fn operation_defect(
     application: Application<'_>,
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
+    owners: &ModelOwners<'_>,
+    catalog: &OperationCatalog,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
     let node = application.node;
     let Some(body) = node.body.as_object() else {
         return Ok(None);
@@ -360,7 +389,6 @@ fn operation_defect(
             .key(member)
     };
 
-    let catalog = operation_catalog();
     let Some(entry) = catalog.entry(&operation.identity) else {
         return refuse(
             application.body(&["operation", "identity"]),
@@ -480,16 +508,49 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) =
-        check_operands(application, entry, &arguments, nodes, kinds, index, catalog)
-    {
+    if let Some(failure) = check_operands(
+        application,
+        entry,
+        &arguments,
+        graph,
+        owners,
+        catalog,
+        meter,
+    )? {
         return Ok(Some(failure));
     }
-    if let Some(name) = wire_member_kind {
-        if name == "field" {
-            if let Some(failure) = check_field_member(application, &operation, nodes, index) {
-                return Ok(Some(failure));
+    if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
+        return Ok(Some(failure));
+    }
+    let member_kind = match wire_member_kind {
+        Some("field") => Some(MemberKind::Field),
+        Some("operation") => Some(MemberKind::Operation),
+        _ => None,
+    };
+    if let Some(kind) = member_kind {
+        let declaring = member_declaration(&operation)
+            .and_then(|declaration| Some(&nodes[*index.get(&declaration)?]));
+        match declaring {
+            Some(declaring) if owners.is_model_declaration_node(declaring) => {
+                if let Some(failure) = check_model_member(
+                    application,
+                    &operation,
+                    kind,
+                    declaring,
+                    &arguments,
+                    graph,
+                    owners,
+                    meter,
+                )? {
+                    return Ok(Some(failure));
+                }
             }
+            _ if kind == MemberKind::Field => {
+                if let Some(failure) = check_field_member(application, &operation, nodes, index) {
+                    return Ok(Some(failure));
+                }
+            }
+            _ => {}
         }
     }
     if let Some(failure) = check_mode_type(
@@ -622,9 +683,12 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => None,
+        // FR-322 (STD-102): a model declaration node of an object type or a
+        // systems interface is the `object` family, the `inner:0` result of
+        // `quire.op.model.deref`, which only a `field_owner` position admits.
+        K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),
         K::Model(
             ModelForm::ModelImport
-            | ModelForm::ObjectType
             | ModelForm::ValueType
             | ModelForm::VariantType
             | ModelForm::RecordValueType
@@ -636,7 +700,6 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::FieldDeclaration
             | ModelForm::OperationDeclaration
             | ModelForm::ClauseMemberDeclaration
-            | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
             | ModelForm::SystemsConnection
@@ -841,21 +904,26 @@ fn check_operands(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
     arguments: &[Value],
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    catalog: &super::operation_catalog::OperationCatalog,
-) -> Option<ValidationFailure> {
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    catalog: &OperationCatalog,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
     let required = entry.operands.len();
     // `None` names the `arguments` array itself (an arity defect); `Some`
     // names the one argument at fault.
     let ineligible = |argument: Option<usize>| {
         let arguments_at = application.body(&["arguments"]);
-        Some(application.refuse(
+        Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             argument.map_or_else(|| arguments_at.clone(), |at| arguments_at.clone().index(at)),
             CheckedPackageRefusalCause::OperatorIneligible,
-        ))
+        )))
     };
     if entry.rest.is_none() {
         if arguments.len() != required {
@@ -913,10 +981,247 @@ fn check_operands(
                     }
                 }
             }
+            "conforming_reference" => {
+                if let [first, second] = indices[..] {
+                    if let Some(failure) = check_conforming_reference(
+                        application,
+                        [first, second],
+                        arguments,
+                        graph,
+                        owners,
+                        meter,
+                    )? {
+                        return Ok(Some(failure));
+                    }
+                }
+            }
             _ => {}
         }
     }
-    None
+    Ok(None)
+}
+
+/// The `operation.member.declaration` an application names.
+fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
+    serde_json::from_value(operation.member.as_ref()?.get("declaration")?.clone()).ok()
+}
+
+/// The node a `composite_type`/`reference` type node's body references: `X`
+/// of `Reference<X>`. `None` for any other node.
+fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+    let position = *graph.index.get(type_id)?;
+    if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
+        return None;
+    }
+    let members = graph.nodes[position].body.get("members")?.as_array()?;
+    let [member] = members.as_slice() else {
+        return None;
+    };
+    serde_json::from_value(member.get("target")?.clone()).ok()
+}
+
+/// A model-owned member refusal at `path`.
+fn model_refusal(
+    application: Application<'_>,
+    path: JsonPointer,
+    refusal: ModelRefusal,
+) -> ValidationFailure {
+    application.refuse(refusal.code, path, refusal.cause)
+}
+
+/// FR-322 "Reference conformance" (STD-101): the two `reference` operands'
+/// object types, recovered by step 2 even when both name one type node, are
+/// object type declarations of one selected document, one conforming to the
+/// other along declared supertypes. An operand whose type resolves to no
+/// node is left to the checks that report an unresolved argument.
+fn check_conforming_reference(
+    application: Application<'_>,
+    operands: [usize; 2],
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let at = |position: usize| application.body(&["arguments"]).index(position);
+    let ineligible = |position: usize| {
+        Ok(Some(model_refusal(
+            application,
+            at(position),
+            ModelRefusal::ineligible(),
+        )))
+    };
+    let mut recovered = Vec::with_capacity(2);
+    for position in operands {
+        let Some(type_id) =
+            operand_type_node(&arguments[position], graph.nodes, graph.kinds, graph.index)
+        else {
+            return Ok(None);
+        };
+        let Some(target) = reference_target(&type_id, graph) else {
+            return ineligible(position);
+        };
+        let Some(target_position) = graph.index.get(&target) else {
+            return Ok(None);
+        };
+        let target_node = &graph.nodes[*target_position];
+        if !owners.is_model_declaration_node(target_node) {
+            return ineligible(position);
+        }
+        match owners.recover(target_node) {
+            Ok(owner) => recovered.push(owner),
+            Err(refusal) => {
+                return Ok(Some(model_refusal(application, at(position), refusal)));
+            }
+        }
+    }
+    let [a, b] = recovered.as_slice() else {
+        return Ok(None);
+    };
+    // A declaration that is no object type is the fault of its own operand;
+    // two documents, or two types that do not conform, fault the pair, whose
+    // refusal is at the second operand.
+    for (position, owner) in operands.into_iter().zip([a, b]) {
+        if owner.object_type().is_none() {
+            return ineligible(position);
+        }
+    }
+    if !std::ptr::eq(a.package, b.package) {
+        return ineligible(operands[1]);
+    }
+    let mut budget = Budget::new(meter, a.selection);
+    if a.package.conforms(a.node, b.node, &mut budget)? {
+        Ok(None)
+    } else {
+        ineligible(operands[1])
+    }
+}
+
+/// The `inner:<n>` result form over a `reference` operand
+/// (`quire.op.model.deref`): the application's `result_type` is the node
+/// the operand's `Reference<X>` names, and that node has a family, so a
+/// `deref` of a relationship reference types nothing an operand admits.
+/// Other `inner:<n>` operands are not checked here.
+fn check_inner_result(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    let operand: usize = entry.result.strip_prefix("inner:")?.parse().ok()?;
+    let type_id = operand_type_node(
+        arguments.get(operand)?,
+        graph.nodes,
+        graph.kinds,
+        graph.index,
+    )?;
+    let inner = reference_target(&type_id, graph)?;
+    let result_type: Option<CheckedNodeId> = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let typed = result_type.as_ref() == Some(&inner)
+        && resolve_family(&inner, graph.nodes, graph.kinds, graph.index, 0).is_some();
+    (!typed).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
+/// FR-322 "Model-owned members" steps 2 to 4 for a `field` or `operation`
+/// member whose declaring node is a model declaration node, at the
+/// application's `operator-ineligible` check. A field is read over an
+/// operand of the declaring node's type (`member_of`); an operation is
+/// dispatched on a `Reference<X>` receiver of that node, with one argument
+/// per parameter, each of its parameter's type node. The member type is
+/// compared with the application's `result_type` by node key.
+fn check_model_member(
+    application: Application<'_>,
+    operation: &OperationWire,
+    kind: MemberKind,
+    declaring: &CheckedSemanticNodeV2,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let member_at = |member: &str| application.body(&["operation", "member", member]);
+    let argument_at = |position: usize| application.body(&["arguments"]).index(position);
+    let refuse = |path: JsonPointer, refusal: ModelRefusal| {
+        Ok(Some(model_refusal(application, path, refusal)))
+    };
+    let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
+    let type_node = |position: usize| {
+        arguments
+            .get(position)
+            .and_then(|argument| operand_type_node(argument, graph.nodes, graph.kinds, graph.index))
+    };
+    let owner = match owners.recover(declaring) {
+        Ok(owner) => owner,
+        Err(refusal) => return refuse(member_at("declaration"), refusal),
+    };
+    if kind == MemberKind::Field && type_node(0).as_ref() != Some(&declaring.node_id) {
+        return ineligible(argument_at(0));
+    }
+    let name = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let Some(object) = owner.object_type() else {
+        return ineligible(member_at("name"));
+    };
+    let mut budget = Budget::new(meter, owner.selection);
+    let resolved = match owner.package.resolve(owner.node, kind, name, &mut budget) {
+        Ok(resolved) => resolved,
+        Err(ModelFailure::Refused(refusal)) => return refuse(member_at("name"), refusal),
+        Err(ModelFailure::Limit(failure)) => return Err(failure),
+    };
+    let member_type = match resolved {
+        Resolved::Field(field) => owner.package.field_type(field),
+        Resolved::Operation(resolved) => {
+            if object.interface {
+                return ineligible(member_at("name"));
+            }
+            let receiver = MemberType::Reference(declaring.node_id.digest.clone());
+            if type_node(0).map(|id| id.digest) != Some(receiver.node_key().into()) {
+                return ineligible(argument_at(0));
+            }
+            if arguments.len().saturating_sub(1) != resolved.parameters.len() {
+                return ineligible(application.body(&["arguments"]));
+            }
+            for (offset, parameter) in resolved.parameters.iter().enumerate() {
+                let position = offset.saturating_add(1);
+                let Some(expected) = owner.package.slot_type(parameter) else {
+                    return ineligible(member_at("name"));
+                };
+                if type_node(position).map(|id| id.digest) != Some(expected.node_key().into()) {
+                    return ineligible(argument_at(position));
+                }
+            }
+            resolved
+                .result
+                .as_ref()
+                .and_then(|result| owner.package.slot_type(result))
+        }
+    };
+    let Some(member_type) = member_type else {
+        return ineligible(member_at("name"));
+    };
+    let result_type = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| value.get("digest"))
+        .and_then(Value::as_str);
+    if result_type != Some(member_type.node_key().as_str()) {
+        return ineligible(application.body(&["result_type"]));
+    }
+    Ok(None)
 }
 
 /// The one `operation.member` shape an upstream mutation exercises in full: a
@@ -1100,13 +1405,16 @@ fn check_leaves(
 }
 
 #[cfg(test)]
+mod model_member_vectors;
+
+#[cfg(test)]
 mod tests {
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
-        APPLICATION_NODE_VERSION,
+        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, Graph, ModelOwners,
+        ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{
@@ -1341,12 +1649,17 @@ mod tests {
         index.insert(&node.node_id, 0);
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
+        let kinds = kinds_of(nodes);
         operation_defect(
             Application { node, position: 0 },
-            nodes,
-            &kinds_of(nodes),
-            &index,
+            &Graph {
+                nodes,
+                kinds: &kinds,
+                index: &index,
+            },
             &lock,
+            &ModelOwners::default(),
+            operation_catalog(),
             &mut meter,
         )
     }
@@ -1374,15 +1687,20 @@ mod tests {
         }
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
+        let kinds = kinds_of(&nodes);
         operation_defect(
             Application {
                 node: &nodes[0],
                 position: 0,
             },
-            &nodes,
-            &kinds_of(&nodes),
-            &index,
+            &Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+            },
             &lock,
+            &ModelOwners::default(),
+            operation_catalog(),
             &mut meter,
         )
     }
@@ -1558,6 +1876,8 @@ mod tests {
                 ("function", "pure_function", "function"),
                 ("function", "predicate", "function"),
                 ("function", "recursive_function", "function"),
+                ("model", "object_type", "object"),
+                ("model", "systems_interface", "object"),
                 ("relation", "population", "population"),
             ]
         );

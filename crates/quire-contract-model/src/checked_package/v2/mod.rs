@@ -9,6 +9,7 @@
 
 mod identity;
 mod lower;
+mod model_members;
 mod natural;
 mod operation_catalog;
 mod operations;
@@ -28,13 +29,14 @@ use super::common::{
     validate_term, visit_reference, ReferenceMember, ReferenceSite, ReferenceVisitor, Step,
     TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
-use super::evidence::{CheckedDomainPackageLocator, CheckedPackageEvidence};
+use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
 };
+use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
@@ -148,16 +150,6 @@ pub struct CheckedDomainPackageRef {
     pub digest_domain: Box<str>,
     /// Lowercase SHA-256 of the package's RFC 8785 canonical bytes.
     pub digest: Box<str>,
-}
-
-impl CheckedDomainPackageRef {
-    /// The evidence locator of this selection.
-    pub fn locator(&self) -> CheckedDomainPackageLocator {
-        CheckedDomainPackageLocator {
-            identity: self.identity.clone(),
-            version: self.version.clone(),
-        }
-    }
 }
 
 /// The exact immutable V2 package lock.
@@ -619,9 +611,9 @@ fn validate(
             member_pointer(&["package_id", "digest"]),
         ));
     }
-    validate_lock(wire, evidence)?;
     let mut meter = WorkMeter::new(limits.work);
-    let kinds = validate_graph(wire, limits, &mut meter)?;
+    let models = validate_lock(wire, evidence, &mut meter)?;
+    let kinds = validate_graph(wire, limits, &mut meter, &models)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -697,10 +689,13 @@ fn non_graph_lock_difference(
         })
 }
 
+/// Checks the lock and returns each selected domain package's declarations,
+/// in lock order.
 fn validate_lock(
     wire: &CheckedPackageWireV2,
     evidence: &CheckedPackageEvidence,
-) -> Result<(), ValidationFailure> {
+    meter: &mut WorkMeter,
+) -> Result<Vec<DomainModel>, ValidationFailure> {
     let lock = &wire.lock;
     if lock.sources.is_empty() {
         return Err(refuse(
@@ -798,7 +793,7 @@ fn validate_lock(
             }
         }
     }
-    validate_domain_packages(&lock.model_selections, evidence)?;
+    let models = validate_domain_packages(&lock.model_selections, evidence, meter)?;
     let mut features = BTreeSet::new();
     if let Some(index) = lock
         .required_features
@@ -815,7 +810,8 @@ fn validate_lock(
         DEFINITION_BYTES,
         evidence,
         &|| member_pointer(&["diagnostics", "catalog"]),
-    )
+    )?;
+    Ok(models)
 }
 
 /// Checks one locked raw artifact at `at` and that it carries no `export`.
@@ -835,30 +831,34 @@ fn validate_unexported(
     Ok(())
 }
 
-/// Checks every domain package selection's domain, shape and `sha256-jcs`
-/// digest against the domain package evidence. Raw artifact evidence is never
+/// Checks every domain package selection's domain and shape, then admits
+/// each selection's document (FR-322 "Model-owned members" step 1) and
+/// returns its declarations, in lock order. Raw artifact evidence is never
 /// consulted, so equal digest bytes in another domain cannot satisfy it.
 ///
-/// Checks classes 3 through 5 of FR-038's five-class `model_selections`
-/// order. Each check sweeps the whole array before the next one begins, so
-/// the refusal an array carrying two different defects draws is decided by
-/// defect class and not by which defective entry the reader reaches first:
+/// Checks classes 3 and 4 of FR-038's five-class `model_selections` order,
+/// each sweeping the whole array before the next begins, so the refusal an
+/// array carrying two different defects draws is decided by defect class
+/// and not by which defective entry the reader reaches first:
 /// declared-domain mismatch (`digest_domain_mismatch`, class 3) outranks a
-/// shape defect (`malformed_wire`, class 4), which outranks a digest the
-/// evidence does not attest (`stale_dependency`, class 5). Classes 1
-/// (repeated entry) and 2 (same identity, different version) are checked by
-/// the caller before any of these. Array position never decides the code;
-/// within the refusing class, the pointer names the first entry of that class
-/// in array order, at the member at fault.
+/// shape defect (`malformed_wire`, class 4). Classes 1 (repeated entry) and
+/// 2 (same identity, different version) are checked by the caller before
+/// any of these. Class 5, the selection's evidence, is FR-322 step 1: each
+/// row in lock order is admitted under FR-154's four checks and its
+/// declarations read, and the first refusal is the read's, at the row (or
+/// the row member it is about). The parse and read of each document are
+/// charged to `meter`, and an exhausted `work` limit is `incomplete` at the
+/// row (`/lock/model_selections/<i>`). Two rows sharing one identity and version
+/// but naming different digests are one locator selected twice: the later
+/// row refuses `stale_dependency` at its `digest`, whatever documents the
+/// caller supplied.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
-) -> Result<(), ValidationFailure> {
-    let at = |index: usize, member: &str| {
-        member_pointer(&["lock", "model_selections"])
-            .index(index)
-            .key(member)
-    };
+    meter: &mut WorkMeter,
+) -> Result<Vec<DomainModel>, ValidationFailure> {
+    let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
+    let at = |index: usize, member: &str| row(index).key(member);
     if let Some(index) = models
         .iter()
         .position(|model| model.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST)
@@ -882,15 +882,39 @@ fn validate_domain_packages(
     if let Some(path) = malformed {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
     }
-    if let Some(index) = models.iter().position(|model| {
-        evidence.domain_package_digest(&model.locator()) != Some(model.digest.as_ref())
-    }) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::StaleDependency,
-            at(index, "digest"),
-        ));
+    let mut digests: BTreeMap<(&str, &str), &str> = BTreeMap::new();
+    for (index, model) in models.iter().enumerate() {
+        let locator = (model.identity.as_ref(), model.version.as_ref());
+        if digests
+            .insert(locator, model.digest.as_ref())
+            .is_some_and(|earlier| earlier != model.digest.as_ref())
+        {
+            return Err(refuse(
+                CheckedPackageRefusalCode::StaleDependency,
+                at(index, "digest"),
+            ));
+        }
     }
-    Ok(())
+    models
+        .iter()
+        .enumerate()
+        .map(|(index, model)| {
+            let mut budget = Budget::new(meter, index);
+            admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
+                SelectionFailure::Limit(failure) => failure,
+                SelectionFailure::Refused(refused) => {
+                    let path = refused
+                        .member
+                        .map_or_else(|| row(index), |member| at(index, member));
+                    ValidationFailure::refused_because(
+                        refused.refusal.code,
+                        path,
+                        refused.refusal.cause,
+                    )
+                }
+            })
+        })
+        .collect()
 }
 
 /// Requires a node key in the node domain with a lowercase digest; `at`
@@ -1792,6 +1816,7 @@ fn validate_graph(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
+    models: &[DomainModel],
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let graph = &wire.semantic_graph;
     if graph.graph_version.as_ref() != GRAPH_V2 {
@@ -1924,7 +1949,14 @@ fn validate_graph(
     validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     validate_declaration_names(&graph.nodes, &index)?;
     validate_frame_semantics(&graph.nodes, &kinds, &index)?;
-    validate_operations(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
+    // FR-322 step 2: each selected declaration's model declaration node key,
+    // one validation visit apiece, charged at the selection it belongs to.
+    let owners = ModelOwners::new(models, |selection| {
+        meter.charge(1, || {
+            member_pointer(&["lock", "model_selections"]).index(selection)
+        })
+    })?;
+    validate_operations(&graph.nodes, &kinds, &index, &wire.lock, &owners, meter)?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     let reference_pointer = |position: usize, reference: usize| match (
         graph.nodes.get(position),

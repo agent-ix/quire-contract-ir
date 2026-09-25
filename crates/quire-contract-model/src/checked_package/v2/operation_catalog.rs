@@ -54,9 +54,8 @@ pub(super) struct OperationCatalogEntry {
     /// The family or group name every operand past `operands` must fit, or
     /// `None` when no further operand is admitted.
     pub(super) rest: Option<Box<str>>,
-    /// The result form (unused by this reader's current checks, kept for
-    /// fidelity with the catalog's own closed shape).
-    #[allow(dead_code)]
+    /// The result form; `inner:<n>` over a `reference` operand is checked
+    /// (`check_inner_result`), the other forms are not.
     pub(super) result: Box<str>,
     /// Required law roles, in order.
     pub(super) laws: Vec<Box<str>>,
@@ -163,32 +162,37 @@ static CATALOG: OnceLock<OperationCatalog> = OnceLock::new();
 /// embedded catalog bytes are not valid — a build-time defect, never a
 /// caller input, so this asserts rather than threading a refusal for it.
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    CATALOG.get_or_init(|| {
-        let wire: OperationCatalogWire = serde_json::from_str(CATALOG_BYTES)
-            .expect("embedded checked-operation-catalog-v1.json is valid");
-        // The dependency `rev` is provenance and pins nothing about content: a rev
-        // bump that landed a different closed vocabulary would leave this reader
-        // validating every package against it, silently. The identity is what the
-        // reader's rules are written for, so it is checked here rather than assumed.
-        assert_eq!(
-            wire.version.as_ref(),
-            CATALOG_VERSION,
-            "the catalog read from its home declares a different vocabulary identity \
-             than this reader implements"
-        );
-        let operations = wire
-            .operations
-            .into_iter()
-            .map(|entry| (entry.identity.clone(), entry))
-            .collect();
-        OperationCatalog {
-            operations,
-            groups: wire.groups,
-            law_roles: wire.law_roles,
-            profile_law_roles: wire.profile_law_roles,
-            type_pinned_modes: wire.type_pinned_modes,
-        }
-    })
+    CATALOG.get_or_init(|| parse_catalog(CATALOG_BYTES))
+}
+
+/// Parses and indexes catalog bytes of this reader's vocabulary identity.
+/// Panics on invalid bytes: the production catalog is a build-time input,
+/// and a test passes a catalog it read itself.
+pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
+    let wire: OperationCatalogWire =
+        serde_json::from_str(bytes).expect("checked-operation-catalog-v1.json is valid");
+    // The dependency `rev` is provenance and pins nothing about content: a rev
+    // bump that landed a different closed vocabulary would leave this reader
+    // validating every package against it, silently. The identity is what the
+    // reader's rules are written for, so it is checked here rather than assumed.
+    assert_eq!(
+        wire.version.as_ref(),
+        CATALOG_VERSION,
+        "the catalog read from its home declares a different vocabulary identity \
+         than this reader implements"
+    );
+    let operations = wire
+        .operations
+        .into_iter()
+        .map(|entry| (entry.identity.clone(), entry))
+        .collect();
+    OperationCatalog {
+        operations,
+        groups: wire.groups,
+        law_roles: wire.law_roles,
+        profile_law_roles: wire.profile_law_roles,
+        type_pinned_modes: wire.type_pinned_modes,
+    }
 }
 
 #[cfg(test)]

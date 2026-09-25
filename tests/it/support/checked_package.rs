@@ -24,10 +24,9 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_ir::{
-    CheckedArtifactLocator, CheckedDomainPackageLocator, CheckedPackageEvidence,
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, JsonPointer,
+    CheckedArtifactLocator, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -132,17 +131,20 @@ pub fn locator(artifact: &Value) -> CheckedArtifactLocator {
     }
 }
 
-pub fn domain_package_locator(model: &Value) -> CheckedDomainPackageLocator {
-    let text = |key: &str| -> Box<str> {
-        model[key]
-            .as_str()
-            .unwrap_or_else(|| panic!("domain package member {key}"))
-            .into()
-    };
-    CheckedDomainPackageLocator {
-        identity: text("identity"),
-        version: text("version"),
-    }
+/// A minimal Semantic IR 2.0.0 document for a domain package, declaring the
+/// given object types.
+pub fn domain_package_document(identity: &str, version: &str, types: Vec<Value>) -> Value {
+    serde_json::json!({
+        "contractVersion": "2.0.0",
+        "package": {"identity": identity, "version": version},
+        "constructs": [],
+        "types": types,
+    })
+}
+
+/// The `sha256-jcs` digest a lock names [`domain_package_document`] under.
+pub fn domain_package_digest(document: &Value) -> String {
+    sha256_hex(&canonical(document))
 }
 
 /// Every locked raw byte artifact in `package`, including the diagnostic
@@ -178,14 +180,22 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
         );
     }
     // A lock's compiled-model selections are `sha256-jcs` domain packages,
-    // typed separately from raw byte artifacts.
+    // supplied as documents. A selection whose digest names no document this
+    // helper builds is left unsupplied, so the reader refuses it.
     for model in package["lock"]["model_selections"]
         .as_array()
         .cloned()
         .unwrap_or_default()
     {
-        let digest = model["digest"].as_str().expect("model digest");
-        evidence.insert_domain_package_digest(domain_package_locator(&model), digest);
+        let document = domain_package_document(
+            model["identity"].as_str().expect("model identity"),
+            model["version"].as_str().expect("model version"),
+            Vec::new(),
+        );
+        let digest = domain_package_digest(&document);
+        if model["digest"].as_str() == Some(digest.as_str()) {
+            evidence.insert_domain_package_document(digest, canonical(&document));
+        }
     }
     evidence.support_feature(COMPLETE_VALUE_FEATURE);
     evidence
@@ -375,6 +385,18 @@ pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRef
         cause: None,
         locus: None,
         contract_version: None,
+    }
+}
+
+/// A refusal at `path` carrying a machine `cause`.
+pub fn refusal_cause(
+    code: CheckedPackageRefusalCode,
+    path: &str,
+    cause: CheckedPackageRefusalCause,
+) -> CheckedPackageRefusal {
+    CheckedPackageRefusal {
+        cause: Some(cause),
+        ..refusal(code, path)
     }
 }
 
