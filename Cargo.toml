@@ -28,15 +28,18 @@ serde_stacker = "=0.1.11"
 sha2 = "=0.10.9"
 stacker = "=0.1.15"
 thiserror = "=2.0.20"
-tl-syntax = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-syntax", rev = "d52d89549b0a6c0c429261bab912cd5396c4a19e", features = ["serde"] }
-tl-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/tl-mltl", rev = "b3e2a26a8516b0747679214d2a05be0210e69ec6" }
+tl-syntax = { version = "=0.3.0", git = "https://github.com/agent-ix/tl-syntax", rev = "4a5614193d21e5ae99950ae683b04ba0ec931358", features = ["serde"] }
+tl-mltl = { version = "=0.3.0", git = "https://github.com/agent-ix/tl-mltl", rev = "452f013a3168512603d427bce3360bc14c1175a6" }
 # The one deliberate exception to tl-mltl's independence from the agent-ix/Quire
 # ecosystem: quire-mltl ports tl-mltl's wire::request/report and
 # mapping::contract_ir modules onto quire-observation's owner-assertion views
 # (TL-178/TL-175). tl-mltl stays a direct dependency too for the wire::trace,
 # past::*, and OwnerLimits/OwnerReadError/ValidatedTrace types quire-mltl does
-# not re-export.
-quire-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-mltl", rev = "f44431155de54fa028da88665e5d29ff826e27da" }
+# not re-export. Both crates must resolve one tl-mltl (quire-mltl takes
+# tl-mltl's OwnerLimits/ValidatedTrace), so quire-mltl is pinned to the rev
+# that moves it onto tl-mltl v0.3.0 (agent-ix/quire-mltl#5); its v0.1.0 tag
+# still pins the pre-0.3 tl-mltl.
+quire-mltl = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-mltl", rev = "06bd57fd1a3f4920029ce171f1e95211e0816086" }
 
 [dev-dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }

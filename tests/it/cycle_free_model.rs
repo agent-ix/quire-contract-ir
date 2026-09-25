@@ -166,7 +166,7 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             "quire-spec-language",
             "2736b62b2f741496590d099d71478b3044d638d6",
         ),
-        ("tl-syntax", "d52d89549b0a6c0c429261bab912cd5396c4a19e"),
+        ("tl-syntax", "4a5614193d21e5ae99950ae683b04ba0ec931358"),
     ] {
         assert!(
             production.iter().any(|id| names[id] == owner),
