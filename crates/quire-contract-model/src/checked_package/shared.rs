@@ -177,6 +177,9 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
+    /// `revision-mismatch`: a supplied dependency package's version differs
+    /// from its `dependency_selections` entry's.
+    RevisionMismatch,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

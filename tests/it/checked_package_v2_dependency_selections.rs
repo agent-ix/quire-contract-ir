@@ -13,7 +13,8 @@
 //! `make qspec-vectors` requires it.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, pointer, refresh_identity, sha256_hex, v2_all_families,
+    admitted_dependency, canonical, evidence_for, pointer, positive_operation_identities,
+    read_with_dependencies as read_with, refresh_identity, sha256_hex, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -76,12 +77,20 @@ fn expect_refusal(
 #[test]
 fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     let base = v2_all_families();
+    // Two distinct admitted dependency packages, supplied under their
+    // entries' identities and versions.
+    let (geometry_id, geometry) = admitted_dependency(&base);
+    let (units_id, units) = admitted_dependency(&positive_operation_identities());
+    let supplied = [
+        ("test/geometry", "1", &geometry),
+        ("test/units", "2", &units),
+    ];
     let entries = vec![
-        entry("test/geometry", "1", DIGEST_A),
-        entry("test/units", "2", DIGEST_B),
+        entry("test/geometry", "1", &geometry_id),
+        entry("test/units", "2", &units_id),
     ];
     let package = with_selections(base.clone(), entries.clone());
-    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with(&package, &supplied) else {
         panic!("an ascending, one-per-identity selection list admits");
     };
     let lock = serde_json::to_value(admitted.lock()).expect("lock serializes");
@@ -94,20 +103,30 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
 
     // Changing a dependency's package_id changes the package identity.
     let mut changed = entries;
-    changed[1] = entry("test/units", "2", DIGEST_A);
+    changed[1] = entry("test/units", "2", &geometry_id);
     let other = with_selections(base, changed);
+    let supplied_again = [
+        ("test/geometry", "1", &geometry),
+        ("test/units", "2", &geometry),
+    ];
     assert_ne!(package["package_id"], other["package_id"]);
     // The reader holds the old id to the changed entries, and admits the new.
     let mut stale = other.clone();
     stale["package_id"] = package["package_id"].clone();
-    expect_refusal(
-        &stale,
-        CheckedPackageRefusalCode::StaleDependency,
-        "/package_id/digest",
-        None,
+    let stale_read = read_with(&stale, &supplied_again);
+    let CheckedPackageV2ReadResult::Refused(stale_refusal) = stale_read else {
+        panic!("a stale package id refuses, read {stale_read:?}");
+    };
+    assert_eq!(
+        stale_refusal.code,
+        CheckedPackageRefusalCode::StaleDependency
     );
+    assert_eq!(stale_refusal.path, Some(pointer("/package_id/digest")));
     assert!(
-        matches!(read(&other), CheckedPackageV2ReadResult::Admitted(_)),
+        matches!(
+            read_with(&other, &supplied_again),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
         "the changed entries admit under their own package_id"
     );
 }
@@ -312,15 +331,25 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
     );
     // UTF-8 byte order, not UTF-16 code-unit order: U+FF61 sorts before
     // U+1F600 in UTF-8 bytes and after it in UTF-16.
+    let (dependency_id, dependency) = admitted_dependency(&base);
     let byte_order = with_selections(
         base,
         vec![
-            entry("test/\u{ff61}", "1", DIGEST_A),
-            entry("test/\u{1f600}", "1", DIGEST_B),
+            entry("test/\u{ff61}", "1", &dependency_id),
+            entry("test/\u{1f600}", "1", &dependency_id),
         ],
     );
     assert!(
-        matches!(read(&byte_order), CheckedPackageV2ReadResult::Admitted(_)),
+        matches!(
+            read_with(
+                &byte_order,
+                &[
+                    ("test/\u{ff61}", "1", &dependency),
+                    ("test/\u{1f600}", "1", &dependency),
+                ]
+            ),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
         "entries in UTF-8 byte order admit"
     );
 }
@@ -402,9 +431,14 @@ fn dependency_selection_vectors() {
         "the recorded package_id recomputes from the entries"
     );
     valid["package_id"]["digest"] = vectors["package_id"].clone();
-    assert!(
-        matches!(read(&valid), CheckedPackageV2ReadResult::Admitted(_)),
-        "the valid package admits"
+    // The entries pass every array check; QSpec's dependencies are digests,
+    // not packages, so none is supplied and the reader refuses at the first
+    // entry (FR-322: an entry with no supplied package).
+    expect_refusal(
+        &valid,
+        CheckedPackageRefusalCode::MissingImport,
+        "/lock/dependency_selections/0",
+        Some(CheckedPackageRefusalCause::MissingSelection),
     );
 
     // Entry mutations: the entry replaces the first entry in both members.
@@ -443,9 +477,13 @@ fn dependency_selection_vectors() {
         );
         let outcome = text(order, "outcome");
         if outcome == "admitted" {
-            assert!(
-                matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-                "{id} admits"
+            // Admitted by the order rule: the reader gets past every array
+            // check and refuses only for the dependency it was not supplied.
+            expect_refusal(
+                &package,
+                CheckedPackageRefusalCode::MissingImport,
+                "/lock/dependency_selections/0",
+                Some(CheckedPackageRefusalCause::MissingSelection),
             );
             continue;
         }

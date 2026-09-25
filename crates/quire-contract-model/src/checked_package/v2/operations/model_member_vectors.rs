@@ -20,6 +20,7 @@
 //! reads it into the same [`DomainModel`] [`super::super::model_members::read_semantic_ir`]
 //! builds from a real document.
 
+use super::super::dependency_references::{DependencyReferences, SuppliedDependencies};
 use super::super::model_members::{
     admit_document, declaration_key, member_name, Budget, CollectionKind, DeclarationForm,
     DomainModel, FieldDecl, IntegerBounds, MemberKind, MemberType, ModelOwners, Multiplicity,
@@ -354,6 +355,7 @@ impl CaseGraph {
             &graph,
             &empty_lock(),
             owners,
+            DependencyReferences::new(&SuppliedDependencies::default()),
             catalog,
             &mut meter,
         )

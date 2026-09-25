@@ -7,6 +7,7 @@
 //! `sha256-jcs` domain packages, typed separately from the raw source and
 //! definition byte artifacts.
 
+mod dependency_references;
 mod identity;
 mod lower;
 mod model_members;
@@ -20,6 +21,7 @@ pub use identity::*;
 pub use lower::*;
 pub use vocabulary::*;
 
+use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
@@ -687,8 +689,11 @@ fn validate(
         ));
     }
     let mut meter = WorkMeter::new(limits.work);
-    let models = validate_lock(wire, evidence, &mut meter)?;
-    let kinds = validate_graph(wire, limits, &mut meter, &models)?;
+    let LockAdmission {
+        models,
+        dependencies,
+    } = validate_lock(wire, evidence, &mut meter)?;
+    let kinds = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -764,13 +769,19 @@ fn non_graph_lock_difference(
         })
 }
 
-/// Checks the lock and returns each selected domain package's declarations,
-/// in lock order.
-fn validate_lock(
-    wire: &CheckedPackageWireV2,
-    evidence: &CheckedPackageEvidence,
+/// What the lock stage admits: each selected domain package's declarations,
+/// in lock order, and each selected dependency's supplied package.
+struct LockAdmission<'a> {
+    models: Vec<DomainModel>,
+    dependencies: SuppliedDependencies<'a>,
+}
+
+/// Checks the lock and returns what it admits.
+fn validate_lock<'a>(
+    wire: &'a CheckedPackageWireV2,
+    evidence: &'a CheckedPackageEvidence,
     meter: &mut WorkMeter,
-) -> Result<Vec<DomainModel>, ValidationFailure> {
+) -> Result<LockAdmission<'a>, ValidationFailure> {
     let lock = &wire.lock;
     if lock.sources.is_empty() {
         return Err(refuse(
@@ -865,6 +876,9 @@ fn validate_lock(
         }
     }
     let models = validate_domain_packages(&lock.model_selections, evidence, meter)?;
+    // FR-322: every selected dependency's admitted package is supplied and
+    // binds to its entry, before any `dependency_reference` is read.
+    let dependencies = admit_dependencies(&lock.dependency_selections, evidence)?;
     let mut features = BTreeSet::new();
     if let Some(index) = lock
         .required_features
@@ -882,7 +896,10 @@ fn validate_lock(
         evidence,
         &|| member_pointer(&["diagnostics", "catalog"]),
     )?;
-    Ok(models)
+    Ok(LockAdmission {
+        models,
+        dependencies,
+    })
 }
 
 /// Checks `lock.dependency_selections` (FR-322): each entry's `package_id`
@@ -1992,6 +2009,7 @@ fn validate_graph(
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
     models: &[DomainModel],
+    dependencies: &SuppliedDependencies<'_>,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
@@ -2109,7 +2127,15 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
-    validate_operations(&graph.nodes, &kinds, &index, &wire.lock, &owners, meter)?;
+    validate_operations(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &wire.lock,
+        &owners,
+        dependencies,
+        meter,
+    )?;
     let mut adjacency = Vec::with_capacity(graph.nodes.len());
     let reference_pointer = |position: usize, reference: usize| match (
         graph.nodes.get(position),

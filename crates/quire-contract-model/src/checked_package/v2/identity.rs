@@ -377,6 +377,17 @@ impl NominalKind {
 }
 
 impl NominalIdentityPreimage {
+    /// The declaring owner, for the forms that carry one; an enum member is
+    /// owned through its declaration.
+    pub(crate) fn owner(&self) -> Option<&NominalOwner> {
+        match self {
+            Self::EnumDeclaration(declaration) => Some(&declaration.owner),
+            Self::Dimension(dimension) => Some(&dimension.owner),
+            Self::Unit(unit) => Some(&unit.owner),
+            Self::EnumMember(_) => None,
+        }
+    }
+
     /// The declared name this preimage fixes, for the forms that carry one:
     /// an enum declaration, a dimension or a declared unit. An enum member
     /// is named through its declaration, not by a name of its own.

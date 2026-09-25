@@ -18,8 +18,11 @@ FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 `DependencySelection` entries of a self-built package, and FR-038-AC-34
-against the reader's and the bounded-Kani modules' own source. QSpec's
-own TC-280, TC-281 and `dependency-selection-vectors.json` vectors run through the same reader under
+against the reader's and the bounded-Kani modules' own source, and
+FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
+against a self-built dependency package and a package that calls it. QSpec's
+own TC-280, TC-281, `dependency-selection-vectors.json` and `function-call`
+node-identity vectors run through the same reader under
 `make qspec-vectors`, which reads them from the checkout `QSPEC_DIR` names.
 
 ## Test Procedure
@@ -104,7 +107,34 @@ adjacent and not, and reverse two entries, and read. Order two identities
 whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one. Run QSpec's valid package, six entry
 mutations and three order vectors through the same reader under
-`make qspec-vectors`.
+`make qspec-vectors`. With no dependency package supplied, QSpec's valid
+package and its admitted order vectors refuse `missing_import`/`missing-selection`
+at the first entry, after every array check passes.
+
+## Dependency references (FR-038-AC-35 through FR-038-AC-38)
+
+Declare the fixture's `function` node as a dependency function over a
+bounded integer returning Boolean, read it, and lock its `package_id` as a
+`dependency_selections` entry of a package whose function call has a
+`dependency_reference` callee with that entry's `package` and the function as
+`node`, its application key re-derived and no `dependencies` entry for the
+target. Read it with the dependency supplied and check it admits and the term
+is in the body verbatim. List the target in `dependencies`. Change only the
+term's `package`, then only its `node`, keeping the key, and check each is a
+stale key; re-derive each and check the three ids differ. Mutate the term to a
+bare-digest, other-domain and short-digest `package`, another-domain `node`,
+a missing `node` and an extra member. Place the well-formed term as a second
+argument, as the argument of another operation, as an aggregate member and as a
+node body root. Supply no package, another identity, another version and a
+package of another `package_id`. Name a `package` no entry carries, a `node`
+that is absent, one with no `declaration` and a declared record. Give the
+dependency function a declared-record parameter and result, a `Set` of a
+declared record, a tuple holding one and a `Reference` to a `model` node, and a
+`Set` of a bounded integer. Compare the whole refusal code, cause and pointer
+with the expected one. Place QSpec's `function-call` operation vector's
+preimage with the dependency callee, compare the id the reader derives with the
+id computed from the vector's own shape, and read the four term mutations
+through the reader under `make qspec-vectors`.
 
 ## String edge (FR-038-AC-34)
 

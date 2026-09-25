@@ -37,7 +37,8 @@ and 1000000 term-validation visits — as stable API, every member finite so tha
 the default admits no unbounded read; package evidence holding
 the authoritative raw-artifact digests (from supplied bytes or a verified
 digest store), each selected domain package's Semantic IR 2.0.0 document
-supplied as bytes under its `sha256-jcs` digest, and the reader-supported
+supplied as bytes under its `sha256-jcs` digest, each selected dependency's
+admitted V2 package supplied under its library identity and version, and the reader-supported
 required features; for lowering, requested node keys and a
 lowering profile (supported node tags, bounded-domain requirement, work
 limit).
@@ -334,6 +335,61 @@ shape (a `Selection` or `DefinitionRef` where a `DependencySelection` belongs)
 refuses `malformed_wire` at the entry; an entry carrying every required member
 and one more refuses `unknown_member` at the extra member.
 
+Every entry is also bound to the admitted `CheckedPackageV2` the package
+evidence supplies for its `identity` (QSpec FR-322 `dependency_selections`).
+After the array checks above and the domain package evidence checks, the reader
+takes the entries in lock order and refuses the first that fails: no package
+supplied for the `identity` refuses `missing_import` with cause
+`missing-selection` at the entry; a package supplied under another `version`
+refuses `stale_dependency` with cause `revision-mismatch` at the entry's
+`version`; a package whose own `package_id` is not the entry's refuses
+`stale_dependency` with cause `byte-digest-mismatch` at the entry's
+`package_id.digest`. This binding runs before any node is read, so before any
+`dependency_reference` check.
+
+### Dependency references
+
+A `{term: "dependency_reference", package, node}` term (QSpec FR-322) names a
+declaration of a selected dependency. It is a member of the closed semantic
+term vocabulary, decoded once with the other term tags. `package` is a
+`quire.package.semantic/v2` SHA-256 identity and `node` a node key; a term that
+is not exactly that shape refuses `invalid_semantic_graph` at `package`, at
+`node`, or, for a missing or extra member, at the term.
+
+The term is a callee only: argument 0 of a `quire.op.function.call`
+application. It enters the application node's key as it stands on the wire, so
+a change to either `package` or `node` changes the node id, and it contributes
+no entry to the node's `dependencies`; listing its target there refuses
+`invalid_semantic_graph`. The `function` operand family of a call is met by a
+`dependency_reference` callee.
+
+The reader checks each term at its place in its node's pre-order term walk,
+wherever it stands (an application argument, a binding value, an aggregate
+member or the body root), in step 7 of the operation stage, after the
+application's own identity, law, mode and member checks and before its operand
+checks, by these three checks in this order:
+
+1. `package` equal to no `dependency_selections` entry's `package_id` refuses
+   `missing_declaration` with cause `missing-selection` at the term's
+   `package`.
+2. `node` naming no node of the supplied dependency package, or a node that
+   carries no `declaration`, refuses `missing_declaration` with cause
+   `missing-name` at the term's `node`.
+3. A term that is not argument 0 of a `quire.op.function.call`, a `node` that
+   is not a `function` node, or a function with a package-dependent signature
+   refuses `ill_typed` with cause `operator-ineligible` at the term.
+
+A function's signature is package-independent when no node in the transitive
+closure of its signature type nodes carries a `declaration` or a `ModelOwner`.
+FR-322 does not fix which nodes of a `function` node are its signature; this
+reader takes the function's own `semantic_type` (its result type), the
+`semantic_type` of each `parameter` node in its `dependencies` and each type
+node its `dependencies` list directly, and follows `dependencies`,
+`semantic_type` and the `reference` terms of each node's body. A `model` or
+`relation` node is a `ModelOwner` carrier. A refusal carries the calling node
+as its locus. The lookup and the closure are charged to the `work` limit at the
+term, one unit per node of the dependency graph.
+
 ### Closed vocabularies are decoded once
 
 Every closed vocabulary the reader depends on is decoded to an enum where its
@@ -555,13 +611,17 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; an `Int[lo, hi]` value type and every multiplicity give the member type whose node key equals QSL FR-092's key for it. | Test (TC-048) |
 | FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
-| FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. QSpec's published two-entry package (`dependency-selection-vectors.json`, read from `QSPEC_DIR`) admits and its recorded `package_id` recomputes from the entries. | Test (TC-048) |
+| FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits when each selected dependency's admitted package is supplied, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. QSpec's published two-entry package (`dependency-selection-vectors.json`, read from `QSPEC_DIR`) has its recorded `package_id` recompute from the entries and, with no dependency package supplied, refuses `missing_import`/`missing-selection` at its first entry. | Test (TC-048) |
 | FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `version`, `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry; and each of QSpec's six entry mutations refuses with the code its vector records, at the mutated entry. | Test (TC-048) |
-| FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. QSpec's `order_vectors` decide the same way through the reader. | Test (TC-048) |
+| FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. QSpec's `order_vectors` decide the same way through the reader: an admitted vector passes every array check and refuses only `missing_import`/`missing-selection` at its first entry. | Test (TC-048) |
 | FR-038-AC-34 | Non-test source under `src/kani/` and the model crate's `checked_package/` reads no wire string after intake: an `==`/`!=` against a string literal or constant, a string `match` arm or `matches!` pattern, a `starts_with`/`strip_prefix` test or a `from_wire` call outside a function marked `// string-edge:` or listed with its reason in the test's allow-list fails the gate, as does a marker or allow-list row whose function reads no string. | Test (TC-048) |
+| FR-038-AC-35 | A package whose `function` call has a `dependency_reference` callee to a declared function of the supplied dependency admits, carries the term verbatim in the node body and lists no `dependencies` entry for it; listing the target refuses `invalid_semantic_graph` at the node's `dependencies`; changing only the term's `package`, or only its `node`, without re-deriving the key refuses `invalid_package`/`stale-node-key`, and re-derived they give distinct node ids. QSpec's `function-call` node-identity vector, with the callee replaced by the term and read from `QSPEC_DIR`, keys as the reader keys it, and its `package` and `node` changes give new, distinct ids. | Test (TC-048) |
+| FR-038-AC-36 | A `dependency_reference` with a bare-digest, other-domain or short-digest `package` refuses `invalid_semantic_graph` at the `package`, one in another node domain at the `node`, and one with a missing or extra member at the term; a well-formed term that is not argument 0 of a `quire.op.function.call` (a second argument, an argument of another operation, an aggregate member or a node body root) refuses `ill_typed`/`operator-ineligible` at the term. | Test (TC-048) |
+| FR-038-AC-37 | A `dependency_selections` entry with no package supplied for its `identity` refuses `missing_import`/`missing-selection` at the entry, one supplied under another `version` `stale_dependency`/`revision-mismatch` at its `version`, and one whose package has another `package_id` `stale_dependency`/`byte-digest-mismatch` at its `package_id.digest`; a term whose `package` no entry names refuses `missing_declaration`/`missing-selection` at the `package`, a `node` naming no node or a node without a `declaration` `missing_declaration`/`missing-name` at the `node`, and a `node` naming a declared node that is no function `ill_typed`/`operator-ineligible`, each carrying the calling node as its locus. | Test (TC-048) |
+| FR-038-AC-38 | A dependency function whose parameter is a declared record, whose result is a declared record, whose parameter is a `Set` of one, a tuple holding one, or a `Reference` to a `model` node refuses `ill_typed`/`operator-ineligible` at the callee; the same function over a `Set` of a bounded integer admits. | Test (TC-048) |
 
 ## Dependencies
 
-QSpec FR-322 (AC-4, AC-8, AC-10), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
+QSpec FR-322 (AC-4, AC-8, AC-10, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 TC-217 names this repository as their consumer evidence owner.
