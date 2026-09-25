@@ -196,6 +196,46 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     evidence
 }
 
+/// Reads `package` with only its own locked artifacts attested.
+fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(package),
+    )
+}
+
+/// A dependency package the reader admitted: the digest its `package_id`
+/// carries, and the package itself.
+pub fn admitted_dependency(package: &Value) -> (String, CheckedPackageV2) {
+    match read_admitting(package) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => (
+            package["package_id"]["digest"]
+                .as_str()
+                .expect("package id digest")
+                .to_owned(),
+            *admitted,
+        ),
+        other => panic!("the dependency package admits, read {other:?}"),
+    }
+}
+
+/// `read`, with `dependencies` supplied as `(identity, version, package)`.
+pub fn read_with_dependencies(
+    package: &Value,
+    dependencies: &[(&str, &str, &CheckedPackageV2)],
+) -> CheckedPackageV2ReadResult {
+    let mut evidence: CheckedPackageEvidence = evidence_for(package);
+    for (identity, version, dependency) in dependencies {
+        evidence.insert_dependency_package(*identity, *version, (*dependency).clone());
+    }
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
 /// Rebuilds the identity projection from the graph and re-derives the package id.
 pub fn refresh_identity(package: &mut Value) {
     let projection = package["semantic_graph"]["nodes"]

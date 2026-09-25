@@ -322,6 +322,7 @@ closed_vocabulary! {
         Application => "application",
         Aggregate => "aggregate",
         Binding => "binding",
+        DependencyReference => "dependency_reference",
         Frame => "frame",
     }
 }

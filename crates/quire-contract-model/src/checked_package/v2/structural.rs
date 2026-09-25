@@ -398,9 +398,11 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
             Some(BodyTerm::Aggregate) => pending.extend(terms(object, "members")),
             Some(BodyTerm::Binding) => pending.extend(object.get("value")),
             // A literal names only its type annotation, which is not a
-            // dependency, and a frame is never a nested term; a tag outside
-            // the vocabulary is refused before this stage.
-            Some(BodyTerm::Literal | BodyTerm::Frame) | None => {}
+            // dependency; a `dependency_reference` names a node of another
+            // package and is never listed in `dependencies`; a frame is
+            // never a nested term; a tag outside the vocabulary is refused
+            // before this stage.
+            Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
         }
     }
     contains_application.then_some(join)

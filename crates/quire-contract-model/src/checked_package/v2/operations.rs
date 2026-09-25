@@ -54,6 +54,7 @@
 //! silently bypasses every operand-family check ([`check_operands`],
 //! [`check_mode_type`], [`check_leaves`]) that consults it.
 
+use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
     Budget, MemberKind, MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved,
 };
@@ -245,7 +246,10 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
                 rewritten["value"] = group_references(value, group);
             }
         }
-        Some(BodyTerm::Literal | BodyTerm::Frame) | None => {}
+        // A dependency reference names a node of another package, never a
+        // member of this recursion group, and enters the preimage as it
+        // stands on the wire.
+        Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
     }
     rewritten
 }
@@ -335,6 +339,7 @@ pub(super) fn validate_operations(
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
+    dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
@@ -342,9 +347,13 @@ pub(super) fn validate_operations(
         kinds,
         index,
     };
+    let references = DependencyReferences::new(dependencies);
     for &position in index.values() {
         let node = &nodes[position];
         if !is_application(&node.body) {
+            // No application check applies: the terms of the body are still
+            // walked for `dependency_reference` (FR-322, step 7).
+            references.walk_body(Referrer { node, position }, meter)?;
             continue;
         }
         let application = Application { node, position };
@@ -353,6 +362,7 @@ pub(super) fn validate_operations(
             &graph,
             lock,
             owners,
+            references,
             operation_catalog(),
             meter,
         )? {
@@ -375,6 +385,7 @@ fn operation_defect(
     graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
     owners: &ModelOwners<'_>,
+    references: DependencyReferences<'_>,
     catalog: &OperationCatalog,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
@@ -536,6 +547,17 @@ fn operation_defect(
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
 
+    // FR-322 step 7: the application's own identity checks are done, so its
+    // arguments are next, in pre-order; a `dependency_reference` among them
+    // is checked here, before the operand checks below.
+    references.walk_arguments(
+        Referrer {
+            node,
+            position: application.position,
+        },
+        meter,
+    )?;
+
     let arguments = body
         .get("arguments")
         .and_then(Value::as_array)
@@ -637,7 +659,17 @@ fn argument_family(
             resolve_family(&type_node, nodes, kinds, index, 0)
         }
         Some(BodyTerm::Binding) => Some("binder"),
-        Some(BodyTerm::Literal | BodyTerm::Application | BodyTerm::Aggregate | BodyTerm::Frame)
+        // A `dependency_reference` callee has family `function` (FR-322), and
+        // the dependency-reference walk (step 7), which runs before the
+        // operand checks, has already refused it anywhere but a
+        // `quire.op.function.call` callee, so no operand check reads it.
+        Some(
+            BodyTerm::Literal
+            | BodyTerm::Application
+            | BodyTerm::Aggregate
+            | BodyTerm::DependencyReference
+            | BodyTerm::Frame,
+        )
         | None => None,
     }
 }
@@ -1477,8 +1509,8 @@ mod tests {
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSemanticNodeV2, ExpressionForm, Graph, ModelOwners, ValidationFailure, WorkMeter,
-        APPLICATION_NODE_VERSION,
+        CheckedSemanticNodeV2, DependencyReferences, ExpressionForm, Graph, ModelOwners,
+        SuppliedDependencies, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{
@@ -1723,6 +1755,7 @@ mod tests {
             },
             &lock,
             &ModelOwners::default(),
+            DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
         )
@@ -1764,6 +1797,7 @@ mod tests {
             },
             &lock,
             &ModelOwners::default(),
+            DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
         )

@@ -9,9 +9,10 @@ use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
+    CheckedSourceMapEntry, JsonPointer,
 };
-use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -679,6 +680,22 @@ pub(super) fn validate_term(
                 Err(invalid(at))
             }
         }
+        // FR-322: `{term, package, node}`. The target names a node of a
+        // dependency package, so it is never a reference of this graph and
+        // is not reported to `visit`. Which positions admit it is decided by
+        // the operation stage (step 7), not by this shape check.
+        BodyTerm::DependencyReference => {
+            if !exact_members(object, &["term", "package", "node"]) {
+                return Err(invalid(at));
+            }
+            if dependency_reference_package(value).is_none() {
+                return Err(invalid(&at.key("package")));
+            }
+            if dependency_reference_node(value).is_none() {
+                return Err(invalid(&at.key("node")));
+            }
+            Ok(1)
+        }
         // A frame is a node body of its own, never a nested term.
         BodyTerm::Frame => Err(invalid(at)),
     }
@@ -689,6 +706,26 @@ pub(super) fn validate_term(
 // string-edge: reads the JSON `term` member of a body and decodes it once.
 pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
     BodyTerm::from_wire(value.get("term")?.as_str()?)
+}
+
+/// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
+/// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
+/// or another digest domain included.
+// string-edge: intake check of a dependency reference's package domain and algorithm.
+pub(super) fn dependency_reference_package(term: &Value) -> Option<CheckedSemanticId> {
+    let package = CheckedSemanticId::deserialize(term.get("package")?).ok()?;
+    (package.domain.as_ref() == PACKAGE_DOMAIN_V2
+        && package.algorithm.as_ref() == "sha256"
+        && is_digest(&package.digest))
+    .then_some(package)
+}
+
+/// A `dependency_reference` term's `node`: a node key in the node domain;
+/// `None` for any other shape.
+// string-edge: intake check of a dependency reference's node domain.
+pub(super) fn dependency_reference_node(term: &Value) -> Option<CheckedNodeId> {
+    let node = CheckedNodeId::deserialize(term.get("node")?).ok()?;
+    (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
 }
 
 /// A `literal` term's decoded `value_kind`.
