@@ -15,7 +15,9 @@
 //!    declaration whose key, tag and form all equal the node's, and the node's
 //!    fixed members (`semantic_type` is itself, no `declaration`, no
 //!    `recursion_group`, an empty body) must hold.
-//! 3. **Resolution** ([`DomainModel::resolve`]). The member name resolves
+//! 3. **Resolution** ([`DomainModel::resolve`]), every ancestor edge, member
+//!    and redefinition pair of which is charged to the reader's `work` limit
+//!    at the selection's row ([`Budget`]). The member name resolves
 //!    among the declaring type's exposed effective members, own and
 //!    inherited, less every member a redefinition hides and every redefining
 //!    member of a less derived owner (the most-derived-redefiner rule).
@@ -454,7 +456,11 @@ fn units(len: usize) -> u64 {
 impl DomainModel {
     /// The proper ancestors of `node` along its declared supertypes; one
     /// work unit per supertype edge followed.
-    fn ancestors(&self, node: &str, budget: &mut Budget<'_>) -> Result<BTreeSet<&str>, ValidationFailure> {
+    fn ancestors(
+        &self,
+        node: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<BTreeSet<&str>, ValidationFailure> {
         let mut reached = BTreeSet::new();
         let mut pending: Vec<&str> = self
             .object_types
@@ -480,7 +486,9 @@ impl DomainModel {
         b: &str,
         budget: &mut Budget<'_>,
     ) -> Result<bool, ValidationFailure> {
-        Ok(a == b || self.ancestors(a, budget)?.contains(b) || self.ancestors(b, budget)?.contains(a))
+        Ok(a == b
+            || self.ancestors(a, budget)?.contains(b)
+            || self.ancestors(b, budget)?.contains(a))
     }
 
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
@@ -507,7 +515,12 @@ impl DomainModel {
         // redefined target -> (redefining member, redefining owner)
         let mut redefiners: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
         for (owner, declared) in owners {
-            budget.charge(units(declared.fields.len().saturating_add(declared.operations.len())))?;
+            budget.charge(units(
+                declared
+                    .fields
+                    .len()
+                    .saturating_add(declared.operations.len()),
+            ))?;
             let fields = declared.fields.iter().map(|field| {
                 (
                     Resolved::Field(field),
@@ -526,7 +539,10 @@ impl DomainModel {
                 let identity = member.identity();
                 if let Some(target) = redefines {
                     hidden.insert(target);
-                    redefiners.entry(target).or_default().push((identity, owner));
+                    redefiners
+                        .entry(target)
+                        .or_default()
+                        .push((identity, owner));
                 }
                 if member_kind == kind {
                     members.insert(identity, member);
@@ -1324,14 +1340,13 @@ fn items<'v>(value: &'v Value, member: &'static str, defects: &mut Defects) -> &
 }
 
 /// One member identity, or the failure of one that is not `<owner>/<name>`.
-fn identity_of(
-    member: &Value,
-    owner: &str,
-    path: &[Segment],
-    defects: &mut Defects,
-) -> Box<str> {
+fn identity_of(member: &Value, owner: &str, path: &[Segment], defects: &mut Defects) -> Box<str> {
     member_identity(member, owner).unwrap_or_else(|refusal| {
-        defects.push(Row::Meaning, &joined(path, Segment::Name("identity")), refusal);
+        defects.push(
+            Row::Meaning,
+            &joined(path, Segment::Name("identity")),
+            refusal,
+        );
         Box::from("")
     })
 }
@@ -1398,9 +1413,9 @@ fn semantic_ir_object_type(
             let at = joined(&params_path, Segment::Index(position));
             parameters.push(references.slot(parameter, &at, defects));
         }
-        let result = operation
-            .get("returns")
-            .map(|returns| references.slot(returns, &joined(&base, Segment::Name("returns")), defects));
+        let result = operation.get("returns").map(|returns| {
+            references.slot(returns, &joined(&base, Segment::Name("returns")), defects)
+        });
         operations.push(OperationDecl {
             identity: identity_of(operation, node, &base, defects),
             parameters,

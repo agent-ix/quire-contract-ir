@@ -36,8 +36,9 @@ nesting levels, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics
 and 1000000 term-validation visits — as stable API, every member finite so that
 the default admits no unbounded read; package evidence holding
 the authoritative raw-artifact digests (from supplied bytes or a verified
-digest store), the authoritative `sha256-jcs` domain-package digests, and the
-reader-supported required features; for lowering, requested node keys and a
+digest store), each selected domain package's Semantic IR 2.0.0 document
+supplied as bytes under its `sha256-jcs` digest, and the reader-supported
+required features; for lowering, requested node keys and a
 lowering profile (supported node tags, bounded-domain requirement, work
 limit).
 
@@ -164,8 +165,9 @@ require the preimage's lock members to equal the lock, and require its
 `identity_projection` to equal the occurrence-free projection of the graph in
 graph order. It shall check each digest's declared domain before its bytes,
 each locked source/definition byte digest against the package evidence's raw
-artifact digests and each selected `sha256-jcs` domain package digest against
-its separately typed domain package evidence, every required feature against
+artifact digests and each selected domain package by reading the document the
+evidence supplies under its `sha256-jcs` digest (see "Model-owned members"
+below), every required feature against
 the reported `available` capability and the reader-supported feature set,
 every node tag, family form and semantic term, reference and dependency
 resolution, cycles outside one explicit `recursion_group`, and the total
@@ -206,16 +208,24 @@ outcome rather than a position-dependent one:
    separately as Linear IR-243. Two entries sharing both `identity` and
    `version`, differing only in `digest`, are not this class: they share one
    locator, and package evidence attests at most one digest per locator, so at
-   most one of the two digests can match it — class 5 below already refuses
-   such a pair deterministically as a digest the evidence does not attest,
-   and this class is not widened to reach them.
+   most one of the two digests can name the document the evidence supplies —
+   class 5 below already refuses such a pair deterministically as one locator
+   selected twice, and this class is not widened to reach them.
 3. An entry whose `digest_domain` is not `sha256-jcs` refuses as
    `digest_domain_mismatch` at `lock.model_selections`.
 4. An entry with an empty `identity`, an empty `version` or a `digest` that is
    not a SHA-256 hex digest refuses as `malformed_wire` at
    `lock.model_selections`.
-5. An entry whose digest the domain package evidence does not attest refuses
-   as `stale_dependency` at `lock.model_selections`.
+5. An entry whose selection evidence FR-322 step 1 does not admit (see
+   "Model-owned members" below) refuses with that step's code and cause:
+   `missing_import`/`missing-selection` at the entry's `digest` when the
+   evidence supplies no document under it, `stale_dependency`/`byte-digest-mismatch`
+   at its `digest` when the document's RFC 8785 SHA-256 is another digest,
+   `invalid_model_binding`/`wrong-model-selection` at its `identity` or
+   `version` when the document names another, and the first FR-154
+   declaration refusal of the document at the entry. Two entries sharing one
+   `identity` and `version` but naming different digests are one locator
+   selected twice: the later entry refuses `stale_dependency` at its `digest`.
 
 Each class is evaluated over the whole array before the next class is
 evaluated over any of it. The refusal an array draws is therefore the code of
@@ -257,6 +267,46 @@ occurrence-free identity projection it compares against
 `identity_preimage.identity_projection`, so a package whose preimage omits a
 `declaration`, a literal `type` or an application `operation` refuses rather
 than admitting a projection that disagrees with the graph.
+
+### Model-owned members
+
+A `field` or `operation` member whose declaring node is a model declaration
+node resolves through the domain package the lock selects, because that node's
+body is `aggregate{[]}` and names no member (QSpec FR-322 "Model-owned
+members" and "Reference conformance"; FR-154 for the declaration read). The
+reader runs FR-322's four steps:
+
+1. **Selection evidence**, before graph admission, for each `model_selections`
+   row in lock order: the digest domain, the document supplied under the
+   digest, the recomputed RFC 8785 SHA-256 and the document's own identity and
+   version, in that order (class 5 above). The reader then reads the
+   document's object types, systems interfaces, integer value types and
+   relationships, node by node in ascending IR node identity, and refuses with
+   the first declaration refusal at the row (`/lock/model_selections/<i>`).
+   Within one node its failures report in FR-154's table order (a `typeRef`
+   naming no node before a multiplicity with `lower > upper`), and a reference
+   to a node refused for its own object id, kind or repeated identity is not
+   reported again: that node's own refusal stands for it. A reference outcome
+   does not depend on the order the nodes are read in: a `typeRef` naming a
+   relationship is `invalid_model_binding`/`malformed-declaration` wherever
+   its declaring node sorts. A node with no `identity` is
+   `malformed-declaration`, never a `conflicting-binding` with another such
+   node.
+2. **Owner recovery**, at the application: the declaring node's key is matched
+   to one selected declaration's model declaration node key; no match refuses
+   `missing_declaration`/`missing-selection` at the member's `declaration`.
+3. **Resolution** among the declaring type's exposed effective members, own
+   and inherited; none refuses `ill_typed`/`operator-ineligible` at the
+   member's `name`, two refuse `ambiguous_declaration`/`ambiguous-name`.
+4. **Member type**, compared with the application's `result_type` by node key.
+
+Every ancestor edge followed, member visited and redefinition pair compared
+in step 3, the conformance walk of `conforming_reference`, and the parse and
+read of each selected document (one unit per 1024 document bytes, then one per
+node and member) are charged to the `work` limit at the row of the selection
+they belong to, so an exhausted limit is `incomplete` with the pointer
+`/lock/model_selections/<i>`. Each model declaration node key computed in step
+2 is one validation visit at its row.
 
 ### Parameter and compound-unit nodes, and the application dependency join
 
@@ -429,7 +479,7 @@ the three as disjoint disagrees byte for byte.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-038-AC-1 | Each vendored fixture admits; an unknown, empty, absent or malformed `contract_version` refuses as `unknown_contract_version` or `malformed_wire` before any version-specific decoding; and the strict parse (duplicate-member, noncanonical) refusals occur before a version is selected. | Test (TC-048) |
-| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every vendored adverse structural mutation returns its recorded outcome, before exposing a package; a lock reference or owner carrying `authority`, `revision` or `export` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one whose digest is attested only as a raw artifact as `stale_dependency`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every vendored adverse structural mutation returns its recorded outcome, before exposing a package; a lock reference or owner carrying `authority`, `revision` or `export` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one whose digest is attested only as a raw artifact as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
 | FR-038-AC-4 | The recomputed package id equals each vendored fixture id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every vendored node-identity vector re-derives its recorded digest; a package carrying every vector admits; every vendored invalid mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
@@ -446,13 +496,17 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-17 | Each declared wire member the vendored contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the eighteen `model` forms and the fifteen `expression` forms the contract declares are each admitted as a node form while a nineteenth `model` form and a sixteenth `expression` form refuse as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-18 | A self-typed node's own body-root `literal.type` — the literal that is the node's body — naming itself is exempt from the reference-cycle check and admits with no declared `recursion_group`. The same `literal.type` self-reference nested one level deeper, inside that node's own `aggregate` member, `binding` value or `application` argument, is not exempt, and refuses as `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group` for want of a declared `recursion_group`, exactly like a self-typed node's `reference` body or `application.result_type` naming itself. | Test (TC-048) |
 | FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
-| FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and independently attested by the package evidence; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. This criterion is class 2 of the total order below and outranks class 3 (`digest_domain_mismatch`) and class 5 (`stale_dependency`): a same-identity, different-version pair refuses `malformed_wire` even when one of its entries also carries a declared-domain mismatch or a digest the evidence does not attest, whichever of the two entries carries that second defect. | Test (TC-048) |
+| FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and independently attested by the package evidence; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. This criterion is class 2 of the total order below and outranks class 3 (`digest_domain_mismatch`) and class 5 (the selection evidence): a same-identity, different-version pair refuses `malformed_wire` even when one of its entries also carries a declared-domain mismatch or a digest the evidence does not attest, whichever of the two entries carries that second defect. | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
 | FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers, and its structural and application keys equal QSL FR-092's vectors; a parameter with a negative, non-canonical or missing level, an empty or wrongly typed name, an extra binding, a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
 | FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: depth at the first value nested one level past it, nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
+| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row, or under one attested only as a raw artifact, refuses `missing_import`/`missing-selection` at the row's `digest`; a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another version or identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `version` or `identity`; and a matching document admits. | Test (TC-048) |
+| FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
+| FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; an `Int[lo, hi]` value type and every multiplicity give the member type whose node key equals QSL FR-092's key for it. | Test (TC-048) |
+| FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
 
 ## Dependencies
 

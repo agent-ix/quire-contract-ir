@@ -10,7 +10,12 @@
 //! fails when a test printed no `conformance:` line.
 //!
 //! The vectors' `domain_package` is a projection of the declaration records
-//! FR-154 intake reads, not a Semantic IR document, so [`read_projection`]
+//! FR-154 intake reads, not a Semantic IR document. The projection gives an
+//! operation a `redefines` member (vectors MT-08 and MT-10 rely on it); a
+//! Semantic IR 2.0.0 operation carries none (FCD FR-141-AC-3 publishes only
+//! `field.redefines`), so [`super::super::model_members::read_semantic_ir`]
+//! reads none and those two cases are decided here from the projection alone.
+//! [`read_projection`]
 //! reads it into the same [`DomainModel`] [`super::super::model_members::read_semantic_ir`]
 //! builds from a real document.
 

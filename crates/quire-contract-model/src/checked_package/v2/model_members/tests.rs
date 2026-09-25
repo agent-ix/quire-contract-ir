@@ -123,8 +123,8 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
         object_type(GADGET, &[WIDGET], vec![]),
     ]))
     .expect("the document reads");
-    let Resolved::Field(code) = resolve(&model, GADGET, MemberKind::Field, "code")
-        .expect("code resolves on the subtype")
+    let Resolved::Field(code) =
+        resolve(&model, GADGET, MemberKind::Field, "code").expect("code resolves on the subtype")
     else {
         panic!("a field");
     };
@@ -171,7 +171,8 @@ fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
         ),
     ]))
     .expect("the document reads");
-    let Resolved::Field(digit) = resolve(&model, WIDGET, MemberKind::Field, "digit").expect("digit")
+    let Resolved::Field(digit) =
+        resolve(&model, WIDGET, MemberKind::Field, "digit").expect("digit")
     else {
         panic!("a field");
     };
@@ -254,12 +255,13 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
     };
     let admitted = admit(&selection("1.0.0", &digest), &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
-    let refusal = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
-        match admit(selection, evidence) {
+    let refusal =
+        |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| match admit(
+            selection, evidence,
+        ) {
             Err(SelectionFailure::Refused(refusal)) => refusal,
             other => panic!("expected a refusal, got {other:?}"),
-        }
-    };
+        };
     assert_eq!(
         refusal(&selection("1.0.1", &digest), &evidence),
         SelectionRefusal::at(
@@ -296,14 +298,11 @@ const BAD_ID: &str = "ix://acme/orders/bad-id";
 fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
     let bad = || object_type(BAD_ID, &[], vec![]);
-    // `Gadget` sorts before `bad-id`; `Zeta` after `Widget` but before it too.
+    // `bad-id` sorts after `Gadget` and `Widget`, so each reference below is
+    // read before the node it names.
     for referencing in [
         object_type(GADGET, &[BAD_ID], vec![]),
-        object_type(
-            GADGET,
-            &[],
-            vec![field(GADGET, "peer", BAD_ID)],
-        ),
+        object_type(GADGET, &[], vec![field(GADGET, "peer", BAD_ID)]),
         object_type(WIDGET, &[BAD_ID], vec![]),
     ] {
         assert_eq!(
@@ -358,7 +357,12 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
     );
     // The multiplicity alone is the last row.
     assert_eq!(
-        read(&document(vec![object_type(WIDGET, &[], vec![backwards.clone()])])).map(|_| ()),
+        read(&document(vec![object_type(
+            WIDGET,
+            &[],
+            vec![backwards.clone()]
+        )]))
+        .map(|_| ()),
         Err(unpreserved)
     );
     // A malformed member reports before a dangling reference.
@@ -392,7 +396,11 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
             read(&document(vec![widget.clone(), holder])).map(|_| ()),
             Err(malformed),
             "{referencing} is read {} the relationship's owner",
-            if referencing < WIDGET { "before" } else { "after" }
+            if referencing < WIDGET {
+                "before"
+            } else {
+                "after"
+            }
         );
     }
 }
@@ -460,14 +468,22 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let model = read(&document).expect("reads");
     let mut meter = WorkMeter::new(u64::MAX);
     model
-        .resolve(GADGET, MemberKind::Field, "code", &mut Budget::new(&mut meter, 1))
+        .resolve(
+            GADGET,
+            MemberKind::Field,
+            "code",
+            &mut Budget::new(&mut meter, 1),
+        )
         .expect("resolves");
     let used = meter.consumed();
     assert!(used > 0, "a resolution is charged");
     let mut tight = WorkMeter::new(used - 1);
-    let Err(ModelFailure::Limit(failure)) =
-        model.resolve(GADGET, MemberKind::Field, "code", &mut Budget::new(&mut tight, 1))
-    else {
+    let Err(ModelFailure::Limit(failure)) = model.resolve(
+        GADGET,
+        MemberKind::Field,
+        "code",
+        &mut Budget::new(&mut tight, 1),
+    ) else {
         panic!("one unit less than the resolution used is a limit");
     };
     assert_eq!(

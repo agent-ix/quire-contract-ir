@@ -13,7 +13,11 @@ relationships:
 ## Description
 
 Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
-FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors.
+FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors, and
+FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
+"Model-owned members") against a self-built domain package document. QSpec's
+own TC-280 and TC-281 vectors run through the same reader under
+`make qspec-vectors`, which reads them from the checkout `QSPEC_DIR` names.
 
 ## Test Procedure
 
@@ -64,6 +68,26 @@ Then mutate one parameter, the compound unit or the application node at a
 time and re-read. The package admits and every node lowers; each mutation
 refuses as `invalid_semantic_graph` at the member it breaks, located at the
 mutated node, and the dimensionless compound unit admits.
+
+## Model-owned members (FR-038-AC-27 through FR-038-AC-30)
+
+Build a Semantic IR 2.0.0 document with an object type `Order` declaring the
+operation `total(Integer): Integer`, select it in a package's lock and add a
+`dispatch_call` on `Order.total` over a `Reference<Order>` receiver. Read it:
+it admits. Rename the called operation to one the document does not declare
+and read it: it refuses `ill_typed`/`operator-ineligible` at the member's
+`name`. Give `Order` a supertype the document does not declare and read it:
+the refusal is the document's, `missing_declaration`/`missing-name`, at
+`/lock/model_selections/0`. Read the document directly: supply none, one
+under another digest, forged bytes, another version, and the matching one;
+give a node an invalid object id and refer to it as a supertype and a
+`typeRef` from nodes on both sides of it; give one field a dangling `typeRef`
+and a multiplicity of `lower > upper` in both member orders; name a
+relationship as a `typeRef` from a node read before and one read after its
+owner; give two nodes no identity. Compare the whole refusal and its pointer
+with the expected one. Read with the `work` limit at zero, and with each work
+limit one below what the direct read and a member resolution used, and check
+the pointer of the `incomplete` outcome resolves in the lock.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 

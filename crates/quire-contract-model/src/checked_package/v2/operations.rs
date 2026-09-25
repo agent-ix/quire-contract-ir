@@ -508,9 +508,15 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) =
-        check_operands(application, entry, &arguments, graph, owners, catalog, meter)?
-    {
+    if let Some(failure) = check_operands(
+        application,
+        entry,
+        &arguments,
+        graph,
+        owners,
+        catalog,
+        meter,
+    )? {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
