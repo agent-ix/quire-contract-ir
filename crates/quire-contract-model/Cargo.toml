@@ -25,7 +25,7 @@ jsonschema = { version = "=0.17.1", default-features = false }
 # The home of `quire.checked-operation-catalog/v1`. This crate reads the catalog
 # from there rather than carrying its own copy of the bytes; see
 # `checked_package/v2/operation_catalog.rs`.
-quire-verification-contracts = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-verification-contracts", rev = "2e06cf5b959bc325a0231329a0e3a223ea2c2606" }
+quire-verification-contracts = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-verification-contracts", rev = "61f4a44d76d51cc53b2dfe7ed10aba7b23cfa6ef" }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
 # Locates a closed-schema decode failure at the member the decoder reached,

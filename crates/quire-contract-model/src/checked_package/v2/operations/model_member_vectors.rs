@@ -3,9 +3,10 @@
 //! admission, reference equality and model field projection, each decided by
 //! the same functions a `read` runs.
 //!
-//! The vectors and the operation catalog they are decided against are read
-//! at run time from the quire-specification checkout `QSPEC_DIR` names;
-//! nothing of QSpec is copied into this repository. Each test skips (and
+//! The vectors are read at run time from the quire-specification checkout
+//! `QSPEC_DIR` names; nothing of QSpec is copied into this repository. They
+//! are decided against the operation catalog a `read` itself uses, the one
+//! `quire-verification-contracts` homes. Each test skips (and
 //! passes) when `QSPEC_DIR` is unset; `make qspec-vectors` requires it and
 //! fails when a test printed no `conformance:` line.
 //!
@@ -24,7 +25,7 @@ use super::super::model_members::{
     DomainModel, FieldDecl, IntegerBounds, MemberKind, MemberType, ModelOwners, Multiplicity,
     ObjectTypeDecl, OperationDecl, SelectionFailure, TypedSlot,
 };
-use super::super::operation_catalog::{parse_catalog, OperationCatalog};
+use super::super::operation_catalog::{operation_catalog, OperationCatalog};
 use super::super::{CheckedDomainPackageRef, CheckedPackageLockV2, CheckedSemanticNodeV2};
 use super::{operation_defect, Application, Graph};
 use crate::checked_package::common::{digest_json, NODE_DOMAIN};
@@ -38,7 +39,6 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 const VECTORS: &str = "proposals/checked-package-v2/model-member-type-vectors.json";
-const CATALOG: &str = "proposals/checked-package-v2/operation-catalog.json";
 
 /// A file of the QSpec checkout `QSPEC_DIR` names, or `None` when unset.
 fn qspec(relative: &str) -> Option<String> {
@@ -50,16 +50,16 @@ fn qspec(relative: &str) -> Option<String> {
     )
 }
 
-/// The parsed vectors and QSpec's catalog, or `None` (after saying so) when
-/// `QSPEC_DIR` is unset.
-fn vectors() -> Option<(Value, OperationCatalog)> {
-    let (Some(vectors), Some(catalog)) = (qspec(VECTORS), qspec(CATALOG)) else {
+/// The parsed vectors and the catalog a `read` validates against, or `None`
+/// (after saying so) when `QSPEC_DIR` is unset.
+fn vectors() -> Option<(Value, &'static OperationCatalog)> {
+    let Some(vectors) = qspec(VECTORS) else {
         println!("skipped: QSPEC_DIR not set");
         return None;
     };
     Some((
         serde_json::from_str(&vectors).expect("the vectors are JSON"),
-        parse_catalog(&catalog),
+        operation_catalog(),
     ))
 }
 
@@ -582,7 +582,7 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
                 &result_type,
             )
         };
-        let decided = graph.decide(&application, &owners, &catalog);
+        let decided = graph.decide(&application, &owners, catalog);
         match expected.get("resolves") {
             Some(resolves) => {
                 assert_eq!(decided, None, "{name} is admitted");
@@ -737,7 +737,7 @@ fn tc_281_reference_equality_admits_conforming_object_types() {
             &MemberType::Boolean.node_key(),
         );
         let decided = graph
-            .decide(&application, &owners, &catalog)
+            .decide(&application, &owners, catalog)
             .unwrap_or_else(|| json!({"admitted": true}));
         assert_eq!(decided, case["expected"], "{}", text(case, "name"));
     }
@@ -791,8 +791,8 @@ fn tc_281_record_projection_reads_a_model_field_over_a_deref_result() {
             &member_type(&case["result_type"]).node_key(),
         );
         let decided = deref
-            .and_then(|deref| graph.decide(&deref, &owners, &catalog))
-            .or_else(|| graph.decide(&projection, &owners, &catalog));
+            .and_then(|deref| graph.decide(&deref, &owners, catalog))
+            .or_else(|| graph.decide(&projection, &owners, catalog));
         let expected = &case["expected"];
         match expected.get("resolves") {
             Some(_) => assert_eq!(decided, None, "{name} is admitted"),
