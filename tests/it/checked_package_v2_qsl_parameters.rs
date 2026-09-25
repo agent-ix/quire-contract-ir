@@ -145,18 +145,57 @@ fn compound_unit_body(unit: &str, exponent: &str) -> Value {
 /// Positions of the QSL-shaped nodes in [`qsl_package`]'s graph.
 const DIMENSION: usize = 0;
 const METRE: usize = 1;
-const P1: usize = 5;
-const E1: usize = 7;
-const COMPOUND: usize = 9;
+const SECOND: usize = 3;
+const KILOMETRE: usize = 4;
+const P1: usize = 8;
+const E1: usize = 10;
+const COMPOUND: usize = 12;
+
+/// Nominal `(preimage, key)` pairs beside the fixture's `Length`/`Metre`:
+/// the base dimension `Time` with its root unit `Second`, and `Kilometre`,
+/// a non-root unit of `Length` whose target is `Metre`.
+fn extra_units(dimension: &Value, metre: &Value, metre_key: &str) -> Vec<(Value, String)> {
+    let keyed = |preimage: Value| {
+        let key = sha256_hex(&canonical(&preimage));
+        (preimage, key)
+    };
+    let time = keyed(json!({
+        "version": "quire.dimension-node/v1",
+        "owner": dimension["owner"],
+        "qualified_declaration": ["Example", "Time"],
+        "terms": [],
+    }));
+    let second = keyed(json!({
+        "version": "quire.unit-node/v1",
+        "owner": metre["owner"],
+        "qualified_declaration": ["Example", "Second"],
+        "dimension_node_id": node_id(&time.1),
+        "target_unit_node_id": null,
+        "scale": {"numerator": "1", "denominator": "1"},
+        "offset": {"numerator": "0", "denominator": "1"},
+    }));
+    let kilometre = keyed(json!({
+        "version": "quire.unit-node/v1",
+        "owner": metre["owner"],
+        "qualified_declaration": ["Example", "Kilometre"],
+        "dimension_node_id": metre["dimension_node_id"],
+        "target_unit_node_id": node_id(metre_key),
+        "scale": {"numerator": "1000", "denominator": "1"},
+        "offset": {"numerator": "0", "denominator": "1"},
+    }));
+    vec![time, second, kilometre]
+}
 
 /// A QSL-shaped V2 package: the fixture's `Length` dimension and root unit
-/// `Metre`, the Boolean, Integer and text scalars, the parameters `a` and
+/// `Metre`, the [`extra_units`], the Boolean, Integer and text scalars, the parameters `a` and
 /// `b`, the expression `a and b`, the function `both` that takes them, and
 /// the compound unit `Metre^2`.
 fn qsl_package() -> Value {
     let members = nominal_fixture_members();
     // [2] = unit `Metre`, [3] = dimension `Length`.
-    let mut package = nominal_package(&[members[3].clone(), members[2].clone()]);
+    let mut nominal = vec![members[3].clone(), members[2].clone()];
+    nominal.extend(extra_units(&members[3].0, &members[2].0, &members[2].1));
+    let mut package = nominal_package(&nominal);
     let metre = members[2].1.clone();
 
     let (boolean, boolean_node) = scalar("boolean");
@@ -337,7 +376,15 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     let integer_literal_name = |node: &mut Value| {
         node["body"]["members"][0]["value"]["type"] = node_id(T2_INTEGER);
     };
-    let body_cases: [(&str, Mutation); 7] = [
+    let body_cases: [(&str, Mutation); 9] = [
+        (
+            "reference body",
+            Box::new(|node| node["body"] = reference(T1_BOOLEAN)),
+        ),
+        (
+            "literal body",
+            Box::new(|node| node["body"] = literal(T3_TEXT, "text", "a")),
+        ),
         (
             "negative level",
             Box::new(|node| node["body"] = parameter_body("a", "-1")),
@@ -461,6 +508,47 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     assert_eq!(
         refused(&typed_by_another),
         invalid_at(&typed_by_another, COMPOUND, SEMANTIC_TYPE)
+    );
+
+    // Terms naming distinct root units must still ascend by unit key.
+    let second = node_key(&qsl_package(), SECOND);
+    let (low, high) = if metre < second {
+        (metre.clone(), second.clone())
+    } else {
+        (second.clone(), metre.clone())
+    };
+    let two_terms = |first: &str, second: &str| {
+        let mut body = compound_unit_body(first, "1");
+        let term = compound_unit_body(second, "-1")["members"][0].clone();
+        body["members"].as_array_mut().expect("members").push(term);
+        body
+    };
+    let ascending = mutated(COMPOUND, |node| {
+        node["body"] = two_terms(&low, &high);
+        node["dependencies"] = json!([node_id(&low), node_id(&high)]);
+    });
+    assert!(matches!(
+        read(&ascending),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let descending = mutated(COMPOUND, |node| {
+        node["body"] = two_terms(&high, &low);
+        node["dependencies"] = json!([node_id(&high), node_id(&low)]);
+    });
+    assert_eq!(
+        refused(&descending),
+        invalid_at(&descending, COMPOUND, BODY)
+    );
+
+    // A term names a root unit, never a unit with a target.
+    let kilometre = node_key(&qsl_package(), KILOMETRE);
+    let names_non_root = mutated(COMPOUND, |node| {
+        node["body"] = compound_unit_body(&kilometre, "2");
+        node["dependencies"] = json!([node_id(&kilometre)]);
+    });
+    assert_eq!(
+        refused(&names_non_root),
+        invalid_at(&names_non_root, COMPOUND, BODY)
     );
 
     // The empty body is the dimensionless unit, with no dependencies.

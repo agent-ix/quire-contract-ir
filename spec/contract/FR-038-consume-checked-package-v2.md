@@ -232,7 +232,10 @@ A node whose body contains an `application` term at any depth has
 `dependencies` exactly the unique, digest-ascending reference targets and
 operation member declarations of its body (FR-322
 `application_node_preimage`); a `result_type` or literal `type` is not a
-dependency.
+dependency. The join applies to every node whose body contains an
+application, not only to a node whose body root is one: that is the set of
+nodes QSL's emitter writes the join for. A member `declaration` that is not
+a node key is left to the operation stage's refusal.
 
 Any violation refuses as `invalid_semantic_graph` at the member that breaks
 the rule (`semantic_graph.nodes.body`, `.dependencies` or `.semantic_type`),

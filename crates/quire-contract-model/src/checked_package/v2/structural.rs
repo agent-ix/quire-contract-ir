@@ -247,7 +247,6 @@ pub(super) fn validate_structural_nodes(
             return Err(refuse(path));
         }
         if let Some(expected) = application_dependencies(&node.body) {
-            let expected = expected.ok_or_else(|| refuse(BODY_PATH))?;
             if !node.dependencies.iter().eq(expected.iter()) {
                 return Err(refuse(DEPENDENCIES_PATH));
             }
@@ -271,7 +270,7 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<&
     if !is_binder_type {
         return Some(SEMANTIC_TYPE_PATH);
     }
-    let [name, level] = aggregate_members(&node.body)? else {
+    let Some([name, level]) = aggregate_members(&node.body) else {
         return Some(BODY_PATH);
     };
     let name_ok = binding(name, "name")
@@ -320,10 +319,13 @@ fn compound_unit_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Opti
 /// One compound-unit term's root unit key, when the term has exactly the
 /// closed term shape.
 fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> {
-    let [unit, exponent] = aggregate_members(term)? else {
+    let Some([unit, exponent]) = aggregate_members(term) else {
         return None;
     };
     let unit = binding(unit, "unit").and_then(reference_target)?;
+    // QSL requires each term to name its dimension's canonical root unit.
+    // A unit whose preimage has no target unit is that root: the nominal
+    // stage admits exactly one per dimension.
     let is_root_unit = graph.node(&unit).is_some_and(|(node, kind)| {
         kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
             && matches!(
@@ -340,14 +342,14 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
 }
 
 /// FR-322's dependency join for a body that contains an `application` term
-/// at any depth: `None` for a body holding none, `Some(None)` when an
-/// operation member names a `declaration` that is not a node key, else the
-/// unique digest-ascending reference targets and member declarations.
-fn application_dependencies(body: &Value) -> Option<Option<BTreeSet<CheckedNodeId>>> {
+/// at any depth: `None` for a body holding none, else the unique
+/// digest-ascending reference targets and member declarations. A member
+/// `declaration` that is not a node key is skipped here: the operation stage
+/// owns that refusal and its path.
+fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
     let mut contains_application = false;
     let mut join = BTreeSet::new();
     let mut pending = vec![body];
-    let mut malformed = false;
     while let Some(term) = pending.pop() {
         let Some(object) = term.as_object() else {
             continue;
@@ -363,15 +365,11 @@ fn application_dependencies(body: &Value) -> Option<Option<BTreeSet<CheckedNodeI
                 let declaration = object
                     .get("operation")
                     .and_then(|operation| operation.get("member"))
-                    .and_then(|member| member.get("declaration"));
-                if let Some(declaration) = declaration {
-                    match serde_json::from_value::<CheckedNodeId>(declaration.clone()) {
-                        Ok(declaration) => {
-                            join.insert(declaration);
-                        }
-                        Err(_) => malformed = true,
-                    }
-                }
+                    .and_then(|member| member.get("declaration"))
+                    .and_then(|declaration| {
+                        serde_json::from_value::<CheckedNodeId>(declaration.clone()).ok()
+                    });
+                join.extend(declaration);
                 pending.extend(terms(object, "arguments"));
             }
             Some("aggregate") => pending.extend(terms(object, "members")),
@@ -381,7 +379,7 @@ fn application_dependencies(body: &Value) -> Option<Option<BTreeSet<CheckedNodeI
             _ => {}
         }
     }
-    contains_application.then_some((!malformed).then_some(join))
+    contains_application.then_some(join)
 }
 
 fn terms<'a>(object: &'a Map<String, Value>, key: &str) -> impl Iterator<Item = &'a Value> {
@@ -500,9 +498,7 @@ mod tests {
                 ]},
             ],
         });
-        let join = application_dependencies(&body)
-            .expect("the body holds an application")
-            .expect("the member declaration is a node key");
+        let join = application_dependencies(&body).expect("the body holds an application");
         let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
             .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
@@ -512,5 +508,13 @@ mod tests {
             application_dependencies(&json!({"term": "reference", "target": id('a')})),
             None
         );
+        // An unparseable member declaration is left to the operation stage.
+        let mut malformed = body.clone();
+        malformed["operation"]["member"]["declaration"] = json!("not a node key");
+        let expected: BTreeSet<CheckedNodeId> = ['a', 'b']
+            .into_iter()
+            .map(|fill| serde_json::from_value(id(fill)).expect("node id"))
+            .collect();
+        assert_eq!(application_dependencies(&malformed), Some(expected));
     }
 }
