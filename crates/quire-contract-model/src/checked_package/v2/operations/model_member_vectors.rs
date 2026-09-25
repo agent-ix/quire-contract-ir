@@ -26,7 +26,9 @@ use crate::checked_package::common::{digest_json, NODE_DOMAIN};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedRevision, CheckedSelection,
 };
-use crate::checked_package::v2::{CheckedNodeKind, CheckedNodeTag, CheckedSelectionRole, WorkMeter};
+use crate::checked_package::v2::{
+    CheckedNodeKind, CheckedNodeTag, CheckedSelectionRole, WorkMeter,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -133,10 +135,12 @@ fn read_projection(package: &Value) -> DomainModel {
         .map(|value_type| {
             let bound = |member: &str| text(value_type, member).parse::<i128>().ok();
             let bounds = (text(value_type, "native") == "ix://quire/native/Integer")
-                .then(|| Some(IntegerBounds {
-                    lower: bound("lower")?,
-                    upper: bound("upper")?,
-                }))
+                .then(|| {
+                    Some(IntegerBounds {
+                        lower: bound("lower")?,
+                        upper: bound("upper")?,
+                    })
+                })
                 .flatten()
                 .filter(|bounds| bounds.lower <= bounds.upper);
             (text(value_type, "node").into(), bounds)
@@ -204,8 +208,19 @@ struct CaseGraph {
 
 impl CaseGraph {
     /// Adds a node and returns its digest.
-    fn add(&mut self, digest: &str, tag: &str, form: &str, semantic_type: &str, body: Value) -> String {
-        if !self.nodes.iter().any(|node| node["node_id"]["digest"] == digest) {
+    fn add(
+        &mut self,
+        digest: &str,
+        tag: &str,
+        form: &str,
+        semantic_type: &str,
+        body: Value,
+    ) -> String {
+        if !self
+            .nodes
+            .iter()
+            .any(|node| node["node_id"]["digest"] == digest)
+        {
             self.nodes.push(json!({
                 "node_id": node_ref(digest),
                 "schema_version": "quire.checked-semantic-graph/v2",
@@ -464,7 +479,10 @@ fn tc_280_model_declaration_node_keys_recompute_and_recover_only_selected_owners
             text(vector, "name")
         );
     }
-    println!("conformance: {} model declaration node vectors", nodes.len());
+    println!(
+        "conformance: {} model declaration node vectors",
+        nodes.len()
+    );
 }
 
 /// TC-280 (FR-322-AC-29): FR-322 step 2 over each published wire node.
@@ -516,9 +534,10 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
         }
         let declaring = text(declaring, "sha256");
         let expected = &case["expected"];
-        let result_type = expected
-            .get("member_type")
-            .map_or_else(|| MemberType::Integer.node_key(), |ty| member_type(ty).node_key());
+        let result_type = expected.get("member_type").map_or_else(
+            || MemberType::Integer.node_key(),
+            |ty| member_type(ty).node_key(),
+        );
         let wire_member = json!({
             "kind": text(member, "kind"),
             "declaration": node_ref(declaring),
@@ -568,12 +587,23 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
                 } else {
                     MemberKind::Operation
                 };
-                let owner_node = text(&node_vector(&vectors, text(member, "declaration"))["preimage"]["owner"], "node");
+                let owner_node = text(
+                    &node_vector(&vectors, text(member, "declaration"))["preimage"]["owner"],
+                    "node",
+                );
                 let resolved = model
                     .resolve(owner_node, kind, text(member, "name"))
                     .expect("the member resolves");
-                assert_eq!(resolved.identity(), resolves.as_str().expect("identity"), "{name}");
-                assert_eq!(member_name(resolved.identity()), text(member, "name"), "{name}");
+                assert_eq!(
+                    resolved.identity(),
+                    resolves.as_str().expect("identity"),
+                    "{name}"
+                );
+                assert_eq!(
+                    member_name(resolved.identity()),
+                    text(member, "name"),
+                    "{name}"
+                );
             }
             None => assert_eq!(decided.as_ref(), Some(expected), "{name}"),
         }
@@ -698,7 +728,10 @@ fn tc_281_reference_equality_admits_conforming_object_types() {
             .unwrap_or_else(|| json!({"admitted": true}));
         assert_eq!(decided, case["expected"], "{}", text(case, "name"));
     }
-    println!("conformance: {} model reference equality cases", cases.len());
+    println!(
+        "conformance: {} model reference equality cases",
+        cases.len()
+    );
 }
 
 /// TC-281 (FR-322-AC-34): `record.project` of a model field over a

@@ -1,5 +1,7 @@
 use super::*;
-use crate::checked_package::shared::{CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code};
+use crate::checked_package::shared::{
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+};
 
 /// QSL FR-092 golden keys (quire-spec-language
 /// `spec/functional/FR-092-key-type-parameter-and-declared-nodes.md`), the
@@ -83,7 +85,11 @@ const GADGET: &str = "ix://acme/orders/Gadget";
 #[test]
 fn a_semantic_ir_document_reads_inherited_members_and_conformance() {
     let model = read_semantic_ir(&document(vec![
-        object_type(WIDGET, &[], vec![field(WIDGET, "code", "ix://quire/native/Integer")]),
+        object_type(
+            WIDGET,
+            &[],
+            vec![field(WIDGET, "code", "ix://quire/native/Integer")],
+        ),
         object_type(GADGET, &[WIDGET], vec![]),
     ]))
     .expect("the document reads");
@@ -96,9 +102,14 @@ fn a_semantic_ir_document_reads_inherited_members_and_conformance() {
     assert_eq!(code.identity.as_ref(), "ix://acme/orders/Widget/code");
     assert_eq!(model.field_type(code), Some(MemberType::Integer));
     assert!(model.conforms(GADGET, WIDGET));
-    assert!(model.conforms(WIDGET, GADGET), "conformance is decided in either order");
+    assert!(
+        model.conforms(WIDGET, GADGET),
+        "conformance is decided in either order"
+    );
     assert_eq!(
-        model.resolve(GADGET, MemberKind::Operation, "code").map(|_| ()),
+        model
+            .resolve(GADGET, MemberKind::Operation, "code")
+            .map(|_| ()),
         Err(ModelRefusal::ineligible())
     );
 }
@@ -118,10 +129,16 @@ fn a_semantic_ir_integer_value_type_is_an_integer_range() {
     });
     let model = read_semantic_ir(&document(vec![
         digit,
-        object_type(WIDGET, &[], vec![field(WIDGET, "digit", "ix://acme/orders/Digit")]),
+        object_type(
+            WIDGET,
+            &[],
+            vec![field(WIDGET, "digit", "ix://acme/orders/Digit")],
+        ),
     ]))
     .expect("the document reads");
-    let Resolved::Field(digit) = model.resolve(WIDGET, MemberKind::Field, "digit").expect("digit")
+    let Resolved::Field(digit) = model
+        .resolve(WIDGET, MemberKind::Field, "digit")
+        .expect("digit")
     else {
         panic!("a field");
     };
@@ -131,18 +148,34 @@ fn a_semantic_ir_integer_value_type_is_an_integer_range() {
 /// FR-154's declaration refusals the reader draws, each for one defect.
 #[test]
 fn semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
-    let refused = |types| read_semantic_ir(&document(types)).map(|_| ()).expect_err("refused");
+    let refused = |types| {
+        read_semantic_ir(&document(types))
+            .map(|_| ())
+            .expect_err("refused")
+    };
     let widget = || object_type(WIDGET, &[], vec![]);
     assert_eq!(
-        refused(vec![object_type(GADGET, &["ix://acme/orders/Nope"], vec![])]),
+        refused(vec![object_type(
+            GADGET,
+            &["ix://acme/orders/Nope"],
+            vec![]
+        )]),
         ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName)
     );
     assert_eq!(
-        refused(vec![object_type(WIDGET, &[], vec![field(WIDGET, "x", "ix://acme/orders/Nope")])]),
+        refused(vec![object_type(
+            WIDGET,
+            &[],
+            vec![field(WIDGET, "x", "ix://acme/orders/Nope")]
+        )]),
         ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName)
     );
     assert_eq!(
-        refused(vec![object_type(WIDGET, &[], vec![field(WIDGET, "x", "ix://quire/native/Uuid")])]),
+        refused(vec![object_type(
+            WIDGET,
+            &[],
+            vec![field(WIDGET, "x", "ix://quire/native/Uuid")]
+        )]),
         ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration)
     );
     assert_eq!(
@@ -185,7 +218,9 @@ fn a_selection_admits_only_the_document_it_names() {
     let admitted = admit_selection(&selection("1.0.0", &digest), &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
     let refusal = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
-        admit_selection(selection, evidence).map(|_| ()).expect_err("refused")
+        admit_selection(selection, evidence)
+            .map(|_| ())
+            .expect_err("refused")
     };
     assert_eq!(
         refusal(&selection("1.0.1", &digest), &evidence),

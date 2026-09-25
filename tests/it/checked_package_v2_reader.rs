@@ -5,11 +5,11 @@
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{
-    self, all_families_read_work, canonical, evidence_for, incomplete, json_depth, locator,
-    nominal_fixture_members, nominal_package, pointer as support_pointer,
-    positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes, rekey,
-    sha256_hex, unknown_version, v2_all_families, v2_nominal, ALL_FAMILIES_READ_WORK,
-    COMPLETE_VALUE_FEATURE,
+    self, all_families_read_work, canonical, domain_package_digest, domain_package_document,
+    evidence_for, incomplete, json_depth, locator, nominal_fixture_members, nominal_package,
+    pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
+    refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
+    v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -897,7 +897,8 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             Box::new(|v| {
                 v["lock"]["model_selections"] = json!([{
                     "identity": "test/orders", "version": "1",
-                    "digest_domain": "sha256-jcs", "digest": "5".repeat(64)
+                    "digest_domain": "sha256-jcs",
+                    "digest": domain_package_digest_of("test/orders")
                 }]);
             }),
         ),
@@ -1135,10 +1136,16 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
 const DOMAIN_PACKAGE_DIGEST: &str =
     "5555555555555555555555555555555555555555555555555555555555555555";
 
+/// The digest `evidence_for` supplies the document under, for `identity`
+/// at version `1`.
+fn domain_package_digest_of(identity: &str) -> String {
+    domain_package_digest(&domain_package_document(identity, "1", Vec::new()))
+}
+
 fn domain_package(identity: &str) -> Value {
     json!({
         "identity": identity, "version": "1",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
+        "digest_domain": "sha256-jcs", "digest": domain_package_digest_of(identity)
     })
 }
 
@@ -1310,7 +1317,12 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     refresh_identity(&mut other_version);
     assert_eq!(
         refused(&other_version, &evidence),
-        refusal(CheckedPackageRefusalCode::StaleDependency, &model("digest"))
+        refusal_cause(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            &model("version"),
+            CheckedPackageRefusalCause::WrongModelSelection
+        ),
+        "the supplied document names version 1, not the selected 2"
     );
     let mut raw_only = evidence_for(&v2_nominal());
     raw_only.insert_artifact_digest(
@@ -1323,7 +1335,11 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     );
     assert_eq!(
         refused(&base, &raw_only),
-        refusal(CheckedPackageRefusalCode::StaleDependency, &model("digest")),
+        refusal_cause(
+            CheckedPackageRefusalCode::MissingImport,
+            &model("digest"),
+            CheckedPackageRefusalCause::MissingSelection
+        ),
         "equal digest bytes attested as a raw artifact never satisfy a domain package"
     );
 }
@@ -1389,9 +1405,8 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
         refused(&distinct_digest, &evidence_for(&distinct_digest)),
         refusal(
             CheckedPackageRefusalCode::StaleDependency,
-            // Evidence attests the later digest for the shared locator, so
-            // the first entry's digest is the unattested one.
-            "/lock/model_selections/0/digest"
+            // The later row names a second digest for one locator.
+            "/lock/model_selections/1/digest"
         ),
         "same identity/version but differing digest is not a duplicate under this criterion"
     );
@@ -1624,6 +1639,11 @@ fn tc_048_model_selection_same_identity_different_version_refuses_as_malformed_w
     let version_one = domain_package("test/orders");
     let mut version_two = domain_package("test/orders");
     version_two["version"] = json!("2");
+    version_two["digest"] = json!(domain_package_digest(&domain_package_document(
+        "test/orders",
+        "2",
+        Vec::new()
+    )));
     let both_versions = model_owned_package(
         owner.clone(),
         json!([version_one.clone(), version_two.clone()]),
@@ -1703,10 +1723,7 @@ fn tc_048_model_selection_same_identity_different_version_refuses_as_malformed_w
     }
 
     // Two different identities never trigger this rule and still admit.
-    let other_identity = json!({
-        "identity": "test/other", "version": "1",
-        "digest_domain": "sha256-jcs", "digest": DOMAIN_PACKAGE_DIGEST
-    });
+    let other_identity = domain_package("test/other");
     let distinct_identities = model_owned_package(owner, json!([version_one, other_identity]));
     admitted(&distinct_identities);
 }

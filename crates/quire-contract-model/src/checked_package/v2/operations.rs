@@ -506,8 +506,7 @@ fn operation_defect(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(failure) = check_operands(application, entry, &arguments, graph, owners, catalog)
-    {
+    if let Some(failure) = check_operands(application, entry, &arguments, graph, owners, catalog) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
@@ -998,8 +997,7 @@ fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
 /// of `Reference<X>`. `None` for any other node.
 fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<CheckedNodeId> {
     let position = *graph.index.get(type_id)?;
-    if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
-    {
+    if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
         return None;
     }
     let members = graph.nodes[position].body.get("members")?.as_array()?;
@@ -1111,16 +1109,13 @@ fn check_model_member(
 ) -> Option<ValidationFailure> {
     let member_at = |member: &str| application.body(&["operation", "member", member]);
     let argument_at = |position: usize| application.body(&["arguments"]).index(position);
-    let refuse = |path: JsonPointer, refusal: ModelRefusal| {
-        Some(model_refusal(application, path, refusal))
-    };
+    let refuse =
+        |path: JsonPointer, refusal: ModelRefusal| Some(model_refusal(application, path, refusal));
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
     let type_node = |position: usize| {
         arguments
             .get(position)
-            .and_then(|argument| {
-                operand_type_node(argument, graph.nodes, graph.kinds, graph.index)
-            })
+            .and_then(|argument| operand_type_node(argument, graph.nodes, graph.kinds, graph.index))
     };
     let owner = match owners.recover(declaring) {
         Ok(owner) => owner,
@@ -1148,9 +1143,8 @@ fn check_model_member(
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver = super::model_members::MemberType::Reference(
-                declaring.node_id.digest.clone(),
-            );
+            let receiver =
+                super::model_members::MemberType::Reference(declaring.node_id.digest.clone());
             if type_node(0).map(|id| id.digest) != Some(receiver.node_key().into()) {
                 return ineligible(argument_at(0));
             }
@@ -1374,10 +1368,10 @@ mod model_member_vectors;
 mod tests {
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, Application, Graph, ModelOwners, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
+        validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, ValidationFailure, WorkMeter,
-        APPLICATION_NODE_VERSION,
+        CheckedSelectionRole, CheckedSemanticNodeV2, ExpressionForm, Graph, ModelOwners,
+        ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
     use crate::checked_package::shared::{
@@ -1839,6 +1833,8 @@ mod tests {
                 ("function", "pure_function", "function"),
                 ("function", "predicate", "function"),
                 ("function", "recursive_function", "function"),
+                ("model", "object_type", "object"),
+                ("model", "systems_interface", "object"),
                 ("relation", "population", "population"),
             ]
         );

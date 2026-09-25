@@ -319,9 +319,7 @@ impl MemberType {
                 {"term": "binding", "name": "max", "value": integer_literal(upper)},
             ]})
         };
-        let over = |inner: &str| {
-            json!({"term": "aggregate", "members": [{"term": "reference", "target": node_ref(inner)}]})
-        };
+        let over = |inner: &str| json!({"term": "aggregate", "members": [{"term": "reference", "target": node_ref(inner)}]});
         let node = |tag: &str, form: &str, semantic_type: Value, body: Value| {
             structural_key(&json!({
                 "version": STRUCTURAL_NODE,
@@ -609,7 +607,8 @@ impl<'m> ModelOwners<'m> {
     /// declaration's model declaration node key.
     pub(super) fn is_model_declaration_node(&self, node: &CheckedSemanticNodeV2) -> bool {
         matches!(node.node_tag.as_ref(), "model" | "relation")
-            && (node.declaration.is_none() || self.by_key.contains_key(node.node_id.digest.as_ref()))
+            && (node.declaration.is_none()
+                || self.by_key.contains_key(node.node_id.digest.as_ref()))
     }
 
     /// FR-322 step 2 over one wire node.
@@ -747,7 +746,9 @@ pub(super) fn admit_selection(
 /// Whether `text` is an FR-154 object id, `^[A-Za-z][A-Za-z0-9_]*$`.
 fn is_object_id(text: &str) -> bool {
     let mut bytes = text.bytes();
-    bytes.next().is_some_and(|first| first.is_ascii_alphabetic())
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
@@ -772,7 +773,11 @@ fn list<'v>(value: &'v Value, member: &str) -> Result<&'v [Value], ModelRefusal>
 fn identities(value: &Value, member: &str) -> Result<Vec<Box<str>>, ModelRefusal> {
     list(value, member)?
         .iter()
-        .map(|item| item.as_str().map(Box::from).ok_or_else(ModelRefusal::malformed))
+        .map(|item| {
+            item.as_str()
+                .map(Box::from)
+                .ok_or_else(ModelRefusal::malformed)
+        })
         .collect()
 }
 
@@ -855,7 +860,12 @@ fn semantic_ir_object_type(
                 optional,
                 redefines: field
                     .get("redefines")
-                    .map(|target| target.as_str().map(Box::from).ok_or_else(ModelRefusal::malformed))
+                    .map(|target| {
+                        target
+                            .as_str()
+                            .map(Box::from)
+                            .ok_or_else(ModelRefusal::malformed)
+                    })
                     .transpose()?,
             })
         })
@@ -895,7 +905,9 @@ fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
         let mut found = list(value, "constraints")
             .ok()?
             .iter()
-            .filter(|constraint| constraint.get("keyword").and_then(Value::as_str) == Some(keyword));
+            .filter(|constraint| {
+                constraint.get("keyword").and_then(Value::as_str) == Some(keyword)
+            });
         let constraint = found.next()?;
         if found.next().is_some() {
             return None;
@@ -910,6 +922,9 @@ fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
     (lower <= upper).then_some(IntegerBounds { lower, upper })
 }
 
+/// One declared type node: its declaration and meaning, or the refusal it draws.
+type ClassifiedType<'v> = Result<(&'v Value, &'v str), ModelRefusal>;
+
 /// Reads an admitted Semantic IR 2.0.0 document's declarations (FR-154),
 /// node by node in ascending IR node identity, returning the first refusal
 /// in that order.
@@ -920,21 +935,28 @@ pub(super) fn read_semantic_ir(document: &Value) -> Result<DomainModel, ModelRef
         let kind = construct.get("kind").ok_or_else(ModelRefusal::malformed)?;
         let meaning = construct
             .get("construct")
-            .map_or(Err(ModelRefusal::malformed()), |inner| text(inner, "meaning"))?;
+            .map_or(Err(ModelRefusal::malformed()), |inner| {
+                text(inner, "meaning")
+            })?;
         meanings.insert((text(kind, "module")?, text(kind, "name")?), meaning);
     }
     let prefix = format!("ix://{identity}/");
     let mut types: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
     for declared in list(document, "types")? {
         types
-            .entry(declared.get("identity").and_then(Value::as_str).unwrap_or(""))
+            .entry(
+                declared
+                    .get("identity")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            )
             .or_default()
             .push(declared);
     }
     // Each node's meaning, or the refusal its own identity, uniqueness or
     // kind draws; read before any body so a reference check sees every
     // declared node.
-    let classified: Vec<(&str, Result<(&Value, &str), ModelRefusal>)> = types
+    let classified: Vec<(&str, ClassifiedType)> = types
         .iter()
         .map(|(node, declared)| {
             let meaning = match declared.as_slice() {
@@ -983,7 +1005,10 @@ pub(super) fn read_semantic_ir(document: &Value) -> Result<DomainModel, ModelRef
     let object_nodes: BTreeSet<&str> = classified
         .iter()
         .filter(|(_, classified)| {
-            matches!(classified, Ok((_, meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE)))
+            matches!(
+                classified,
+                Ok((_, meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE))
+            )
         })
         .map(|(node, _)| *node)
         .collect();
@@ -1016,7 +1041,12 @@ pub(super) fn read_semantic_ir(document: &Value) -> Result<DomainModel, ModelRef
                 .fields
                 .iter()
                 .map(|field| field.identity.as_ref())
-                .chain(object.operations.iter().map(|operation| operation.identity.as_ref()))
+                .chain(
+                    object
+                        .operations
+                        .iter()
+                        .map(|operation| operation.identity.as_ref()),
+                )
         })
         .collect();
     for (_, object) in &objects {
