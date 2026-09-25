@@ -345,7 +345,8 @@ refuses `stale_dependency` with cause `revision-mismatch` at the entry's
 `version`; a package whose own `package_id` is not the entry's refuses
 `stale_dependency` with cause `byte-digest-mismatch` at the entry's
 `package_id.digest`. This binding runs before any node is read, so before any
-`dependency_reference` check.
+`dependency_reference` check. A consumer therefore supplies every
+`dependency_selections` entry's package with `insert_dependency_package`.
 
 ### Dependency references
 
@@ -382,13 +383,24 @@ checks, by these three checks in this order:
 A function's signature is package-independent when no node in the transitive
 closure of its signature type nodes carries a `declaration` or a `ModelOwner`.
 FR-322 does not fix which nodes of a `function` node are its signature; this
-reader takes the function's own `semantic_type` (its result type), the
-`semantic_type` of each `parameter` node in its `dependencies` and each type
-node its `dependencies` list directly, and follows `dependencies`,
+reader takes the function's own `semantic_type` (its result type), and from
+the nodes its `dependencies` list and the nodes its own body references (a
+non-application function body need not list them), the `semantic_type` of each
+`parameter` node and each type node itself. The closure follows `dependencies`,
 `semantic_type` and the `reference` terms of each node's body. A `model` or
-`relation` node is a `ModelOwner` carrier. A refusal carries the calling node
-as its locus. The lookup and the closure are charged to the `work` limit at the
-term, one unit per node of the dependency graph.
+`relation` node, and a node with a nominal preimage owned by a domain package,
+is a `ModelOwner` carrier. A refusal carries the calling node as its locus.
+Each supplied dependency's graph is indexed once when the lock stage binds it,
+one unit of `work` per node at the entry's pointer; each lookup is one unit at
+the term, and the closure walk is one unit per node visited and per body term
+walked.
+
+Documented limits, inherited from the reader's operation stage: a call's
+`result_type` and `semantic_type` are not compared with the dependency
+function's result type (FR-322's `return:0`), and the number and types of a
+call's arguments are not compared with the function's parameters. What is
+checked is that the callee names a declared `function` node of the supplied
+dependency whose signature is package-independent, and where the term stands.
 
 ### Closed vocabularies are decoded once
 

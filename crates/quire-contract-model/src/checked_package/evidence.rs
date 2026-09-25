@@ -5,6 +5,7 @@ use super::shared::CheckedArtifactLocator;
 use super::v2::CheckedPackageV2;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// Raw-artifact digests, domain package documents and reader-supported
 /// features for one read.
@@ -64,21 +65,27 @@ impl CheckedPackageEvidence {
     /// Supplies one selected dependency's admitted package under the library
     /// `identity` and `version` its import names. One package is held per
     /// identity, as `dependency_selections` holds one entry per identity; a
-    /// second call for an identity replaces the first. The reader compares
-    /// `version` and the package's own `package_id` with the selection
-    /// entry's (FR-322 `dependency_selections`), so a package supplied under
-    /// the wrong version or identity is refused, not trusted.
+    /// second call for an identity replaces the first.
+    ///
+    /// `identity` and `version` are only the caller's claims. The reader
+    /// finds the package by `identity` (an identity no entry names is never
+    /// looked up, and an entry with no package under its identity refuses
+    /// `missing_import`), compares `version` with the entry's, and binds the
+    /// package by its `package_id` content digest: a `CheckedPackageV2` can
+    /// only be built by the reader's own `read`, so that digest was
+    /// recomputed from its identity preimage. The package is shared, not
+    /// cloned, when passed as an `Arc`.
     pub fn insert_dependency_package(
         &mut self,
         identity: impl Into<Box<str>>,
         version: impl Into<Box<str>>,
-        package: CheckedPackageV2,
+        package: impl Into<Arc<CheckedPackageV2>>,
     ) {
         self.dependency_packages.insert(
             identity.into(),
             SuppliedDependencyPackage {
                 version: version.into(),
-                package,
+                package: package.into(),
             },
         );
     }
@@ -87,7 +94,7 @@ impl CheckedPackageEvidence {
     pub(super) fn dependency_package(&self, identity: &str) -> Option<(&str, &CheckedPackageV2)> {
         self.dependency_packages
             .get(identity)
-            .map(|supplied| (supplied.version.as_ref(), &supplied.package))
+            .map(|supplied| (supplied.version.as_ref(), supplied.package.as_ref()))
     }
 
     pub(super) fn domain_package_document(&self, digest: &str) -> Option<&[u8]> {
@@ -117,5 +124,5 @@ impl ArtifactDigests for CheckedPackageEvidence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SuppliedDependencyPackage {
     version: Box<str>,
-    package: CheckedPackageV2,
+    package: Arc<CheckedPackageV2>,
 }

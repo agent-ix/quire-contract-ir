@@ -16,8 +16,9 @@
 //! requires it.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, family_key, node_id, pointer, read_with_dependencies,
-    rebuild_source_map, refresh_identity, rekey_application_node, sha256_hex, v2_all_families,
+    admitted_dependency, canonical, domain_package_digest, domain_package_document, family_key,
+    node_id, nominal_package, pointer, read_with_dependencies, rebuild_source_map,
+    refresh_identity, rekey, rekey_application_node, sha256_hex, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -623,6 +624,283 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
     assert!(
         matches!(read(&package, &ok), CheckedPackageV2ReadResult::Admitted(_)),
         "a set of a package-independent type admits"
+    );
+}
+
+/// `node` with `body` as its body.
+fn with_body(mut node: Value, body: Value) -> Value {
+    node["body"] = body;
+    node
+}
+
+fn reference_to(key: &str) -> Value {
+    json!({"term": "reference", "target": node_id(key)})
+}
+
+/// A `value`/`parameter` node typed at `semantic_type`, with the closed
+/// parameter body (a text name and an integer level, each typed at a scalar
+/// node the caller adds).
+fn parameter(key: &str, semantic_type: &str, text: &str, integer: &str) -> Value {
+    let literal = |type_key: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
+    with_body(
+        node(key, "value", "parameter", semantic_type, &[], None),
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
+            {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},
+        ]}),
+    )
+}
+
+/// The dependency function with `parameter` as a parameter node, its type
+/// the declared record, listed as the caller says.
+fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
+    let (text, integer, parameter_key) = ("7e".repeat(32), "7f".repeat(32), "7d".repeat(32));
+    let signed: &[&str] = if listed { &[&parameter_key] } else { &[] };
+    signature(signed, &boolean_key(), |nodes| {
+        nodes.push(node(&text, "scalar_type", "text", &text, &[], None));
+        nodes.push(node(
+            &integer,
+            "scalar_type",
+            "integer",
+            &integer,
+            &[],
+            None,
+        ));
+        nodes.push(parameter(&parameter_key, &record_key(), &text, &integer));
+        let function = nodes
+            .iter_mut()
+            .find(|node| node["node_id"]["digest"] == function_key())
+            .expect("the function");
+        if referenced {
+            function["body"] = json!({
+                "term": "aggregate", "members": [reference_to(&parameter_key)],
+            });
+        }
+    })
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-38
+#[trace("TC-048", "FR-038-AC-38")]
+#[test]
+fn tc_048_a_parameter_of_a_declared_type_refuses_however_the_function_reaches_it() {
+    // Listed in `dependencies` only, referenced from the body only (a
+    // non-application function body need not list what it references), and
+    // both.
+    for (name, listed, referenced) in [
+        ("listed", true, false),
+        ("body reference", false, true),
+        ("both", true, true),
+    ] {
+        let dependency = parameter_dependency(listed, referenced);
+        let package = calling(&dependency, &function_key());
+        expect_refusal(
+            &refused(read(&package, &dependency)),
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+            &call_path(&package, "/arguments/0"),
+        );
+        assert!(!name.is_empty());
+    }
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-38
+#[trace("TC-048", "FR-038-AC-38")]
+#[test]
+fn tc_048_the_signature_closure_follows_body_references_and_semantic_types() {
+    let (by_body, by_type) = ("7b".repeat(32), "7c".repeat(32));
+    // A set no `dependencies` entry ties to the record: its body references
+    // it.
+    let body = signature(&[&by_body], &boolean_key(), |nodes| {
+        nodes.push(with_body(
+            node(&by_body, "composite_type", "set", &boolean_key(), &[], None),
+            json!({"term": "aggregate", "members": [reference_to(&record_key())]}),
+        ));
+    });
+    // A set whose semantic type is the record.
+    let typed = signature(&[&by_type], &boolean_key(), |nodes| {
+        nodes.push(node(
+            &by_type,
+            "composite_type",
+            "set",
+            &record_key(),
+            &[],
+            None,
+        ));
+    });
+    for (name, dependency) in [("body reference", body), ("semantic type", typed)] {
+        let package = calling(&dependency, &function_key());
+        let refusal = refused(read(&package, &dependency));
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{name}");
+        assert_eq!(
+            refusal.path,
+            Some(pointer(&call_path(&package, "/arguments/0"))),
+            "{name}"
+        );
+    }
+}
+
+/// A dependency package built on the recorded nominal package: its
+/// dimension, unit and enum declarations, with a declared `twice` returning
+/// `result` after `edit` changed the nodes.
+fn nominal_dependency(
+    mut package: Value,
+    result: &str,
+    edit: impl FnOnce(&mut Vec<Value>),
+) -> Dependency {
+    let mut nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
+    nodes.push(node(
+        &function_key(),
+        "function",
+        "pure_function",
+        result,
+        &[],
+        Some(&["twice"]),
+    ));
+    edit(&mut nodes);
+    package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let (digest, admitted) = admitted_dependency(&package);
+    Dependency {
+        package: admitted,
+        digest,
+    }
+}
+
+fn node_key(package: &Value, position: usize) -> String {
+    package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("key")
+        .to_owned()
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-38
+#[trace("TC-048", "FR-038-AC-38")]
+#[test]
+fn tc_048_a_quantity_over_a_declared_unit_refuses() {
+    let recorded = v2_nominal();
+    // The recorded package's unit is `Example::Metre`; the function returns
+    // it.
+    let unit = node_key(&recorded, 2);
+    let dependency = nominal_dependency(recorded, &unit, |_| {});
+    let package = calling(&dependency, &function_key());
+    expect_refusal(
+        &refused(read(&package, &dependency)),
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &call_path(&package, "/arguments/0"),
+    );
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-38
+#[trace("TC-048", "FR-038-AC-38")]
+#[test]
+fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
+    // The recorded nominal package with its enum owned by a domain package
+    // and carrying no `declaration`: only its owner makes it
+    // package-dependent.
+    let owner =
+        json!({"kind": "model", "identity": "test/orders", "node": "ix://test/orders/Status"});
+    let recorded = v2_nominal();
+    let nodes = recorded["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let order = [1, 0, 3, 2];
+    let mut preimages = order
+        .iter()
+        .map(|position| nodes[*position]["nominal_identity_preimage"].clone())
+        .collect::<Vec<_>>();
+    let keys = order
+        .iter()
+        .map(|position| node_key(&recorded, *position))
+        .collect::<Vec<_>>();
+    preimages[0]["owner"] = owner;
+    let fresh = rekey(&mut preimages, &keys);
+    let members = preimages.into_iter().zip(fresh).collect::<Vec<_>>();
+    let mut owned = nominal_package(&members);
+    let document = domain_package_document("test/orders", "1", Vec::new());
+    owned["lock"]["model_selections"] = json!([{
+        "identity": "test/orders", "version": "1",
+        "digest_domain": "sha256-jcs", "digest": domain_package_digest(&document),
+    }]);
+    refresh_identity(&mut owned);
+    let enum_key = node_key(&owned, 0);
+    let dependency = nominal_dependency(owned, &enum_key, |nodes| {
+        let declaration = &mut nodes[0];
+        declaration["occurrences"] = json!([{"role": "generated", "ordinal": 0}]);
+        declaration
+            .as_object_mut()
+            .expect("node")
+            .remove("declaration");
+    });
+    let package = calling(&dependency, &function_key());
+    expect_refusal(
+        &refused(read(&package, &dependency)),
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &call_path(&package, "/arguments/0"),
+    );
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-36
+#[trace("TC-048", "FR-038-AC-36")]
+#[test]
+fn tc_048_a_binding_value_refuses_and_a_nested_call_callee_admits() {
+    let dependency = build_dependency(|_| {});
+    let term = dependency_term(&dependency.digest, &function_key());
+    let entries = || vec![selection(&dependency.digest)];
+    // A binding's value is no callee.
+    let bound = importing_with(entries(), |arguments| {
+        arguments[0] = term.clone();
+        arguments.push(json!({"term": "binding", "name": "x", "value": term.clone()}));
+    });
+    expect_refusal(
+        &refused(read(&bound, &dependency)),
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &call_path(&bound, "/arguments/1/value"),
+    );
+    // A nested `function.call` takes the callee at its own argument 0.
+    let nested_call = |arguments: Vec<Value>| {
+        json!({
+            "term": "application", "operator": "call",
+            "operation": {
+                "identity": "quire.op.function.call", "laws": [], "mode": null,
+                "member": null, "leaves": [],
+            },
+            "result_type": node_id(&boolean_key()),
+            "arguments": arguments,
+        })
+    };
+    let nested = importing_with(entries(), |arguments| {
+        arguments[0] = term.clone();
+        arguments.push(nested_call(vec![term.clone()]));
+    });
+    assert!(
+        matches!(
+            read(&nested, &dependency),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "a nested function.call callee admits"
+    );
+    // The same term as the nested call's second argument is no callee.
+    let misplaced = importing_with(entries(), |arguments| {
+        arguments[0] = term.clone();
+        arguments.push(nested_call(vec![term.clone(), term.clone()]));
+    });
+    expect_refusal(
+        &refused(read(&misplaced, &dependency)),
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        &call_path(&misplaced, "/arguments/1/arguments/1"),
     );
 }
 

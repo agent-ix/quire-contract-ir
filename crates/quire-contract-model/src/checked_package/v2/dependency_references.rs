@@ -29,6 +29,14 @@
 //! closure follows `dependencies`, `semantic_type` and the `reference` terms
 //! of each node's body, and a `model` or `relation` node is a `ModelOwner`
 //! carrier.
+//!
+//! Documented limits, inherited from the reader's operation stage (see
+//! `operations.rs`): a call's `result_type` and `semantic_type` are not
+//! compared with the dependency function's result type (FR-322's `return:0`),
+//! and the number and types of a call's arguments are not compared with the
+//! function's parameters. What is checked is that the callee names a declared
+//! `function` node of the supplied dependency whose signature is
+//! package-independent.
 
 use super::{
     BodyTerm, CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2,
@@ -49,29 +57,39 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The operation whose callee (argument 0) a `dependency_reference` may be.
 const FUNCTION_CALL_OPERATION: &str = "quire.op.function.call";
 
+/// One supplied dependency, with an index of its graph built once when the
+/// lock stage binds it.
+#[derive(Debug)]
+pub(super) struct SuppliedDependency<'e> {
+    package_id: &'e CheckedSemanticId,
+    package: &'e CheckedPackageV2,
+    index: BTreeMap<&'e CheckedNodeId, usize>,
+}
+
 /// The dependency packages the caller supplied, one per
 /// `dependency_selections` entry and in the same order.
 #[derive(Debug, Default)]
 pub(super) struct SuppliedDependencies<'e> {
-    packages: Vec<(&'e CheckedSemanticId, &'e CheckedPackageV2)>,
+    packages: Vec<SuppliedDependency<'e>>,
 }
 
 impl<'e> SuppliedDependencies<'e> {
     /// The package supplied for the entry whose `package_id` is `package`.
-    fn resolve(&self, package: &CheckedSemanticId) -> Option<&'e CheckedPackageV2> {
+    fn resolve(&self, package: &CheckedSemanticId) -> Option<&SuppliedDependency<'e>> {
         self.packages
             .iter()
-            .find(|(id, _)| *id == package)
-            .map(|(_, supplied)| *supplied)
+            .find(|supplied| supplied.package_id == package)
     }
 }
 
 /// Binds every selection entry to the package `evidence` supplies for its
 /// identity. The first entry, in lock order, that is unsupplied or does not
-/// bind refuses.
+/// bind refuses. Indexing each bound package's graph is charged to `meter`
+/// once, at the entry, one unit per node.
 pub(super) fn admit_dependencies<'e>(
     selections: &'e [CheckedDependencySelection],
     evidence: &'e CheckedPackageEvidence,
+    meter: &mut WorkMeter,
 ) -> Result<SuppliedDependencies<'e>, ValidationFailure> {
     let at = |index: usize| {
         JsonPointer::root()
@@ -95,8 +113,9 @@ pub(super) fn admit_dependencies<'e>(
                 CheckedPackageRefusalCause::RevisionMismatch,
             ));
         }
-        // The package was admitted by the reader, which recomputed its
-        // `package_id` from its identity preimage.
+        // A `CheckedPackageV2` exists only as the reader's admitted result,
+        // so its `package_id` is the digest the reader recomputed from its
+        // identity preimage; the binding rests on that content digest.
         if package.package_id() != &entry.package_id {
             return Err(ValidationFailure::refused_because(
                 CheckedPackageRefusalCode::StaleDependency,
@@ -104,7 +123,18 @@ pub(super) fn admit_dependencies<'e>(
                 CheckedPackageRefusalCause::ByteDigestMismatch,
             ));
         }
-        packages.push((&entry.package_id, package));
+        let nodes = &package.graph().nodes;
+        meter.charge(count(nodes.len()), || at(index))?;
+        let index_of = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        packages.push(SuppliedDependency {
+            package_id: &entry.package_id,
+            package,
+            index: index_of,
+        });
     }
     Ok(SuppliedDependencies { packages })
 }
@@ -231,26 +261,20 @@ impl<'a> DependencyReferences<'a> {
         ) else {
             return Err(malformed());
         };
-        let Some(dependency) = self.supplied.resolve(&package) else {
+        let Some(supplied) = self.supplied.resolve(&package) else {
             return Err(referrer.refuse(
                 CheckedPackageRefusalCode::MissingDeclaration,
                 CheckedPackageRefusalCause::MissingSelection,
                 at.clone().key("package"),
             ));
         };
-        let graph = dependency.graph();
-        // The lookup and the signature closure read the dependency's graph:
-        // one unit per node, charged at the term.
-        meter.charge(count(graph.nodes.len()).max(1), || at.clone())?;
-        let index: BTreeMap<&CheckedNodeId, usize> = graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
-        let target = index
+        let dependency = supplied.package;
+        // The lookup is one unit, charged at the term.
+        meter.charge(1, || at.clone())?;
+        let target = supplied
+            .index
             .get(&node)
-            .and_then(|position| Some((*position, graph.nodes.get(*position)?)))
+            .and_then(|position| Some((*position, dependency.graph().nodes.get(*position)?)))
             .filter(|(_, target)| target.declaration.is_some());
         let Some((position, _)) = target else {
             return Err(referrer.refuse(
@@ -263,11 +287,14 @@ impl<'a> DependencyReferences<'a> {
             .node_kinds()
             .get(position)
             .is_some_and(|kind| kind.tag() == CheckedNodeTag::Function);
-        if is_callee
-            && is_function
-            && signature_is_package_independent(dependency, position, &index)
-        {
-            return Ok(());
+        if is_callee && is_function {
+            let closure = signature_closure(supplied, position);
+            // The closure walk is charged at the term: one unit per node
+            // visited and per body term walked.
+            meter.charge(closure.work, || at.clone())?;
+            if closure.independent {
+                return Ok(());
+            }
         }
         Err(referrer.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -287,24 +314,35 @@ fn is_function_call(application: &Value) -> bool {
         .is_some_and(|identity| identity == FUNCTION_CALL_OPERATION)
 }
 
+/// The outcome of walking a function's signature closure and the work it
+/// took.
+struct Closure {
+    independent: bool,
+    work: u64,
+}
+
 /// FR-322: no node in the transitive closure of the function's signature
 /// type nodes carries a `declaration` or a `ModelOwner`.
-fn signature_is_package_independent(
-    dependency: &CheckedPackageV2,
-    function: usize,
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> bool {
-    let nodes = &dependency.graph().nodes;
-    let kinds = dependency.node_kinds();
+fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Closure {
+    let nodes = &supplied.package.graph().nodes;
+    let kinds = supplied.package.node_kinds();
     let node_of = |id: &CheckedNodeId| {
-        let position = *index.get(id)?;
+        let position = *supplied.index.get(id)?;
         Some((nodes.get(position)?, *kinds.get(position)?))
     };
     let Some(function) = nodes.get(function) else {
-        return false;
+        return Closure {
+            independent: false,
+            work: 1,
+        };
     };
+    let mut work = 1_u64;
     let mut pending: Vec<CheckedNodeId> = vec![function.semantic_type.clone()];
-    for id in &function.dependencies {
+    // The function's signature is what its `dependencies` list and what its
+    // body references: a non-application function body need not list them.
+    let mut listed: Vec<CheckedNodeId> = function.dependencies.clone();
+    work = work.saturating_add(body_reference_targets(&function.body, &mut listed));
+    for id in &listed {
         let Some((node, kind)) = node_of(id) else {
             continue;
         };
@@ -342,14 +380,21 @@ fn signature_is_package_independent(
         let Some((node, kind)) = node_of(&id) else {
             continue;
         };
+        work = work.saturating_add(1);
         if carries_declaration_or_owner(node, kind) {
-            return false;
+            return Closure {
+                independent: false,
+                work,
+            };
         }
         pending.extend(node.dependencies.iter().cloned());
         pending.push(node.semantic_type.clone());
-        body_reference_targets(&node.body, &mut pending);
+        work = work.saturating_add(body_reference_targets(&node.body, &mut pending));
     }
-    true
+    Closure {
+        independent: true,
+        work,
+    }
 }
 
 /// Whether a node is package-dependent: it carries a `declaration`, or it is
@@ -366,10 +411,13 @@ fn carries_declaration_or_owner(node: &CheckedSemanticNodeV2, kind: CheckedNodeK
         )
 }
 
-/// Every `reference` term target in `body`, at any depth.
-fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) {
+/// Every `reference` term target in `body`, at any depth, and the number of
+/// terms walked.
+fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) -> u64 {
+    let mut walked = 0_u64;
     let mut pending = vec![body];
     while let Some(term) = pending.pop() {
+        walked = walked.saturating_add(1);
         match body_term(term) {
             Some(BodyTerm::Reference) => {
                 let target = term
@@ -397,4 +445,5 @@ fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) {
             Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
         }
     }
+    walked
 }

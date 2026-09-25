@@ -878,7 +878,7 @@ fn validate_lock<'a>(
     let models = validate_domain_packages(&lock.model_selections, evidence, meter)?;
     // FR-322: every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
-    let dependencies = admit_dependencies(&lock.dependency_selections, evidence)?;
+    let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
     let mut features = BTreeSet::new();
     if let Some(index) = lock
         .required_features

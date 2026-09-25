@@ -659,9 +659,17 @@ fn argument_family(
             resolve_family(&type_node, nodes, kinds, index, 0)
         }
         Some(BodyTerm::Binding) => Some("binder"),
-        // FR-322: a `dependency_reference` callee has family `function`.
-        Some(BodyTerm::DependencyReference) => Some("function"),
-        Some(BodyTerm::Literal | BodyTerm::Application | BodyTerm::Aggregate | BodyTerm::Frame)
+        // A `dependency_reference` callee has family `function` (FR-322), and
+        // the dependency-reference walk (step 7), which runs before the
+        // operand checks, has already refused it anywhere but a
+        // `quire.op.function.call` callee, so no operand check reads it.
+        Some(
+            BodyTerm::Literal
+            | BodyTerm::Application
+            | BodyTerm::Aggregate
+            | BodyTerm::DependencyReference
+            | BodyTerm::Frame,
+        )
         | None => None,
     }
 }
