@@ -582,7 +582,7 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
                 &result_type,
             )
         };
-        let decided = graph.decide(&application, &owners, &catalog);
+        let decided = graph.decide(&application, &owners, catalog);
         match expected.get("resolves") {
             Some(resolves) => {
                 assert_eq!(decided, None, "{name} is admitted");
@@ -737,7 +737,7 @@ fn tc_281_reference_equality_admits_conforming_object_types() {
             &MemberType::Boolean.node_key(),
         );
         let decided = graph
-            .decide(&application, &owners, &catalog)
+            .decide(&application, &owners, catalog)
             .unwrap_or_else(|| json!({"admitted": true}));
         assert_eq!(decided, case["expected"], "{}", text(case, "name"));
     }
@@ -791,8 +791,8 @@ fn tc_281_record_projection_reads_a_model_field_over_a_deref_result() {
             &member_type(&case["result_type"]).node_key(),
         );
         let decided = deref
-            .and_then(|deref| graph.decide(&deref, &owners, &catalog))
-            .or_else(|| graph.decide(&projection, &owners, &catalog));
+            .and_then(|deref| graph.decide(&deref, &owners, catalog))
+            .or_else(|| graph.decide(&projection, &owners, catalog));
         let expected = &case["expected"];
         match expected.get("resolves") {
             Some(_) => assert_eq!(decided, None, "{name} is admitted"),
