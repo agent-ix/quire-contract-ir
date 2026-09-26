@@ -23,6 +23,7 @@ mod checked_package_v2_lowering;
 mod checked_package_v2_model_members;
 mod checked_package_v2_qsl_parameters;
 mod checked_package_v2_reader;
+mod checked_package_v2_require_bounds;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
 mod conformance;
