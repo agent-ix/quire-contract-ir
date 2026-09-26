@@ -15,7 +15,9 @@ use super::{
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{digest_bytes, digest_json, Step, Trail, ValidationFailure};
+use crate::checked_package::common::{
+    digest_bytes, digest_json, ReferenceMember, Step, Trail, ValidationFailure,
+};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
     CheckedSourceMapEntry,
@@ -28,6 +30,15 @@ pub const CONTRACT_IR_SEMANTIC_DOMAIN: &str = "quire.contract-ir.semantic/v1";
 const LOWERED_NODE_PREIMAGE: &str = "quire.contract-ir.lowered-node/v1";
 /// Schema version and identity domain of a complete-V1 `ContractPackage`.
 pub const CONTRACT_PACKAGE_VERSION: &str = "quire.contract-ir.contract-package/v1";
+
+/// How an edge of the lowering closure reaches its target.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EdgeRole {
+    /// The target is a type or dependency of the source node.
+    Typing,
+    /// The target is only a `literal.type` annotation in the source's body.
+    Annotation,
+}
 
 /// What a caller's backend can lower.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,6 +339,11 @@ impl CheckedPackageV2 {
         let nodes = &self.graph().nodes;
         let kinds = self.node_kinds();
         let mut visited = BTreeSet::from([start]);
+        // FR-038: the types a value or expression is typed at. A node joins
+        // this set when another reachable node names it through
+        // `semantic_type`, `dependencies` or any body reference other than a
+        // `literal.type` annotation; the requested node is always in it.
+        let mut typed = BTreeSet::from([request.clone()]);
         let mut queue = VecDeque::from([start]);
         while let Some(position) = queue.pop_front() {
             work = work.saturating_add(1);
@@ -337,8 +353,12 @@ impl CheckedPackageV2 {
             let Some((node, kind)) = nodes.get(position).zip(kinds.get(position).copied()) else {
                 continue;
             };
-            let mut successors = vec![node.semantic_type.clone()];
-            successors.extend(node.dependencies.iter().cloned());
+            let mut successors = vec![(node.semantic_type.clone(), EdgeRole::Typing)];
+            successors.extend(
+                node.dependencies
+                    .iter()
+                    .map(|target| (target.clone(), EdgeRole::Typing)),
+            );
             // The walk reports the body's term count and every reference
             // target; a failure is terminal for this request. `validate_body`
             // is the same admission dispatch the reader used, so a package it
@@ -353,7 +373,15 @@ impl CheckedPackageV2 {
                 kind,
                 &node.body,
                 &Trail::Base(&body_steps),
-                &mut |target, _site, _at| successors.push(target.clone()),
+                &mut |target, site, _at| {
+                    let role = match site.member {
+                        ReferenceMember::Type => EdgeRole::Annotation,
+                        ReferenceMember::Target
+                        | ReferenceMember::ResultType
+                        | ReferenceMember::FrameEntry => EdgeRole::Typing,
+                    };
+                    successors.push((target.clone(), role));
+                },
             );
             let terms = match walked {
                 Ok(terms) => terms,
@@ -377,8 +405,11 @@ impl CheckedPackageV2 {
             if work > profile.work_limit {
                 return failed(work);
             }
-            for successor in successors {
+            for (successor, role) in successors {
                 if let Some(&next) = index.get(&successor) {
+                    if role == EdgeRole::Typing && next != position {
+                        typed.insert(successor);
+                    }
                     if visited.insert(next) {
                         queue.push_back(next);
                     }
@@ -420,6 +451,7 @@ impl CheckedPackageV2 {
         if profile.require_bounds {
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
                 requires_bound(*kind)
+                    && typed.contains(&node.node_id)
                     && !ordered.iter().any(|(domain, domain_kind)| {
                         domain_kind.tag() == CheckedNodeTag::BoundedDomain
                             && domain.semantic_type == node.node_id
