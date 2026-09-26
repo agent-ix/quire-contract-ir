@@ -31,6 +31,15 @@ const LOWERED_NODE_PREIMAGE: &str = "quire.contract-ir.lowered-node/v1";
 /// Schema version and identity domain of a complete-V1 `ContractPackage`.
 pub const CONTRACT_PACKAGE_VERSION: &str = "quire.contract-ir.contract-package/v1";
 
+/// How an edge of the lowering closure reaches its target.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EdgeRole {
+    /// The target is a type or dependency of the source node.
+    Typing,
+    /// The target is only a `literal.type` annotation in the source's body.
+    Annotation,
+}
+
 /// What a caller's backend can lower.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompleteLoweringProfileV2 {
@@ -344,11 +353,11 @@ impl CheckedPackageV2 {
             let Some((node, kind)) = nodes.get(position).zip(kinds.get(position).copied()) else {
                 continue;
             };
-            let mut successors = vec![(node.semantic_type.clone(), true)];
+            let mut successors = vec![(node.semantic_type.clone(), EdgeRole::Typing)];
             successors.extend(
                 node.dependencies
                     .iter()
-                    .map(|target| (target.clone(), true)),
+                    .map(|target| (target.clone(), EdgeRole::Typing)),
             );
             // The walk reports the body's term count and every reference
             // target; a failure is terminal for this request. `validate_body`
@@ -365,7 +374,13 @@ impl CheckedPackageV2 {
                 &node.body,
                 &Trail::Base(&body_steps),
                 &mut |target, site, _at| {
-                    successors.push((target.clone(), site.member != ReferenceMember::Type));
+                    let role = match site.member {
+                        ReferenceMember::Type => EdgeRole::Annotation,
+                        ReferenceMember::Target
+                        | ReferenceMember::ResultType
+                        | ReferenceMember::FrameEntry => EdgeRole::Typing,
+                    };
+                    successors.push((target.clone(), role));
                 },
             );
             let terms = match walked {
@@ -390,9 +405,9 @@ impl CheckedPackageV2 {
             if work > profile.work_limit {
                 return failed(work);
             }
-            for (successor, is_typing) in successors {
+            for (successor, role) in successors {
                 if let Some(&next) = index.get(&successor) {
-                    if is_typing && next != position {
+                    if role == EdgeRole::Typing && next != position {
                         typed.insert(successor);
                     }
                     if visited.insert(next) {

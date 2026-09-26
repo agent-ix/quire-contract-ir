@@ -239,12 +239,45 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
         scalar("rational", "rational"),
         (z, z_node),
     ]);
-    // `z` is typed at unbounded `rational`: refused for that, never for the
-    // `text`/`integer` annotations, which sort ahead of nothing here.
+    // `z` is typed at unbounded `rational`: refused for that. The `text` and
+    // `integer` annotations (keys 982d.. and 2dba..) sort before `rational`
+    // (fda5..), so a check that also tested annotations would name one of them
+    // first; this half is what catches an always-true `typed` check.
     assert_eq!(
         only_record(&bare, &id_of("z")),
         CompleteLoweringRecordV2::RequiresBound {
             node_id: id_of("z"),
+            unbounded_type: id_of("rational"),
+        }
+    );
+}
+
+/// Tracing: TC-050, FR-038-AC-39
+#[trace("TC-050", "FR-038-AC-39")]
+#[test]
+fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
+    // `v` names unbounded `rational` in `dependencies` alone: no body
+    // reference and no `semantic_type` reaches it.
+    let (v, v_node) = node(
+        "v",
+        "value",
+        "literal",
+        "int09",
+        &["rational"],
+        "anchor",
+        empty(),
+    );
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        scalar("rational", "rational"),
+        int_0_9(),
+        (v, v_node),
+    ]);
+    assert_eq!(
+        only_record(&value, &id_of("v")),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: id_of("v"),
             unbounded_type: id_of("rational"),
         }
     );

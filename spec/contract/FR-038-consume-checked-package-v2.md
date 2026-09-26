@@ -584,7 +584,7 @@ type's key.
 other than the type itself names it through `semantic_type`, `dependencies` or
 a body `reference` target or `application` `result_type`, or it is the
 requested node. A type reached only as a `literal.type` annotation, such as the
-`text` node FR-322 requires on the name literal of every parameter, is in the
+`text` node QSL FR-092 gives the name literal of every parameter (FR-322 requires each literal to carry a `type`), is in the
 closure and in `dependencies` but is not a value's type, so it never raises
 `requires_bound`; `x + 1` over `x: Int[0,9]` lowers under a bounds-required
 profile. A value typed at an unbounded type still raises it.
@@ -640,10 +640,10 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-36 | A `dependency_reference` with a bare-digest, other-domain or short-digest `package` refuses `invalid_semantic_graph` at the `package`, one in another node domain at the `node`, and one with a missing or extra member at the term; a well-formed term that is not argument 0 of a `quire.op.function.call` (a second argument, an argument of another operation, an aggregate member or a node body root) refuses `ill_typed`/`operator-ineligible` at the term. | Test (TC-048) |
 | FR-038-AC-37 | A `dependency_selections` entry with no package supplied for its `identity` refuses `missing_import`/`missing-selection` at the entry, one supplied under another `version` `stale_dependency`/`revision-mismatch` at its `version`, and one whose package has another `package_id` `stale_dependency`/`byte-digest-mismatch` at its `package_id.digest`; a term whose `package` no entry names refuses `missing_declaration`/`missing-selection` at the `package`, a `node` naming no node or a node without a `declaration` `missing_declaration`/`missing-name` at the `node`, and a `node` naming a declared node that is no function `ill_typed`/`operator-ineligible`, each carrying the calling node as its locus. | Test (TC-048) |
 | FR-038-AC-38 | A dependency function whose parameter is a declared record, whose result is a declared record, whose parameter is a `Set` of one, a tuple holding one, or a `Reference` to a `model` node refuses `ill_typed`/`operator-ineligible` at the callee; the same function over a `Set` of a bounded integer admits. | Test (TC-048) |
+| FR-038-AC-39 | Under a bounds-required profile, `x + 1` over a parameter `x` typed at an `integer_range` domain over `integer` lowers although the parameter's name literal is annotated with the unbounded `text` type, and the annotation stays in the closure and in `dependencies`; a parameter typed at an unbounded `integer` or `rational` type refuses `requires_bound` naming that type. | Test (TC-050) |
 
 ## Dependencies
 
 QSpec FR-322 (AC-4, AC-8, AC-10, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 TC-217 names this repository as their consumer evidence owner.
-| FR-038-AC-39 | Under a bounds-required profile, `x + 1` over a parameter `x` typed at an `integer_range` domain over `integer` lowers although the parameter's name literal is annotated with the unbounded `text` type, and the annotation stays in the closure and in `dependencies`; a parameter typed at an unbounded `integer` or `rational` type refuses `requires_bound` naming that type. | Test (TC-050) |
