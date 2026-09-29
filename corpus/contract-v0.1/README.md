@@ -22,6 +22,3 @@ criterion. Large exact-edge fixtures are reproducibly authored by
 expectations and rejects a declared token the runner does not observe. For this
 crate, a full match proves deterministic regression stability against those
 frozen outputs, not independent semantic correctness.
-
-Automatic CI triggers and crate publication remain disabled. A later human
-release decision owns both changes.

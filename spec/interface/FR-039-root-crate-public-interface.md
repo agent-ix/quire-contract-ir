@@ -20,7 +20,6 @@ relationships:
 
 ```yaml
 name: ContractIrRootApi
-version: quire-contract-ir-v0.1
 ownership: quire-contract-ir
 modules:
   - kani            # FR-029..FR-031 kani-bounded/1 profile boundary
@@ -30,10 +29,6 @@ invariants:
   - no public item is a QSL runtime type, and nothing calls quire_spec_language::runtime
   - replay, witness, counterexample-envelope, terminal-record and obligation-identity types are qsl_replay's
   - every conversion from untrusted input is fallible and returns a typed error
-compatibility:
-  supported-rust-minimum: Rust 1.98.1
-  licensing: AGPL-3.0-or-later
-  publication: disabled pending a later human release decision
 ```
 
 ## Description

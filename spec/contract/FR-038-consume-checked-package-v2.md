@@ -7,8 +7,6 @@ relationships:
     type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
     type: references
-  - target: ix://agent-ix/quire-contract-ir/issues/106
-    type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
   - target: ix://agent-ix/quire-specification/FR-201
@@ -18,8 +16,6 @@ relationships:
   - target: ix://agent-ix/quire-specification/FR-340
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-040
-    type: references
-  - target: ix://agent-ix/quire-contract-ir/issues/109
     type: references
 ---
 # FR-038: Consume the CheckedPackage V2 contract and refuse every other version
@@ -50,9 +46,7 @@ limit).
 The normative producer contract is the QSpec I04 CheckedPackage interface,
 owned by `agent-ix/quire-specification`. This repository states the wire shape
 it admits in its own reader — `crates/quire-contract-model/src/checked_package/`
-— and holds no copy of the upstream artifacts. The copies it used to hold were
-removed because this repository is public and they were not; the test inputs
-they supplied are open work on agent-ix/quire-contract-ir#166.
+— and holds no copy of the upstream artifacts.
 
 ## Outputs
 

@@ -2,7 +2,7 @@
 id: STD-003
 title: "Output-mapping refusal code registry"
 type: Standard
-code: contract-ir-output-mapping-refusals-v0.1
+code: contract-ir-output-mapping-refusals
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-032
     type: references
@@ -29,7 +29,7 @@ recovering an outcome from display, debug, or panic text, so the code spelling
 registered here — not the message — is the refusal contract. Implementations may
 add human context but shall not parse or synthesize codes from messages, and
 shall not emit a code absent from this registry. Codes are lowercase ASCII snake
-case and are stable v0.1 API.
+case and are stable API.
 
 Every row names the structural field path the refusal is required to carry.
 Where a code is reachable from more than one accounting stage, every path it may

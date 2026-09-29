@@ -6,8 +6,6 @@ status: accepted
 owner: kreneskyp
 system: quire-contract-ir workspace (quire-contract-model and quire-contract-ir crates), its versioned contracts and its boundaries with QSpec, QSL, codegen and runtime
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/AP-001
-    type: realizes
   - target: ix://agent-ix/quire-contract-ir/AD-002
     type: references
   - target: ix://agent-ix/quire-contract-ir/AD-003
@@ -68,9 +66,6 @@ package.
 | QSL (`quire-spec-language`) | the compiler that produces checked packages, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL, names QSL's replay types and defines none of its own |
 | codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
-
-Downstream solvers, Quoin, build infrastructure, ambient repository
-discovery and human release decisions remain outside.
 
 ### Kani boundary
 
@@ -138,7 +133,7 @@ it.
 
 | Contract | Version | Direction | Requirement |
 | --- | --- | --- | --- |
-| Contract IR wire schema | `contract-package-reference-v1.schema.json`, `schema_version` 1.1; crate version 0.1.0 | authored contract in, canonical JSON (`quire.contract.canonical-json/v1`) out | FR-011 through FR-020 |
+| Contract IR wire schema | `contract-package-reference-v1.schema.json`, `schema_version` 1.1 | authored contract in, canonical JSON (`quire.contract.canonical-json/v1`) out | FR-011 through FR-020 |
 | Checked package | `quire.checked-package/v2` only, parsed once from `contract_version`; every other version refuses `unknown_contract_version` | QSL-produced input | FR-038, FR-040 |
 | ContractPackage | `quire.contract-ir.contract-package/v1`, holding `quire.contract-ir.lowered-node/v1` nodes | Contract IR output to backend providers | FR-035 |
 | Bounded Kani profile | `kani-bounded/1`, whose profile revision, capability matrix, input ABI and module revisions are selected together | checked clause and finite input in, `KaniOutcome` out | FR-029 through FR-031 |
@@ -184,7 +179,6 @@ the authored-contract interchange.
   owner language inside Contract IR; preserve typed non-values at every join.
 - Use QSL's `qsl-replay` types for every replay, witness, envelope,
   terminal-record and obligation-identity concept; define none locally.
-- Keep `publish = false` through the human v0.1 decision.
 
 ## Risks
 
@@ -192,11 +186,7 @@ the authored-contract interchange.
 - Canonicalization ambiguity: controlled by golden bytes and property tests.
 - Partial-operation unsoundness: controlled by definedness rules and negative fixtures.
 - Orphan false coverage: controlled by exact revision identities and separate class.
-- Owner-contract drift against QSpec and QSL: controlled by exact revision
-  selections, constructor-private inputs, strict re-derivation, and QSpec
-  vectors read at run time from a QSpec checkout rather than copied.
+- Owner-contract drift against QSpec and QSL: controlled by
+  constructor-private inputs and strict re-derivation.
 - Native/TL semantic disagreement: retained as a typed conflict rather than
   repaired, coerced, or hidden behind either owner's result vocabulary.
-- Self-model authority confusion: controlled by exact external manifest
-  selection, constructor-private checked views, absent acceptance fields, and
-  no conversion from model/proposal output into executable owner inputs.

@@ -12,7 +12,6 @@ relationships:
 
 ```yaml
 name: ContractIrRustApi
-version: quire-contract-ir-v0.1
 ownership: quire-contract-ir
 crate: quire-contract-model
 inputs:
@@ -29,11 +28,6 @@ invariants:
   - wire values remain distinct from validated semantic values
   - untrusted input has no public panic path
   - no downstream engine type appears in the public contract
-compatibility:
-  supported-rust-minimum: Rust 1.98.1
-  qualification-rust: Rust 1.98.1
-  licensing: AGPL-3.0-or-later
-  publication: disabled pending a later human release decision
 ```
 
 ## Description
@@ -54,7 +48,7 @@ dependency sets, and coverage classifications.
 
 ## Behavior
 
-The stable v0.1 surface is the public API of `quire_contract_model` in a
+The stable surface is the public API of `quire_contract_model` in a
 default-feature build: exactly the items the Public items table below lists.
 The crate root re-exports each of them by name from its module and has no
 glob (`pub use …::*`) re-export, so a `pub` item a module adds does not join
@@ -76,7 +70,7 @@ Unvalidated JSON enters only through wire/request decoders. Validated identity,
 package, declaration, expression, canonical, migration, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There
 is no `From`/unchecked constructor from untrusted wire values to validated
-types. `ValidationOptions::strict()` is the sole v0.1 option set and cannot
+types. `ValidationOptions::strict()` is the sole option set and cannot
 disable limits, diagnostics, version preflight, or definedness.
 
 Package parsing accepts UTF-8 `&str` and byte slices. Invalid UTF-8, unknown
@@ -89,14 +83,14 @@ return typed results. Public diagnostics carry code, severity, message, source
 span, semantic path, related identities, and obligation kind. Callers never
 need to parse display/debug/panic text.
 
-Canonical APIs require the explicit closed `CanonicalProfile`; v0.1 registers
+Canonical APIs require the explicit closed `CanonicalProfile`, which registers
 only `quire.contract.canonical-json/v1`. Migration requires explicit source and
 target versions. Coverage accepts immutable traces and returns a complete report
 plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
 
-The model crate root additionally exports `expected_inventory` as stable v0.1
+The model crate root additionally exports `expected_inventory` as stable
 API; it returns the sorted published construct and boundary inventory as owned
 `String` values, is pure, allocates its own output and takes no host handle.
 Its name, signature and output spelling are stable.
@@ -104,7 +98,7 @@ Its name, signature and output spelling are stable.
 The model crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
 sorted fixed-width `&'static [&'static str]` registries and retains
 `DiagnosticCode::ALL` as its sorted fixed-width enum registry. Their ordering,
-contents, names, and types are stable v0.1 API and are inspected alongside the
+contents, names, and types are stable API and are inspected alongside the
 other public signatures.
 
 All recursive or collection-bearing untrusted inputs undergo fixed-limit
@@ -121,8 +115,7 @@ occurs before recursive validation, canonicalization, migration, or coverage.
 The first node, depth, or collection path crossing a limit returns
 `semantic_input_too_large` and no partial semantic result. Public decode,
 validate, canonicalize, migrate, and classify calls return without panic for
-the complete negative corpus. Exact Rust 1.98.1 builds the library, runner, and
-tests with default features under NFR-005; the crate remains `publish = false`.
+the complete negative corpus.
 
 ### Public items
 

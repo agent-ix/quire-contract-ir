@@ -2,9 +2,6 @@
 id: StR-001
 title: "Author one semantic contract for every lowering"
 type: StR
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/issues/11
-    type: references
 ---
 # StR-001: Author one semantic contract for every lowering
 
@@ -31,7 +28,3 @@ requirement and revision identity.
 
 Requirement authors, code-generation maintainers, analysis maintainers, and
 assurance reviewers.
-
-## Dependencies
-
-PGM-01 governs compatibility, provenance, and human authority.

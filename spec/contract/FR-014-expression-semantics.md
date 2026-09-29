@@ -57,7 +57,7 @@ the same option type plus a value. Integer/rational values must fit their named
 bounds after rational normalization. Enum variants must exist. Record literals
 must provide every declared field exactly once and no unknown field. Collection
 literal items must have the element type and their count must not exceed the
-declared maximum. Violations use the issue #8 precedence and registered codes.
+declared maximum. Violations use the STD-001 precedence and registered codes.
 Out-of-bound numeric literals use `invalid_numeric_bounds`; an absent enum
 variant or missing/unknown record field uses `ill_typed_expression`; a repeated
 record-literal field uses `duplicate_field`; and excessive collection items use
@@ -105,7 +105,7 @@ dependency contains its exact requirement/declaration identity and
 dependency path is `[owning-record-type, field]`; an enum dependency path is
 `[enum-type, variant]`; and a pure-function dependency path is `[function]`.
 Dependencies deduplicate and sort by the structural tuple `(requirement,
-dependency kind, observation, path)`, matching the issue #6 ordered-set rule.
+dependency kind, observation, path)`.
 Kind order is input, state, field, enum variant, then pure function. Observation
 order is absent, current, pre, then post. Each path segment compares by Unicode
 scalar value; a shorter equal prefix sorts first.

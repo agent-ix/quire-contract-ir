@@ -1,16 +1,16 @@
 ---
 id: FR-013
-title: "Represent the closed v0.1 contract type system"
+title: "Represent the closed contract type system"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-001
     type: traces_to
 ---
-# FR-013: Represent the closed v0.1 contract type system
+# FR-013: Represent the closed contract type system
 
 ## Description
 
-The v0.1 model shall define Boolean, signed and unsigned bounded integer,
+The model shall define Boolean, signed and unsigned bounded integer,
 rational, text, enum, record, option, bounded collection, input, state, and pure
 function declarations without embedding implementation or
 architecture-language vocabulary.
@@ -59,7 +59,7 @@ resolve, and the directed record-containment graph through record, option, and
 collection fields must be acyclic. Input and state value declarations share one
 value-name namespace and bind one value type. Pure-function declarations have
 unique names, unique parameter names, ordered parameter types, and a result
-type. Every public name uses the issue #6 identifier grammar.
+type. Every public name uses the identifier grammar.
 
 Validation is deterministic and fail closed. Declaration grammar and bounds
 precede duplicate, orphan, and recursive checks. A valid environment round

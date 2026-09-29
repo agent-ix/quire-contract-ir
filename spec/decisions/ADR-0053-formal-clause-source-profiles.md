@@ -5,8 +5,6 @@ type: ADR
 status: accepted
 owner: kreneskyp
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/PGM-01
-    type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-012
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-013
@@ -22,14 +20,9 @@ relationships:
 
 ## Status
 
-**Accepted as amended on 2026-09-09.** The
-[owner ruling on #53](https://github.com/agent-ix/quire-contract-ir/issues/53#issuecomment-5611950216)
-rejects the earlier OCL-first recommendation and selects native Quire as the
-sole editable formal-clause source language. The
-[emission clarification](https://github.com/agent-ix/quire-contract-ir/issues/53#issuecomment-5611958246)
-retains OCL 2.4, SysML v2/KerML and FRETish as output-only mapping targets. The
-[closed-#54 correction](https://github.com/agent-ix/quire-contract-ir/issues/53#issuecomment-5612031500)
-keeps accepted ADR-0054 and its completed binding work intact.
+Accepted. Native Quire is the sole editable formal-clause source language.
+OCL 2.4, SysML v2/KerML and FRETish are output-only mapping targets. ADR-0054
+stays accepted.
 
 This ADR records source authority and fail-closed boundaries. It does not claim
 that every Quire profile, Contract IR projection, backend, mapping, or
@@ -82,8 +75,7 @@ A request reports these stages independently:
 3. declarations linked and expression statically admitted;
 4. runtime inputs validated and native evaluation available;
 5. requested lowering available and exact;
-6. selected backend supported;
-7. claimed qualification evidence available.
+6. selected backend supported.
 
 Failure at a stage prevents only its dependent output. A recognized but
 unadmitted construct receives a located `unsupported_construct`; an admitted
@@ -94,15 +86,9 @@ Boolean, an empty collection, or an approximate mapped artifact.
 The Quire standard owns profile definitions. The composed-v1 candidates use
 `ix:native` edition `1-draft` with independently versioned state-core, query,
 finite-graph, temporal, protocol, observation, package and diagnostic
-definitions accepted for implementation planning in Quire Specification PR
-#15. FS01–FS05 own final adoption. Historical
+definitions accepted for implementation planning. FS01–FS05 own final adoption. Historical
 `ix:native` / `0-draft` / `state-finite/0-draft` source, result and definition
 bytes remain historical and are never reinterpreted in place.
-
-The released quire-spec-language `v0.2.0` baseline implements its stated
-bounded-scalar/compiler scope. That implementation evidence does not define the
-language or claim complete object, graph, collection, temporal, protocol or
-output-mapping support.
 
 ### Bounded admission firewall
 
@@ -120,7 +106,7 @@ parameter, never host width or observed values.
 | Collections | Explicitly ordered, duplicate-preserving finite sequences with authored maximum at most 10,000; unsupported kinds/conversions refuse | FR-013 bounded sequence; FR-014 ordered quantifier domain; FR-016 sequence identity |
 | Calls and effects | No unselected calls, recursion, reflection, I/O or ambient library; a signature alone supplies no semantics | FR-013 pure declarations; FR-014 exact call signature |
 | Root and control | Exactly one statically defined Boolean root with selected native short-circuit meaning; no truthiness, nullable root or exception recovery | FR-014 Boolean result; FR-015 exact-subject guard facts |
-| Resources | Charge selected parser/checker/runtime limits before work; exhaustion is incomplete and emits no partial result | FR-014/FR-019 aggregate bounds; PGM-01 result integrity |
+| Resources | Charge selected parser/checker/runtime limits before work; exhaustion is incomplete and emits no partial result | FR-014/FR-019 aggregate bounds |
 
 All declarations and syntax are checked, including unused declarations and
 unselected branches. A wider IR or backend does not admit a source construct.
@@ -173,10 +159,6 @@ does not represent. Its oracle is the native meaning plus the explicit mapping
 contract and independent expected corpus. An upstream parser accepting emitted
 text is not proof of semantic correspondence.
 
-External tool and license investigation is useful input for the mapping
-tickets but is not a first-party execution prerequisite. The recorded SysML
-pilot correction remains LGPL-3.0-or-later.
-
 ### Eligibility and extension points
 
 A criterion is eligible for formalization only when its author can identify a
@@ -184,8 +166,7 @@ precise property, finite typed domain, exact evaluation boundary and supported
 native profile without changing its meaning. Ineligible or not-yet-supported
 criteria retain their Test, Inspection, Analysis or Demonstration method and an
 explicit disposition. Eligibility is not authorship, parsing, lowering, proof,
-or qualification. Coverage work #58 preserves the whole criterion population
-and every per-stage status.
+or qualification.
 
 New native operators, types, semantic families, mappings and backends are
 separate versioned extension points. Each extension declares its syntax/profile
@@ -197,19 +178,7 @@ plugin, installed backend or foreign syntax extends the language implicitly.
 
 - Contract IR consumes checked native subjects and reports exact capability; it
   neither parses an alternate source language nor decides native meaning.
-- ADR-0054 stays accepted and #54 stays closed. Later reference/graph work uses
+- ADR-0054 stays accepted. Later reference/graph work uses
   a new versioned contract rather than reopening the archetype boundary.
-- #55–#57 own Rust output mappings; #58 owns language-neutral coverage states.
-- Full Quire v1, a particular backend, and a public release remain separate
-  claims with their own evidence and owner decisions.
 - OCL-first, SysML-first, FRETish-first, multiple editable authorities,
   automatic EARS formalization and solver text as source are rejected.
-
-## Owner decision record
-
-Owner: `@kreneskyp`. Decision: **amend and accept native Quire as source profile
-one; retain OCL/SysML/FRETish as output mappings**. Recorded on #53 on
-2026-09-09 with the emission/dependency and closed-#54 clarifications. This
-acceptance does not approve public promotion, third-party incorporation,
-application migration, a new external runtime, or complete native/backend
-qualification.

@@ -12,7 +12,6 @@ relationships:
 
 ```yaml
 name: ContractIrJsonConformanceApi
-version: quire-contract-ir-v0.1
 ownership: quire-contract-ir
 inputs:
   - UTF-8 JSON bytes
@@ -27,8 +26,6 @@ invariants:
   - operational errors are written to standard error
 compatibility:
   schema: versioned and fail-closed
-  licensing: AGPL-3.0-or-later
-  publication: disabled pending a later human release decision
 ```
 
 ## Description
@@ -119,4 +116,4 @@ and exits 0 without reading a corpus.
 
 ## Dependencies
 
-FR-018 defines corpus content; PGM-01 defines tool and evidence identity.
+FR-018 defines corpus content.

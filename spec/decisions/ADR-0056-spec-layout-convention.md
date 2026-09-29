@@ -54,10 +54,8 @@ spec/
 │   ├── integration/        # IT-###
 │   └── matrix/             # tests.md (TestMatrix) and the TC-### it declares
 ├── <subsystem>/            # same six directories as core/
-├── assurance/              # AD-### architecture descriptions and AA/AP/CAC/MP/SUR
-├── decisions/              # ADR-#### decision records
-├── program/                # repository-wide policy (PGM-##) and its standards
-└── evidence/               # evidence suite registries
+├── assurance/              # AD-### architecture descriptions
+└── decisions/              # ADR-#### decision records
 plan/                       # plans and tasks
 reviews/                    # every SpecReview and review record
 ```
@@ -80,15 +78,13 @@ reviews/                    # every SpecReview and review record
 5. A standard (`STD-###`) that registers one subsystem's vocabulary lives in
    that subsystem's `functional/`; a registry every subsystem consumes lives in
    `core/functional/`.
-6. Architecture descriptions (`AD-###`) and the assurance artifacts attached to
-   them (`AA`, `AP`, `CAC`, `MP`, `SUR`) live in `spec/assurance/`. They span
+6. Architecture descriptions (`AD-###`) live in `spec/assurance/`. They span
    subsystems; the Subsystem Registry links each subsystem to the ADs that
    govern it.
 7. Decision records (`ADR-####`) live in `spec/decisions/`, whichever
    subsystem they decide for.
 8. SpecReviews and review records live in the repository-root `reviews/`.
-   `spec/reviews/` does not exist. A review is a record of the revision it
-   names: its body is not edited when the files it reviewed move.
+   `spec/reviews/` does not exist.
 
 ### Subsystem Registry
 
@@ -148,8 +144,7 @@ same document.
 5. An author takes the next free ID; a collision found in review is
    renumbered in the later pull request.
 6. A spec artifact is a document under `spec/` outside `spec/reviews/`: the
-   StR, US, FR, NFR, IT, TC, AD, AP, ADR and STD artifacts, the other assurance
-   and program artifacts, and the matrices. The identifier rules apply to spec
+   StR, US, FR, NFR, IT, TC, AD, ADR and STD artifacts and the matrices. The identifier rules apply to spec
    artifacts and to the `TC` rows the matrices declare. Plans under `plan/` and
    reviews under `reviews/` or `spec/reviews/` carry their own identifiers.
 
@@ -168,11 +163,7 @@ same document.
 4. Every live `TC` is declared by exactly one matrix, the matrix of its
    subsystem. A `TC-###` artifact file lives in the `matrix/` directory beside
    the matrix that declares it.
-5. A withdrawn `TC` keeps its artifact file in the `matrix/` directory of the
-   subsystem that owned the requirement it verified, and that matrix lists it
-   in a `## Withdrawn Test Cases` section with the reason. It has no Test Case
-   Summary row, so no matrix declares it, and its ID is never reissued.
-6. An existing matrix keeps its `TM` ID wherever it moves. A new root index or
+5. An existing matrix keeps its `TM` ID wherever it moves. A new root index or
    a new subsystem matrix takes the next free `TM` ID.
 
 ### Restructure
@@ -200,28 +191,6 @@ What Quire does and does not provide for this layout:
   `Requirements Traceability` columns and mints no test case. The Subsystem
   Registry table in `spec/spec.md` is not validated by Quire; the
   registry-to-directory agreement is part of the restructure review.
-
-### Adoption by Codegen and Runtime
-
-`quire-contract-codegen` and `quire-contract-runtime` adopt this layout the
-same way as this repository, each in its own structural pull request:
-
-1. Its root `spec/spec.md` references
-   `ix://agent-ix/quire-contract-ir/ADR-0056` and restates none of it.
-2. `spec/index.md` becomes `spec/spec.md` and gains the Subsystem Registry
-   table. `spec/tests.md` is added as the `TestMatrixIndex`.
-3. Its subsystems come from its own AD-001 module views. Its `spec/test/` case
-   files move into the declaring subsystem's `matrix/`, and its
-   `spec/test-matrix.md` rows move verbatim into the subsystem matrices; the
-   existing matrix keeps its `TM` ID in the subsystem holding most of its rows.
-4. `spec/nonfunctional/` becomes `non-functional/` and `spec/interface/`
-   requirements move into `functional/`, per subsystem.
-
-### Adoption by this repository
-
-The structural pull request for this repository moves `spec/index.md` to
-`spec/spec.md` and the existing matrices TM-001 and TM-002 into subsystem
-matrices.
 
 ## Consequences
 
