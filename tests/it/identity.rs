@@ -477,9 +477,9 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
         );
     }
     let implemented_registry = REGISTRY
-        .split_once("## Issue 63 Codes")
+        .split_once("## Bounded Kani Outcome Codes")
         .map(|(implemented, _)| implemented)
-        .expect("STD-001 must keep the planned bridge codes in their own section");
+        .expect("STD-001 must keep the Kani outcome codes in their own section");
     assert_eq!(
         implemented_registry
             .lines()
