@@ -23,7 +23,7 @@ relationships:
 | FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
 | FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | ✅ covered |
 | FR-022 | FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
-| FR-345 | FR-345-AC-1 through FR-345-AC-6 | TC-224 | 🚧 planned; the repository-local ID and relocation-map check is not built and `make spec` does not run it |
+| FR-345 | FR-345-AC-1 through FR-345-AC-6 | TC-224 | 🚧 planned; the repository-local ID and relocation-map check is not built and `make spec` does not run it. The tree today holds twelve duplicated `PLAN`/`SR` frontmatter IDs under `plan/`, `reviews/` and `spec/reviews/` that the check will report |
 
 ## Stakeholder Requirement Coverage
 

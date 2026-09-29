@@ -2,19 +2,21 @@
 id: ADR-0056
 title: "Subsystem spec layout, registry format and ID-block allocation for Contract IR, Codegen and Runtime"
 type: ADR
-status: proposed
+status: accepted
 owner: kreneskyp
 relationships:
   - target: ix://agent-ix/quire-contract-ir/AD-001
     type: relates_to
   - target: ix://agent-ix/quire-rs/FR-050
     type: relates_to
+  - target: ix://agent-ix/quire-contract-ir/FR-345
+    type: relates_to
 ---
 # ADR-0056: Subsystem spec layout, registry format and ID-block allocation
 
 ## Status
 
-Proposed. Supersedes nothing.
+Accepted. Supersedes nothing.
 
 This record is the one layout convention that the `quire-contract-ir`,
 `quire-contract-codegen` and `quire-contract-runtime` specification trees
@@ -272,8 +274,7 @@ What Quire does and does not provide for this layout:
 - `quire validate` checks each document against the archetype named by its
   `type:` frontmatter. It has no subsystem field, reads no directory as meaning,
   and accepts a document in any directory under `spec/`. It does not report two
-  files declaring the same `id`; the duplicate-ID and duplicate-TC checks above
-  are run by the repository's own `make spec`.
+  files declaring the same `id`.
 - `quire coverage --scope <DIR>` takes the repository root. It reads documents
   from the whole `<DIR>/spec` tree, nested directories included, and trace tags
   from `<DIR>` excluding `spec/`. A test case is minted by any document typed
@@ -286,6 +287,17 @@ What Quire does and does not provide for this layout:
   `Requirements Traceability` columns and mints no test case. The Subsystem
   Registry and ID Blocks tables in `spec/spec.md` are not validated by Quire;
   the registry-to-directory agreement is part of the restructure review.
+
+### ID and relocation checks
+
+The duplicate-ID, duplicate-TC, ID-block and relocation-map checks this record
+requires belong in `quire validate`, which reads every repository the same way.
+Until `quire validate` reports them, each repository runs its own small
+repository-local check from `make spec`, specified in that repository's own
+functional requirement ([FR-345](../functional/FR-345-check-artifact-ids-and-relocation-maps.md)
+in this one) and written in its own structural pull request. No repository
+copies another repository's check; when `quire validate` reports these
+defects, the local check is deleted.
 
 ### Adoption by Codegen and Runtime
 
@@ -302,7 +314,9 @@ same way as this repository, each in its own structural pull request:
    existing matrix keeps its `TM` ID in the subsystem holding most of its rows.
 4. `spec/nonfunctional/` becomes `non-functional/` and `spec/interface/`
    requirements move into `functional/`, per subsystem.
-5. The structural pull request passes the restructure gate in its own
+5. It specifies and builds its own repository-local ID and relocation check,
+   as above, and runs it from `make spec`.
+6. The structural pull request passes the restructure gate in its own
    repository, and IDs stay in that repository's own sequences.
 
 ## Consequences
