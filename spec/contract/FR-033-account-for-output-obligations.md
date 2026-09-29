@@ -3,6 +3,8 @@ id: FR-033
 title: "Account for every mapped obligation"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-032
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-121

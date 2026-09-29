@@ -1,8 +1,10 @@
 ---
 id: FR-037
-title: "Replay backend counterexamples through the complete-V1 executor"
+title: "Hand backend counterexamples to replay only through the QSL replay envelope"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-036
@@ -13,55 +15,59 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
+  - target: ix://agent-ix/quire-spec-language/FR-070
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-098
+    type: references
 ---
-# FR-037: Replay backend counterexamples through the complete-V1 executor
+# FR-037: Hand backend counterexamples to replay only through the QSL replay envelope
 
 ## Description
 
-When a backend reports a counterexample, the Contract IR replay boundary shall
-canonicalize the typed input and execution identity, validate it against the
-original domain, and replay it through the QSL complete-V1 executor entry
-`value::expression::CheckedPackage::call` without a backend shortcut.
+When a backend reports a counterexample for a ContractPackage item, the
+replay of that counterexample shall run through QSL's `qsl-replay` crate: the
+codegen replay adapter builds QSL's `WitnessEnvelope` and `ReplayRequest` and
+calls `qsl_replay::replay` (QSL ADR-011 E9, FR-098). Contract IR shall define
+no replay envelope, replay request, parity verdict or minimization lineage of
+its own, and shall not invoke a replay executor.
 
 ## Inputs
 
-Backend counterexample, immutable backend-result digest, package and claim
-digests, provider run identity, typed values, pre-state, selected transition or
-trace occurrences, reported backend verdict, model domain, and executor
-selection.
+None of Contract IR's own. The envelope's members are QSL's (QSL FR-070); the
+checked package, obligation and backend identities it binds come from QSL's
+compile and the codegen backend adapter.
 
 ## Outputs
 
-A canonical replay envelope and a backend/native verdict pair, or a typed
-decode, domain, unavailable, minimization, or parity-failure outcome.
+None of Contract IR's own. The replay result is QSL's `ReplayResult`.
 
 ## Behavior
 
-The replay boundary shall preserve exact value kinds, object and trace
-identities, state anchors, bounds, source maps, profile versions, and run
-lineage. The replay boundary shall recompute the immutable backend-result digest
-over package, claim, profile, provider run, typed values including IEEE width
-and bits, pre-state, selected occurrences, and reported backend verdict before
-replay. When that digest differs
-from the received result identity, the replay boundary shall return a typed
-integrity failure without native execution. The replay boundary shall serialize exact numbers without narrowing.
-The replay boundary shall preserve IEEE width and bits.
-The replay boundary shall preserve collection occurrence identity in canonical ordering.
-When the replay boundary produces a smaller counterexample candidate, the replay boundary shall create a new revision linked to its parent.
-The replay boundary shall retain that revision only when domain validity and both failure verdicts persist.
-When decode, domain, or verdicts differ, the replay boundary shall return a typed parity failure rather than a clause success or failure.
+Canonical round-trip, backend-result digest verification, exact value and
+IEEE width preservation, verdict parity and minimization lineage are
+properties of the QSL envelope and replay executor (QSL FR-070 through
+FR-073, FR-098) and of the codegen replay adapter, not of Contract IR.
+Contract IR's part in a counterexample ends at the typed `KaniOutcome` and its
+`TerminalValue` ([FR-031](./FR-031-bounded-kani-dispatch-replay-provenance.md)).
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-037-AC-1 | Every backend-supported typed counterexample round-trips canonically without loss of identity, type, bound, or source correspondence. | Test (TC-046) |
-| FR-037-AC-2 | A bounded Kani counterexample replays through the same native package and domain with the same verdict. | Test (TC-046) |
-| FR-037-AC-3 | Decode, domain, executor-availability, or verdict disagreement remains an explicit non-success outcome. | Test (TC-046) |
-| FR-037-AC-4 | Minimization creates linked revisions and retains only valid candidates with preserved backend and native failure. | Test (TC-046) |
-| FR-037-AC-5 | Mutation or substitution of any received counterexample value, state, occurrence, verdict, or identity member fails immutable backend-result verification before replay. | Test (TC-046) |
+| FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, parity verdict or minimization type other than QSL's, and no Contract IR source calls a replay executor. | Test (TC-046) |
+
+### Retired criteria
+
+`FR-037-AC-1` through `FR-037-AC-5` required canonical counterexample
+round-trip, same-verdict native replay, typed decode/domain/availability/
+verdict disagreement, minimization lineage, and immutable backend-result
+verification, each as a Contract IR replay-boundary property. The envelope,
+request, result and executor that carry those properties are QSL's
+(`qsl-replay`, QSL FR-070 through FR-073 and FR-098) and the adapter that
+drives them is codegen's, so their verification belongs to those owners.
 
 ## Dependencies
 
 [FR-036](./FR-036-exact-backend-negotiation-and-emission.md) owns backend
-inputs. QSpec FR-197 and I19 own the normative replay and corpus contracts.
+inputs. QSpec FR-197 owns the normative replay and corpus contract; QSL
+`qsl-replay` implements it.

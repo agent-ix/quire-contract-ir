@@ -3,6 +3,8 @@ id: FR-035
 title: "Lower complete-V1 contracts into a versioned target-neutral package"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-028

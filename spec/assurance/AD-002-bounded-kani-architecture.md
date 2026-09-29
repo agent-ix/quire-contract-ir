@@ -16,12 +16,14 @@ relationships:
     type: realizes
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
+  - target: ix://agent-ix/quire-contract-ir/AD-001
+    type: references
 ---
 # Bounded Kani backend architecture
 
 ## System Boundary
 
-This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and produces the counterexample packet that the codegen replay adapter reconstructs and replays through the QSL complete-V1 executor entry `value::expression::CheckedPackage::call` (AD-016). It does not parse source, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
+This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and maps each outcome to one QSL `qsl_replay::TerminalValue`. The counterexample envelope, witness and replay source are QSL's `qsl-replay` types; the codegen backend adapter parses the Kani transcript, and the codegen replay adapter replays a counterexample through `qsl_replay::replay` (QSL ADR-011 E9). This boundary does not parse source or transcripts, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
 
 ## Views
 
@@ -29,8 +31,8 @@ This boundary consumes already checked native clauses and exact finite model inp
 checked clause + exact profile + finite ABI input
   -> profile/matrix selection -> input validation -> dispatch index
   -> family module -> oracle/strategy/harness artifacts -> Kani
-  -> typed outcome + provenance
-counterexample only -> replay packet -> codegen replay adapter -> QSL complete-V1 executor -> agreement or typed non-success
+  -> typed outcome + provenance -> qsl_replay::TerminalValue
+counterexample (codegen) -> qsl_replay::WitnessEnvelope -> qsl_replay::replay -> ReplayResult
 ```
 
 The dispatch index is shared; family modules are separate for checked arithmetic/definedness, objects/references/graphs, and collections/queries. Validation runs before any Kani `assume`; assumptions restrict only a previously validated finite model. The output envelope is shared and no non-success kind has a Boolean value.
@@ -40,12 +42,12 @@ The dispatch index is shared; family modules are separate for checked arithmetic
 - Version profile, ABI, support matrix, tool/options digest, and generators together.
 - Make finite universes, snapshots, completeness, identities, and resource bounds explicit.
 - Preserve invalid, incomplete, unavailable, and exhausted inputs as results rather than assumptions.
-- Couple every counterexample to a native replay packet and provenance graph.
+- Couple every outcome to its provenance graph and its one QSL terminal value; leave the counterexample envelope and replay to QSL and codegen.
 - Keep shared vocabulary/index in one delivery lane; keep semantic families in separate Rust/test modules.
 
 ## Risks
 
 - Kani/tool drift invalidates a profile selection; exact digest and options bind it.
-- A generator could claim support without native parity; replay agreement and corpus parity expose it.
+- A generator could claim support without native parity; QSL replay agreement, run by codegen, and corpus parity expose it.
 - A cross-family shortcut could erase identity or duplicate/order semantics; module ownership and refusal tests forbid it.
 - Resource pressure could look like success; the outcome envelope preserves exhaustion and timeout.

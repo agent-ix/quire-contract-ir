@@ -17,7 +17,7 @@ package, and the total order by which one record is selected for one request.
 ## Test Procedure
 
 Classify every record through a wildcard-free match over the seven kinds, so an
-eighth kind fails to compile. Lower every node of both vendored fixtures under a
+eighth kind fails to compile. Lower every node of both in-repo positive fixtures under a
 profile supporting every tag. Produce each of the five reachable kinds
 independently. Lower a closure holding both an out-of-profile tag and an
 unbounded type; lower an absent key under a zero work limit and under a

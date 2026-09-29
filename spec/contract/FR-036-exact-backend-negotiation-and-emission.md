@@ -3,6 +3,8 @@ id: FR-036
 title: "Negotiate exact backend capability before artifact emission"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-035
@@ -65,5 +67,13 @@ domain, bounds, options, toolchain, and dependencies.
 package. QSpec FR-196 and I13 own the normative provider contract. FR-029
 through FR-031 remain credited only for their closed `kani-bounded/1`
 profile. QSpec FR-290 owns the closed six-member capability vocabulary named
-by an
-`unsupported` warning.
+by an `unsupported` warning. A negotiated item's later Kani outcome records
+its QSL `TerminalValue` through
+[FR-031](./FR-031-bounded-kani-dispatch-replay-provenance.md), and replay of a
+counterexample is QSL's ([FR-037](./FR-037-canonical-backend-replay-and-qualification.md)).
+
+## Status
+
+Planned. The negotiation boundary is shared by Contract IR, which owns the
+`ContractPackage` it reads, and the codegen provider, which negotiates and
+emits; neither implements it yet.

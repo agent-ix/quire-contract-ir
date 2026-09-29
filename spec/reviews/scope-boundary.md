@@ -10,7 +10,7 @@ review_set: all
 
 ## Summary
 
-Contract IR owns bounded-profile selection, ABI validation, dispatch, artifacts, typed outcomes, and replay agreement. Quire owns native meaning and checked clauses; Kani is an externally selected executable; native `runtime::execute` is the independent replay oracle.
+Contract IR owns bounded-profile selection, ABI validation, dispatch, artifacts, typed outcomes, and the map from each outcome to its QSL terminal value. Quire owns native meaning and checked clauses; Kani is an externally selected executable; the independent replay oracle is QSL's layer-6 facade `qsl_replay::replay` (QSL ADR-011 E9), which the codegen replay adapter calls over QSL's counterexample envelope.
 
 ## Findings
 

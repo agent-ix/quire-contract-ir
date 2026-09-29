@@ -3,6 +3,8 @@ id: FR-032
 title: "Admit one exact output-mapping request"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-023
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-028

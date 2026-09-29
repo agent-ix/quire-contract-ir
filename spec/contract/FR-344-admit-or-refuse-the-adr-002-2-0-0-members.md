@@ -3,6 +3,8 @@ id: FR-344
 title: "Admit or refuse the ADR-002 semantic IR 2.0.0 members this reader does not yet carry"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: references
   - target: ix://agent-ix/quire-contract-ir/issues/120

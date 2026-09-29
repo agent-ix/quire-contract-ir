@@ -42,7 +42,8 @@ or canonicalization semantics.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 - A versioned bounded-Kani profile boundary for finite checked native clauses,
   including explicit support/refusal/inconclusive capability classification,
-  finite input validation, typed outcomes, provenance, and native replay.
+  finite input validation, typed outcomes, provenance, and the map from each
+  outcome to its QSL terminal value.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
   mapper seam, atomic generated-package assembler, and downstream observer reference.
 
@@ -84,29 +85,36 @@ workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
 FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
 FR-029 through FR-031 define the bounded-Kani extension boundary. Profile
 selection, the finite input/outcome firewall, module dispatch and artifact
-provenance are implemented by Contract IR PRs #88 through #92 and the
-integrated codegen corpus at `73c82ad`. That implementation applies only to its
-exact selected finite profile and does not qualify unbounded source semantics
-or another Kani/options selection. FR-031-AC-3, replay of an evaluated witness
-through the QSL complete-V1 executor entry
-`value::expression::CheckedPackage::call`, is planned as TC-054, discharged by
-the QSL crossing test at `agent-ix/quire-spec-language#243`; issue #137
-records why the present case cannot establish it. Per AD-016, the executor
-call lives in the codegen replay adapter, pending WP9 (issue #140).
+provenance are implemented against the integrated codegen corpus. That
+implementation applies only to its exact selected finite profile and does not
+qualify unbounded source semantics or another Kani/options selection. Each
+Kani outcome maps to one QSL `qsl_replay::TerminalValue` (FR-031-AC-5).
+Counterexample replay is not a Contract IR operation: the envelope, witness,
+replay source, terminal record and obligation identity are QSL's `qsl-replay`
+types, and the codegen replay adapter replays through `qsl_replay::replay`.
+TC-221 verifies the witness extraction that leaves Contract IR with
+FR-031-AC-4, TC-222 the FR-344 refusals, and TC-223 the outcome map.
 FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific
 correspondence or admitting generated target text as source.
 FR-035 through FR-037 adopt QSpec AD-010 and FR-195 through FR-197 for the
 complete-V1 target-neutral ContractPackage, exact provider negotiation, and
-canonical native replay. They define the producer-before-consumer contract for
-Contract IR #100, runtime #16, codegen #48 through #50, and #101; they do not
-reopen the closed bounded-Kani profile or claim target-specific mapping support.
+the rule that backend counterexamples reach replay only through QSL's
+envelope. They do not reopen the closed bounded-Kani profile or claim
+target-specific mapping support.
 FR-038 consumes the QSpec I04 `quire.checked-package/v2` contract through a
 strict reader that parses `contract_version` once, admits only
 `quire.checked-package/v2`, re-derives every package and nominal node
-identity, and lowers admitted items independently per request.
-STD-001 is the stable diagnostic code registry. ADR-0054 separates archetype
+identity, and lowers admitted items independently per request. FR-040 admits
+QSpec FR-340's frame `modifies` entries, FR-342's operation anchors and
+FR-341's state clause and parameter bodies in that reader, and FR-344 refuses
+the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-039 states the
+root crate's public interface. AD-001 is the repository architecture and
+versioning description; AD-002 and AD-003 are views inside it.
+STD-001 is the stable diagnostic code registry and STD-003 the closed
+output-mapping refusal registry. ADR-0053 fixes the formal clause source
+profiles. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
 separates and pins the supported Rust minimum and qualification compiler.
 TM-002 maps the substrate to staged verification.
@@ -142,3 +150,15 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
 - [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
+- [Repository architecture and versioning](assurance/AD-001-contract-ir-architecture.md).
+- [Bounded Kani backend architecture](assurance/AD-002-bounded-kani-architecture.md).
+- [Root crate public interface](interface/FR-039-root-crate-public-interface.md).
+- [Frame entries, operation anchors and state clauses](contract/FR-040-admit-frame-entries-and-state-clauses.md).
+- [Unadmitted ADR-002 2.0.0 members](contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md).
+- [Output-mapping refusal registry](contract/STD-003-output-mapping-refusal-registry.md).
+- [Formal clause source profiles](decisions/ADR-0053-formal-clause-source-profiles.md).
+- [Unadmitted ADR-002 member refusal test case](contract/TC-222-refuse-unadmitted-adr-002-members.md).
+- [Kani outcome to QSL terminal value test case](contract/TC-223-kani-outcome-fr331-result-map.md).
+- [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
+- [Frame entry and state clause test case](contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md).
+- [QSpec node-identity vector test case](contract/TC-057-qspec-node-identity-vectors.md).
