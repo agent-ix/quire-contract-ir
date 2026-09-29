@@ -808,8 +808,8 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
     // The recorded nominal package with its enum owned by a domain package
     // and carrying no `declaration`: only its owner makes it
     // package-dependent.
-    let owner =
-        json!({"kind": "model", "identity": "test/orders", "node": "ix://test/orders/Status"});
+    let owner = json!({"kind": "model", "identity": "test/orders", "version": "1.0.0",
+        "node": "ix://test/orders/Status"});
     let recorded = v2_nominal();
     let nodes = recorded["semantic_graph"]["nodes"]
         .as_array()

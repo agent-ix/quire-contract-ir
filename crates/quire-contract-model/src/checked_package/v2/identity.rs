@@ -56,11 +56,14 @@ pub enum NominalOwner {
         /// Definition identity.
         identity: Box<str>,
     },
-    /// A declaration in a selected domain package, joined by the package
-    /// identity; `node` is the IR node identity inside that package.
+    /// A declaration in a selected domain package (QSpec `ModelOwner`),
+    /// joined by the package identity; `node` is the IR node identity inside
+    /// that package.
     Model {
         /// Domain package identity.
         identity: Box<str>,
+        /// Domain package version.
+        version: Box<str>,
         /// IR node identity within the domain package.
         node: Box<str>,
     },
@@ -208,7 +211,7 @@ fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
         Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
             &["kind", "authority", "identity"]
         }
-        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
+        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "version", "node"],
         Some(_) => return at.key("kind"),
         None => return at,
     };
@@ -530,8 +533,13 @@ fn validate_owner(
         // the lock guarantees at most one selection per model identity —
         // that single-selection invariant is what makes joining by identity
         // alone (and not also by version) sound.
-        NominalOwner::Model { identity, node } => {
+        NominalOwner::Model {
+            identity,
+            version,
+            node,
+        } => {
             !node.is_empty()
+                && !version.is_empty()
                 && lock
                     .model_selections
                     .iter()

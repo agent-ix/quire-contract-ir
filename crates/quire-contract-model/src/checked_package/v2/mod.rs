@@ -445,6 +445,13 @@ fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFa
     if let Some(path) = refusal.path.take() {
         refusal.path = Some(match value.pointer(path.as_str()) {
             Some(preimage) if is_typed_preimage_position(&path) => {
+                // A nominal preimage whose shape the closed preimage schema
+                // refuses (a missing member, a value of the wrong kind) is an
+                // invalid graph node, as QSpec's nominal mutations fix; an
+                // unknown member keeps its own code.
+                if refusal.code == CheckedPackageRefusalCode::MalformedWire {
+                    refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
+                }
                 identity::locate_preimage_failure(path, preimage)
             }
             _ => path,

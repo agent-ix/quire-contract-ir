@@ -1183,7 +1183,7 @@ fn model_owned_package(owner: Value, models: Value) -> Value {
 }
 
 fn model_owner(identity: &str, node: &str) -> Value {
-    json!({"kind": "model", "identity": identity, "node": node})
+    json!({"kind": "model", "identity": identity, "version": "1.0.0", "node": node})
 }
 
 /// Tracing: TC-048, FR-038-AC-2, FR-038-AC-5
@@ -1255,7 +1255,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         (
             "domain package owner with export",
             model_owned_package(
-                json!({"kind": "model", "identity": "test/orders",
+                json!({"kind": "model", "identity": "test/orders", "version": "1.0.0",
                        "node": "ix://test/orders/Status", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
