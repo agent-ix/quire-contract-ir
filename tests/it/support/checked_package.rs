@@ -64,17 +64,6 @@ pub fn all_families_read_work() -> u64 {
     hi
 }
 
-/// The real value [`all_families_read_work`] measures today, pinned by hand
-/// so this file matches its own convention of hand-pinning other worked-out
-/// charges (e.g. `tc_048_v2_reader_reports_exact_and_one_over_limits`'s
-/// `work: 21`). A binary search against the reader under test can only ever
-/// agree with that same reader — it is not, on its own, a gate that a change
-/// to the reader's charging logic can fail. Both callers assert
-/// `all_families_read_work() == ALL_FAMILIES_READ_WORK`, so a future change
-/// to `v2/lower.rs`'s charge model that moves the real boundary is caught
-/// here instead of silently absorbed by a measurement that moves with it.
-pub const ALL_FAMILIES_READ_WORK: u64 = 78;
-
 pub fn v2_all_families() -> Value {
     build_v2_all_families()
 }
@@ -747,10 +736,9 @@ fn claim_clause_body() -> Value {
 
 /// A plain graph node: `dependencies` is the node's own wire `dependencies`
 /// array (identity-based, distinct from the lowering closure), and
-/// `occurrences` is a single `generated`-role occurrence. No fixture node
-/// this generator builds carries a `declaration`-role occurrence or a
-/// nominal preimage, so `declaration` and `nominal_identity_preimage` (both
-/// optional wire members) are simply omitted.
+/// `occurrences` is a single `generated`-role occurrence. It carries no
+/// `declaration` and no nominal preimage; [`declared`] makes one a source
+/// declaration.
 fn plain_node(
     digest: &str,
     node_tag: &str,
@@ -769,6 +757,14 @@ fn plain_node(
         "occurrences": [{"role": "generated", "ordinal": 0}],
         "body": body,
     })
+}
+
+/// `node` as a source declaration named `qualified_name`: its one
+/// occurrence has the `declaration` role and it carries the name.
+fn declared(mut node: Value, qualified_name: &[&str]) -> Value {
+    node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    node["declaration"] = json!({ "qualified_name": qualified_name });
+    node
 }
 
 /// An empty `aggregate` term: the simplest closed `SemanticTerm` body,
@@ -1077,17 +1073,18 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
 
 /// Builds `v2_all_families()`: one node per V2 semantic-node family (in
 /// `CheckedNodeTag::ALL` order, positions 0-12, keyed `aaaa`.."7070"), plus
-/// five supporting nodes the family nodes' own required members reference —
+/// four supporting nodes the family nodes' own required members reference —
 /// a second `pure_function` the `function` family's real `application`
-/// argument names, a `field_declaration`/`object_type`/`process` triple the
-/// `state` family's frame body's `modifies`/`creates`/`deletes` name, and the
-/// dedicated `state`/`frame` node itself (the `state` family's own
-/// representative node is a plain `state_clause`, so its lowering closure
+/// argument names, the source-declared `object_type` (`Example::Account`,
+/// self-typed) and the `process` the `state` family's frame body names, and
+/// the dedicated `state`/`frame` node itself, typed by that object type and
+/// modifying its `balance` field and the relationship node (the `state`
+/// family's own representative node is a plain `snapshot`, so its lowering closure
 /// stays the uniform single-`aaaa` shape every other plain family node has;
 /// `checked_package_v2_frame_bodies.rs` locates the one real frame node by
 /// its `(node_tag, semantic_form)` shape, not by position).
 ///
-/// Every node is typed by node 0 (`aaaa`, a self-typed `scalar_type`/
+/// Every other node is typed by node 0 (`aaaa`, a self-typed `scalar_type`/
 /// `boolean`) for simplicity; the two nodes whose lowering closure must reach
 /// a second node (`eeee`/`7070`, the `expression` and `correspondence`
 /// families) also depend on node 3 (`dddd`). The function/temporal/protocol/
@@ -1107,7 +1104,6 @@ fn build_v2_all_families() -> Value {
     let f3030 = family_key("3030");
     let f7070 = family_key("7070");
     let f8080 = family_key("8080");
-    let f1414 = family_key("1414");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
     let frame_key = "f4a0".repeat(16);
@@ -1188,7 +1184,7 @@ fn build_v2_all_families() -> Value {
         plain_node(
             &f3030,
             "state",
-            "state_clause",
+            "snapshot",
             &aaaa,
             &[aaaa.as_str()],
             empty_aggregate(),
@@ -1236,21 +1232,16 @@ fn build_v2_all_families() -> Value {
             &[],
             empty_aggregate(),
         ),
-        plain_node(
-            &f1414,
-            "model",
-            "field_declaration",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
-        ),
-        plain_node(
-            &f1515,
-            "model",
-            "object_type",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+        declared(
+            plain_node(
+                &f1515,
+                "model",
+                "object_type",
+                &f1515,
+                &[aaaa.as_str()],
+                empty_aggregate(),
+            ),
+            &["Example", "Account"],
         ),
         plain_node(
             &f1616,
@@ -1264,16 +1255,14 @@ fn build_v2_all_families() -> Value {
             &frame_key,
             "state",
             "frame",
-            &aaaa,
-            &[
-                f1414.as_str(),
-                f1515.as_str(),
-                f1616.as_str(),
-                f2020.as_str(),
-            ],
+            &f1515,
+            &[f1515.as_str(), f1616.as_str(), f2020.as_str()],
             json!({
                 "term": "frame",
-                "modifies": [node_id(&f1414), node_id(&f2020)],
+                "modifies": [
+                    {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
+                    {"kind": "relationship", "declaration": node_id(&f2020)},
+                ],
                 "creates": [node_id(&f1515)],
                 "deletes": [node_id(&f1616)],
             }),

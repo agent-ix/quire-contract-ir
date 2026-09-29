@@ -112,17 +112,27 @@ impl ModelRefusal {
         )
     }
 
-    const fn malformed() -> Self {
+    /// `invalid_model_binding`/`malformed-declaration`.
+    pub(super) const fn malformed() -> Self {
         Self::new(
             CheckedPackageRefusalCode::InvalidModelBinding,
             CheckedPackageRefusalCause::MalformedDeclaration,
         )
     }
 
-    const fn missing_name() -> Self {
+    /// `missing_declaration`/`missing-name`.
+    pub(super) const fn missing_name() -> Self {
         Self::new(
             CheckedPackageRefusalCode::MissingDeclaration,
             CheckedPackageRefusalCause::MissingName,
+        )
+    }
+
+    /// `ambiguous_declaration`/`ambiguous-name`.
+    pub(super) const fn ambiguous() -> Self {
+        Self::new(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            CheckedPackageRefusalCause::AmbiguousName,
         )
     }
 }
@@ -574,11 +584,7 @@ impl DomainModel {
             .map(|(_, member)| member);
         match (matches.next(), matches.next()) {
             (Some(member), None) => Ok(member),
-            (Some(_), Some(_)) => Err(ModelRefusal::new(
-                CheckedPackageRefusalCode::AmbiguousDeclaration,
-                CheckedPackageRefusalCause::AmbiguousName,
-            )
-            .into()),
+            (Some(_), Some(_)) => Err(ModelRefusal::ambiguous().into()),
             (None, _) => Err(ModelRefusal::ineligible().into()),
         }
     }
@@ -730,6 +736,32 @@ impl<'m> ModelOwners<'m> {
                 CheckedPackageRefusalCode::InvalidPackage,
                 CheckedPackageRefusalCause::StaleNodeKey,
             ))
+        }
+    }
+}
+
+impl<'m> ModelOwners<'m> {
+    /// FR-322 steps 2 and 3 for the member of `kind` named `name` on the
+    /// model declaration node `node`: the recovered owner and the member,
+    /// or the refusal the first failing step determined. Step 3's charges
+    /// go to `meter` at the owner's selection row; an exhausted limit is the
+    /// outer error.
+    pub(super) fn resolve_member(
+        &self,
+        node: &CheckedSemanticNodeV2,
+        kind: MemberKind,
+        name: &str,
+        meter: &mut WorkMeter,
+    ) -> Result<Result<(Owner<'m>, Resolved<'m>), ModelRefusal>, ValidationFailure> {
+        let owner = match self.recover(node) {
+            Ok(owner) => owner,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let mut budget = Budget::new(meter, owner.selection);
+        match owner.package.resolve(owner.node, kind, name, &mut budget) {
+            Ok(member) => Ok(Ok((owner, member))),
+            Err(ModelFailure::Refused(refusal)) => Ok(Err(refusal)),
+            Err(ModelFailure::Limit(failure)) => Err(failure),
         }
     }
 }

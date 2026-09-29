@@ -69,7 +69,7 @@ fn parameter(name: &str, ty: &str) -> (String, Value) {
         binding("name", literal("text", "text", name)),
         binding("level", literal("integer", "integer", "0")),
     ]});
-    node(name, "value", "parameter", ty, &[], "anchor", body)
+    node(name, "value", "parameter", ty, &[], "expression", body)
 }
 
 /// `x + 1`: an integer `add` over the reference to `x` and the literal 1.

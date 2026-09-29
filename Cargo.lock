@@ -1340,7 +1340,7 @@ name = "quire-contract-model"
 version = "0.1.0"
 dependencies = [
  "jsonschema 0.17.1",
- "quire-verification-contracts 0.1.0 (git+https://github.com/agent-ix/quire-verification-contracts?rev=61f4a44d76d51cc53b2dfe7ed10aba7b23cfa6ef)",
+ "quire-verification-contracts 0.1.0 (git+https://github.com/agent-ix/quire-verification-contracts?rev=4c49706d5db3ba77f96088ddcbb2635046246e32)",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -1462,6 +1462,23 @@ dependencies = [
  "sha2",
  "thiserror",
  "unicode-normalization",
+]
+
+[[package]]
+name = "quire-verification-contracts"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-verification-contracts?rev=4c49706d5db3ba77f96088ddcbb2635046246e32#4c49706d5db3ba77f96088ddcbb2635046246e32"
+dependencies = [
+ "chrono",
+ "jsonschema 0.55.1",
+ "regress",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "sha2",
+ "thiserror",
+ "typify",
 ]
 
 [[package]]

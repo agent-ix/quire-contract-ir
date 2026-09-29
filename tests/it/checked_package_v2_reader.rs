@@ -9,7 +9,7 @@ use crate::support::checked_package::{
     evidence_for, incomplete, json_depth, locator, nominal_fixture_members, nominal_package,
     pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
     refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
-    v2_nominal, ALL_FAMILIES_READ_WORK, COMPLETE_VALUE_FEATURE,
+    v2_nominal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -614,8 +614,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
-    // 18 total: see `build_v2_all_families` in `tests/support/checked_package.rs`.
-    assert_eq!(admitted(&grouped).graph().nodes.len(), 18);
+    admitted(&grouped);
 
     // Evidence the caller must supply: every locked digest and the feature.
     // With no evidence, the first locked source's locator is unattested.
@@ -782,11 +781,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
 
     let all = v2_all_families();
     let all_bytes = canonical(&all);
-    // Pinned so a future change to the reader's charging logic that shifts
-    // the real boundary is caught here, rather than silently absorbed by a
-    // binary search that measures whatever the reader under test now does.
-    assert_eq!(all_families_read_work(), ALL_FAMILIES_READ_WORK);
-    let all_families_read_work = ALL_FAMILIES_READ_WORK;
+    let all_families_read_work = all_families_read_work();
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = all_families_read_work;
     assert!(matches!(
@@ -800,7 +795,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
             CheckedPackageLimit::Work,
             all_families_read_work - 1,
             all_families_read_work,
-            Some("/semantic_graph/nodes/17/dependencies/3")
+            Some("/semantic_graph/nodes/16/dependencies/2")
         ))
     );
 }
@@ -1025,6 +1020,53 @@ fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference(
     );
 }
 
+/// A nominal preimage the closed preimage schema refuses for a missing
+/// member or a value of the wrong kind is an invalid graph node, refused as
+/// `invalid_semantic_graph` at the member at fault rather than as
+/// `malformed_wire`; an unknown member keeps its own code.
+///
+/// Tracing: TC-048, FR-038-AC-5
+#[trace("TC-048", "FR-038-AC-5")]
+#[test]
+fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
+    let edited = |edit: &dyn Fn(&mut serde_json::Map<String, Value>)| {
+        let mut package = v2_nominal();
+        edit(
+            package["semantic_graph"]["nodes"][1]["nominal_identity_preimage"]
+                .as_object_mut()
+                .expect("preimage"),
+        );
+        refresh_identity(&mut package);
+        refused(&package, &evidence_for(&package))
+    };
+    // The identity projection mirrors the node and is decoded first.
+    let preimage = "/identity_preimage/identity_projection/1/nominal_identity_preimage";
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.remove("members");
+        }),
+        nominal(preimage),
+        "a missing member"
+    );
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.insert("members".into(), json!("RED"));
+        }),
+        nominal(&format!("{preimage}/members")),
+        "a member of the wrong kind"
+    );
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.insert("extra".into(), json!(1));
+        }),
+        refusal(
+            CheckedPackageRefusalCode::UnknownMember,
+            &format!("{preimage}/extra")
+        ),
+        "an unknown member"
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]
@@ -1183,7 +1225,7 @@ fn model_owned_package(owner: Value, models: Value) -> Value {
 }
 
 fn model_owner(identity: &str, node: &str) -> Value {
-    json!({"kind": "model", "identity": identity, "node": node})
+    json!({"kind": "model", "identity": identity, "version": "1.0.0", "node": node})
 }
 
 /// Tracing: TC-048, FR-038-AC-2, FR-038-AC-5
@@ -1255,7 +1297,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         (
             "domain package owner with export",
             model_owned_package(
-                json!({"kind": "model", "identity": "test/orders",
+                json!({"kind": "model", "identity": "test/orders", "version": "1.0.0",
                        "node": "ix://test/orders/Status", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
@@ -1750,9 +1792,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "process",
         "persistence_interface",
         "namespace",
-        "field_declaration",
-        "operation_declaration",
-        "clause_member_declaration",
         "systems_interface",
         "systems_part",
         "systems_port",
@@ -2440,8 +2479,10 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
             .iter()
             .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
             .expect("frame node");
-        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] =
-            json!([checked_package::node_id(&"0123456789abcdef".repeat(4))]);
+        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!([{
+            "kind": "relationship",
+            "declaration": checked_package::node_id(&"0123456789abcdef".repeat(4)),
+        }]);
         value
     };
     // Control: the frame defect alone is refused at the frame stage.

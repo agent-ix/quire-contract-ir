@@ -35,7 +35,8 @@
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind an upstream mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared); a `constraints`
-//! entry other than `same_family`/`same_type` is not enforced; leaf-path
+//! entry other than `same_family`/`same_type`/`conforming_reference` is not
+//! enforced, except `reference_edge`, which refuses the application; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key only for a node whose own
@@ -60,11 +61,11 @@ use super::model_members::{
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
-    BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
-    CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
-    CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm, OperationConstraintKind,
-    OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
-    TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
@@ -577,6 +578,9 @@ fn operation_defect(
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
         return Ok(Some(failure));
     }
+    if let Some(failure) = check_state_clause_result(application, entry, graph) {
+        return Ok(Some(failure));
+    }
     let member_kind = match wire_member_kind.flatten() {
         Some(OperationMemberKind::Field) => Some(MemberKind::Field),
         Some(OperationMemberKind::Operation) => Some(MemberKind::Operation),
@@ -585,7 +589,8 @@ fn operation_defect(
             | OperationMemberKind::Element
             | OperationMemberKind::RelationshipEnd
             | OperationMemberKind::TypeArgument
-            | OperationMemberKind::ProfileOperator,
+            | OperationMemberKind::ProfileOperator
+            | OperationMemberKind::StateClause,
         )
         | None => None,
     };
@@ -772,9 +777,6 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
             | ModelForm::SystemsConnection
@@ -898,9 +900,6 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
@@ -1085,6 +1084,12 @@ fn check_operands(
             | OperationConstraintKind::ScaleReduction
             | OperationConstraintKind::PromotesExact
             | OperationConstraintKind::UniformRest => {}
+            // The reference edge a `reaches_field` application requires is
+            // not decided by this reader, so an operation constrained by it
+            // is refused rather than admitted unchecked.
+            OperationConstraintKind::ReferenceEdge => {
+                return ineligible(indices.first().copied());
+            }
         }
     }
     Ok(None)
@@ -1213,6 +1218,34 @@ fn check_inner_result(
     let typed = result_type.as_ref() == Some(&inner)
         && resolve_family(&inner, graph.nodes, graph.kinds, graph.index, 0).is_some();
     (!typed).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
+/// The `clause` result of `quire.op.state.clause` is declared Boolean
+/// (QSpec FR-341): its `result_type` names the `scalar_type`/`boolean` node,
+/// else `ill_typed`/`operator-ineligible` at the `result_type`.
+fn check_state_clause_result(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if entry.operator != ApplicationOperator::StateClause {
+        return None;
+    }
+    let boolean = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+        .and_then(|result_type| graph.index.get(&result_type).copied())
+        .and_then(|position| graph.kinds.get(position))
+        == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean));
+    (!boolean).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             application.body(&["result_type"]),
@@ -1498,9 +1531,6 @@ fn check_leaves(
     }
     None
 }
-
-#[cfg(test)]
-mod model_member_vectors;
 
 #[cfg(test)]
 mod tests {
@@ -2046,6 +2076,35 @@ mod tests {
             result,
             Ok(None),
             "a catalogued identity used correctly must not be refused, got {result:?}"
+        );
+    }
+
+    /// `quire.op.model.reaches_field` carries the `reference_edge`
+    /// constraint this reader does not decide: it refuses as
+    /// `ill_typed`/`operator-ineligible` at its first operand, never admits.
+    #[test]
+    fn operation_defect_refuses_a_reference_edge_operation() {
+        let node = custom_application_node(
+            "reaches",
+            json!({
+                "identity": "quire.op.model.reaches_field",
+                "laws": [], "mode": null, "leaves": [],
+                "member": {"kind": "field", "declaration": node_ref(3), "name": "next"},
+            }),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        let node_id = node.node_id.clone();
+        assert_eq!(
+            defect_for(&node),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/0",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                node_id,
+            )))
         );
     }
 

@@ -14,8 +14,8 @@ Verify FR-038-AC-12 through FR-038-AC-15: the closed `creates`/`deletes`
 entry eligibility, the `missing_declaration`/`invalid_model_binding` refusal
 split and its cause, the meaning-join-over-order and member-then-order-key
 refusal precedence, and the ascending-node-id-digest visit order across
-multiple frame nodes. The `modifies` entry shape, its eligibility and QSpec's
-published `frame_mutations` vectors are FR-040's and TC-056's.
+multiple frame nodes. The `modifies` entry shape and its eligibility are
+FR-040's and TC-056's.
 
 ## Test Procedure
 
@@ -46,8 +46,6 @@ defect is reported over the higher one's.
 
 Implemented in `tests/it/checked_package_v2_frame_bodies.rs` and in the
 eligibility enumeration test in
-`crates/quire-contract-model/src/checked_package/v2/mod.rs`, one
-representative authored case per rule. That enumeration still asserts the
-two `modifies` triples FR-040 replaces (`relation`/`relationship` and
-`model`/`field_declaration` as bare node keys); those assertions move to
-TC-056 when the reader adopts FR-040.
+`crates/quire-contract-model/src/checked_package/v2/frame.rs`, one
+representative authored case per rule. The `modifies` eligibility
+enumeration is TC-056's, in the same file.

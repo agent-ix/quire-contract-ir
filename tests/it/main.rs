@@ -19,6 +19,7 @@ mod canonicalization;
 mod checked_package_v2_dependency_reference;
 mod checked_package_v2_dependency_selections;
 mod checked_package_v2_frame_bodies;
+mod checked_package_v2_frame_entries;
 mod checked_package_v2_lowering;
 mod checked_package_v2_model_members;
 mod checked_package_v2_qsl_parameters;

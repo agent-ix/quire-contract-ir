@@ -178,5 +178,4 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Kani outcome to QSL terminal value test case](contract/TC-223-kani-outcome-fr331-result-map.md).
 - [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
 - [Frame entry and state clause test case](contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md).
-- [QSpec node-identity vector test case](contract/TC-057-qspec-node-identity-vectors.md).
 - [Model crate interface test case](contract/TC-058-model-crate-public-interface.md).

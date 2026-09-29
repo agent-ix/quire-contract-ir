@@ -213,9 +213,6 @@ closed_vocabulary! {
         Process => "process",
         PersistenceInterface => "persistence_interface",
         Namespace => "namespace",
-        FieldDeclaration => "field_declaration",
-        OperationDeclaration => "operation_declaration",
-        ClauseMemberDeclaration => "clause_member_declaration",
         SystemsInterface => "systems_interface",
         SystemsPart => "systems_part",
         SystemsPort => "systems_port",
@@ -363,6 +360,26 @@ closed_vocabulary! {
         ProtocolControl => "protocol_control",
         StateTransition => "state_transition",
         Claim => "claim",
+        StateClause => "state_clause",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `kind` of a frame body's `modifies` entry (QSpec FR-340
+    /// `FrameModifiesEntry`).
+    pub(in crate::checked_package) FrameEntryKind {
+        Field => "field",
+        Relationship => "relationship",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `clause` of a `quire.op.state.clause` application's
+    /// `state_clause` member (QSpec FR-341).
+    pub(in crate::checked_package) StateClauseKind {
+        Invariant => "invariant",
+        Precondition => "precondition",
+        Postcondition => "postcondition",
     }
 }
 
@@ -396,6 +413,7 @@ closed_vocabulary! {
         Operation => "operation",
         TypeArgument => "type_argument",
         ProfileOperator => "profile_operator",
+        StateClause => "state_clause",
     }
 }
 
@@ -405,6 +423,7 @@ closed_vocabulary! {
         SameFamily => "same_family",
         SameType => "same_type",
         ConformingReference => "conforming_reference",
+        ReferenceEdge => "reference_edge",
         SameDimension => "same_dimension",
         InnerType => "inner_type",
         MemberOf => "member_of",

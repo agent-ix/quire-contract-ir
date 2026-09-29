@@ -16,7 +16,7 @@ relationships:
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-13: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-12: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
@@ -24,37 +24,34 @@ fix, in their reader order.
 
 ## Test Procedure
 
-Build, from this repository's own public vocabulary, a domain package with an
-`Order` object type declaring `total`, `scaled(n: Integer): Integer` and
-`reset()`, a subtype `Sub`, a record value type `Address` with `street`, and a
-relationship; and a checked package with a frame per operation, an operation
-anchor per operation, an invariant on `Order`, and a precondition and a
-postcondition on `scaled`. Read it and confirm it admits. Then apply each
-single mutation the FR-040 criteria name and read each mutated package:
-entry shapes and kinds, eligibility per member, field-name resolution cases
-(own, inherited, record value type, undeclared, operation name, ambiguous,
-unselected version), misordered `modifies`, a meaning-join defect with an
+Build, from this repository's own public vocabulary, checked packages
+holding frames, operation anchors, an invariant, a precondition, a
+postcondition and parameter nodes. Read each and confirm it admits. Then
+apply each single mutation the FR-040 criteria name and read each mutated
+package: entry shapes and kinds, eligibility per member, misordered
+`modifies`, a meaning-join defect with an
 order defect, two defective frames, frame `semantic_type`, each removed
 `model` form, each anchor binding and join, duplicate anchors, each clause
 anchor, parameter and signature case, nested and misplaced clause
 applications, a non-Boolean condition, each parameter body defect, each
 occurrence role, and pairs of defects across the frame, state and operation
-steps. Under `make qspec-vectors`, read QSpec's published V2 fixtures that
-carry these nodes from `QSPEC_DIR`, and replay every entry of the
-`frame_mutations` array of `node-identity-vectors.json` in place on the
-frame node of QSpec's `fixtures/positive-all-families.json`, as QSpec's
-`proposals/checked-package-v2/README.md` describes, counting the entries
-replayed.
+steps, and field entries on a source-declared object type and on a
+`record_value_type` node with and without a `declaration`. Over a lock
+selecting a domain package document built here (`Order` with a field and
+`scaled(Integer): Integer`, a subtype, and a type inheriting one field name
+from two supertypes) and its model declaration nodes, read field entries,
+anchor operations and clause parameter lists that resolve, name nothing,
+name the other member kind, are ambiguous, are only inherited, are keyed
+under an unselected version, or bind the wrong parameters.
 
 ## Expected Results
 
-The unmutated package and QSpec's published fixtures admit. Each authored
-mutation returns exactly the code, cause and RFC 6901 locus its criterion
-names and no package; each `frame_mutations` entry refuses with its
-`expected_code`, `expected_cause` and `expected_locus_digest`, and the count
-replayed equals the count published; a package with defects in two steps reports the earlier step's
-defect.
+The unmutated package admits. Each mutation returns exactly the code, cause
+and RFC 6901 locus its criterion names and no package; a package with defects
+in two steps reports the earlier step's defect.
 
 ## Status
 
-Planned.
+Implemented in `tests/it/checked_package_v2_frame_entries.rs`
+(FR-040-AC-1 to AC-12) and the entry eligibility tests in
+`crates/quire-contract-model/src/checked_package/v2/frame.rs`.

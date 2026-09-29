@@ -371,9 +371,7 @@ and the structural pull request runs its own repository-wide search.
   comments under `crates/quire-contract-model/src/checked_package/` and in
   `tests/it/checked_package_v2_*.rs`; `FR-322` at
   `tests/it/support/checked_package.rs:321,556,577,581,1168` and `FR-340` at
-  `tests/it/support/checked_package.rs:461`; `TC-280` and `TC-281` in
-  `crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs`;
-  `TC-280`, `TC-281` and `FR-322-AC-36` in the `Makefile:109-112` comment;
+  `tests/it/support/checked_package.rs:461`;
   `FR-331` in `src/kani/outcome.rs`; and short-name prose such as
   `QSpec FR-340` in `spec/`.
 - **Withdrawn trace tag** (rule 9): `#[trace("TC-221", "FR-031-AC-4")]` in

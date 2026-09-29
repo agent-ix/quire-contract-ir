@@ -22,6 +22,7 @@ use quire_contract_ir::{
     CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
+use std::sync::LazyLock;
 
 const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const APPLICATION_NODE: &str = "quire.application-node/v1";
@@ -29,9 +30,12 @@ const IDENTITY: &str = "acme/orders";
 const VERSION: &str = "1.0.0";
 const ORDER: &str = "ix://acme/orders/Order";
 
-/// QSL FR-092 golden keys of the Integer and Text scalar types.
-const T2_INTEGER: &str = "07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32";
-const T3_TEXT: &str = "0062ac9eee212061689152b5b0d62c5b3a6ca69ce83c1897b8c0624837ab5659";
+/// The self-typed Integer and Text scalar type nodes, keyed by
+/// [`structural_key`].
+static INTEGER: LazyLock<String> =
+    LazyLock::new(|| structural_key("scalar_type", "integer", None, None, &empty()));
+static TEXT: LazyLock<String> =
+    LazyLock::new(|| structural_key("scalar_type", "text", None, None, &empty()));
 
 fn structural_key(
     tag: &str,
@@ -89,11 +93,12 @@ fn literal(ty: &str, value_kind: &str, value: &str) -> Value {
 
 fn parameter(name: &str, level: &str, ty: &str) -> (String, Value) {
     let body = json!({"term": "aggregate", "members": [
-        {"term": "binding", "name": "name", "value": literal(T3_TEXT, "text", name)},
-        {"term": "binding", "name": "level", "value": literal(T2_INTEGER, "integer", level)},
+        {"term": "binding", "name": "name", "value": literal(&TEXT, "text", name)},
+        {"term": "binding", "name": "level", "value": literal(&INTEGER, "integer", level)},
     ]});
     let key = structural_key("value", "parameter", Some(ty), None, &body);
-    let node = wire_node(&key, "value", "parameter", ty, &[], body);
+    let mut node = wire_node(&key, "value", "parameter", ty, &[], body);
+    node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     (key, node)
 }
 
@@ -153,9 +158,6 @@ fn package_over(
         "digest_domain": "sha256-jcs", "digest": digest,
     }]);
 
-    let integer = structural_key("scalar_type", "integer", None, None, &empty());
-    let text = structural_key("scalar_type", "text", None, None, &empty());
-    assert_eq!([&integer, &text], [T2_INTEGER, T3_TEXT]);
     let order = structural_key(
         "model",
         "object_type",
@@ -166,7 +168,7 @@ fn package_over(
     let reference_body = json!({"term": "aggregate", "members": [reference(&order)]});
     let reference_type = structural_key("composite_type", "reference", None, None, &reference_body);
     let (receiver, receiver_node) = parameter("receiver", "0", &reference_type);
-    let (argument, argument_node) = parameter("argument", "1", T2_INTEGER);
+    let (argument, argument_node) = parameter("argument", "1", &INTEGER);
 
     let call_body = json!({
         "term": "application",
@@ -176,14 +178,14 @@ fn package_over(
             "member": {"kind": "operation", "declaration": node_id(&order), "name": name},
             "leaves": [],
         },
-        "result_type": node_id(T2_INTEGER),
+        "result_type": node_id(&INTEGER),
         "arguments": [reference(&receiver), reference(&argument)],
     });
     let call = sha256_hex(&canonical(&json!({
         "version": APPLICATION_NODE,
         "node_tag": "expression",
         "semantic_form": "call",
-        "semantic_type": node_id(T2_INTEGER),
+        "semantic_type": node_id(&INTEGER),
         "declaration": null,
         "recursion": null,
         "body": call_body,
@@ -191,15 +193,8 @@ fn package_over(
     let mut call_dependencies = [receiver.as_str(), argument.as_str(), order.as_str()];
     call_dependencies.sort_unstable();
     let nodes = [
-        wire_node(
-            T2_INTEGER,
-            "scalar_type",
-            "integer",
-            T2_INTEGER,
-            &[],
-            empty(),
-        ),
-        wire_node(T3_TEXT, "scalar_type", "text", T3_TEXT, &[], empty()),
+        wire_node(&INTEGER, "scalar_type", "integer", &INTEGER, &[], empty()),
+        wire_node(&TEXT, "scalar_type", "text", &TEXT, &[], empty()),
         wire_node(&order, "model", "object_type", &order, &[], empty()),
         wire_node(
             &reference_type,
@@ -215,7 +210,7 @@ fn package_over(
             &call,
             "expression",
             "call",
-            T2_INTEGER,
+            &INTEGER,
             &call_dependencies,
             call_body,
         ),

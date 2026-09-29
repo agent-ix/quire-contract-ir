@@ -1,15 +1,30 @@
 //! Graph-shape rules for node bodies that carry no nominal preimage: the
-//! two structural forms QSL emits beyond QSpec FR-322's published form
-//! list (`value`/`parameter` and `scalar_type`/`compound_unit`), and FR-322's
-//! dependency join for every node whose body holds an `application`.
+//! `value`/`parameter` body (QSpec FR-341, QSL FR-092), the
+//! `scalar_type`/`compound_unit` body QSL emits beyond QSpec FR-322's
+//! published form list, the `state`/`operation_anchor` (QSpec FR-342) and
+//! `state`/`state_clause` (QSpec FR-341) bodies, the occurrence role the
+//! schema's `BodyBindingRules` fix for the frame, anchor, clause and
+//! parameter forms, and FR-322's dependency join for every node whose body
+//! holds an `application`.
 //!
-//! - **Parameter** (QSL FR-092 "Parameter nodes"): a value an enclosing
-//!   binder binds. Its body is exactly `aggregate{[binding "name" = a
-//!   non-empty text literal typed at a `scalar_type`/`text` node, binding
-//!   "level" = a canonical non-negative integer literal typed at a
+//! - **Parameter** (QSpec FR-341, QSL FR-092 "Parameter nodes"): a value an
+//!   enclosing binder binds. Its body is exactly `aggregate{[binding "name"
+//!   = an identifier text literal typed at a `scalar_type`/`text` node,
+//!   binding "level" = a canonical non-negative integer literal typed at a
 //!   `scalar_type`/`integer` node]}`; its `semantic_type` is the binder's
 //!   type node (a `scalar_type`, `composite_type` or `bounded_domain` node,
-//!   never itself); its body names no node, so `dependencies` is empty.
+//!   never itself); its body names no node, so `dependencies` is empty. Every
+//!   occurrence has role `expression`.
+//! - **Operation anchor** (QSpec FR-342): `aggregate{[binding "context" = a
+//!   reference, binding "operation" = an identifier text literal, binding
+//!   "frame" = a reference]}`. Every occurrence has role `anchor`.
+//! - **State clause** (QSpec FR-341): one `state_clause` application of
+//!   `quire.op.state.clause` whose member is exactly `{kind: "state_clause",
+//!   clause}` with a closed clause kind, and whose three arguments are an
+//!   `aggregate` of one or more `reference` terms, a `reference` and the
+//!   condition. Every occurrence has role `claim`.
+//! - **Frame** (QSpec FR-340): its body is the frame body the per-node loop
+//!   already read; every occurrence has role `generated`.
 //! - **Compound unit** (QSL FR-094 "Compound unit"): the anonymous type of
 //!   a quantity whose unit is a product, quotient or power. It is its own
 //!   semantic type; its body is an `aggregate` of terms, each exactly
@@ -31,21 +46,28 @@
 //! publish, and this reader re-derives only the published nominal and
 //! application preimages.
 //!
-//! Every violation refuses as `invalid_semantic_graph`, located at the
-//! offending node, at the first such node in ascending node-id digest order.
+//! Every violation refuses as `invalid_semantic_graph` with no cause, at the
+//! member it breaks (the node's `body` for a body or binding shape, the
+//! occurrence's `role` for a role), located at the offending node, at the
+//! first such node in ascending node-id digest order.
 //! These are graph-shape refusals, so they run before the stale-key stage.
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
-use super::{BodyTerm, LiteralKind};
+use super::identity::is_identifier;
+use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationMemberKind, StateClauseKind};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ClaimForm,
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     NominalIdentityPreimage, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
     ValueForm,
 };
-use crate::checked_package::common::{body_term, literal_kind, node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
+use crate::checked_package::common::{
+    application_operator, body_term, exact_members, literal_kind, node_pointer, ValidationFailure,
+};
+use crate::checked_package::shared::{
+    CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
+};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -58,6 +80,8 @@ enum Defect {
     Body,
     /// One member of the node body's `aggregate`.
     BodyMember(usize),
+    /// The role of the occurrence at this index.
+    Role(usize),
 }
 
 impl Defect {
@@ -68,6 +92,7 @@ impl Defect {
             Self::Dependencies => node.key("dependencies"),
             Self::Body => node.key("body"),
             Self::BodyMember(member) => node.key("body").key("members").index(member),
+            Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
         }
     }
 }
@@ -95,9 +120,24 @@ impl Graph<'_> {
 enum StructuralForm {
     Parameter,
     CompoundUnit,
+    Frame,
+    OperationAnchor,
+    StateClause,
 }
 
 impl StructuralForm {
+    /// The one role every occurrence of a node of this form carries, when
+    /// the schema fixes one.
+    const fn role(self) -> Option<CheckedOccurrenceRole> {
+        match self {
+            Self::Parameter => Some(CheckedOccurrenceRole::Expression),
+            Self::Frame => Some(CheckedOccurrenceRole::Generated),
+            Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
+            Self::StateClause => Some(CheckedOccurrenceRole::Claim),
+            Self::CompoundUnit => None,
+        }
+    }
+
     /// Every form is listed, so a new form is a compile error here until
     /// its body rule is decided.
     fn of(kind: CheckedNodeKind) -> Option<Self> {
@@ -178,9 +218,6 @@ impl StructuralForm {
                 | ModelForm::Process
                 | ModelForm::PersistenceInterface
                 | ModelForm::Namespace
-                | ModelForm::FieldDeclaration
-                | ModelForm::OperationDeclaration
-                | ModelForm::ClauseMemberDeclaration
                 | ModelForm::SystemsInterface
                 | ModelForm::SystemsPart
                 | ModelForm::SystemsPort
@@ -193,13 +230,10 @@ impl StructuralForm {
                 | RelationForm::Membership
                 | RelationForm::CausalRelation,
             ) => None,
-            K::State(
-                StateForm::StateClause
-                | StateForm::Frame
-                | StateForm::Transition
-                | StateForm::OperationAnchor
-                | StateForm::Snapshot,
-            ) => None,
+            K::State(StateForm::Frame) => Some(Self::Frame),
+            K::State(StateForm::OperationAnchor) => Some(Self::OperationAnchor),
+            K::State(StateForm::StateClause) => Some(Self::StateClause),
+            K::State(StateForm::Transition | StateForm::Snapshot) => None,
             K::Temporal(
                 TemporalForm::TemporalClause
                 | TemporalForm::Formula
@@ -258,12 +292,26 @@ pub(super) fn validate_structural_nodes(
                 node_id.clone(),
             )
         };
-        let defect = match StructuralForm::of(kind) {
+        let form = StructuralForm::of(kind);
+        let defect = match form {
             Some(StructuralForm::Parameter) => parameter_defect(node, &graph),
             Some(StructuralForm::CompoundUnit) => compound_unit_defect(node, &graph),
-            None => None,
+            Some(StructuralForm::OperationAnchor) => {
+                anchor_body(&node.body).is_none().then_some(Defect::Body)
+            }
+            Some(StructuralForm::StateClause) => {
+                clause_body(&node.body).is_none().then_some(Defect::Body)
+            }
+            // The per-node body loop already read the frame body.
+            Some(StructuralForm::Frame) | None => None,
         };
-        if let Some(defect) = defect {
+        let role = form.and_then(StructuralForm::role).and_then(|role| {
+            node.occurrences
+                .iter()
+                .position(|occurrence| occurrence.role != role)
+                .map(Defect::Role)
+        });
+        if let Some(defect) = defect.or(role) {
             return Err(refuse(defect));
         }
         if let Some(expected) = application_dependencies(&node.body) {
@@ -296,16 +344,13 @@ fn parameter_defect(node: &CheckedSemanticNodeV2, graph: &Graph<'_>) -> Option<D
     let name_ok = binding(name, "name")
         .and_then(|value| literal(value, LiteralKind::Text, ScalarTypeForm::Text, graph))
         .and_then(Value::as_str)
-        .is_some_and(|text| !text.is_empty());
+        .is_some_and(is_identifier);
     let level_ok = binding(level, "level")
         .and_then(|value| literal(value, LiteralKind::Integer, ScalarTypeForm::Integer, graph))
         .and_then(Value::as_str)
         .is_some_and(is_non_negative_integer);
-    if !name_ok {
-        return Some(Defect::BodyMember(0));
-    }
-    if !level_ok {
-        return Some(Defect::BodyMember(1));
+    if !(name_ok && level_ok) {
+        return Some(Defect::Body);
     }
     if !node.dependencies.is_empty() {
         return Some(Defect::Dependencies);
@@ -362,6 +407,102 @@ fn compound_unit_term(term: &Value, graph: &Graph<'_>) -> Option<CheckedNodeId> 
         .and_then(Value::as_str)
         .is_some_and(is_nonzero_integer);
     (is_root_unit && exponent_ok).then_some(unit)
+}
+
+/// A `state`/`operation_anchor` body (QSpec FR-342).
+pub(super) struct AnchorBody<'a> {
+    /// The object type declaring the operation.
+    pub(super) context: CheckedNodeId,
+    /// The operation's name.
+    pub(super) operation: &'a str,
+    /// The operation's frame node.
+    pub(super) frame: CheckedNodeId,
+}
+
+/// The anchor body `body` holds, or `None` for any other shape.
+pub(super) fn anchor_body(body: &Value) -> Option<AnchorBody<'_>> {
+    let Some([context, operation, frame]) = aggregate_members(body) else {
+        return None;
+    };
+    Some(AnchorBody {
+        context: binding(context, "context").and_then(reference_target)?,
+        operation: binding(operation, "operation")
+            .filter(|value| literal_kind(value) == Some(LiteralKind::Text))
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str)
+            .filter(|name| is_identifier(name))?,
+        frame: binding(frame, "frame").and_then(reference_target)?,
+    })
+}
+
+/// The catalogued identity of the state clause operation.
+const STATE_CLAUSE_OPERATION: &str = "quire.op.state.clause";
+
+/// A `state`/`state_clause` body (QSpec FR-341).
+pub(super) struct ClauseBody {
+    /// The clause kind its `state_clause` member names.
+    pub(super) clause: StateClauseKind,
+    /// The parameter aggregate's reference targets, in order.
+    pub(super) parameters: Vec<CheckedNodeId>,
+    /// The anchor reference's target.
+    pub(super) anchor: CheckedNodeId,
+}
+
+/// Whether `term` is an application of `quire.op.state.clause`.
+// string-edge: reads an application's operation identity.
+pub(super) fn is_state_clause_application(term: &Value) -> bool {
+    body_term(term) == Some(BodyTerm::Application)
+        && term
+            .get("operation")
+            .and_then(|operation| operation.get("identity"))
+            .and_then(Value::as_str)
+            .is_some_and(|identity| identity == STATE_CLAUSE_OPERATION)
+}
+
+/// The state clause body `body` holds, or `None` for any other shape: an
+/// application of `quire.op.state.clause` with operator class
+/// `state_clause`, member exactly `{kind: "state_clause", clause}`, and
+/// arguments an `aggregate` of one or more `reference` terms, a `reference`
+/// and the condition.
+// string-edge: decodes a state clause member's kind and clause.
+pub(super) fn clause_body(body: &Value) -> Option<ClauseBody> {
+    if !is_state_clause_application(body)
+        || application_operator(body) != Some(ApplicationOperator::StateClause)
+    {
+        return None;
+    }
+    let member = body.get("operation")?.get("member")?.as_object()?;
+    let kind = member
+        .get("kind")
+        .and_then(Value::as_str)
+        .and_then(OperationMemberKind::from_wire);
+    if !exact_members(member, &["kind", "clause"]) || kind != Some(OperationMemberKind::StateClause)
+    {
+        return None;
+    }
+    let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
+    let [parameters, anchor, _condition] = body.get("arguments")?.as_array()?.as_slice() else {
+        return None;
+    };
+    let parameters = aggregate_members(parameters)?
+        .iter()
+        .map(reference_target)
+        .collect::<Option<Vec<_>>>()
+        .filter(|parameters| !parameters.is_empty())?;
+    Some(ClauseBody {
+        clause,
+        parameters,
+        anchor: reference_target(anchor)?,
+    })
+}
+
+/// A `composite_type`/`reference` type node's target: its body is exactly
+/// `aggregate{[reference(target)]}`.
+pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeId> {
+    let Some([target]) = aggregate_members(&node.body) else {
+        return None;
+    };
+    reference_target(target)
 }
 
 /// FR-322's dependency join for a body that contains an `application` term
@@ -435,7 +576,7 @@ fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 /// A `reference` term's target.
-fn reference_target(term: &Value) -> Option<CheckedNodeId> {
+pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     let object = term.as_object()?;
     if body_term(term) != Some(BodyTerm::Reference) {
         return None;

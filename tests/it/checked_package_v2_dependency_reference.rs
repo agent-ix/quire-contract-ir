@@ -8,17 +8,13 @@
 //! never listed in `dependencies`, and resolves against the dependency
 //! package the caller supplies.
 //!
-//! The hand-built tests below run everywhere; both packages are built here,
-//! node by node, from this crate's own fixture. `dependency_reference_vectors`
-//! reads QSpec's `node-identity-vectors.json` at run time from the checkout
-//! `QSPEC_DIR` names and nothing of QSpec is copied into this repository. It
-//! skips (and passes) when `QSPEC_DIR` is unset; `make qspec-vectors`
-//! requires it.
+//! Both packages are built here, node by node, from this crate's own
+//! fixture.
 
 use crate::support::checked_package::{
-    admitted_dependency, canonical, domain_package_digest, domain_package_document, family_key,
-    node_id, nominal_package, pointer, read_with_dependencies, rebuild_source_map,
-    refresh_identity, rekey, rekey_application_node, sha256_hex, v2_all_families, v2_nominal,
+    admitted_dependency, domain_package_digest, domain_package_document, family_key, node_id,
+    nominal_package, pointer, read_with_dependencies, rebuild_source_map, refresh_identity, rekey,
+    rekey_application_node, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -642,8 +638,10 @@ fn reference_to(key: &str) -> Value {
 /// node the caller adds).
 fn parameter(key: &str, semantic_type: &str, text: &str, integer: &str) -> Value {
     let literal = |type_key: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
+    let mut node = node(key, "value", "parameter", semantic_type, &[], None);
+    node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     with_body(
-        node(key, "value", "parameter", semantic_type, &[], None),
+        node,
         json!({"term": "aggregate", "members": [
             {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
             {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},
@@ -806,8 +804,8 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
     // The recorded nominal package with its enum owned by a domain package
     // and carrying no `declaration`: only its owner makes it
     // package-dependent.
-    let owner =
-        json!({"kind": "model", "identity": "test/orders", "node": "ix://test/orders/Status"});
+    let owner = json!({"kind": "model", "identity": "test/orders", "version": "1.0.0",
+        "node": "ix://test/orders/Status"});
     let recorded = v2_nominal();
     let nodes = recorded["semantic_graph"]["nodes"]
         .as_array()
@@ -902,125 +900,4 @@ fn tc_048_a_binding_value_refuses_and_a_nested_call_callee_admits() {
         Some(CheckedPackageRefusalCause::OperatorIneligible),
         &call_path(&misplaced, "/arguments/1/arguments/1"),
     );
-}
-
-const VECTORS: &str = "proposals/checked-package-v2/node-identity-vectors.json";
-
-/// A file of the QSpec checkout `QSPEC_DIR` names, or `None` when unset.
-fn qspec(relative: &str) -> Option<Value> {
-    let root = std::env::var_os("QSPEC_DIR")?;
-    let path = std::path::Path::new(&root).join(relative);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    Some(serde_json::from_str(&text).expect("QSpec JSON"))
-}
-
-/// Tracing: TC-048
-/// ACs: FR-038-AC-35, FR-038-AC-36
-#[trace("TC-048", "FR-038-AC-35", "FR-038-AC-36")]
-#[test]
-fn dependency_reference_vectors() {
-    let Some(vectors) = qspec(VECTORS) else {
-        println!("skipped: QSPEC_DIR not set");
-        return;
-    };
-    let call = vectors["operation_vectors"]
-        .as_array()
-        .expect("operation vectors")
-        .iter()
-        .find(|vector| vector["name"] == "function-call")
-        .expect("QSpec publishes the function-call vector");
-    let dependency = build_dependency(|_| {});
-    let term = dependency_term(&dependency.digest, &function_key());
-
-    // QSpec's application-node preimage for the call, with its type node the
-    // fixture's Boolean and its callee the dependency reference. The id is
-    // computed here from QSpec's published shape, not by the reader.
-    let mut preimage = call["preimage"].clone();
-    let published_type = preimage["semantic_type"].clone();
-    let boolean = node_id(&boolean_key());
-    preimage["semantic_type"] = boolean.clone();
-    preimage["body"]["result_type"] = boolean;
-    assert_eq!(
-        published_type, call["preimage"]["body"]["result_type"],
-        "the published call's type and result type are one node"
-    );
-    preimage["body"]["arguments"][0] = term.clone();
-    let published_id = call["sha256"].as_str().expect("vector digest");
-    assert_ne!(
-        sha256_hex(&canonical(&preimage)),
-        published_id,
-        "a dependency callee keys apart"
-    );
-
-    // The fixture's call node is a `function`/`pure_function`; QSpec's vector
-    // is `expression`/`call`. Derive the id on the fixture node's own tag and
-    // form. The reader derives that same key: the package's call node, keyed
-    // as QSpec's preimage keys it, admits with no stale-key refusal.
-    preimage["node_tag"] = json!("function");
-    preimage["semantic_form"] = json!("pure_function");
-    let expected = sha256_hex(&canonical(&preimage));
-    let package = importing(vec![selection(&dependency.digest)], term.clone());
-    let position = call_position(&package);
-    assert_eq!(
-        package["semantic_graph"]["nodes"][position]["node_id"]["digest"],
-        json!(expected),
-        "the fixture keys the call as QSpec's preimage does"
-    );
-    assert!(
-        matches!(
-            read(&package, &dependency),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ),
-        "the reader keys the dependency call as QSpec's preimage does"
-    );
-
-    // Changing only the `package` digest, then only the `node`, gives new,
-    // distinct ids.
-    let mut repackaged = preimage.clone();
-    repackaged["body"]["arguments"][0]["package"]["digest"] = json!("55".repeat(32));
-    let mut renoded = preimage.clone();
-    renoded["body"]["arguments"][0]["node"]["digest"] = json!("54".repeat(32));
-    let (repackaged, renoded) = (
-        sha256_hex(&canonical(&repackaged)),
-        sha256_hex(&canonical(&renoded)),
-    );
-    assert_ne!(repackaged, expected);
-    assert_ne!(renoded, expected);
-    assert_ne!(renoded, repackaged);
-
-    // The four mutations QSpec's schemas refuse, each refused by the reader
-    // at the member at fault.
-    let mut bare = term.clone();
-    bare["package"] = json!(dependency.digest);
-    let mut other_domain = term.clone();
-    other_domain["package"]["domain"] = json!("quire.source.bytes/v1");
-    let mut no_node = term.clone();
-    no_node.as_object_mut().expect("term").remove("node");
-    let mut extra = term.clone();
-    extra["target"] = term["node"].clone();
-    for (name, mutation, at) in [
-        ("bare-digest package", bare, "/arguments/0/package"),
-        (
-            "another digest domain",
-            other_domain,
-            "/arguments/0/package",
-        ),
-        ("missing node", no_node, "/arguments/0"),
-        ("extra member", extra, "/arguments/0"),
-    ] {
-        let package = importing(vec![selection(&dependency.digest)], mutation);
-        let refusal = refused(read(&package, &dependency));
-        assert_eq!(
-            refusal.code,
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            "{name}: {refusal:?}"
-        );
-        assert_eq!(
-            refusal.path,
-            Some(pointer(&call_path(&package, at))),
-            "{name}: {refusal:?}"
-        );
-    }
-    println!("conformance: dependency-reference-vectors function-call key + 4 mutations");
 }

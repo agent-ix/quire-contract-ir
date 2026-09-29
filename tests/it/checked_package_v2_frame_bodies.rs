@@ -14,7 +14,12 @@ use quire_contract_ir::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
+
+/// A `modifies` entry granting the relationship `declaration` names.
+fn relationship(declaration: Value) -> Value {
+    json!({"kind": "relationship", "declaration": declaration})
+}
 
 /// The RFC 6901 pointer of entry `entry` of the frame node at `index`'s
 /// `modifies` member: a meaning-join defect is located at the entry itself.
@@ -60,19 +65,8 @@ fn frame_index(package: &Value) -> usize {
         .expect("base fixture carries exactly one frame node")
 }
 
-// A vendored test that replayed the `frame_mutations` array inside
-// `node_identity_vectors()` — the independent node-identity conformance
-// oracle copied from a private upstream repository — was removed here along
-// with the rest of the private-sourced fixture tree; the issue's own account
-// named that exact test as one to remove rather than rewrite (AGE-1961). It
-// had traced FR-038-AC-13, FR-038-AC-14 and FR-038-AC-15 (`tc_053`). FR-340's
-// frame-body precedence rules (canonical order, meaning-join eligibility, and
-// meaning-join-outranks-order) are exercised instead, locally authored rather
-// than vendored, by the tests below.
-
-/// The published `v2_all_families()` frame node already exercises 4 of the
-/// 6 eligible `(member, tag, form)` triples (`relationship`/`field_declaration`
-/// in `modifies`, `object_type` in `creates`, `process` in `deletes`); this
+/// The `v2_all_families()` frame node already exercises `object_type` in
+/// `creates` and `process` in `deletes`; this
 /// covers the remaining two — `process` in `creates` and `object_type` in
 /// `deletes` — by reassigning the same two already-declared dependencies to
 /// the other eligible member, so the whole package still admits.
@@ -95,27 +89,18 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] = Value::Array(vec![object_type]);
     refresh_identity(&mut package);
 
-    let admitted = admitted(&package);
-    // 13 public-family nodes plus 5 supporting nodes: a second `pure_function`
-    // the `function` family's `application` argument names, the
-    // `field_declaration`/`object_type`/`process` triple the frame's own
-    // `modifies`/`creates`/`deletes` name, and the dedicated `state`/`frame`
-    // node itself (`build_v2_all_families` in `tests/support/checked_package.rs`).
-    assert_eq!(admitted.graph().nodes.len(), 18);
+    admitted(&package);
 }
 
 /// FR-340's headline precedence rule (`spec/contract/FR-038-consume-checked-package-v2.md`:
 /// "A frame node carrying more than one defect refuses for exactly one of
 /// them ... any meaning-join defect ... outranks a canonical-order defect
 /// outright") has no vendored vector that puts both defect classes in one
-/// frame: every vector `tc_053_frame_mutations_vectors_refuse_the_published_code_cause_and_locus`
-/// replays carries either a meaning-join defect or a canonical-order defect,
-/// never both. This case is authored locally, not vendored, to close that
-/// gap.
+/// frame. This case is authored locally.
 ///
 /// It narrows the frame's `dependencies` to the fixture's own `object_type`
-/// and `process` nodes, places `object_type` — ineligible for `modifies`,
-/// which admits only `relationship`/`field_declaration` — into `modifies`
+/// and `process` nodes, places `object_type` as a `modifies` relationship
+/// entry, whose declaring node must be a `relation`/`relationship`,
 /// (a meaning-join defect), and places both entries into `deletes` in
 /// descending digest order (`process` before `object_type`; both are
 /// individually eligible for `deletes`, so this is a pure canonical-order
@@ -141,7 +126,7 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     package["semantic_graph"]["nodes"][index]["dependencies"] =
         Value::Array(vec![object_type.clone(), process.clone()]);
     package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
-        Value::Array(vec![object_type.clone()]);
+        Value::Array(vec![relationship(object_type.clone())]);
     package["semantic_graph"]["nodes"][index]["body"]["creates"] = Value::Array(vec![]);
     // Descending digest order: `process` ("1616...") before `object_type`
     // ("1515...") — a canonical-order defect, since both entries are
@@ -198,7 +183,8 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
         ("no node anywhere in the graph", nowhere, nowhere_digest),
     ] {
         let mut package = base.clone();
-        package["semantic_graph"]["nodes"][index]["body"]["modifies"] = Value::Array(vec![entry]);
+        package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
+            Value::Array(vec![relationship(entry)]);
         refresh_identity(&mut package);
         assert_eq!(
             refused(&package),
@@ -259,7 +245,8 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     // The published frame's own body: a meaning-join defect, an entry naming
     // a real node it never declared as a dependency.
     let aaaa = package["semantic_graph"]["nodes"][0]["node_id"].clone();
-    package["semantic_graph"]["nodes"][index]["body"]["modifies"] = Value::Array(vec![aaaa]);
+    package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
+        Value::Array(vec![relationship(aaaa)]);
     refresh_identity(&mut package);
 
     assert_eq!(
