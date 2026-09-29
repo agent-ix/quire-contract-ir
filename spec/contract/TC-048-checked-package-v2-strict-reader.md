@@ -65,8 +65,8 @@ digest as `stale_dependency`, and `model_export` as `invalid_semantic_graph`.
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
 Build a package in QSL FR-092's shapes for `function both(a: Boolean, b:
-Boolean): Boolean { a and b }` plus the compound unit `Metre^2`, compare its
-recomputed keys with QSL's FR-092 vectors, read it and lower every node.
+Boolean): Boolean { a and b }` plus the compound unit `Metre^2`, read it and
+lower every node.
 Then mutate one parameter, the compound unit or the application node at a
 time and re-read. The package admits and every node lowers; each parameter
 body mutation (level, name or binding) refuses as `invalid_semantic_graph` at

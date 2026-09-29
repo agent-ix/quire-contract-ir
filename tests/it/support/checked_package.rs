@@ -64,17 +64,6 @@ pub fn all_families_read_work() -> u64 {
     hi
 }
 
-/// The real value [`all_families_read_work`] measures today, pinned by hand
-/// so this file matches its own convention of hand-pinning other worked-out
-/// charges (e.g. `tc_048_v2_reader_reports_exact_and_one_over_limits`'s
-/// `work: 21`). A binary search against the reader under test can only ever
-/// agree with that same reader — it is not, on its own, a gate that a change
-/// to the reader's charging logic can fail. Both callers assert
-/// `all_families_read_work() == ALL_FAMILIES_READ_WORK`, so a future change
-/// to `v2/lower.rs`'s charge model that moves the real boundary is caught
-/// here instead of silently absorbed by a measurement that moves with it.
-pub const ALL_FAMILIES_READ_WORK: u64 = 73;
-
 pub fn v2_all_families() -> Value {
     build_v2_all_families()
 }

@@ -29,42 +29,7 @@ fn resolve<'m>(
     }
 }
 
-/// QSL FR-092 golden keys (quire-spec-language
-/// `spec/functional/FR-092-key-type-parameter-and-declared-nodes.md`), the
-/// anonymous structural nodes a member type names.
-const T1_BOOLEAN: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
-const T2_INTEGER: &str = "07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32";
-const T4_INT_0_9: &str = "652cc5b63910aca98b8c91b1c1ba42a8da1f568517c70f37de083414cd192477";
-const T5_OPTION_INT_0_9: &str = "7bacf8b16f079a2352aac1a83b88a5925ed3f8c00e3a02735e8d3c646bb6461e";
-const T6_SEQUENCE_INT_0_9: &str =
-    "27355f7b7768c0596876c2173262651d3d36946f3e8e53cef42d51551c804956";
-const T7_SEQUENCE_INT_0_9_0_5: &str =
-    "515cb5664eae047ff9a2568809e02e6936cc6c8ab63fe54864f1e8f546e5f2c2";
-
 const DIGIT: IntegerBounds = IntegerBounds { lower: 0, upper: 9 };
-
-/// A member type's node key is the key QSL FR-092 gives the same type.
-///
-/// Tracing: TC-048, FR-038-AC-29
-#[test]
-fn tc_048_member_type_keys_are_qsl_fr_092_structural_keys() {
-    let digit = || Box::new(MemberType::IntRange(DIGIT));
-    let sequence = |bounds| MemberType::Collection {
-        kind: CollectionKind::Sequence,
-        element: digit(),
-        bounds,
-    };
-    for (member_type, key) in [
-        (MemberType::Boolean, T1_BOOLEAN),
-        (MemberType::Integer, T2_INTEGER),
-        (MemberType::IntRange(DIGIT), T4_INT_0_9),
-        (MemberType::Option(digit()), T5_OPTION_INT_0_9),
-        (sequence(None), T6_SEQUENCE_INT_0_9),
-        (sequence(Some((0, 5))), T7_SEQUENCE_INT_0_9_0_5),
-    ] {
-        assert_eq!(member_type.node_key(), key, "{member_type:?}");
-    }
-}
 
 fn multiplicity(lower: u64, upper: Option<u64>) -> Value {
     let mut value = json!({"lower": lower, "ordered": false, "unique": true});

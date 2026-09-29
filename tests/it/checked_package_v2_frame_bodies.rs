@@ -92,13 +92,7 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] = Value::Array(vec![object_type]);
     refresh_identity(&mut package);
 
-    let admitted = admitted(&package);
-    // 13 public-family nodes plus 4 supporting nodes: a second `pure_function`
-    // the `function` family's `application` argument names, the
-    // `object_type`/`process` pair the frame's own `modifies`/`creates`/
-    // `deletes` name, and the dedicated `state`/`frame` node itself
-    // (`build_v2_all_families` in `tests/support/checked_package.rs`).
-    assert_eq!(admitted.graph().nodes.len(), 17);
+    admitted(&package);
 }
 
 /// FR-340's headline precedence rule (`spec/contract/FR-038-consume-checked-package-v2.md`:

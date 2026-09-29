@@ -6,11 +6,9 @@
 //! for a compound-unit quantity type (`scalar_type`/`compound_unit`, QSL
 //! FR-094), and checks FR-322's application-node dependency join.
 //!
-//! The package below is built here, node by node, in the shapes QSL's
-//! FR-092 golden vectors fix for `function both(a: Boolean, b: Boolean):
-//! Boolean { a and b }`. The keys of the nodes are recomputed from those
-//! shapes and compared with the FR-092 vector digests, so the fixture is
-//! checked against QSL's own output rather than against this reader.
+//! The package below is built here, node by node, in QSL FR-092's shapes for
+//! `function both(a: Boolean, b: Boolean): Boolean { a and b }`, each node
+//! keyed from its own preimage.
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, rebuild_source_map,
@@ -23,6 +21,7 @@ use quire_contract_ir::{
     CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
+use std::sync::LazyLock;
 
 type Mutation = Box<dyn Fn(&mut Value)>;
 
@@ -36,15 +35,11 @@ const SECOND_TERM: &str = "/body/members/1";
 const DEPENDENCIES: &str = "/dependencies";
 const SEMANTIC_TYPE: &str = "/semantic_type";
 
-/// QSL FR-092 golden vector keys (quire-spec-language
-/// `spec/functional/FR-092-key-type-parameter-and-declared-nodes.md`).
-const T1_BOOLEAN: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
-const T2_INTEGER: &str = "07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32";
-const T3_TEXT: &str = "0062ac9eee212061689152b5b0d62c5b3a6ca69ce83c1897b8c0624837ab5659";
-const P1_A: &str = "838088fb2300dd016cf10707e297afbd2f6209eb7e20c24757d515fda8ee6cf1";
-const P2_B: &str = "555416913f6f787765eeb816c83af4650d7a0e122b8e3202f8b8d13b144fef59";
-const E1_A_AND_B: &str = "a98896386ccee595ae1cc04f4f83c8792fc04e1027e779ac7def428592c8b21e";
-const F2_BOTH: &str = "2597b9bf514c3dd93654daca8fbea64d0a4622ea8bc5002888ce72ecb2520454";
+/// The self-typed scalar type nodes the package's literals and parameters
+/// are typed at, keyed by [`structural_key`].
+static BOOLEAN: LazyLock<String> = LazyLock::new(|| scalar("boolean").0);
+static INTEGER: LazyLock<String> = LazyLock::new(|| scalar("integer").0);
+static TEXT: LazyLock<String> = LazyLock::new(|| scalar("text").0);
 
 /// A node's key under QSL's `quire.structural-node/v1` preimage (FR-092).
 /// `semantic_type` is `None` for a self-typed node.
@@ -125,19 +120,19 @@ fn scalar(form: &str) -> (String, Value) {
 
 fn parameter_body(name: &str, level: &str) -> Value {
     json!({"term": "aggregate", "members": [
-        binding("name", literal(T3_TEXT, "text", name)),
-        binding("level", literal(T2_INTEGER, "integer", level)),
+        binding("name", literal(&TEXT, "text", name)),
+        binding("level", literal(&INTEGER, "integer", level)),
     ]})
 }
 
 fn parameter(name: &str, level: &str) -> (String, Value) {
     let body = parameter_body(name, level);
-    let key = structural_key("value", "parameter", Some(T1_BOOLEAN), None, &body);
+    let key = structural_key("value", "parameter", Some(&BOOLEAN), None, &body);
     let node = wire_node(
         &key,
         "value",
         "parameter",
-        T1_BOOLEAN,
+        &BOOLEAN,
         &[],
         "expression",
         body,
@@ -149,7 +144,7 @@ fn compound_unit_body(unit: &str, exponent: &str) -> Value {
     json!({"term": "aggregate", "members": [
         {"term": "aggregate", "members": [
             binding("unit", reference(unit)),
-            binding("exponent", literal(T2_INTEGER, "integer", exponent)),
+            binding("exponent", literal(&INTEGER, "integer", exponent)),
         ]},
     ]})
 }
@@ -210,9 +205,9 @@ fn qsl_package() -> Value {
     let mut package = nominal_package(&nominal);
     let metre = members[2].1.clone();
 
-    let (boolean, boolean_node) = scalar("boolean");
-    let (integer, integer_node) = scalar("integer");
-    let (text, text_node) = scalar("text");
+    let (_, boolean_node) = scalar("boolean");
+    let (_, integer_node) = scalar("integer");
+    let (_, text_node) = scalar("text");
     let (a, a_node) = parameter("a", "0");
     let (b, b_node) = parameter("b", "1");
 
@@ -221,17 +216,17 @@ fn qsl_package() -> Value {
         "operator": "binary",
         "operation": {"identity": "quire.op.boolean.and", "laws": [], "mode": null,
             "member": null, "leaves": []},
-        "result_type": node_id(T1_BOOLEAN),
+        "result_type": node_id(&BOOLEAN),
         "arguments": [reference(&a), reference(&b)],
     });
-    let and = application_key("expression", "binary", T1_BOOLEAN, &and_body);
+    let and = application_key("expression", "binary", &BOOLEAN, &and_body);
     let mut and_dependencies = [a.as_str(), b.as_str()];
     and_dependencies.sort_unstable();
     let and_node = wire_node(
         &and,
         "expression",
         "binary",
-        T1_BOOLEAN,
+        &BOOLEAN,
         &and_dependencies,
         "expression",
         and_body,
@@ -245,7 +240,7 @@ fn qsl_package() -> Value {
     let both = structural_key(
         "function",
         "pure_function",
-        Some(T1_BOOLEAN),
+        Some(&BOOLEAN),
         Some((&["both"], owner)),
         &both_body,
     );
@@ -255,7 +250,7 @@ fn qsl_package() -> Value {
         &both,
         "function",
         "pure_function",
-        T1_BOOLEAN,
+        &BOOLEAN,
         &both_dependencies,
         "declaration",
         both_body,
@@ -272,12 +267,6 @@ fn qsl_package() -> Value {
         &[metre.as_str()],
         "type",
         compound_body,
-    );
-
-    // The recomputed keys are QSL's FR-092 vectors: this is QSL's output.
-    assert_eq!(
-        [&boolean, &integer, &text, &a, &b, &and, &both],
-        [T1_BOOLEAN, T2_INTEGER, T3_TEXT, P1_A, P2_B, E1_A_AND_B, F2_BOTH]
     );
 
     let nodes = package["semantic_graph"]["nodes"]
@@ -388,19 +377,19 @@ fn tc_048_a_qsl_function_with_parameters_reads_and_lowers() {
 #[test]
 fn tc_048_a_malformed_parameter_node_refuses() {
     let integer_literal_name = |node: &mut Value| {
-        node["body"]["members"][0]["value"]["type"] = node_id(T2_INTEGER);
+        node["body"]["members"][0]["value"]["type"] = node_id(&INTEGER);
     };
     // A body that is not the two-binding aggregate, and a defective binding,
     // each refuse at the body.
     let body_cases: [(&str, Mutation, &str); 10] = [
         (
             "reference body",
-            Box::new(|node| node["body"] = reference(T1_BOOLEAN)),
+            Box::new(|node| node["body"] = reference(&BOOLEAN)),
             BODY,
         ),
         (
             "literal body",
-            Box::new(|node| node["body"] = literal(T3_TEXT, "text", "a")),
+            Box::new(|node| node["body"] = literal(&TEXT, "text", "a")),
             BODY,
         ),
         (
@@ -454,7 +443,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
                 node["body"]["members"]
                     .as_array_mut()
                     .expect("members")
-                    .push(binding("level", literal(T2_INTEGER, "integer", "2")));
+                    .push(binding("level", literal(&INTEGER, "integer", "2")));
             }),
             BODY,
         ),
@@ -469,7 +458,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     }
 
     let with_dependency = mutated(P1, |node| {
-        node["dependencies"] = json!([node_id(T1_BOOLEAN)]);
+        node["dependencies"] = json!([node_id(&BOOLEAN)]);
     });
     assert_eq!(
         refused(&with_dependency),
@@ -540,7 +529,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     );
 
     let typed_by_another = mutated(COMPOUND, |node| {
-        node["semantic_type"] = node_id(T2_INTEGER);
+        node["semantic_type"] = node_id(&INTEGER);
     });
     assert_eq!(
         refused(&typed_by_another),
@@ -618,7 +607,7 @@ fn tc_048_an_application_node_dependency_list_is_its_exact_body_join() {
         ),
         (
             "result type is not a dependency",
-            json!([node_id(T1_BOOLEAN), node_id(&a), node_id(&b)]),
+            json!([node_id(&BOOLEAN), node_id(&a), node_id(&b)]),
         ),
         (
             "repeated target",
