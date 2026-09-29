@@ -74,7 +74,7 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 | FR-034-AC-2 | Missing, duplicate, foreign, stale, reordered, cross-profile, malformed-region, digest-mismatched, or over-limit inputs refuse atomically with no package. | Test (TC-043) |
 | FR-034-AC-3 | Every zero, exact, just-over, and overflowing aggregate limit is classified without partial output or a smaller successful package. | Test (TC-043) |
 | FR-034-AC-4 | Mutating source/profile/generator owner/generator version/record/limit/target-byte identity inputs changes or invalidates package identity, while path/time/locale/display/observer changes do not. | Test (TC-043) |
-| FR-034-AC-5 | Structural observer acceptance, refusal, absence, version, and rights state remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
+| FR-034-AC-5 | Structural observer acceptance, refusal, absence, and identity (owner, tool, version, and license) remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
 
 ## Dependencies
 

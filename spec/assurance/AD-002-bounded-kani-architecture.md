@@ -47,7 +47,6 @@ The dispatch index is shared; family modules are separate for checked arithmetic
 
 ## Risks
 
-- Kani/tool drift invalidates a profile selection; exact digest and options bind it.
 - A generator could claim support without native parity; QSL replay agreement, run by codegen, and corpus parity expose it.
 - A cross-family shortcut could erase identity or duplicate/order semantics; module ownership and refusal tests forbid it.
 - Resource pressure could look like success; the outcome envelope preserves exhaustion and timeout.

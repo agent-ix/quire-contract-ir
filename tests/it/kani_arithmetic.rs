@@ -12,8 +12,6 @@ fn selection() -> ProfileSelection {
     ProfileSelection {
         profile: PROFILE.into(),
         revision: "kani-bounded/1.0.0".into(),
-        executable_digest: "sha256:kani".into(),
-        options_digest: "sha256:options".into(),
         abi_revision: "kani-abi/1".into(),
     }
 }
