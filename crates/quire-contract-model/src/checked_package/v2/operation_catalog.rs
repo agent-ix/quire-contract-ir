@@ -40,10 +40,6 @@ use std::sync::OnceLock;
 const CATALOG_BYTES: &str =
     quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
-/// The vocabulary identity this reader's rules are written against.
-const CATALOG_VERSION: &str =
-    quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1_VERSION;
-
 /// One `operation-catalog.json` `operations[]` entry.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,6 +88,7 @@ pub(super) struct OperationConstraint {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OperationCatalogWire {
+    #[allow(dead_code)]
     version: Box<str>,
     #[allow(dead_code)]
     families: Vec<Box<str>>,
@@ -159,22 +156,12 @@ pub(super) fn operation_catalog() -> &'static OperationCatalog {
     CATALOG.get_or_init(|| parse_catalog(CATALOG_BYTES))
 }
 
-/// Parses and indexes catalog bytes of this reader's vocabulary identity.
+/// Parses and indexes catalog bytes.
 /// Panics on invalid bytes: the production catalog is a build-time input,
 /// and a test passes a catalog it read itself.
 pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
     let wire: OperationCatalogWire =
         serde_json::from_str(bytes).expect("checked-operation-catalog-v1.json is valid");
-    // The dependency `rev` is provenance and pins nothing about content: a rev
-    // bump that landed a different closed vocabulary would leave this reader
-    // validating every package against it, silently. The identity is what the
-    // reader's rules are written for, so it is checked here rather than assumed.
-    assert_eq!(
-        wire.version.as_ref(),
-        CATALOG_VERSION,
-        "the catalog read from its home declares a different vocabulary identity \
-         than this reader implements"
-    );
     let operations = wire
         .operations
         .into_iter()

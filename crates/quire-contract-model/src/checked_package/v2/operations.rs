@@ -269,7 +269,7 @@ impl OperationWire {
     /// The wire member's decoded `kind`: `None` when the operation carries no
     /// member (or one without a string `kind`), `Some(None)` when the `kind`
     /// is outside the catalog's vocabulary.
-    // string-edge: decodes the wire member kind.
+    // Decodes the wire member kind.
     fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
         let kind = self.member.as_ref()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
@@ -285,7 +285,7 @@ struct OperationLawWire {
 
 impl OperationLawWire {
     /// The law's decoded role; `None` outside the catalog's vocabulary.
-    // string-edge: decodes the wire law role.
+    // Decodes the wire law role.
     fn role_class(&self) -> Option<LawRole> {
         LawRole::from_wire(&self.role)
     }
@@ -300,7 +300,7 @@ struct OperationModeWire {
 
 impl OperationModeWire {
     /// The mode's decoded kind; `None` outside the catalog's vocabulary.
-    // string-edge: decodes the wire mode kind.
+    // Decodes the wire mode kind.
     fn kind_class(&self) -> Option<OperationModeKind> {
         OperationModeKind::from_wire(&self.kind)
     }
@@ -1195,7 +1195,7 @@ fn check_conforming_reference(
 /// the operand's `Reference<X>` names, and that node has a family, so a
 /// `deref` of a relationship reference types nothing an operand admits.
 /// Other `inner:<n>` operands are not checked here.
-// string-edge: parses the catalog's `inner:<n>` result-form text.
+// Parses the catalog's `inner:<n>` result-form text.
 fn check_inner_result(
     application: Application<'_>,
     entry: &OperationCatalogEntry,

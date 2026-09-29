@@ -190,7 +190,7 @@ fn read_node_keys(
 }
 
 /// One `FrameModifiesEntry` at `at`; any other shape refuses at the entry.
-// string-edge: decodes a modifies entry's `kind`.
+// Decodes a modifies entry's `kind`.
 fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, ValidationFailure> {
     let invalid = || {
         ValidationFailure::refused(

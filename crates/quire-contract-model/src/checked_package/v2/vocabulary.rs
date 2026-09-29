@@ -57,7 +57,7 @@ macro_rules! closed_vocabulary {
             }
 
             /// Decodes a wire string; `None` outside the vocabulary.
-            // string-edge: the one place a vocabulary's wire string is read.
+            // The one place a vocabulary's wire string is read.
             pub fn from_wire(wire: &str) -> Option<Self> {
                 Self::ALL
                     .iter()
@@ -73,7 +73,7 @@ macro_rules! closed_vocabulary {
         }
 
         impl<'de> serde::Deserialize<'de> for $name {
-            // string-edge: serde decode of the wire string into the enum.
+            // Serde decode of the wire string into the enum.
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let wire = String::deserialize(deserializer)?;
                 // The error names the vocabulary, never the offending value:
@@ -485,7 +485,7 @@ pub enum CheckedNodeKind {
 impl CheckedNodeKind {
     /// Decodes a wire form under an already decoded family; `None` when the
     /// form is not one of that family's forms.
-    // string-edge: decodes the wire form under its already decoded family.
+    // Decodes the wire form under its already decoded family.
     pub fn decode(tag: CheckedNodeTag, form: &str) -> Option<Self> {
         match tag {
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),

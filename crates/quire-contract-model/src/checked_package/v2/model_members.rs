@@ -590,7 +590,7 @@ impl DomainModel {
     }
 
     /// FR-322 step 4's element type of a declared `typeRef`.
-    // string-edge: reads a selected domain package document's native type reference, decoding it to a member type.
+    // Reads a selected domain package document's native type reference, decoding it to a member type.
     fn element_type(&self, type_ref: &str) -> Option<MemberType> {
         match type_ref {
             NATIVE_BOOLEAN => return Some(MemberType::Boolean),
@@ -838,7 +838,7 @@ impl From<ModelFailure> for SelectionFailure {
 /// bytes, so a document too large for the limit is `incomplete` at its row
 /// (`/lock/model_selections/<i>`) and is never parsed. Returns the parsed
 /// document.
-// string-edge: intake: checks the fixed digest domain of a selected domain package document.
+// Intake: checks the fixed digest domain of a selected domain package document.
 pub(super) fn admit_document(
     selection: &CheckedDomainPackageRef,
     supplied: Option<&[u8]>,
@@ -973,7 +973,7 @@ fn semantic_ir_multiplicity(value: &Value) -> Result<Multiplicity, ModelRefusal>
 
 /// A member's IR node identity, which FR-154 requires to be
 /// `<owner>/<name>`.
-// string-edge: reads a selected domain package document's member identity text.
+// Reads a selected domain package document's member identity text.
 fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal> {
     let identity = text(member, "identity")?;
     let name = identity
@@ -988,7 +988,7 @@ fn member_identity(member: &Value, owner: &str) -> Result<Box<str>, ModelRefusal
 
 /// An FCD value type bound as `Int[lo, hi]`: `scalar` `integer` with one
 /// `min` and one `max` constraint whose bounds read as integers, `lo <= hi`.
-// string-edge: reads a selected domain package document's value type.
+// Reads a selected domain package document's value type.
 fn semantic_ir_value_type(value: &Value) -> Option<IntegerBounds> {
     if value.get("scalar").and_then(Value::as_str) != Some("integer") {
         return None;
@@ -1089,7 +1089,7 @@ struct Scope<'v> {
 
 /// A node's own refusal, from its identity, its kind and whether another
 /// node shares its identity, in FR-154's table order.
-// string-edge: reads a selected domain package document's node id prefix.
+// Reads a selected domain package document's node id prefix.
 fn classify<'v>(
     prefix: &str,
     meanings: &BTreeMap<(&str, &str), &'v str>,
@@ -1285,7 +1285,7 @@ impl References<'_> {
     /// A field type or parameter or result type (FR-154 rows 3 and 4): a
     /// native value type, or a type of the document that is not a
     /// relationship.
-    // string-edge: reads a selected domain package document's type reference prefix.
+    // Reads a selected domain package document's type reference prefix.
     fn check_type_ref(&self, type_ref: &str, path: &[Segment], defects: &mut Defects) {
         let path = joined(path, Segment::Name("typeRef"));
         match type_ref.strip_prefix(NATIVE_PREFIX) {
@@ -1396,7 +1396,7 @@ fn identity_of(member: &Value, owner: &str, path: &[Segment], defects: &mut Defe
 /// One object type or systems interface; every failure of the node is
 /// recorded in `defects`, and the declaration returned is meaningful only
 /// when there is none.
-// string-edge: reads a selected domain package document's supertype references.
+// Reads a selected domain package document's supertype references.
 fn semantic_ir_object_type(
     value: &Value,
     node: &str,

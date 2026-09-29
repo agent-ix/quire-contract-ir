@@ -449,7 +449,7 @@ pub(super) struct ClauseBody {
 }
 
 /// Whether `term` is an application of `quire.op.state.clause`.
-// string-edge: reads an application's operation identity.
+// Reads an application's operation identity.
 pub(super) fn is_state_clause_application(term: &Value) -> bool {
     body_term(term) == Some(BodyTerm::Application)
         && term
@@ -464,7 +464,7 @@ pub(super) fn is_state_clause_application(term: &Value) -> bool {
 /// `state_clause`, member exactly `{kind: "state_clause", clause}`, and
 /// arguments an `aggregate` of one or more `reference` terms, a `reference`
 /// and the condition.
-// string-edge: decodes a state clause member's kind and clause.
+// Decodes a state clause member's kind and clause.
 pub(super) fn clause_body(body: &Value) -> Option<ClauseBody> {
     if !is_state_clause_application(body)
         || application_operator(body) != Some(ApplicationOperator::StateClause)

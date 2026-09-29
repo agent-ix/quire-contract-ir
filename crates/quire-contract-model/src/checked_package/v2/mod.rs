@@ -551,7 +551,7 @@ impl CheckedPackageV2 {
     }
 
     /// Selects V2 exactly, decodes the closed wire, and validates it.
-    // string-edge: intake: reads `contract_version` before any decode.
+    // Intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
         value: Value,
         limits: CheckedPackageReadLimits,
@@ -643,7 +643,7 @@ impl CheckedPackageV2 {
 
 /// Checks the package's fixed wire tags: contract version, digest domain,
 /// digest algorithm and identity preimage version.
-// string-edge: intake: checks the fixed version, domain and algorithm tags of the package.
+// Intake: checks the fixed version, domain and algorithm tags of the package.
 fn check_package_header(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     if wire.contract_version.as_ref() != CHECKED_PACKAGE_V2 {
         return Err(ValidationFailure::unknown_contract_version(
@@ -921,7 +921,7 @@ fn validate_lock<'a>(
 /// predecessor refuses `invalid_package` / `invalid-value` at that entry.
 /// The identity preimage's copy equals the lock's (checked by the caller),
 /// so only the lock is checked.
-// string-edge: intake: checks the fixed domain and algorithm tags of each selection.
+// Intake: checks the fixed domain and algorithm tags of each selection.
 fn validate_dependency_selections(
     selections: &[CheckedDependencySelection],
 ) -> Result<(), ValidationFailure> {
@@ -1013,7 +1013,7 @@ fn validate_unexported(
 /// but naming different digests are one locator selected twice: the later
 /// row refuses `stale_dependency` at its `digest`, whatever documents the
 /// caller supplied.
-// string-edge: intake: checks the fixed digest domain of each domain package selection.
+// Intake: checks the fixed digest domain of each domain package selection.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
@@ -1081,7 +1081,7 @@ fn validate_domain_packages(
 
 /// Requires a node key in the node domain with a lowercase digest; `at`
 /// names the key.
-// string-edge: intake: checks the fixed domain tag of a node id.
+// Intake: checks the fixed domain tag of a node id.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
@@ -1532,7 +1532,7 @@ fn body_reference_pointer(
 }
 
 /// Checks the graph's fixed version tag.
-// string-edge: intake: checks the fixed graph version tag.
+// Intake: checks the fixed graph version tag.
 fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationFailure> {
     if graph.graph_version.as_ref() != GRAPH_V2 {
         return Err(refuse(
@@ -1544,7 +1544,7 @@ fn check_graph_version(graph: &CheckedSemanticGraphV2) -> Result<(), ValidationF
 }
 
 /// Checks a node's fixed schema version and decodes its tag and form once.
-// string-edge: intake: checks the fixed schema version and decodes the node tag and form.
+// Intake: checks the fixed schema version and decodes the node tag and form.
 fn decode_node_kind(
     node: &CheckedSemanticNodeV2,
     at: impl Fn(&str) -> JsonPointer,

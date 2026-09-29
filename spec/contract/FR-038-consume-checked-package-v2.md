@@ -416,11 +416,7 @@ error at each site that must decide what it means. The vocabularies are the
 node family and its forms, selection role, capability disposition, the
 semantic term's `term` tag, a literal's `value_kind`, an application's
 `operator`, and the operation catalog's law roles, mode kinds, member kinds
-and constraint kinds. The functions that read wire text (the reader's version,
-domain and algorithm checks, the body-member readers, the catalog and
-domain-package readers, the vocabulary decoders themselves) carry a
-`// string-edge:` comment naming why. The bounded-Kani
-modules under `src/kani/` read Kani's transcript text the same way: the check
+and constraint kinds. The bounded-Kani modules under `src/kani/` read Kani's transcript text the same way: the check
 kind and the Boolean decoded-value comment are decoded once, where the
 transcript is read.
 

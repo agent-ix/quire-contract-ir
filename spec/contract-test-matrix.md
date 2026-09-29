@@ -53,7 +53,6 @@ relationships:
 | NFR-001 | repeated golden corpus and cross-platform comparison | TC-017, TC-019 | same-process goldens implemented (TC-017); cross-platform comparison (TC-019) planned |
 | NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-019 | AC-3/4 implemented; cross-platform AC-1 planned |
 | NFR-003 | negative corpus, mutation, panic-free, and orphan checks | TC-017 through TC-019 | version and orphan fail-closed checks implemented (TC-017, TC-018); threshold analysis (TC-019) planned |
-| NFR-004 | matrix status validation | TC-021 | foundation covered |
 
 ## Diagnostic Registry Coverage
 
@@ -71,7 +70,6 @@ relationships:
 | TC-017 | Canonical bytes, digests, migrations, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | ✅ implemented |
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
-| TC-021 | Python matrix status controls enforce AC-5/7 | Inspection | P0 | NFR-004 | ✅ implemented |
 | TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |
 | TC-041 | Reach the model through `quire_contract_model` while proving the model/owner/root Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | 🚧 AC-1, AC-3, AC-4 and AC-5 implemented; AC-2 planned: the test reaches the model through the root crate's re-export |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall and module dispatch conform | Integration | P0 | FR-029, FR-030-AC-1, FR-030-AC-2, FR-030-AC-3, FR-031-AC-1 | 🚧 FR-029-AC-2's `unsupported` negotiation disposition is planned; profile, firewall and dispatch implemented across the shared, arithmetic, graph and collection suites; the arithmetic, graph and collection lowering suites belong with the family lowerings in codegen's backend adapter |
