@@ -101,10 +101,6 @@ raw_digest_type!(
     "Raw SHA-256 digest of exact native, model, or semantic selection bytes."
 );
 raw_digest_type!(
-    GeneratorBytesDigest,
-    "Raw SHA-256 digest of exact Rust generator executable/source bytes."
-);
-raw_digest_type!(
     TargetBytesDigest,
     "Raw SHA-256 digest of immutable generated target bytes."
 );
@@ -1763,42 +1759,35 @@ impl CompletedMappings {
     }
 }
 
-/// Exact Rust generator identity retained by a generated-output package.
+/// Rust generator identity retained by a generated-output package: the owner
+/// and the semantic version that produced it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct OutputGeneratorIdentity {
     owner: Box<str>,
     version: Box<str>,
-    revision: Box<str>,
-    digest: GeneratorBytesDigest,
 }
 
 impl OutputGeneratorIdentity {
-    /// Construct a bounded, immutable generator identity.
+    /// Construct a bounded generator identity.
     pub fn new(
         owner: impl Into<String>,
         version: impl Into<String>,
-        revision: impl Into<String>,
-        digest: GeneratorBytesDigest,
     ) -> Result<Self, MappingRequestError> {
         let owner = owner.into();
         let version = version.into();
-        let revision = revision.into();
-        if ![owner.as_str(), version.as_str(), revision.as_str()]
-            .into_iter()
-            .all(valid_selection_member)
+        if !valid_selection_member(&owner)
+            || !valid_selection_member(&version)
             || !valid_semantic_version(&version)
         {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::InvalidGenerator,
                 "generator",
-                "generator owner/revision must be bounded visible ASCII and version must be SemVer",
+                "generator owner must be bounded visible ASCII and version must be SemVer",
             ));
         }
         Ok(Self {
             owner: owner.into_boxed_str(),
             version: version.into_boxed_str(),
-            revision: revision.into_boxed_str(),
-            digest,
         })
     }
 
@@ -1810,16 +1799,6 @@ impl OutputGeneratorIdentity {
     /// Generator release version.
     pub fn version(&self) -> &str {
         &self.version
-    }
-
-    /// Exact immutable generator revision.
-    pub fn revision(&self) -> &str {
-        &self.revision
-    }
-
-    /// Raw digest of the selected generator bytes.
-    pub const fn digest(&self) -> GeneratorBytesDigest {
-        self.digest
     }
 }
 

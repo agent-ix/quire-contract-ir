@@ -29,7 +29,7 @@ A primary boundary class and any project-specific reassessment obligation.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-007-AC-1 | The canonical table covers all eight repositories, generated runtime, reports, and external-engine adapters. | Inspection (TC-002) |
+| FR-007-AC-1 | The canonical table covers all eight repositories, generated runtime, reports, and external-engine adapters. | Inspection |
 
 ## Dependencies
 

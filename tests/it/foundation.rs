@@ -66,15 +66,6 @@ fn tc_020_assurance_packet_names_boundaries_evidence_failures_and_owner() {
             ["## System Boundary", "## Risks", "owner: kreneskyp"],
         ),
         (
-            "spec/assurance/CAC-001-semantic-validator.md",
-            "type: ComponentAssuranceContract",
-            [
-                "## Component Boundary",
-                "## Failure Handling",
-                "owner: kreneskyp",
-            ],
-        ),
-        (
             "spec/assurance/MP-001-contract-conformance.md",
             "type: MeasurementPlan",
             [

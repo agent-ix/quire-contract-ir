@@ -29,7 +29,7 @@ A reviewable clean-room provenance record or a blocking finding.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-005-AC-1 | The policy enumerates both prohibited reuse and the five retained clean-room evidence elements. | Inspection (TC-003) |
+| FR-005-AC-1 | The policy enumerates both prohibited reuse and the five retained clean-room evidence elements. | Inspection |
 
 ## Dependencies
 

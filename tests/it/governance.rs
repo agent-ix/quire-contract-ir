@@ -17,63 +17,6 @@ fn tc_001_defines_schema_compatibility() {
     }
 }
 
-/// Tracing: TC-002
-/// TC-002.
-/// FR-003-AC-1.
-/// FR-007-AC-1.
-#[test]
-fn tc_002_classifies_all_repositories_and_orders_tags() {
-    let policy = normalized_policy();
-    for repository in [
-        "quire-contract-ir",
-        "quire-contract-runtime",
-        "quire-contract-codegen",
-        "quire-analyze",
-        "tl-syntax",
-        "tl-parse",
-        "tl-rewrite",
-        "tl-mltl",
-        "quire-mltl",
-    ] {
-        assert!(
-            policy.contains(repository),
-            "missing repository: {repository}"
-        );
-    }
-    for classification in [
-        "linked runtime",
-        "direct development tool",
-        "analysis/evidence tool",
-        "external engine adapter",
-    ] {
-        assert!(
-            policy.contains(classification),
-            "missing class: {classification}"
-        );
-    }
-    assert!(policy.contains("normal topological order applies"));
-    assert!(policy.contains("name every exact dependency tag, commit, and checksum"));
-}
-
-/// Tracing: TC-003
-/// TC-003.
-/// FR-004-AC-1.
-/// FR-005-AC-1.
-/// FR-010-AC-1.
-#[test]
-fn tc_003_defines_license_clean_room_agent_and_qualification_boundaries() {
-    let policy = normalized_policy();
-    for phrase in [
-        "Every `quire-*` program repository is `AGPL-3.0-or-later`",
-        "the `tl-*` program repositories remain `MIT OR Apache-2.0`",
-        "shall not be copied, translated, mechanically transformed",
-        "agent-assisted",
-        "does **not** validate or accredit",
-    ] {
-        assert!(policy.contains(phrase), "missing policy phrase: {phrase}");
-    }
-}
-
 /// Tracing: TC-004
 /// TC-004.
 /// FR-006-AC-1.

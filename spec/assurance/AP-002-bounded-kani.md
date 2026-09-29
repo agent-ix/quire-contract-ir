@@ -54,7 +54,7 @@ The declared impacts require controls against population erasure, bounded semant
 
 ## Evidence Policy
 
-Evidence records profile/matrix and source/model identities, executable and generator digests, all options and assumptions, exact bounds, every typed outcome and its QSL terminal value, the QSL replay result codegen records, and review findings. Corpus parity requires explicit supported/refused/unsupported classification and never aggregates a non-success result into pass.
+Evidence records profile/matrix and source/model identities, executable digests, generator owner and version, all options and assumptions, exact bounds, every typed outcome and its QSL terminal value, the QSL replay result codegen records, and review findings. Corpus parity requires explicit supported/refused/unsupported classification and never aggregates a non-success result into pass.
 
 ## Exceptions
 

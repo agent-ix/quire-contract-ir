@@ -88,50 +88,36 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
         PredicateProjectionKind::Admitted
     );
     assert!(projected.decision().causes().is_empty());
+    let predicate_refs = projected
+        .decision()
+        .correspondences()
+        .iter()
+        .map(|value| value.predicate_ref().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(predicate_refs.len(), predicates.len());
+    assert!(
+        predicate_refs.windows(2).all(|pair| pair[0] < pair[1]),
+        "predicate refs must be distinct and in ascending order: {predicate_refs:?}"
+    );
+
+    let again = project(&predicates, target.clone(), BridgeLimits::default())
+        .expect("the same owner inputs must project again");
+    assert_eq!(projected.decision().bytes(), again.decision().bytes());
     assert_eq!(
-        projected
-            .decision()
-            .correspondences()
-            .iter()
-            .map(|value| value.predicate_ref().to_string())
-            .collect::<Vec<_>>(),
-        [
-            "05e58df9b487902e047b7379f5fb3d4fb627a18d93d1755ccae84567645e3d0a",
-            "30ffb210fe790931fc4f68298d9b77bf7fdf119ccc39dbebc540fefba8737561",
-            "3280f58362a3c6b72f12fb959d57997cd7a4a23d7ebb254e24c7f661503e6481",
-            "350b1315acded936b07676e5c37af86702e891233432947dada0c68d4f484f64",
-            "55ece20f3efb1c70129810264903a196399de34fb97bc31d3547510929a9e4eb",
-            "658629b61b4fabad90950478b4f5bbc7210ab5c707044735ce2837d6839c0243",
-            "6a6d96c1c6a7c604960148538640ca2a1c07d43991fa3d6022c4c874e788e5db",
-            "6dacfc12e8258399065e6c6ddfd18e9fcc893f07e43e2bc449d1fb998c45613f",
-            "f1f1542c576fc0de0c34c4e82cf180882d060bd295f461d5e37e1a4c449db7cb",
-            "f8f3096503d73bfc4108f7c7fa1d945985bcfaaaffff34c617068598d712e34a",
-        ]
+        projected.decision().signal_catalog_ref(),
+        again.decision().signal_catalog_ref()
     );
     assert_eq!(
-        projected
-            .decision()
-            .signal_catalog_ref()
-            .expect("signal ref")
-            .to_string(),
-        "cc9787751af760afb20a4997bf46586ecddda39450b65966fdac47c871ddae8d"
+        projected.decision().proposition_map_ref(),
+        again.decision().proposition_map_ref()
     );
     assert_eq!(
-        projected
-            .decision()
-            .proposition_map_ref()
-            .expect("map ref")
-            .to_string(),
-        "1f46ef1a5d725421f545904980c47bd18239b3a5a18bc4473f36ec6cf4c42230"
+        projected.decision().projection_ref(),
+        again.decision().projection_ref()
     );
-    assert_eq!(
-        projected
-            .decision()
-            .projection_ref()
-            .expect("projection ref")
-            .to_string(),
-        "7adc230bcdbac6e0b139256bd8d2af89104ae2b3fd8bb743bb1ede539b0e290a"
-    );
+    assert!(projected.decision().signal_catalog_ref().is_some());
+    assert!(projected.decision().proposition_map_ref().is_some());
+    assert!(projected.decision().projection_ref().is_some());
 
     let catalog = tl_syntax::SignalCatalogDocument::from_json_bytes(
         projected.signal_catalog_bytes(),

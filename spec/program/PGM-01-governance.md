@@ -39,11 +39,10 @@ named human release authority records a bounded exception under PGM-01-R09.
 
 ### PGM-01-R03 — source-release order
 
-Each source tag is `v0.1.0` for the first program release. A repository may tag
-only after the exact dependency tags and checksums named by its own manifest are
-available; normal topological order applies. A source-release manifest shall
-name every exact dependency tag, commit, and checksum. Rebuilds of an existing
-tag are forbidden.
+Each source tag is `v0.1.0` for the first program release. A repository tags
+after the dependencies declared in its `Cargo.toml` are released; normal
+topological order applies. Dependency versions live in `Cargo.toml` and
+`Cargo.lock`.
 
 ### PGM-01-R04 — licensing and third-party provenance
 
@@ -54,11 +53,8 @@ tag are forbidden.
   A consumer-selected SPDX expression may replace that default only when the
   generator records the selection and every incorporated template permits it.
   Generated evidence retains its schema license and provenance notice.
-- Every copied or adapted third-party element shall record origin URI, immutable
-  revision, path or span, copyright notice, license expression, retrieval
-  digest, transformation, and reviewer. Dependency metadata is retained in the
-  lockfile and license report. Unknown, incompatible, or absent licenses block
-  incorporation.
+- Dependency versions and licenses live in `Cargo.toml` and `Cargo.lock`.
+  Unknown, incompatible, or absent licenses block incorporation.
 
 ### PGM-01-R05 — clean-room grammar rule
 
@@ -214,10 +210,8 @@ program release decision by implication.
 | ID | Criterion | Verification |
 |---|---|---|
 | PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | Policy inspection TC-001 |
-| PGM-01-R03-AC-1 | Source tagging is gated on the exact dependency tags and checksums a manifest names. | TC-002 |
-| PGM-01-R04-AC-1 | Generated and third-party material has explicit license provenance. | Policy inspection; TC-003 |
-| PGM-01-R05-AC-1 | Clean-room sources and prohibited reuse are explicit. | Policy inspection; TC-003 |
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
-| PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
 | PGM-01-R09-AC-1 | An automated record cannot replace the human decision. | Policy inspection; TC-004 |
-| PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |
+
+PGM-01-R04, PGM-01-R05, PGM-01-R07 and PGM-01-R10 are verified by inspection
+of this document; no test asserts their wording.

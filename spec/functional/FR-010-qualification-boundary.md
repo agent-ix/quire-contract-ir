@@ -29,7 +29,7 @@ A bounded project-specific claim or an explicit absence of such a claim.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-010-AC-1 | The policy explicitly states that a crate release does not validate, accredit, or certify a consuming project. | Inspection (TC-003) |
+| FR-010-AC-1 | The policy explicitly states that a crate release does not validate, accredit, or certify a consuming project. | Inspection |
 
 ## Dependencies
 
