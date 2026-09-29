@@ -305,7 +305,7 @@ impl<'a> DependencyReferences<'a> {
 }
 
 /// Whether an application term is a `quire.op.function.call`.
-// string-edge: decodes the wire operation identity to tell a function call from any other operation.
+// Decodes the wire operation identity to tell a function call from any other operation.
 fn is_function_call(application: &Value) -> bool {
     application
         .get("operation")

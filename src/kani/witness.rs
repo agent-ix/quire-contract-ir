@@ -530,7 +530,7 @@ fn comment_agrees(value: &WitnessValue, comment: &str) -> bool {
 
 /// Kani's decoded-value comment for a Boolean, decoded: `true`/`1` and
 /// `false`/`0` in any case, `None` for anything else.
-// string-edge: decodes the wire text of Kani's decoded-value comment.
+// Decodes the wire text of Kani's decoded-value comment.
 fn boolean_comment(comment: &str) -> Option<bool> {
     match comment.to_ascii_lowercase().as_str() {
         "true" | "1" => Some(true),
@@ -560,7 +560,7 @@ fn find_all(haystack: &str, needle: &str) -> Vec<usize> {
 /// fooled by caller-controlled contract text earlier in the block (Kani
 /// appends it to the harness doc line) that happens to contain the same
 /// words.
-// string-edge: locates the transcript's `Check for` line by its text.
+// Locates the transcript's `Check for` line by its text.
 fn find_check_line(text: &str) -> Option<usize> {
     let marker = "/// Check for `";
     let mut offset = 0usize;
@@ -587,7 +587,7 @@ enum TranscriptCheckKind {
 }
 
 impl TranscriptCheckKind {
-    // string-edge: decodes the wire text of the transcript's check kind.
+    // Decodes the wire text of the transcript's check kind.
     fn decode(text: &str) -> Self {
         match text {
             "assertion" => Self::Assertion,

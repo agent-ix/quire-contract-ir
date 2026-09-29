@@ -22,9 +22,7 @@
 //! kinds and constraint kinds ([`LawRole`], [`OperationModeKind`],
 //! [`OperationMemberKind`], [`OperationConstraintKind`]) are decoded when the
 //! catalog is parsed, and an operation's wire mode, member and role are
-//! decoded once where the reader compares them with the catalog. The
-//! `string_edge` integration test fails when anything else reads one of these
-//! wire strings, and lists the functions that are the edge.
+//! decoded once where the reader compares them with the catalog.
 //!
 //! Vocabularies decoded by serde at the wire edge ([`super::CheckedDiagnosticStage`],
 //! [`super::CheckedDiagnosticCode`], [`super::CheckedDiagnosticCause`] and
@@ -59,7 +57,7 @@ macro_rules! closed_vocabulary {
             }
 
             /// Decodes a wire string; `None` outside the vocabulary.
-            // string-edge: the one place a vocabulary's wire string is read.
+            // The one place a vocabulary's wire string is read.
             pub fn from_wire(wire: &str) -> Option<Self> {
                 Self::ALL
                     .iter()
@@ -75,7 +73,7 @@ macro_rules! closed_vocabulary {
         }
 
         impl<'de> serde::Deserialize<'de> for $name {
-            // string-edge: serde decode of the wire string into the enum.
+            // Serde decode of the wire string into the enum.
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let wire = String::deserialize(deserializer)?;
                 // The error names the vocabulary, never the offending value:
@@ -487,7 +485,7 @@ pub enum CheckedNodeKind {
 impl CheckedNodeKind {
     /// Decodes a wire form under an already decoded family; `None` when the
     /// form is not one of that family's forms.
-    // string-edge: decodes the wire form under its already decoded family.
+    // Decodes the wire form under its already decoded family.
     pub fn decode(tag: CheckedNodeTag, form: &str) -> Option<Self> {
         match tag {
             CheckedNodeTag::ScalarType => ScalarTypeForm::from_wire(form).map(Self::ScalarType),

@@ -372,7 +372,7 @@ pub(super) fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLoc
 /// Checks one locked artifact's domain, shape and digest against evidence.
 /// `at` names the artifact reference; each refusal points at the member it
 /// is about, or at the reference itself when its locator is unattested.
-// string-edge: intake check of a locked artifact's digest domain and digest text.
+// Intake check of a locked artifact's digest domain and digest text.
 pub(super) fn validate_locked_artifact(
     artifact: &CheckedArtifactRef,
     expected_domain: &str,
@@ -703,7 +703,7 @@ pub(super) fn validate_term(
 
 /// The `term` tag of a semantic term or frame body, decoded; `None` when the
 /// member is absent, not a string, or outside the vocabulary.
-// string-edge: reads the JSON `term` member of a body and decodes it once.
+// Reads the JSON `term` member of a body and decodes it once.
 pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
     BodyTerm::from_wire(value.get("term")?.as_str()?)
 }
@@ -711,7 +711,7 @@ pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
 /// A `dependency_reference` term's `package`: a `quire.package.semantic/v2`
 /// SHA-256 [`CheckedSemanticId`]; `None` for any other shape, a bare digest
 /// or another digest domain included.
-// string-edge: intake check of a dependency reference's package domain and algorithm.
+// Intake check of a dependency reference's package domain and algorithm.
 pub(super) fn dependency_reference_package(term: &Value) -> Option<CheckedSemanticId> {
     let package = CheckedSemanticId::deserialize(term.get("package")?).ok()?;
     (package.domain.as_ref() == PACKAGE_DOMAIN_V2
@@ -722,20 +722,20 @@ pub(super) fn dependency_reference_package(term: &Value) -> Option<CheckedSemant
 
 /// A `dependency_reference` term's `node`: a node key in the node domain;
 /// `None` for any other shape.
-// string-edge: intake check of a dependency reference's node domain.
+// Intake check of a dependency reference's node domain.
 pub(super) fn dependency_reference_node(term: &Value) -> Option<CheckedNodeId> {
     let node = CheckedNodeId::deserialize(term.get("node")?).ok()?;
     (node.domain.as_ref() == NODE_DOMAIN && is_digest(&node.digest)).then_some(node)
 }
 
 /// A `literal` term's decoded `value_kind`.
-// string-edge: reads the JSON `value_kind` member of a literal and decodes it.
+// Reads the JSON `value_kind` member of a literal and decodes it.
 pub(super) fn literal_kind(value: &Value) -> Option<LiteralKind> {
     LiteralKind::from_wire(value.get("value_kind")?.as_str()?)
 }
 
 /// An `application` term's decoded `operator` class.
-// string-edge: reads the JSON `operator` member of an application and decodes it.
+// Reads the JSON `operator` member of an application and decodes it.
 pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
     ApplicationOperator::from_wire(value.get("operator")?.as_str()?)
 }
@@ -762,7 +762,7 @@ fn visit_member(
 /// [`ReferenceSite`] naming `member` and `is_body_root` to `visit`, and
 /// charges one unit of work. Shared by `reference.target`, `literal.type`,
 /// `application.result_type`, and the V2 `frame` body's reference arrays.
-// string-edge: intake check of a node reference's domain and digest text.
+// Intake check of a node reference's domain and digest text.
 pub(super) fn visit_reference(
     value: &Value,
     member: ReferenceMember,
@@ -953,7 +953,7 @@ impl<'de> Visitor<'de> for StrictSeed<'_> {
             }
         }
     }
-    // string-edge: canonical-JSON front end: reads serde_json's number token.
+    // Canonical-JSON front end: reads serde_json's number token.
     fn visit_map<A>(self, mut access: A) -> Result<Value, A::Error>
     where
         A: MapAccess<'de>,

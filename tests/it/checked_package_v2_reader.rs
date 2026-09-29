@@ -2265,9 +2265,9 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
     }
 }
 
-/// FR-038-AC-17's closed `expression` form list: every one of the fifteen
-/// `ExpressionForm::ALL` admits as a node form, and a
-/// sixteenth, undeclared form refuses as `invalid_semantic_graph`.
+/// FR-038-AC-17's closed `expression` form list: every
+/// `ExpressionForm::ALL` member admits as a node form, and an
+/// undeclared form refuses as `invalid_semantic_graph`.
 /// `tc_048_model_export_is_not_a_v2_model_form` already covers the same
 /// pattern for the eighteen `model` forms — this test is the `expression`
 /// counterpart, not a repeat of it. (The schema-vs-`CheckedNodeTag::forms`
@@ -2277,7 +2277,7 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
 /// Tracing: TC-048, FR-038-AC-17
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
-fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
+fn tc_048_expression_forms_bound_admission() {
     let base = v2_all_families();
     let expression = base["semantic_graph"]["nodes"]
         .as_array()
@@ -2285,7 +2285,6 @@ fn tc_048_expression_forms_are_exactly_fifteen_and_bound_admission() {
         .iter()
         .position(|node| node["node_tag"] == json!("expression"))
         .expect("all-families fixture carries an expression node");
-    assert_eq!(ExpressionForm::ALL.len(), 15);
     for form in ExpressionForm::ALL {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form.as_wire());

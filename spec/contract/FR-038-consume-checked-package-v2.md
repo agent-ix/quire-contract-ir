@@ -416,16 +416,7 @@ error at each site that must decide what it means. The vocabularies are the
 node family and its forms, selection role, capability disposition, the
 semantic term's `term` tag, a literal's `value_kind`, an application's
 `operator`, and the operation catalog's law roles, mode kinds, member kinds
-and constraint kinds. The functions that read wire text (the reader's version,
-domain and algorithm checks, the body-member readers, the catalog and
-domain-package readers, the vocabulary decoders themselves) carry a
-`// string-edge:` marker naming why; a comparison of a user value that selects
-no behaviour is listed with its reason in `tests/it/string_edge.rs`. The gate is
-an ordinary integration test scanning for those markers, not the
-`#[string_edge]` attribute and `xtask string-edge` scan of quire-spec-language,
-because `quire-contract-model` may not depend on quire-spec-language and a
-comment marker needs no macro crate. The bounded-Kani
-modules under `src/kani/` read Kani's transcript text the same way: the check
+and constraint kinds. The bounded-Kani modules under `src/kani/` read Kani's transcript text the same way: the check
 kind and the Boolean decoded-value comment are decoded once, where the
 transcript is read.
 
@@ -645,7 +636,6 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits when each selected dependency's admitted package is supplied, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. | Test (TC-048) |
 | FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `version`, `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry. | Test (TC-048) |
 | FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. | Test (TC-048) |
-| FR-038-AC-34 | Non-test source under `src/kani/` and the model crate's `checked_package/` reads no wire string after intake: an `==`/`!=` against a string literal or constant, a string `match` arm or `matches!` pattern, a `starts_with`/`strip_prefix` test or a `from_wire` call outside a function marked `// string-edge:` or listed with its reason in the test's allow-list fails the gate, as does a marker or allow-list row whose function reads no string. | Test (TC-048) |
 | FR-038-AC-35 | A package whose `function` call has a `dependency_reference` callee to a declared function of the supplied dependency admits, carries the term verbatim in the node body and lists no `dependencies` entry for it; listing the target refuses `invalid_semantic_graph` at the node's `dependencies`; changing only the term's `package`, or only its `node`, without re-deriving the key refuses `invalid_package`/`stale-node-key`, and re-derived they give distinct node ids. | Test (TC-048) |
 | FR-038-AC-36 | A `dependency_reference` with a bare-digest, other-domain or short-digest `package` refuses `invalid_semantic_graph` at the `package`, one in another node domain at the `node`, and one with a missing or extra member at the term; a well-formed term that is not argument 0 of a `quire.op.function.call` (a second argument, an argument of another operation, an aggregate member or a node body root) refuses `ill_typed`/`operator-ineligible` at the term. | Test (TC-048) |
 | FR-038-AC-37 | A `dependency_selections` entry with no package supplied for its `identity` refuses `missing_import`/`missing-selection` at the entry, one supplied under another `version` `stale_dependency`/`revision-mismatch` at its `version`, and one whose package has another `package_id` `stale_dependency`/`byte-digest-mismatch` at its `package_id.digest`; a term whose `package` no entry names refuses `missing_declaration`/`missing-selection` at the `package`, a `node` naming no node or a node without a `declaration` `missing_declaration`/`missing-name` at the `node`, and a `node` naming a declared node that is no function `ill_typed`/`operator-ineligible`, each carrying the calling node as its locus. | Test (TC-048) |

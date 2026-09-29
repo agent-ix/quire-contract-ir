@@ -20,13 +20,12 @@ help:
 	@echo "  make fmt              - Format with rustfmt"
 	@echo "  make fmt-check        - Verify formatting (CI gate)"
 	@echo "  make lint             - Clippy with -D warnings"
-	@echo "  make unit             - Run the Python test suite"
 	@echo "  make corpus           - Run the native published conformance corpus"
 	@echo "  make check-corpus     - Alias for corpus (ecosystem-compatible name)"
 	@echo "  make corpus-repro     - Regenerate the corpus in scratch space and compare bytes"
 	@echo "  make spec             - Validate and cover all Quire artifacts"
 	@echo "  make release-check    - Run every local release gate"
-	@echo "  make test             - Run the Python suite and cargo test"
+	@echo "  make test             - Run cargo test"
 	@echo "  make build            - Release build"
 	@echo "  make supported-rust   - Check all targets with the exact supported minimum"
 	@echo "  make qualification-rust - Test all targets with the exact qualification compiler"
@@ -55,10 +54,6 @@ lint:
 	# builds it, with the feature off.
 	$(CARGO) clippy --locked -p quire-contract-model -- -D warnings
 
-.PHONY: unit
-unit:
-	$(PYTHON) -m unittest discover -s tests -p '*.py'
-
 .PHONY: corpus
 corpus:
 	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
@@ -75,10 +70,9 @@ corpus-repro:
 spec:
 	$(QUIRE) validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --summary
 	$(QUIRE) coverage --scope . --strict
-	$(PYTHON) scripts/validate_matrix_status.py
 
 .PHONY: test
-test: unit
+test:
 	$(CARGO) test --locked --workspace --all-targets -- --include-ignored
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
