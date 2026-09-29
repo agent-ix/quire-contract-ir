@@ -948,7 +948,7 @@ fn dependency_reference_vectors() {
         "the published call's type and result type are one node"
     );
     preimage["body"]["arguments"][0] = term.clone();
-    let published_id = call["sha256"].as_str().expect("vector digest");
+    let published_id = sha256_hex(&canonical(&call["preimage"]));
     assert_ne!(
         sha256_hex(&canonical(&preimage)),
         published_id,

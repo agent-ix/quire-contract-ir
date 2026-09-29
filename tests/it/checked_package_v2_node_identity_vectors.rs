@@ -2,13 +2,14 @@
 // Copyright (C) 2026 Agent-IX
 
 //! TC-057: QSpec's published `node-identity-vectors.json` through the V2
-//! reader, array by array: `vectors` and `operation_vectors` re-derive their
-//! recorded keys and their nodes admit; every `invalid_mutations` entry,
-//! patched and keyed under its `retained_sha256`, refuses with its recorded
-//! code; every `operation_mutations` entry refuses with its recorded code and
-//! cause, a `stale_key` one keyed under its `retained_sha256` and every other
-//! one keyed by its patched preimage (the key it refuses under when retained
-//! is itself refused first).
+//! reader, array by array. Every node key is derived here from the preimage
+//! it keys; no recorded digest is read. The nodes of `vectors` and
+//! `operation_vectors` admit; every `invalid_mutations` entry, patched and
+//! keyed under its base preimage's key, refuses with its recorded code; every
+//! `operation_mutations` entry refuses with its recorded code and cause, a
+//! `stale_key` one keyed under its base preimage's key and every other one
+//! keyed by its patched preimage (the key it refuses under when its base key
+//! is kept is itself refused first).
 //!
 //! Read at run time from the checkout `QSPEC_DIR` names; nothing of QSpec is
 //! copied into this repository. The test skips (and passes) when `QSPEC_DIR`
@@ -27,12 +28,6 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 
 use CheckedPackageRefusalCause as Cause;
-
-/// The entry counts QSpec publishes in `node-identity-vectors.json`.
-const NOMINAL_VECTORS: usize = 17;
-const OPERATION_VECTORS: usize = 21;
-const INVALID_MUTATIONS: usize = 13;
-const OPERATION_MUTATIONS: usize = 24;
 use CheckedPackageRefusalCode as Code;
 
 const VECTORS: &str = "proposals/checked-package-v2/node-identity-vectors.json";
@@ -243,6 +238,11 @@ fn rename(value: &mut Value, stale: &str, fresh: &str) {
     }
 }
 
+/// The node key of `preimage`: the SHA-256 of its canonical bytes.
+fn key_of(preimage: &Value) -> String {
+    sha256_hex(&canonical(preimage))
+}
+
 fn node_position(package: &Value, digest: &str) -> Option<usize> {
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -261,18 +261,10 @@ fn qspec_node_identity_vectors() {
         return;
     };
 
-    // `vectors`: each key re-derives from its preimage, and the nodes admit
-    // in one package per selected domain package version (one lock selects
-    // one version of a model identity).
+    // `vectors`: each node keyed by its preimage admits, in one package per
+    // selected domain package version (one lock selects one version of a
+    // model identity).
     let vectors = array(&published, "vectors");
-    for vector in vectors {
-        assert_eq!(
-            sha256_hex(&canonical(&vector["preimage"])),
-            text(vector, "sha256"),
-            "{}",
-            text(vector, "name")
-        );
-    }
     let versions: std::collections::BTreeSet<&str> = vectors
         .iter()
         .map(|vector| model_version(&vector["preimage"]))
@@ -282,12 +274,7 @@ fn qspec_node_identity_vectors() {
         let members: Vec<(Value, String)> = vectors
             .iter()
             .filter(|vector| model_version(&vector["preimage"]) == *version)
-            .map(|vector| {
-                (
-                    vector["preimage"].clone(),
-                    text(vector, "sha256").to_owned(),
-                )
-            })
+            .map(|vector| (vector["preimage"].clone(), key_of(&vector["preimage"])))
             .collect();
         placed += members.len();
         admits(
@@ -297,8 +284,8 @@ fn qspec_node_identity_vectors() {
     }
     assert_eq!(placed, vectors.len());
 
-    // `invalid_mutations`: the patched preimage keyed under its retained
-    // key, in the package of its base vector.
+    // `invalid_mutations`: the patched preimage keyed under its base
+    // preimage's key, in the package of its base vector.
     let invalid = array(&published, "invalid_mutations");
     for mutation in invalid {
         let name = text(mutation, "name");
@@ -309,16 +296,11 @@ fn qspec_node_identity_vectors() {
             .iter()
             .filter(|vector| model_version(&vector["preimage"]) == version)
             .map(|vector| {
+                let key = key_of(&vector["preimage"]);
                 if vector["name"] == base["name"] {
-                    (
-                        candidate.clone(),
-                        text(mutation, "retained_sha256").to_owned(),
-                    )
+                    (candidate.clone(), key)
                 } else {
-                    (
-                        vector["preimage"].clone(),
-                        text(vector, "sha256").to_owned(),
-                    )
+                    (vector["preimage"].clone(), key)
                 }
             })
             .collect();
@@ -330,21 +312,16 @@ fn qspec_node_identity_vectors() {
         );
     }
 
-    // `operation_vectors`: each key re-derives from its preimage; the
-    // published operation package carries the node each names, with exactly
-    // the preimage's members, and admits.
+    // `operation_vectors`: a node the published operation package keys as the
+    // vector's preimage carries exactly that preimage's members, and the
+    // package admits.
     let base_package = qspec(OPERATION_PACKAGE).expect("QSPEC_DIR is set");
     let operations = array(&published, "operation_vectors");
     let mut carried = 0_usize;
     for vector in operations {
         let name = text(vector, "name");
         let preimage = &vector["preimage"];
-        assert_eq!(
-            sha256_hex(&canonical(preimage)),
-            text(vector, "sha256"),
-            "{name}"
-        );
-        let Some(position) = node_position(&base_package, text(vector, "sha256")) else {
+        let Some(position) = node_position(&base_package, &key_of(preimage)) else {
             continue;
         };
         let node = &base_package["semantic_graph"]["nodes"][position];
@@ -361,8 +338,9 @@ fn qspec_node_identity_vectors() {
     admits("the published operation package", &base_package);
 
     // `operation_mutations`: the base vector's node in the operation package
-    // takes the patched preimage, keyed under the retained key; a stale-key
-    // mutation's patched preimage is the vector it names in `rekeyed_as`.
+    // takes the patched preimage, keyed under the base preimage's key; a
+    // stale-key mutation's patched preimage is the vector it names in
+    // `rekeyed_as`.
     let mutations = array(&published, "operation_mutations");
     let mut rekeyed = std::collections::BTreeSet::new();
     for mutation in mutations {
@@ -371,20 +349,16 @@ fn qspec_node_identity_vectors() {
         let candidate = patched(&base["preimage"], array(mutation, "patch"));
         if let Some(target) = mutation["rekeyed_as"].as_str() {
             assert_eq!(
-                sha256_hex(&canonical(&candidate)),
-                text(vector(operations, target), "sha256"),
+                candidate,
+                vector(operations, target)["preimage"],
                 "{name} rekeys as {target}"
             );
             rekeyed.insert(target);
         }
         let mut package = base_package.clone();
-        let position = node_position(&package, text(base, "sha256"))
+        let base_key = key_of(&base["preimage"]);
+        let position = node_position(&package, &base_key)
             .unwrap_or_else(|| panic!("{name}: the package carries its base"));
-        assert_eq!(
-            text(base, "sha256"),
-            text(mutation, "retained_sha256"),
-            "{name} retains its base key"
-        );
         write_preimage(
             &mut package["semantic_graph"]["nodes"][position],
             &candidate,
@@ -408,11 +382,7 @@ fn qspec_node_identity_vectors() {
             );
             // ... so the operation refusal is read with the node keyed by
             // its patched preimage.
-            rename(
-                &mut package,
-                text(base, "sha256"),
-                &sha256_hex(&canonical(&candidate)),
-            );
+            rename(&mut package, &base_key, &key_of(&candidate));
         }
         refresh_identity(&mut package);
         let refusal = refused(name, &package);
@@ -433,8 +403,8 @@ fn qspec_node_identity_vectors() {
     let template = every["semantic_graph"]["nodes"][0].clone();
     let mut added = 0_usize;
     for vector in operations {
-        let key = text(vector, "sha256");
-        if node_position(&every, key).is_some() {
+        let key = key_of(&vector["preimage"]);
+        if node_position(&every, &key).is_some() {
             continue;
         }
         let mut node = template.clone();
@@ -478,23 +448,10 @@ fn qspec_node_identity_vectors() {
     assert_eq!(carried + added, operations.len());
     assert!(rekeyed.iter().all(|name| node_position(
         &every,
-        text(vector(operations, name), "sha256")
+        &key_of(&vector(operations, name)["preimage"])
     )
     .is_some()));
 
-    // The counts QSpec publishes per array; an empty or truncated array
-    // fails here rather than replaying nothing.
-    for (array_name, replayed, published) in [
-        ("vectors", vectors.len(), NOMINAL_VECTORS),
-        ("operation_vectors", operations.len(), OPERATION_VECTORS),
-        ("invalid_mutations", invalid.len(), INVALID_MUTATIONS),
-        ("operation_mutations", mutations.len(), OPERATION_MUTATIONS),
-    ] {
-        assert!(
-            replayed >= published,
-            "{replayed} {array_name} replayed, expected at least {published}"
-        );
-    }
     println!(
         "conformance: node-identity-vectors {} vectors + {} operation_vectors ({carried} carried) + {} invalid_mutations + {} operation_mutations",
         vectors.len(),

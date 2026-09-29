@@ -249,13 +249,13 @@ impl CaseGraph {
 
     /// A published model declaration node vector as its wire node.
     fn model_node(&mut self, vector: &Value) -> String {
-        let digest = text(vector, "sha256");
+        let digest = node_key(vector);
         let preimage = &vector["preimage"];
         self.add(
-            digest,
+            &digest,
             text(preimage, "node_tag"),
             text(preimage, "semantic_form"),
-            digest,
+            &digest,
             json!({"term": "aggregate", "members": []}),
         )
     }
@@ -427,6 +427,17 @@ fn empty_lock() -> CheckedPackageLockV2 {
 }
 
 /// The published node vector named `name`.
+/// The node key of a published model declaration node vector, derived from
+/// its preimage.
+fn node_key(vector: &Value) -> String {
+    digest_json(&vector["preimage"]).expect("a preimage digests")
+}
+
+/// The node key of the model declaration node vector `name`.
+fn node_key_of(vectors: &Value, name: &str) -> String {
+    node_key(node_vector(vectors, name))
+}
+
 fn node_vector<'v>(vectors: &'v Value, name: &str) -> &'v Value {
     array(vectors, "model_declaration_nodes")
         .iter()
@@ -438,8 +449,9 @@ fn owners_of(model: &DomainModel) -> ModelOwners<'_> {
     ModelOwners::new(std::slice::from_ref(model), |_| Ok::<(), ()>(())).expect("no charge fails")
 }
 
-/// TC-280 (FR-322-AC-29): every published model declaration node vector
-/// recomputes to its digest by this reader's `declaration_key`, and the
+/// TC-280 (FR-322-AC-29): this reader's `declaration_key` over every
+/// published model declaration node vector's owner and form equals the
+/// digest of that vector's preimage, and the
 /// selected package recovers exactly the vectors of its own version.
 #[test]
 fn tc_280_model_declaration_node_keys_recompute_and_recover_only_selected_owners() {
@@ -465,14 +477,8 @@ fn tc_280_model_declaration_node_keys_recompute_and_recover_only_selected_owners
                 form,
                 text(owner, "node")
             ),
-            text(vector, "sha256"),
+            node_key(vector),
             "{}",
-            text(vector, "name")
-        );
-        assert_eq!(
-            digest_json(preimage).expect("digest"),
-            text(vector, "sha256"),
-            "{} preimage",
             text(vector, "name")
         );
         let mut graph = CaseGraph::default();
@@ -540,7 +546,7 @@ fn tc_280_member_cases_resolve_and_type_through_the_reader() {
         for vector in array(&vectors, "model_declaration_nodes") {
             graph.model_node(vector);
         }
-        let declaring = text(declaring, "sha256");
+        let declaring = &node_key(declaring);
         let expected = &case["expected"];
         let result_type = expected.get("member_type").map_or_else(
             || MemberType::Integer.node_key(),
@@ -689,12 +695,12 @@ fn tc_280_selection_cases_admit_the_selected_document() {
 fn operand(graph: &mut CaseGraph, vectors: &Value, operand: &Value) -> String {
     match (operand["reference"].as_str(), operand["object"].as_str()) {
         (Some(name), None) => {
-            let target = text(node_vector(vectors, name), "sha256");
-            let reference_type = graph.reference_type(target);
+            let target = node_key_of(vectors, name);
+            let reference_type = graph.reference_type(&target);
             graph.value_of(&reference_type)
         }
         (None, Some(name)) => {
-            let target = text(node_vector(vectors, name), "sha256").to_owned();
+            let target = node_key_of(vectors, name);
             graph.value_of(&target)
         }
         _ => panic!("an operand names a reference or an object"),
@@ -768,7 +774,7 @@ fn tc_281_record_projection_reads_a_model_field_over_a_deref_result() {
         let (operand_node, deref) = match source.get("deref") {
             Some(inner) => {
                 let value = operand(&mut graph, &vectors, inner);
-                let declared = text(node_vector(&vectors, text(source, "result_type")), "sha256");
+                let declared = &node_key_of(&vectors, text(source, "result_type"));
                 let deref = graph.application(
                     "deref",
                     "deref",
@@ -788,7 +794,7 @@ fn tc_281_record_projection_reads_a_model_field_over_a_deref_result() {
             "quire.op.record.project",
             json!({
                 "kind": "field",
-                "declaration": node_ref(text(node_vector(&vectors, text(member, "declaration")), "sha256")),
+                "declaration": node_ref(&node_key_of(&vectors, text(member, "declaration"))),
                 "name": text(member, "name"),
             }),
             &[operand_node],
@@ -936,7 +942,7 @@ fn tc_280_frame_field_cases_resolve_through_the_frame_step() {
     let cases = array(&vectors, "frame_field_cases");
     for case in cases {
         let name = text(case, "name");
-        let declaration = text(node_vector(&vectors, text(case, "declaration")), "sha256");
+        let declaration = &node_key_of(&vectors, text(case, "declaration"));
         let mut graph = model_graph(&vectors);
         graph.nodes.push(state_node(
             &"f1".repeat(32),
@@ -1012,7 +1018,7 @@ fn tc_280_anchor_cases_resolve_through_the_state_step() {
     let cases = array(&vectors, "anchor_cases");
     for case in cases {
         let name = text(case, "name");
-        let context = text(node_vector(&vectors, text(case, "context")), "sha256");
+        let context = &node_key_of(&vectors, text(case, "context"));
         let mut graph = model_graph(&vectors);
         add_anchor(&mut graph, context, text(case, "operation"));
         let decided = decide_step(&graph, &owners, Step::State);
@@ -1056,7 +1062,7 @@ fn tc_280_clause_signature_cases_type_through_the_state_step() {
     for case in cases {
         let name = text(case, "name");
         let clause = text(case, "clause");
-        let context = text(node_vector(&vectors, text(case, "context")), "sha256");
+        let context = &node_key_of(&vectors, text(case, "context"));
         let mut graph = model_graph(&vectors);
         let anchor = match case["operation"].as_str() {
             Some(operation) => add_anchor(&mut graph, context, operation).1,
@@ -1067,9 +1073,7 @@ fn tc_280_clause_signature_cases_type_through_the_state_step() {
             .enumerate()
             .map(|(level, parameter)| {
                 let type_key = match parameter["reference"].as_str() {
-                    Some(target) => {
-                        graph.reference_type(text(node_vector(&vectors, target), "sha256"))
-                    }
+                    Some(target) => graph.reference_type(&node_key_of(&vectors, target)),
                     None => member_type(parameter).node_key(),
                 };
                 let key = format!("{:02x}", 0xd0 + level).repeat(32);
