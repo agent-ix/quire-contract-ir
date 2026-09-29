@@ -33,10 +33,6 @@ or canonicalization semantics.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
-- The implemented checked-predicate and temporal-clause correspondence
-  bridges from native Quire contracts to exact supported TL profiles.
-- The bounded, non-authoritative export of the exact temporal-ecosystem
-  component/object/interface/contract/evidence graph.
 - The cycle-free `quire-contract-model` package and the `quire-contract-ir`
   root crate, each with its own public item list and no item under two paths.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
@@ -134,12 +130,8 @@ fixes the subsystem specification layout and registry format that this
 repository, Contract Codegen and Contract Runtime follow.
 TM-002 maps the substrate to staged verification.
 
-FR-025 implements the checked-predicate-to-Boolean-signal correspondence;
-FR-026 implements the native-temporal correspondence boundary. FR-027
-implements bounded non-authoritative observational model export, and
 FR-028 makes the model/owner/root dependency graph implementable without a
-Cargo cycle. None makes TL a user-authored Quire language or grants model output
-authority over owner inputs, execution, evidence acceptance, or release.
+Cargo cycle.
 
 ## References
 
@@ -149,7 +141,6 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Contract IR epic](https://github.com/agent-ix/quire-contract-ir/issues/11).
 - [Contract IR test matrix](contract-test-matrix.md).
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
-- [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
 - [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
 - [Bounded Kani domains and outcomes](contract/FR-030-bounded-kani-domain-and-outcomes.md).
 - [Bounded Kani dispatch and terminal-value map](contract/FR-031-bounded-kani-dispatch-and-terminal-map.md).
@@ -162,8 +153,6 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [CheckedPackage V2 consumption](contract/FR-038-consume-checked-package-v2.md).
 - [Exact backend negotiation](contract/FR-036-exact-backend-negotiation-and-emission.md).
 - [Canonical backend replay](contract/FR-037-canonical-backend-replay-and-qualification.md).
-- [Native temporal to TL correspondence](contract/FR-026-native-temporal-tl-correspondence.md).
-- [Bounded temporal ecosystem model export](contract/FR-027-export-bounded-temporal-ecosystem-model.md).
 - [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
 - [Repository architecture and versioning](assurance/AD-001-contract-ir-architecture.md).
 - [Bounded Kani backend architecture](assurance/AD-002-bounded-kani-architecture.md).

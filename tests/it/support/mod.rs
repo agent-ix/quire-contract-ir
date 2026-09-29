@@ -9,7 +9,4 @@
 //! every test module declared in `tests/it/main.rs`.
 
 pub mod checked_package;
-pub mod native_protocol;
-pub mod result_fixture;
-pub mod temporal_fixture;
 pub mod v2_handoff;
