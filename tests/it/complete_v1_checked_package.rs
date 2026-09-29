@@ -383,7 +383,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Nodes,
         exact.nodes,
-        Some("/semantic_graph/nodes/17"),
+        Some("/semantic_graph/nodes/16"),
     );
     exact.nodes += 1;
 
@@ -394,7 +394,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Occurrences,
         exact.occurrences,
-        Some("/source_map/17/regions/0"),
+        Some("/source_map/16/regions/0"),
     );
     exact.occurrences += 1;
 
@@ -405,7 +405,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Work,
         exact.work,
-        Some("/semantic_graph/nodes/17/dependencies/3"),
+        Some("/semantic_graph/nodes/16/dependencies/2"),
     );
 
     // edges: node 1 (composite_type) carries no dependency edges in the base
@@ -432,7 +432,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &edge_evidence,
         CheckedPackageLimit::Edges,
         edges_with_one_more - 1,
-        Some("/semantic_graph/nodes/17/dependencies/3"),
+        Some("/semantic_graph/nodes/16/dependencies/2"),
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly

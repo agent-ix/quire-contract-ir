@@ -73,7 +73,7 @@ pub fn all_families_read_work() -> u64 {
 /// `all_families_read_work() == ALL_FAMILIES_READ_WORK`, so a future change
 /// to `v2/lower.rs`'s charge model that moves the real boundary is caught
 /// here instead of silently absorbed by a measurement that moves with it.
-pub const ALL_FAMILIES_READ_WORK: u64 = 78;
+pub const ALL_FAMILIES_READ_WORK: u64 = 74;
 
 pub fn v2_all_families() -> Value {
     build_v2_all_families()

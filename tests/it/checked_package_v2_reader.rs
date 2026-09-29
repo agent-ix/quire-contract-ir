@@ -614,8 +614,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
-    // 18 total: see `build_v2_all_families` in `tests/support/checked_package.rs`.
-    assert_eq!(admitted(&grouped).graph().nodes.len(), 18);
+    // 17 total: see `build_v2_all_families` in `tests/support/checked_package.rs`.
+    assert_eq!(admitted(&grouped).graph().nodes.len(), 17);
 
     // Evidence the caller must supply: every locked digest and the feature.
     // With no evidence, the first locked source's locator is unattested.
@@ -800,7 +800,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
             CheckedPackageLimit::Work,
             all_families_read_work - 1,
             all_families_read_work,
-            Some("/semantic_graph/nodes/17/dependencies/3")
+            Some("/semantic_graph/nodes/16/dependencies/2")
         ))
     );
 }
@@ -1750,9 +1750,6 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "process",
         "persistence_interface",
         "namespace",
-        "field_declaration",
-        "operation_declaration",
-        "clause_member_declaration",
         "systems_interface",
         "systems_part",
         "systems_port",
@@ -2440,8 +2437,10 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
             .iter()
             .position(|node| node["node_tag"] == "state" && node["semantic_form"] == "frame")
             .expect("frame node");
-        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] =
-            json!([checked_package::node_id(&"0123456789abcdef".repeat(4))]);
+        value["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!([{
+            "kind": "relationship",
+            "declaration": checked_package::node_id(&"0123456789abcdef".repeat(4)),
+        }]);
         value
     };
     // Control: the frame defect alone is refused at the frame stage.

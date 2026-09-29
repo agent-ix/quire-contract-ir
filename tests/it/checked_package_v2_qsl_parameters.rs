@@ -31,8 +31,6 @@ const APPLICATION_NODE: &str = "quire.application-node/v1";
 // Pointer suffixes below `/semantic_graph/nodes/{n}`: each structural
 // refusal names the member it is about.
 const BODY: &str = "/body";
-const NAME_BINDING: &str = "/body/members/0";
-const LEVEL_BINDING: &str = "/body/members/1";
 const FIRST_TERM: &str = "/body/members/0";
 const SECOND_TERM: &str = "/body/members/1";
 const DEPENDENCIES: &str = "/dependencies";
@@ -135,7 +133,7 @@ fn parameter_body(name: &str, level: &str) -> Value {
 fn parameter(name: &str, level: &str) -> (String, Value) {
     let body = parameter_body(name, level);
     let key = structural_key("value", "parameter", Some(T1_BOOLEAN), None, &body);
-    let node = wire_node(&key, "value", "parameter", T1_BOOLEAN, &[], "anchor", body);
+    let node = wire_node(&key, "value", "parameter", T1_BOOLEAN, &[], "expression", body);
     (key, node)
 }
 
@@ -384,9 +382,9 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     let integer_literal_name = |node: &mut Value| {
         node["body"]["members"][0]["value"]["type"] = node_id(T2_INTEGER);
     };
-    // A body that is not the two-binding aggregate refuses at the body; a
-    // defective binding refuses at that binding.
-    let body_cases: [(&str, Mutation, &str); 9] = [
+    // A body that is not the two-binding aggregate, and a defective binding,
+    // each refuse at the body.
+    let body_cases: [(&str, Mutation, &str); 10] = [
         (
             "reference body",
             Box::new(|node| node["body"] = reference(T1_BOOLEAN)),
@@ -400,17 +398,22 @@ fn tc_048_a_malformed_parameter_node_refuses() {
         (
             "negative level",
             Box::new(|node| node["body"] = parameter_body("a", "-1")),
-            LEVEL_BINDING,
+            BODY,
         ),
         (
             "non-canonical level",
             Box::new(|node| node["body"] = parameter_body("a", "00")),
-            LEVEL_BINDING,
+            BODY,
         ),
         (
             "empty name",
             Box::new(|node| node["body"] = parameter_body("", "0")),
-            NAME_BINDING,
+            BODY,
+        ),
+        (
+            "name that is not an identifier",
+            Box::new(|node| node["body"] = parameter_body("a b", "0")),
+            BODY,
         ),
         (
             "missing level",
@@ -430,12 +433,12 @@ fn tc_048_a_malformed_parameter_node_refuses() {
                     .expect("members")
                     .reverse();
             }),
-            NAME_BINDING,
+            BODY,
         ),
         (
             "name typed at Integer",
             Box::new(integer_literal_name),
-            NAME_BINDING,
+            BODY,
         ),
         (
             "extra binding",

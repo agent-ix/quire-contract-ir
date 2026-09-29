@@ -642,8 +642,10 @@ fn reference_to(key: &str) -> Value {
 /// node the caller adds).
 fn parameter(key: &str, semantic_type: &str, text: &str, integer: &str) -> Value {
     let literal = |type_key: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
+    let mut node = node(key, "value", "parameter", semantic_type, &[], None);
+    node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     with_body(
-        node(key, "value", "parameter", semantic_type, &[], None),
+        node,
         json!({"term": "aggregate", "members": [
             {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
             {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},

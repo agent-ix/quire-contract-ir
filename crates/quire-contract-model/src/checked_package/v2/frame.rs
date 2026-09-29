@@ -196,11 +196,8 @@ fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, V
     let Value::Object(object) = entry else {
         return Err(invalid());
     };
-    let kind = object
-        .get("kind")
-        .and_then(Value::as_str)
-        .and_then(FrameEntryKind::from_wire)
-        .ok_or_else(invalid)?;
+    let kind = object.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let kind = FrameEntryKind::from_wire(kind).ok_or_else(invalid)?;
     let members: &[&str] = match kind {
         FrameEntryKind::Relationship => &["kind", "declaration"],
         FrameEntryKind::Field => &["kind", "declaration", "name"],

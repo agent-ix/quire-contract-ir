@@ -456,7 +456,7 @@ pub(super) fn is_state_clause_application(term: &Value) -> bool {
             .get("operation")
             .and_then(|operation| operation.get("identity"))
             .and_then(Value::as_str)
-            == Some(STATE_CLAUSE_OPERATION)
+            .is_some_and(|identity| identity == STATE_CLAUSE_OPERATION)
 }
 
 /// The state clause body `body` holds, or `None` for any other shape: an

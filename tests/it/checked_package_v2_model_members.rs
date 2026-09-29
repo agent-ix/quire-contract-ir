@@ -93,7 +93,8 @@ fn parameter(name: &str, level: &str, ty: &str) -> (String, Value) {
         {"term": "binding", "name": "level", "value": literal(T2_INTEGER, "integer", level)},
     ]});
     let key = structural_key("value", "parameter", Some(ty), None, &body);
-    let node = wire_node(&key, "value", "parameter", ty, &[], body);
+    let mut node = wire_node(&key, "value", "parameter", ty, &[], body);
+    node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     (key, node)
 }
 
