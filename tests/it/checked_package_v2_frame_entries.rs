@@ -1413,7 +1413,7 @@ impl ModelPackage {
                 deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
                 node["dependencies"] = Value::Array(deps);
             } else if key == ANCHOR {
-                let mut deps = vec![order.clone(), frame_key.clone()];
+                let mut deps = [order.clone(), frame_key.clone()];
                 deps.sort();
                 node["semantic_type"] = node_id(&order);
                 node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
@@ -1486,7 +1486,7 @@ impl ModelPackage {
             node["dependencies"] = Value::Array(deps);
         })
         .edit(anchor, move |node| {
-            let mut deps = vec![context.clone(), frame_key.clone()];
+            let mut deps = [context.clone(), frame_key.clone()];
             deps.sort();
             node["semantic_type"] = node_id(&context);
             node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
