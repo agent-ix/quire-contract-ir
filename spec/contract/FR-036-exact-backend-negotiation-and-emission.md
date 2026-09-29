@@ -66,7 +66,12 @@ domain, bounds, options, toolchain, and dependencies.
 [FR-035](./FR-035-complete-v1-contract-package-lowering.md) owns the input
 package. QSpec FR-196 and I13 own the normative provider contract. FR-029
 through FR-031 remain credited only for their closed `kani-bounded/1`
-profile. QSpec FR-290 owns the closed six-member capability vocabulary named
+profile: Contract IR supplies that profile, its finite input ABI, dispatch
+index, typed outcome and provenance, and the family lowerings that turn a
+negotiated item into Kani harness input belong to the backend adapter in
+codegen. A construct the `kani-bounded/1` capability matrix records
+`unsupported` settles its item `unsupported` here, with a warning naming the
+item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290) (FR-029). QSpec FR-290 owns the closed ten-label `quire.capability-kind/v1` capability vocabulary named
 by an `unsupported` warning. A negotiated item's later Kani outcome records
 its QSL `TerminalValue` through
 [FR-031](./FR-031-bounded-kani-dispatch-replay-provenance.md), and replay of a

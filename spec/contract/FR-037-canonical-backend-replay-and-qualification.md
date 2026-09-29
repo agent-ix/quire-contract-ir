@@ -53,12 +53,15 @@ properties of the QSL envelope and replay executor (QSL FR-070 through
 FR-073, FR-098) and of the codegen replay adapter, not of Contract IR.
 Contract IR's part in a counterexample ends at the typed `KaniOutcome` and its
 `TerminalValue` ([FR-031](./FR-031-bounded-kani-dispatch-replay-provenance.md)).
+The root crate has no `replay` or `witness` module: the witness and replay
+types are QSL's `qsl-replay` types, and the Kani transcript parser is the
+codegen backend adapter's.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, parity verdict or minimization type other than QSL's, and no Contract IR source calls a replay executor. | Test (TC-055) |
+| FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, witness, parity verdict or minimization type other than QSL's, the root crate has no `replay` or `witness` module, and no Contract IR source calls a replay executor. | Test (TC-055) |
 
 ### Retired criteria
 

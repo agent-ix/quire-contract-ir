@@ -13,31 +13,33 @@ relationships:
 ## Description
 
 Verify FR-039-AC-1 through FR-039-AC-4 and FR-037-AC-6: the `quire-contract-ir` root crate's
-public items outside the model re-export match FR-039's table, it has no
-dependency on `quire_spec_language::runtime`, the items QSL owns are absent,
-and its error surface is closed and panic-free.
+public items match FR-039's table and include no `quire_contract_model`
+item, it has no dependency on `quire_spec_language::runtime`, the items QSL
+and codegen own are absent, and its error surface is closed and panic-free.
 
 ## Test Procedure
 
-Inventory every `pub` item reachable from `src/lib.rs` outside the
-`quire_contract_model` re-export and compare the set with FR-039's table.
+Inventory every `pub` item reachable from `src/lib.rs` and compare the set
+with FR-039's table; read `src/lib.rs` for any `pub use` of
+`quire_contract_model`, and compile one probe naming a model item through
+`quire_contract_ir` and expect it to fail.
 Search `src/` and `crates/quire-contract-model/src/` for
 `quire_spec_language::runtime`, `qsl_replay::replay` and any other executor
 entry, and for a public replay envelope, request, result, parity or
-minimization type. Compile one probe per item in
-FR-039's "Items QSL owns" section through `quire_contract_ir` and expect each
+minimization type. Confirm `src/kani/` has no `replay`, `witness`, `arithmetic`, `collections`
+or `objects` module. Compile one probe per item in FR-039's "Items QSL owns"
+and "Items codegen owns" sections through `quire_contract_ir` and expect each
 to fail; compile a probe that calls the `kani` outcome map on a `proved` outcome and
-on an `Unavailable` outcome, takes the `qsl_replay::TerminalValue` out of the
-first result and matches the second as the typed absence, and expect it to
-build. Read
+on an `Unavailable` outcome and binds each result directly to a
+`qsl_replay::TerminalValue`, and expect it to build. Read
 `BridgeErrorCode::all()` against the STD-001 registry, and run the TC-038
 through TC-042 negative corpora under `catch_unwind`.
 
 ## Expected Results
 
-The inventory equals the table with no extra or missing item; the search finds
-nothing; every QSL-owned-item probe fails to compile and the outcome-map
-probe builds; every `BridgeErrorCode` appears once and is registered; no
+The inventory equals the table with no extra or missing item and no model
+item; the search finds nothing; the model-item probe and every QSL-owned and
+codegen-owned item probe fail to compile and the outcome-map probe builds; every `BridgeErrorCode` appears once and is registered; no
 negative case panics.
 
 ## Status

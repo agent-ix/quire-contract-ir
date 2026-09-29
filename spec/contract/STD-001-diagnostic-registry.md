@@ -18,13 +18,16 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-026
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-030
+    type: references
 ---
 # STD-001: Contract IR v0.1 diagnostic code registry
 
 ## Description
 
 This registry owns the stable machine-readable diagnostic codes introduced by
-issues #6 through #10, #63 and #64. Implementations may add human context but shall not parse
+issues #6 through #10, #63 and #64, and the bounded-Kani outcome error code
+FR-030 raises. Implementations may add human context but shall not parse
 or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 ## Issue 6 Codes
@@ -267,6 +270,17 @@ cannot be used outside those allocations.
 | `ecosystem_graph_mismatch` | A model count, node, edge, gap, adjacency, topology, manifest identity or effective limit differs from complete re-export | first unequal model field |
 | `ecosystem_identity_mismatch` | The claimed identity differs from the exact identity-omitted canonical model preimage | identity field |
 
+## Bounded Kani Outcome Codes
+
+This code is the `code` of the `KaniOutcomeError` the root crate's `kani`
+module returns. It is raised only by the validated `KaniOutcome` constructors
+(FR-030) and never becomes a `KaniOutcome` cause code or a QSL
+`TerminalValue`.
+
+| Code | Condition | Required location |
+| --- | --- | --- |
+| `kani_outcome_invalid` | A `KaniOutcome` constructor is asked for an outcome that breaks FR-030's kind and cause rules: an `unavailable` cause other than `kani_solver_absent` or `kani_backend_absent`, an `inconclusive` cause other than `kani_vacuous_proof`, a `proved` SUCCESS check count of zero, or a `proved` or `counterexample` kind through the non-success constructor; no outcome is built | requested kind and cause code, or the rejected count |
+
 ## Application Guidance
 
 Public diagnostics contain a code, closed severity `error`, message, semantic
@@ -314,7 +328,7 @@ rows sort structurally.
 ## Dependencies
 
 - **Upstream**: PGM-01 evidence and human-decision boundaries.
-- **Downstream**: FR-013 through FR-019, FR-023, and FR-025 through FR-027 extend or consume this
+- **Downstream**: FR-013 through FR-019, FR-023, FR-025 through FR-027 and FR-030 extend or consume this
   semantic registry without renaming issue #6 codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.

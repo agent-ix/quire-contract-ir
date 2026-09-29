@@ -23,8 +23,8 @@ relationships:
 
 Contract IR owns the cycle-free, versioned `ContractPackage` representation and
 the exact lowering boundary. Runtime owns typed native oracle execution; codegen
-owns deterministic provider generation, bounded Kani harnesses, the Kani
-transcript parser, and the replay adapter; QSL's `qsl-replay` owns the
+owns deterministic provider generation, the Kani family lowerings, bounded
+Kani harnesses, the Kani transcript parser, and the replay adapter; QSL's `qsl-replay` owns the
 counterexample envelope, replay request and result, and the replay facade. Output mapping remains a derived-output boundary. Native Quire remains
 the sole source and semantic authority.
 
