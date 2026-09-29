@@ -28,30 +28,14 @@ pipeline. Codegen and Runtime reference it as
 
 The three repositories organise specifications by artifact kind: `spec/index.md`
 as the master, then directories such as `functional/`, `nonfunctional/`,
-`interface/`, `contract/` and `test/`, and one or two repository-wide matrices. Requirements from unrelated
-parts of each crate sit side by side, and the directory says nothing about which
+`interface/`, `contract/` and `test/`, and one or two repository-wide matrices.
+Requirements from unrelated parts of each crate sit side by side, and the directory says nothing about which
 module owns a requirement or which matrix verifies it.
 
-Three existing trees already show the target shape:
-
-- `filament-ide-rs` `spec/` contains one root `spec/spec.md` holding a
-  Subsystem Registry, a root matrix `spec/tests.md` indexing one
-  `spec/<subsystem>/matrix/tests.md` per subsystem, a narrow `spec/core/`, and
-  its ADR-002 "Contained Subsystem Specs". Its
-  `scripts/check_artifact_ids.sh` fails on a duplicate frontmatter `id:`, on a
-  test case declared by two matrices, and on a `spec/reviews/` directory. That
-  check exists because independently numbered directories forked one ID
-  sequence eleven times, and two parallel branches then allocated the same test
-  case ID in the same matrix.
-- `quire-specification` `spec/subsystems/index.md` and
-  `docs/v1-spec-information-architecture.md` fix the restructure rules this
-  record adopts: identifiers survive a move unchanged, a move changes no
-  acceptance criterion, a requirement has one primary matrix, one writer owns a
-  repository during its move, and the structural change lands before new
-  requirements.
-- `ecaz` `spec/functional/index.md` groups functional requirements by bounded
-  context while keeping each `FR-###` identifier, and `spec/matrix/` holds a
-  module TestMatrix beside the root matrix.
+The public `ecaz` tree already shows the target shape in part:
+`spec/functional/index.md` groups functional requirements by bounded context
+while keeping each `FR-###` identifier, and `spec/matrix/` holds a module
+TestMatrix beside the root matrix.
 
 Quire supports this layout without a subsystem concept, as described under
 [Tool support](#tool-support).
@@ -159,9 +143,11 @@ same document.
    (`ADR-0056`, `FR-041`, `TC-058`); a move never re-pads an ID.
 4. An unprefixed ID names an artifact in the same repository. A reference to
    another repository's artifact names the repository: frontmatter
-   relationships use `ix://agent-ix/<repo>/<ID>`, and prose writes the
-   repository name or its registered short name immediately before the ID
-   (`quire-specification FR-340`, `QSpec FR-340`).
+   relationships use `ix://agent-ix/<repo>/<ID>`, and every other place —
+   prose, matrix cells, trace tags and code comments — writes
+   `<repo>:<ID>` with the full repository name (`quire-specification:TC-280`,
+   `quire-specification:FR-340`). No short repository name stands in for the
+   prefix.
 5. The next free ID in a family is one above the highest of: every ID of that
    family declared in a spec artifact's frontmatter on the default branch, and
    the upper bound of every block recorded for that family.
@@ -227,10 +213,14 @@ either, naming both files.
    directory holds it. Another subsystem's matrix or the root index may cite the
    requirement in an integration row; that citation is never a second coverage
    authority.
-4. Every `TC` is declared by exactly one matrix, the matrix of its subsystem. A
-   `TC-###` artifact file lives in the `matrix/` directory beside the matrix
-   that declares it.
-5. An existing matrix keeps its `TM` ID wherever it moves. A new root index or
+4. Every live `TC` is declared by exactly one matrix, the matrix of its
+   subsystem. A `TC-###` artifact file lives in the `matrix/` directory beside
+   the matrix that declares it.
+5. A withdrawn `TC` keeps its artifact file in the `matrix/` directory of the
+   subsystem that owned the requirement it verified, and that matrix lists it
+   in a `## Withdrawn Test Cases` section with the reason. It has no Test Case
+   Summary row, so no matrix declares it, and its ID is never reissued.
+6. An existing matrix keeps its `TM` ID wherever it moves. A new root index or
    a new subsystem matrix takes the next free `TM` ID.
 
 ### Restructure gate
@@ -238,41 +228,61 @@ either, naming both files.
 A structural change moves existing artifacts into this layout. It is a pull
 request of its own, and it passes every check below before it merges.
 
-1. **Structural first.** It adds no ID, no requirement, no acceptance
-   criterion and no test case. New requirements in the repository are authored
-   after it merges, in the new layout.
+1. **Structural first.** It adds no requirement, acceptance criterion, test
+   case, AD, ADR or standard, and no ID of those families. The only IDs it adds
+   are the `TM` IDs of the new root index and of new subsystem matrices. New
+   requirements in the repository are authored after it merges, in the new
+   layout; a requirement the structural change itself needs, such as the
+   repository-local check below, is authored and merged in a spec pull request
+   before it.
 2. **One writer.** While it is open, no other branch changes `spec/` in that
    repository. Every other spec branch rebases onto it after it merges.
 3. **Relocation map.** It adds `spec/relocations/<YYYY-MM-DD>-<slug>.tsv`: a
    tab-separated file whose header row names the columns `old_path`,
-   `new_path`, `old_id` and `new_id`, then one row per moved file, sorted by `old_path`, paths relative to the repository root.
-   A file that is not a spec artifact, or has no frontmatter ID, carries `-` in
-   both ID columns. In a
-   structural change every row has `old_id` equal to `new_id`; only a collision
-   renumbering records two different IDs. Every file whose path changed has
-   exactly one row, and every row's `new_path` exists at the head.
-4. **ID-set equality.** The sorted set of spec-artifact frontmatter IDs at the
-   merge base is identical to the set at the head.
-   The set of `TC` IDs declared across all matrices is identical before and
-   after, and each is declared exactly once.
+   `new_path`, `old_id` and `new_id`, then one row per moved or added matrix
+   file, sorted by `old_path` then `new_path`, paths relative to the repository
+   root.
+   - A moved file carries its ID in both ID columns; a file that is not a spec
+     artifact, or has no frontmatter ID, carries `-` in both.
+   - A new root index or subsystem matrix carries `-` as `old_path` and
+     `old_id`, and its new `TM` ID as `new_id`.
+   - Only a collision renumbering records two different, non-`-` IDs.
+   - Every file whose path changed has exactly one row, and every row's
+     `new_path` exists at the head.
+4. **ID-set equality.** Take the spec-artifact frontmatter IDs at the merge
+   base, replace each `old_id` by its `new_id` for every map row where both are
+   IDs, and add every `new_id` whose `old_id` is `-`: the result is identical
+   to the set at the head. The set of live `TC` IDs declared across all
+   matrices is identical before and after, and each is declared exactly once.
 5. **No meaning change.** Moves are Git renames. In a moved requirement,
    standard or test case file, every changed line differs from its original
-   only inside Markdown link targets `](...)`. Matrix rows moved between
-   matrices are carried verbatim, apart from link targets.
+   only inside Markdown link targets `](...)`. A file whose bytes code digests
+   (`include_bytes!` into a digest) moves as an exact-byte rename with no edit
+   at all, and the including path is updated in the same change. Matrix rows
+   moved between matrices are carried verbatim, apart from link targets.
 6. **Link check.** Every relative Markdown link in `spec/`, `plan/` and the
-   repository-root documents resolves at the head, and every `ix://` target
-   resolves at least as well as at the merge base. Bodies under `reviews/` are
+   repository-root documents resolves at the head. `ix://` targets name IDs,
+   not paths, and rule 4 keeps them resolving. Bodies under `reviews/` are
    exempt: a review links the revision it names, and the relocation map
    resolves its old paths.
 7. **Embedded-path scan.** Every occurrence of a `spec/` path outside `spec/`
-   and `reviews/` — `include_str!`, directory enumeration in tests, path lists
-   in scripts, fixtures that build a spec tree, `Makefile` and CI targets — is
-   found by a repository-wide search and either still names an existing path or
-   is updated in the same pull request. The pull request lists each hit and its
-   disposition.
-8. **Gates unchanged.** `make spec` reports no finding that the merge base
-   does not also report, and `quire coverage --scope . --strict` reports the
-   same minted-ID set and the same backed-row count before and after.
+   and `reviews/` — `include_str!`, `include_bytes!`, directory enumeration in
+   tests, path lists in scripts, fixtures that build a spec tree, sealed
+   assurance inputs, `Makefile` and CI targets, and links in repository-root
+   documents — is found by a repository-wide search and either still names an
+   existing path or is updated in the same pull request. The pull request lists
+   each hit and its disposition.
+8. **Same inputs, green gates.** Every check that enumerates spec files — a
+   fixed directory list, a non-recursive glob, a `read_dir`, an
+   `include_str!`/`include_bytes!` reader, a sealed configuration path — reads
+   the same set of documents and IDs at the head as at the merge base; the pull
+   request records both counts per check. `make ci` passes at the head, and
+   `quire coverage --scope . --strict` reports the same minted-ID set and the
+   same backed-row count before and after.
+9. **Prefixed foreign IDs.** Every foreign ID in a trace tag, code comment,
+   matrix cell or prose line carries its `<repo>:` prefix at the head, so that
+   no foreign ID can bind to a local ID the next-free rule later issues. A
+   trace tag citing a withdrawn local ID is removed.
 
 ### Tool support
 
@@ -302,14 +312,18 @@ requires belong in `quire validate`, which reads every repository the same way.
 Until `quire validate` reports them, each repository runs its own small
 repository-local check from `make spec`, specified in that repository's own
 functional requirement ([FR-345](../functional/FR-345-check-artifact-ids-and-relocation-maps.md)
-in this one) and written in its own structural pull request. No repository
-copies another repository's check; when `quire validate` reports these
-defects, the local check is deleted.
+in this one). That requirement and its test case are authored and merged in a
+spec pull request before the structural one; the check's code lands before or
+with the structural pull request. No repository copies another repository's
+check; when `quire validate` reports these defects, the local check is
+deleted.
 
 ### Adoption by Codegen and Runtime
 
 `quire-contract-codegen` and `quire-contract-runtime` adopt this layout the
-same way as this repository, each in its own structural pull request:
+same way as this repository. Each first merges a spec pull request specifying
+its repository-local ID and relocation check (a new FR and TC in its own
+sequences), then opens its structural pull request:
 
 1. Its root `spec/spec.md` references
    `ix://agent-ix/quire-contract-ir/ADR-0056` and restates none of it.
@@ -321,10 +335,41 @@ same way as this repository, each in its own structural pull request:
    existing matrix keeps its `TM` ID in the subsystem holding most of its rows.
 4. `spec/nonfunctional/` becomes `non-functional/` and `spec/interface/`
    requirements move into `functional/`, per subsystem.
-5. It specifies and builds its own repository-local ID and relocation check,
-   as above, and runs it from `make spec`.
+5. The structural pull request runs the already-specified check from
+   `make spec` and adds no requirement or test case ID.
 6. The structural pull request passes the restructure gate in its own
    repository, and IDs stay in that repository's own sequences.
+
+### Adoption by this repository
+
+The structural pull request for this repository moves `spec/index.md` to
+`spec/spec.md` and the existing matrices TM-001 and TM-002 into subsystem
+matrices, and meets rules 5, 7, 8 and 9 at these sites, as found at this
+record's acceptance:
+
+- **Readers of spec paths** (rules 7 and 8): `include_str!`, `read_dir` and path
+  literals in `tests/it/{governance_reconciliation,governance,ecosystem_model,identity,output_mapping,conformance,foundation,toolchain_policy}.rs`;
+  `include_bytes!` in `src/temporal/{request,admission}.rs`; the fixed,
+  non-recursive `SPEC_DIRECTORIES` and matrix path list in
+  `scripts/validate_matrix_status.py` and the fixture tree in
+  `tests/test_matrix_status.py`; `tests/test_native_orchestration.py`;
+  `assurance/change-assurance.json` sources and its `configuration`
+  `spec/index.md`; spec links in `README.md` and `CONTRIBUTING.md`.
+  `scripts/assurance_chain.py` writes its own scratch spec tree and is
+  unaffected.
+- **Digest-bound files** (rule 5): FR-025 and FR-026, whose bytes
+  `src/temporal/{request,admission}.rs` digest.
+- **Unprefixed foreign IDs** (rule 9), each naming a quire-specification
+  artifact without its prefix: the strings `FR-322` and `FR-340` in doc
+  comments under `crates/quire-contract-model/src/checked_package/` and in
+  `tests/it/checked_package_v2_*.rs`; `TC-280` and `TC-281` in
+  `crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs`;
+  `FR-331` in `src/kani/outcome.rs`; and short-name prose such as
+  `QSpec FR-340` in `spec/`.
+- **Withdrawn trace tag** (rule 9): `#[trace("TC-221", "FR-031-AC-4")]` in
+  `tests/it/kani_replay.rs`, citing the withdrawn TC-221.
+- **Withdrawn test cases** (matrices rule 5): TC-046 and TC-054, today listed in
+  prose in `spec/contract-test-matrix.md`.
 
 ## Consequences
 
@@ -332,8 +377,9 @@ same way as this repository, each in its own structural pull request:
   that implement it, and the one matrix that verifies it.
 - Parallel authors cannot mint the same ID, and a collision that still occurs
   fails `make spec` naming both files instead of silently unbinding two tests.
-- A restructure costs one pull request per repository, gated on ID-set equality
-  and an embedded-path scan, and blocks other spec writers in that repository
+- A restructure costs a spec pull request for the local check and then one
+  structural pull request per repository, gated on ID-set equality and an
+  embedded-path scan, and blocks other spec writers in that repository
   while it is open.
 - Paths quoted in reviews and external notes go stale on the first move; the
   relocation maps under `spec/relocations/` resolve them.
