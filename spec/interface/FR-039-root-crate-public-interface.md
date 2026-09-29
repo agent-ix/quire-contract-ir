@@ -83,8 +83,8 @@ outcome, its one QSL `TerminalValue` (FR-031).
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.
 
-The root crate takes `qsl-replay` from the same QSL repository and revision
-it already pins for its owner views, so taking `qsl-replay` adds no
+The root crate takes `qsl-replay` from the same QSL repository
+it already depends on for its owner views, so taking `qsl-replay` adds no
 repository edge.
 It has no dependency on `quire_spec_language::runtime`.
 

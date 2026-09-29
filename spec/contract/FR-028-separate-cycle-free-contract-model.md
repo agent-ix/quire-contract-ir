@@ -37,11 +37,10 @@ A model type, function, error, feature, canonical byte, diagnostic and
 conformance outcome is reached through `quire_contract_model` only (FR-019).
 The package split changes no wire/schema/profile/identity.
 
-QSL's production graph depends on `quire-contract-model` at the exact
-reviewed revision and not on `quire-contract-ir`. Contract IR may then depend
-on the QSL owner crate and the other owner crates without a reverse
-production edge. Test-only pins remain explicitly named and cannot enter
-production code.
+QSL's production graph depends on `quire-contract-model` and not on
+`quire-contract-ir`. Contract IR may then depend on the QSL owner crate and
+the other owner crates without a reverse production edge. Test-only
+dependencies cannot enter production code.
 
 ## Dependency and admission rules
 

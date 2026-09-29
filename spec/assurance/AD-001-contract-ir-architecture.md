@@ -69,7 +69,7 @@ package.
 | Owner | Holds | Contract IR's relation |
 | --- | --- | --- |
 | QSpec (`quire-specification`) | the normative language, the `quire.checked-package/v2` wire contract (FR-322, FR-340 through FR-342), the FR-331 backend-provider envelope, AD-016 | Contract IR reads QSpec's contracts and cites them; it copies none of QSpec's files |
-| QSL (`quire-spec-language`) | the compiler that produces checked packages, the owner views `predicate` and `temporal` read, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL at one pinned revision, names QSL's replay types and defines none of its own |
+| QSL (`quire-spec-language`) | the compiler that produces checked packages, the owner views `predicate` and `temporal` read, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL, names QSL's replay types and defines none of its own |
 | codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
 
@@ -115,7 +115,7 @@ which QSL reads as category `Inconclusive` with the vacuity cause
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
 calls no executor. The root crate takes `qsl-replay` from the QSL repository
-and revision it already pins, so taking it adds no repository edge.
+it already depends on, so taking it adds no repository edge.
 
 ## Views
 

@@ -95,7 +95,7 @@ The Quire standard owns profile definitions. The composed-v1 candidates use
 `ix:native` edition `1-draft` with independently versioned state-core, query,
 finite-graph, temporal, protocol, observation, package and diagnostic
 definitions accepted for implementation planning in Quire Specification PR
-#15. FS01–FS05 own final adoption and immutable definition pins. Historical
+#15. FS01–FS05 own final adoption. Historical
 `ix:native` / `0-draft` / `state-finite/0-draft` source, result and definition
 bytes remain historical and are never reinterpreted in place.
 
