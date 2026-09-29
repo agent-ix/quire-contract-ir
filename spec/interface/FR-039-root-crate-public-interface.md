@@ -60,8 +60,9 @@ caller-selected `BridgeLimits`.
 ## Outputs
 
 Validated projections, joins and model documents; typed `BridgeError` and
-decision values; bounded-Kani lowerings and typed `KaniOutcome`s, each with
-its QSL `TerminalValue`.
+decision values; bounded-Kani lowerings and typed `KaniOutcome`s; and, for
+each outcome, either its QSL `TerminalValue` (an outcome whose target FR-031
+decides) or a typed absence (an outcome FR-031 leaves to AD-001's OQ-3).
 
 ## Behavior
 
@@ -113,7 +114,7 @@ caller-selected and clamped to the owner maxima.
 | --- | --- | --- |
 | FR-039-AC-1 | The root crate's public items outside the `quire_contract_model` re-export are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item. | Test (TC-055) |
 | FR-039-AC-2 | No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `quire_spec_language::runtime`. | Test (TC-055) |
-| FR-039-AC-3 | Code naming any item the "Items QSL owns" section lists through `quire_contract_ir` fails to compile, and the terminal value the `kani` outcome map returns is `qsl_replay::TerminalValue`. | Test (TC-055) |
+| FR-039-AC-3 | Code naming any item the "Items QSL owns" section lists through `quire_contract_ir` fails to compile, and the value the `kani` outcome map returns for an outcome whose target is decided is a `qsl_replay::TerminalValue`, while for an undecided outcome it is the typed absence. | Test (TC-055) |
 | FR-039-AC-4 | `BridgeErrorCode::all()` lists every variant exactly once, each `as_str()` spelling is registered in STD-001, and every public `bridge`, `predicate`, `temporal`, `ecosystem_model` and `kani` function over untrusted input returns a typed error with no public panic path under the negative corpora of TC-038 through TC-042. | Test (TC-055) |
 
 ## Dependencies

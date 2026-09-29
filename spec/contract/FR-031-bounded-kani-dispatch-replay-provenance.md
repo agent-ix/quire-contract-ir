@@ -106,8 +106,9 @@ test belongs to those owners, so TC-054 is withdrawn from this repository.
 `FR-031-AC-4` required an evaluated witness to be parsed from a backend
 transcript and typed against a generator-declared schema. `Witness` is QSL's
 `qsl_replay::Witness` (QSL FR-070) and the transcript parser is the codegen
-backend adapter's, so Contract IR carries neither. TC-221 verifies the
-behaviour while `src/kani/witness.rs` remains and is withdrawn with it.
+backend adapter's, so Contract IR carries neither. TC-221 is withdrawn; its
+tests remain in `tests/it/kani_replay.rs` until `src/kani/witness.rs` is
+deleted with them.
 
 ## Dependencies
 

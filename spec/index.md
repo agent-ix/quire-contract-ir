@@ -94,8 +94,8 @@ Kani outcome whose target is decided maps to one QSL
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`
 types, and the codegen replay adapter replays through `qsl_replay::replay`.
-TC-221 verifies the witness extraction that leaves Contract IR with
-FR-031-AC-4, TC-222 the FR-344 refusals, and TC-223 the outcome map.
+TC-221, which verified the witness extraction retired with FR-031-AC-4, is
+withdrawn; TC-222 verifies the FR-344 refusals and TC-223 the outcome map.
 FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific

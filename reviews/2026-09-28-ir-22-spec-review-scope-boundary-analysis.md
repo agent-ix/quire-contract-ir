@@ -74,3 +74,13 @@ Scope examined (all 29 changed files):
 | FND-001 | low | FR-037's Description places a shall on QSL and codegen: "the codegen replay adapter builds ... and calls qsl_replay::replay". Contract IR cannot verify that. Its verifiable content is AC-6 alone. Reword the statement to the Contract IR boundary, and cite QSL and codegen for the rest. | spec/contract/FR-037-canonical-backend-replay-and-qualification.md:27-32 |
 | FND-002 | low | Cross-repo, for information only. QSL's ADR-011 E9 row (quire-spec-language spec/decisions/ADR-011 at origin/main, line 262) still describes the replay request as "the IR packet plus the #231 envelope members". FR-031, FR-037 and AD-002 cite E9 as their authority. QSL's text lags the ruling. Contract IR needs no change, and no gate should wait on QSL. | spec/contract/FR-031-bounded-kani-dispatch-replay-provenance.md:39 |
 | FND-003 | low | FR-040 references ix://agent-ix/quire-specification/FR-341, but QSpec origin/main has two FR-341 files: interfaces/FR-341 (state clause body) and temporal/FR-341 (infinite-trace result disposition). The reference is ambiguous in QSpec's graph. The collision is QSpec's, so this is for information only. | spec/contract/FR-040-admit-frame-entries-and-state-clauses.md:12 |
+
+## Dispositions
+
+Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 24b0778 |
+| FND-002 | accepted-no-change | The finding concerns QSL's ADR-011 E9 text. That text is QSL's, and fixing it is QSL's work. Contract IR's citation is correct under the ruling, and QSL gates do not wait on downstream repos. |
+| FND-003 | fixed | 24b0778 |

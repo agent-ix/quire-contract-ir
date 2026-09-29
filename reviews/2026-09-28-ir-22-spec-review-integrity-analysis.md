@@ -79,3 +79,25 @@ Scope examined (all 29 changed files):
 | FND-006 | low | MP-002 is unchanged and still measures "native replay" agreement as part of Contract IR's bounded-Kani parity. It is still the control_ref for AP-002's impact-unreplayable-counterexample, which this PR rewords to qsl_replay::replay. After the ruling, the replay agreement MP-002 counts is QSL's ReplayResult as codegen records it. The procedure should say so. | spec/assurance/MP-002-bounded-kani-parity.md:19,74,78 |
 | FND-007 | low | FR-037-AC-6 and TC-046 duplicate FR-039-AC-2 and AC-3 and TC-055. Both pairs inventory the public API for QSL-owned replay types and search src/ for an executor call, so two test cases verify one property. | spec/contract/FR-037-canonical-backend-replay-and-qualification.md:57 |
 | FND-008 | low | The TC-053 cases row contains a stray ".;" left over from an edit: "...regardless of which defect class the other carries.; the cases above are locally authored". | spec/contract-test-matrix.md:123 |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-009 | low | Some wording still says every outcome has a terminal value, although FR-031's map is no longer total. FR-039 Outputs (62-64) says typed KaniOutcomes, "each with its QSL TerminalValue". The TC-223 title and matrix row (TC-223:3, matrix:90) say "Every Kani outcome kind maps to its one QSL terminal value". TC-055:28-30 says to compile a probe that "binds the kani outcome map's result to qsl_replay::TerminalValue". The map now returns a TerminalValue or a typed absence, so that probe does not build as written. Failure scenario: the TC-055 author writes a probe that fails to compile, or narrows the map's type to make it build. | spec/interface/FR-039-root-crate-public-interface.md:62-64 |
+| FND-010 | low | Cross-repo, for information only. FR-030 now says the zero-check rule is "the one shared rule every caller that classifies a Kani run routes through". FR-030-AC-4 also says no public constructor builds a proved outcome without a count of at least one. Codegen origin/main calls KaniOutcome::proved(..) with no count at src/bounded_kani_corpus.rs:346 and src/bounded_kani_replay.rs:74. Its classify_run does route through proved_from_checks (src/kani_execution.rs:942). The IR code PR that implements AC-4 breaks those two call sites. Those callers need a coordinated codegen change. No change is needed in this PR. | spec/contract/FR-030-bounded-kani-domain-and-outcomes.md:33,44 |
+
+## Dispositions
+
+Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 24b0778 |
+| FND-002 | fixed | 24b0778 |
+| FND-003 | fixed | 24b0778 |
+| FND-004 | fixed | 24b0778 |
+| FND-005 | fixed | 24b0778 |
+| FND-006 | fixed | 24b0778 |
+| FND-007 | fixed | 24b0778 |
+| FND-008 | fixed | 24b0778 |

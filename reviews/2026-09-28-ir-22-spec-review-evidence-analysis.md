@@ -67,3 +67,21 @@ Scope examined (all 29 changed files):
 | FND-002 | medium | TC-056's Expected Results require "exactly the code, cause and RFC 6901 locus its criterion names". Several FR-040 criteria name none and say only "refuse(s)": AC-5 (occurrence role), AC-7 (reordered bindings, non-text operation, missing binding, role), AC-8 (other identity, operator class, member kind, clause value, term shape, role) and all of AC-11. QSpec fixes these cases at schema level only. Contract IR's reader maps a schema-shape failure to invalid_semantic_graph (checked_package/v2/mod.rs:1426-1450). The criteria should state that mapping and the locus. Failure scenario: the TC-056 author invents the expected code and locus. | spec/contract/FR-040-admit-frame-entries-and-state-clauses.md:190,192,193,196 |
 | FND-003 | low | FR-040-AC-7 leaves out the operation-resolution cases of QSpec FR-342-AC-4: an undeclared name and a field's name refuse missing-name, an unselected version refuses missing-selection, and (Sub, "size") resolves to Sub's redefinition. FR-040's Behavior also drops "with redefinitions applied". Behavior names the refusals, but no criterion or test case backs them. | spec/contract/FR-040-admit-frame-entries-and-state-clauses.md:192 |
 | FND-004 | low | The TC-221 row stays ✅ against the retired FR-031-AC-4. Seventeen #[trace("TC-221", "FR-031-AC-4")] tests in tests/it/kani_replay.rs still trace a criterion that is no longer declared, and quire coverage does not flag them (FR-031 3/3). The withdrawn TC-054 row still counts as one of the 39 unbacked rows. Both are informational until witness.rs and replay.rs are deleted. The code PR that deletes them should delete these traces too. | spec/contract-test-matrix.md:89 |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | The strict coverage count shows false green for the rows behind the original HIGH. quire coverage --strict at 24b0778 reports 37 unbacked and 0 contradicted. Neither the TC-223 row nor FR-030-AC-4 appears in the unbacked list, because the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 backs the TC-223 row. That test verifies the superseded map onto KaniProviderResult. quire's own per-file line disagrees: FR-030 3/4. The matrix prose is honest (both rows are planned, and it names the legacy test). The aggregate gate number is not. Recommended fix: in the code PR that implements TC-223, retag or delete the legacy trace in the same commit. No change is needed in this PR. | spec/contract-test-matrix.md:90 |
+| FND-006 | low | Withdrawn test cases are treated inconsistently. TC-054 and TC-046 moved to the new "Withdrawn Test Cases" section (matrix:105). TC-221 is also withdrawn, but it keeps its row in the Test Case Summary table (89) and its Coverage Design row (128). Keeping TC-221 in the table is defensible while 17 tests still trace it. The Withdrawn section should list it too, or say why it is absent. Nothing is hidden: TC-046 and TC-054 have status: withdrawn, and no test or source file traces either one. | spec/contract-test-matrix.md:89,105,128 |
+
+## Dispositions
+
+Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 24b0778 |
+| FND-002 | fixed | 24b0778 |
+| FND-003 | fixed | 24b0778 |
+| FND-004 | fixed | 24b0778 |

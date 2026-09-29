@@ -26,15 +26,17 @@ Search `src/` and `crates/quire-contract-model/src/` for
 entry, and for a public replay envelope, request, result, parity or
 minimization type. Compile one probe per item in
 FR-039's "Items QSL owns" section through `quire_contract_ir` and expect each
-to fail; compile a probe that binds the `kani` outcome map's result to
-`qsl_replay::TerminalValue` and expect it to build. Read
+to fail; compile a probe that calls the `kani` outcome map on a `proved` outcome and
+on an `Unavailable` outcome, takes the `qsl_replay::TerminalValue` out of the
+first result and matches the second as the typed absence, and expect it to
+build. Read
 `BridgeErrorCode::all()` against the STD-001 registry, and run the TC-038
 through TC-042 negative corpora under `catch_unwind`.
 
 ## Expected Results
 
 The inventory equals the table with no extra or missing item; the search finds
-nothing; every QSL-owned-item probe fails to compile and the `TerminalValue`
+nothing; every QSL-owned-item probe fails to compile and the outcome-map
 probe builds; every `BridgeErrorCode` appears once and is registered; no
 negative case panics.
 

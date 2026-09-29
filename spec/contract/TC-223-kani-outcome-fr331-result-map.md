@@ -1,6 +1,6 @@
 ---
 id: TC-223
-title: "Every Kani outcome kind maps to its one QSL terminal value"
+title: "Kani outcomes with a decided target map to their QSL terminal value, and the rest to a typed absence"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-031
@@ -10,7 +10,7 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/FR-069
     type: references
 ---
-# TC-223: Every Kani outcome kind maps to its one QSL terminal value
+# TC-223: Kani outcomes with a decided target map to their QSL terminal value, and the rest to a typed absence
 
 ## Description
 

@@ -63,3 +63,12 @@ Scope examined (all 29 changed files):
 | --- | --- | --- | --- |
 | FND-001 | low | "so the ruling adds no repository edge" refers to a decision that is not in the spec. Better: "so taking qsl-replay adds no repository edge". | spec/interface/FR-039-root-crate-public-interface.md:82 |
 | FND-002 | low | "Contract IR deletes its own copies: ..." describes a pending change. Once the code PR lands, it is a list of names that no longer exist. FR-039's "Items QSL owns" list carries weight (FR-039-AC-3 probes each name). AD-001 could state the ownership and point to FR-039. | spec/assurance/AD-001-contract-ir-architecture.md:77-80 |
+
+## Dispositions
+
+Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 24b0778 |
+| FND-002 | fixed | 24b0778 |
