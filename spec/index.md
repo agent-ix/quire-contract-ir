@@ -5,13 +5,7 @@ org: agent-ix
 component_type: semantic-contract-library
 implementation_language: rust-json-schema
 tags: [contract-ir, contract-governance, provenance, assurance]
-depends_on:
-  - ix://agent-ix/quire-contract-ir/issues/1
 standards_alignment: [iso-iec-ieee-29148]
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/issues/1
-    type: depends_on
-    cardinality: "1:1"
 security_critical: false
 ---
 # Master Requirements Specification
@@ -130,10 +124,7 @@ Cargo cycle.
 
 ## References
 
-- [Program umbrella](https://github.com/agent-ix/quire-contract-ir/issues/1).
-- [PGM-01 issue](https://github.com/agent-ix/quire-contract-ir/issues/3).
 - [Canonical PGM-01 policy](program/PGM-01-governance.md).
-- [Contract IR epic](https://github.com/agent-ix/quire-contract-ir/issues/11).
 - [Contract IR test matrix](contract-test-matrix.md).
 - [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
 - [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
