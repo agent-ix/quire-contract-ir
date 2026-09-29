@@ -111,6 +111,23 @@ fn frame_mutation(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     (value, frame)
 }
 
+/// A join case: name, `modifies`, `creates`, `dependencies`, code, cause,
+/// locus digest, member and entry index.
+type JoinCase<'a> = (
+    &'a str,
+    Value,
+    Value,
+    Value,
+    Code,
+    Cause,
+    &'a str,
+    &'a str,
+    usize,
+);
+
+/// An edit of one clause body.
+type Edit = Box<dyn Fn(&mut Value)>;
+
 const OBJECT: &str = "1515151515151515151515151515151515151515151515151515151515151515";
 const PROCESS: &str = "1616161616161616161616161616161616161616161616161616161616161616";
 const RELATIONSHIP: &str = "2020202020202020202020202020202020202020202020202020202020202020";
@@ -134,9 +151,7 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
         frame["dependencies"] = json!([]);
     });
     admits(&empty);
-    let entry = |value: Value| {
-        frame_mutation(move |frame| frame["body"]["modifies"][1] = value)
-    };
+    let entry = |value: Value| frame_mutation(move |frame| frame["body"]["modifies"][1] = value);
     for (case, value) in [
         ("a bare node key", node_id(RELATIONSHIP)),
         (
@@ -180,7 +195,7 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     let at = |frame: usize, member: &str, entry: usize| {
         format!("/semantic_graph/nodes/{frame}/body/{member}/{entry}")
     };
-    let cases: [(&str, Value, Value, Value, Code, Cause, &str, &str, usize); 6] = [
+    let cases: [JoinCase<'_>; 6] = [
         (
             "a relationship entry naming an object type",
             json!([relationship(OBJECT)]),
@@ -412,7 +427,15 @@ const REFERENCE: &str = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b
 const SELF: &str = "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3";
 const ANCHOR: &str = "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5";
 
-fn plain(digest: &str, tag: &str, form: &str, ty: &str, deps: &[&str], role: &str, body: Value) -> Value {
+fn plain(
+    digest: &str,
+    tag: &str,
+    form: &str,
+    ty: &str,
+    deps: &[&str],
+    role: &str,
+    body: Value,
+) -> Value {
     json!({
         "node_id": node_id(digest),
         "schema_version": "quire.checked-semantic-graph/v2",
@@ -506,16 +529,54 @@ impl StatePackage {
         let frame = position(&value, "state", "frame");
         let frame_key = digest(&value, frame);
         let added = [
-            plain(TEXT, "scalar_type", "text", TEXT, &[], "type", json!({"term": "aggregate", "members": []})),
-            plain(INTEGER, "scalar_type", "integer", INTEGER, &[], "type", json!({"term": "aggregate", "members": []})),
-            plain(REFERENCE, "composite_type", "reference", REFERENCE, &[OBJECT], "type",
-                json!({"term": "aggregate", "members": [reference(OBJECT)]})),
-            plain(SELF, "value", "parameter", REFERENCE, &[], "expression", json!({"term": "aggregate", "members": [
-                binding("name", text("self")),
-                binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
-            ]})),
-            plain(ANCHOR, "state", "operation_anchor", OBJECT, &[OBJECT, &frame_key], "anchor",
-                anchor_body(OBJECT, text("deposit"), &frame_key)),
+            plain(
+                TEXT,
+                "scalar_type",
+                "text",
+                TEXT,
+                &[],
+                "type",
+                json!({"term": "aggregate", "members": []}),
+            ),
+            plain(
+                INTEGER,
+                "scalar_type",
+                "integer",
+                INTEGER,
+                &[],
+                "type",
+                json!({"term": "aggregate", "members": []}),
+            ),
+            plain(
+                REFERENCE,
+                "composite_type",
+                "reference",
+                REFERENCE,
+                &[OBJECT],
+                "type",
+                json!({"term": "aggregate", "members": [reference(OBJECT)]}),
+            ),
+            plain(
+                SELF,
+                "value",
+                "parameter",
+                REFERENCE,
+                &[],
+                "expression",
+                json!({"term": "aggregate", "members": [
+                    binding("name", text("self")),
+                    binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
+                ]}),
+            ),
+            plain(
+                ANCHOR,
+                "state",
+                "operation_anchor",
+                OBJECT,
+                &[OBJECT, &frame_key],
+                "anchor",
+                anchor_body(OBJECT, text("deposit"), &frame_key),
+            ),
             clause_node("invariant", &[SELF], OBJECT),
             clause_node("precondition", &[SELF], ANCHOR),
         ];
@@ -612,8 +673,17 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         ),
     ];
     for (case, body) in shapes {
-        let value = StatePackage::new().edit(anchor, |node| node["body"] = body).value;
-        expect(case, &value, Code::InvalidSemanticGraph, None, &body_at, None);
+        let value = StatePackage::new()
+            .edit(anchor, |node| node["body"] = body)
+            .value;
+        expect(
+            case,
+            &value,
+            Code::InvalidSemanticGraph,
+            None,
+            &body_at,
+            None,
+        );
     }
     let value = StatePackage::new()
         .edit(anchor, |node| {
@@ -644,7 +714,9 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Some(&frame_key),
     );
     let value = StatePackage::new()
-        .edit(anchor, |node| node["body"] = anchor_body(OBJECT, text("deposit"), OBJECT))
+        .edit(anchor, |node| {
+            node["body"] = anchor_body(OBJECT, text("deposit"), OBJECT)
+        })
         .value;
     expect(
         "a frame naming an object type",
@@ -655,7 +727,9 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Some(OBJECT),
     );
     let value = StatePackage::new()
-        .edit(anchor, |node| node["dependencies"] = json!([node_id(OBJECT)]))
+        .edit(anchor, |node| {
+            node["dependencies"] = json!([node_id(OBJECT)])
+        })
         .value;
     expect(
         "a frame missing from dependencies",
@@ -679,7 +753,10 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
 
     // A second anchor naming the same (context, operation) pair, or the same
     // frame, refuses at the higher-digest anchor.
-    for (case, operation) in [("a duplicate pair", "deposit"), ("a shared frame", "withdraw")] {
+    for (case, operation) in [
+        ("a duplicate pair", "deposit"),
+        ("a shared frame", "withdraw"),
+    ] {
         let mut package = StatePackage::new();
         let mut second = nodes(&package.value)[anchor].clone();
         let second_key = "b6".repeat(32);
@@ -715,13 +792,26 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     // An invariant anchored at an operation anchor, and a precondition at an
     // object type, refuse at the anchor's target.
     for (case, clause, kind, anchor) in [
-        ("an invariant at an operation anchor", invariant, "invariant", ANCHOR),
-        ("a precondition at an object type", precondition, "precondition", OBJECT),
+        (
+            "an invariant at an operation anchor",
+            invariant,
+            "invariant",
+            ANCHOR,
+        ),
+        (
+            "a precondition at an object type",
+            precondition,
+            "precondition",
+            OBJECT,
+        ),
     ] {
         let value = StatePackage::new()
             .edit(clause, |node| *node = clause_node(kind, &[SELF], anchor))
             .value;
-        let clause = StatePackage { value: value.clone() }.clause(kind);
+        let clause = StatePackage {
+            value: value.clone(),
+        }
+        .clause(kind);
         expect(
             case,
             &value,
@@ -733,9 +823,14 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     }
     // A parameter reference to a node that is not a parameter.
     let value = StatePackage::new()
-        .edit(invariant, |node| *node = clause_node("invariant", &[INTEGER], OBJECT))
+        .edit(invariant, |node| {
+            *node = clause_node("invariant", &[INTEGER], OBJECT)
+        })
         .value;
-    let clause = StatePackage { value: value.clone() }.clause("invariant");
+    let clause = StatePackage {
+        value: value.clone(),
+    }
+    .clause("invariant");
     expect(
         "a parameter that is not a value/parameter",
         &value,
@@ -745,16 +840,37 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         Some(INTEGER),
     );
     // Schema-level shapes refuse at the clause body.
-    let shapes: [(&str, Box<dyn Fn(&mut Value)>); 7] = [
-        ("another identity", Box::new(|body| body["operation"]["identity"] = json!("quire.op.claim.clause"))),
-        ("another operator class", Box::new(|body| body["operator"] = json!("claim"))),
-        ("another member kind", Box::new(|body| body["operation"]["member"]["kind"] = json!("profile_operator"))),
-        ("another clause value", Box::new(|body| body["operation"]["member"]["clause"] = json!("assertion"))),
-        ("a first argument that is not an aggregate", Box::new(|body| body["arguments"][0] = reference(SELF))),
-        ("an empty parameter aggregate", Box::new(|body| body["arguments"][0]["members"] = json!([]))),
-        ("a second argument that is not a reference", Box::new(|body| {
-            body["arguments"][1] = json!({"term": "aggregate", "members": [reference(OBJECT)]});
-        })),
+    let shapes: [(&str, Edit); 7] = [
+        (
+            "another identity",
+            Box::new(|body| body["operation"]["identity"] = json!("quire.op.claim.clause")),
+        ),
+        (
+            "another operator class",
+            Box::new(|body| body["operator"] = json!("claim")),
+        ),
+        (
+            "another member kind",
+            Box::new(|body| body["operation"]["member"]["kind"] = json!("profile_operator")),
+        ),
+        (
+            "another clause value",
+            Box::new(|body| body["operation"]["member"]["clause"] = json!("assertion")),
+        ),
+        (
+            "a first argument that is not an aggregate",
+            Box::new(|body| body["arguments"][0] = reference(SELF)),
+        ),
+        (
+            "an empty parameter aggregate",
+            Box::new(|body| body["arguments"][0]["members"] = json!([])),
+        ),
+        (
+            "a second argument that is not a reference",
+            Box::new(|body| {
+                body["arguments"][1] = json!({"term": "aggregate", "members": [reference(OBJECT)]});
+            }),
+        ),
     ];
     for (case, edit) in shapes {
         let value = StatePackage::new()
@@ -762,7 +878,10 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
             .value;
         let clause = nodes(&value)
             .iter()
-            .position(|node| node["semantic_form"] == "state_clause" && node["body"]["arguments"][1] != reference(ANCHOR))
+            .position(|node| {
+                node["semantic_form"] == "state_clause"
+                    && node["body"]["arguments"][1] != reference(ANCHOR)
+            })
             .expect("the edited clause");
         expect(
             case,
@@ -774,9 +893,14 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         );
     }
     let value = StatePackage::new()
-        .edit(invariant, |node| node["occurrences"] = json!([{"role": "anchor", "ordinal": 0}]))
+        .edit(invariant, |node| {
+            node["occurrences"] = json!([{"role": "anchor", "ordinal": 0}])
+        })
         .value;
-    let clause = StatePackage { value: value.clone() }.clause("invariant");
+    let clause = StatePackage {
+        value: value.clone(),
+    }
+    .clause("invariant");
     expect(
         "an anchor-role clause occurrence",
         &value,
@@ -793,7 +917,8 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     let mut other_self = StatePackage::new();
     let other_reference = "b7".repeat(32);
     let other_self_key = "b8".repeat(32);
-    let reference_node = nodes(&other_self.value)[other_self.at("composite_type", "reference")].clone();
+    let reference_node =
+        nodes(&other_self.value)[other_self.at("composite_type", "reference")].clone();
     let self_node = nodes(&other_self.value)[other_self.at("value", "parameter")].clone();
     let mut other_reference_node = reference_node;
     other_reference_node["node_id"] = node_id(&other_reference);
@@ -803,8 +928,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     let mut other_self_node = self_node;
     other_self_node["node_id"] = node_id(&other_self_key);
     other_self_node["semantic_type"] = node_id(&other_reference);
-    other_self
-        .value["semantic_graph"]["nodes"]
+    other_self.value["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
         .extend([other_reference_node, other_self_node]);
@@ -826,8 +950,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     extra["node_id"] = node_id(&extra_key);
     extra["body"]["members"][0]["value"]["value"] = json!("n");
     extra["body"]["members"][1]["value"]["value"] = json!("1");
-    second
-        .value["semantic_graph"]["nodes"]
+    second.value["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
         .push(extra);
@@ -859,7 +982,10 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
             node["body"]["arguments"][2] = inner;
         })
         .value;
-    let clause = StatePackage { value: nested.clone() }.clause("invariant");
+    let clause = StatePackage {
+        value: nested.clone(),
+    }
+    .clause("invariant");
     expect(
         "a nested clause application",
         &nested,
@@ -877,7 +1003,10 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
         .value;
     let claim = nodes(&misplaced)
         .iter()
-        .position(|node| node["body"]["operation"]["identity"] == "quire.op.state.clause" && node["node_tag"] == "claim")
+        .position(|node| {
+            node["body"]["operation"]["identity"] == "quire.op.state.clause"
+                && node["node_tag"] == "claim"
+        })
         .expect("the misplaced clause");
     expect(
         "a clause application rooting a claim",
@@ -892,13 +1021,19 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
         .edit(invariant, |node| {
             node["body"]["arguments"][2] = reference(INTEGER);
             let deps = clause_dependencies(&[SELF], OBJECT);
-            let mut deps: Vec<String> =
-                deps.into_iter().filter(|d| *d != condition()).chain([INTEGER.to_owned()]).collect();
+            let mut deps: Vec<String> = deps
+                .into_iter()
+                .filter(|d| *d != condition())
+                .chain([INTEGER.to_owned()])
+                .collect();
             deps.sort();
             node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
         })
         .value;
-    let clause = StatePackage { value: non_boolean.clone() }.clause("invariant");
+    let clause = StatePackage {
+        value: non_boolean.clone(),
+    }
+    .clause("invariant");
     expect(
         "a non-Boolean condition",
         &non_boolean,
@@ -917,7 +1052,8 @@ fn tc_056_parameter_bodies_admit_name_then_level_only() {
     let package = StatePackage::new();
     let parameter = package.at("value", "parameter");
     let body_at = format!("/semantic_graph/nodes/{parameter}/body");
-    let level = json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"});
+    let level =
+        json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"});
     let shapes: [(&str, Value); 4] = [
         (
             "reordered bindings",
@@ -940,10 +1076,19 @@ fn tc_056_parameter_bodies_admit_name_then_level_only() {
         let value = StatePackage::new()
             .edit(parameter, |node| node["body"] = body)
             .value;
-        expect(case, &value, Code::InvalidSemanticGraph, None, &body_at, None);
+        expect(
+            case,
+            &value,
+            Code::InvalidSemanticGraph,
+            None,
+            &body_at,
+            None,
+        );
     }
     let value = StatePackage::new()
-        .edit(parameter, |node| node["occurrences"] = json!([{"role": "anchor", "ordinal": 0}]))
+        .edit(parameter, |node| {
+            node["occurrences"] = json!([{"role": "anchor", "ordinal": 0}])
+        })
         .value;
     expect(
         "an anchor-role parameter occurrence",
@@ -1001,8 +1146,13 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         "a state defect before an operation defect"
     );
     // The operation defect alone refuses at the operation step.
-    let value = StatePackage::new().edit(precondition, operation_defect).value;
-    let clause = StatePackage { value: value.clone() }.clause("precondition");
+    let value = StatePackage::new()
+        .edit(precondition, operation_defect)
+        .value;
+    let clause = StatePackage {
+        value: value.clone(),
+    }
+    .clause("precondition");
     expect(
         "a non-Boolean result_type",
         &value,
@@ -1075,7 +1225,10 @@ fn qspec_frame_mutations_and_published_fixtures() {
         println!("skipped: QSPEC_DIR not set");
         return;
     };
-    let fixtures = ["positive-all-families.json", "positive-clause-operations.json"];
+    let fixtures = [
+        "positive-all-families.json",
+        "positive-clause-operations.json",
+    ];
     for fixture in fixtures {
         let package = qspec(&format!("{FIXTURES}/{fixture}")).expect("QSPEC_DIR is set");
         match read(&package) {
@@ -1085,7 +1238,9 @@ fn qspec_frame_mutations_and_published_fixtures() {
     }
     let base = qspec(&format!("{FIXTURES}/positive-all-families.json")).expect("QSPEC_DIR is set");
     let frame = position(&base, "state", "frame");
-    let mutations = vectors["frame_mutations"].as_array().expect("frame_mutations");
+    let mutations = vectors["frame_mutations"]
+        .as_array()
+        .expect("frame_mutations");
     let mut replayed = 0_usize;
     for mutation in mutations {
         let name = mutation["name"].as_str().expect("name");
@@ -1104,7 +1259,9 @@ fn qspec_frame_mutations_and_published_fixtures() {
                 .as_array()
                 .expect("source map")
                 .iter()
-                .find(|entry| entry["node_id"] == package["semantic_graph"]["nodes"][frame]["node_id"])
+                .find(|entry| {
+                    entry["node_id"] == package["semantic_graph"]["nodes"][frame]["node_id"]
+                })
                 .expect("the frame's source map entry")
                 .clone();
             entry["node_id"] = second["node_id"].clone();
@@ -1120,7 +1277,11 @@ fn qspec_frame_mutations_and_published_fixtures() {
             vector_code(mutation["expected_code"].as_str().expect("code")),
             "{name}: {refusal:?}"
         );
-        assert_eq!(refusal.cause, vector_cause(&mutation["expected_cause"]), "{name}: {refusal:?}");
+        assert_eq!(
+            refusal.cause,
+            vector_cause(&mutation["expected_cause"]),
+            "{name}: {refusal:?}"
+        );
         assert_eq!(
             refusal.locus.as_ref().map(|id| &*id.digest),
             mutation["expected_locus_digest"].as_str(),

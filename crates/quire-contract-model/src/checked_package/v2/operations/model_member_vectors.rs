@@ -944,7 +944,11 @@ fn tc_280_frame_field_cases_resolve_through_the_frame_step() {
                         &mut Budget::new(&mut meter, 0),
                     )
                     .expect("the field resolves");
-                assert_eq!(resolved.identity(), resolves.as_str().expect("identity"), "{name}");
+                assert_eq!(
+                    resolved.identity(),
+                    resolves.as_str().expect("identity"),
+                    "{name}"
+                );
             }
             None => assert_eq!(decided.as_ref(), Some(&case["expected"]), "{name}"),
         }
@@ -1005,7 +1009,11 @@ fn tc_280_anchor_cases_resolve_through_the_state_step() {
                         &mut Budget::new(&mut meter, 0),
                     )
                     .expect("the operation resolves");
-                assert_eq!(resolved.identity(), resolves.as_str().expect("identity"), "{name}");
+                assert_eq!(
+                    resolved.identity(),
+                    resolves.as_str().expect("identity"),
+                    "{name}"
+                );
             }
             None => assert_eq!(decided.as_ref(), Some(&case["expected"]), "{name}"),
         }

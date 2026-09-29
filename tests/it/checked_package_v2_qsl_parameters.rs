@@ -133,7 +133,15 @@ fn parameter_body(name: &str, level: &str) -> Value {
 fn parameter(name: &str, level: &str) -> (String, Value) {
     let body = parameter_body(name, level);
     let key = structural_key("value", "parameter", Some(T1_BOOLEAN), None, &body);
-    let node = wire_node(&key, "value", "parameter", T1_BOOLEAN, &[], "expression", body);
+    let node = wire_node(
+        &key,
+        "value",
+        "parameter",
+        T1_BOOLEAN,
+        &[],
+        "expression",
+        body,
+    );
     (key, node)
 }
 

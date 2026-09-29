@@ -30,8 +30,8 @@ use structural::validate_structural_nodes;
 use super::common::{
     canonical_value, count, decode_closed, digest_json, exceeds, first_difference, is_digest,
     is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite,
-    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{

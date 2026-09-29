@@ -36,10 +36,11 @@
 //! its order key refuses as `invalid_semantic_graph` at the frame body,
 //! located at the frame node. The first frame carrying a defect is reported.
 
+use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
-    BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, FrameEntryKind, ModelForm,
-    RelationForm, StateForm, WorkMeter,
+    BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, FrameEntryKind, ModelForm, RelationForm,
+    StateForm, WorkMeter,
 };
 use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
@@ -88,15 +89,6 @@ pub(super) struct FrameBody {
     pub(super) modifies: Vec<ModifiesEntry>,
     pub(super) creates: Vec<CheckedNodeId>,
     pub(super) deletes: Vec<CheckedNodeId>,
-}
-
-/// `^[A-Za-z_][A-Za-z0-9_]*$`, the schema's `Identifier`.
-pub(super) fn is_identifier(text: &str) -> bool {
-    let mut bytes = text.bytes();
-    bytes
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
@@ -172,15 +164,27 @@ fn reject_repeat<T: Eq>(entries: &[T], at: &Trail<'_>) -> Result<(), ValidationF
 /// One node key, located at the entry that holds it.
 fn read_node_key(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
     let mut target = None;
-    visit_reference(value, ReferenceMember::FrameEntry, false, at, &mut |id, _, _| {
-        target = Some(id.clone());
-    })?;
+    visit_reference(
+        value,
+        ReferenceMember::FrameEntry,
+        false,
+        at,
+        &mut |id, _, _| {
+            target = Some(id.clone());
+        },
+    )?;
     target.ok_or_else(|| {
-        ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at.pointer())
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.pointer(),
+        )
     })
 }
 
-fn read_node_keys(values: &[Value], at: &Trail<'_>) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
+fn read_node_keys(
+    values: &[Value],
+    at: &Trail<'_>,
+) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
     values
         .iter()
         .enumerate()
@@ -191,12 +195,19 @@ fn read_node_keys(values: &[Value], at: &Trail<'_>) -> Result<Vec<CheckedNodeId>
 /// One `FrameModifiesEntry` at `at`; any other shape refuses at the entry.
 // string-edge: decodes a modifies entry's `kind`.
 fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, ValidationFailure> {
-    let invalid =
-        || ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at.pointer());
+    let invalid = || {
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at.pointer(),
+        )
+    };
     let Value::Object(object) = entry else {
         return Err(invalid());
     };
-    let kind = object.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let kind = object
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let kind = FrameEntryKind::from_wire(kind).ok_or_else(invalid)?;
     let members: &[&str] = match kind {
         FrameEntryKind::Relationship => &["kind", "declaration"],

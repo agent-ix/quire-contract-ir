@@ -26,7 +26,7 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
-use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Owner, Resolved};
+use super::model_members::{MemberKind, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved};
 use super::structural::{
     anchor_body, clause_body, is_state_clause_application, reference_type_target, AnchorBody,
 };
@@ -128,7 +128,11 @@ fn ineligible(node: &CheckedSemanticNodeV2, path: JsonPointer) -> ValidationFail
 }
 
 /// A model refusal at `path`, located at `locus`.
-fn model_refusal(refusal: ModelRefusal, path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
+fn model_refusal(
+    refusal: ModelRefusal,
+    path: JsonPointer,
+    locus: &CheckedNodeId,
+) -> ValidationFailure {
     ValidationFailure::refused_at(refusal.code, path, Some(refusal.cause), locus.clone())
 }
 
@@ -202,6 +206,11 @@ fn is_object_type(kind: CheckedNodeKind) -> bool {
     kind == CheckedNodeKind::Model(ModelForm::ObjectType)
 }
 
+/// A resolved operation and its owner, `None` for a context that is not a
+/// model declaration node, or the refusal FR-342's operation check
+/// determines.
+type OperationResolution<'m> = Result<Option<(Owner<'m>, &'m OperationDecl)>, ModelRefusal>;
+
 /// The operation a model-owned context declares under `name`: `Ok(None)`
 /// when the context is not a model declaration node, else the owner and
 /// the operation, or the refusal FR-342's operation check determines.
@@ -211,8 +220,7 @@ fn resolve_operation<'m>(
     name: &str,
     graph: &StateGraph<'_, 'm>,
     meter: &mut WorkMeter,
-) -> Result<Result<Option<(Owner<'m>, &'m super::model_members::OperationDecl)>, ModelRefusal>, ValidationFailure>
-{
+) -> Result<OperationResolution<'m>, ValidationFailure> {
     if !graph
         .owners
         .is_model_declaration_node(context, context_kind.tag())
@@ -254,11 +262,19 @@ fn check_anchor(
     graph: &StateGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let target_at =
-        |member: usize| node_pointer(position).key("body").key("members").index(member);
-    let (context, context_kind) = join(anchor, &body.context, is_object_type, graph)
-        .map_err(|refusal| {
-            model_refusal(refusal, target_at(0).key("value").key("target"), &body.context)
+    let target_at = |member: usize| {
+        node_pointer(position)
+            .key("body")
+            .key("members")
+            .index(member)
+    };
+    let (context, context_kind) =
+        join(anchor, &body.context, is_object_type, graph).map_err(|refusal| {
+            model_refusal(
+                refusal,
+                target_at(0).key("value").key("target"),
+                &body.context,
+            )
         })?;
     let (frame, _) = join(
         anchor,
@@ -267,7 +283,11 @@ fn check_anchor(
         graph,
     )
     .map_err(|refusal| {
-        model_refusal(refusal, target_at(2).key("value").key("target"), &body.frame)
+        model_refusal(
+            refusal,
+            target_at(2).key("value").key("target"),
+            &body.frame,
+        )
     })?;
     if anchor.semantic_type != body.context || frame.semantic_type != body.context {
         return Err(model_refusal(
@@ -305,7 +325,11 @@ fn check_clause(
         graph,
     )
     .map_err(|refusal| {
-        model_refusal(refusal, arguments_at.clone().index(1).key("target"), &body.anchor)
+        model_refusal(
+            refusal,
+            arguments_at.clone().index(1).key("target"),
+            &body.anchor,
+        )
     })?;
     let mut parameters = Vec::with_capacity(body.parameters.len());
     for (index, target) in body.parameters.iter().enumerate() {
@@ -343,7 +367,9 @@ fn check_clause(
     let self_is_reference = parameters.first().is_some_and(|parameter| {
         graph
             .node(&parameter.semantic_type)
-            .filter(|(_, kind)| *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference))
+            .filter(|(_, kind)| {
+                *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+            })
             .and_then(|(node, _)| reference_type_target(node))
             .as_ref()
             == Some(context_id)

@@ -276,7 +276,12 @@ fn qspec_node_identity_vectors() {
         let members: Vec<(Value, String)> = vectors
             .iter()
             .filter(|vector| model_version(&vector["preimage"]) == *version)
-            .map(|vector| (vector["preimage"].clone(), text(vector, "sha256").to_owned()))
+            .map(|vector| {
+                (
+                    vector["preimage"].clone(),
+                    text(vector, "sha256").to_owned(),
+                )
+            })
             .collect();
         placed += members.len();
         admits(
@@ -299,9 +304,15 @@ fn qspec_node_identity_vectors() {
             .filter(|vector| model_version(&vector["preimage"]) == version)
             .map(|vector| {
                 if vector["name"] == base["name"] {
-                    (candidate.clone(), text(mutation, "retained_sha256").to_owned())
+                    (
+                        candidate.clone(),
+                        text(mutation, "retained_sha256").to_owned(),
+                    )
                 } else {
-                    (vector["preimage"].clone(), text(vector, "sha256").to_owned())
+                    (
+                        vector["preimage"].clone(),
+                        text(vector, "sha256").to_owned(),
+                    )
                 }
             })
             .collect();
@@ -368,7 +379,10 @@ fn qspec_node_identity_vectors() {
             text(mutation, "retained_sha256"),
             "{name} retains its base key"
         );
-        write_preimage(&mut package["semantic_graph"]["nodes"][position], &candidate);
+        write_preimage(
+            &mut package["semantic_graph"]["nodes"][position],
+            &candidate,
+        );
         let mut retained = package.clone();
         refresh_identity(&mut retained);
         if text(mutation, "kind") != "stale_key" {
@@ -445,9 +459,16 @@ fn qspec_node_identity_vectors() {
         added += 1;
     }
     refresh_identity(&mut every);
-    admits("the published operation package with every operation vector", &every);
+    admits(
+        "the published operation package with every operation vector",
+        &every,
+    );
     assert_eq!(carried + added, operations.len());
-    assert!(rekeyed.iter().all(|name| node_position(&every, text(vector(operations, name), "sha256")).is_some()));
+    assert!(rekeyed.iter().all(|name| node_position(
+        &every,
+        text(vector(operations, name), "sha256")
+    )
+    .is_some()));
 
     println!(
         "conformance: node-identity-vectors {} vectors + {} operation_vectors ({carried} carried) + {} invalid_mutations + {} operation_mutations",

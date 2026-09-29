@@ -35,7 +35,8 @@
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind an upstream mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared); a `constraints`
-//! entry other than `same_family`/`same_type` is not enforced; leaf-path
+//! entry other than `same_family`/`same_type`/`conforming_reference` is not
+//! enforced, except `reference_edge`, which refuses the application; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key only for a node whose own
@@ -60,11 +61,11 @@ use super::model_members::{
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
-    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
-    CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
-    CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm, OperationConstraintKind,
-    OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
-    TemporalForm, ValueForm, WorkMeter,
+    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
+    CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm,
+    OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
@@ -1082,8 +1083,13 @@ fn check_operands(
             | OperationConstraintKind::RationalNarrowing
             | OperationConstraintKind::ScaleReduction
             | OperationConstraintKind::PromotesExact
-            | OperationConstraintKind::UniformRest
-            | OperationConstraintKind::ReferenceEdge => {}
+            | OperationConstraintKind::UniformRest => {}
+            // The reference edge a `reaches_field` application requires is
+            // not decided by this reader, so an operation constrained by it
+            // is refused rather than admitted unchecked.
+            OperationConstraintKind::ReferenceEdge => {
+                return ineligible(indices.first().copied());
+            }
         }
     }
     Ok(None)
@@ -2052,6 +2058,35 @@ mod tests {
     /// refused for `unknown-operation` or anything else. Without this
     /// control, a reader that refused every node would satisfy the assertion
     /// above just as well as the real check does.
+    /// `quire.op.model.reaches_field` carries the `reference_edge`
+    /// constraint this reader does not decide: it refuses as
+    /// `ill_typed`/`operator-ineligible` at its first operand, never admits.
+    #[test]
+    fn operation_defect_refuses_a_reference_edge_operation() {
+        let node = custom_application_node(
+            "reaches",
+            json!({
+                "identity": "quire.op.model.reaches_field",
+                "laws": [], "mode": null, "leaves": [],
+                "member": {"kind": "field", "declaration": node_ref(3), "name": "next"},
+            }),
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        let node_id = node.node_id.clone();
+        assert_eq!(
+            defect_for(&node),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/0",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                node_id,
+            )))
+        );
+    }
+
     #[test]
     fn operation_defect_admits_catalogued_identity_used_correctly() {
         // Guard against catalog drift: fail loudly here, not by way of a

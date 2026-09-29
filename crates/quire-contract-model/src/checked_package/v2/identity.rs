@@ -549,8 +549,9 @@ fn validate_owner(
     require(joined, at)
 }
 
-/// ASCII identifier grammar shared with the closed `Declaration` member.
-fn is_identifier(value: &str) -> bool {
+/// ASCII identifier grammar shared with the closed `Declaration` member:
+/// the schema's `Identifier`, `^[A-Za-z_][A-Za-z0-9_]*$`.
+pub(super) fn is_identifier(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes
         .next()

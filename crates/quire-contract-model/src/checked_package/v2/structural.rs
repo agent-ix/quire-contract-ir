@@ -54,7 +54,7 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
-use super::frame::is_identifier;
+use super::identity::is_identifier;
 use super::{ApplicationOperator, BodyTerm, LiteralKind, OperationMemberKind, StateClauseKind};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, ClaimForm,
