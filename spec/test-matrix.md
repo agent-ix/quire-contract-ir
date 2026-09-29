@@ -15,9 +15,6 @@ relationships:
 | FR-001 | FR-001-AC-2 | TC-001 | ✅ covered |
 | FR-006 | FR-006-AC-1 | TC-004 | ✅ covered |
 
-FR-005-AC-1, FR-007-AC-1 and FR-010-AC-1 state what the PGM-01 policy text
-says and are verified by inspection of that text; no test asserts its wording.
-
 ## Stakeholder Requirement Coverage
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
