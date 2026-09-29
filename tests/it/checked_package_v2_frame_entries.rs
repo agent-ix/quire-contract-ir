@@ -11,7 +11,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    v2_all_families,
+    sha256_hex, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -1194,4 +1194,463 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         &format!("/semantic_graph/nodes/{clause}/body/result_type"),
         None,
     );
+}
+
+// Model-owned resolution: a package whose lock selects a domain package
+// document built here, holding model declaration nodes for its object types.
+
+const ORDERS: &str = "acme/orders";
+const ORDERS_VERSION: &str = "1.0.0";
+const ORDER_NODE: &str = "ix://acme/orders/Order";
+const SUB_NODE: &str = "ix://acme/orders/Sub";
+const LEFT_NODE: &str = "ix://acme/orders/Left";
+const RIGHT_NODE: &str = "ix://acme/orders/Right";
+const BOTH_NODE: &str = "ix://acme/orders/Both";
+const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
+
+/// A member slot of type `type_ref` with the multiplicity `[1, 1]`.
+fn slot(type_ref: &str) -> Value {
+    json!({"typeRef": type_ref,
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}})
+}
+
+fn domain_field(owner: &str, name: &str) -> Value {
+    json!({
+        "identity": format!("{owner}/{name}"), "name": name, "typeRef": NATIVE_INTEGER,
+        "presence": "required", "nullable": false, "defaultKind": "none",
+        "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+    })
+}
+
+fn domain_type(node: &str, supertypes: &[&str], fields: Vec<Value>, operations: Value) -> Value {
+    json!({
+        "identity": node, "displayName": node,
+        "kind": {"module": ORDERS, "name": "entity"},
+        "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+        "supertypes": supertypes, "fields": fields, "operations": operations,
+    })
+}
+
+/// `Order { total; scaled(Integer): Integer; reset() }`, `Sub: Order`, and
+/// `Both: Left, Right` where `Left` and `Right` each declare `shared`.
+fn orders_document() -> Value {
+    json!({
+        "contractVersion": "2.0.0",
+        "package": {"identity": ORDERS, "version": ORDERS_VERSION},
+        "constructs": [{
+            "kind": {"module": ORDERS, "name": "entity"},
+            "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }],
+        "types": [
+            domain_type(ORDER_NODE, &[], vec![domain_field(ORDER_NODE, "total")], json!([
+                {"identity": format!("{ORDER_NODE}/scaled"), "params": [slot(NATIVE_INTEGER)],
+                 "returns": slot(NATIVE_INTEGER)},
+                {"identity": format!("{ORDER_NODE}/reset"), "params": []},
+            ])),
+            domain_type(SUB_NODE, &[ORDER_NODE], vec![], json!([])),
+            domain_type(LEFT_NODE, &[], vec![domain_field(LEFT_NODE, "shared")], json!([])),
+            domain_type(RIGHT_NODE, &[], vec![domain_field(RIGHT_NODE, "shared")], json!([])),
+            domain_type(BOTH_NODE, &[LEFT_NODE, RIGHT_NODE], vec![], json!([])),
+        ],
+    })
+}
+
+/// A node key: the SHA-256 of the canonical bytes of its structural preimage.
+fn structural(tag: &str, form: &str, owner: Option<Value>) -> String {
+    let mut preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": tag, "semantic_form": form,
+        "semantic_type": null, "declaration": null, "recursion": null,
+        "body": {"term": "aggregate", "members": []},
+    });
+    if let Some(owner) = owner {
+        preimage["owner"] = owner;
+    }
+    sha256_hex(&canonical(&preimage))
+}
+
+/// The model declaration node key of `node` owned by `acme/orders` at `version`.
+fn model_key(node: &str, version: &str) -> String {
+    structural(
+        "model",
+        "object_type",
+        Some(json!({"kind": "model", "identity": ORDERS, "version": version, "node": node})),
+    )
+}
+
+/// Reads `value` with [`orders_document`] supplied under its digest.
+fn read_model(value: &Value) -> CheckedPackageV2ReadResult {
+    let document = orders_document();
+    let mut evidence = evidence_for(value);
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+    CheckedPackageV2::read(
+        &canonical(value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
+fn model_admits(case: &str, value: &Value) {
+    match read_model(value) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("{case}: expected admission, read {other:?}"),
+    }
+}
+
+/// Asserts the refusal's code, cause and pointer.
+fn model_expect(case: &str, value: &Value, code: Code, cause: Cause, path: &str) {
+    let refusal = match read_model(value) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("{case}: expected a refusal, read {other:?}"),
+    };
+    assert_eq!(
+        (
+            refusal.code,
+            refusal.cause,
+            refusal.path.as_ref().map(|path| path.as_str())
+        ),
+        (code, Some(cause), Some(path)),
+        "{case}: {refusal:?}"
+    );
+}
+
+/// [`StatePackage`] over the selected `Order`: its frame and anchor bind
+/// `Order` and `scaled`, `self` is a `Reference<Order>`, and a precondition
+/// `[self, n]` and a postcondition `[self, result, n]` bind the anchor.
+struct ModelPackage {
+    value: Value,
+}
+
+const MODEL_INTEGER_PARAMETER: &str =
+    "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4";
+const MODEL_RESULT_PARAMETER: &str =
+    "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5";
+const MODEL_TEXT_PARAMETER: &str =
+    "c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6";
+
+fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
+    plain(
+        key,
+        "value",
+        "parameter",
+        ty,
+        &[],
+        "expression",
+        json!({"term": "aggregate", "members": [
+            binding("name", text(name)),
+            binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": level})),
+        ]}),
+    )
+}
+
+impl ModelPackage {
+    fn new() -> Self {
+        let order = model_key(ORDER_NODE, ORDERS_VERSION);
+        let integer = structural("scalar_type", "integer", None);
+        let mut state = StatePackage::new();
+        let frame = state.at("state", "frame");
+        let frame_key = state.digest(frame);
+        let value = &mut state.value;
+        let document = orders_document();
+        value["lock"]["model_selections"] = json!([{
+            "identity": ORDERS, "version": ORDERS_VERSION,
+            "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
+        }]);
+        let empty = || json!({"term": "aggregate", "members": []});
+        let mut added = vec![plain(
+            &integer,
+            "scalar_type",
+            "integer",
+            &integer,
+            &[],
+            "type",
+            empty(),
+        )];
+        for (node, version) in [
+            (ORDER_NODE, ORDERS_VERSION),
+            (SUB_NODE, ORDERS_VERSION),
+            (LEFT_NODE, ORDERS_VERSION),
+            (RIGHT_NODE, ORDERS_VERSION),
+            (BOTH_NODE, ORDERS_VERSION),
+            (ORDER_NODE, "2.0.0"),
+        ] {
+            let key = model_key(node, version);
+            added.push(plain(
+                &key,
+                "model",
+                "object_type",
+                &key,
+                &[],
+                "type",
+                empty(),
+            ));
+        }
+        added.push(model_parameter(MODEL_INTEGER_PARAMETER, "n", "1", &integer));
+        added.push(model_parameter(
+            MODEL_RESULT_PARAMETER,
+            "result",
+            "1",
+            &integer,
+        ));
+        added.push(model_parameter(MODEL_TEXT_PARAMETER, "t", "1", TEXT));
+        added.push(clause_node(
+            "postcondition",
+            &[SELF, MODEL_RESULT_PARAMETER, MODEL_INTEGER_PARAMETER],
+            ANCHOR,
+        ));
+        let nodes = value["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        for node in nodes.iter_mut() {
+            let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
+            if key == REFERENCE {
+                node["dependencies"] = json!([node_id(&order)]);
+                node["body"] = json!({"term": "aggregate", "members": [reference(&order)]});
+            } else if key == frame_key {
+                node["semantic_type"] = node_id(&order);
+                let mut deps = node["dependencies"].as_array().expect("deps").clone();
+                deps.push(node_id(&order));
+                deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+                node["dependencies"] = Value::Array(deps);
+            } else if key == ANCHOR {
+                let mut deps = vec![order.clone(), frame_key.clone()];
+                deps.sort();
+                node["semantic_type"] = node_id(&order);
+                node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
+                node["body"] = anchor_body(&order, text("scaled"), &frame_key);
+            } else if node["body"]["operation"]["member"]["clause"] == "invariant" {
+                *node = clause_node("invariant", &[SELF], &order);
+            } else if node["body"]["operation"]["member"]["clause"] == "precondition" {
+                *node = clause_node("precondition", &[SELF, MODEL_INTEGER_PARAMETER], ANCHOR);
+            }
+        }
+        nodes.extend(added);
+        state.refresh();
+        Self { value: state.value }
+    }
+
+    fn position_of(&self, key: &str) -> usize {
+        nodes(&self.value)
+            .iter()
+            .position(|node| node["node_id"]["digest"] == key)
+            .unwrap_or_else(|| panic!("node {key}"))
+    }
+
+    fn frame(&self) -> usize {
+        position(&self.value, "state", "frame")
+    }
+
+    /// Edits the node at `position`, then re-keys and re-derives identity.
+    fn edit(mut self, position: usize, edit: impl FnOnce(&mut Value)) -> Self {
+        edit(&mut self.value["semantic_graph"]["nodes"][position]);
+        let mut state = StatePackage { value: self.value };
+        state.refresh();
+        self.value = state.value;
+        self
+    }
+
+    /// Replaces the frame's `modifies` with one field entry of `declaring`,
+    /// which joins the frame's dependencies.
+    fn modifying(self, declaring: &str, name: &str) -> Self {
+        let frame = self.frame();
+        let declaring = declaring.to_owned();
+        let name = name.to_owned();
+        self.edit(frame, move |node| {
+            node["body"]["modifies"] = json!([field(&declaring, &name)]);
+            let mut deps = node["dependencies"].as_array().expect("deps").clone();
+            if !deps.contains(&node_id(&declaring)) {
+                deps.push(node_id(&declaring));
+            }
+            deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            node["dependencies"] = Value::Array(deps);
+        })
+    }
+}
+
+impl ModelPackage {
+    /// Binds the anchor, and the frame it names, to `context` and `operation`.
+    fn anchored(self, context: &str, operation: &str) -> Self {
+        let frame = self.frame();
+        let frame_key = digest(&self.value, frame);
+        let anchor = self.position_of(ANCHOR);
+        let context = context.to_owned();
+        let with_context = context.clone();
+        let operation = operation.to_owned();
+        self.edit(frame, move |node| {
+            node["semantic_type"] = node_id(&with_context);
+            let mut deps = node["dependencies"].as_array().expect("deps").clone();
+            if !deps.contains(&node_id(&with_context)) {
+                deps.push(node_id(&with_context));
+            }
+            deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+            node["dependencies"] = Value::Array(deps);
+        })
+        .edit(anchor, move |node| {
+            let mut deps = vec![context.clone(), frame_key.clone()];
+            deps.sort();
+            node["semantic_type"] = node_id(&context);
+            node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
+            node["body"] = anchor_body(&context, text(&operation), &frame_key);
+        })
+    }
+
+    /// Replaces the parameters of the clause of kind `clause`.
+    fn binding(self, clause: &str, parameters: &[&str]) -> Self {
+        let position = nodes(&self.value)
+            .iter()
+            .position(|node| node["body"]["operation"]["member"]["clause"] == clause)
+            .unwrap_or_else(|| panic!("a {clause}"));
+        let replacement = clause_node(clause, parameters, ANCHOR);
+        self.edit(position, move |node| *node = replacement)
+    }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-3
+#[trace("TC-056", "FR-040-AC-3")]
+#[test]
+fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
+    let order = model_key(ORDER_NODE, ORDERS_VERSION);
+    let sub = model_key(SUB_NODE, ORDERS_VERSION);
+    let both = model_key(BOTH_NODE, ORDERS_VERSION);
+    let unselected = model_key(ORDER_NODE, "2.0.0");
+    model_admits("the base package", &ModelPackage::new().value);
+    model_admits(
+        "an own field",
+        &ModelPackage::new().modifying(&order, "total").value,
+    );
+    model_admits(
+        "an inherited field",
+        &ModelPackage::new().modifying(&sub, "total").value,
+    );
+    for (case, declaring, name, code, cause) in [
+        (
+            "an undeclared name",
+            &order,
+            "missing",
+            Code::MissingDeclaration,
+            Cause::MissingName,
+        ),
+        (
+            "an operation's name",
+            &order,
+            "scaled",
+            Code::MissingDeclaration,
+            Cause::MissingName,
+        ),
+        (
+            "a name two supertypes expose",
+            &both,
+            "shared",
+            Code::AmbiguousDeclaration,
+            Cause::AmbiguousName,
+        ),
+        (
+            "an unselected version",
+            &unselected,
+            "total",
+            Code::MissingDeclaration,
+            Cause::MissingSelection,
+        ),
+    ] {
+        let package = ModelPackage::new().modifying(declaring, name);
+        let frame = package.frame();
+        model_expect(
+            case,
+            &package.value,
+            code,
+            cause,
+            &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+        );
+    }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-7
+#[trace("TC-056", "FR-040-AC-7")]
+#[test]
+fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
+    let order = model_key(ORDER_NODE, ORDERS_VERSION);
+    let sub = model_key(SUB_NODE, ORDERS_VERSION);
+    let unselected = model_key(ORDER_NODE, "2.0.0");
+    model_admits(
+        "Order.scaled",
+        &ModelPackage::new().anchored(&order, "scaled").value,
+    );
+    for (case, context, operation, code, cause) in [
+        (
+            "an undeclared name",
+            &order,
+            "missing",
+            Code::MissingDeclaration,
+            Cause::MissingName,
+        ),
+        (
+            "a field's name",
+            &order,
+            "total",
+            Code::MissingDeclaration,
+            Cause::MissingName,
+        ),
+        (
+            "an operation the context only inherits",
+            &sub,
+            "scaled",
+            Code::InvalidModelBinding,
+            Cause::MalformedDeclaration,
+        ),
+        (
+            "an unselected version",
+            &unselected,
+            "scaled",
+            Code::MissingDeclaration,
+            Cause::MissingSelection,
+        ),
+    ] {
+        let package = ModelPackage::new().anchored(context, operation);
+        let anchor = package.position_of(ANCHOR);
+        model_expect(
+            case,
+            &package.value,
+            code,
+            cause,
+            &format!("/semantic_graph/nodes/{anchor}/body/members/1"),
+        );
+    }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-8, FR-040-AC-9
+#[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
+#[test]
+fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
+    // The base package's precondition `[self, n]` and postcondition
+    // `[self, result, n]` over `Order.scaled(n: Integer): Integer` admit.
+    model_admits("precondition and postcondition", &ModelPackage::new().value);
+    for (case, clause, parameters) in [
+        ("a missing operation parameter", "precondition", vec![SELF]),
+        (
+            "a missing result",
+            "postcondition",
+            vec![SELF, MODEL_INTEGER_PARAMETER],
+        ),
+        (
+            "a parameter of another type",
+            "precondition",
+            vec![SELF, MODEL_TEXT_PARAMETER],
+        ),
+    ] {
+        let package = ModelPackage::new().binding(clause, &parameters);
+        let position = nodes(&package.value)
+            .iter()
+            .position(|node| node["body"]["operation"]["member"]["clause"] == clause)
+            .expect("the clause");
+        model_expect(
+            case,
+            &package.value,
+            Code::IllTyped,
+            Cause::OperatorIneligible,
+            &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
+        );
+    }
 }

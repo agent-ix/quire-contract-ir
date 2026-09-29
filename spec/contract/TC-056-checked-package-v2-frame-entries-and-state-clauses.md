@@ -25,8 +25,8 @@ fix, in their reader order.
 ## Test Procedure
 
 Build, from this repository's own public vocabulary, checked packages
-holding frames, operation anchors, an invariant, a precondition and
-parameter nodes. Read each and confirm it admits. Then
+holding frames, operation anchors, an invariant, a precondition, a
+postcondition and parameter nodes. Read each and confirm it admits. Then
 apply each single mutation the FR-040 criteria name and read each mutated
 package: entry shapes and kinds, eligibility per member, misordered
 `modifies`, a meaning-join defect with an
@@ -36,7 +36,13 @@ anchor, parameter and signature case, nested and misplaced clause
 applications, a non-Boolean condition, each parameter body defect, each
 occurrence role, and pairs of defects across the frame, state and operation
 steps, and field entries on a source-declared object type and on a
-`record_value_type` node with and without a `declaration`.
+`record_value_type` node with and without a `declaration`. Over a lock
+selecting a domain package document built here (`Order` with a field and
+`scaled(Integer): Integer`, a subtype, and a type inheriting one field name
+from two supertypes) and its model declaration nodes, read field entries,
+anchor operations and clause parameter lists that resolve, name nothing,
+name the other member kind, are ambiguous, are only inherited, are keyed
+under an unselected version, or bind the wrong parameters.
 
 ## Expected Results
 
