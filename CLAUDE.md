@@ -25,7 +25,7 @@ make build          # release build
 make clean          # cargo clean
 make deny           # all cargo-deny policy checks
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
-make ci             # all local release gates, including spec and exact Rust
+make ci             # all local release gates
 ```
 
 ## Safety scaffolding
