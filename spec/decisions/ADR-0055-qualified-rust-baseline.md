@@ -1,6 +1,6 @@
 ---
 id: ADR-0055
-title: "Rust 1.98.1 qualification and compatibility baseline"
+title: "Rust 1.98.1 compiler baseline"
 type: ADR
 status: accepted
 owner: kreneskyp

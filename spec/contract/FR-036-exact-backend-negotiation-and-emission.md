@@ -27,7 +27,7 @@ before it emits an artifact or result.
 ## Inputs
 
 A ContractPackage, requested claims, model domains, provider manifest, limits,
-explicit bounds, and immutable Rust/tool/dependency/options lock.
+and explicit bounds.
 
 ## Outputs
 

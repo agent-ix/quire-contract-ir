@@ -39,7 +39,7 @@ The dispatch index is shared; family modules are separate for checked arithmetic
 
 ## Decisions
 
-- Version profile, ABI, support matrix, tool/options digest, and generators together.
+- Version profile, ABI, support matrix, and generators together.
 - Make finite universes, snapshots, completeness, identities, and resource bounds explicit.
 - Preserve invalid, incomplete, unavailable, and exhausted inputs as results rather than assumptions.
 - Map every outcome to its one QSL terminal value; leave the counterexample envelope and replay to QSL and codegen.
