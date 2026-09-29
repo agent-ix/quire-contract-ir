@@ -48,7 +48,10 @@ The `frame_mutations` array is replayed by TC-056.
 Every re-derived digest equals its recorded `sha256` and the package admits.
 Every mutation refuses with its `expected_code` and, where the entry gives
 one, its `expected_cause`, and no mutated package is exposed. The count
-replayed from each array equals the count published in it. With `QSPEC_DIR`
+replayed from each array is at least the count QSpec publishes (17, 21, 13
+and 24), so an empty or truncated array fails. A non-stale operation mutation
+kept under its retained key refuses as `invalid_package`/`stale-node-key` at
+its node's `node_id`. With `QSPEC_DIR`
 unset the test skips, and `make qspec-vectors` fails on the skip rather than
 passing.
 

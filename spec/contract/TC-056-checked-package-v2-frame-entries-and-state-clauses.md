@@ -53,17 +53,19 @@ replayed.
 The unmutated package and QSpec's published fixtures admit. Each authored
 mutation returns exactly the code, cause and RFC 6901 locus its criterion
 names and no package; each `frame_mutations` entry refuses with its
-`expected_code`, `expected_cause` and `expected_locus_digest`, and the count
-replayed equals the count published; a package with defects in two steps reports the earlier step's
+`expected_code`, `expected_cause` and `expected_locus_digest`, and at least
+the 30 published entries are replayed; a package with defects in two steps reports the earlier step's
 defect.
 
 ## Status
 
 Implemented. Authored cases: `tests/it/checked_package_v2_frame_entries.rs`
-(FR-040-AC-1, 2, 4 to 8, 10 to 12) and the entry eligibility tests in
+(FR-040-AC-1 to 8, 10 to 12) and the entry eligibility tests in
 `crates/quire-contract-model/src/checked_package/v2/frame.rs`. QSpec TC-280
 replays: `crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs`
 (FR-040-AC-3, 7, 9). QSpec fixtures and the 30 `frame_mutations`:
-`qspec_frame_mutations_and_published_fixtures` (FR-040-AC-13). Field-name
-resolution for a `record_value_type` declaring node is pending a QSpec
-ruling and is not tested.
+`qspec_frame_mutations_and_published_fixtures` (FR-040-AC-13). A field
+entry on a `record_value_type` declaring node, with and without a
+`declaration`, admits with its name unresolved
+(`tc_056_record_value_type_field_entries_admit_unresolved`), FR-040's
+deviation from QSpec FR-340 pending a QSpec ruling.

@@ -1599,6 +1599,8 @@ fn validate_graph(
     let mut index = BTreeMap::new();
     let mut kinds = Vec::with_capacity(graph.nodes.len());
     let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
+    // Each frame node's typed body, read once here and joined by the frame step.
+    let mut frames = Vec::new();
     let mut edges = 0_u64;
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
@@ -1642,14 +1644,20 @@ fn validate_graph(
             Step::Index(position),
             Step::Key("body"),
         ];
-        let work = validate_body(
-            kind,
-            &node.body,
-            &Trail::Base(&body_steps),
-            &mut |target, site, _target_at| {
-                targets.push((target.clone(), site));
-            },
-        )?;
+        let work = if is_frame(kind) {
+            let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
+            frames.push((&node.node_id, position, body));
+            work
+        } else {
+            validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&body_steps),
+                &mut |target, site, _target_at| {
+                    targets.push((target.clone(), site));
+                },
+            )?
+        };
         meter.charge(work, || at("body"))?;
         references.push(targets);
         let mut occurrences = BTreeSet::new();
@@ -1689,7 +1697,7 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
-    frame::validate_frame_semantics(&graph.nodes, &kinds, &index, &owners, meter)?;
+    frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
     validate_operations(
         &graph.nodes,

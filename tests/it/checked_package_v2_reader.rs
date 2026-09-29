@@ -1025,6 +1025,53 @@ fn tc_048_declaration_defect_is_reported_before_a_dangling_dependency_reference(
     );
 }
 
+/// A nominal preimage the closed preimage schema refuses for a missing
+/// member or a value of the wrong kind is an invalid graph node, refused as
+/// `invalid_semantic_graph` at the member at fault rather than as
+/// `malformed_wire`; an unknown member keeps its own code.
+///
+/// Tracing: TC-048, FR-038-AC-5
+#[trace("TC-048", "FR-038-AC-5")]
+#[test]
+fn tc_048_nominal_preimage_schema_defects_refuse_as_invalid_semantic_graph() {
+    let edited = |edit: &dyn Fn(&mut serde_json::Map<String, Value>)| {
+        let mut package = v2_nominal();
+        edit(
+            package["semantic_graph"]["nodes"][1]["nominal_identity_preimage"]
+                .as_object_mut()
+                .expect("preimage"),
+        );
+        refresh_identity(&mut package);
+        refused(&package, &evidence_for(&package))
+    };
+    // The identity projection mirrors the node and is decoded first.
+    let preimage = "/identity_preimage/identity_projection/1/nominal_identity_preimage";
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.remove("members");
+        }),
+        nominal(preimage),
+        "a missing member"
+    );
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.insert("members".into(), json!("RED"));
+        }),
+        nominal(&format!("{preimage}/members")),
+        "a member of the wrong kind"
+    );
+    assert_eq!(
+        edited(&|preimage| {
+            preimage.insert("extra".into(), json!(1));
+        }),
+        refusal(
+            CheckedPackageRefusalCode::UnknownMember,
+            &format!("{preimage}/extra")
+        ),
+        "an unknown member"
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-5
 #[trace("TC-048", "FR-038-AC-5")]
 #[test]

@@ -40,7 +40,7 @@ use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
     BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, FrameEntryKind, ModelForm, RelationForm,
-    StateForm, WorkMeter,
+    WorkMeter,
 };
 use crate::checked_package::common::{
     body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
@@ -48,10 +48,10 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One `modifies` entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum ModifiesEntry {
     /// `{kind: "relationship", declaration}`.
     Relationship { declaration: CheckedNodeId },
@@ -147,13 +147,10 @@ pub(super) fn read_frame_body(
 }
 
 /// A repeated entry refuses at its second occurrence.
-fn reject_repeat<T: Eq>(entries: &[T], at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let repeat = entries
-        .iter()
-        .enumerate()
-        .find(|(index, entry)| entries[..*index].contains(entry));
-    match repeat {
-        Some((index, _)) => Err(ValidationFailure::refused(
+fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), ValidationFailure> {
+    let mut seen = BTreeSet::new();
+    match entries.iter().position(|entry| !seen.insert(entry)) {
+        Some(index) => Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.index(index).pointer(),
         )),
@@ -272,18 +269,54 @@ impl MeaningDefect {
     }
 }
 
-/// The graph the frame step reads.
-struct FrameGraph<'a, 'm> {
-    nodes: &'a [CheckedSemanticNodeV2],
-    kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
-    owners: &'a ModelOwners<'m>,
+/// The graph the frame and state steps read.
+pub(super) struct StepGraph<'a, 'm> {
+    pub(super) nodes: &'a [CheckedSemanticNodeV2],
+    pub(super) kinds: &'a [CheckedNodeKind],
+    pub(super) index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) owners: &'a ModelOwners<'m>,
 }
 
-impl FrameGraph<'_, '_> {
-    fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
+impl StepGraph<'_, '_> {
+    pub(super) fn node(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
         let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
+    }
+
+    /// Every node of `kind`, as `(position, node)`, in ascending node-id
+    /// digest order.
+    pub(super) fn each(
+        &self,
+        kind: CheckedNodeKind,
+    ) -> impl Iterator<Item = (usize, &CheckedSemanticNodeV2)> + '_ {
+        self.index.values().filter_map(move |&position| {
+            (self.kinds.get(position) == Some(&kind))
+                .then(|| self.nodes.get(position).map(|node| (position, node)))
+                .flatten()
+        })
+    }
+}
+
+/// Joins a reference `target` held by `holder` to a declared dependency of
+/// the admitted kind: `missing-name` when it is not among `holder`'s
+/// `dependencies` or names no node, `malformed-declaration` for another kind.
+pub(super) fn join<'g>(
+    holder: &CheckedSemanticNodeV2,
+    target: &CheckedNodeId,
+    admits: impl Fn(CheckedNodeKind) -> bool,
+    graph: &'g StepGraph<'_, '_>,
+) -> Result<(&'g CheckedSemanticNodeV2, CheckedNodeKind), ModelRefusal> {
+    let (node, kind) = graph
+        .node(target)
+        .filter(|_| holder.dependencies.contains(target))
+        .ok_or(ModelRefusal::missing_name())?;
+    if admits(kind) {
+        Ok((node, kind))
+    } else {
+        Err(ModelRefusal::malformed())
     }
 }
 
@@ -307,28 +340,28 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
 }
 
 /// The frame step: every `state`/`frame` node, in ascending node-id digest
-/// order, reporting the first one carrying a defect.
+/// order, reporting the first one carrying a defect. `frames` holds each
+/// frame node's key, position and body as [`read_frame_body`] read them.
 pub(super) fn validate_frame_semantics(
+    mut frames: Vec<(&CheckedNodeId, usize, FrameBody)>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let graph = FrameGraph {
+    let graph = StepGraph {
         nodes,
         kinds,
         index,
         owners,
     };
-    for (&node_id, &position) in index {
-        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
+    frames.sort_by(|a, b| a.0.cmp(b.0));
+    for (node_id, position, body) in &frames {
+        let Some(node) = nodes.get(*position) else {
             continue;
         };
-        if kind != CheckedNodeKind::State(StateForm::Frame) {
-            continue;
-        }
-        if let Some(failure) = frame_defect(node_id, node, position, &graph, meter)? {
+        if let Some(failure) = frame_defect(node_id, node, *position, body, &graph, meter)? {
             return Err(failure);
         }
     }
@@ -340,15 +373,10 @@ fn frame_defect(
     frame_id: &CheckedNodeId,
     frame: &CheckedSemanticNodeV2,
     frame_position: usize,
-    graph: &FrameGraph<'_, '_>,
+    body: &FrameBody,
+    graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
-    let body_steps = frame_body_steps(frame_position);
-    let body_at = Trail::Base(&body_steps);
-    let body = match read_frame_body(&frame.body, &body_at) {
-        Ok((body, _)) => body,
-        Err(failure) => return Ok(Some(failure)),
-    };
     let mut defects = Vec::new();
     match graph.node(&frame.semantic_type) {
         Some((_, CheckedNodeKind::Model(ModelForm::ObjectType))) => {}
@@ -364,13 +392,12 @@ fn frame_defect(
             },
         }),
     }
-    let declared = |id: &CheckedNodeId| frame.dependencies.contains(id);
     for (entry_index, entry) in body.modifies.iter().enumerate() {
         let admits = match entry {
             ModifiesEntry::Relationship { .. } => relationship_entry,
             ModifiesEntry::Field { .. } => field_entry,
         };
-        let refusal = match join(entry.declaration(), declared, admits, graph) {
+        let refusal = match join(frame, entry.declaration(), admits, graph) {
             Err(refusal) => Some(refusal),
             Ok((node, kind)) => match entry {
                 ModifiesEntry::Relationship { .. } => None,
@@ -392,7 +419,7 @@ fn frame_defect(
         (Position::Deletes, &body.deletes),
     ] {
         for (entry_index, entry) in entries.iter().enumerate() {
-            if let Err(refusal) = join(entry, declared, creates_or_deletes, graph) {
+            if let Err(refusal) = join(frame, entry, creates_or_deletes, graph) {
                 defects.push(MeaningDefect {
                     position,
                     digest: entry.digest.clone(),
@@ -435,47 +462,22 @@ fn frame_defect(
     }
 }
 
-/// `/semantic_graph/nodes/{position}/body`, as trail steps.
-fn frame_body_steps(position: usize) -> [crate::checked_package::common::Step<'static>; 4] {
-    use crate::checked_package::common::Step;
-    [
-        Step::Key("semantic_graph"),
-        Step::Key("nodes"),
-        Step::Index(position),
-        Step::Key("body"),
-    ]
-}
-
-/// Joins an entry's node key to a declared dependency of the frame whose
-/// kind `admits` accepts.
-fn join<'g>(
-    id: &CheckedNodeId,
-    declared: impl Fn(&CheckedNodeId) -> bool,
-    admits: fn(CheckedNodeKind) -> bool,
-    graph: &'g FrameGraph<'_, '_>,
-) -> Result<(&'g CheckedSemanticNodeV2, CheckedNodeKind), ModelRefusal> {
-    let (node, kind) = graph
-        .node(id)
-        .filter(|_| declared(id))
-        .ok_or(ModelRefusal::missing_name())?;
-    if admits(kind) {
-        Ok((node, kind))
-    } else {
-        Err(ModelRefusal::malformed())
-    }
-}
-
 /// A field entry's name among the fields of its declaring node.
+///
+/// A `model`/`record_value_type` declaring node is never resolved: QSpec's
+/// `ModelDeclarationNode` has no `record_value_type` form, so no domain
+/// package can own one, and its field name is admitted unresolved.
 fn resolve_field(
     declaring: &CheckedSemanticNodeV2,
     kind: CheckedNodeKind,
     name: &str,
-    graph: &FrameGraph<'_, '_>,
+    graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ModelRefusal>, ValidationFailure> {
-    if !graph
-        .owners
-        .is_model_declaration_node(declaring, kind.tag())
+    if kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+        || !graph
+            .owners
+            .is_model_declaration_node(declaring, kind.tag())
     {
         return Ok(None);
     }

@@ -17,7 +17,7 @@
 
 use crate::support::checked_package::{
     canonical, domain_package_digest, domain_package_document, evidence_for, nominal_package,
-    refresh_identity, sha256_hex,
+    pointer, refresh_identity, sha256_hex,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -27,6 +27,12 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 
 use CheckedPackageRefusalCause as Cause;
+
+/// The entry counts QSpec publishes in `node-identity-vectors.json`.
+const NOMINAL_VECTORS: usize = 17;
+const OPERATION_VECTORS: usize = 21;
+const INVALID_MUTATIONS: usize = 13;
+const OPERATION_MUTATIONS: usize = 24;
 use CheckedPackageRefusalCode as Code;
 
 const VECTORS: &str = "proposals/checked-package-v2/node-identity-vectors.json";
@@ -386,12 +392,18 @@ fn qspec_node_identity_vectors() {
         let mut retained = package.clone();
         refresh_identity(&mut retained);
         if text(mutation, "kind") != "stale_key" {
-            // Retaining the base key is itself refused, as a stale key or as
-            // a graph-shape defect, before any operation check ...
+            // Retaining the base key is itself refused as a stale key at the
+            // node's own `node_id`, before any operation check ...
             let refusal = refused(name, &retained);
-            assert!(
-                refusal.cause == Some(Cause::StaleNodeKey)
-                    || refusal.code == Code::InvalidSemanticGraph,
+            assert_eq!(
+                (refusal.code, refusal.cause, refusal.path.clone()),
+                (
+                    Code::InvalidPackage,
+                    Some(Cause::StaleNodeKey),
+                    Some(pointer(&format!(
+                        "/semantic_graph/nodes/{position}/node_id"
+                    ))),
+                ),
                 "{name} retaining its key: {refusal:?}"
             );
             // ... so the operation refusal is read with the node keyed by
@@ -470,6 +482,19 @@ fn qspec_node_identity_vectors() {
     )
     .is_some()));
 
+    // The counts QSpec publishes per array; an empty or truncated array
+    // fails here rather than replaying nothing.
+    for (array_name, replayed, published) in [
+        ("vectors", vectors.len(), NOMINAL_VECTORS),
+        ("operation_vectors", operations.len(), OPERATION_VECTORS),
+        ("invalid_mutations", invalid.len(), INVALID_MUTATIONS),
+        ("operation_mutations", mutations.len(), OPERATION_MUTATIONS),
+    ] {
+        assert!(
+            replayed >= published,
+            "{replayed} {array_name} replayed, expected at least {published}"
+        );
+    }
     println!(
         "conformance: node-identity-vectors {} vectors + {} operation_vectors ({carried} carried) + {} invalid_mutations + {} operation_mutations",
         vectors.len(),

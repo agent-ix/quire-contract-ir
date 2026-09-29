@@ -131,6 +131,8 @@ type Edit = Box<dyn Fn(&mut Value)>;
 const OBJECT: &str = "1515151515151515151515151515151515151515151515151515151515151515";
 const PROCESS: &str = "1616161616161616161616161616161616161616161616161616161616161616";
 const RELATIONSHIP: &str = "2020202020202020202020202020202020202020202020202020202020202020";
+/// The number of `frame_mutations` QSpec publishes.
+const FRAME_MUTATIONS: usize = 30;
 const NAMESPACE: &str = "1010101010101010101010101010101010101010101010101010101010101010";
 
 /// Tracing: TC-056
@@ -359,6 +361,45 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
         frame["body"]["modifies"][0] = field(OBJECT, "anything");
     });
     admits(&unresolved);
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-3
+#[trace("TC-056", "FR-040-AC-3")]
+#[test]
+fn tc_056_record_value_type_field_entries_admit_unresolved() {
+    let base = v2_all_families();
+    let record = nodes(&base)
+        .iter()
+        .position(|node| node["node_id"]["digest"] == NAMESPACE)
+        .expect("the namespace node");
+    let with_record = |declared: bool| {
+        let mut value = base.clone();
+        let node = &mut value["semantic_graph"]["nodes"][record];
+        node["semantic_form"] = json!("record_value_type");
+        if declared {
+            node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+            node["declaration"] = json!({"qualified_name": ["Example", "Address"]});
+        }
+        let frame = position(&value, "state", "frame");
+        let frame = &mut value["semantic_graph"]["nodes"][frame];
+        frame["dependencies"]
+            .as_array_mut()
+            .expect("frame dependencies")
+            .push(node_id(NAMESPACE));
+        frame["body"]["modifies"] = json!([
+            field(NAMESPACE, "street"),
+            field(OBJECT, "balance"),
+            relationship(RELATIONSHIP)
+        ]);
+        rebuild_source_map(&mut value);
+        refresh_identity(&mut value);
+        value
+    };
+    // With no `declaration` the node is not owned by any domain package, so
+    // its field name is not resolved; the source-declared node likewise.
+    admits(&with_record(false));
+    admits(&with_record(true));
 }
 
 /// Tracing: TC-056
@@ -1289,7 +1330,12 @@ fn qspec_frame_mutations_and_published_fixtures() {
         );
         replayed += 1;
     }
-    assert_eq!(replayed, mutations.len());
+    // QSpec publishes 30 `frame_mutations`; an empty or truncated array
+    // fails here rather than replaying nothing.
+    assert!(
+        replayed >= FRAME_MUTATIONS,
+        "{replayed} frame_mutations replayed, expected at least {FRAME_MUTATIONS}"
+    );
     println!(
         "conformance: {} published fixtures admitted + {replayed} of {} frame_mutations",
         fixtures.len(),

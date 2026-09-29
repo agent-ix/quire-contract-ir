@@ -73,9 +73,11 @@ Build a package in QSL FR-092's shapes for `function both(a: Boolean, b:
 Boolean): Boolean { a and b }` plus the compound unit `Metre^2`, compare its
 recomputed keys with QSL's FR-092 vectors, read it and lower every node.
 Then mutate one parameter, the compound unit or the application node at a
-time and re-read. The package admits and every node lowers; each mutation
-refuses as `invalid_semantic_graph` at the member it breaks, located at the
-mutated node, and the dimensionless compound unit admits.
+time and re-read. The package admits and every node lowers; each parameter
+body mutation (level, name or binding) refuses as `invalid_semantic_graph` at
+the parameter node's `body`, every other mutation as `invalid_semantic_graph`
+at the member it breaks, each located at the mutated node, and the
+dimensionless compound unit admits.
 
 ## Model-owned members (FR-038-AC-27 through FR-038-AC-30)
 

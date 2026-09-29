@@ -2058,6 +2058,30 @@ mod tests {
     /// refused for `unknown-operation` or anything else. Without this
     /// control, a reader that refused every node would satisfy the assertion
     /// above just as well as the real check does.
+    #[test]
+    fn operation_defect_admits_catalogued_identity_used_correctly() {
+        // Guard against catalog drift: fail loudly here, not by way of a
+        // confusing assertion failure below, if this identity is ever
+        // removed or reshaped upstream.
+        let entry = operation_catalog()
+            .entry(CATALOGUED_IDENTITY)
+            .unwrap_or_else(|| {
+                panic!("{CATALOGUED_IDENTITY} must be catalogued for this control to be meaningful")
+            });
+        assert_eq!(entry.operator.as_wire(), "binary");
+        assert_eq!(entry.operands.len(), 2);
+
+        let node = application_node(CATALOGUED_IDENTITY, "binary");
+
+        let result = defect_for(&node);
+
+        assert_eq!(
+            result,
+            Ok(None),
+            "a catalogued identity used correctly must not be refused, got {result:?}"
+        );
+    }
+
     /// `quire.op.model.reaches_field` carries the `reference_edge`
     /// constraint this reader does not decide: it refuses as
     /// `ill_typed`/`operator-ineligible` at its first operand, never admits.
@@ -2084,30 +2108,6 @@ mod tests {
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node_id,
             )))
-        );
-    }
-
-    #[test]
-    fn operation_defect_admits_catalogued_identity_used_correctly() {
-        // Guard against catalog drift: fail loudly here, not by way of a
-        // confusing assertion failure below, if this identity is ever
-        // removed or reshaped upstream.
-        let entry = operation_catalog()
-            .entry(CATALOGUED_IDENTITY)
-            .unwrap_or_else(|| {
-                panic!("{CATALOGUED_IDENTITY} must be catalogued for this control to be meaningful")
-            });
-        assert_eq!(entry.operator.as_wire(), "binary");
-        assert_eq!(entry.operands.len(), 2);
-
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-
-        let result = defect_for(&node);
-
-        assert_eq!(
-            result,
-            Ok(None),
-            "a catalogued identity used correctly must not be refused, got {result:?}"
         );
     }
 

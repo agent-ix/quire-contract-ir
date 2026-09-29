@@ -26,6 +26,7 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
+use super::frame::{join, StepGraph};
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved};
 use super::structural::{
     anchor_body, clause_body, is_state_clause_application, reference_type_target, AnchorBody,
@@ -40,34 +41,6 @@ use crate::checked_package::shared::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The graph the state step reads.
-struct StateGraph<'a, 'm> {
-    nodes: &'a [CheckedSemanticNodeV2],
-    kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
-    owners: &'a ModelOwners<'m>,
-}
-
-impl StateGraph<'_, '_> {
-    fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
-        let position = *self.index.get(id)?;
-        Some((self.nodes.get(position)?, *self.kinds.get(position)?))
-    }
-
-    /// Every node of `kind`, as `(position, node)`, in ascending node-id
-    /// digest order.
-    fn each(
-        &self,
-        kind: CheckedNodeKind,
-    ) -> impl Iterator<Item = (usize, &CheckedSemanticNodeV2)> + '_ {
-        self.index.values().filter_map(move |&position| {
-            (self.kinds.get(position) == Some(&kind))
-                .then(|| self.nodes.get(position).map(|node| (position, node)))
-                .flatten()
-        })
-    }
-}
-
 /// The state step. See the module documentation for the order.
 pub(super) fn validate_state(
     nodes: &[CheckedSemanticNodeV2],
@@ -76,7 +49,7 @@ pub(super) fn validate_state(
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let graph = StateGraph {
+    let graph = StepGraph {
         nodes,
         kinds,
         index,
@@ -138,7 +111,7 @@ fn model_refusal(
 
 /// Every `quire.op.state.clause` application stands as the body root of a
 /// `state`/`state_clause` node.
-fn validate_placement(graph: &StateGraph<'_, '_>) -> Result<(), ValidationFailure> {
+fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure> {
     for &position in graph.index.values() {
         let (Some(node), Some(&kind)) = (graph.nodes.get(position), graph.kinds.get(position))
         else {
@@ -182,26 +155,6 @@ fn validate_placement(graph: &StateGraph<'_, '_>) -> Result<(), ValidationFailur
     Ok(())
 }
 
-/// Joins a reference `target` held by `holder` to a declared dependency of
-/// the admitted kind: `missing-name` when it is not a declared dependency
-/// or names no node, `malformed-declaration` for another kind.
-fn join<'g>(
-    holder: &CheckedSemanticNodeV2,
-    target: &CheckedNodeId,
-    admits: impl Fn(CheckedNodeKind) -> bool,
-    graph: &'g StateGraph<'_, '_>,
-) -> Result<(&'g CheckedSemanticNodeV2, CheckedNodeKind), ModelRefusal> {
-    let (node, kind) = graph
-        .node(target)
-        .filter(|_| holder.dependencies.contains(target))
-        .ok_or(ModelRefusal::missing_name())?;
-    if admits(kind) {
-        Ok((node, kind))
-    } else {
-        Err(ModelRefusal::malformed())
-    }
-}
-
 fn is_object_type(kind: CheckedNodeKind) -> bool {
     kind == CheckedNodeKind::Model(ModelForm::ObjectType)
 }
@@ -218,7 +171,7 @@ fn resolve_operation<'m>(
     context: &CheckedSemanticNodeV2,
     context_kind: CheckedNodeKind,
     name: &str,
-    graph: &StateGraph<'_, 'm>,
+    graph: &StepGraph<'_, 'm>,
     meter: &mut WorkMeter,
 ) -> Result<OperationResolution<'m>, ValidationFailure> {
     if !graph
@@ -259,7 +212,7 @@ fn check_anchor(
     anchor: &CheckedSemanticNodeV2,
     position: usize,
     body: &AnchorBody<'_>,
-    graph: &StateGraph<'_, '_>,
+    graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let target_at = |member: usize| {
@@ -306,7 +259,7 @@ fn check_anchor(
 fn check_clause(
     clause: &CheckedSemanticNodeV2,
     position: usize,
-    graph: &StateGraph<'_, '_>,
+    graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let body = clause_body(&clause.body).ok_or_else(|| shape_refusal(clause, position))?;

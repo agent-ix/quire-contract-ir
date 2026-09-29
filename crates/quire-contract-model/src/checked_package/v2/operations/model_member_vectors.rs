@@ -29,12 +29,12 @@ use super::super::model_members::{
 use super::super::operation_catalog::{operation_catalog, OperationCatalog};
 use super::super::{CheckedDomainPackageRef, CheckedPackageLockV2, CheckedSemanticNodeV2};
 use super::{operation_defect, Application, Graph};
-use crate::checked_package::common::{digest_json, NODE_DOMAIN};
+use crate::checked_package::common::{digest_json, Trail, NODE_DOMAIN};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedRevision, CheckedSelection,
 };
 use crate::checked_package::v2::{
-    CheckedNodeKind, CheckedNodeTag, CheckedSelectionRole, WorkMeter,
+    CheckedNodeKind, CheckedNodeTag, CheckedSelectionRole, StateForm, WorkMeter,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -873,9 +873,24 @@ fn decide_step(graph: &CaseGraph, owners: &ModelOwners<'_>, step: Step) -> Optio
         .collect();
     let mut meter = WorkMeter::new(u64::MAX);
     let outcome = match step {
-        Step::Frame => super::super::frame::validate_frame_semantics(
-            &nodes, &kinds, &index, owners, &mut meter,
-        ),
+        Step::Frame => {
+            let frames = nodes
+                .iter()
+                .enumerate()
+                .filter(|(position, _)| {
+                    kinds.get(*position) == Some(&CheckedNodeKind::State(StateForm::Frame))
+                })
+                .map(|(position, node)| {
+                    let (body, _) =
+                        super::super::frame::read_frame_body(&node.body, &Trail::Base(&[]))
+                            .expect("a case frame body");
+                    (&node.node_id, position, body)
+                })
+                .collect();
+            super::super::frame::validate_frame_semantics(
+                frames, &nodes, &kinds, &index, owners, &mut meter,
+            )
+        }
         Step::State => {
             super::super::state::validate_state(&nodes, &kinds, &index, owners, &mut meter)
         }
