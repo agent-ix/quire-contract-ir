@@ -597,9 +597,6 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort

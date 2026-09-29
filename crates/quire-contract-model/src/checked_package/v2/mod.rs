@@ -8,12 +8,14 @@
 //! definition byte artifacts.
 
 mod dependency_references;
+mod frame;
 mod identity;
 mod lower;
 mod model_members;
 mod natural;
 mod operation_catalog;
 mod operations;
+mod state;
 mod structural;
 mod vocabulary;
 
@@ -26,9 +28,9 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    body_term, canonical_value, count, decode_closed, digest_json, exact_members, exceeds,
-    first_difference, is_digest, is_nonempty, node_pointer, validate_locked_artifact,
-    validate_source_map_entries, validate_term, visit_reference, ReferenceMember, ReferenceSite,
+    canonical_value, count, decode_closed, digest_json, exceeds, first_difference, is_digest,
+    is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
+    validate_term, ReferenceMember, ReferenceSite,
     ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
@@ -1208,9 +1210,6 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
@@ -1264,18 +1263,11 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
 
 /// Minimal structural admission for one node body. Every node validates as
 /// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
-/// `BodyBindingRules`-selected shape is the closed reference triple
-/// `{term: "frame", modifies, creates, deletes}`, each member a `uniqueItems`
-/// array per the wire schema. This parses and rejects a repeated entry within
-/// one member, but reports no reference targets to the caller: a frame body's
-/// declaration-level meaning comes from `dependencies`, not from independent
-/// successor edges, so its entries never resolve through the generic
-/// reference mechanism `validate_graph`'s Loop 2 uses for every other body
-/// (which would refuse an entry that fails to resolve as
-/// `invalid_semantic_graph`, the wrong code for FR-340's `missing_declaration`).
-/// Entry eligibility, canonical member order and refusal precedence across a
-/// frame's own violations are [`validate_frame_semantics`]'s job, run once
-/// the whole graph's identity and dependency edges are known (FR-340).
+/// `BodyBindingRules`-selected shape is [`frame::read_frame_body`]'s. A frame
+/// body reports no reference targets to the caller: its entries are joined
+/// to the frame's `dependencies` by the frame step
+/// ([`frame::validate_frame_semantics`]), never through the generic
+/// reference edges `validate_graph` resolves for every other body.
 /// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
 fn validate_body(
     kind: CheckedNodeKind,
@@ -1284,7 +1276,7 @@ fn validate_body(
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
     if is_frame(kind) {
-        validate_frame_body(body, at)
+        frame::read_frame_body(body, at).map(|(_, work)| work)
     } else {
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
@@ -1370,9 +1362,6 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
@@ -1422,398 +1411,6 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ProfileCorrespondence,
         ) => false,
     }
-}
-
-fn validate_frame_body(body: &Value, at: &Trail<'_>) -> Result<u64, ValidationFailure> {
-    let Value::Object(object) = body else {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
-        ));
-    };
-    if !exact_members(object, &["term", "modifies", "creates", "deletes"]) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
-        ));
-    }
-    if body_term(body) != Some(BodyTerm::Frame) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.key("term").pointer(),
-        ));
-    }
-    let mut work = 1_u64;
-    for member in FrameMember::ALL {
-        let key = member.wire_key();
-        work = work.saturating_add(visit_node_refs(object.get(key), &at.key(key))?);
-    }
-    Ok(work)
-}
-
-/// Validates one frame reference array at `at` (`modifies`, `creates` or
-/// `deletes`): every entry a well-formed node key and none repeated. A
-/// repeated entry refuses at its second occurrence. Every entry's shape is
-/// checked before any repeat, so a shape defect anywhere outranks a repeat.
-/// A frame body reports no reference targets to its caller: its
-/// declaration-level meaning comes from `dependencies` (FR-340).
-fn visit_node_refs(value: Option<&Value>, at: &Trail<'_>) -> Result<u64, ValidationFailure> {
-    let Some(Value::Array(values)) = value else {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
-        ));
-    };
-    let mut targets = Vec::with_capacity(values.len());
-    let work = values
-        .iter()
-        .enumerate()
-        .try_fold(0_u64, |work, (index, entry)| {
-            visit_reference(
-                entry,
-                ReferenceMember::FrameEntry,
-                false,
-                &at.index(index),
-                &mut |target, _site, _at| targets.push(target.clone()),
-            )
-            .map(|charged| work.saturating_add(charged))
-        })?;
-    let mut seen = BTreeSet::new();
-    if let Some(repeat) = targets.into_iter().position(|target| !seen.insert(target)) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.index(repeat).pointer(),
-        ));
-    }
-    Ok(work)
-}
-
-/// The three frame body members, in the body's own member order — also the
-/// tie-break order FR-340 uses when meaning-join defects tie across members
-/// (`modifies` first, then `creates`, then `deletes`).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FrameMember {
-    Modifies,
-    Creates,
-    Deletes,
-}
-
-impl FrameMember {
-    const ALL: [Self; 3] = [Self::Modifies, Self::Creates, Self::Deletes];
-
-    const fn wire_key(self) -> &'static str {
-        match self {
-            Self::Modifies => "modifies",
-            Self::Creates => "creates",
-            Self::Deletes => "deletes",
-        }
-    }
-
-    /// FR-340's closed eligibility table (FR-340-AC-1 through AC-4 upstream):
-    /// the single source of truth for which (member, node kind) pairs a frame
-    /// entry may name. [`frame_eligibility`] decides every form of every
-    /// family with no wildcard, so a new form fails to compile until its
-    /// eligibility is decided.
-    fn admits(self, kind: CheckedNodeKind) -> bool {
-        let eligibility = frame_eligibility(kind);
-        match self {
-            Self::Modifies => eligibility.modifies,
-            Self::Creates | Self::Deletes => eligibility.creates_or_deletes,
-        }
-    }
-}
-
-/// Which frame members may name a node of one kind.
-struct FrameEligibility {
-    modifies: bool,
-    creates_or_deletes: bool,
-}
-
-/// FR-340's eligibility for every form: `modifies` takes a relation's
-/// `relationship` or a model's `field_declaration`; `creates` and `deletes`
-/// take a model's `object_type` or `process`. Nothing else is eligible.
-fn frame_eligibility(kind: CheckedNodeKind) -> FrameEligibility {
-    use CheckedNodeKind as K;
-    const NONE: FrameEligibility = FrameEligibility {
-        modifies: false,
-        creates_or_deletes: false,
-    };
-    const MODIFIES: FrameEligibility = FrameEligibility {
-        modifies: true,
-        creates_or_deletes: false,
-    };
-    const CREATES_OR_DELETES: FrameEligibility = FrameEligibility {
-        modifies: false,
-        creates_or_deletes: true,
-    };
-    match kind {
-        K::Relation(RelationForm::Relationship) => MODIFIES,
-        K::Relation(
-            RelationForm::Population | RelationForm::Membership | RelationForm::CausalRelation,
-        ) => NONE,
-        K::Model(ModelForm::FieldDeclaration) => MODIFIES,
-        K::Model(ModelForm::ObjectType | ModelForm::Process) => CREATES_OR_DELETES,
-        K::Model(
-            ModelForm::ModelImport
-            | ModelForm::ValueType
-            | ModelForm::VariantType
-            | ModelForm::RecordValueType
-            | ModelForm::EventType
-            | ModelForm::StateMachine
-            | ModelForm::PersistenceInterface
-            | ModelForm::Namespace
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
-            | ModelForm::SystemsInterface
-            | ModelForm::SystemsPart
-            | ModelForm::SystemsPort
-            | ModelForm::SystemsConnection
-            | ModelForm::SystemsAllocation,
-        ) => NONE,
-        K::ScalarType(
-            ScalarTypeForm::Boolean
-            | ScalarTypeForm::Integer
-            | ScalarTypeForm::Rational
-            | ScalarTypeForm::Decimal
-            | ScalarTypeForm::Float32
-            | ScalarTypeForm::Float64
-            | ScalarTypeForm::Text
-            | ScalarTypeForm::Dimension
-            | ScalarTypeForm::Unit
-            | ScalarTypeForm::Enum
-            | ScalarTypeForm::CompoundUnit,
-        ) => NONE,
-        K::CompositeType(
-            CompositeTypeForm::Option
-            | CompositeTypeForm::Sequence
-            | CompositeTypeForm::Set
-            | CompositeTypeForm::Bag
-            | CompositeTypeForm::OrderedSet
-            | CompositeTypeForm::Record
-            | CompositeTypeForm::Tuple
-            | CompositeTypeForm::Alias
-            | CompositeTypeForm::Reference,
-        ) => NONE,
-        K::BoundedDomain(
-            BoundedDomainForm::IntegerRange
-            | BoundedDomainForm::RationalRange
-            | BoundedDomainForm::DecimalRange
-            | BoundedDomainForm::FloatRounding
-            | BoundedDomainForm::TextBounds
-            | BoundedDomainForm::CollectionBounds
-            | BoundedDomainForm::ModelPopulation,
-        ) => NONE,
-        K::Value(
-            ValueForm::Literal
-            | ValueForm::EnumValue
-            | ValueForm::CollectionValue
-            | ValueForm::RecordValue
-            | ValueForm::TupleValue
-            | ValueForm::OptionValue
-            | ValueForm::Parameter,
-        ) => NONE,
-        K::Expression(
-            ExpressionForm::Reference
-            | ExpressionForm::Call
-            | ExpressionForm::Unary
-            | ExpressionForm::Binary
-            | ExpressionForm::Conditional
-            | ExpressionForm::Let
-            | ExpressionForm::Quantify
-            | ExpressionForm::Collection
-            | ExpressionForm::Conversion
-            | ExpressionForm::Query
-            | ExpressionForm::PreRead
-            | ExpressionForm::PresenceRead
-            | ExpressionForm::ValueRead
-            | ExpressionForm::Deref
-            | ExpressionForm::Reachability,
-        ) => NONE,
-        K::Function(
-            FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
-        ) => NONE,
-        K::State(
-            StateForm::StateClause
-            | StateForm::Frame
-            | StateForm::Transition
-            | StateForm::OperationAnchor
-            | StateForm::Snapshot,
-        ) => NONE,
-        K::Temporal(
-            TemporalForm::TemporalClause
-            | TemporalForm::Formula
-            | TemporalForm::Clock
-            | TemporalForm::Window
-            | TemporalForm::Activation
-            | TemporalForm::Deadline,
-        ) => NONE,
-        K::Protocol(
-            ProtocolForm::ProtocolClause
-            | ProtocolForm::Role
-            | ProtocolForm::Channel
-            | ProtocolForm::Queue
-            | ProtocolForm::Control
-            | ProtocolForm::Obligation
-            | ProtocolForm::Compensation,
-        ) => NONE,
-        K::Claim(
-            ClaimForm::VerificationClaim
-            | ClaimForm::AnalysisClaim
-            | ClaimForm::Hyperproperty
-            | ClaimForm::SynthesisRequest,
-        ) => NONE,
-        K::Correspondence(
-            CorrespondenceForm::SourceLocus
-            | CorrespondenceForm::ModelCorrespondence
-            | CorrespondenceForm::BindingRole
-            | CorrespondenceForm::ProfileCorrespondence,
-        ) => NONE,
-    }
-}
-
-/// One frame body member's entries in wire order (neither deduplicated nor
-/// reordered), so [`frame_defect`] can check FR-340's canonical ascending-
-/// digest order. `validate_frame_body` (Loop 1, earlier in `validate_graph`)
-/// already required this member to be a `uniqueItems` array of well-formed
-/// `NodeRef` objects before the frame stage is ever reached, so this reparse
-/// of the already-admitted body cannot fail.
-fn frame_entries(body: &Value, key: &str) -> Vec<CheckedNodeId> {
-    body.get(key)
-        .and_then(Value::as_array)
-        .expect("frame body member shape already validated by validate_frame_body")
-        .iter()
-        .map(|entry| {
-            serde_json::from_value(entry.clone())
-                .expect("frame body entry shape already validated by validate_frame_body")
-        })
-        .collect()
-}
-
-/// One meaning-join defect found while scanning a frame's body: an entry
-/// naming no declared dependency of the frame (including one declared but
-/// resolving to no real node), or a declared dependency of a meaning its
-/// member does not admit. `member_index` and `digest` together are exactly
-/// FR-340's precedence sort key — member group first, then ascending entry
-/// digest — kept as their own fields (not derived from `locus`/`path`) so the
-/// sort in [`frame_defect`] cannot silently drift from the fields it reports.
-/// `member` and `entry_index` locate the entry in the wire body.
-struct MeaningDefect {
-    member_index: u8,
-    digest: Box<str>,
-    code: CheckedPackageRefusalCode,
-    cause: CheckedPackageRefusalCause,
-    locus: CheckedNodeId,
-    member: FrameMember,
-    entry_index: usize,
-}
-
-/// The single refusal FR-340 selects for one frame node's body, or `None`
-/// when the body is admitted. `frame_id` and `frame` are the same node;
-/// `frame_id` is threaded separately because it is the locus of a canonical-
-/// order defect, while a meaning-join defect's locus is the offending entry.
-///
-/// Collects every meaning-join defect (an entry naming no declared
-/// dependency of the frame, or a declared dependency of a meaning its member
-/// does not admit) across all three members, and separately whether any
-/// member's wire order is not strictly ascending by entry digest. Meaning-
-/// join defects always outrank a canonical-order defect; among meaning-join
-/// defects, `(member order, ascending entry digest)` — exactly the sort key
-/// [`MeaningDefect`] carries — selects the one FR-340 reports, so the outcome
-/// never depends on which member an author wrote a defect into, where in its
-/// array an entry sits, or the order this function happens to collect
-/// defects in.
-fn frame_defect(
-    frame_id: &CheckedNodeId,
-    frame: &CheckedSemanticNodeV2,
-    frame_position: usize,
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<ValidationFailure> {
-    let declared: BTreeSet<&CheckedNodeId> = frame.dependencies.iter().collect();
-    let mut order_defect = false;
-    let mut meaning_defects: Vec<MeaningDefect> = Vec::new();
-    for (member_index, member) in FrameMember::ALL.into_iter().enumerate() {
-        let entries = frame_entries(&frame.body, member.wire_key());
-        if entries
-            .windows(2)
-            .any(|pair| pair[0].digest >= pair[1].digest)
-        {
-            order_defect = true;
-        }
-        for (entry_index, entry) in entries.into_iter().enumerate() {
-            // `FrameMember::ALL` has exactly 3 members, so `enumerate()`
-            // never reaches a value `u8` cannot hold.
-            let member_index = u8::try_from(member_index).expect("FrameMember::ALL has 3 members");
-            if !declared.contains(&entry) {
-                meaning_defects.push(MeaningDefect {
-                    member_index,
-                    digest: entry.digest.clone(),
-                    code: CheckedPackageRefusalCode::MissingDeclaration,
-                    cause: CheckedPackageRefusalCause::MissingName,
-                    locus: entry,
-                    member,
-                    entry_index,
-                });
-                continue;
-            }
-            // FR-340 resolves each declared entry itself rather than relying
-            // on the graph's generic dependency-edge resolution (which runs
-            // later, see `validate_graph`): a frame dependency naming no
-            // real node is `missing_declaration` exactly like an entry the
-            // frame never declared at all, not the generic
-            // `invalid_semantic_graph` an unresolved edge would otherwise be.
-            let Some(&position) = index.get(&entry) else {
-                meaning_defects.push(MeaningDefect {
-                    member_index,
-                    digest: entry.digest.clone(),
-                    code: CheckedPackageRefusalCode::MissingDeclaration,
-                    cause: CheckedPackageRefusalCause::MissingName,
-                    locus: entry,
-                    member,
-                    entry_index,
-                });
-                continue;
-            };
-            if !member.admits(kinds[position]) {
-                meaning_defects.push(MeaningDefect {
-                    member_index,
-                    digest: entry.digest.clone(),
-                    code: CheckedPackageRefusalCode::InvalidModelBinding,
-                    cause: CheckedPackageRefusalCause::MalformedDeclaration,
-                    locus: entry,
-                    member,
-                    entry_index,
-                });
-            }
-        }
-    }
-    if !meaning_defects.is_empty() {
-        meaning_defects.sort_by(|left, right| {
-            (left.member_index, &left.digest).cmp(&(right.member_index, &right.digest))
-        });
-        let winner = meaning_defects
-            .into_iter()
-            .next()
-            .expect("checked nonempty above");
-        return Some(refuse_at(
-            winner.code,
-            node_pointer(frame_position)
-                .key("body")
-                .key(winner.member.wire_key())
-                .index(winner.entry_index),
-            Some(winner.cause),
-            winner.locus,
-        ));
-    }
-    if order_defect {
-        return Some(refuse_at(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            node_pointer(frame_position).key("body"),
-            None,
-            frame_id.clone(),
-        ));
-    }
-    None
 }
 
 /// FR-322's declaration-name refusals, after the nominal checks and before
@@ -1876,45 +1473,6 @@ fn validate_declaration_names(
             Some(CheckedPackageRefusalCause::AmbiguousName),
             (*first).clone(),
         ));
-    }
-    Ok(())
-}
-
-/// FR-340 frame-body semantics: entry eligibility, canonical member order and
-/// cross-defect refusal precedence. Runs once every node's own identity is
-/// known (`index`/`tags`, built by `validate_graph`'s per-node loop),
-/// immediately after declaration checks (`validate_nominal_nodes`) and before
-/// the graph's dependency/body-reference edges are resolved — the
-/// "graph-shape, ..., declaration, frame, operation" reader order the
-/// upstream contract description states normatively (`validate_application_keys` runs the
-/// stale-application-key stage just before this one, ahead of declaration;
-/// `validate_operations` runs the operation stage just after).
-/// Running before edge resolution matters: `frame_defect` resolves each
-/// declared entry itself, so a frame `dependencies` entry naming no real node
-/// is reported as FR-340's own `missing_declaration`, not the generic
-/// unresolved-edge `invalid_semantic_graph` the later resolution pass would
-/// otherwise raise for the same node first. Visits `state`/`frame` nodes in
-/// ascending `node_id` digest order — the iteration order of `index`, a
-/// `BTreeMap` — and reports the first one carrying a defect, so a package
-/// with several defective frames refuses at the least such frame
-/// (FR-340-AC-9). Takes no `&mut WorkMeter`: every frame entry it walks
-/// (via [`frame_entries`]) was already parsed, shape-validated and charged
-/// once by `validate_frame_body` in the per-node loop above, so this stage's
-/// cost is already bounded by that earlier charge (see FR-038's "Frame
-/// bodies" section) rather than uncharged and unbounded.
-fn validate_frame_semantics(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Result<(), ValidationFailure> {
-    for (&node_id, &position) in index {
-        let node = &nodes[position];
-        if !is_frame(kinds[position]) {
-            continue;
-        }
-        if let Some(failure) = frame_defect(node_id, node, position, kinds, index) {
-            return Err(failure);
-        }
     }
     Ok(())
 }
@@ -2105,21 +1663,18 @@ fn validate_graph(
             ));
         }
     }
-    // Declaration and frame checks (FR-322/FR-340) run here, against `index`
-    // and `kinds` alone, before the dependency/body-target edges below are
-    // resolved against the graph: a frame `dependencies` entry naming no
-    // real node is FR-340's own `missing_declaration` refusal (`frame_defect`
-    // resolves each entry itself), not the generic unresolved-reference
-    // `invalid_semantic_graph` the edge-resolution loop below would raise for
-    // the same node first if it ran first.
     // Graph-shape body and dependency rules FR-322 orders before the
-    // stale-key stage: the structural forms' bodies and the
-    // application-node dependency join.
+    // stale-key stage: the structural forms' bodies and occurrence roles and
+    // the application-node dependency join. Then, in reader order, the
+    // stale-key, declaration, frame, state and operation steps. All of them
+    // run before the dependency and body-reference edges below are resolved,
+    // so an entry, anchor or clause reference naming no node is the step's
+    // own `missing_declaration` refusal rather than the generic
+    // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &index)?;
     validate_application_keys(&graph.nodes, &index, meter)?;
     validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
     validate_declaration_names(&graph.nodes, &index)?;
-    validate_frame_semantics(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {
@@ -2127,6 +1682,8 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
+    frame::validate_frame_semantics(&graph.nodes, &kinds, &index, &owners, meter)?;
+    state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2467,8 +2024,8 @@ fn validate_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_frame, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId, FrameMember,
-        ModelForm, RelationForm, StateForm, DEPENDENCY_SELECTION_MEMBERS,
+        is_frame, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId, StateForm,
+        DEPENDENCY_SELECTION_MEMBERS,
     };
 
     /// The members `classify_dependency_entry_shape` treats as required are
@@ -2506,59 +2063,5 @@ mod tests {
             .filter(|kind| is_frame(*kind))
             .collect::<Vec<_>>();
         assert_eq!(frames, [CheckedNodeKind::State(StateForm::Frame)]);
-    }
-
-    /// FR-340 admits exactly six `(member, kind)` pairs: `modifies` takes a
-    /// relation's `relationship` or a model's `field_declaration`; `creates`
-    /// and `deletes` each take a model's `object_type` or `process`. This
-    /// walks every member against every kind the closed vocabularies can
-    /// produce, so a `frame_eligibility` edit that widens or narrows any pair
-    /// fails here. The kind count is pinned too: a new form must also pass
-    /// through `frame_eligibility`'s exhaustive match, and this test states
-    /// that the population it decided over is the one it walked.
-    ///
-    /// Tracing: TC-053, FR-038-AC-12
-    #[test]
-    fn tc_053_frame_member_admits_exactly_the_closed_eligible_pairs() {
-        let kinds = CheckedNodeKind::all();
-        assert_eq!(
-            kinds.len(),
-            100,
-            "the closed form set changed; decide its frame eligibility"
-        );
-        let admitted = FrameMember::ALL
-            .into_iter()
-            .flat_map(|member| kinds.iter().map(move |kind| (member, *kind)))
-            .filter(|(member, kind)| member.admits(*kind))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            admitted,
-            vec![
-                (
-                    FrameMember::Modifies,
-                    CheckedNodeKind::Model(ModelForm::FieldDeclaration)
-                ),
-                (
-                    FrameMember::Modifies,
-                    CheckedNodeKind::Relation(RelationForm::Relationship)
-                ),
-                (
-                    FrameMember::Creates,
-                    CheckedNodeKind::Model(ModelForm::ObjectType)
-                ),
-                (
-                    FrameMember::Creates,
-                    CheckedNodeKind::Model(ModelForm::Process)
-                ),
-                (
-                    FrameMember::Deletes,
-                    CheckedNodeKind::Model(ModelForm::ObjectType)
-                ),
-                (
-                    FrameMember::Deletes,
-                    CheckedNodeKind::Model(ModelForm::Process)
-                ),
-            ]
-        );
     }
 }

@@ -312,9 +312,6 @@ impl NominalKind {
                 | ModelForm::Process
                 | ModelForm::PersistenceInterface
                 | ModelForm::Namespace
-                | ModelForm::FieldDeclaration
-                | ModelForm::OperationDeclaration
-                | ModelForm::ClauseMemberDeclaration
                 | ModelForm::SystemsInterface
                 | ModelForm::SystemsPart
                 | ModelForm::SystemsPort

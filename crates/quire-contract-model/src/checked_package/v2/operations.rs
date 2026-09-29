@@ -60,7 +60,7 @@ use super::model_members::{
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
-    BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
+    ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
     CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm, OperationConstraintKind,
     OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
@@ -577,6 +577,9 @@ fn operation_defect(
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
         return Ok(Some(failure));
     }
+    if let Some(failure) = check_state_clause_result(application, entry, graph) {
+        return Ok(Some(failure));
+    }
     let member_kind = match wire_member_kind.flatten() {
         Some(OperationMemberKind::Field) => Some(MemberKind::Field),
         Some(OperationMemberKind::Operation) => Some(MemberKind::Operation),
@@ -585,7 +588,8 @@ fn operation_defect(
             | OperationMemberKind::Element
             | OperationMemberKind::RelationshipEnd
             | OperationMemberKind::TypeArgument
-            | OperationMemberKind::ProfileOperator,
+            | OperationMemberKind::ProfileOperator
+            | OperationMemberKind::StateClause,
         )
         | None => None,
     };
@@ -772,9 +776,6 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
             | ModelForm::SystemsConnection
@@ -898,9 +899,6 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ModelForm::Process
             | ModelForm::PersistenceInterface
             | ModelForm::Namespace
-            | ModelForm::FieldDeclaration
-            | ModelForm::OperationDeclaration
-            | ModelForm::ClauseMemberDeclaration
             | ModelForm::SystemsInterface
             | ModelForm::SystemsPart
             | ModelForm::SystemsPort
@@ -1084,7 +1082,8 @@ fn check_operands(
             | OperationConstraintKind::RationalNarrowing
             | OperationConstraintKind::ScaleReduction
             | OperationConstraintKind::PromotesExact
-            | OperationConstraintKind::UniformRest => {}
+            | OperationConstraintKind::UniformRest
+            | OperationConstraintKind::ReferenceEdge => {}
         }
     }
     Ok(None)
@@ -1213,6 +1212,34 @@ fn check_inner_result(
     let typed = result_type.as_ref() == Some(&inner)
         && resolve_family(&inner, graph.nodes, graph.kinds, graph.index, 0).is_some();
     (!typed).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
+/// The `clause` result of `quire.op.state.clause` is declared Boolean
+/// (QSpec FR-341): its `result_type` names the `scalar_type`/`boolean` node,
+/// else `ill_typed`/`operator-ineligible` at the `result_type`.
+fn check_state_clause_result(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if entry.operator != ApplicationOperator::StateClause {
+        return None;
+    }
+    let boolean = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+        .and_then(|result_type| graph.index.get(&result_type).copied())
+        .and_then(|position| graph.kinds.get(position))
+        == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean));
+    (!boolean).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             application.body(&["result_type"]),
