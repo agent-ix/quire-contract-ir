@@ -1,9 +1,9 @@
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
-    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    KaniProviderResult, ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds,
-    SemanticFamily, PROFILE,
+    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile, KaniProviderResult,
+    ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
+    PROFILE,
 };
 
 fn selection() -> ProfileSelection {
