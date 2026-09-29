@@ -24,8 +24,10 @@ declarations.
 
 ## Inputs
 
-- Every Markdown file under `spec/`, `plan/` and `reviews/` in the working
-  tree, and its first frontmatter `id:` line.
+- Every spec artifact in the working tree, as ADR-0056 defines it (a Markdown
+  document under `spec/` outside `spec/reviews/`), and its first frontmatter
+  `id:` line. Files under `plan/`, `reviews/` and `spec/reviews/` are not
+  read for identifiers.
 - Every document typed `TestMatrix` under `spec/`, and the rows of its
   `## Test Case Summary` table.
 - The `## ID Blocks` table of the master-requirements document, when present.
@@ -42,8 +44,8 @@ declarations.
 
 - The check SHALL read only the working tree and, when `SPEC_BASE` is set, the
   Git objects of that revision. It SHALL NOT use the network.
-- When two files declare the same frontmatter `id`, the check SHALL report the
-  identifier and both paths.
+- When two spec artifacts declare the same frontmatter `id`, the check SHALL
+  report the identifier and both paths.
 - When one `TC` ID leads more than one `Test Case Summary` row, in one matrix
   or across matrices, the check SHALL report the identifier and each
   `matrix:line`.
@@ -55,16 +57,16 @@ declarations.
   `new_id` is not `-`, the file at `new_path` declaring `new_id`.
 - When `SPEC_BASE` is set and every row of the relocation maps the change adds
   has equal `old_id` and `new_id`, the check SHALL require the frontmatter ID
-  set under `spec/`, `plan/` and `reviews/` at `SPEC_BASE` to equal the set in
-  the working tree, and every file renamed between `SPEC_BASE` and the working
-  tree to have exactly one row in a relocation map the change adds.
+  set of spec artifacts at `SPEC_BASE` to equal the set in the working tree,
+  and every file renamed between `SPEC_BASE` and the working tree to have
+  exactly one row in a relocation map the change adds.
 - A defect SHALL NOT be reported as a warning: every finding fails the check.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-345-AC-1 | Two files under `spec/`, `plan/` or `reviews/` declaring one frontmatter `id` fail the check with the identifier and both paths; the same identifier in body prose alone does not. | Test (TC-224) |
+| FR-345-AC-1 | Two spec artifacts declaring one frontmatter `id` fail the check with the identifier and both paths; the same identifier in body prose alone, or declared twice only by files under `plan/`, `reviews/` or `spec/reviews/`, does not. | Test (TC-224) |
 | FR-345-AC-2 | A `TC` ID leading two `Test Case Summary` rows fails the check with the identifier and each `matrix:line`, both when the rows are in one matrix and when they are in two; citing the ID in another table does not. | Test (TC-224) |
 | FR-345-AC-3 | Two `## ID Blocks` rows of one family with a common ID fail the check naming both rows; adjacent non-overlapping ranges and ranges of different families pass. | Test (TC-224) |
 | FR-345-AC-4 | A relocation map with a wrong header, unsorted rows, a repeated `old_path`, a `new_path` absent from the tree, or a `new_path` whose file declares a different `id` than `new_id` fails the check with `path:line` for each defect. | Test (TC-224) |

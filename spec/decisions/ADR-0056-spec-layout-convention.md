@@ -163,8 +163,14 @@ same document.
    repository name or its registered short name immediately before the ID
    (`quire-specification FR-340`, `QSpec FR-340`).
 5. The next free ID in a family is one above the highest of: every ID of that
-   family declared in frontmatter under `spec/`, `plan/` and `reviews/` on the
-   default branch, and the upper bound of every block recorded for that family.
+   family declared in a spec artifact's frontmatter on the default branch, and
+   the upper bound of every block recorded for that family.
+6. A spec artifact is a document under `spec/` outside `spec/reviews/`: the
+   StR, US, FR, NFR, IT, TC, AD, AP, ADR and STD artifacts, the other assurance
+   and program artifacts, and the matrices. The identifier rules, the ID checks
+   and the relocation-map ID columns apply to spec artifacts and to the `TC`
+   rows the matrices declare. Plans under `plan/` and reviews under `reviews/`
+   or `spec/reviews/` carry their own identifiers and are not checked.
 
 ### ID blocks for parallel authors
 
@@ -195,8 +201,8 @@ time, each writes only IDs from a block issued to it.
 
 ### Collision handling
 
-A collision is two files declaring the same frontmatter `id`, or two matrices
-declaring the same `TC` in their Test Case Summary. `make spec` fails on
+A collision is two spec artifacts declaring the same frontmatter `id`, or two
+matrix rows declaring the same `TC` in a Test Case Summary. `make spec` fails on
 either, naming both files.
 
 1. The claim that lies outside a block recorded for its author is the one that
@@ -240,12 +246,13 @@ request of its own, and it passes every check below before it merges.
 3. **Relocation map.** It adds `spec/relocations/<YYYY-MM-DD>-<slug>.tsv`: a
    tab-separated file whose header row names the columns `old_path`,
    `new_path`, `old_id` and `new_id`, then one row per moved file, sorted by `old_path`, paths relative to the repository root.
-   A file with no frontmatter ID carries `-` in both ID columns. In a
+   A file that is not a spec artifact, or has no frontmatter ID, carries `-` in
+   both ID columns. In a
    structural change every row has `old_id` equal to `new_id`; only a collision
    renumbering records two different IDs. Every file whose path changed has
    exactly one row, and every row's `new_path` exists at the head.
-4. **ID-set equality.** The sorted set of frontmatter IDs under `spec/`,
-   `plan/` and `reviews/` at the merge base is identical to the set at the head.
+4. **ID-set equality.** The sorted set of spec-artifact frontmatter IDs at the
+   merge base is identical to the set at the head.
    The set of `TC` IDs declared across all matrices is identical before and
    after, and each is declared exactly once.
 5. **No meaning change.** Moves are Git renames. In a moved requirement,
