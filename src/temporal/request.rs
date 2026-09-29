@@ -313,18 +313,12 @@ fn native_input(
         instance: trigger_identity,
         correspondence: EvidenceRef::new(
             super::PROFILE,
-            BridgeDigest::raw(include_bytes!(
-                "../../spec/contract/FR-026-native-temporal-tl-correspondence.md"
-            ))
-            .to_string(),
+            BridgeDigest::raw(super::PROFILE.as_bytes()).to_string(),
             correspondence_identity.to_string(),
             correspondence_identity.to_string(),
             "agent-ix/quire-contract-ir",
-            "980fcc0cccf18c95495fce279440a73c49d4f5c5",
-            BridgeDigest::raw(include_bytes!(
-                "../../spec/contract/FR-026-native-temporal-tl-correspondence.md"
-            ))
-            .to_string(),
+            env!("CARGO_PKG_VERSION"),
+            BridgeDigest::raw(super::PROFILE.as_bytes()).to_string(),
             "correspondence",
             1,
         ),

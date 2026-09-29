@@ -131,7 +131,7 @@ checked temporal + observations + valuations -> sibling native/TL requests
 validated native/TL formula results -> structural correspondence join
 exact campaign manifest -> typed graph -> descriptive model + strict re-export
 checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome -> qsl_replay::TerminalValue
-schema + corpus manifest + fixtures -> process runner -> JSON Lines results
+schema + corpus fixtures -> process runner -> JSON Lines results
 ```
 
 The Rust library and process runner share semantic operations. `serde`

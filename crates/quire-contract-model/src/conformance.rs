@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path},
     sync::mpsc::{self, Sender},
@@ -9,7 +9,6 @@ use std::{
 use jsonschema::{Draft, JSONSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sha2::{Digest as _, Sha256};
 
 use crate::{
     classify_coverage, migrate_reference_body, ArtifactId, ArtifactTrace, CanonicalDigest,
@@ -201,7 +200,7 @@ impl ConformanceOperation {
 #[serde(rename_all = "snake_case")]
 pub enum RunnerErrorCode {
     InvalidInvocation,
-    InvalidManifest,
+    InvalidCorpus,
     UnsupportedProfile,
     UnsafePath,
     FixtureIo,
@@ -231,44 +230,19 @@ impl RunnerError {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DigestedPath {
-    path: String,
-    sha256: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 struct Fixture {
     id: String,
     operation: ConformanceOperation,
     input: String,
-    input_sha256: String,
     expectation: String,
-    expectation_sha256: String,
-    covers: Vec<String>,
-    trace_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
-    corpus_id: String,
-    package_schema: DigestedPath,
-    conformance_schema: DigestedPath,
-    inventory: DigestedPath,
-    canonical_profile: String,
-    protocol: String,
-    fixtures: Vec<Fixture>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolIdentity {
     crate_version: &'static str,
-    package_schema_path: String,
-    package_schema_digest: String,
-    canonical_profile: String,
+    package_schema_path: &'static str,
+    canonical_profile: &'static str,
     runner_protocol: &'static str,
 }
 
@@ -287,6 +261,7 @@ pub struct FixtureResult {
     operation: ConformanceOperation,
     status: FixtureStatus,
     mismatch_kinds: Vec<&'static str>,
+    covers: Vec<String>,
     trace_ids: Vec<String>,
     actual: Value,
     tool: ToolIdentity,
@@ -336,7 +311,7 @@ impl SchemaWorker {
                 .compile(&schema)
                 .map_err(|_| {
                     RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
+                        RunnerErrorCode::InvalidCorpus,
                         error_path,
                         "schema cannot be compiled",
                     )
@@ -369,12 +344,12 @@ impl SchemaWorker {
                     let result = match schemas.get(&request.schema_name) {
                         Some(schema) if schema.is_valid(&request.instance) => Ok(request.instance),
                         Some(_) => Err(RunnerError::new(
-                            RunnerErrorCode::InvalidManifest,
+                            RunnerErrorCode::InvalidCorpus,
                             request.error_path,
                             "instance does not match schema",
                         )),
                         None => Err(RunnerError::new(
-                            RunnerErrorCode::InvalidManifest,
+                            RunnerErrorCode::InvalidCorpus,
                             "conformance_schema",
                             "named schema definition is absent",
                         )),
@@ -460,16 +435,8 @@ impl Drop for SchemaWorker {
 }
 
 impl ReadBudget {
-    fn new(manifest_bytes: usize) -> Result<Self, RunnerError> {
-        let consumed = u64::try_from(manifest_bytes).unwrap_or(u64::MAX);
-        if consumed > MAX_CONFORMANCE_TOTAL_BYTES {
-            return Err(RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "manifest",
-                "corpus exceeds aggregate byte limit",
-            ));
-        }
-        Ok(Self { consumed })
+    const fn new() -> Self {
+        Self { consumed: 0 }
     }
 
     fn ensure_available(&self, additional: u64, field: &str) -> Result<(), RunnerError> {
@@ -526,33 +493,37 @@ pub fn expected_inventory() -> Vec<String> {
     inventory
 }
 
-pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
-    let manifest_bytes = read_manifest(path)?;
-    let mut read_budget = ReadBudget::new(manifest_bytes.len())?;
-    let manifest_value: Value =
-        parse_json(&manifest_bytes, "manifest", "manifest JSON is malformed")?;
+const PACKAGE_SCHEMA_PATH: &str = "schemas/contract-package-reference-v1.schema.json";
+const CONFORMANCE_SCHEMA_PATH: &str = "schemas/contract-conformance-manifest-v1.schema.json";
+
+/// Runs every fixture of the corpus directory at `path`.
+///
+/// The corpus is the directory itself: each `inputs/<id>.json` is one fixture,
+/// its operation is the `<id>` prefix before the first `-`, and its
+/// expectation is `expectations/<id>.json`. Each result's coverage tokens are
+/// the ones the fixture is observed to exercise, and the union over the corpus
+/// must equal [`expected_inventory`].
+pub fn run_corpus(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     let root = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
         .canonicalize()
-        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "manifest", "root unreadable"))?;
-    let bootstrap_schema = manifest_value
-        .get("conformance_schema")
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("path"))
-        .and_then(Value::as_str)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "corpus", "corpus unreadable"))?;
+    let corpus_id = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| is_identifier(name))
         .ok_or_else(|| {
             RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                "conformance_schema.path",
-                "manifest shape is invalid",
+                RunnerErrorCode::InvalidCorpus,
+                "corpus",
+                "corpus directory name is not an identifier",
             )
-        })?;
+        })?
+        .to_owned();
+    let mut read_budget = ReadBudget::new();
     let conformance_schema_bytes = read_relative(
         &root,
-        bootstrap_schema,
-        "conformance_schema.path",
+        CONFORMANCE_SCHEMA_PATH,
+        "conformance_schema",
         &mut read_budget,
     )?;
     let conformance_schema: Value = parse_json(
@@ -560,38 +531,18 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
         "conformance_schema",
         "schema JSON is malformed",
     )?;
-    preflight_manifest_paths(&manifest_value)?;
     require_schema_identity(
         &conformance_schema,
         CONFORMANCE_SCHEMA_ID,
         "conformance_schema",
     )?;
     validate_complete_schema(&conformance_schema, "conformance_schema")?;
-    let conformance_validator = SchemaWorker::named(conformance_schema.clone())?;
-    let manifest_value = conformance_validator.validate("manifest", "manifest", manifest_value)?;
-    let manifest: Manifest = serde_json::from_value(manifest_value).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "manifest",
-            "manifest shape is invalid",
-        )
-    })?;
-    validate_profiles(&manifest)?;
-    verify_digest(
-        &conformance_schema_bytes,
-        &manifest.conformance_schema.sha256,
-        "conformance_schema.sha256",
-    )?;
+    let conformance_validator = SchemaWorker::named(conformance_schema)?;
     let package_schema_bytes = read_relative(
         &root,
-        &manifest.package_schema.path,
-        "package_schema.path",
+        PACKAGE_SCHEMA_PATH,
+        "package_schema",
         &mut read_budget,
-    )?;
-    verify_digest(
-        &package_schema_bytes,
-        &manifest.package_schema.sha256,
-        "package_schema.sha256",
     )?;
     let package_schema: Value = parse_json(
         &package_schema_bytes,
@@ -601,37 +552,19 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     require_schema_identity(&package_schema, PACKAGE_SCHEMA_ID, "package_schema")?;
     validate_complete_schema(&package_schema, "package_schema")?;
     let package_validator = SchemaWorker::whole(package_schema, "package", "package_schema")?;
-    let inventory_bytes = read_relative(
-        &root,
-        &manifest.inventory.path,
-        "inventory.path",
-        &mut read_budget,
-    )?;
-    verify_digest(
-        &inventory_bytes,
-        &manifest.inventory.sha256,
-        "inventory.sha256",
-    )?;
-    let inventory: Vec<String> =
-        parse_json(&inventory_bytes, "inventory", "inventory JSON is malformed")?;
-    validate_inventory(&manifest, &inventory)?;
+    let fixtures = enumerate_fixtures(&root)?;
+    let trace_registry = trace_registry()?;
 
-    let mut loaded = Vec::with_capacity(manifest.fixtures.len());
-    for fixture in manifest.fixtures.iter().cloned() {
+    let mut loaded = Vec::with_capacity(fixtures.len());
+    for fixture in fixtures {
         let input_path = format!("fixtures.{}.input", fixture.id);
         let expectation_path = format!("fixtures.{}.expectation", fixture.id);
         let input_bytes = read_relative(&root, &fixture.input, &input_path, &mut read_budget)?;
-        verify_digest(&input_bytes, &fixture.input_sha256, "fixtures.input_sha256")?;
         let expectation_bytes = read_relative(
             &root,
             &fixture.expectation,
             &expectation_path,
             &mut read_budget,
-        )?;
-        verify_digest(
-            &expectation_bytes,
-            &fixture.expectation_sha256,
-            "fixtures.expectation_sha256",
         )?;
         let input: Value = parse_json(&input_bytes, &input_path, "fixture JSON is malformed")?;
         let mut expected: Value = parse_json(
@@ -659,12 +592,12 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
 
     let tool = ToolIdentity {
         crate_version: env!("CARGO_PKG_VERSION"),
-        package_schema_path: manifest.package_schema.path.clone(),
-        package_schema_digest: manifest.package_schema.sha256.clone(),
-        canonical_profile: manifest.canonical_profile.clone(),
+        package_schema_path: PACKAGE_SCHEMA_PATH,
+        canonical_profile: crate::CANONICAL_PROFILE,
         runner_protocol: CONFORMANCE_PROTOCOL,
     };
-    loaded
+    let mut covered = BTreeSet::new();
+    let results = loaded
         .into_iter()
         .map(|loaded| {
             let operation = loaded.fixture.operation;
@@ -695,25 +628,124 @@ pub fn run_manifest(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
                 &package_validator,
                 &loaded.fixture.id,
             )?;
-            validate_observed_coverage(&loaded.fixture, &loaded.input, &actual)?;
+            let (covers, trace_ids) =
+                observed_traces(&trace_registry, operation, &loaded.input, &actual);
+            covered.extend(covers.iter().cloned());
             let mismatch_kinds = mismatch_kinds(&actual, &loaded.expected);
             Ok(FixtureResult {
                 protocol: CONFORMANCE_PROTOCOL,
-                corpus_id: manifest.corpus_id.clone(),
+                corpus_id: corpus_id.clone(),
                 fixture_id: loaded.fixture.id,
-                operation: loaded.fixture.operation,
+                operation,
                 status: if mismatch_kinds.is_empty() {
                     FixtureStatus::Match
                 } else {
                     FixtureStatus::Mismatch
                 },
                 mismatch_kinds,
-                trace_ids: loaded.fixture.trace_ids,
+                covers,
+                trace_ids,
                 actual,
                 tool: tool.clone(),
             })
         })
+        .collect::<Result<Vec<_>, RunnerError>>()?;
+    if covered.into_iter().collect::<Vec<_>>() != expected_inventory() {
+        return Err(RunnerError::new(
+            RunnerErrorCode::InvalidCorpus,
+            "fixtures.covers",
+            "observed coverage union differs from inventory",
+        ));
+    }
+    Ok(results)
+}
+
+fn is_identifier(text: &str) -> bool {
+    let mut characters = text.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+}
+
+fn enumerate_fixtures(root: &Path) -> Result<Vec<Fixture>, RunnerError> {
+    let entries = fs::read_dir(root.join("inputs"))
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "inputs", "inputs unreadable"))?;
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| {
+            RunnerError::new(RunnerErrorCode::FixtureIo, "inputs", "inputs unreadable")
+        })?;
+        let name = entry.file_name();
+        let Some(id) = name
+            .to_str()
+            .and_then(|name| name.strip_suffix(".json"))
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        ids.push(id);
+        if ids.len() > MAX_CONFORMANCE_FIXTURES as usize {
+            return Err(RunnerError::new(
+                RunnerErrorCode::ResourceExhausted,
+                "fixtures",
+                "fixture count exceeds limit",
+            ));
+        }
+    }
+    if ids.is_empty() {
+        return Err(RunnerError::new(
+            RunnerErrorCode::InvalidCorpus,
+            "fixtures",
+            "corpus has no fixtures",
+        ));
+    }
+    ids.sort();
+    ids.into_iter()
+        .map(|id| {
+            let operation = id
+                .split_once('-')
+                .and_then(|(prefix, _)| {
+                    ConformanceOperation::ALL
+                        .iter()
+                        .copied()
+                        .find(|operation| operation.as_str() == prefix)
+                })
+                .filter(|_| is_identifier(&id))
+                .ok_or_else(|| {
+                    RunnerError::new(
+                        RunnerErrorCode::InvalidCorpus,
+                        format!("fixtures.{id}"),
+                        "fixture name does not start with a known operation",
+                    )
+                })?;
+            Ok(Fixture {
+                input: format!("inputs/{id}.json"),
+                expectation: format!("expectations/{id}.json"),
+                id,
+                operation,
+            })
+        })
         .collect()
+}
+
+fn observed_traces(
+    registry: &TraceRegistry,
+    operation: ConformanceOperation,
+    input: &Value,
+    actual: &Value,
+) -> (Vec<String>, Vec<String>) {
+    let mut covers = Vec::new();
+    let mut trace_ids = BTreeSet::new();
+    for token in observed_coverage(operation, input, actual) {
+        if let Some(targets) = registry.get(&(operation.as_str().to_owned(), token.clone())) {
+            trace_ids.extend(targets.iter().cloned());
+            covers.push(token);
+        }
+    }
+    (covers, trace_ids.into_iter().collect())
 }
 
 fn validate_successful_package_schema(
@@ -733,7 +765,7 @@ fn validate_successful_package_schema(
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
+                        RunnerErrorCode::InvalidCorpus,
                         format!("fixtures.{fixture_id}.input.document_json"),
                         "successful raw package input is malformed",
                     )
@@ -744,7 +776,7 @@ fn validate_successful_package_schema(
         ConformanceOperation::Migration | ConformanceOperation::Coverage => {
             input.get("package").cloned().ok_or_else(|| {
                 RunnerError::new(
-                    RunnerErrorCode::InvalidManifest,
+                    RunnerErrorCode::InvalidCorpus,
                     format!("fixtures.{fixture_id}.input.package"),
                     "successful operation has no package input",
                 )
@@ -780,112 +812,7 @@ fn parse_json<T: DeserializeOwned>(
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     deserializer.disable_recursion_limit();
     T::deserialize(serde_stacker::Deserializer::new(&mut deserializer))
-        .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidManifest, path, malformed_detail))
-}
-
-fn preflight_manifest_paths(manifest: &Value) -> Result<(), RunnerError> {
-    let object = manifest.as_object().ok_or_else(|| {
-        RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "manifest",
-            "manifest shape is invalid",
-        )
-    })?;
-    for name in ["package_schema", "conformance_schema", "inventory"] {
-        if let Some(path) = object
-            .get(name)
-            .and_then(Value::as_object)
-            .and_then(|entry| entry.get("path"))
-            .and_then(Value::as_str)
-        {
-            if !safe_relative(path) {
-                return Err(RunnerError::new(
-                    RunnerErrorCode::UnsafePath,
-                    format!("{name}.path"),
-                    "path is unsafe",
-                ));
-            }
-        }
-    }
-    if let Some(fixtures) = object.get("fixtures").and_then(Value::as_array) {
-        if fixtures.len() > MAX_CONFORMANCE_FIXTURES as usize {
-            return Err(RunnerError::new(
-                RunnerErrorCode::ResourceExhausted,
-                "fixtures",
-                "fixture count exceeds limit",
-            ));
-        }
-        for (index, fixture) in fixtures.iter().enumerate() {
-            for name in ["input", "expectation"] {
-                if let Some(path) = fixture.get(name).and_then(Value::as_str) {
-                    if !safe_relative(path) {
-                        return Err(RunnerError::new(
-                            RunnerErrorCode::UnsafePath,
-                            format!("fixtures.{index}.{name}"),
-                            "path is unsafe",
-                        ));
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn read_manifest(path: &Path) -> Result<Vec<u8>, RunnerError> {
-    let before = fs::metadata(path).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::FixtureIo,
-            "manifest",
-            "manifest unreadable",
-        )
-    })?;
-    if !before.is_file() {
-        return Err(RunnerError::new(
-            RunnerErrorCode::FixtureIo,
-            "manifest",
-            "manifest is not a regular file",
-        ));
-    }
-    if before.len() > MAX_CONFORMANCE_FILE_BYTES {
-        return Err(RunnerError::new(
-            RunnerErrorCode::ResourceExhausted,
-            "manifest",
-            "manifest exceeds byte limit",
-        ));
-    }
-    let bytes = fs::read(path).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::FixtureIo,
-            "manifest",
-            "manifest unreadable",
-        )
-    })?;
-    if bytes.len() as u64 > MAX_CONFORMANCE_FILE_BYTES {
-        return Err(RunnerError::new(
-            RunnerErrorCode::ResourceExhausted,
-            "manifest",
-            "manifest exceeds byte limit",
-        ));
-    }
-    let after = fs::metadata(path).map_err(|_| {
-        RunnerError::new(
-            RunnerErrorCode::FixtureIo,
-            "manifest",
-            "manifest unreadable",
-        )
-    })?;
-    if bytes.len() as u64 != before.len()
-        || before.len() != after.len()
-        || before.modified().ok() != after.modified().ok()
-    {
-        return Err(RunnerError::new(
-            RunnerErrorCode::FixtureIo,
-            "manifest",
-            "manifest changed during preload",
-        ));
-    }
-    Ok(bytes)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::InvalidCorpus, path, malformed_detail))
 }
 
 fn safe_relative(path: &str) -> bool {
@@ -969,12 +896,12 @@ fn read_relative(
 fn compile_named_schemas(schema: &Value) -> Result<BTreeMap<String, JSONSchema>, RunnerError> {
     let definitions = schema.get("definitions").cloned().ok_or_else(|| {
         RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
+            RunnerErrorCode::InvalidCorpus,
             "conformance_schema",
             "schema definitions are absent",
         )
     })?;
-    let mut names = vec!["manifest"];
+    let mut names = Vec::new();
     for operation in ConformanceOperation::ALL {
         names.push(operation.input_definition());
         names.push(operation.expectation_definition());
@@ -991,7 +918,7 @@ fn compile_named_schemas(schema: &Value) -> Result<BTreeMap<String, JSONSchema>,
             .compile(&wrapper)
             .map_err(|_| {
                 RunnerError::new(
-                    RunnerErrorCode::InvalidManifest,
+                    RunnerErrorCode::InvalidCorpus,
                     "conformance_schema",
                     "schema cannot be compiled",
                 )
@@ -1053,7 +980,7 @@ fn validate_complete_schema(schema: &Value, path: &'static str) -> Result<(), Ru
                 .map(|_| ())
                 .map_err(|_| {
                     RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
+                        RunnerErrorCode::InvalidCorpus,
                         path,
                         "schema cannot be compiled",
                     )
@@ -1076,54 +1003,6 @@ fn validate_complete_schema(schema: &Value, path: &'static str) -> Result<(), Ru
         })?
 }
 
-fn validate_profiles(manifest: &Manifest) -> Result<(), RunnerError> {
-    if manifest.protocol != CONFORMANCE_PROTOCOL {
-        return Err(RunnerError::new(
-            RunnerErrorCode::UnsupportedProfile,
-            "protocol",
-            "runner protocol is unsupported",
-        ));
-    }
-    if manifest.canonical_profile != crate::CANONICAL_PROFILE {
-        return Err(RunnerError::new(
-            RunnerErrorCode::UnsupportedProfile,
-            "canonical_profile",
-            "canonical profile is unsupported",
-        ));
-    }
-    if manifest.fixtures.len() > MAX_CONFORMANCE_FIXTURES as usize {
-        return Err(RunnerError::new(
-            RunnerErrorCode::ResourceExhausted,
-            "fixtures",
-            "fixture count exceeds limit",
-        ));
-    }
-    Ok(())
-}
-
-fn verify_digest(bytes: &[u8], expected: &str, path: &'static str) -> Result<(), RunnerError> {
-    let actual = hex_digest(bytes);
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            path,
-            "content digest mismatch",
-        ))
-    }
-}
-
-pub fn hex_digest(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-    }
-    output
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TraceGroup {
@@ -1137,7 +1016,7 @@ type TraceRegistry = BTreeMap<(String, String), Vec<String>>;
 fn trace_registry() -> Result<TraceRegistry, RunnerError> {
     let invalid = || {
         RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
+            RunnerErrorCode::InvalidCorpus,
             "trace_registry",
             "the built-in coverage-to-criterion registry is invalid",
         )
@@ -1182,94 +1061,6 @@ fn trace_registry() -> Result<TraceRegistry, RunnerError> {
         return Err(invalid());
     }
     Ok(registry)
-}
-
-fn validate_inventory(manifest: &Manifest, inventory: &[String]) -> Result<(), RunnerError> {
-    if inventory != expected_inventory() {
-        return Err(RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "inventory",
-            "inventory differs from public registries",
-        ));
-    }
-    let trace_registry = trace_registry()?;
-    let mut seen_ids = HashSet::new();
-    let mut covered = BTreeSet::new();
-    for fixture in &manifest.fixtures {
-        if !seen_ids.insert(&fixture.id) {
-            return Err(RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                "fixtures.id",
-                "fixture ID is duplicated",
-            ));
-        }
-        if fixture.covers.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                "fixtures.covers",
-                "coverage tokens are not sorted and unique",
-            ));
-        }
-        if fixture.trace_ids.is_empty()
-            || fixture.trace_ids.windows(2).any(|pair| pair[0] >= pair[1])
-        {
-            return Err(RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                "fixtures.trace_ids",
-                "trace IDs must be non-empty, sorted, and unique",
-            ));
-        }
-        let mut expected_traces = BTreeSet::new();
-        for token in &fixture.covers {
-            let targets = trace_registry
-                .get(&(fixture.operation.as_str().to_owned(), token.clone()))
-                .ok_or_else(|| {
-                    RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
-                        format!("fixtures.{}.trace_ids", fixture.id),
-                        "coverage token has no criterion owner for this operation",
-                    )
-                })?;
-            expected_traces.extend(targets.iter().cloned());
-        }
-        let expected_traces = expected_traces.into_iter().collect::<Vec<_>>();
-        if fixture.trace_ids != expected_traces {
-            return Err(RunnerError::new(
-                RunnerErrorCode::InvalidManifest,
-                format!("fixtures.{}.trace_ids", fixture.id),
-                "trace IDs differ from coverage-token criterion owners",
-            ));
-        }
-        covered.extend(fixture.covers.iter().cloned());
-    }
-    if covered.into_iter().collect::<Vec<_>>() != inventory {
-        return Err(RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            "fixtures.covers",
-            "coverage union differs from inventory",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_observed_coverage(
-    fixture: &Fixture,
-    input: &Value,
-    actual: &Value,
-) -> Result<(), RunnerError> {
-    let observed = observed_coverage(fixture.operation, input, actual);
-    if let Some(token) = fixture
-        .covers
-        .iter()
-        .find(|token| !observed.contains(token.as_str()))
-    {
-        return Err(RunnerError::new(
-            RunnerErrorCode::InvalidManifest,
-            format!("fixtures.{}.covers.{token}", fixture.id),
-            "coverage token is not observed by the fixture",
-        ));
-    }
-    Ok(())
 }
 
 fn observed_coverage(
@@ -2008,26 +1799,15 @@ fn expand_canonical_paths(
             if let Some(path) = object.remove("bytes_path") {
                 let path = path.as_str().ok_or_else(|| {
                     RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
+                        RunnerErrorCode::InvalidCorpus,
                         "bytes_path",
                         "canonical path is malformed",
                     )
                 })?;
-                let expected_sha256 = object
-                    .remove("bytes_sha256")
-                    .and_then(|value| value.as_str().map(str::to_owned))
-                    .ok_or_else(|| {
-                        RunnerError::new(
-                            RunnerErrorCode::InvalidManifest,
-                            "canonical.bytes_sha256",
-                            "canonical digest is malformed",
-                        )
-                    })?;
                 let bytes = read_relative(root, path, "canonical.bytes_path", budget)?;
-                verify_digest(&bytes, &expected_sha256, "canonical.bytes_sha256")?;
                 let text = String::from_utf8(bytes).map_err(|_| {
                     RunnerError::new(
-                        RunnerErrorCode::InvalidManifest,
+                        RunnerErrorCode::InvalidCorpus,
                         "canonical.bytes_path",
                         "canonical bytes are not UTF-8",
                     )

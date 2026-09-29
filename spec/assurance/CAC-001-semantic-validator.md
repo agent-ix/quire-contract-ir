@@ -17,7 +17,7 @@ version_pins:
   sha2: "exact Cargo.lock resolution"
   json_schema: "Draft 7 checked-in schema digest"
 controls:
-  surfaces: [typed Result API, stable diagnostic registry, JSON Lines runner output, corpus manifest, golden digest fixtures]
+  surfaces: [typed Result API, stable diagnostic registry, JSON Lines runner output, corpus fixtures, golden digest fixtures]
   fallback: preserve input and diagnostics; emit no canonical identity for invalid input
   abstention: classify unsupported or inconclusive conditions explicitly
   escalation: block merge or source release and assign the finding to the named owner

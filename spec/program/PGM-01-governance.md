@@ -154,9 +154,9 @@ result family. Quire may link static definition identity but shall not execute
 the producer.
 
 This repository's own live structured result is the conformance runner's
-`quire.contract.conformance-jsonl/v1` stream over
-`corpus/contract-v0.1/manifest.json`. Its
-wire form and its corpus manifest are described by
+`quire.contract.conformance-jsonl/v1` stream over the
+`corpus/contract-v0.1` directory. Its
+wire form and its corpus fixtures are described by
 `schemas/contract-package-reference-v1.schema.json` and
 `schemas/contract-conformance-manifest-v1.schema.json`, which are domain
 contracts owned here rather than an evidence envelope, and are unaffected by

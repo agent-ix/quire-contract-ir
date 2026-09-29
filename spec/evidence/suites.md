@@ -10,7 +10,7 @@ type: SuiteRegistry
 
 | ID | Name | Command | Tool | Evidence Kind |
 |---|---|---|---|---|
-| SUITE-001 | Versioned contract conformance corpus | `cargo run --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json` | quire-contract-ir | Integration |
+| SUITE-001 | Versioned contract conformance corpus | `cargo run --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1` | quire-contract-ir | Integration |
 | SUITE-002 | Strict specification validation | `quire validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --strict --summary` | quire | Analysis |
 | SUITE-003 | Static specification and coverage export | `quire coverage --scope . --json` | quire | Static |
 | SUITE-005 | Native predicate/TL projection properties | `cargo test --test native_predicate_projection --all-features` | planned Rust property and real tl-syntax contract harness | Property |

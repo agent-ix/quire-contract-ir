@@ -3,15 +3,14 @@
 
 The script never invents expected results: it bootstraps schema-valid empty
 expectations, executes the conformance runner, and freezes its reported actual
-values. The runner independently rejects any `covers` token that it cannot
-observe in the fixture.
+values. It rejects any `covers` token the runner does not observe in the
+fixture.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import os
 import pathlib
@@ -21,19 +20,6 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "corpus" / "contract-v0.1"
-
-def trace_ids(operation: str, covers: list[str]) -> list[str]:
-    groups = json.loads((ROOT / "schemas/conformance-trace-map-v1.json").read_text())
-    registry = {}
-    for group in groups:
-        for context in group.get("operations", ["package", "expression", "migration", "coverage"]):
-            for token in group["covers"]:
-                key = (context, token)
-                if key in registry:
-                    raise ValueError(f"duplicate trace-map key: {key}")
-                registry[key] = group["trace_ids"]
-    return sorted({target for token in covers for target in registry[(operation, token)]})
-
 
 def default_runner() -> pathlib.Path:
     target = pathlib.Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
@@ -456,10 +442,6 @@ def build_cases() -> list:
     return cases
 
 
-def digest(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def write_json(path: pathlib.Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=False) + "\n", encoding="utf-8")
@@ -473,7 +455,14 @@ def placeholder(operation: str) -> dict:
     return {"diagnostics": [], "coverage": None}
 
 
-def generate(corpus: pathlib.Path, runner: pathlib.Path, update_root_sidecars: bool) -> None:
+def run(runner: pathlib.Path, corpus: pathlib.Path) -> list[dict]:
+    completed = subprocess.run([str(runner), "run", "--corpus", str(corpus)], capture_output=True, check=False)
+    if completed.returncode not in (0, 1):
+        raise SystemExit(completed.stderr.decode())
+    return [json.loads(line) for line in completed.stdout.splitlines()]
+
+
+def generate(corpus: pathlib.Path, runner: pathlib.Path) -> None:
     # Implements: FR-018-AC-3.
     cases = build_cases()
     for directory in (corpus / "inputs", corpus / "expectations", corpus / "canonical"):
@@ -484,69 +473,27 @@ def generate(corpus: pathlib.Path, runner: pathlib.Path, update_root_sidecars: b
     for name in ("contract-package-reference-v1.schema.json", "contract-conformance-manifest-v1.schema.json"):
         shutil.copyfile(ROOT / "schemas" / name, corpus / "schemas" / name)
 
-    fixtures = []
     for case in cases:
-        input_path = corpus / "inputs" / f"{case['id']}.json"
-        expectation_path = corpus / "expectations" / f"{case['id']}.json"
-        write_json(input_path, case["value"])
-        write_json(expectation_path, placeholder(case["operation"]))
-        fixtures.append({
-            "id": case["id"], "operation": case["operation"],
-            "input": f"inputs/{case['id']}.json",
-            "input_sha256": digest(input_path),
-            "expectation": f"expectations/{case['id']}.json",
-            "expectation_sha256": digest(expectation_path),
-            "covers": case["covers"],
-            "trace_ids": trace_ids(case["operation"], case["covers"]),
-        })
-
-    inventory = json.loads((corpus / "inventory.json").read_text())
-    manifest = {
-        "corpus_id": "contract-v0.1",
-        "package_schema": {"path": "schemas/contract-package-reference-v1.schema.json", "sha256": digest(corpus / "schemas/contract-package-reference-v1.schema.json")},
-        "conformance_schema": {"path": "schemas/contract-conformance-manifest-v1.schema.json", "sha256": digest(corpus / "schemas/contract-conformance-manifest-v1.schema.json")},
-        "inventory": {"path": "inventory.json", "sha256": digest(corpus / "inventory.json")},
-        "canonical_profile": "quire.contract.canonical-json/v1",
-        "protocol": "quire.contract.conformance-jsonl/v1",
-        "fixtures": fixtures,
-    }
-    write_json(corpus / "manifest.json", manifest)
-    completed = subprocess.run([str(runner), "run", "--manifest", str(corpus / "manifest.json")], capture_output=True, check=False)
-    if completed.returncode not in (0, 1):
-        raise SystemExit(completed.stderr.decode())
-    rows = [json.loads(line) for line in completed.stdout.splitlines()]
-    if len(rows) != len(fixtures):
-        raise SystemExit(f"runner returned {len(rows)} rows for {len(fixtures)} fixtures")
-    fixtures_by_id = {fixture["id"]: fixture for fixture in fixtures}
+        write_json(corpus / "inputs" / f"{case['id']}.json", case["value"])
+        write_json(corpus / "expectations" / f"{case['id']}.json", placeholder(case["operation"]))
+    rows = run(runner, corpus)
+    if len(rows) != len(cases):
+        raise SystemExit(f"runner returned {len(rows)} rows for {len(cases)} fixtures")
+    declared = {case["id"]: case["covers"] for case in cases}
     for row in rows:
+        unobserved = sorted(set(declared[row["fixture_id"]]) - set(row["covers"]))
+        if unobserved:
+            raise SystemExit(f"{row['fixture_id']} does not exercise {unobserved}")
         actual = row["actual"]
         for index, canonical in enumerate(actual.get("canonical", [])):
             data = canonical.pop("bytes").encode()
             relative = f"canonical/{row['fixture_id']}-{index}.json"
             (corpus / relative).write_bytes(data)
             canonical["bytes_path"] = relative
-            canonical["bytes_sha256"] = hashlib.sha256(data).hexdigest()
-        expectation_path = corpus / "expectations" / f"{row['fixture_id']}.json"
-        write_json(expectation_path, actual)
-        fixtures_by_id[row["fixture_id"]]["expectation_sha256"] = digest(expectation_path)
-    write_json(corpus / "manifest.json", manifest)
-    verified = subprocess.run(
-        [str(runner), "run", "--manifest", str(corpus / "manifest.json")],
-        capture_output=True,
-        check=False,
-    )
+        write_json(corpus / "expectations" / f"{row['fixture_id']}.json", actual)
+    verified = subprocess.run([str(runner), "run", "--corpus", str(corpus)], capture_output=True, check=False)
     if verified.returncode != 0:
         raise SystemExit(verified.stderr.decode() or verified.stdout.decode())
-    if len(verified.stdout.splitlines()) != len(fixtures):
-        raise SystemExit("final corpus runner census differs from manifest")
-    for path in sorted(corpus.rglob("*")):
-        if path.is_file() and path.name != "README.md" and path.suffix != ".sha256":
-            path.with_name(path.name + ".sha256").write_text(f"{digest(path)}  {path.name}\n")
-    if update_root_sidecars:
-        (ROOT / "schemas" / "contract-package-reference-v1.schema.json.sha256").write_text(
-            f"{digest(ROOT / 'schemas' / 'contract-package-reference-v1.schema.json')}  contract-package-reference-v1.schema.json\n")
-        (ROOT / "schemas" / "contract-conformance-manifest-v1.schema.json.sha256").write_text(
-            f"{digest(ROOT / 'schemas' / 'contract-conformance-manifest-v1.schema.json')}  contract-conformance-manifest-v1.schema.json\n")
 
 
 def compare_corpus(candidate: pathlib.Path) -> None:
@@ -579,17 +526,15 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="quire-contract-corpus-") as directory:
             candidate = pathlib.Path(directory) / "contract-v0.1"
             candidate.mkdir()
-            for name in ("README.md", "inventory.json"):
-                shutil.copyfile(DEFAULT_CORPUS / name, candidate / name)
-            generate(candidate, args.runner, False)
+            shutil.copyfile(DEFAULT_CORPUS / "README.md", candidate / "README.md")
+            generate(candidate, args.runner)
             compare_corpus(candidate)
     else:
         corpus = args.output or DEFAULT_CORPUS
         if corpus != DEFAULT_CORPUS:
             corpus.mkdir(parents=True, exist_ok=True)
-            for name in ("README.md", "inventory.json"):
-                shutil.copyfile(DEFAULT_CORPUS / name, corpus / name)
-        generate(corpus, args.runner, corpus == DEFAULT_CORPUS)
+            shutil.copyfile(DEFAULT_CORPUS / "README.md", corpus / "README.md")
+        generate(corpus, args.runner)
 
 
 if __name__ == "__main__":

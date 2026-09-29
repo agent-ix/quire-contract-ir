@@ -3,34 +3,25 @@
 Run the corpus without linking the Rust library:
 
 ```text
-quire-contract-conformance run --manifest corpus/contract-v0.1/manifest.json
+quire-contract-conformance run --corpus corpus/contract-v0.1
 ```
 
-A downstream evidence record pins both the repository commit and the content
-digests it actually executed. For example, record `git rev-parse HEAD`, copy the
-relevant `.sha256` files, and verify them with `sha256sum -c` before running the
-tool. A copied pin is not evidence that this corpus ran downstream.
+The corpus is this directory. Each `inputs/<id>.json` is one fixture, its
+operation is the `<id>` prefix before the first `-`, and its expectation is
+`expectations/<id>.json`. Canonical byte files under `canonical/` intentionally
+have no terminal newline.
 
-The package schema, conformance schema, inventory, every authored input and
-expectation, and every canonical byte file have adjacent SHA-256 sidecars.
-Canonical byte files intentionally have no terminal newline. The checked-in
-manifest does not try to contain its own commit identity.
-
-The manifest contains targeted construct, diagnostic, obligation, operation,
-and exact-boundary fixtures. Each fixture declares the acceptance-criterion targets
-derived from its observed tokens by `schemas/conformance-trace-map-v1.json`,
-embedded in the pinned runner. The runner rejects missing or misbound targets and
-copies the validated IDs unchanged into its structured row. These are relevant
-observations, not a claim that the corpus alone proves each entire criterion. The
-runner derives observable coverage from each
-fixture's declarative input and actual result and rejects an unobserved
-`covers` token before comparing expectations. Large exact-edge fixtures are
-reproducibly authored by `scripts/generate_conformance_corpus.py`; the script
-freezes runner output as expectations but cannot bypass the observation check.
-For this crate, 99/99 matches proves deterministic regression stability against
-those frozen outputs, not independent semantic correctness. The corpus becomes
-an external oracle when an independently implemented downstream consumer runs
-the pinned bytes.
+The fixtures target constructs, diagnostics, obligations, operations and exact
+boundaries. The runner derives each fixture's coverage tokens from its input
+and actual result, maps them to acceptance-criterion targets through
+`schemas/conformance-trace-map-v1.json`, and reports both in its structured
+row. The union of observed tokens must equal the published inventory. These
+are relevant observations, not a claim that the corpus alone proves each entire
+criterion. Large exact-edge fixtures are reproducibly authored by
+`scripts/generate_conformance_corpus.py`, which freezes runner output as
+expectations and rejects a declared token the runner does not observe. For this
+crate, a full match proves deterministic regression stability against those
+frozen outputs, not independent semantic correctness.
 
 Automatic CI triggers and crate publication remain disabled. A later human
 release decision owns both changes.
