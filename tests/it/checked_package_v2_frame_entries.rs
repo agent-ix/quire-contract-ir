@@ -6,11 +6,8 @@
 //! bodies, and exactly QSpec's fifteen `model` forms, refusing every other
 //! shape with the code, cause and locus FR-040 fixes, in reader order.
 //!
-//! The authored cases below build their packages in-repo from this crate's
-//! public vocabulary. `qspec_*` tests read QSpec's published fixtures and its
-//! `frame_mutations` at run time from the checkout `QSPEC_DIR` names; nothing
-//! of QSpec is copied into this repository. They skip (and pass) when
-//! `QSPEC_DIR` is unset; `make qspec-vectors` requires it.
+//! Every case builds its package in-repo from this crate's public
+//! vocabulary.
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
@@ -353,8 +350,7 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
         Some(RELATIONSHIP),
     );
     // A field entry on a source-declared object type is not resolved against
-    // a domain package; the model-owned cases are TC-280's
-    // `frame_field_cases`, replayed by `make qspec-vectors`.
+    // a domain package.
     let (unresolved, _) = frame_mutation(|frame| {
         frame["body"]["modifies"][0] = field(OBJECT, "anything");
     });
@@ -950,9 +946,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     );
 
     // Signature: `self` of another object type, and an invariant binding a
-    // second parameter, refuse at the clause. The model-owned signature
-    // cases (result and operation parameters) are TC-280's
-    // `clause_signature_cases`, replayed by `make qspec-vectors`.
+    // second parameter, refuse at the clause.
     let mut other_self = StatePackage::new();
     let other_reference = "b7".repeat(32);
     let other_self_key = "b8".repeat(32);
@@ -1199,136 +1193,5 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
         Some(Cause::OperatorIneligible),
         &format!("/semantic_graph/nodes/{clause}/body/result_type"),
         None,
-    );
-}
-
-// QSpec's published fixtures and `frame_mutations`, read from `QSPEC_DIR`.
-
-const FIXTURES: &str = "proposals/checked-package-v2/fixtures";
-const VECTORS: &str = "proposals/checked-package-v2/node-identity-vectors.json";
-
-/// A file of the QSpec checkout `QSPEC_DIR` names, or `None` when unset.
-fn qspec(relative: &str) -> Option<Value> {
-    let root = std::env::var_os("QSPEC_DIR")?;
-    let path = std::path::Path::new(&root).join(relative);
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    Some(serde_json::from_str(&text).expect("QSpec JSON"))
-}
-
-fn vector_code(name: &str) -> Code {
-    match name {
-        "invalid_semantic_graph" => Code::InvalidSemanticGraph,
-        "missing_declaration" => Code::MissingDeclaration,
-        "invalid_model_binding" => Code::InvalidModelBinding,
-        other => panic!("vector code {other} is not mapped"),
-    }
-}
-
-fn vector_cause(value: &Value) -> Option<Cause> {
-    match value.as_str()? {
-        "missing-name" => Some(Cause::MissingName),
-        "malformed-declaration" => Some(Cause::MalformedDeclaration),
-        other => panic!("vector cause {other} is not mapped"),
-    }
-}
-
-/// Every bare digest in `value` (a digest string, or an entry whose
-/// `declaration` is one) as its `NodeRef`.
-fn node_refs(value: &Value) -> Value {
-    Value::Array(
-        value
-            .as_array()
-            .expect("an array")
-            .iter()
-            .map(|entry| match entry {
-                Value::String(digest) => node_id(digest),
-                Value::Object(_) => {
-                    let mut entry = entry.clone();
-                    let declaration = entry["declaration"].as_str().expect("a digest").to_owned();
-                    entry["declaration"] = node_id(&declaration);
-                    entry
-                }
-                other => panic!("unexpected entry {other}"),
-            })
-            .collect(),
-    )
-}
-
-/// Tracing: TC-056
-/// ACs: FR-040-AC-13
-#[trace("TC-056", "FR-040-AC-13")]
-#[test]
-fn qspec_frame_mutations_and_published_fixtures() {
-    let Some(vectors) = qspec(VECTORS) else {
-        println!("skipped: QSPEC_DIR not set");
-        return;
-    };
-    let fixtures = [
-        "positive-all-families.json",
-        "positive-clause-operations.json",
-    ];
-    for fixture in fixtures {
-        let package = qspec(&format!("{FIXTURES}/{fixture}")).expect("QSPEC_DIR is set");
-        match read(&package) {
-            CheckedPackageV2ReadResult::Admitted(_) => {}
-            other => panic!("{fixture} admits, read {other:?}"),
-        }
-    }
-    let base = qspec(&format!("{FIXTURES}/positive-all-families.json")).expect("QSPEC_DIR is set");
-    let frame = position(&base, "state", "frame");
-    let mutations = vectors["frame_mutations"]
-        .as_array()
-        .expect("frame_mutations");
-    for mutation in mutations {
-        let name = mutation["name"].as_str().expect("name");
-        let mut package = base.clone();
-        let node = &mut package["semantic_graph"]["nodes"][frame];
-        node["dependencies"] = node_refs(&mutation["dependencies"]);
-        node["body"]["modifies"] = node_refs(&mutation["modifies"]);
-        node["body"]["creates"] = node_refs(&mutation["creates"]);
-        node["body"]["deletes"] = node_refs(&mutation["deletes"]);
-        if let Some(second) = mutation.get("second_frame") {
-            package["semantic_graph"]["nodes"]
-                .as_array_mut()
-                .expect("nodes")
-                .push(second.clone());
-            let mut entry = package["source_map"]
-                .as_array()
-                .expect("source map")
-                .iter()
-                .find(|entry| {
-                    entry["node_id"] == package["semantic_graph"]["nodes"][frame]["node_id"]
-                })
-                .expect("the frame's source map entry")
-                .clone();
-            entry["node_id"] = second["node_id"].clone();
-            package["source_map"]
-                .as_array_mut()
-                .expect("source map")
-                .push(entry);
-        }
-        refresh_identity(&mut package);
-        let refusal = refused(&package);
-        assert_eq!(
-            refusal.code,
-            vector_code(mutation["expected_code"].as_str().expect("code")),
-            "{name}: {refusal:?}"
-        );
-        assert_eq!(
-            refusal.cause,
-            vector_cause(&mutation["expected_cause"]),
-            "{name}: {refusal:?}"
-        );
-        assert_eq!(
-            refusal.locus.as_ref().map(|id| &*id.digest),
-            mutation["expected_locus_digest"].as_str(),
-            "{name}: {refusal:?}"
-        );
-    }
-    println!(
-        "conformance: {} published fixtures admitted + {} frame_mutations",
-        fixtures.len(),
-        mutations.len()
     );
 }

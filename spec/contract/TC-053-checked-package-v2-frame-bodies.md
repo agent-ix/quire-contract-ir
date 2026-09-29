@@ -14,8 +14,8 @@ Verify FR-038-AC-12 through FR-038-AC-15: the closed `creates`/`deletes`
 entry eligibility, the `missing_declaration`/`invalid_model_binding` refusal
 split and its cause, the meaning-join-over-order and member-then-order-key
 refusal precedence, and the ascending-node-id-digest visit order across
-multiple frame nodes. The `modifies` entry shape, its eligibility and QSpec's
-published `frame_mutations` vectors are FR-040's and TC-056's.
+multiple frame nodes. The `modifies` entry shape and its eligibility are
+FR-040's and TC-056's.
 
 ## Test Procedure
 

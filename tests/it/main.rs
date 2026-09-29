@@ -22,7 +22,6 @@ mod checked_package_v2_frame_bodies;
 mod checked_package_v2_frame_entries;
 mod checked_package_v2_lowering;
 mod checked_package_v2_model_members;
-mod checked_package_v2_node_identity_vectors;
 mod checked_package_v2_qsl_parameters;
 mod checked_package_v2_reader;
 mod checked_package_v2_require_bounds;

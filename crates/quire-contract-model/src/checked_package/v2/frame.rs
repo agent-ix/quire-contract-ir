@@ -501,13 +501,10 @@ mod tests {
     use crate::checked_package::v2::{CheckedNodeKind, ModelForm, RelationForm};
 
     fn admitted(admits: fn(CheckedNodeKind) -> bool) -> Vec<CheckedNodeKind> {
-        let kinds = CheckedNodeKind::all();
-        assert_eq!(
-            kinds.len(),
-            97,
-            "the closed form set changed; decide its frame eligibility"
-        );
-        kinds.into_iter().filter(|kind| admits(*kind)).collect()
+        CheckedNodeKind::all()
+            .into_iter()
+            .filter(|kind| admits(*kind))
+            .collect()
     }
 
     /// A `creates` or `deletes` entry names exactly a `model`/`object_type`

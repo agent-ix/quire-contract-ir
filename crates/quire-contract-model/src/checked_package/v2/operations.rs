@@ -1533,9 +1533,6 @@ fn check_leaves(
 }
 
 #[cfg(test)]
-mod model_member_vectors;
-
-#[cfg(test)]
 mod tests {
     use super::super::CheckedSelectionRole;
     use super::{

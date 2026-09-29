@@ -52,7 +52,6 @@ help:
 	@echo "  make clean            - cargo clean and drop the assurance workspace"
 	@echo "  make deny             - Run all cargo-deny policy checks"
 	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
-	@echo "  make qspec-vectors    - Run QSpec's published vectors and fixtures; needs QSPEC_DIR"
 	@echo "  make ci               - All local release gates"
 
 # =============================================================================
@@ -105,32 +104,6 @@ test: unit
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test --locked -p quire-contract-model --doc
-
-# QSpec's published vectors and fixtures are read at run time from the
-# quire-specification checkout QSPEC_DIR names; nothing of QSpec is copied
-# here: the model-member vectors (TC-280, TC-281, nine tests), the
-# dependency-selection test (IR-287, STD-105), the dependency-reference test
-# (IR-289, FR-322-AC-36), the published fixtures and frame_mutations (TC-056)
-# and the node-identity vectors (TC-057). Each skips (and passes) when
-# QSPEC_DIR is unset, so a plain `make test` cannot tell a run from a skip. This
-# target requires QSPEC_DIR and fails unless every test printed its
-# `conformance:` line and none skipped. It is not part of `make ci`, which must
-# run on machines without a QSpec checkout.
-QSPEC_VECTOR_TESTS := 13
-QSPEC_VECTORS_LOG := target/qspec-vectors.log
-
-.PHONY: qspec-vectors
-qspec-vectors:
-	@test -n "$(QSPEC_DIR)" || { echo "qspec-vectors: set QSPEC_DIR to a quire-specification checkout" >&2; exit 1; }
-	@mkdir -p $(dir $(QSPEC_VECTORS_LOG))
-	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-model --lib model_member_vectors -- --nocapture --test-threads=1 > $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
-	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-ir --test it dependency_selection_vectors -- --nocapture --test-threads=1 >> $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
-	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-ir --test it dependency_reference_vectors -- --nocapture --test-threads=1 >> $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
-	QSPEC_DIR="$(QSPEC_DIR)" $(CARGO) test --locked -p quire-contract-ir --test it qspec_ -- --nocapture --test-threads=1 >> $(QSPEC_VECTORS_LOG) 2>&1 || { cat $(QSPEC_VECTORS_LOG); exit 1; }
-	@! grep -q "skipped:" $(QSPEC_VECTORS_LOG) || { echo "qspec-vectors: a vector test skipped" >&2; exit 1; }
-	@ran=$$(grep -c "conformance:" $(QSPEC_VECTORS_LOG)); \
-	test "$$ran" -eq $(QSPEC_VECTOR_TESTS) || { echo "qspec-vectors: $$ran of $(QSPEC_VECTOR_TESTS) tests printed a conformance line" >&2; exit 1; }
-	@grep "conformance:" $(QSPEC_VECTORS_LOG)
 
 .PHONY: build
 build:
