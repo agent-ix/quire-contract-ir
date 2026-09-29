@@ -79,3 +79,10 @@ Round 1, reviewed at `6d956434c36ab748c3a116aeb774b00312011792`.
 | FND-001 | fixed | 2c49e61 |
 | FND-002 | fixed | 2c49e61 |
 | FND-003 | fixed | 2c49e61 |
+
+Round 2, reviewed at `8445135d2d10cdc8832df48803151d14165e611c`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-004 | fixed | 8445135 |
+| FND-005 | fixed | 8445135 |
