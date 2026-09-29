@@ -32,15 +32,6 @@ protected_apparatus:
   - tests/fixtures/native-rule-model.json
   - tests/fixtures/kani-concrete-playback.txt
 negative_controls:
-  - kind: apparatus-edit
-    description: >-
-      the Makefile test recipe, the integration-test module list, the
-      shared and per-family bounded-Kani contract tests that declare the
-      profile matrix and its cases, and the native-model and captured
-      concrete-playback fixtures that replay is checked against are
-      protected, so editing one alongside the change it grades changes the
-      recorded digests; the `src/kani` implementation is the subject under
-      measurement and is deliberately not protected
   - kind: suppressed-observation
     description: >-
       a declared profile-matrix entry with no executed case counts as a

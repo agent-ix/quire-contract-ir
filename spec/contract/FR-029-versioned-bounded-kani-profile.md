@@ -47,7 +47,7 @@ FR-015 owns native definedness. ADR-0053 owns native source authority and the fi
 ## Status
 
 AC-1 and AC-3 are implemented for the exact `kani-bounded/1` profile through
-Contract IR PRs #87 and #88 (`2f9b00b`, `e1ad842`). AC-2 is planned: the matrix
+Contract IR PRs #87 and #88. AC-2 is planned: the matrix
 still has a `CapabilityDisposition::Inconclusive` entry, which lowering turns
 into an `Inconclusive` run outcome, and no `unsupported` entry. Target-family support remains limited to the
 closed capability matrix; no scalar or recognized construct implies support for
