@@ -46,8 +46,8 @@ rules:
 
 A constructor asked to build an outcome that breaks one of these rules, or to
 build `proved` or `counterexample` through the non-success constructor,
-returns a typed `KaniOutcomeError` with the code `kani_outcome_invalid` and
-no outcome; it never substitutes another kind or cause.
+returns a typed `KaniOutcomeError` with the code `kani_outcome_invalid`,
+registered in STD-001, and no outcome; it never substitutes another kind or cause.
 
 A `proved` outcome carries the number of SUCCESS checks the run's obligation completed with, and that number is at least one. When a Kani run reports a proof whose obligation completed with zero SUCCESS checks, the bounded-Kani boundary shall record `inconclusive` with the cause code `kani_vacuous_proof` and no Boolean claim, never `proved`; that classification is the one shared rule every caller that classifies a Kani run routes through.
 

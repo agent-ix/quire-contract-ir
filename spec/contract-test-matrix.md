@@ -63,7 +63,7 @@ relationships:
 
 | Registry | Verification | Test Cases | Status |
 |---|---|---|---|
-| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040 | closed code catalogs implemented and verified by TC-015 through TC-018 and TC-038 through TC-040 |
+| STD-001 | exact registered code sets, precedence, structured fields, and no message parsing | TC-015 through TC-018, TC-038 through TC-040, TC-223 | 🚧 closed code catalogs implemented and verified by TC-015 through TC-018 and TC-038 through TC-040; `kani_outcome_invalid`, raised by the validated `KaniOutcome` constructors, is planned (TC-223) |
 | STD-003 | exact registered code set both ways, unresolved-obligation precedence, required field paths, and no spelling shared with STD-001 | TC-051, TC-043 | ✅ implemented: the 37 `MappingRequestErrorCode` spellings and the registry are one closed set |
 
 ## Test Case Summary
