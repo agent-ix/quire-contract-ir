@@ -2,7 +2,7 @@
 id: STD-003
 title: "Output-mapping refusal code registry"
 type: Standard
-code: contract-ir-output-mapping-refusals-v0.1
+code: contract-ir-output-mapping-refusals
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-032
     type: references
@@ -29,7 +29,7 @@ recovering an outcome from display, debug, or panic text, so the code spelling
 registered here — not the message — is the refusal contract. Implementations may
 add human context but shall not parse or synthesize codes from messages, and
 shall not emit a code absent from this registry. Codes are lowercase ASCII snake
-case and are stable v0.1 API.
+case and are stable API.
 
 Every row names the structural field path the refusal is required to carry.
 Where a code is reachable from more than one accounting stage, every path it may
@@ -106,8 +106,8 @@ assembling the single atomic output package.
 | Code | Condition | Required location |
 |---|---|---|
 | `invalid_output_region` | An output region is reversed, out of range, not on a character boundary, or its bytes are not UTF-8 | `candidate.output_regions`; `candidate.fragment`; `package.target_bytes`; `package.records.output_regions`; `record.output_regions` |
-| `invalid_generator` | The declared generator identity is empty, unbounded, or outside visible ASCII | `generator` |
-| `invalid_observer` | The declared observer identity is empty, unbounded, or outside visible ASCII | `observer` |
+| `invalid_generator` | The declared generator owner is empty, unbounded, or outside visible ASCII | `generator` |
+| `invalid_observer` | The declared observer owner is empty, unbounded, or outside visible ASCII | `observer` |
 | `package_population_mismatch` | The assembled record population or target-byte length disagrees with the accounted counts | `package.records`; `package.target_bytes` |
 
 ## Registry Invariants

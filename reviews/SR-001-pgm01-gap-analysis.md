@@ -5,9 +5,6 @@ type: SpecReview
 analysis: gap-analysis
 scope: "issue #3; PGM-01; FR-001 through FR-010; TM-001; implementation and evidence"
 review_set: all
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/PGM-01
-    type: reviews
 ---
 # PGM-01 implementation gap analysis
 

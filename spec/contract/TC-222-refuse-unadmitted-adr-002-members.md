@@ -5,8 +5,6 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-344
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/issues/120
-    type: references
 ---
 
 # TC-222: Refuse a document attempting to carry an unadmitted ADR-002 2.0.0 member
@@ -40,7 +38,7 @@ baseline vector), construct one mutated document per case:
    subsets or redefines edge as a new struct member rather than a new tag
    or form.
 4. A `relation`/`population` node (an already-admitted `(tag, form)` pair)
-   whose `body` is `filament-core-data#184`/#193's published population
+   whose `body` is FCD's published population
    shape verbatim: `{"identity": ..., "displayName": ..., "kind": {...},
    "members": [...], "extent": "closed", "origin": {...}}` — no `term`
    member.

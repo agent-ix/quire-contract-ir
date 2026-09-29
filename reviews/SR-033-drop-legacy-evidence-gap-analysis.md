@@ -10,8 +10,6 @@ relationships:
     type: reviews
   - target: ix://agent-ix/quire-contract-ir/FR-009
     type: references
-  - target: ix://agent-ix/quire-contract-ir/PGM-01
-    type: references
 ---
 
 # SR-033: Gap analysis — drop the legacy evidence cruft

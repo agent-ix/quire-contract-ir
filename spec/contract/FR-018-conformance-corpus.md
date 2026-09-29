@@ -1,12 +1,12 @@
 ---
 id: FR-018
-title: "Publish the v0.1 schema and conformance corpus"
+title: "Publish the schema and conformance corpus"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-003
     type: traces_to
 ---
-# FR-018: Publish the v0.1 schema and conformance corpus
+# FR-018: Publish the schema and conformance corpus
 
 ## Description
 

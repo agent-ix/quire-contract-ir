@@ -63,16 +63,6 @@ codegen backend adapter's.
 | --- | --- | --- |
 | FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, witness, parity verdict or minimization type other than QSL's, the root crate has no `replay` or `witness` module, and no Contract IR source calls a replay executor. | Test (TC-055) |
 
-### Retired criteria
-
-`FR-037-AC-1` through `FR-037-AC-5` required canonical counterexample
-round-trip, same-verdict native replay, typed decode/domain/availability/
-verdict disagreement, minimization lineage, and immutable backend-result
-verification, each as a Contract IR replay-boundary property. The envelope,
-request, result and executor that carry those properties are QSL's
-(`qsl-replay`, QSL FR-070 through FR-073 and FR-098) and the adapter that
-drives them is codegen's, so their verification belongs to those owners.
-
 ## Dependencies
 
 [FR-036](./FR-036-exact-backend-negotiation-and-emission.md) owns backend

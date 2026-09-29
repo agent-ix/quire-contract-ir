@@ -20,14 +20,14 @@ derived serialized projection and the immutable executable clause population
 consumed by code generation and analysis. Codegen shall not define a second
 package wire format or infer clause bindings from conformance JSON output.
 
-The selected design for issue #50 is an explicitly keyed binder, preserving the
+The selected design is an explicitly keyed binder, preserving the
 existing ReferenceBody package representation. The normal source remains
 authoritative Quire Markdown, module-owned models, and source-located formal
-clauses, lowered through the validated frontend/model boundary owned by #52.
+clauses, lowered through the validated frontend/model boundary.
 The projection is derived interchange, not an expression-sidecar authoring
 format. Synthetic projections in binder tests are labelled as such; they do
-not demonstrate frontend coverage. Binding does not authenticate a producer,
-prove source-language correctness, or replace shared provenance/assurance.
+not demonstrate frontend coverage. Binding does not authenticate a producer or
+prove source-language correctness.
 
 ## Inputs
 
@@ -95,16 +95,12 @@ declaration and expression identity profiles, which remain unchanged.
 ## Outputs
 
 A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
-No conformance result, attestation, test verdict, retained evidence, package
-publication or source-release decision is emitted by the binder.
 
 ## Dependencies
 
 - FR-011 and FR-012 own package, requirement, clause and reference identity.
 - FR-013 through FR-015 own declarations, typed expressions and definedness.
 - FR-016 owns canonical semantic identity; FR-018 owns the shared wire forms.
-- Issue #52 owns the authoritative source/frontend/model join. This binder does
-  not claim that frontend work is implemented.
 
 ## Acceptance Criteria
 

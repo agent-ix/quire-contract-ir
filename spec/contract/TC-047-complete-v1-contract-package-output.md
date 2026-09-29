@@ -5,8 +5,6 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/issues/110
-    type: references
 ---
 # TC-047: Complete-V1 lowering emits one canonical ContractPackage
 

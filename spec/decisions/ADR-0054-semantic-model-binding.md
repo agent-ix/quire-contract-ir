@@ -14,10 +14,7 @@ relationships:
 
 ## Status
 
-**Accepted boundary clarified by the owner on 2026-09-08.** This decision
-corrects the premise of
-[issue #54](https://github.com/agent-ix/quire-contract-ir/issues/54) before
-implementation. It authorizes no change to `filament-core-data`.
+Accepted. It authorizes no change to `filament-core-data`.
 
 ## Context
 
@@ -55,7 +52,6 @@ When a formal clause needs an archetype-defined type, the specification-language
 frontend or a separately reviewed adapter may project the exact required schema
 closure into FR-013 declarations. That projection shall:
 
-- identify the source schema and exact declaration revision;
 - preserve only structural facts that have an explicit formal correspondence;
 - provide every finite bound, absence rule, identity rule, observation rule,
   and relationship interpretation required by the admitted Contract IR type;
@@ -86,7 +82,7 @@ adapter and its specification-language owner.
 
 ### `ConfigVersion` consequence
 
-The issue #54 example demonstrates why structural schema and formal semantics
+The `ConfigVersion` example demonstrates why structural schema and formal semantics
 must remain distinguishable:
 
 - `versionNumber` with only `min 1` lacks the finite maximum required by
@@ -104,8 +100,6 @@ datatype.
 
 ## Consequences
 
-- Agent A can use FR-013, FR-019, and FR-023 immediately for the generic source
-  language and need not wait for `filament-core-data#36` or a new model layer.
 - A concrete archetype-to-formal projection is deferred until a current clause
   demonstrates that it is needed; it is not part of the initial language
   parser/compiler gate.
@@ -132,7 +126,7 @@ datatype.
 
 ## Follow-up disposition
 
-Issue #54 should record this corrected boundary and stop blocking Agent A. If a
+If a
 concrete specification clause needs an archetype-defined type that cannot be
 expressed through FR-013, its owner shall file the smallest specific projection
 or Contract IR semantic gap. No general Filament semantic-model reader is

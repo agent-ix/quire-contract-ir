@@ -6,8 +6,6 @@ status: proposed
 owner: kreneskyp
 system: quire-contract-ir bounded Kani backend profile family
 relationships:
-  - target: ix://agent-ix/quire-contract-ir/AP-002
-    type: realizes
   - target: ix://agent-ix/quire-contract-ir/FR-029
     type: realizes
   - target: ix://agent-ix/quire-contract-ir/FR-030
@@ -23,7 +21,7 @@ relationships:
 
 ## System Boundary
 
-This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, routes each construct through the dispatch index to a versioned family module, interprets Kani results as typed outcomes, and maps each outcome to one QSL `qsl_replay::TerminalValue` (FR-031). A construct the profile has no qualified interpretation for settles `unsupported` at negotiation, with a warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290), and produces no artifact or outcome (FR-029). Contract IR holds the profile, input ABI, dispatch index and outcome; the family lowerings for checked arithmetic, collections and objects, and harness emission, are the codegen backend adapter's (AD-001 "Kani boundary"). The counterexample envelope, witness and replay source are QSL's `qsl-replay` types; the codegen backend adapter parses the Kani transcript, and the codegen replay adapter replays a counterexample through `qsl_replay::replay` (QSL ADR-011 E9). This boundary does not parse source or transcripts, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
+This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, routes each construct through the dispatch index to a versioned family module, interprets Kani results as typed outcomes, and maps each outcome to one QSL `qsl_replay::TerminalValue` (FR-031). A construct the profile has no qualified interpretation for settles `unsupported` at negotiation, with a warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290), and produces no artifact or outcome (FR-029). Contract IR holds the profile, input ABI, dispatch index and outcome; the family lowerings for checked arithmetic, collections and objects, and harness emission, are the codegen backend adapter's (AD-001 "Kani boundary"). The counterexample envelope, witness and replay source are QSL's `qsl-replay` types; the codegen backend adapter parses the Kani transcript, and the codegen replay adapter replays a counterexample through `qsl_replay::replay` (QSL ADR-011 E9). This boundary does not parse source or transcripts, define Quire semantics, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
 
 ## Views
 

@@ -15,7 +15,7 @@ supported package, requirement revision, clause, declaration, and expression.
 
 ## Inputs
 
-A validated v0.1 package and the canonicalization profile identity.
+A validated package and the canonicalization profile identity.
 
 ## Outputs
 
@@ -24,7 +24,7 @@ semantic object.
 
 ## Behavior
 
-The only v0.1 profile identity is
+The only profile identity is
 `quire.contract.canonical-json/v1`. A canonical object is the UTF-8 encoding of
 an envelope whose members, after Unicode-scalar key sorting, are emitted in the
 exact order `kind`, `profile`, `value`:
