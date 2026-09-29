@@ -10,8 +10,6 @@ carried is deleted.
 | --- | --- |
 | `contract-conformance-fixture-v1.schema.json` | The conformance corpus fixture inputs and expectations for each operation. |
 | `contract-package-reference-v1.schema.json` | The serialized contract package wire form. |
-| `temporal-ecosystem-manifest-v1.schema.json` | The nine-repository campaign's contract selections, semantic nodes, typed edges, and unresolved gaps admitted by FR-027. |
-| `temporal-ecosystem-model-v1.schema.json` | The deterministic bounded non-authoritative model exported and strict-read by FR-027. |
 
 These describe *this repository's own domain artifacts*. A schema that
 describes a contract package or a conformance corpus is not a generic evidence

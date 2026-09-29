@@ -16,7 +16,7 @@ impact_assessments:
       stochastic_dependency: none
     detect_before_harm:
       expected: true
-      control_ref: ix://agent-ix/quire-contract-ir/CAC-001
+      control_ref: ix://agent-ix/quire-contract-ir/MP-001
   - id: impact-false-coverage
     scenario: a stale or orphaned artifact makes a current requirement appear covered
     severity: material
@@ -25,7 +25,7 @@ impact_assessments:
       stochastic_dependency: none
     detect_before_harm:
       expected: true
-      control_ref: ix://agent-ix/quire-contract-ir/CAC-001
+      control_ref: ix://agent-ix/quire-contract-ir/MP-001
   - id: impact-unstable-identity
     scenario: equivalent contracts produce different canonical identities
     severity: moderate

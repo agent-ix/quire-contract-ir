@@ -7,10 +7,6 @@
 
 #![forbid(unsafe_code)]
 
-pub mod bridge;
-pub mod ecosystem_model;
 pub mod kani;
-pub mod predicate;
-pub mod temporal;
 
 pub use quire_contract_model::*;

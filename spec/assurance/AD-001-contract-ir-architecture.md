@@ -55,10 +55,6 @@ integrations, which need other owners' crates (FR-039), and it re-exports no
 
 | Module | Owns | Requirement |
 | --- | --- | --- |
-| `bridge` | shared owner-bridge errors, digests, limits and contract selections | FR-025, FR-026 |
-| `predicate` | native checked predicate to TL Boolean signal projection | FR-025 |
-| `temporal` | native temporal clause to TL formula correspondence and result join | FR-026 |
-| `ecosystem_model` | bounded, non-authoritative temporal-ecosystem model export | FR-027 |
 | `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index, typed outcome, and the Kani outcome to QSL terminal-value map | FR-029 through FR-031 |
 
 The conformance runner (`src/bin/`) and its fixtures stay in the root
@@ -69,7 +65,7 @@ package.
 | Owner | Holds | Contract IR's relation |
 | --- | --- | --- |
 | QSpec (`quire-specification`) | the normative language, the `quire.checked-package/v2` wire contract (FR-322, FR-340 through FR-342), the FR-331 backend-provider envelope, AD-016 | Contract IR reads QSpec's contracts and cites them; it copies none of QSpec's files |
-| QSL (`quire-spec-language`) | the compiler that produces checked packages, the owner views `predicate` and `temporal` read, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL, names QSL's replay types and defines none of its own |
+| QSL (`quire-spec-language`) | the compiler that produces checked packages, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL, names QSL's replay types and defines none of its own |
 | codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
 
@@ -126,10 +122,6 @@ validated package -> dependency walk -> canonical encoder -> SHA-256 identities
 validated package + artifact traces -> shallow/deep/uncovered/orphaned coverage
 checked-package/v2 bytes -> strict reader -> admitted package -> per-item lowering -> ContractPackage v1
 output-mapping request -> mapper seam -> per-obligation records -> atomic package
-checked owner views -> predicate projection -> explicit Boolean valuation
-checked temporal + observations + valuations -> sibling native/TL requests
-validated native/TL formula results -> structural correspondence join
-exact campaign manifest -> typed graph -> descriptive model + strict re-export
 checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome -> qsl_replay::TerminalValue
 schema + corpus fixtures -> process runner -> JSON Lines results
 ```
@@ -192,9 +184,6 @@ the authored-contract interchange.
   owner language inside Contract IR; preserve typed non-values at every join.
 - Use QSL's `qsl-replay` types for every replay, witness, envelope,
   terminal-record and obligation-identity concept; define none locally.
-- Keep ecosystem-model output observational: it may describe exact owner,
-  dependency and evidence links or seed a proposal, but cannot become an owner
-  admission, evaluator, evidence-acceptance or release-decision input.
 - Keep `publish = false` through the human v0.1 decision.
 
 ## Risks
