@@ -13,8 +13,6 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-spec-language/ADR-011
     type: references
-  - target: ix://agent-ix/quire-contract-codegen/ADR-002
-    type: references
 ---
 # FR-039: Expose the quire-contract-ir root crate's bridge, correspondence and bounded-Kani interface
 
@@ -65,9 +63,7 @@ caller-selected `BridgeLimits`.
 Validated projections, joins and model documents; typed `BridgeError` and
 decision values; the `kani-bounded/1` profile selection, validated finite
 inputs, dispatch routes, provenance and typed `KaniOutcome`s; and, for each
-outcome, either its QSL `TerminalValue` or, for a non-vacuous `Inconclusive`
-while the pinned `qsl_replay::TerminalValue` has no inconclusive arm, a typed
-absence (FR-031).
+outcome, its one QSL `TerminalValue` (FR-031).
 
 ## Behavior
 
@@ -81,8 +77,8 @@ absence (FR-031).
 | `ecosystem_model` | functions `read`, `export`; types `ValidatedEcosystemModel`, `ModelDocument`, `ModelCounts`, `ImprovementProposal`, `ModelDecision`, `ModelCauseCode`, `ModelAdjacency`, `ModelAdjacentEdge`, `CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`; constants `MANIFEST_PROFILE`, `MODEL_PROFILE`, `MANIFEST_ID_PROFILE`, `PROPOSAL_ID_PROFILE`, `MANIFEST_SCHEMA_BYTES`, `MANIFEST_SCHEMA_SHA256`, `MODEL_SCHEMA_BYTES`, `MODEL_SCHEMA_SHA256` | FR-027 |
 | `ecosystem_model::manifest` | function `read`; constants `REPOSITORY_IDENTITIES`, `OWNER_MAX`; and the same eight types the `ecosystem_model` row re-exports from it (`CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`) | FR-027 |
 | `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
-| `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind` | FR-030 |
-| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function from a `KaniOutcome` to its `qsl_replay::TerminalValue` or a typed absence, as FR-031's map gives it | FR-031 |
+| `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind`, `KaniOutcomeError` | FR-030 |
+| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function, total over `KaniOutcome`, from a `KaniOutcome` to its `qsl_replay::TerminalValue` as FR-031's map gives it | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.
@@ -98,10 +94,8 @@ It has no dependency on `quire_spec_language::runtime`.
 `ArithmeticLowering`, `CheckedArithmeticRequest`, `CollectionLowering`,
 `CollectionQuery`, `QueryKind`, `GraphLowering` and `GraphRequest` are not
 part of this interface. The family lowerings for checked arithmetic,
-collections and objects are codegen's backend adapter's
-(quire-contract-codegen `spec/decisions/ADR-002-backend-adapter-boundary.md`
-and `spec/functional/FR-007-bounded-kani-profile-corpus.md`), and the root
-crate has no `arithmetic`, `collections` or `objects` module.
+collections and objects belong to the backend adapter in codegen, and the
+root crate has no `arithmetic`, `collections` or `objects` module.
 
 ### Items QSL owns
 
@@ -129,7 +123,7 @@ caller-selected and clamped to the owner maxima.
 | --- | --- | --- |
 | FR-039-AC-1 | The root crate's public items are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item; `src/lib.rs` re-exports no `quire_contract_model` item, and code naming a model item through `quire_contract_ir` fails to compile. | Test (TC-055) |
 | FR-039-AC-2 | No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `quire_spec_language::runtime`. | Test (TC-055) |
-| FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and the value the `kani` outcome map returns is a `qsl_replay::TerminalValue` for every outcome FR-031's table maps, while for a non-vacuous `Inconclusive` it is the typed absence. | Test (TC-055) |
+| FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and the `kani` outcome map returns a `qsl_replay::TerminalValue` for every `KaniOutcome`, with no optional or absent result in its signature. | Test (TC-055) |
 | FR-039-AC-4 | `BridgeErrorCode::all()` lists every variant exactly once, each `as_str()` spelling is registered in STD-001, and every public `bridge`, `predicate`, `temporal`, `ecosystem_model` and `kani` function over untrusted input returns a typed error with no public panic path under the negative corpora of TC-038 through TC-042. | Test (TC-055) |
 
 ## Dependencies

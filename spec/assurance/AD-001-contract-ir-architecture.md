@@ -24,10 +24,6 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-spec-language/ADR-013
     type: references
-  - target: ix://agent-ix/quire-contract-codegen/ADR-002
-    type: references
-  - target: ix://agent-ix/quire-contract-codegen/FR-007
-    type: references
 ---
 # quire-contract-ir repository architecture and versioning
 
@@ -87,11 +83,16 @@ every backend reads: the `kani-bounded/1` profile and capability matrix
 (FR-029), the finite input ABI and typed outcome (FR-030), and the dispatch
 index, module descriptors, provenance and outcome map (FR-031). The family
 lowerings for checked arithmetic, collections and objects are
-Kani-specific, and codegen's backend adapter, which emits the harness, owns
-them (quire-contract-codegen `spec/decisions/ADR-002-backend-adapter-boundary.md`
-and `spec/functional/FR-007-bounded-kani-profile-corpus.md`). The dispatch
-index names each family module and its declared constructs; the lowering
-behind a module is codegen's.
+Kani-specific and belong to the backend adapter in codegen, which emits the
+harness. The dispatch index names each family module and its declared
+constructs; the lowering behind a module is codegen's.
+
+A construct for which the profile has no qualified interpretation is settled
+at negotiation: the capability matrix records it `unsupported`, its item
+settles `unsupported` in the QSpec FR-331 `dispositions` vocabulary with a
+warning naming the construct kind, and no artifact, `KaniOutcome` or
+`TerminalValue` exists for it (FR-029). Resource exhaustion, cancellation and
+an absent solver or backend are run outcomes only (FR-030).
 
 ### Replay ownership
 
@@ -103,13 +104,13 @@ names each item that therefore has no place in its interface. Kani
 transcript parsing is the codegen backend adapter's.
 
 Contract IR's part is the map from a Kani outcome to a QSL `TerminalValue`
-(FR-031). An `Unavailable` outcome carries one of two cause codes, solver
-absent or backend absent (FR-030), and maps to QSL's `Unsupported` value
-with the matching `UnavailabilityCause`. A non-vacuous `Inconclusive`
-outcome maps to QSL's inconclusive terminal arm, which QSL owns; the
-`qsl_replay::TerminalValue` at the revision the root crate pins has no such
-arm, and for that outcome the map returns a typed absence and substitutes no
-other value.
+(FR-031), and it is total over `KaniOutcome`. An `Unavailable` outcome
+carries one of two cause codes, solver absent or backend absent (FR-030), and
+maps to QSL's `Unsupported` value with the matching `UnavailabilityCause`.
+The only `Inconclusive` outcome is a vacuous proof, a run whose obligation
+completed with zero SUCCESS checks; it maps to QSL's `inconclusive` terminal
+value carrying the vacuity cause (QSpec FR-331-AC-8) and is never recorded as
+`proved`.
 
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
@@ -180,11 +181,12 @@ the authored-contract interchange.
   backend can read one versioned profile and input firewall. The
   Kani-specific family lowerings for checked arithmetic, collections and
   objects belong to codegen's backend adapter, which emits the harness.
-- Map every Kani outcome kind to a QSL `TerminalValue` without widening
-  another value: `Unavailable` splits by its cause code into solver absence
-  and backend absence, and a non-vacuous `Inconclusive` targets QSL's
-  inconclusive terminal arm, QSL's to add; while the pinned `qsl-replay`
-  has no such arm the map returns a typed absence for it.
+- Map every Kani outcome kind to one existing QSL `TerminalValue`, with no
+  new terminal value: `Unavailable` splits by its cause code into solver
+  absence and backend absence, a vacuous proof maps to QSL's `inconclusive`
+  value with the vacuity cause, and a construct the profile cannot interpret
+  settles `unsupported` at negotiation, before any run, and never becomes an
+  outcome.
 - Construct and strict-read owner artifacts without parsing or evaluating an
   owner language inside Contract IR; preserve typed non-values at every join.
 - Use QSL's `qsl-replay` types for every replay, witness, envelope,

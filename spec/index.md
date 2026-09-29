@@ -42,7 +42,7 @@ or canonicalization semantics.
   root crate, each with its own public item list and no item under two paths.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 - A versioned bounded-Kani profile boundary for finite checked native clauses,
-  including explicit support/refusal/inconclusive capability classification,
+  including explicit supported/refused/unsupported capability classification,
   finite input validation, the dispatch index, typed outcomes, provenance, and
   the map from each outcome to its QSL terminal value.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
@@ -95,9 +95,9 @@ That implementation applies only to its exact selected finite profile and
 does not qualify unbounded source semantics or another Kani/options
 selection. Each Kani outcome maps to one QSL `qsl_replay::TerminalValue`
 (FR-031-AC-5): `Unavailable` by its solver-absent or backend-absent cause
-code (FR-030) to `Unsupported`, and a non-vacuous `Inconclusive` to QSL's
-inconclusive arm, or to a typed absence while the pinned `qsl-replay` has
-none.
+code (FR-030) to `Unsupported`, and a vacuous proof to QSL's `inconclusive`
+value with the vacuity cause. A construct the profile cannot interpret
+settles `unsupported` at negotiation and produces no outcome (FR-029).
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`
 types, and the codegen replay adapter replays through `qsl_replay::replay`.

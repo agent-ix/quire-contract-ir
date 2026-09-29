@@ -30,9 +30,8 @@ minimization type. Confirm `src/kani/` has no `replay`, `witness`, `arithmetic`,
 or `objects` module. Compile one probe per item in FR-039's "Items QSL owns"
 and "Items codegen owns" sections through `quire_contract_ir` and expect each
 to fail; compile a probe that calls the `kani` outcome map on a `proved` outcome and
-on a non-vacuous `Inconclusive` outcome, takes the `qsl_replay::TerminalValue`
-out of the first result and matches the second as the typed absence, and
-expect it to build. Read
+on an `Unavailable` outcome and binds each result directly to a
+`qsl_replay::TerminalValue`, and expect it to build. Read
 `BridgeErrorCode::all()` against the STD-001 registry, and run the TC-038
 through TC-042 negative corpora under `catch_unwind`.
 
