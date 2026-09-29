@@ -74,9 +74,7 @@ The named human release owner decides whether an exact candidate may be tagged.
 ## Requirements Architecture
 
 The canonical policy owns PGM-01-R01 through PGM-01-R10, of which R08 is
-withdrawn. Discrete requirements FR-001 and FR-006 provide traceable artifact
-identities without redefining that policy; TM-001 maps them to automated
-tests. Dependency versions live in `Cargo.toml` and `Cargo.lock`, and this
+withdrawn. Dependency versions live in `Cargo.toml` and `Cargo.lock`, and this
 repository copies no third-party files.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
