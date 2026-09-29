@@ -78,7 +78,7 @@ withdrawn. Dependency versions live in `Cargo.toml` and `Cargo.lock`, and this
 repository copies no third-party files.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
-FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
+FR-026 through FR-028, alongside NFR-001 through NFR-003 and NFR-005, define the v0.1 semantic substrate.
 FR-029 through FR-031 define the bounded-Kani extension boundary: the
 profile, finite input ABI, dispatch index and typed outcome. The
 family lowerings behind the dispatch index are the codegen backend adapter's.
