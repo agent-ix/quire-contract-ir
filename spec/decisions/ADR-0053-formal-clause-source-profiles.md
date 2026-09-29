@@ -173,12 +173,9 @@ does not represent. Its oracle is the native meaning plus the explicit mapping
 contract and independent expected corpus. An upstream parser accepting emitted
 text is not proof of semantic correspondence.
 
-External tool/version/license investigation remains useful provenance for the
-mapping tickets but is not a first-party execution prerequisite. The complete
-pre-amendment proposal, including Eclipse OCL, NASA FRET and SysML pilot pins,
-is preserved at
-[Contract-IR `39bffb4`](https://github.com/agent-ix/quire-contract-ir/blob/39bffb40f41b7caceaf026f438546b15bf140ce4/spec/decisions/ADR-0053-formal-clause-source-profiles.md).
-The recorded SysML pilot correction remains LGPL-3.0-or-later.
+External tool and license investigation is useful input for the mapping
+tickets but is not a first-party execution prerequisite. The recorded SysML
+pilot correction remains LGPL-3.0-or-later.
 
 ### Eligibility and extension points
 

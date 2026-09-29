@@ -59,8 +59,8 @@ assurance artifacts.
 Run formatting, clippy, Rust/Python tests, license and unsafe audits, Quire
 validation/coverage, schema mutations, the complete conformance runner twice,
 cross-platform golden comparisons when remote CI is deliberately dispatched,
-code review, and gap analysis. Retain exact subject, commands, tool/environment
-identities, per-case outputs, findings, and limitations.
+code review, and gap analysis. Report per-case outputs, findings, and
+limitations.
 
 ## Interpretation
 

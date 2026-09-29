@@ -8,7 +8,7 @@ profile: ix://agent-ix/quire-contract-ir/AP-001
 top_claim:
   id: claim-v01-source
   statement: the identified quire-contract-ir v0.1 source candidate is suitable for an independently authorized source tag within the declared profile
-  subject: no source-release candidate selected; Wave 1 implementation baseline 5c49ebfd1c87415f74420ad047392bd03b1bd202 is complete
+  subject: no source-release candidate selected; the Wave 1 implementation is complete
   status: open
 reasoning:
   - id: reasoning-semantic-contract
@@ -48,9 +48,8 @@ relationships:
 ## Claim
 
 The source-release claim remains intentionally open. Issues #5, #6, #8, #9,
-and #10 are complete, and merge commit
-`5c49ebfd1c87415f74420ad047392bd03b1bd202` is the Wave 1 implementation
-baseline. It is not selected as a source-release candidate by this artifact.
+and #10 are complete, which completes the Wave 1 implementation. No
+source-release candidate is selected by this artifact.
 
 ## Reasoning
 

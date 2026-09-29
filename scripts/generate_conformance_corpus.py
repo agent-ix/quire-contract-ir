@@ -456,22 +456,22 @@ def placeholder(operation: str) -> dict:
 
 
 def run(runner: pathlib.Path, corpus: pathlib.Path) -> list[dict]:
-    completed = subprocess.run([str(runner), "run", "--corpus", str(corpus)], capture_output=True, check=False)
+    completed = subprocess.run(
+        [str(runner), "run", "--corpus", str(corpus), "--schemas", str(ROOT / "schemas")],
+        capture_output=True,
+        check=False,
+    )
     if completed.returncode not in (0, 1):
         raise SystemExit(completed.stderr.decode())
     return [json.loads(line) for line in completed.stdout.splitlines()]
 
 
 def generate(corpus: pathlib.Path, runner: pathlib.Path) -> None:
-    # Implements: FR-018-AC-3.
     cases = build_cases()
     for directory in (corpus / "inputs", corpus / "expectations", corpus / "canonical"):
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True)
-    (corpus / "schemas").mkdir(parents=True, exist_ok=True)
-    for name in ("contract-package-reference-v1.schema.json", "contract-conformance-manifest-v1.schema.json"):
-        shutil.copyfile(ROOT / "schemas" / name, corpus / "schemas" / name)
 
     for case in cases:
         write_json(corpus / "inputs" / f"{case['id']}.json", case["value"])
@@ -491,9 +491,8 @@ def generate(corpus: pathlib.Path, runner: pathlib.Path) -> None:
             (corpus / relative).write_bytes(data)
             canonical["bytes_path"] = relative
         write_json(corpus / "expectations" / f"{row['fixture_id']}.json", actual)
-    verified = subprocess.run([str(runner), "run", "--corpus", str(corpus)], capture_output=True, check=False)
-    if verified.returncode != 0:
-        raise SystemExit(verified.stderr.decode() or verified.stdout.decode())
+    if any(row["status"] != "match" for row in run(runner, corpus)):
+        raise SystemExit("regenerated corpus does not match its own expectations")
 
 
 def compare_corpus(candidate: pathlib.Path) -> None:

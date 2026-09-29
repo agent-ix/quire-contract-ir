@@ -3,7 +3,7 @@
 Run the corpus without linking the Rust library:
 
 ```text
-quire-contract-conformance run --corpus corpus/contract-v0.1
+quire-contract-conformance run --corpus corpus/contract-v0.1 --schemas schemas
 ```
 
 The corpus is this directory. Each `inputs/<id>.json` is one fixture, its

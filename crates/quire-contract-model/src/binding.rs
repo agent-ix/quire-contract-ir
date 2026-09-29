@@ -404,7 +404,7 @@ fn validate_schema(value: &Value) -> Result<(), Vec<Diagnostic>> {
     ))
     .map_err(|_| invalid("invalid embedded package schema"))?;
     let conformance: Value = serde_json::from_str(include_str!(
-        "../../../schemas/contract-conformance-manifest-v1.schema.json"
+        "../../../schemas/contract-conformance-fixture-v1.schema.json"
     ))
     .map_err(|_| invalid("invalid embedded expression schema"))?;
     let compiled = jsonschema::JSONSchema::options()

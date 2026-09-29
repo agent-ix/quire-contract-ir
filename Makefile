@@ -61,7 +61,7 @@ unit:
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1
+	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
 
 .PHONY: check-corpus
 check-corpus: corpus

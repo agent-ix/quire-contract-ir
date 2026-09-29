@@ -297,12 +297,11 @@ class MatrixStatusTests(unittest.TestCase):
 
     def test_retired_criteria_are_not_live(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5."""
-        # Every FR-001 and FR-009 criterion under a `Retired criteria` heading
+        # Every FR-001 criterion under a `Retired criteria` heading
         # is withdrawn with a recorded reason. A matrix row that omits them is
         # correct, and the checker must not report it.
         declared = live_criteria()
         self.assertEqual(declared["FR-001"], ["FR-001-AC-2"])
-        self.assertEqual(declared["FR-009"], ["FR-009-AC-2"])
 
     def test_retired_heading_matches_case_and_trailing_text(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5.

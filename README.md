@@ -45,22 +45,6 @@ results for retention/audit/reporting, and ix-flow records attributed human
 decisions. Quire and Quoin are non-executing, and neither is a runtime
 dependency of this crate.
 
-## Retained evidence
-
-This repository held ten immutable PGM-01 records under `evidence/`, read
-through Engineering Assurance's read-only compatibility mapping. It was the only
-repository in the eight-repository campaign for which that mapping worked: all
-ten mapped `lossy` with their source digests preserved and no byte moved. The
-repository owner released the evidence-preservation constraint for the
-pre-stable phase on 2026-09-02
-([engineering-assurance#7](https://github.com/agent-ix/engineering-assurance/issues/7)),
-and the records, their reader, and the schemas frozen only for their sake are
-deleted. Nothing was rewritten on the way out and no claim here rests on them.
-The same decision withdraws PGM-01-R08, so the derivation-evidence envelope
-schema, its Draft 7 validator, its fixture corpus and its pinned Python lane are
-deleted too. `schemas/README.md` explains which schemas are live and why.
-The constraint re-applies at the move toward stable releases.
-
 ## License
 
 Licensed under the GNU Affero General Public License, version 3 or (at your

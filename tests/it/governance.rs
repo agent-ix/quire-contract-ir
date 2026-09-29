@@ -77,7 +77,6 @@ fn tc_003_defines_license_clean_room_agent_and_qualification_boundaries() {
 /// Tracing: TC-004
 /// TC-004.
 /// FR-006-AC-1.
-/// FR-009-AC-2.
 #[test]
 fn tc_004_names_the_enforced_human_decision_owner() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

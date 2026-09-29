@@ -8,9 +8,9 @@ carried is deleted.
 
 | File | Describes |
 | --- | --- |
-| `contract-conformance-manifest-v1.schema.json` | The conformance corpus fixture inputs and expectations for each operation. |
+| `contract-conformance-fixture-v1.schema.json` | The conformance corpus fixture inputs and expectations for each operation. |
 | `contract-package-reference-v1.schema.json` | The serialized contract package wire form. |
-| `temporal-ecosystem-manifest-v1.schema.json` | Exact nine-repository campaign selections, semantic nodes, typed edges, and unresolved gaps admitted by FR-027. |
+| `temporal-ecosystem-manifest-v1.schema.json` | The nine-repository campaign's contract selections, semantic nodes, typed edges, and unresolved gaps admitted by FR-027. |
 | `temporal-ecosystem-model-v1.schema.json` | The deterministic bounded non-authoritative model exported and strict-read by FR-027. |
 
 These describe *this repository's own domain artifacts*. A schema that
@@ -48,11 +48,11 @@ Each was checked by grepping for its filename and `$id` across `src/`,
 `scripts/`, `tests/`, `corpus/` and `spec/`, and then by mutation — editing the
 file and watching a gate go red — rather than by reading its name:
 
-- `contract-conformance-manifest-v1.schema.json` — the runner names its `$id`
+- `contract-conformance-fixture-v1.schema.json` — the runner names its `$id`
   and validates every fixture input and expectation against it;
   `schemas/contract-executable-projection-v1.schema.json` references its
   definitions. Live.
 - `contract-package-reference-v1.schema.json` — the runner names its `$id` and
   validates every successful package fixture against it. Live.
 
-`scripts/generate_conformance_corpus.py` copies both into the corpus.
+The runner reads both from this directory (`--schemas schemas`).

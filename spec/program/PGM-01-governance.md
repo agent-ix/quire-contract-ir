@@ -125,8 +125,7 @@ The shared responsibility assignment is exact:
 
 Published runtime and domain crates shall not acquire runtime dependencies on
 Quire or Quoin. Development-time export, validation, intake, audit, and report
-commands may use exact pinned releases without linking them into customer
-software. Quire and Quoin are explicitly non-executing.
+commands may use them without linking them into customer software. Quire and Quoin are explicitly non-executing.
 
 ### PGM-01-R08 — domain derivation provenance and structured results
 
@@ -158,7 +157,7 @@ This repository's own live structured result is the conformance runner's
 `corpus/contract-v0.1` directory. Its
 wire form and its corpus fixtures are described by
 `schemas/contract-package-reference-v1.schema.json` and
-`schemas/contract-conformance-manifest-v1.schema.json`, which are domain
+`schemas/contract-conformance-fixture-v1.schema.json`, which are domain
 contracts owned here rather than an evidence envelope, and are unaffected by
 this withdrawal.
 

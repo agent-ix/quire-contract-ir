@@ -31,25 +31,53 @@ fn runner(arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-fn run_corpus(path: &Path) -> Output {
-    runner(&["run", "--corpus", path.to_str().unwrap()])
+fn schemas() -> PathBuf {
+    repository().join("schemas")
 }
 
+fn run_with(corpus: &Path, schemas: &Path) -> Output {
+    runner(&[
+        "run",
+        "--corpus",
+        corpus.to_str().unwrap(),
+        "--schemas",
+        schemas.to_str().unwrap(),
+    ])
+}
+
+fn run_corpus(path: &Path) -> Output {
+    run_with(path, &schemas())
+}
+
+/// A scratch copy of the corpus at `<root>/contract-v0.1` with the schemas it
+/// runs against at `<root>/schemas`, so a test can change either.
 struct Scratch(PathBuf);
 
 impl Scratch {
     fn corpus(label: &str) -> Self {
-        let path = std::env::temp_dir()
-            .join(format!(
-                "quire-contract-ir-tc018-{}-{label}",
-                std::process::id()
-            ))
-            .join("contract-v0.1");
-        if path.exists() {
-            fs::remove_dir_all(&path).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "quire-contract-ir-tc018-{}-{label}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
         }
+        let path = root.join("contract-v0.1");
         copy_tree(&corpus(), &path);
+        copy_tree(&schemas(), &root.join("schemas"));
         Self(path)
+    }
+
+    fn root(&self) -> &Path {
+        self.0.parent().unwrap()
+    }
+
+    fn schemas(&self) -> PathBuf {
+        self.root().join("schemas")
+    }
+
+    fn run(&self) -> Output {
+        run_with(&self.0, &self.schemas())
     }
 }
 
@@ -216,7 +244,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     coverage["coverage"] = Value::Null;
     write_json(&coverage_path, &coverage);
 
-    let mismatch = run_corpus(&scratch.0);
+    let mismatch = scratch.run();
     assert_eq!(mismatch.status.code(), Some(1));
     assert!(mismatch.stderr.is_empty());
     let mismatch_rows = rows(&mismatch);
@@ -273,20 +301,17 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
 
     let malformed_schema = Scratch::corpus("malformed-schema");
     let schema_path = malformed_schema
-        .0
-        .join("schemas/contract-package-reference-v1.schema.json");
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
     let mut schema = read_json(&schema_path);
     schema["type"] = json!(17);
     write_json(&schema_path, &schema);
-    assert_eq!(
-        error_code(&run_corpus(&malformed_schema.0)),
-        "invalid_corpus"
-    );
+    assert_eq!(error_code(&malformed_schema.run()), "invalid_corpus");
 
     let tightened_schema = Scratch::corpus("tightened-schema");
     let schema_path = tightened_schema
-        .0
-        .join("schemas/contract-package-reference-v1.schema.json");
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
     let mut schema = read_json(&schema_path);
     schema["definitions"]["package"]["required"]
         .as_array_mut()
@@ -294,14 +319,14 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         .push(json!("reviewer_probe"));
     write_json(&schema_path, &schema);
     assert_eq!(
-        error_code(&run_corpus(&tightened_schema.0)),
+        error_code(&tightened_schema.run()),
         "invalid_corpus",
         "successful semantic packages must be checked against the published schema"
     );
 
     let missing = Scratch::corpus("missing-expectation");
     fs::remove_file(missing.0.join("expectations/package-reference.json")).unwrap();
-    assert_eq!(error_code(&run_corpus(&missing.0)), "fixture_io");
+    assert_eq!(error_code(&missing.run()), "fixture_io");
 
     let unknown_operation = Scratch::corpus("unknown-operation");
     fs::copy(
@@ -309,21 +334,19 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         unknown_operation.0.join("inputs/unknown-reference.json"),
     )
     .unwrap();
-    assert_eq!(
-        error_code(&run_corpus(&unknown_operation.0)),
-        "invalid_corpus"
-    );
+    assert_eq!(error_code(&unknown_operation.run()), "invalid_corpus");
 
     let uncovered = Scratch::corpus("uncovered");
     for directory in ["inputs", "expectations"] {
         fs::remove_file(uncovered.0.join(directory).join("coverage-digest.json")).unwrap();
     }
-    assert_eq!(error_code(&run_corpus(&uncovered.0)), "invalid_corpus");
+    assert_eq!(error_code(&uncovered.run()), "invalid_corpus");
 
     let controls = Scratch::corpus("controls");
     let bare = Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
         .current_dir(&controls.0)
-        .args(["run", "--corpus", "."])
+        .args(["run", "--corpus", ".", "--schemas"])
+        .arg(controls.schemas())
         .output()
         .unwrap();
     assert!(
@@ -343,7 +366,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         )
         .unwrap();
     }
-    assert_eq!(error_code(&run_corpus(&count.0)), "resource_exhausted");
+    assert_eq!(error_code(&count.run()), "resource_exhausted");
 
     let oversized = Scratch::corpus("oversized");
     fs::write(
@@ -351,7 +374,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         vec![b' '; 16_777_217],
     )
     .unwrap();
-    assert_eq!(error_code(&run_corpus(&oversized.0)), "resource_exhausted");
+    assert_eq!(error_code(&oversized.run()), "resource_exhausted");
 
     let aggregate = Scratch::corpus("aggregate");
     let input = fs::read(
@@ -371,7 +394,7 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         fs::write(aggregate.0.join("inputs").join(&name), &input).unwrap();
         fs::write(aggregate.0.join("expectations").join(&name), &expectation).unwrap();
     }
-    assert_eq!(error_code(&run_corpus(&aggregate.0)), "resource_exhausted");
+    assert_eq!(error_code(&aggregate.run()), "resource_exhausted");
 
     let mut deeply_nested = vec![b'['; 60_000];
     deeply_nested.push(b'0');
@@ -382,20 +405,17 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         &deeply_nested,
     )
     .unwrap();
-    assert_eq!(error_code(&run_corpus(&deep_input.0)), "resource_exhausted");
+    assert_eq!(error_code(&deep_input.run()), "resource_exhausted");
 
     let deep_schema = Scratch::corpus("deep-schema");
     fs::write(
         deep_schema
-            .0
-            .join("schemas/contract-conformance-manifest-v1.schema.json"),
+            .schemas()
+            .join("contract-conformance-fixture-v1.schema.json"),
         &deeply_nested,
     )
     .unwrap();
-    assert_eq!(
-        error_code(&run_corpus(&deep_schema.0)),
-        "resource_exhausted"
-    );
+    assert_eq!(error_code(&deep_schema.run()), "resource_exhausted");
 
     #[cfg(unix)]
     {
@@ -408,11 +428,86 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     }
 }
 
+/// Tracing: TC-018, FR-018-AC-1, FR-020-AC-2.
+/// FR-018-AC-1.
+/// FR-020-AC-2.
+#[test]
+fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
+    let version = runner(&["--version"]);
+    assert_eq!(version.status.code(), Some(0));
+    assert!(version.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(version.stdout).unwrap(),
+        format!(
+            "quire-contract-ir {} quire.contract.conformance-jsonl/v1\n",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+
+    let traversal = Scratch::corpus("traversal");
+    let path = traversal.0.join("expectations/package-constructs.json");
+    let mut expectation = read_json(&path);
+    expectation["canonical"][0]["bytes_path"] = json!("../escape.json");
+    write_json(&path, &expectation);
+    let output = traversal.run();
+    assert_eq!(error_code(&output), "unsafe_path");
+    let root = traversal.root().to_str().unwrap().to_owned();
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(&root));
+
+    #[cfg(unix)]
+    {
+        let symlink = Scratch::corpus("symlink");
+        let outside = symlink.root().join("outside.json");
+        fs::copy(symlink.0.join("inputs/package-reference.json"), &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, symlink.0.join("inputs/package-escape.json")).unwrap();
+        let output = symlink.run();
+        assert_eq!(error_code(&output), "unsafe_path");
+        let root = symlink.root().to_str().unwrap().to_owned();
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(&root));
+    }
+
+    let foreign = Scratch::corpus("foreign-schema");
+    let path = foreign
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
+    let mut schema = read_json(&path);
+    schema["$id"] = json!("https://example.invalid/other-package.schema.json");
+    write_json(&path, &schema);
+    assert_eq!(error_code(&foreign.run()), "unsupported_profile");
+
+    let stray = Scratch::corpus("stray-input");
+    fs::write(stray.0.join("inputs/notes.txt"), b"not a fixture").unwrap();
+    assert_eq!(error_code(&stray.run()), "invalid_corpus");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt as _;
+        let non_utf8 = Scratch::corpus("non-utf8-input");
+        fs::write(
+            non_utf8
+                .0
+                .join("inputs")
+                .join(OsString::from_vec(b"package-\xff.json".to_vec())),
+            b"{}",
+        )
+        .unwrap();
+        assert_eq!(error_code(&non_utf8.run()), "invalid_corpus");
+    }
+
+    let orphan = Scratch::corpus("orphan-expectation");
+    fs::copy(
+        orphan.0.join("expectations/package-reference.json"),
+        orphan.0.join("expectations/package-orphan.json"),
+    )
+    .unwrap();
+    assert_eq!(error_code(&orphan.run()), "invalid_corpus");
+}
+
 /// Tracing: TC-018, FR-019-AC-2, NFR-003-AC-1.
 /// FR-019-AC-2.
 #[test]
 fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
-    let linked_run = catch_unwind(|| quire_contract_ir::run_corpus(&corpus()));
+    let linked_run = catch_unwind(|| quire_contract_ir::run_corpus(&corpus(), &schemas()));
     let linked_results = linked_run
         .expect("the linked runner panicked over the complete corpus")
         .expect("the linked runner rejected the published corpus");
@@ -541,7 +636,8 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     );
 }
 
-/// TC-018. FR-018-AC-3.
+/// Tracing: TC-018, FR-018-AC-3.
+/// FR-018-AC-3.
 #[test]
 fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
     // Independent authored counts, not the producer's scanner or depth constant.

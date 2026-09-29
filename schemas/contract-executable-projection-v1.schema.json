@@ -16,8 +16,8 @@
         "additionalProperties": false,
         "required": ["clause", "expression"],
         "properties": {
-          "clause": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json#/definitions/clauseRef" },
-          "expression": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json#/definitions/expressionInput" }
+          "clause": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json#/definitions/clauseRef" },
+          "expression": { "$ref": "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json#/definitions/expressionInput" }
         }
       }
     }

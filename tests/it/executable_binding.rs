@@ -579,7 +579,7 @@ fn tc_035_normative_schema_is_checked_independently_of_binder() {
     ))
     .unwrap();
     let conformance: Value = serde_json::from_str(include_str!(
-        "../../schemas/contract-conformance-manifest-v1.schema.json"
+        "../../schemas/contract-conformance-fixture-v1.schema.json"
     ))
     .unwrap();
     let validator = jsonschema::JSONSchema::options()

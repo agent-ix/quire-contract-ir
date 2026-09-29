@@ -16,8 +16,8 @@ and their canonical digests, dependency sets, and a reusable conformance runner.
 
 ## Inputs
 
-A corpus directory holding the versioned schema files, fixture inputs and
-expected outcomes.
+A corpus directory holding fixture inputs and expected outcomes, and the
+repository `schemas/` directory holding the package and fixture schemas.
 
 ## Outputs
 
@@ -34,7 +34,7 @@ for supported schema versions 1.0 and 1.1, closes every object with
 implementation-language names. Schema success never substitutes for semantic validation.
 
 Fixture payloads are validated by Draft 7 schema identity
-`https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json`.
+`https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json`.
 The conformance schema exposes the named subschemas `packageInput`,
 `expressionInput`, `migrationInput`, `coverageInput`, and one corresponding
 `*Expectation` subschema for each operation. The runner selects the input and
@@ -42,10 +42,12 @@ expectation subschemas from the fixture's operation before any semantic
 conversion; every object forbids unknown fields.
 
 The corpus is a directory. Its name is the corpus identity and is a validated
-identifier. `schemas/` holds the package and conformance schemas; each
-`inputs/<id>.json` is one fixture whose operation is the `<id>` prefix before
+identifier. The runner reads the package and fixture schemas from the schema
+directory it is given. Each `inputs/<id>.json` is one fixture whose operation is the `<id>` prefix before
 the first `-`, and whose expectation is `expectations/<id>.json`. A fixture
-name that does not start with one of the four operations fails. Canonical-byte
+name that does not start with one of the four operations fails, as does any
+`inputs/` or `expectations/` entry that is not a UTF-8 `.json` file and any
+expectation with no input. Canonical-byte
 paths in an expectation are relative to the corpus directory, contain no empty,
 `.` or `..` segment, and after symlink resolution remain below it. Each schema,
 input, expectation, or canonical-byte file is at most 16777216 bytes, checked
@@ -157,7 +159,7 @@ determinism for this implementation, not independent semantic correctness.
 |---|---|---|
 | FR-018-AC-1 | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory, so every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. | Test (TC-018) |
 | FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
-| FR-018-AC-3 | Raw package probes pin unknown-member rejection and exact/one-past wire depth; the generator rejects a declared token the runner does not observe and reproduces the complete checked-in corpus byte-for-byte in scratch space. | Test (TC-018) |
+| FR-018-AC-3 | Raw package probes pin exact and one-past wire depth, and quoted delimiters do not count toward depth. | Test (TC-018) |
 
 ## Dependencies
 

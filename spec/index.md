@@ -78,7 +78,7 @@ The named human release owner decides whether an exact candidate may be tagged.
 ## Requirements Architecture
 
 The canonical policy owns PGM-01-R01 through PGM-01-R10, of which R08 is
-withdrawn. Discrete requirements FR-001, FR-003 through FR-007, FR-009 and
+withdrawn. Discrete requirements FR-001, FR-003 through FR-007 and
 FR-010 provide traceable artifact identities without redefining that policy.
 FR-008 carried the withdrawn R08 derivation-evidence envelope and is deleted
 with it; the identifier is not reused. TM-001 maps them to automated tests or retained inspection.
@@ -126,7 +126,7 @@ STD-001 is the stable diagnostic code registry and STD-003 the closed
 output-mapping refusal registry. ADR-0053 fixes the formal clause source
 profiles. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
-separates and pins the supported Rust minimum and qualification compiler. ADR-0056
+sets the Rust compiler baseline. ADR-0056
 fixes the subsystem specification layout and registry format that this
 repository, Contract Codegen and Contract Runtime follow.
 TM-002 maps the substrate to staged verification.

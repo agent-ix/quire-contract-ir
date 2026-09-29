@@ -129,97 +129,82 @@ impl TargetContract {
         }
     }
 
-    const fn cause_codes(self) -> (Dim, Code, Code, Code) {
+    const fn cause_codes(self) -> (Dim, Code, Code) {
         match self {
             Self::Native => (
                 Dim::NativeContract,
                 Code::TemporalNativeContractUnsupported,
                 Code::TemporalNativeContractUnavailable,
-                Code::TemporalNativeContractConflict,
             ),
             Self::PredicateProjection => (
                 Dim::PredicateProjection,
                 Code::TemporalPredicateProjectionContractUnsupported,
                 Code::TemporalPredicateProjectionContractUnavailable,
-                Code::TemporalPredicateProjectionContractConflict,
             ),
             Self::PropositionMap | Self::FormulaV1 | Self::FormulaV2 => (
                 Dim::FormulaContract,
                 Code::TemporalFormulaContractUnsupported,
                 Code::TemporalFormulaContractUnavailable,
-                Code::TemporalFormulaContractConflict,
             ),
             Self::PastOperators => (
                 Dim::SemanticContract,
                 Code::TemporalSemanticContractUnsupported,
                 Code::TemporalSemanticContractUnavailable,
-                Code::TemporalSemanticContractConflict,
             ),
             Self::PositionLedger => (
                 Dim::ObservationContract,
                 Code::TemporalObservationContractUnsupported,
                 Code::TemporalObservationContractUnavailable,
-                Code::TemporalObservationContractConflict,
             ),
             Self::Clock => (
                 Dim::ClockContract,
                 Code::TemporalClockContractUnsupported,
                 Code::TemporalClockContractUnavailable,
-                Code::TemporalClockContractConflict,
             ),
             Self::Capture => (
                 Dim::CaptureContract,
                 Code::TemporalCaptureContractUnsupported,
                 Code::TemporalCaptureContractUnavailable,
-                Code::TemporalCaptureContractConflict,
             ),
             Self::Progress | Self::Closure => (
                 Dim::ProgressContract,
                 Code::TemporalProgressContractUnsupported,
                 Code::TemporalProgressContractUnavailable,
-                Code::TemporalProgressContractConflict,
             ),
             Self::Completeness => (
                 Dim::CompletenessContract,
                 Code::TemporalCompletenessContractUnsupported,
                 Code::TemporalCompletenessContractUnavailable,
-                Code::TemporalCompletenessContractConflict,
             ),
             Self::Availability => (
                 Dim::AvailabilityContract,
                 Code::TemporalAvailabilityContractUnsupported,
                 Code::TemporalAvailabilityContractUnavailable,
-                Code::TemporalAvailabilityContractConflict,
             ),
             Self::Trace | Self::History => (
                 Dim::TraceContract,
                 Code::TemporalTraceContractUnsupported,
                 Code::TemporalTraceContractUnavailable,
-                Code::TemporalTraceContractConflict,
             ),
             Self::HistoryRequirement | Self::Request | Self::NativeRequest => (
                 Dim::RequestContract,
                 Code::TemporalRequestContractUnsupported,
                 Code::TemporalRequestContractUnavailable,
-                Code::TemporalRequestContractConflict,
             ),
             Self::EvaluatorReport => (
                 Dim::EvaluatorContract,
                 Code::TemporalEvaluatorContractUnsupported,
                 Code::TemporalEvaluatorContractUnavailable,
-                Code::TemporalEvaluatorContractConflict,
             ),
             Self::NativeResult | Self::ProtocolResult | Self::ProtocolMapping => (
                 Dim::NativeResultContract,
                 Code::TemporalNativeResultContractUnsupported,
                 Code::TemporalNativeResultContractUnavailable,
-                Code::TemporalNativeResultContractConflict,
             ),
             Self::TlMapping => (
                 Dim::TlResultContract,
                 Code::TemporalTlResultContractUnsupported,
                 Code::TemporalTlResultContractUnavailable,
-                Code::TemporalTlResultContractConflict,
             ),
         }
     }
@@ -557,10 +542,8 @@ fn validate_target(target: &TargetSelection, limits: BridgeLimits) -> Result<(),
         if selected == expected {
             continue;
         }
-        let (dimension, unsupported, unavailable, conflict) = axis.cause_codes();
-        let code = if !selected.structurally_valid() {
-            conflict
-        } else if selected.contract() != expected.contract() {
+        let (dimension, unsupported, unavailable) = axis.cause_codes();
+        let code = if selected.structurally_valid() && selected.contract() != expected.contract() {
             unsupported
         } else {
             unavailable
@@ -632,23 +615,9 @@ fn kind_for(code: Code) -> TemporalProjectionKind {
         | Code::TemporalProgressContractUnavailable
         | Code::TemporalCompletenessContractUnavailable => TemporalProjectionKind::Unavailable,
         Code::TemporalPredicateProjectionFailed => TemporalProjectionKind::Failed,
-        Code::TemporalNativeContractConflict
-        | Code::TemporalPredicateProjectionConflict
-        | Code::TemporalPredicateProjectionContractConflict
-        | Code::TemporalClockContractConflict
-        | Code::TemporalObservationContractConflict
-        | Code::TemporalCaptureContractConflict
-        | Code::TemporalFormulaContractConflict
-        | Code::TemporalSemanticContractConflict
-        | Code::TemporalEvaluatorContractConflict
-        | Code::TemporalTraceContractConflict
-        | Code::TemporalRequestContractConflict
-        | Code::TemporalIdentityConflict
-        | Code::TemporalAvailabilityContractConflict
-        | Code::TemporalNativeResultContractConflict
-        | Code::TemporalTlResultContractConflict
-        | Code::TemporalProgressContractConflict
-        | Code::TemporalCompletenessContractConflict => TemporalProjectionKind::Conflict,
+        Code::TemporalPredicateProjectionConflict | Code::TemporalIdentityConflict => {
+            TemporalProjectionKind::Conflict
+        }
         _ => TemporalProjectionKind::Refused,
     }
 }

@@ -21,7 +21,7 @@ pub const CONFORMANCE_PROTOCOL: &str = "quire.contract.conformance-jsonl/v1";
 pub const PACKAGE_SCHEMA_ID: &str =
     "https://agent-ix.github.io/quire-contract-ir/schemas/contract-package-reference-v1.schema.json";
 pub const CONFORMANCE_SCHEMA_ID: &str =
-    "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-manifest-v1.schema.json";
+    "https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json";
 pub const MAX_CONFORMANCE_FILE_BYTES: u64 = 16_777_216;
 pub const MAX_CONFORMANCE_TOTAL_BYTES: u64 = 67_108_864;
 pub const MAX_CONFORMANCE_FIXTURES: u32 = 10_000;
@@ -493,17 +493,20 @@ pub fn expected_inventory() -> Vec<String> {
     inventory
 }
 
+const PACKAGE_SCHEMA_FILE: &str = "contract-package-reference-v1.schema.json";
+const CONFORMANCE_SCHEMA_FILE: &str = "contract-conformance-fixture-v1.schema.json";
 const PACKAGE_SCHEMA_PATH: &str = "schemas/contract-package-reference-v1.schema.json";
-const CONFORMANCE_SCHEMA_PATH: &str = "schemas/contract-conformance-manifest-v1.schema.json";
 
-/// Runs every fixture of the corpus directory at `path`.
+/// Runs every fixture of the corpus directory at `path` against the fixture
+/// and package schemas in the `schemas` directory.
 ///
 /// The corpus is the directory itself: each `inputs/<id>.json` is one fixture,
 /// its operation is the `<id>` prefix before the first `-`, and its
-/// expectation is `expectations/<id>.json`. Each result's coverage tokens are
-/// the ones the fixture is observed to exercise, and the union over the corpus
-/// must equal [`expected_inventory`].
-pub fn run_corpus(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
+/// expectation is `expectations/<id>.json`. Any other entry in `inputs/` or
+/// `expectations/` is refused. Each result's coverage tokens are the ones the
+/// fixture is observed to exercise, and the union over the corpus must equal
+/// [`expected_inventory`].
+pub fn run_corpus(path: &Path, schemas: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     let root = path
         .canonicalize()
         .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "corpus", "corpus unreadable"))?;
@@ -519,10 +522,13 @@ pub fn run_corpus(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
             )
         })?
         .to_owned();
+    let schemas = schemas.canonicalize().map_err(|_| {
+        RunnerError::new(RunnerErrorCode::FixtureIo, "schemas", "schemas unreadable")
+    })?;
     let mut read_budget = ReadBudget::new();
     let conformance_schema_bytes = read_relative(
-        &root,
-        CONFORMANCE_SCHEMA_PATH,
+        &schemas,
+        CONFORMANCE_SCHEMA_FILE,
         "conformance_schema",
         &mut read_budget,
     )?;
@@ -539,8 +545,8 @@ pub fn run_corpus(path: &Path) -> Result<Vec<FixtureResult>, RunnerError> {
     validate_complete_schema(&conformance_schema, "conformance_schema")?;
     let conformance_validator = SchemaWorker::named(conformance_schema)?;
     let package_schema_bytes = read_relative(
-        &root,
-        PACKAGE_SCHEMA_PATH,
+        &schemas,
+        PACKAGE_SCHEMA_FILE,
         "package_schema",
         &mut read_budget,
     )?;
@@ -670,22 +676,26 @@ fn is_identifier(text: &str) -> bool {
         })
 }
 
-fn enumerate_fixtures(root: &Path) -> Result<Vec<Fixture>, RunnerError> {
-    let entries = fs::read_dir(root.join("inputs"))
-        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, "inputs", "inputs unreadable"))?;
+fn fixture_ids(dir: &Path, field: &'static str) -> Result<Vec<String>, RunnerError> {
+    let entries = fs::read_dir(dir)
+        .map_err(|_| RunnerError::new(RunnerErrorCode::FixtureIo, field, "directory unreadable"))?;
     let mut ids = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|_| {
-            RunnerError::new(RunnerErrorCode::FixtureIo, "inputs", "inputs unreadable")
+            RunnerError::new(RunnerErrorCode::FixtureIo, field, "directory unreadable")
         })?;
         let name = entry.file_name();
-        let Some(id) = name
+        let id = name
             .to_str()
             .and_then(|name| name.strip_suffix(".json"))
-            .map(str::to_owned)
-        else {
-            continue;
-        };
+            .ok_or_else(|| {
+                RunnerError::new(
+                    RunnerErrorCode::InvalidCorpus,
+                    field,
+                    "entry is not a UTF-8 .json fixture file",
+                )
+            })?
+            .to_owned();
         ids.push(id);
         if ids.len() > MAX_CONFORMANCE_FIXTURES as usize {
             return Err(RunnerError::new(
@@ -695,6 +705,12 @@ fn enumerate_fixtures(root: &Path) -> Result<Vec<Fixture>, RunnerError> {
             ));
         }
     }
+    ids.sort();
+    Ok(ids)
+}
+
+fn enumerate_fixtures(root: &Path) -> Result<Vec<Fixture>, RunnerError> {
+    let ids = fixture_ids(&root.join("inputs"), "inputs")?;
     if ids.is_empty() {
         return Err(RunnerError::new(
             RunnerErrorCode::InvalidCorpus,
@@ -702,7 +718,16 @@ fn enumerate_fixtures(root: &Path) -> Result<Vec<Fixture>, RunnerError> {
             "corpus has no fixtures",
         ));
     }
-    ids.sort();
+    if let Some(orphan) = fixture_ids(&root.join("expectations"), "expectations")?
+        .into_iter()
+        .find(|id| ids.binary_search(id).is_err())
+    {
+        return Err(RunnerError::new(
+            RunnerErrorCode::InvalidCorpus,
+            format!("fixtures.{orphan}"),
+            "expectation has no input",
+        ));
+    }
     ids.into_iter()
         .map(|id| {
             let operation = id

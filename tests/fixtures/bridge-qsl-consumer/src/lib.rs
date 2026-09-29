@@ -3,12 +3,12 @@
 use quire_contract_ir::SchemaVersion;
 use quire_spec_language::protocol_artifact::{checked_predicate, temporal_subject};
 
-/// Returns identities imported from both sides of the intended bridge boundary.
+/// Returns items imported from both sides of the intended bridge boundary.
 pub fn selected_contracts() -> (SchemaVersion, &'static str, &'static str) {
     (
         SchemaVersion::V1_0,
-        checked_predicate::SCHEMA_SHA256,
-        temporal_subject::SCHEMA_SHA256,
+        std::any::type_name::<checked_predicate::ValidatedCheckedPredicate>(),
+        std::any::type_name::<temporal_subject::ValidatedTemporalSubject>(),
     )
 }
 

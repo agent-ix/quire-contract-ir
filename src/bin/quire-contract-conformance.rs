@@ -43,11 +43,16 @@ fn execute(arguments: Vec<OsString>) -> Result<(Vec<u8>, bool), RunnerError> {
             false,
         ));
     }
-    if arguments.len() != 3 || arguments[0] != "run" || arguments[1] != "--corpus" {
+    if arguments.len() != 5
+        || arguments[0] != "run"
+        || arguments[1] != "--corpus"
+        || arguments[3] != "--schemas"
+    {
         return Err(invalid_invocation());
     }
     let corpus = arguments[2].to_str().ok_or_else(invalid_invocation)?;
-    let results = run_corpus(Path::new(corpus))?;
+    let schemas = arguments[4].to_str().ok_or_else(invalid_invocation)?;
+    let results = run_corpus(Path::new(corpus), Path::new(schemas))?;
     let mismatched = results
         .iter()
         .any(|result| result.status() == FixtureStatus::Mismatch);
@@ -69,7 +74,7 @@ fn invalid_invocation() -> RunnerError {
     RunnerError::new(
         RunnerErrorCode::InvalidInvocation,
         "arguments",
-        "expected run --corpus DIR or --version",
+        "expected run --corpus DIR --schemas DIR or --version",
     )
 }
 

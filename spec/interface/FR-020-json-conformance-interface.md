@@ -51,10 +51,11 @@ diagnostics, canonical digest, dependency identities, tool identity, and exit cl
 
 The executable name is `quire-contract-conformance`. Its protocol identity is
 `quire.contract.conformance-jsonl/v1`. The closed invocation is
-`quire-contract-conformance run --corpus <directory>` plus `--version`; unknown,
+`quire-contract-conformance run --corpus <directory> --schemas <directory>` plus
+`--version`; unknown,
 missing, repeated, or non-UTF-8 arguments are invocation failures. The runner
 does not search parent directories, environment variables, network locations,
-or a default corpus.
+or a default corpus or schema directory.
 
 For a valid corpus, standard output contains exactly one compact JSON object
 and newline per fixture in fixture-name order. No banner or progress text appears.
@@ -78,8 +79,9 @@ and stable path; prose detail is non-comparable. Panics,
 partial JSON, and mixed stdout/stderr records are forbidden.
 
 The operational classification is exact: malformed, missing, repeated, or
-non-UTF-8 arguments map to `invalid_invocation`; a corpus with no fixtures, a
-fixture name without a known operation, a malformed schema, fixture input or
+non-UTF-8 arguments map to `invalid_invocation`; a corpus with no fixtures, an
+`inputs/` or `expectations/` entry that is not a UTF-8 `.json` file, an
+expectation with no input, a fixture name without a known operation, a malformed schema, fixture input or
 expectation, a successful package the published schema rejects, and an
 observed coverage union that differs from the inventory map to
 `invalid_corpus`; unknown package or conformance schema identities map to
@@ -113,7 +115,7 @@ and exits 0 without reading a corpus.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with non-empty observed trace ids per fixture input, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
-| FR-020-AC-2 | Process fixtures pin exit 1 with all seven mismatch kinds in fixed order and exit 2 for the closed operational codes; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
+| FR-020-AC-2 | Process fixtures pin exit 1 with all seven mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
 
 ## Dependencies
 

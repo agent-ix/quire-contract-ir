@@ -57,12 +57,10 @@ pub enum TemporalCauseCode {
     InvalidNativeTemporalBridge,
     TemporalNativeContractUnsupported,
     TemporalNativeContractUnavailable,
-    TemporalNativeContractConflict,
     TemporalSubjectMismatch,
     TemporalPredicateProjectionIncomplete,
     TemporalPredicateProjectionContractUnsupported,
     TemporalPredicateProjectionContractUnavailable,
-    TemporalPredicateProjectionContractConflict,
     TemporalPredicateProjectionUnavailable,
     TemporalPredicateProjectionUnsupported,
     TemporalPredicateProjectionFailed,
@@ -75,17 +73,14 @@ pub enum TemporalCauseCode {
     TemporalClockIncomplete,
     TemporalClockContractUnsupported,
     TemporalClockContractUnavailable,
-    TemporalClockContractConflict,
     TemporalClockUnavailable,
     TemporalClockMismatch,
     TemporalObservationIncomplete,
     TemporalObservationContractUnsupported,
     TemporalObservationContractUnavailable,
-    TemporalObservationContractConflict,
     TemporalObservationMismatch,
     TemporalCaptureContractUnsupported,
     TemporalCaptureContractUnavailable,
-    TemporalCaptureContractConflict,
     TemporalActivationIncomplete,
     TemporalActivationInactive,
     TemporalActivationMismatch,
@@ -93,34 +88,26 @@ pub enum TemporalCauseCode {
     TemporalCaptureMismatch,
     TemporalFormulaContractUnsupported,
     TemporalFormulaContractUnavailable,
-    TemporalFormulaContractConflict,
     TemporalSemanticContractUnsupported,
     TemporalSemanticContractUnavailable,
-    TemporalSemanticContractConflict,
     TemporalEvaluatorContractUnsupported,
     TemporalEvaluatorContractUnavailable,
-    TemporalEvaluatorContractConflict,
     TemporalTraceContractUnsupported,
     TemporalTraceContractUnavailable,
-    TemporalTraceContractConflict,
     TemporalRequestContractUnsupported,
     TemporalRequestContractUnavailable,
-    TemporalRequestContractConflict,
     TemporalFormulaRejected,
     TemporalTraceRejected,
     TemporalRequestRejected,
     TemporalIdentityConflict,
     TemporalAvailabilityContractUnsupported,
     TemporalAvailabilityContractUnavailable,
-    TemporalAvailabilityContractConflict,
     TemporalAvailabilityAssertionMismatch,
     TemporalAvailabilityAssertionConflict,
     TemporalNativeResultContractUnsupported,
     TemporalNativeResultContractUnavailable,
-    TemporalNativeResultContractConflict,
     TemporalTlResultContractUnsupported,
     TemporalTlResultContractUnavailable,
-    TemporalTlResultContractConflict,
     TemporalNativeResultUnavailable,
     TemporalTlResultUnavailable,
     TemporalNativeResultIncomplete,
@@ -137,7 +124,6 @@ pub enum TemporalCauseCode {
     TemporalResultIdentityConflict,
     TemporalProgressContractUnsupported,
     TemporalProgressContractUnavailable,
-    TemporalProgressContractConflict,
     TemporalProgressMismatch,
     TemporalClosureMismatch,
     TemporalResultClosureDisagreement,
@@ -146,7 +132,6 @@ pub enum TemporalCauseCode {
     TemporalSupportMismatch,
     TemporalCompletenessContractUnsupported,
     TemporalCompletenessContractUnavailable,
-    TemporalCompletenessContractConflict,
     TemporalCompletenessMismatch,
     TemporalSupersessionInvalid,
     TemporalProjectionResourceExhausted,
@@ -161,7 +146,6 @@ impl TemporalCauseCode {
             Self::InvalidNativeTemporalBridge => "invalid_native_temporal_bridge",
             Self::TemporalNativeContractUnsupported => "temporal_native_contract_unsupported",
             Self::TemporalNativeContractUnavailable => "temporal_native_contract_unavailable",
-            Self::TemporalNativeContractConflict => "temporal_native_contract_conflict",
             Self::TemporalSubjectMismatch => "temporal_subject_mismatch",
             Self::TemporalPredicateProjectionIncomplete => {
                 "temporal_predicate_projection_incomplete"
@@ -171,9 +155,6 @@ impl TemporalCauseCode {
             }
             Self::TemporalPredicateProjectionContractUnavailable => {
                 "temporal_predicate_projection_contract_unavailable"
-            }
-            Self::TemporalPredicateProjectionContractConflict => {
-                "temporal_predicate_projection_contract_conflict"
             }
             Self::TemporalPredicateProjectionUnavailable => {
                 "temporal_predicate_projection_unavailable"
@@ -191,7 +172,6 @@ impl TemporalCauseCode {
             Self::TemporalClockIncomplete => "temporal_clock_incomplete",
             Self::TemporalClockContractUnsupported => "temporal_clock_contract_unsupported",
             Self::TemporalClockContractUnavailable => "temporal_clock_contract_unavailable",
-            Self::TemporalClockContractConflict => "temporal_clock_contract_conflict",
             Self::TemporalClockUnavailable => "temporal_clock_unavailable",
             Self::TemporalClockMismatch => "temporal_clock_mismatch",
             Self::TemporalObservationIncomplete => "temporal_observation_incomplete",
@@ -201,11 +181,9 @@ impl TemporalCauseCode {
             Self::TemporalObservationContractUnavailable => {
                 "temporal_observation_contract_unavailable"
             }
-            Self::TemporalObservationContractConflict => "temporal_observation_contract_conflict",
             Self::TemporalObservationMismatch => "temporal_observation_mismatch",
             Self::TemporalCaptureContractUnsupported => "temporal_capture_contract_unsupported",
             Self::TemporalCaptureContractUnavailable => "temporal_capture_contract_unavailable",
-            Self::TemporalCaptureContractConflict => "temporal_capture_contract_conflict",
             Self::TemporalActivationIncomplete => "temporal_activation_incomplete",
             Self::TemporalActivationInactive => "temporal_activation_inactive",
             Self::TemporalActivationMismatch => "temporal_activation_mismatch",
@@ -213,19 +191,14 @@ impl TemporalCauseCode {
             Self::TemporalCaptureMismatch => "temporal_capture_mismatch",
             Self::TemporalFormulaContractUnsupported => "temporal_formula_contract_unsupported",
             Self::TemporalFormulaContractUnavailable => "temporal_formula_contract_unavailable",
-            Self::TemporalFormulaContractConflict => "temporal_formula_contract_conflict",
             Self::TemporalSemanticContractUnsupported => "temporal_semantic_contract_unsupported",
             Self::TemporalSemanticContractUnavailable => "temporal_semantic_contract_unavailable",
-            Self::TemporalSemanticContractConflict => "temporal_semantic_contract_conflict",
             Self::TemporalEvaluatorContractUnsupported => "temporal_evaluator_contract_unsupported",
             Self::TemporalEvaluatorContractUnavailable => "temporal_evaluator_contract_unavailable",
-            Self::TemporalEvaluatorContractConflict => "temporal_evaluator_contract_conflict",
             Self::TemporalTraceContractUnsupported => "temporal_trace_contract_unsupported",
             Self::TemporalTraceContractUnavailable => "temporal_trace_contract_unavailable",
-            Self::TemporalTraceContractConflict => "temporal_trace_contract_conflict",
             Self::TemporalRequestContractUnsupported => "temporal_request_contract_unsupported",
             Self::TemporalRequestContractUnavailable => "temporal_request_contract_unavailable",
-            Self::TemporalRequestContractConflict => "temporal_request_contract_conflict",
             Self::TemporalFormulaRejected => "temporal_formula_rejected",
             Self::TemporalTraceRejected => "temporal_trace_rejected",
             Self::TemporalRequestRejected => "temporal_request_rejected",
@@ -236,7 +209,6 @@ impl TemporalCauseCode {
             Self::TemporalAvailabilityContractUnavailable => {
                 "temporal_availability_contract_unavailable"
             }
-            Self::TemporalAvailabilityContractConflict => "temporal_availability_contract_conflict",
             Self::TemporalAvailabilityAssertionMismatch => {
                 "temporal_availability_assertion_mismatch"
             }
@@ -249,12 +221,8 @@ impl TemporalCauseCode {
             Self::TemporalNativeResultContractUnavailable => {
                 "temporal_native_result_contract_unavailable"
             }
-            Self::TemporalNativeResultContractConflict => {
-                "temporal_native_result_contract_conflict"
-            }
             Self::TemporalTlResultContractUnsupported => "temporal_tl_result_contract_unsupported",
             Self::TemporalTlResultContractUnavailable => "temporal_tl_result_contract_unavailable",
-            Self::TemporalTlResultContractConflict => "temporal_tl_result_contract_conflict",
             Self::TemporalNativeResultUnavailable => "temporal_native_result_unavailable",
             Self::TemporalTlResultUnavailable => "temporal_tl_result_unavailable",
             Self::TemporalNativeResultIncomplete => "temporal_native_result_incomplete",
@@ -271,7 +239,6 @@ impl TemporalCauseCode {
             Self::TemporalResultIdentityConflict => "temporal_result_identity_conflict",
             Self::TemporalProgressContractUnsupported => "temporal_progress_contract_unsupported",
             Self::TemporalProgressContractUnavailable => "temporal_progress_contract_unavailable",
-            Self::TemporalProgressContractConflict => "temporal_progress_contract_conflict",
             Self::TemporalProgressMismatch => "temporal_progress_mismatch",
             Self::TemporalClosureMismatch => "temporal_closure_mismatch",
             Self::TemporalResultClosureDisagreement => "temporal_result_closure_disagreement",
@@ -284,7 +251,6 @@ impl TemporalCauseCode {
             Self::TemporalCompletenessContractUnavailable => {
                 "temporal_completeness_contract_unavailable"
             }
-            Self::TemporalCompletenessContractConflict => "temporal_completeness_contract_conflict",
             Self::TemporalCompletenessMismatch => "temporal_completeness_mismatch",
             Self::TemporalSupersessionInvalid => "temporal_supersession_invalid",
             Self::TemporalProjectionResourceExhausted => "temporal_projection_resource_exhausted",
