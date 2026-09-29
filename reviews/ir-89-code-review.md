@@ -79,3 +79,22 @@ quadratic duplicate check.
 | FND-002 | medium | `reject_repeat` is O(n²) over one frame member. The work meter does not charge it (one unit per entry). It runs twice per frame, in the per-node loop and again in the frame step's re-parse. It replaces the old `BTreeSet` O(n log n) check. Measured in release: 2000, 4000 and 8000 `deletes` entries took 33, 96 and 344 ms. At `bounded()` 1 MiB this is about 0.1 s; with a caller-raised `bytes` limit it grows quadratically. | crates/quire-contract-model/src/checked_package/v2/frame.rs:150-162; crates/quire-contract-model/src/checked_package/v2/frame.rs:346-351 |
 | FND-003 | low | The new test `operation_defect_refuses_a_reference_edge_operation` was inserted under the doc comment of the admit control test. The reference-edge test now carries the control test's description, and `operation_defect_admits_catalogued_identity_used_correctly` has lost its doc. | crates/quire-contract-model/src/checked_package/v2/operations.rs:2055-2065 |
 | FND-004 | low | The frame step re-parses each frame body with `read_frame_body` instead of carrying the typed entries from the per-node loop. `join` is duplicated almost verbatim in `frame.rs` and `state.rs`. The code is correct but costs a second parse (see FND-002) and keeps two copies of one rule. | crates/quire-contract-model/src/checked_package/v2/frame.rs:346-351; crates/quire-contract-model/src/checked_package/v2/frame.rs:451-466; crates/quire-contract-model/src/checked_package/v2/state.rs:188-203 |
+
+## Dispositions
+
+Round 1, reviewed at `1d89455fc04ddfb60cd2ac932886f1b223cd3688` (rebased on origin/main `a38f3db`).
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 1d89455 |
+| FND-002 | fixed | 1d89455 |
+| FND-003 | fixed | 1d89455 |
+| FND-004 | fixed | 1d89455 |
+
+## New findings (disposition pass 2)
+
+Round 2, reviewed at `995bd4bec7fe526c7891f728044fec4c2e7d469e`. No reader (non-test) code changed since `1d89455`, so FND-001 to FND-004 stay fixed.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | A comment still says "QSpec's published `frame_mutations` are replayed by TC-056", but that replay was deleted in `4ee698d`. | tests/it/checked_package_v2_frame_bodies.rs:68-69 |

@@ -65,9 +65,6 @@ fn frame_index(package: &Value) -> usize {
         .expect("base fixture carries exactly one frame node")
 }
 
-// QSpec's published `frame_mutations` are replayed by TC-056
-// (`checked_package_v2_frame_entries.rs`).
-
 /// The `v2_all_families()` frame node already exercises `object_type` in
 /// `creates` and `process` in `deletes`; this
 /// covers the remaining two — `process` in `creates` and `object_type` in
