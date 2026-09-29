@@ -4,18 +4,17 @@ use ix_trace_rs::trace;
 use quire_contract_ir::{
     assemble_output_package, map_admitted_request, map_admitted_request_controlled,
     AdmittedMappingObligation, AdmittedMappingRequest, BoundPackage, ClauseId, ClauseRef,
-    DiagnosticCode, MappingAllocationPoint, MappingCancellation,
-    MappingCancellationToken, MappingCandidate, MappingCause, MappingCondition,
-    MappingDependencyKind, MappingDependencyRef, MappingDisposition, MappingExecutionControl,
-    MappingLimits, MappingRequestError, MappingRequestErrorCode, MappingRuleDigest,
-    MappingWorkBudget, ModelSourceSelection, NativeSourceSelection, ObservationAdequacyRef,
-    ObservationAdequacyState, ObserverBytesDigest, ObserverDependencySetDigest,
-    ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion, OutputCapability,
-    OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId, ProtocolAdequacyRef,
-    ProtocolAdequacyState, RequestedMappingObligation, RequirementId, RequirementRef,
-    RequirementRevision, SemanticSourceSelection, SourceBytesDigest, SourceFactState,
-    StructuralObservationOutcome, StructuralObservationRef, StructuralObserverIdentity,
-    TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
+    DiagnosticCode, MappingAllocationPoint, MappingCancellation, MappingCancellationToken,
+    MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
+    MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
+    MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
+    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverBytesDigest,
+    ObserverDependencySetDigest, ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion,
+    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
+    ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
+    RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
+    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
+    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -1449,12 +1448,18 @@ fn mapped(package: &BoundPackage, limits: MappingLimits) -> quire_contract_ir::C
 fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
     let package = bound_package();
     let mapped = mapped(&package, limits());
-    let generated =
-        assemble_output_package(&mapped, generator("0.1.0"), &MappingExecutionControl::active())
-            .expect("generated output package");
-    let replay =
-        assemble_output_package(&mapped, generator("0.1.0"), &MappingExecutionControl::active())
-            .expect("replayed output package");
+    let generated = assemble_output_package(
+        &mapped,
+        generator("0.1.0"),
+        &MappingExecutionControl::active(),
+    )
+    .expect("generated output package");
+    let replay = assemble_output_package(
+        &mapped,
+        generator("0.1.0"),
+        &MappingExecutionControl::active(),
+    )
+    .expect("replayed output package");
 
     assert_eq!(generated, replay);
     assert_eq!(generated.target_bytes(), b"-- a_assert\n-- b_case\n");
@@ -1512,9 +1517,12 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
         let mut mapper = DeterministicMapper::new(profile.clone());
         let mapped = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
             .expect("target-neutral mapper coordination");
-        let generated =
-            assemble_output_package(&mapped, generator("0.1.0"), &MappingExecutionControl::active())
-                .expect("target-neutral package assembly");
+        let generated = assemble_output_package(
+            &mapped,
+            generator("0.1.0"),
+            &MappingExecutionControl::active(),
+        )
+        .expect("target-neutral package assembly");
         assert_eq!(generated.target_profile(), &profile);
     }
 }
@@ -1646,7 +1654,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
         assert_eq!(
             OutputGeneratorIdentity::new("agent-ix/quire-contract-ir", invalid_version)
                 .expect_err("invalid generator semantic version accepted")
-            .code(),
+                .code(),
             MappingRequestErrorCode::InvalidGenerator
         );
     }
@@ -1771,9 +1779,12 @@ fn observer() -> StructuralObserverIdentity {
 fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let package = bound_package();
     let mapped = mapped(&package, limits());
-    let generated =
-        assemble_output_package(&mapped, generator("0.1.0"), &MappingExecutionControl::active())
-            .expect("generated package");
+    let generated = assemble_output_package(
+        &mapped,
+        generator("0.1.0"),
+        &MappingExecutionControl::active(),
+    )
+    .expect("generated package");
     let package_id = generated.package_id();
     let bytes = generated.target_bytes().to_vec();
     let records = generated.records().to_vec();

@@ -9,4 +9,3 @@
 //! every test module declared in `tests/it/main.rs`.
 
 pub mod checked_package;
-pub mod v2_handoff;
