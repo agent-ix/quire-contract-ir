@@ -105,18 +105,6 @@ raw_digest_type!(
     "Raw SHA-256 digest of immutable generated target bytes."
 );
 raw_digest_type!(
-    ObserverBytesDigest,
-    "Raw SHA-256 digest of an optional structural observer executable."
-);
-raw_digest_type!(
-    ObserverInvocationDigest,
-    "Raw SHA-256 digest of an optional structural observer invocation."
-);
-raw_digest_type!(
-    ObserverDependencySetDigest,
-    "Raw SHA-256 digest of an optional observer dependency closure."
-);
-raw_digest_type!(
     ObserverResultDigest,
     "Raw SHA-256 digest of exact structural observer result bytes."
 );
@@ -2065,24 +2053,16 @@ pub struct StructuralObserverIdentity {
     tool: Box<str>,
     version: Box<str>,
     revision: Box<str>,
-    executable_digest: ObserverBytesDigest,
-    invocation_digest: ObserverInvocationDigest,
-    dependency_set_digest: ObserverDependencySetDigest,
     license: Box<str>,
 }
 
 impl StructuralObserverIdentity {
     /// Construct a complete bounded observer identity.
-    // NFR-061 requires all eight provenance/rights axes as one indivisible selection.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner: impl Into<String>,
         tool: impl Into<String>,
         version: impl Into<String>,
         revision: impl Into<String>,
-        executable_digest: ObserverBytesDigest,
-        invocation_digest: ObserverInvocationDigest,
-        dependency_set_digest: ObserverDependencySetDigest,
         license: impl Into<String>,
     ) -> Result<Self, MappingRequestError> {
         let owner = owner.into();
@@ -2111,9 +2091,6 @@ impl StructuralObserverIdentity {
             tool: tool.into_boxed_str(),
             version: version.into_boxed_str(),
             revision: revision.into_boxed_str(),
-            executable_digest,
-            invocation_digest,
-            dependency_set_digest,
             license: license.into_boxed_str(),
         })
     }
@@ -2136,21 +2113,6 @@ impl StructuralObserverIdentity {
     /// Exact immutable observer revision.
     pub fn revision(&self) -> &str {
         &self.revision
-    }
-
-    /// Raw digest of observer executable bytes.
-    pub const fn executable_digest(&self) -> ObserverBytesDigest {
-        self.executable_digest
-    }
-
-    /// Raw digest of the exact observer invocation.
-    pub const fn invocation_digest(&self) -> ObserverInvocationDigest {
-        self.invocation_digest
-    }
-
-    /// Raw digest of the observer dependency closure.
-    pub const fn dependency_set_digest(&self) -> ObserverDependencySetDigest {
-        self.dependency_set_digest
     }
 
     /// Exact observer license or rights declaration.

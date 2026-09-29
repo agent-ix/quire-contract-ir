@@ -8,13 +8,13 @@ use quire_contract_ir::{
     MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
     MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
     MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
-    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverBytesDigest,
-    ObserverDependencySetDigest, ObserverInvocationDigest, ObserverResultDigest, OutputByteRegion,
-    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
-    ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
-    RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
-    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
-    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
+    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverResultDigest,
+    OutputByteRegion, OutputCapability, OutputGeneratorIdentity, OutputMapper,
+    OutputMappingProfile, PackageId, ProtocolAdequacyRef, ProtocolAdequacyState,
+    RequestedMappingObligation, RequirementId, RequirementRef, RequirementRevision,
+    SemanticSourceSelection, SourceBytesDigest, SourceFactState, StructuralObservationOutcome,
+    StructuralObservationRef, StructuralObserverIdentity, TargetBytesDigest,
+    EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -1765,9 +1765,6 @@ fn observer() -> StructuralObserverIdentity {
         "example-parser",
         "1.0.0",
         "rev-observer",
-        ObserverBytesDigest::from_bytes(digest(22)),
-        ObserverInvocationDigest::from_bytes(digest(23)),
-        ObserverDependencySetDigest::from_bytes(digest(24)),
         "Apache-2.0",
     )
     .expect("qualified observer")
@@ -1801,9 +1798,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
             "example-parser",
             "2.0.0",
             "rev-observer-new",
-            ObserverBytesDigest::from_bytes(digest(26)),
-            ObserverInvocationDigest::from_bytes(digest(27)),
-            ObserverDependencySetDigest::from_bytes(digest(28)),
             "proprietary-observation-rights",
         )
         .expect("changed observer identity"),
@@ -1815,18 +1809,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     assert_eq!(accepted.observer().tool(), "example-parser");
     assert_eq!(accepted.observer().version(), "1.0.0");
     assert_eq!(accepted.observer().revision(), "rev-observer");
-    assert_eq!(
-        accepted.observer().executable_digest(),
-        ObserverBytesDigest::from_bytes(digest(22))
-    );
-    assert_eq!(
-        accepted.observer().invocation_digest(),
-        ObserverInvocationDigest::from_bytes(digest(23))
-    );
-    assert_eq!(
-        accepted.observer().dependency_set_digest(),
-        ObserverDependencySetDigest::from_bytes(digest(24))
-    );
     assert_eq!(accepted.observer().license(), "Apache-2.0");
     assert_eq!(
         accepted.result_digest(),
