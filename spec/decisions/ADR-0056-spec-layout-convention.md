@@ -249,11 +249,14 @@ request of its own, and it passes every check below before it merges.
    - Only a collision renumbering records two different, non-`-` IDs.
    - Every file whose path changed has exactly one row, and every row's
      `new_path` exists at the head.
+   - A map already on the default branch records an earlier move. Later
+     changes do not update it, and its paths are not checked against the tree.
 4. **ID-set equality.** Take the spec-artifact frontmatter IDs at the merge
    base, replace each `old_id` by its `new_id` for every map row where both are
    IDs, and add every `new_id` whose `old_id` is `-`: the result is identical
    to the set at the head. The set of live `TC` IDs declared across all
-   matrices is identical before and after, and each is declared exactly once.
+   matrices, with the map's `TC` renumberings applied, is identical before and
+   after, and each is declared exactly once.
 5. **No meaning change.** Moves are Git renames. In a moved requirement,
    standard or test case file, every changed line differs from its original
    only inside Markdown link targets `](...)`. A file whose bytes code digests

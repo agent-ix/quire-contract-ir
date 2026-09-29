@@ -93,8 +93,11 @@ corpus-repro:
 	$(CARGO) build --locked --quiet --bin quire-contract-conformance
 	$(PYTHON) scripts/generate_conformance_corpus.py --check
 
+# The artifact-ID and relocation-map check (FR-345) runs first. Set SPEC_BASE to
+# the merge base to check a change that adds a relocation map.
 .PHONY: spec
 spec:
+	SPEC_BASE="$(SPEC_BASE)" $(PYTHON) scripts/check_artifact_ids.py
 	$(QUIRE) validate --scope . 'spec/**/*.md' 'plan/**/*.md' 'reviews/**/*.md' --summary
 	$(QUIRE) coverage --scope . --strict
 	$(PYTHON) scripts/validate_matrix_status.py

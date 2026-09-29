@@ -23,7 +23,7 @@ relationships:
 | FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
 | FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | ✅ covered |
 | FR-022 | FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
-| FR-345 | FR-345-AC-1 through FR-345-AC-6 | TC-224 | 🚧 planned; the repository-local ID and relocation-map check is not built and `make spec` does not run it. |
+| FR-345 | FR-345-AC-1 through FR-345-AC-6 | TC-224 | ✅ covered |
 
 ## Stakeholder Requirement Coverage
 
@@ -63,4 +63,4 @@ substrate's own non-functional requirements are covered by TM-002; see
 | TC-031 | Quire's static export is retained by digest and no shared component executes a producer | Integration | P0 | FR-022 | ✅ implemented |
 | TC-033 | Every demonstrated result state has a named demonstrator, none collapses into another, and a lost state stays declared lost | Integration | P0 | FR-022 | ✅ implemented |
 | TC-034 | Weakening a load-bearing shared-assurance check turns its gate red | Integration | P0 | FR-022 | ✅ implemented |
-| TC-224 | The repository-local ID and relocation-map check fails on each seeded defect, names the file and line, and passes a clean tree | Integration | P0 | FR-345 | 🚧 planned |
+| TC-224 | The repository-local ID and relocation-map check fails on each seeded defect, names the file and line, and passes a clean tree | Integration | P0 | FR-345 | ✅ implemented |
