@@ -1,30 +1,55 @@
 ---
 id: FR-031
-title: "Dispatch bounded Kani modules with replayable provenance"
+title: "Dispatch bounded Kani modules with provenance and map outcomes to QSL terminal records"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-029
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-030
     type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/AD-001
+    type: references
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
   - target: ix://agent-ix/quire-specification/FR-331
     type: references
+  - target: ix://agent-ix/quire-spec-language/ADR-011
+    type: references
+  - target: ix://agent-ix/quire-spec-language/ADR-013
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-069
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-070
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-098
+    type: references
 ---
-# FR-031: Dispatch bounded Kani modules with replayable provenance
+# FR-031: Dispatch bounded Kani modules with provenance and map outcomes to QSL terminal records
 
 ## Description
 
-The bounded-Kani boundary shall dispatch semantic families modularly, preserve artifact identity through oracle/strategy/harness generation, and replay each concrete counterexample through the QSL complete-V1 executor entry `value::expression::CheckedPackage::call`.
+The bounded-Kani boundary shall dispatch semantic families modularly, preserve
+artifact identity through oracle/strategy/harness generation, and map each
+Kani outcome whose target is decided to one QSL `qsl_replay::TerminalValue`.
+Two outcome groups have no decided target and map to none (see Behavior). Replay of a
+counterexample is not a Contract IR operation: the counterexample envelope,
+the witness, the replay source, the FR-331 terminal record and the obligation
+identity are QSL's `qsl-replay` types, and replay runs through the QSL layer-6
+facade `qsl_replay::replay` (QSL ADR-011 E9, ADR-013 TK-01), which the codegen
+replay adapter calls.
 
 ## Inputs
 
-A validated bounded execution input, selected profile/capability matrix, and selected native runtime and model identities.
+A validated bounded execution input (FR-030), the selected `kani-bounded/1`
+profile and capability matrix (FR-029), and the checked-clause and model
+identities the generated artifacts bind.
 
 ## Outputs
 
-A complete typed result with provenance, or a complete counterexample packet that the QSL complete-V1 executor entry `value::expression::CheckedPackage::call` can consume without Kani.
+A typed `KaniOutcome` with its provenance, and, for an outcome whose target
+is decided, the one `qsl_replay::TerminalValue` it records.
 
 ## Behavior
 
@@ -32,9 +57,35 @@ The dispatch index is the only cross-module vocabulary and routing authority. It
 
 Oracle, strategy, lowering, and harness generators are explicit interfaces with content identities. Their generated artifacts bind the checked-clause identity, profile selection, complete input identity, module identities, Kani executable digest/options, declared assumptions, and proof dependencies. Any change in a bound, assumption, selected module, tool/options digest, source/model/snapshot identity, or generator bytes changes the artifact identity.
 
-A `counterexample` serializes exact ABI/profile identities, concrete finite population/snapshots/invocation, selected bounds, strategy seed where used, evaluated witness, and provenance; the packet is Contract IR's. Deserialization validates the same input ABI before replay. The codegen replay adapter reconstructs the packet's input and invokes the QSL complete-V1 executor entry `value::expression::CheckedPackage::call`, which must reproduce the counterexample's outcome and relevant witness; identity mismatch, invalid reconstruction, unavailable executor, or disagreement is a typed non-success result, not a repaired replay. A `proved` result does not serialize a counterexample.
+The bounded-Kani boundary shall map Kani outcomes to QSL `TerminalValue`s
+as follows, following QSL ADR-013 O-16's proof column and QSpec FR-331:
 
-Each Kani outcome kind records exactly one QSpec FR-331 terminal result, through one exhaustive map Contract IR owns (QSL ADR-013 O-16 proof column, C-09): `Proved` records `proved`; `Counterexample` records `refuted`; `Refused`, `InvalidInput` and `IncompleteInput` record `declined`; `Unavailable` records `unsupported`; `TimedOut`, `ResourceExhausted` and `Cancelled` record `incomplete`; and `Inconclusive` records `inconclusive`. An outcome's terminal record pairs that result with the outcome's typed cause code, unchanged, so kinds that share a result stay distinguishable. The map reads the kind alone: O-16's condition that `proved` needs at least one SUCCESS check holds for outcomes built from a check count, where a zero-check proof is already `Inconclusive` with cause `kani_vacuous_proof` before the map runs. No kind records `tested` or `failed`.
+| Outcome | `TerminalValue` |
+| --- | --- |
+| `Proved`, carrying its SUCCESS check count `n` (at least one, FR-030) | `Proved { success_checks: n }` |
+| `Inconclusive` with cause `kani_vacuous_proof` (a proof with zero SUCCESS checks, FR-030) | `Proved { success_checks: 0 }` |
+| `Counterexample` | `Refuted` |
+| `Refused`, `InvalidInput`, `IncompleteInput` | `Declined` with `ProofRefusalCause::Refused`, `InvalidInput`, `IncompleteInput` |
+| `TimedOut`, `ResourceExhausted`, `Cancelled` | `Incomplete` with `IncompleteCause::TimedOut`, `ResourceExhausted`, `Cancelled` |
+
+QSL reads `Proved { success_checks: 0 }` as category `inconclusive` with cause
+`KaniVacuousProof`, which is the vacuity record FR-331 requires; a
+zero-check run therefore reaches that value through FR-030's
+`kani_vacuous_proof` classification and never through the `Proved` kind. No
+outcome maps to `Tested` or `Failed`.
+
+`Unavailable`, and `Inconclusive` with any cause other than
+`kani_vacuous_proof`, have no `TerminalValue` target: their targets are the
+open question OQ-3 in
+[AD-001](../assurance/AD-001-contract-ir-architecture.md) "Open questions".
+For those outcomes the map shall return a typed absence of a terminal value
+and shall never substitute another value. The map is therefore defined on
+the outcomes in the table above and is not total over `KaniOutcome`.
+
+Contract IR defines no counterexample packet, witness, replay source, replay
+agreement or terminal-record type of its own, parses no Kani transcript text,
+and invokes no QSL executor. The Kani transcript parser is the codegen
+backend adapter's.
 
 ## Acceptance Criteria
 
@@ -42,48 +93,47 @@ Each Kani outcome kind records exactly one QSpec FR-331 terminal result, through
 | --- | --- | --- |
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
 | FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
-| FR-031-AC-3 | Every serialized counterexample either reproduces through the QSL complete-V1 executor entry `value::expression::CheckedPackage::call` with the same outcome/witness or returns a typed non-success disagreement; proof, refusal, and inconclusive results never masquerade as replayed counterexamples. | Test (TC-054) |
-| FR-031-AC-4 | An evaluated witness is parsed from a backend transcript and carries the concrete values that transcript recorded, untyped; it is typed only against a schema the generator declared, and a disagreement between the two — in arity, in byte width, or with the backend's own decoded value — is a typed refusal naming its cause, never an inferred value. A transcript that witnesses reachability or a bound rather than falsity is refused as a counterexample witness. | Test (TC-221) |
-| FR-031-AC-5 | Each of the ten Kani outcome kinds maps to exactly the one FR-331 terminal result the O-16 proof column gives it (`proved`, `refuted`, `declined` ×3, `unsupported`, `incomplete` ×3, `inconclusive`), through one exhaustive map; each outcome's record keeps its cause code, so the three `declined` kinds stay distinguishable; a zero-check proof built from its check count records `inconclusive`; and no kind records `tested` or `failed`. | Test (TC-223) |
+| FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to `Proved { success_checks: 0 }`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s and the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s; `Unavailable` and a non-vacuous `Inconclusive` return a typed absence and no value; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
+
+### Retired criteria
+
+`FR-031-AC-3` required every serialized counterexample to reproduce through a
+QSL executor entry with the same outcome and witness. Replay is not a Contract
+IR operation: the envelope and replay source are QSL's, and the crossing runs
+from the codegen replay adapter through `qsl_replay::replay` (QSL FR-098). Its
+test belongs to those owners, so TC-054 is withdrawn from this repository.
+
+`FR-031-AC-4` required an evaluated witness to be parsed from a backend
+transcript and typed against a generator-declared schema. `Witness` is QSL's
+`qsl_replay::Witness` (QSL FR-070) and the transcript parser is the codegen
+backend adapter's, so Contract IR carries neither. TC-221 is withdrawn; its
+tests remain in `tests/it/kani_replay.rs` until `src/kani/witness.rs` is
+deleted with them.
 
 ## Dependencies
 
-FR-029 selects module and artifact ABI versions. FR-030 defines validated inputs and typed non-Boolean outcomes.
+[FR-029](./FR-029-versioned-bounded-kani-profile.md) selects module and
+artifact ABI versions. [FR-030](./FR-030-bounded-kani-domain-and-outcomes.md)
+defines validated inputs and typed non-Boolean outcomes. QSL `qsl-replay`
+owns `TerminalValue`, `TerminalRecord`, `Witness`, `ReplaySource`,
+`WitnessEnvelope`, `ObligationIdentity` and `replay` (QSL FR-069, FR-070,
+FR-098). [FR-039](../interface/FR-039-root-crate-public-interface.md) states
+the root crate's public surface after those types leave it.
 
 ## Status
 
-AC-1 and AC-2 are implemented through Contract IR PRs #88 through #92 and
-qualified against the cycle-free integrated codegen corpus from codegen PR #47
-at `73c82ad`. The dispatch index routes the three families through distinct
+AC-1 and AC-2 are implemented and qualified against the integrated codegen
+corpus. The dispatch index routes the three families through distinct
 modules, refusing an unowned construct and a duplicate module owner; it does
-not itself prove that a module cannot approximate another family's structural
-equality, collection-set, or bounded graph search semantics.
-`GeneratorProvenance` and `ArtifactIdentity` (`src/kani/provenance.rs`) exist
-and are identity-sensitive — the one test tagged AC-2 mutates a single
-assumption and confirms the resulting digest changes — but no generator emits
-one: `ArithmeticLowering` and the object/collection lowerings carry no
-provenance field. That evidence is not a general proof-engine or release
-claim.
+not itself prove that a module cannot approximate another family's
+structural equality, collection-set, or bounded graph search semantics.
+`GeneratorProvenance` and `ArtifactIdentity` (`src/kani/provenance.rs`) are
+identity-sensitive, and the test tagged AC-2 mutates a single assumption and
+confirms the digest changes; no generator yet emits one, because
+`ArithmeticLowering` and the object/collection lowerings carry no provenance
+field. That evidence is not a general proof-engine or release claim.
 
-AC-3, the crossing behaviour, has its own row as TC-054, discharged by the QSL
-crossing test at `agent-ix/quire-spec-language#243` (the layer-6 `replay`
-facade, AD-016 arrows 6 and 7), which has not started; issue #137 records why
-the present case cannot establish it. The codegen producer
-still sets the packet's `source` field to `ReplaySource::Witness` carrying the
-artifact's own content digest before Kani runs, and the test
-`tc_042_counterexample_replays_through_native_runtime_execute` passes
-`reconstruct` as `|_|`, discarding the packet and returning a constant input
-whose truth the test asserts two lines earlier. Native `runtime::execute` is
-therefore reached with an input no counterexample determined. Lowering,
-emission, compilation, `cargo kani` execution and transcript classification are
-built and gated; reconstruction and executor agreement are not. Per AD-016 the
-counterexample packet is `src/kani/replay.rs`'s and the executor call is the
-codegen replay adapter's, pending WP9 (issue #140); today `src/kani/replay.rs`
-also carries `replay_with_native_runtime`, which invokes the executor itself.
-
-AC-4, the witness vocabulary, is implemented by IR #139 and verified by
-TC-221.
-
-AC-5, the proof-result map, is implemented as
-`KaniOutcomeKind::provider_result` and `KaniOutcome::provider_record`, and
-verified by TC-223.
+AC-5 is planned against QSL's `TerminalValue`. Today
+`KaniOutcomeKind::provider_result` maps to this crate's own
+`KaniProviderResult`, which TC-223 verifies; that type and
+`KaniProviderRecord` are removed when the map targets `TerminalValue`.

@@ -3,6 +3,8 @@ id: FR-029
 title: "Select a versioned bounded Kani capability profile"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-015
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/ADR-0053

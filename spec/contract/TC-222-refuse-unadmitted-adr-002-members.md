@@ -33,7 +33,8 @@ baseline vector), construct one mutated document per case:
    `"abstract_flag"`), chosen to mimic a producer attempting to carry the
    abstractness flag as a new form of an existing tag.
 3. A node whose `node_tag` is `"model"`, `semantic_form` is
-   `"field_declaration"` (an existing admitted form), and whose JSON object
+   `"object_type"` (an admitted form, and the node that declares a field),
+   and whose JSON object
    carries an extra top-level member (`subsets` or `redefines`) alongside
    the closed node shape, chosen to mimic a producer attempting to carry a
    subsets or redefines edge as a new struct member rather than a new tag

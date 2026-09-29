@@ -17,7 +17,7 @@ through the admitted V2 package API.
 
 ## Test Procedure
 
-Lower every node of the vendored all-families and nominal fixtures under a
+Lower every node of the in-repo all-families and nominal fixtures under a
 profile supporting every tag. Lower a mixed request holding a supported node,
 an absent key, a node reaching an unsupported tag, an unbounded integer type
 under a bounds-required profile, the same type with a bounding domain, and a

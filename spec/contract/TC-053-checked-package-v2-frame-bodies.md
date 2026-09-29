@@ -10,45 +10,44 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-12 through FR-038-AC-15: the closed frame-body entry
-eligibility table, the `missing_declaration`/`invalid_model_binding` refusal
-split and its cause, the meaning-join-over-order and member-then-digest
+Verify FR-038-AC-12 through FR-038-AC-15: the closed `creates`/`deletes`
+entry eligibility, the `missing_declaration`/`invalid_model_binding` refusal
+split and its cause, the meaning-join-over-order and member-then-order-key
 refusal precedence, and the ascending-node-id-digest visit order across
-multiple frame nodes.
+multiple frame nodes. The `modifies` entry shape, its eligibility and QSpec's
+published `frame_mutations` vectors are FR-040's and TC-056's.
 
 ## Test Procedure
 
-Enumerate every `(member, tag, form)` triple the closed `CheckedNodeTag::ALL`
-family/form taxonomy can produce and assert each against the frame member's
-own eligibility predicate, so the six eligible triples and every other triple
-are both checked, not sampled. Reassign the published all-families fixture's
-frame body so its two already-declared `object_type` and `process`
-dependencies sit in `creates` and `deletes` respectively (the two eligible
-triples the fixture's own body does not already exercise) and read the
-package. Replay every published `frame_mutations`
-vector — substituting its `dependencies`, `modifies`, `creates` and `deletes`
-into the fixture's one frame node in place, splicing in a `second_frame`
-node verbatim where the vector carries one — asserting the refused code,
-cause and locus digest for each, and that the number of vectors replayed
-equals the number published.
-
-**Blocked.** The all-families package and the `frame_mutations` vectors this
-method reads were copies of private upstream content and were deleted; the
-steps above are the intended method, not a method that runs today. The
-replacement inputs are open work on agent-ix/quire-contract-ir#166.
+Enumerate every `(member, tag, form)` triple the closed `CheckedNodeKind`
+taxonomy can produce and assert each against the frame member's own
+eligibility predicate, so that for `creates` and `deletes` the four eligible
+triples (`model`/`object_type` and `model`/`process` in each) and every other
+triple are checked, not sampled. Using the in-repo `v2_all_families()`
+fixture built from this crate's own public vocabulary, reassign its frame
+body so its declared `object_type` and `process` dependencies sit in
+`creates` and `deletes` respectively and read the package. Then read one
+locally authored package per rule: an entry naming a digest outside the
+frame's own `dependencies`, once for a real node elsewhere in the graph and
+once for no node at all; a frame carrying a meaning-join defect beside a
+canonical-order defect; and two defective frames.
 
 ## Expected Results
 
-The eligibility check admits exactly the six declared triples and refuses
-every other triple; the published fixture, with `process` in `creates` and
-`object_type` in `deletes`, still admits. Each published vector refuses with
-its recorded code, cause and locus: an ineligible declared entry as
-`invalid_model_binding`/`malformed-declaration`; an entry naming no declared
-dependency, whether or not that digest resolves to a real node elsewhere, as
-`missing_declaration`/`missing-name`; a member array out of ascending digest
-order, with no meaning-join defect present, as `invalid_semantic_graph` with
-no cause, located at the frame node; two meaning-join defects in different
-members resolve by member order regardless of digest, and two in the same
-member resolve by ascending digest; and the vector carrying two defective
-frame nodes refuses at the lower-digest node's own defect, never reaching or
-comparing the other frame's. All 26 published vectors are replayed.
+The eligibility check admits exactly the four `creates`/`deletes` triples and
+refuses every other `creates`/`deletes` triple; the fixture, with `process` in
+`creates` and `object_type` in `deletes`, admits. An entry naming no declared
+dependency, whether or not the digest resolves to a node elsewhere, refuses as
+`missing_declaration`/`missing-name` at that entry; the meaning-join defect is
+reported over the co-occurring order defect; and the lower node-id frame's own
+defect is reported over the higher one's.
+
+## Status
+
+Implemented in `tests/it/checked_package_v2_frame_bodies.rs` and in the
+eligibility enumeration test in
+`crates/quire-contract-model/src/checked_package/v2/mod.rs`, one
+representative authored case per rule. That enumeration still asserts the
+two `modifies` triples FR-040 replaces (`relation`/`relationship` and
+`model`/`field_declaration` as bare node keys); those assertions move to
+TC-056 when the reader adopts FR-040.

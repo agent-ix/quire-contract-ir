@@ -7,13 +7,16 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-specification/TC-217
     type: references
+  - target: ix://agent-ix/quire-contract-ir/TC-057
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader re-derives package and nominal identities
 
 ## Description
 
 Verify FR-038-AC-1 through FR-038-AC-5 (QSpec FR-322-AC-4, FR-322-AC-8,
-FR-322-AC-10) against the vendored V2 fixtures and node-identity vectors, and
+FR-322-AC-10) against the V2 package fixtures this repository builds from its
+own public vocabulary (`tests/it/support/checked_package.rs`), and
 FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
@@ -21,7 +24,7 @@ FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 against the reader's and the bounded-Kani modules' own source, and
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it. QSpec's
-own TC-280, TC-281, `dependency-selection-vectors.json` and `function-call`
+own quire-specification:TC-280 and quire-specification:TC-281, `dependency-selection-vectors.json` and `function-call`
 node-identity vectors run through the same reader under
 `make qspec-vectors`, which reads them from the checkout `QSPEC_DIR` names.
 
@@ -29,16 +32,16 @@ node-identity vectors run through the same reader under
 
 Dispatch an unknown, empty, absent and malformed `contract_version`, and
 independently a malformed document, a duplicate top-level member and
-noncanonical bytes, before any version is selected. Admit both vendored V2
-positive fixtures. Apply every vendored adverse
+noncanonical bytes, before any version is selected. Admit each in-repo
+positive V2 fixture. Apply each authored adverse
 structural mutation and compare the outcome. Independently inject malformed
 JSON, a duplicate member, an unknown member, noncanonical bytes, an absent or
 mismatched context digest, an unreported or unsupported required feature, a
 dangling reference and an incomplete source map. Admit at exact byte, depth, node,
 edge, occurrence, diagnostic and work limits, then lower each limit by one.
 Recompute every fixture's package id, edit excluded and included preimage
-members, and re-read. Re-derive each node-identity vector digest; build one
-package holding every vector node; apply every vendored invalid mutation with
+members, and re-read. Re-derive each in-repo nominal preimage's digest; apply
+each authored invalid nominal mutation with
 the retained digest, remove or swap a preimage, and change a retained
 preimage's enum case, `semantic_type`, dependency and unit target while
 mirroring the identity projection and package id. Re-own the nominal enum
@@ -56,10 +59,9 @@ duplicate or noncanonical top-level member refuses as `malformed_wire`,
 `duplicate_member` or `noncanonical_wire` before any version-specific
 decoding. Positive fixtures admit with their recorded package ids. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
-package. Excluded edits keep the id and included edits change it. Every vector
-digest matches; every nominal mutation and contradictory cross-field join
-refuses as `invalid_semantic_graph`. The model-owned package validates
-against the vendored schema and admits; each model join mismatch refuses as
+package. Excluded edits keep the id and included edits change it. Every nominal
+preimage digest matches its node key; every nominal mutation and contradictory cross-field join
+refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
 `authority`, `revision` or `export` as `unknown_member`, a foreign digest
 domain as `digest_domain_mismatch`, an absent or raw-only domain package

@@ -1,38 +1,52 @@
 ---
 id: TC-223
-title: "Every Kani outcome kind maps to its one FR-331 terminal result"
+title: "Kani outcomes with a decided target map to their QSL terminal value, and the rest to a typed absence"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-031
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-030
+    type: verifies
+  - target: ix://agent-ix/quire-spec-language/FR-069
+    type: references
 ---
-# TC-223: Every Kani outcome kind maps to its one FR-331 terminal result
+# TC-223: Kani outcomes with a decided target map to their QSL terminal value, and the rest to a typed absence
 
 ## Description
 
-Verify FR-031-AC-5: the Kani outcome kind to QSpec FR-331 terminal result map
-that QSL ADR-013's O-16 proof column fixes and C-09 assigns to Contract IR.
+Verify FR-031-AC-5 and FR-030-AC-4: the map from each Kani outcome whose
+target is decided to the one `qsl_replay::TerminalValue` that QSL ADR-013's
+O-16 proof column and QSpec FR-331 give it, the typed absence for the
+outcomes AD-001's OQ-3 leaves undecided, and the SUCCESS check count a
+`proved` outcome carries. The terminal value is QSL's type; the map is
+Contract IR's.
 
 ## Test Procedure
 
-For every `KaniOutcomeKind`, compare `provider_result()` with its row of the
-O-16 proof column, written in the test as an exhaustive `match` with no
-wildcard, and compare the result's serialized form with the FR-331 wire value.
-Build one outcome of each refusal kind with a distinct cause and read each
-`provider_record()`. Build a zero-check proof through
-`KaniOutcome::proved_from_checks(0, ..)` and read its record.
+Build, through FR-030's classification, a proof from a check count of three
+and from a count of zero, and read each outcome's kind, cause, count and
+Boolean claim. Map every outcome in FR-031's table and compare each value with
+its row, written in the test as an exhaustive `match` over `KaniOutcomeKind`
+with no wildcard. Build one outcome of each refusal kind and each limit kind
+and read each mapped value's cause. Map an `Unavailable` outcome and an
+`Inconclusive` outcome with a cause other than `kani_vacuous_proof`. Read each
+mapped value's `category()` through QSL.
 
 ## Expected Results
 
-`Proved` maps to `proved`, `Counterexample` to `refuted`, `Refused`,
-`InvalidInput` and `IncompleteInput` to `declined`, `Unavailable` to
-`unsupported`, `TimedOut`, `ResourceExhausted` and `Cancelled` to
-`incomplete`, and `Inconclusive` to `inconclusive`. The three refusal records
-are all `declined` and keep three distinct causes. The zero-check proof
-records `inconclusive` with cause `kani_vacuous_proof`. Changing any arm of the
-map fails the test, and a new outcome kind fails to compile in the test's
-exhaustive `match`.
+The three-check proof is `proved` with count three and maps to
+`Proved { success_checks: 3 }`, category `Success`. The zero-check run is
+`inconclusive` with cause `kani_vacuous_proof`, no count and no Boolean
+claim, and maps to `Proved { success_checks: 0 }`, category `Inconclusive`
+with cause `KaniVacuousProof`. `Counterexample` maps to `Refuted`; `Refused`,
+`InvalidInput` and `IncompleteInput` to `Declined` with three distinct
+`ProofRefusalCause`s; `TimedOut`, `ResourceExhausted` and `Cancelled` to
+`Incomplete` with three distinct `IncompleteCause`s. `Unavailable` and the
+non-vacuous `Inconclusive` return the typed absence and no value. No outcome
+maps to `Tested` or `Failed`. Changing any arm of the map fails the test, and
+a new outcome kind fails to compile in the test's exhaustive `match`.
 
 ## Status
 
-Implemented in `tests/it/kani_shared.rs`.
+Planned. `tests/it/kani_shared.rs` verifies today's map onto this crate's own
+`KaniProviderResult`, which the QSL target replaces.

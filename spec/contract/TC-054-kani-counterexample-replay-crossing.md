@@ -1,48 +1,38 @@
 ---
 id: TC-054
-title: "Kani counterexample replay through the complete-V1 executor conforms"
+title: "Kani counterexample replay through the QSL replay facade (withdrawn from Contract IR)"
 type: TC
+status: withdrawn
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-031
-    type: verifies
+    type: references
   - target: ix://agent-ix/quire-specification/AD-016
     type: references
-  - target: ix://agent-ix/quire-spec-language/issues/243
+  - target: ix://agent-ix/quire-spec-language/FR-098
     type: references
 ---
-# TC-054: Kani counterexample replay through the complete-V1 executor conforms
+# TC-054: Kani counterexample replay through the QSL replay facade (withdrawn from Contract IR)
 
 ## Description
 
-Verify FR-031-AC-3: every serialized Kani counterexample either reproduces
-through the QSL complete-V1 executor entry
-`value::expression::CheckedPackage::call` with the same outcome and witness,
-or returns a typed non-success disagreement. Per AD-016 (arrows 6 and 7), a
-criterion whose test lives in another repo gets its own row, discharged by
-the test that repo owns: this crossing behaviour's test is
-quire-spec-language's, not Contract IR's, and does not share a row with
-FR-031-AC-4 (witness vocabulary), which TC-221 keeps.
+This test case verified the retired criterion FR-031-AC-3: a serialized Kani
+counterexample reproducing through the QSL executor with the same outcome and
+witness, or returning a typed non-success disagreement. The counterexample
+envelope, replay source and replay result are QSL `qsl-replay` types, and the
+crossing runs from the codegen replay adapter through `qsl_replay::replay`
+(QSL ADR-011 E9, FR-098). The test belongs to those owners, so this case is
+withdrawn from Contract IR and no Contract IR test backs it.
 
 ## Test Procedure
 
-Serialize a Contract IR counterexample packet carrying its concrete finite
-population/snapshots/invocation, selected bounds, strategy seed where used,
-evaluated witness, and provenance. Reconstruct the packet's input and invoke
-the QSL complete-V1 executor entry `value::expression::CheckedPackage::call`
-against it. Compare the executor's returned outcome and witness to the
-packet's recorded outcome and witness. Repeat with a packet whose witness or
-population was altered after serialization, with the executor runtime
-unavailable, and with a structurally malformed packet.
+None in this repository. The crossing is exercised by QSL's replay executor
+tests (QSL FR-098) and by the codegen replay adapter's tests.
 
 ## Expected Results
 
-Every serialized counterexample either reproduces through the executor with
-the same outcome and witness, or returns a typed non-success disagreement.
-Proof, refusal, and inconclusive results never masquerade as replayed
-counterexamples; replay mismatch, unavailable runtime, and a malformed packet
-remain typed non-success.
+No Contract IR test carries a `TC-054` trace, and no Contract IR code
+constructs a counterexample envelope or invokes a replay executor.
 
 ## Status
 
-Planned. `agent-ix/quire-spec-language#243`, the QSL layer-6 `replay` facade
-this test needs, has not started.
+Withdrawn from Contract IR.

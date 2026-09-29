@@ -3,6 +3,8 @@ id: FR-034
 title: "Assemble one output package atomically"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-ir/StR-001
+    type: traces_to
   - target: ix://agent-ix/quire-contract-ir/FR-032
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-033

@@ -6,7 +6,7 @@ status: proposed
 owner: kreneskyp
 profile_version: 0.2
 profile_kind: general
-scope: one exact kani-bounded profile selection, finite input ABI, generated harness population, and native replay corpus
+scope: one exact kani-bounded profile selection, finite input ABI, generated harness population, and the corpus codegen replays through qsl_replay::replay
 impact_assessments:
   - id: impact-invalid-population-erasure
     scenario: invalid or incomplete model population is assumed away and reported as proof
@@ -27,7 +27,7 @@ impact_assessments:
       expected: true
       control_ref: ix://agent-ix/quire-contract-ir/MP-002
   - id: impact-unreplayable-counterexample
-    scenario: a Kani witness cannot reproduce through the selected native runtime
+    scenario: a Kani counterexample cannot reproduce through the QSL replay facade qsl_replay::replay
     severity: material
     verifiability:
       class: cheap-conclusive
@@ -54,7 +54,7 @@ The declared impacts require controls against population erasure, bounded semant
 
 ## Evidence Policy
 
-Evidence records profile/matrix and source/model identities, executable and generator digests, all options and assumptions, exact bounds, every typed outcome, native replay result, and review findings. Corpus parity requires explicit support/refusal/inconclusive classification and never aggregates a non-success result into pass.
+Evidence records profile/matrix and source/model identities, executable and generator digests, all options and assumptions, exact bounds, every typed outcome and its QSL terminal value, the QSL replay result codegen records, and review findings. Corpus parity requires explicit support/refusal/inconclusive classification and never aggregates a non-success result into pass.
 
 ## Exceptions
 

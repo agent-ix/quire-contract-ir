@@ -23,8 +23,9 @@ relationships:
 
 Contract IR owns the cycle-free, versioned `ContractPackage` representation and
 the exact lowering boundary. Runtime owns typed native oracle execution; codegen
-owns deterministic provider generation, bounded Kani harnesses, and replay
-adapters. Output mapping remains a derived-output boundary. Native Quire remains
+owns deterministic provider generation, bounded Kani harnesses, the Kani
+transcript parser, and the replay adapter; QSL's `qsl-replay` owns the
+counterexample envelope, replay request and result, and the replay facade. Output mapping remains a derived-output boundary. Native Quire remains
 the sole source and semantic authority.
 
 ## Views
@@ -32,8 +33,8 @@ the sole source and semantic authority.
 ```text
 checked native package -> exact per-item lowering -> ContractPackage
 ContractPackage -> capability negotiation -> runtime oracle | codegen provider
-codegen provider -> bounded Kani/artifacts/results -> canonical replay envelope
-canonical replay envelope -> codegen replay adapter -> QSL complete-V1 executor -> parity or typed failure
+codegen provider -> bounded Kani/artifacts/results -> qsl_replay::WitnessEnvelope
+qsl_replay::WitnessEnvelope -> codegen replay adapter -> qsl_replay::replay -> ReplayResult
 ContractPackage -> output mapping package -> OCL | SysML/KerML | FRETish outputs
 ```
 
@@ -51,7 +52,7 @@ items remain independently accounted for.
 | ContractPackage is core typed data | A test-only model or backend-local wire shapes | Runtime and providers share one cycle-free identity-bearing contract. |
 | Stable identities, not positions, bind nodes | Array index or source-spelling joins | Reordering cannot alter semantic reference resolution. |
 | Exact negotiation before emission | Best-effort generation | Unbounded or unsupported meaning produces no approximating artifact. |
-| Canonical replay through the QSL complete-V1 executor | Opaque backend diagnostics | Refutation evidence is independently checkable against the same package and domain. |
+| Canonical replay through `qsl_replay::replay` over QSL's envelope | Opaque backend diagnostics | Refutation evidence is independently checkable against the same package and domain. |
 | Target mappers consume the shared IR seam | Separate target source authorities | OCL, SysML/KerML, and FRETish stay derived outputs with explicit loss records. |
 
 ## Risks
@@ -60,5 +61,5 @@ items remain independently accounted for.
 | --- | --- |
 | A complete-V1 node is dropped or narrowed | TC-044 mutation and round-trip vectors cover every family and per-item accounting. |
 | A Kani bound is invented by a backend | Model-domain derivation, exact tool/options lock, and `requires_bound` refusal. |
-| Backend and native verdicts differ | TC-046 canonical replay retains a typed parity failure. |
+| Backend and native verdicts differ | QSL's `ReplayResult` retains a typed disagreement; TC-055 confirms Contract IR defines no competing envelope. |
 | A generated target becomes source authority | I16 mapping packages remain output-only and retain source/profile correspondence. |
