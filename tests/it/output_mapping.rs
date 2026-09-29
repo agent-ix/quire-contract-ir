@@ -17,7 +17,6 @@ use quire_contract_ir::{
     EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
 
 fn projection() -> Value {
     let mut package: Value = serde_json::from_str(include_str!(
