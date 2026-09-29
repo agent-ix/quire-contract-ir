@@ -275,8 +275,9 @@ request of its own, and it passes every check below before it merges.
 8. **Same inputs, green gates.** Every check that enumerates spec files — a
    fixed directory list, a non-recursive glob, a `read_dir`, an
    `include_str!`/`include_bytes!` reader, a sealed configuration path — reads
-   the same set of documents and IDs at the head as at the merge base; the pull
-   request records both counts per check. `make ci` passes at the head, and
+   the same set of documents and IDs at the head as at the merge base, apart
+   from the added root index and subsystem matrices listed in the relocation
+   map with `old_id` `-`; the pull request records both counts per check. `make ci` passes at the head, and
    `quire coverage --scope . --strict` reports the same minted-ID set and the
    same backed-row count before and after.
 9. **Prefixed foreign IDs.** Every foreign ID in a trace tag, code comment,
@@ -344,8 +345,9 @@ sequences), then opens its structural pull request:
 
 The structural pull request for this repository moves `spec/index.md` to
 `spec/spec.md` and the existing matrices TM-001 and TM-002 into subsystem
-matrices, and meets rules 5, 7, 8 and 9 at these sites, as found at this
-record's acceptance:
+matrices, and meets rules 5, 7, 8 and 9. The sites below are a snapshot taken
+when this record was accepted, not an exhaustive list: rules 7 and 9 govern,
+and the structural pull request runs its own repository-wide search.
 
 - **Readers of spec paths** (rules 7 and 8): `include_str!`, `read_dir` and path
   literals in `tests/it/{governance_reconciliation,governance,ecosystem_model,identity,output_mapping,conformance,foundation,toolchain_policy}.rs`;
@@ -354,7 +356,12 @@ record's acceptance:
   `scripts/validate_matrix_status.py` and the fixture tree in
   `tests/test_matrix_status.py`; `tests/test_native_orchestration.py`;
   `assurance/change-assurance.json` sources and its `configuration`
-  `spec/index.md`; spec links in `README.md` and `CONTRIBUTING.md`.
+  `spec/index.md`; spec links in `README.md` and `CONTRIBUTING.md`; spec paths
+  in doc comments at
+  `crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs:33`,
+  `crates/quire-contract-model/src/output_mapping.rs:176`,
+  `tests/it/checked_package_v2_frame_bodies.rs:107` and
+  `tests/it/checked_package_v2_qsl_parameters.rs:42`.
   `scripts/assurance_chain.py` writes its own scratch spec tree and is
   unaffected.
 - **Digest-bound files** (rule 5): FR-025 and FR-026, whose bytes
@@ -362,8 +369,11 @@ record's acceptance:
 - **Unprefixed foreign IDs** (rule 9), each naming a quire-specification
   artifact without its prefix: the strings `FR-322` and `FR-340` in doc
   comments under `crates/quire-contract-model/src/checked_package/` and in
-  `tests/it/checked_package_v2_*.rs`; `TC-280` and `TC-281` in
+  `tests/it/checked_package_v2_*.rs`; `FR-322` at
+  `tests/it/support/checked_package.rs:321,556,577,581,1168` and `FR-340` at
+  `tests/it/support/checked_package.rs:461`; `TC-280` and `TC-281` in
   `crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs`;
+  `TC-280`, `TC-281` and `FR-322-AC-36` in the `Makefile:109-112` comment;
   `FR-331` in `src/kani/outcome.rs`; and short-name prose such as
   `QSpec FR-340` in `spec/`.
 - **Withdrawn trace tag** (rule 9): `#[trace("TC-221", "FR-031-AC-4")]` in

@@ -31,3 +31,9 @@ Ticket: IR-314. Boundary between this repository's local check, Quire, and the C
 ## Verdict
 
 The boundary is clear: the checks belong in quire validate, each repository runs its own local check, nothing is copied between repositories.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 5a3d953 |

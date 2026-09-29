@@ -31,3 +31,9 @@ Ticket: IR-314. Volatility and verification risk in the restructure gate and the
 ## Verdict
 
 The tool-support section is pinned to what was measured and reproduces; one gate clause has no measurement.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 5a3d953 |

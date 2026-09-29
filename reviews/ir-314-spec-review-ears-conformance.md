@@ -41,3 +41,11 @@ Ticket: IR-314. EARS form, atomicity and testability of FR-345's statement, beha
 ## Verdict
 
 The statement and behaviour bullets use SHALL with explicit When-triggers; AC-1..AC-4 and AC-6 are testable, name path:line outputs and include a negative case each. The SPEC_BASE trigger is defective and one behaviour has no AC.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 5a3d953 |
+| FND-002 | fixed | 5a3d953 |
+| FND-003 | fixed | 5a3d953 |

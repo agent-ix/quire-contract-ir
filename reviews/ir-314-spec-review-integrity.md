@@ -53,3 +53,21 @@ Ticket: IR-314. Internal consistency and completeness of ADR-0056 against itself
 ## Verdict
 
 The layout, registry columns, TestMatrixIndex columns (checked against spec-artifacts-process mappings.yaml: Subsystem | Requirements | Local Matrix | Status), the flat-global identifier rule, the ix://agent-ix/<repo>/<ID> form (matches this repo's existing relationships), ID blocks and collision handling are coherent. The quire 0.33.0 (engine 92dbebc) claims reproduce on a scratch tree: `quire validate` exits 0 with two FR files declaring FR-001 and one matrix declaring TC-001 twice; `quire coverage --scope spec/core` is refused (no document root); a nested spec/core/matrix/tests.md mints its TC rows. Two rules contradict the restructure gate, and the context section reproduces private-repo internals.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | Rule 8's same-document-set requirement contradicts the added TM index/matrices that rules 1 and 3 now allow. | spec/decisions/ADR-0056-spec-layout-convention.md:275-279 |
+
+**FND-006** (low, confidence medium, soundness; spec/decisions/ADR-0056-spec-layout-convention.md:275-279, 231-233): Rule 8 requires every enumerating check to read the same document and ID set before and after, but rule 1 and rule 3 now let the structural PR add a TestMatrixIndex and new subsystem matrices with new TM IDs. A matrix-enumerating check (validate_matrix_status.py STATUS_DOCUMENTS, quire's TestMatrix walk) necessarily reads more documents at the head, so rule 8 read literally fails every conforming restructure. Say 'the same set, apart from the added index and matrix rows of the relocation map'.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 5a3d953 |
+| FND-002 | fixed | 5a3d953 |
+| FND-003 | fixed | 5a3d953 |
+| FND-004 | fixed | 5a3d953 |
+| FND-005 | fixed | 5a3d953 |

@@ -37,3 +37,21 @@ Ticket: IR-314. Failure modes the restructure gate and identifier rules leave un
 ## Verdict
 
 Embedded spec/ path consumers found by repo-wide search: tests/it/{governance_reconciliation,governance,ecosystem_model,identity,output_mapping,conformance,foundation,toolchain_policy}.rs, src/temporal/{request,admission}.rs (include_bytes! on the line after the macro), scripts/validate_matrix_status.py, scripts/assurance_chain.py (writes a hermetic probe spec/index.md, unaffected), tests/test_matrix_status.py and tests/test_native_orchestration.py (fixtures/reads), assurance/change-assurance.json (sources and configuration spec/index.md), README.md and CONTRIBUTING.md links. Gate rule 7's generic scan covers them by path string. TC-020 (tests/it/foundation.rs:51) reads spec/assurance/* markers, which the layout keeps in place: unaffected.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | Adoption site list misses tests/it/support/checked_package.rs and Makefile:109-112 foreign IDs and four spec-path doc comments. | spec/decisions/ADR-0056-spec-layout-convention.md:362-370 |
+
+**FND-004** (low, confidence high, coverage; spec/decisions/ADR-0056-spec-layout-convention.md:362-370): The 'as found at acceptance' site list is incomplete. git grep at 5a3d953 also finds unprefixed FR-322 in tests/it/support/checked_package.rs:321,556,577,581,1168 and FR-340 at :461, and TC-280/TC-281 plus FR-322-AC-36 in Makefile:109-112. The readers list also omits the spec-path doc comments in crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs:33, crates/quire-contract-model/src/output_mapping.rs:176, tests/it/checked_package_v2_frame_bodies.rs:107 and tests/it/checked_package_v2_qsl_parameters.rs:42. Rules 7 and 9 still require them, so the risk is a restructure author trusting the list; add the sites or say the list is not exhaustive.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 5a3d953 |
+| FND-002 | fixed | 5a3d953 |
+| FND-003 | fixed | 5a3d953 |
+
+Correction to the original row's wording: TC-221 is this repository's own withdrawn test case (spec/contract/FR-031...:109, spec/contract-test-matrix.md:115), not only a quire-specification ID; the ADR now handles it as a withdrawn-ID trace tag to remove.
