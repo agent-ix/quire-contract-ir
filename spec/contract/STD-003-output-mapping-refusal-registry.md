@@ -106,8 +106,8 @@ assembling the single atomic output package.
 | Code | Condition | Required location |
 |---|---|---|
 | `invalid_output_region` | An output region is reversed, out of range, not on a character boundary, or its bytes are not UTF-8 | `candidate.output_regions`; `candidate.fragment`; `package.target_bytes`; `package.records.output_regions`; `record.output_regions` |
-| `invalid_generator` | The declared generator identity is empty, unbounded, or outside visible ASCII | `generator` |
-| `invalid_observer` | The declared observer identity is empty, unbounded, or outside visible ASCII | `observer` |
+| `invalid_generator` | The declared generator owner is empty, unbounded, or outside visible ASCII | `generator` |
+| `invalid_observer` | The declared observer owner is empty, unbounded, or outside visible ASCII | `observer` |
 | `package_population_mismatch` | The assembled record population or target-byte length disagrees with the accounted counts | `package.records`; `package.target_bytes` |
 
 ## Registry Invariants
