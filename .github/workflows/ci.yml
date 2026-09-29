@@ -1,7 +1,7 @@
 # Manual subset only: format, lint, test and supply-chain/unsafe checks.
 # Not equivalent to local make release-check: spec, corpus/reproduction, exact
-# supported-minimum/qualification checks
-# this workflow does not presently provision that complete toolchain.
+# supported-minimum/qualification checks are not hosted here; this workflow
+# does not presently provision that complete toolchain.
 name: Manual Rust subset (not release qualification)
 
 on:
