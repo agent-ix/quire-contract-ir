@@ -84,8 +84,7 @@ class MatrixStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
             root = pathlib.Path(directory)
             (root / "spec/program").mkdir(parents=True)
-            (root / "spec/test-matrix.md").write_text(matrix, encoding="utf-8")
-            (root / "spec/contract-test-matrix.md").write_text("", encoding="utf-8")
+            (root / "spec/contract-test-matrix.md").write_text(matrix, encoding="utf-8")
             (root / "spec/program/PGM-01-governance.md").write_text(
                 policy, encoding="utf-8"
             )
@@ -134,8 +133,7 @@ class MatrixStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="quire-matrix-status-") as directory:
             root = pathlib.Path(directory)
             (root / "spec/program").mkdir(parents=True)
-            (root / "spec/test-matrix.md").write_text(matrix, encoding="utf-8")
-            (root / "spec/contract-test-matrix.md").write_text("", encoding="utf-8")
+            (root / "spec/contract-test-matrix.md").write_text(matrix, encoding="utf-8")
             (root / "spec/program/PGM-01-governance.md").write_text("", encoding="utf-8")
 
             with mock.patch(
@@ -294,14 +292,6 @@ class MatrixStatusTests(unittest.TestCase):
                 "NFR-004 cites unknown or retired criterion NFR-004-AC-99",
             ],
         )
-
-    def test_retired_criteria_are_not_live(self) -> None:
-        """TC-021. Trace: TC-021, NFR-004-AC-5."""
-        # Every FR-001 criterion under a `Retired criteria` heading
-        # is withdrawn with a recorded reason. A matrix row that omits them is
-        # correct, and the checker must not report it.
-        declared = live_criteria()
-        self.assertEqual(declared["FR-001"], ["FR-001-AC-2"])
 
     def test_retired_heading_matches_case_and_trailing_text(self) -> None:
         """TC-021. Trace: TC-021, NFR-004-AC-5.

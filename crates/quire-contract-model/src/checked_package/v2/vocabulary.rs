@@ -22,9 +22,7 @@
 //! kinds and constraint kinds ([`LawRole`], [`OperationModeKind`],
 //! [`OperationMemberKind`], [`OperationConstraintKind`]) are decoded when the
 //! catalog is parsed, and an operation's wire mode, member and role are
-//! decoded once where the reader compares them with the catalog. The
-//! `string_edge` integration test fails when anything else reads one of these
-//! wire strings, and lists the functions that are the edge.
+//! decoded once where the reader compares them with the catalog.
 //!
 //! Vocabularies decoded by serde at the wire edge ([`super::CheckedDiagnosticStage`],
 //! [`super::CheckedDiagnosticCode`], [`super::CheckedDiagnosticCause`] and

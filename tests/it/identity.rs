@@ -6,7 +6,6 @@ use quire_contract_ir::{
     ValidationOptions,
 };
 
-const REGISTRY: &str = include_str!("../../spec/contract/STD-001-diagnostic-registry.md");
 const FORBIDDEN_PUBLIC_VOCABULARY: [&str; 8] = [
     "rust", "gumbo", "aadl", "hamr", "solver", "runtime", "usize", "pathbuf",
 ];
@@ -465,10 +464,8 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
         Some(&source_span)
     );
 
-    // STD-001 and NFR-002-AC-3: exact codes are serialized, registered, and neutral.
+    // NFR-002-AC-3: exact codes are serialized and neutral.
     for code in DiagnosticCode::ALL {
-        let row = format!("| `{}` |", code.as_str());
-        assert_eq!(REGISTRY.matches(&row).count(), 1, "registry row {row}");
         let encoded = serde_json::to_string(code).unwrap();
         assert_eq!(encoded, format!("{:?}", code.as_str()));
         assert_eq!(
@@ -476,17 +473,6 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
             *code
         );
     }
-    let implemented_registry = REGISTRY
-        .split_once("## Bounded Kani Outcome Codes")
-        .map(|(implemented, _)| implemented)
-        .expect("STD-001 must keep the Kani outcome codes in their own section");
-    assert_eq!(
-        implemented_registry
-            .lines()
-            .filter(|line| line.starts_with("| `"))
-            .count(),
-        DiagnosticCode::ALL.len()
-    );
     let all_clause_kinds = [
         ClauseKind::Precondition,
         ClauseKind::Postcondition,

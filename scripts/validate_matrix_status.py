@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATUS_DOCUMENTS = (
-    Path("spec/test-matrix.md"),
     Path("spec/contract-test-matrix.md"),
     Path("spec/program/PGM-01-governance.md"),
 )

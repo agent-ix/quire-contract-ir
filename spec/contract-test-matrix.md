@@ -14,7 +14,7 @@ relationships:
 |---|---|---|---|
 | StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-344 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the proof check count, the `Unavailable` cause split and the Kani outcome to QSL terminal-value map, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
-| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-020, TC-058 | 🚧 implemented except FR-019-AC-5, the model crate's explicit public item list (TC-058, planned) |
+| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-058 | 🚧 implemented except FR-019-AC-5, the model crate's explicit public item list (TC-058, planned) |
 
 ## Functional Requirement Coverage
 
@@ -53,7 +53,7 @@ relationships:
 | NFR-001 | repeated golden corpus and cross-platform comparison | TC-017, TC-019 | same-process goldens implemented (TC-017); cross-platform comparison (TC-019) planned |
 | NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-019 | AC-3/4 implemented; cross-platform AC-1 planned |
 | NFR-003 | negative corpus, mutation, panic-free, and orphan checks | TC-017 through TC-019 | version and orphan fail-closed checks implemented (TC-017, TC-018); threshold analysis (TC-019) planned |
-| NFR-004 | repository/assurance/plan inspection | TC-014, TC-020, TC-021 | foundation covered |
+| NFR-004 | matrix status validation | TC-021 | foundation covered |
 
 ## Diagnostic Registry Coverage
 
@@ -66,14 +66,12 @@ relationships:
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
-| TC-014 | Baseline, licenses, protected workflow, and publication lock agree | Inspection | P0 | NFR-004 | ✅ implemented |
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-016 | Types, expressions, short-circuiting, and definedness conform | Integration | P0 | FR-012..FR-015, NFR-002, STD-001 | ✅ implemented |
 | TC-017 | Canonical bytes, digests, migrations, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | ✅ implemented |
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
-| TC-020 | Four assurance artifacts declare boundaries, evidence, failures, and owner | Inspection | P0 | StR-003, NFR-004 | ✅ implemented |
-| TC-021 | Composite review and dependency DAG preserve spec-first child gates; Python matrix and native orchestration controls enforce AC-5/6/7 | Inspection | P0 | NFR-004 | ✅ implemented |
+| TC-021 | Python matrix status controls enforce AC-5/7 | Inspection | P0 | NFR-004 | ✅ implemented |
 | TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |
 | TC-041 | Reach the model through `quire_contract_model` while proving the model/owner/root Cargo graph is acyclic | Integration | P0 | FR-028-AC-1, FR-028-AC-2, FR-028-AC-3, FR-028-AC-4, FR-028-AC-5 | 🚧 AC-1, AC-3, AC-4 and AC-5 implemented; AC-2 planned: the test reaches the model through the root crate's re-export |
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall and module dispatch conform | Integration | P0 | FR-029, FR-030-AC-1, FR-030-AC-2, FR-030-AC-3, FR-031-AC-1 | 🚧 FR-029-AC-2's `unsupported` negotiation disposition is planned; profile, firewall and dispatch implemented across the shared, arithmetic, graph and collection suites; the arithmetic, graph and collection lowering suites belong with the family lowerings in codegen's backend adapter |
@@ -82,7 +80,7 @@ relationships:
 | TC-044 | Complete-V1 target-neutral ContractPackage lowering conforms | Property | P0 | FR-035 | ✅ implemented in `tests/it/complete_v1_checked_package.rs` against the `quire.checked-package/v2` reader/lowerer, over package documents built in-repo |
 | TC-047 | Complete-V1 lowering emits one canonical ContractPackage | Property | P0 | FR-035-AC-5 | ✅ implemented in `tests/it/complete_v1_contract_package.rs` |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors quire-specification:TC-218; binds the no-advertised-capability absence path (quire-specification:FR-290 vocabulary) |
-| TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5, FR-038-AC-10, FR-038-AC-11, FR-038-AC-17, FR-038-AC-18, FR-038-AC-19, FR-038-AC-20, FR-038-AC-22, FR-038-AC-23, FR-038-AC-24, FR-038-AC-25, FR-038-AC-26, FR-038-AC-27, FR-038-AC-28, FR-038-AC-29, FR-038-AC-30, FR-038-AC-31, FR-038-AC-32, FR-038-AC-33, FR-038-AC-34, FR-038-AC-35, FR-038-AC-36, FR-038-AC-37, FR-038-AC-38 | ✅ implemented in `tests/it/checked_package_v2_reader.rs` over package documents built in-repo from this crate's own public vocabulary; AC-5 covers the in-repo nominal preimages' round trip and digest. Mirrors quire-specification:TC-217 quire-specification:FR-322-AC-4, quire-specification:FR-322-AC-8 and quire-specification:FR-322-AC-10. AC-34's decode-once rule is gated by `tests/it/string_edge.rs` over `src/kani/` and `checked_package/` |
+| TC-048 | CheckedPackage V2 strict reader re-derives package and nominal identities | Property | P0 | FR-038-AC-1, FR-038-AC-2, FR-038-AC-3, FR-038-AC-4, FR-038-AC-5, FR-038-AC-10, FR-038-AC-11, FR-038-AC-17, FR-038-AC-18, FR-038-AC-19, FR-038-AC-20, FR-038-AC-22, FR-038-AC-23, FR-038-AC-24, FR-038-AC-25, FR-038-AC-26, FR-038-AC-27, FR-038-AC-28, FR-038-AC-29, FR-038-AC-30, FR-038-AC-31, FR-038-AC-32, FR-038-AC-33, FR-038-AC-35, FR-038-AC-36, FR-038-AC-37, FR-038-AC-38 | ✅ implemented in `tests/it/checked_package_v2_reader.rs` over package documents built in-repo from this crate's own public vocabulary; AC-5 covers the in-repo nominal preimages' round trip and digest. Mirrors quire-specification:TC-217 quire-specification:FR-322-AC-4, quire-specification:FR-322-AC-8 and quire-specification:FR-322-AC-10. |
 | TC-052 | CheckedPackage V2 lowering vocabulary and outcome selection conform | Property | P0 | FR-038-AC-7, FR-038-AC-8 | ✅ implemented in `tests/it/checked_package_v2_lowering.rs` over package documents built in-repo |
 | TC-053 | CheckedPackage V2 frame-body eligibility, precedence and visit order | Property | P0 | FR-038-AC-12, FR-038-AC-13, FR-038-AC-14, FR-038-AC-15 | ✅ implemented in `tests/it/checked_package_v2_frame_bodies.rs` against the in-repo `v2_all_families()` fixture, one locally authored case per rule, and by the closed `(member, tag, form)` eligibility enumeration in `crates/quire-contract-model/src/checked_package/v2/frame.rs`; the `modifies` eligibility is TC-056's |
 | TC-222 | Refuse a document attempting to carry an unadmitted ADR-002 2.0.0 member | Property | P0 | FR-344-AC-1, FR-344-AC-2, FR-344-AC-3 | 🚧 planned; pins as a named regression a property that already holds today as an emergent consequence of FR-038's closed grammars (`CheckedNodeTag::from_wire`, `CheckedNodeKind::decode`, `deny_unknown_fields`, `exact_members`); no reader or lowerer change required, only new fixtures and assertions |

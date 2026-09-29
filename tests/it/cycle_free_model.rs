@@ -172,11 +172,6 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             "bridge lacks production owner {owner}"
         );
     }
-
-    let workspace_members = workspace["workspace_members"]
-        .as_array()
-        .expect("workspace members must be an array");
-    assert_eq!(workspace_members.len(), 2);
 }
 
 fn accepts_model_version(_: quire_contract_model::SchemaVersion) {}

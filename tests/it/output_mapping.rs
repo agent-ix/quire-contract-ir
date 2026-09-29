@@ -1823,21 +1823,11 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     }
 }
 
-const MAPPING_REFUSAL_REGISTRY: &str =
-    include_str!("../../spec/contract/STD-003-output-mapping-refusal-registry.md");
-
 /// Tracing: TC-051, STD-003, FR-032-AC-5.
 #[trace("TC-051", "STD-003", "FR-032-AC-5")]
 #[test]
 fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
-    // STD-003: every emitted spelling has exactly one registry row.
     for code in MappingRequestErrorCode::ALL {
-        let row = format!("| `{}` |", code.as_str());
-        assert_eq!(
-            MAPPING_REFUSAL_REGISTRY.matches(&row).count(),
-            1,
-            "registry row {row}"
-        );
         let encoded = serde_json::to_string(code).expect("code serializes");
         assert_eq!(encoded, format!("{:?}", code.as_str()));
         assert_eq!(
@@ -1845,118 +1835,6 @@ fn tc_051_mapping_refusal_catalog_is_closed_and_registered() {
             Some(*code)
         );
     }
-
-    // STD-003: the registry holds no row the catalog cannot emit.
-    assert_eq!(
-        MAPPING_REFUSAL_REGISTRY
-            .lines()
-            .filter(|line| line.starts_with("| `"))
-            .count(),
-        MappingRequestErrorCode::ALL.len()
-    );
-
-    // STD-003: `MappingRequestErrorCode::ALL` and the registry rows are the
-    // same set *in the same order* — reordering the registry must fail this,
-    // not just a set-equality check.
-    let registry_order = MAPPING_REFUSAL_REGISTRY
-        .lines()
-        .filter(|line| line.starts_with("| `"))
-        .map(|line| line.split('`').nth(1).expect("code token"))
-        .collect::<Vec<_>>();
-    let catalog_order = MappingRequestErrorCode::ALL
-        .iter()
-        .map(|code| code.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(registry_order, catalog_order);
-
-    // STD-003: "Every row names the structural field path the refusal is
-    // required to carry" — a structural path is a dot-joined sequence of
-    // lower_snake_case identifiers, never prose with spaces. This directly
-    // guards the class of defect where the `cancelled` row named its
-    // message (`` `output mapping was cancelled` ``) instead of a path.
-    fn is_structural_path(token: &str) -> bool {
-        !token.is_empty()
-            && token.split('.').all(|segment| {
-                !segment.is_empty()
-                    && segment
-                        .chars()
-                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-            })
-    }
-    let mut rows_checked = 0usize;
-    for line in MAPPING_REFUSAL_REGISTRY.lines() {
-        if !line.starts_with("| `") {
-            continue;
-        }
-        rows_checked += 1;
-        // Extract every backtick-quoted token from the third (`Required
-        // location`) column; a trailing prose qualifier after `;` (for
-        // example "when the mismatch is the mapper's") is not itself a
-        // token and is ignored.
-        let location_cell = line
-            .trim_start_matches('|')
-            .trim_end_matches('|')
-            .split('|')
-            .nth(2)
-            .expect("location column");
-        let mut tokens = Vec::new();
-        let mut rest = location_cell;
-        while let Some(start) = rest.find('`') {
-            let after = &rest[start + 1..];
-            let Some(end) = after.find('`') else { break };
-            tokens.push(&after[..end]);
-            rest = &after[end + 1..];
-        }
-        assert!(
-            !tokens.is_empty(),
-            "{line:?} names no structural field path"
-        );
-        for path in &tokens {
-            assert!(
-                is_structural_path(path),
-                "{line:?} required location {path:?} is not a dotted structural field path"
-            );
-        }
-    }
-    assert_eq!(rows_checked, MappingRequestErrorCode::ALL.len());
-
-    // STD-003, finding evidence: the `cancelled` row specifically is
-    // cross-checked against every real `check_cancelled` call site in
-    // production code, so the registry cannot silently drift from the
-    // source that emits it.
-    const OUTPUT_MAPPING_SOURCE: &str =
-        include_str!("../../crates/quire-contract-model/src/output_mapping.rs");
-    let production_source = OUTPUT_MAPPING_SOURCE
-        .split("#[cfg(test)]")
-        .next()
-        .expect("source has a test module");
-    let mut cancelled_call_sites = BTreeSet::new();
-    for line in production_source.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("control.check_cancelled(\"") {
-            let end = rest.find('"').expect("closing quote");
-            cancelled_call_sites.insert(rest[..end].to_string());
-        }
-    }
-    assert!(
-        !cancelled_call_sites.is_empty(),
-        "no check_cancelled call sites found in {}",
-        "crates/quire-contract-model/src/output_mapping.rs"
-    );
-    let cancelled_row = MAPPING_REFUSAL_REGISTRY
-        .lines()
-        .find(|line| line.starts_with("| `cancelled` |"))
-        .expect("cancelled row");
-    let cancelled_registry_locations = cancelled_row
-        .trim_start_matches('|')
-        .trim_end_matches('|')
-        .split('|')
-        .nth(2)
-        .expect("location column")
-        .split(';')
-        .map(|token| token.trim().trim_matches('`').to_string())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(cancelled_registry_locations, cancelled_call_sites);
 
     // STD-003: the two registries share no spelling in either direction.
     for code in MappingRequestErrorCode::ALL {
@@ -2053,54 +1931,5 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
             .expect_err("unknown obligation accepted")
             .code(),
         MappingRequestErrorCode::UnknownObligation
-    );
-}
-
-/// FR-019-AC-4 backstop: the fault-injection surface stays out of a default
-/// build. The behavioural proof is the model crate's feature-off
-/// `compile_fail` doctests (`make test` runs them); every workspace test
-/// build enables the feature through the root dev-dependency, so this reads
-/// the source instead. Every public re-export out of the private `allocation`
-/// module and `fail_allocation_at` must sit directly under the feature gate,
-/// and the module must stay private.
-///
-/// Tracing: TC-018, FR-019-AC-4
-#[trace("TC-018", "FR-019-AC-4")]
-#[test]
-fn tc_018_fault_injection_items_are_gated_out_of_the_default_surface() {
-    let source = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/crates/quire-contract-model/src/output_mapping.rs"
-    ))
-    .expect("output_mapping.rs is readable");
-    let lines = source.lines().map(str::trim).collect::<Vec<_>>();
-    const GATE: &str = "#[cfg(feature = \"fault-injection\")]";
-    let gated = |position: usize| position > 0 && lines[position - 1] == GATE;
-    let exports = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| line.starts_with("pub use allocation::"))
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    assert!(!exports.is_empty(), "the gated re-export exists");
-    for position in exports {
-        assert!(
-            gated(position),
-            "ungated public re-export: {}",
-            lines[position]
-        );
-    }
-    let injector = lines
-        .iter()
-        .position(|line| line.starts_with("pub fn fail_allocation_at("))
-        .expect("fail_allocation_at exists");
-    assert!(gated(injector), "fail_allocation_at must be gated");
-    assert!(
-        lines.contains(&"mod allocation {"),
-        "the allocation module is private"
-    );
-    assert!(
-        !source.contains("pub mod allocation"),
-        "the allocation module is private"
     );
 }

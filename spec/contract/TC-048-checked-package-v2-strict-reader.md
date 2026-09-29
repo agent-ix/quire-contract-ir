@@ -18,8 +18,7 @@ own public vocabulary (`tests/it/support/checked_package.rs`), and
 FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 "Model-owned members") against a self-built domain package document, and
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
-`DependencySelection` entries of a self-built package, and FR-038-AC-34
-against the reader's and the bounded-Kani modules' own source, and
+`DependencySelection` entries of a self-built package, and
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it.
 
@@ -127,17 +126,6 @@ dependency function a declared-record parameter and result, a `Set` of a
 declared record, a tuple holding one and a `Reference` to a `model` node, and a
 `Set` of a bounded integer. Compare the whole refusal code, cause and pointer
 with the expected one.
-
-## String edge (FR-038-AC-34)
-
-Scan the non-test source of `src/kani/` and `checked_package/` for string
-reads and compare the unmarked, unlisted ones with the empty set. Scan a
-synthetic source for each kind of read (literal and constant comparison,
-`as_ref` comparison, match arm, or-pattern, `matches!`, prefix test, downstream
-`from_wire`, `Some("..")` comparison) and require a hit, and for enum
-comparisons, comments, a `#[cfg(test)]` module and a marked edge and require
-none. Reintroduce one string match in a function that is not an edge and
-confirm the gate names it.
 
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 

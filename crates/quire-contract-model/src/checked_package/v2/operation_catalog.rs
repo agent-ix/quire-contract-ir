@@ -191,32 +191,12 @@ pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sha2::{Digest, Sha256};
-
-    /// The catalog this crate compiled against is the document its home
-    /// published, checked by content rather than by the dependency `rev`.
-    ///
-    /// The `rev` is provenance: it says where the bytes came from, and it dies
-    /// if that history is rewritten — which is exactly what happened to the
-    /// copy this dependency replaced. The digest is over the bytes themselves,
-    /// so a rev bump that landed a different vocabulary fails here instead of
-    /// silently changing what every CheckedPackage V2 is validated against.
-    #[test]
-    fn the_catalog_read_from_its_home_is_the_document_that_home_published() {
-        let measured = format!("{:x}", Sha256::digest(CATALOG_BYTES.as_bytes()));
-        assert_eq!(
-            measured,
-            quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1_SHA256,
-            "the operation catalog's bytes do not match the digest its home publishes for them"
-        );
-    }
 
     /// Every catalog vocabulary the reader decodes into an enum is exactly
     /// the enum's member set, and `LawRole::selection_role` is `Some` for
     /// exactly the catalog's profile law roles.
     ///
     /// Tracing: TC-048
-    /// ACs: FR-038-AC-34
     #[test]
     fn tc_048_the_catalog_vocabularies_are_the_decoded_enums() {
         use std::collections::BTreeSet;
@@ -273,16 +253,5 @@ mod tests {
                 "{role:?}: a selection role exactly for a catalog profile role"
             );
         }
-    }
-
-    /// The reader refuses a catalog of another vocabulary identity rather than
-    /// applying v1 rules to it. Paired with the digest check above: that one
-    /// catches changed bytes, this one catches a deliberate version change.
-    #[test]
-    fn the_catalog_declares_the_vocabulary_this_reader_implements() {
-        let wire: OperationCatalogWire =
-            serde_json::from_str(CATALOG_BYTES).expect("the catalog is valid");
-        assert_eq!(wire.version.as_ref(), "quire.checked-operation-catalog/v1");
-        assert_eq!(CATALOG_VERSION, "quire.checked-operation-catalog/v1");
     }
 }

@@ -207,11 +207,5 @@ program release decision by implication.
 
 ## Acceptance Criteria
 
-| ID | Criterion | Verification |
-|---|---|---|
-| PGM-01-R01-AC-1 | Unknown schema majors and silent migration are forbidden. | Policy inspection TC-001 |
-| PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
-| PGM-01-R09-AC-1 | An automated record cannot replace the human decision. | Policy inspection; TC-004 |
-
-PGM-01-R04, PGM-01-R05, PGM-01-R07 and PGM-01-R10 are verified by inspection
-of this document; no test asserts their wording.
+Every requirement in this program is verified by inspection of this document;
+no test asserts its wording.
