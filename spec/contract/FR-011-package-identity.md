@@ -46,3 +46,7 @@ and FR-018/FR-020 later publish the complete schema and conformance interface.
 | FR-011-AC-1 | A package round trip through the non-canonical JSON value representation preserves namespace, schema version, requirement ID, requirement revision, and source-document identity/revision with structural equality. | Test (TC-015) |
 | FR-011-AC-2 | Incrementing one requirement revision changes its clause and dependency identities without changing unrelated requirement identities. | Test (TC-015) |
 | FR-011-AC-3 | Empty or malformed package, source-document, requirement, clause, anchor, or dependency-path-segment identities; a zero schema major; zero source or requirement revisions; duplicate requirement or clause identifiers; non-increasing revision advances; and cross-package references fail with their registered structured diagnostic codes. Schema minor zero is valid. | Test (TC-015) |
+
+## Dependencies
+
+None.
