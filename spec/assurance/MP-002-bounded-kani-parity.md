@@ -16,7 +16,7 @@ statistical_design:
   sampling: exhaustive
   repetitions: 2
   estimator: proportion
-  error_model: profile drift, input-validation omission, generator drift, Kani/tool variation, and native replay disagreement
+  error_model: profile drift, input-validation omission, generator drift, Kani/tool variation, and disagreement in the QSL replay result codegen records
   uncertainty: each unavailable, timeout, exhausted, cancelled, refused, invalid, incomplete, or inconclusive case remains separately reported
   decision_rule:
     comparator: ge
@@ -71,10 +71,10 @@ The population is every matrix entry and every declared valid, invalid, incomple
 
 ## Collection Procedure
 
-For every matrix entry, execute its declared native and Kani corpus cases twice with the exact executable/options digests. Compare support/refusal/inconclusive classification, validated input outcome, resource outcome, artifact/provenance identity, and native replay. Record complete per-case evidence rather than only an aggregate rate.
+For every matrix entry, execute its declared native and Kani corpus cases twice with the exact executable/options digests. Compare support/refusal/inconclusive classification, validated input outcome, resource outcome, artifact/provenance identity, and, for a counterexample, the QSL `ReplayResult` the codegen replay adapter records from `qsl_replay::replay`. Record complete per-case evidence rather than only an aggregate rate.
 
 ## Interpretation
 
-The `proportion` estimate is cases with exact per-case agreement divided by declared cases, reported separately for each typed outcome kind. A case agrees only when its classification and outcome match the matrix, its artifact/provenance identity matches the declared digests, it assumed nothing about invalid input, and native replay agrees. A declared matrix entry with no executed case counts as a disagreeing case, never as an omission from the denominator.
+The `proportion` estimate is cases with exact per-case agreement divided by declared cases, reported separately for each typed outcome kind. A case agrees only when its classification and outcome match the matrix, its artifact/provenance identity matches the declared digests, it assumed nothing about invalid input, and, for a counterexample, the QSL `ReplayResult` codegen records shows agreement. A declared matrix entry with no executed case counts as a disagreeing case, never as an omission from the denominator.
 
-The target is exact matrix parity and exact counterexample replay agreement. Any non-success outcome is retained as that outcome; it is neither omitted nor counted as Boolean proof. Only the named human owner judges sufficiency.
+The target is exact matrix parity and exact counterexample replay agreement as QSL's `ReplayResult` reports it. Any non-success outcome is retained as that outcome; it is neither omitted nor counted as Boolean proof. Only the named human owner judges sufficiency.

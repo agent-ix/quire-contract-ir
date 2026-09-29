@@ -61,5 +61,5 @@ items remain independently accounted for.
 | --- | --- |
 | A complete-V1 node is dropped or narrowed | TC-044 mutation and round-trip vectors cover every family and per-item accounting. |
 | A Kani bound is invented by a backend | Model-domain derivation, exact tool/options lock, and `requires_bound` refusal. |
-| Backend and native verdicts differ | QSL's `ReplayResult` retains a typed disagreement; TC-046 confirms Contract IR defines no competing envelope. |
+| Backend and native verdicts differ | QSL's `ReplayResult` retains a typed disagreement; TC-055 confirms Contract IR defines no competing envelope. |
 | A generated target becomes source authority | I16 mapping packages remain output-only and retain source/profile correspondence. |

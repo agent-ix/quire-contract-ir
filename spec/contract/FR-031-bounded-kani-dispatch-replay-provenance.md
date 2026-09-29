@@ -31,8 +31,9 @@ relationships:
 ## Description
 
 The bounded-Kani boundary shall dispatch semantic families modularly, preserve
-artifact identity through oracle/strategy/harness generation, and map every
-Kani outcome to exactly one QSL `qsl_replay::TerminalValue`. Replay of a
+artifact identity through oracle/strategy/harness generation, and map each
+Kani outcome whose target is decided to one QSL `qsl_replay::TerminalValue`.
+Two outcome groups have no decided target and map to none (see Behavior). Replay of a
 counterexample is not a Contract IR operation: the counterexample envelope,
 the witness, the replay source, the FR-331 terminal record and the obligation
 identity are QSL's `qsl-replay` types, and replay runs through the QSL layer-6
@@ -47,8 +48,8 @@ identities the generated artifacts bind.
 
 ## Outputs
 
-A typed `KaniOutcome` with its provenance, and, for that outcome, the one
-`qsl_replay::TerminalValue` it records.
+A typed `KaniOutcome` with its provenance, and, for an outcome whose target
+is decided, the one `qsl_replay::TerminalValue` it records.
 
 ## Behavior
 
@@ -56,21 +57,30 @@ The dispatch index is the only cross-module vocabulary and routing authority. It
 
 Oracle, strategy, lowering, and harness generators are explicit interfaces with content identities. Their generated artifacts bind the checked-clause identity, profile selection, complete input identity, module identities, Kani executable digest/options, declared assumptions, and proof dependencies. Any change in a bound, assumption, selected module, tool/options digest, source/model/snapshot identity, or generator bytes changes the artifact identity.
 
-Each Kani outcome kind maps to exactly one QSL `TerminalValue` through one
-exhaustive map with no fallback arm, following QSL ADR-013 O-16's proof
-column: `Proved` maps to `Proved { success_checks }` carrying the run's
-SUCCESS check count; `Counterexample` maps to `Refuted`; `Refused`,
-`InvalidInput` and `IncompleteInput` map to `Declined` with
-`ProofRefusalCause::Refused`, `InvalidInput` and `IncompleteInput`
-respectively; `TimedOut`, `ResourceExhausted` and `Cancelled` map to
-`Incomplete` with `IncompleteCause::TimedOut`, `ResourceExhausted` and
-`Cancelled` respectively. A proof with zero SUCCESS checks maps to
-`Proved { success_checks: 0 }`, which QSL reads as `inconclusive` with cause
-`KaniVacuousProof`. No kind maps to `Tested` or `Failed`. The targets of
-`Unavailable` and of a capability-declared `Inconclusive` are the open
-question recorded in [AD-001](../assurance/AD-001-contract-ir-architecture.md)
-"Open questions" (OQ-3); until it is decided, those two kinds have no
-`TerminalValue`.
+The bounded-Kani boundary shall map Kani outcomes to QSL `TerminalValue`s
+as follows, following QSL ADR-013 O-16's proof column and QSpec FR-331:
+
+| Outcome | `TerminalValue` |
+| --- | --- |
+| `Proved`, carrying its SUCCESS check count `n` (at least one, FR-030) | `Proved { success_checks: n }` |
+| `Inconclusive` with cause `kani_vacuous_proof` (a proof with zero SUCCESS checks, FR-030) | `Proved { success_checks: 0 }` |
+| `Counterexample` | `Refuted` |
+| `Refused`, `InvalidInput`, `IncompleteInput` | `Declined` with `ProofRefusalCause::Refused`, `InvalidInput`, `IncompleteInput` |
+| `TimedOut`, `ResourceExhausted`, `Cancelled` | `Incomplete` with `IncompleteCause::TimedOut`, `ResourceExhausted`, `Cancelled` |
+
+QSL reads `Proved { success_checks: 0 }` as category `inconclusive` with cause
+`KaniVacuousProof`, which is the vacuity record FR-331 requires; a
+zero-check run therefore reaches that value through FR-030's
+`kani_vacuous_proof` classification and never through the `Proved` kind. No
+outcome maps to `Tested` or `Failed`.
+
+`Unavailable`, and `Inconclusive` with any cause other than
+`kani_vacuous_proof`, have no `TerminalValue` target: their targets are the
+open question OQ-3 in
+[AD-001](../assurance/AD-001-contract-ir-architecture.md) "Open questions".
+For those outcomes the map shall return a typed absence of a terminal value
+and shall never substitute another value. The map is therefore defined on
+the outcomes in the table above and is not total over `KaniOutcome`.
 
 Contract IR defines no counterexample packet, witness, replay source, replay
 agreement or terminal-record type of its own, parses no Kani transcript text,
@@ -83,7 +93,7 @@ backend adapter's.
 | --- | --- | --- |
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
 | FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
-| FR-031-AC-5 | Each of the eight Kani outcome kinds with a decided target maps to exactly the one QSL `TerminalValue` the map above gives it (`Proved { success_checks }`, `Refuted`, `Declined` ×3 with distinct `ProofRefusalCause`s, `Incomplete` ×3 with distinct `IncompleteCause`s), through one exhaustive map; a zero-check proof maps to `Proved { success_checks: 0 }`; and no kind maps to `Tested` or `Failed`. | Test (TC-223) |
+| FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to `Proved { success_checks: 0 }`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s and the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s; `Unavailable` and a non-vacuous `Inconclusive` return a typed absence and no value; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
 
 ### Retired criteria
 

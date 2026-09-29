@@ -70,16 +70,21 @@ its QSL `TerminalValue`.
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
 | `bridge` | `BridgeError`, `BridgeErrorCode`, `BridgeDigest`, `BridgeDigestParseError`, `BridgeLimits`, `ContractSelection` | FR-025, FR-026, STD-001 |
-| `predicate` | `project`, `TargetSelection`, `value`, `read_projection`, `read_valuation`, `ExpectedProjection`, `ExpectedValuation`, `PredicateDefinition`, `PredicateRef`, `PredicateCorrespondence`, `PredicateProjection`, `ValidatedPredicateProjection`, the decision and cause types, and the `PROFILE` family of profile constants | FR-025 |
-| `temporal` | `project`, `join`, `read_projection`, `read_join`, the admission, correspondence, join and decision types, and the `PROFILE` family of profile constants | FR-026 |
-| `ecosystem_model` | `read`, `export`, `ValidatedEcosystemModel`, `ModelDocument`, `ModelCounts`, `ImprovementProposal`, `ModelDecision`, `ModelCauseCode`, `ModelAdjacency`, `ModelAdjacentEdge`, the `manifest` module, and the profile and schema constants | FR-027 |
-| `kani` | `PROFILE`; `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
-| `kani` | `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind` | FR-030 |
-| `kani` | `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`, and the one total map from a `KaniOutcome` to its `qsl_replay::TerminalValue` | FR-031 |
-| `kani` | `lower_checked_arithmetic`, `ArithmeticLowering`, `CheckedArithmeticRequest`, `lower_query`, `CollectionLowering`, `CollectionQuery`, `QueryKind`, `lower_reaches`, `GraphLowering`, `GraphRequest` | FR-031; placement is AD-001 OQ-2 |
+| `predicate` | functions `project`, `value`, `read_projection`, `read_valuation`; types `TargetSelection`, `ExpectedProjection`, `ExpectedValuation`, `PredicateDefinition`, `PredicateRef`, `PredicateCorrespondence`, `PredicateProjection`, `ValidatedPredicateProjection`, `CompletenessGap`, `PredicateCause`, `PredicateCauseCode`, `PredicateCauseDimension`, `PredicateDecision`, `PredicateProjectionDecision`, `PredicateProjectionKind`, `PredicateValuationDecision`, `PredicateValuationKind`; constants `PROFILE`, `PREDICATE_REF_PROFILE`, `PROJECTION_DECISION_PROFILE`, `VALUATION_DECISION_PROFILE`, `PROJECTION_REF_PROFILE`, `SIGNAL_ARTIFACT_PROFILE`, `MAP_ARTIFACT_PROFILE` | FR-025 |
+| `temporal` | functions `project`, `join`, `read_projection`, `read_join`; types `TargetSelection`, `TargetContract`, `ObservationViews`, `PositionValuations`, `TemporalProjection`, `TemporalValuationRow`, `ValidatedTemporalProjection`, `ValidatedTemporalJoin`, `ExpectedTemporalProjection`, `ExpectedTemporalJoin`, `JoinComparison`, `TemporalCause`, `TemporalCauseCode`, `TemporalCauseDimension`, `TemporalDecision`, `TemporalJoinDecision`, `TemporalJoinKind`, `TemporalJoinRelation`, `TemporalProjectionDecision`, `TemporalProjectionKind`; constants `PROFILE`, `PROJECTION_DECISION_PROFILE`, `JOIN_DECISION_PROFILE`, `CORRESPONDENCE_PROFILE`, `TRACE_ID_PROFILE`, `HISTORY_ID_PROFILE` | FR-026 |
+| `ecosystem_model` | functions `read`, `export`; types `ValidatedEcosystemModel`, `ModelDocument`, `ModelCounts`, `ImprovementProposal`, `ModelDecision`, `ModelCauseCode`, `ModelAdjacency`, `ModelAdjacentEdge`, `CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`; constants `MANIFEST_PROFILE`, `MODEL_PROFILE`, `MANIFEST_ID_PROFILE`, `PROPOSAL_ID_PROFILE`, `MANIFEST_SCHEMA_BYTES`, `MANIFEST_SCHEMA_SHA256`, `MODEL_SCHEMA_BYTES`, `MODEL_SCHEMA_SHA256` | FR-027 |
+| `ecosystem_model::manifest` | function `read`; constants `REPOSITORY_IDENTITIES`, `OWNER_MAX`; and the same eight types the `ecosystem_model` row re-exports from it (`CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`) | FR-027 |
+| `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
+| `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind` | FR-030 |
+| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function from a `KaniOutcome` to its `qsl_replay::TerminalValue` or a typed absence, defined on the outcomes FR-031's map lists | FR-031 |
+| `kani` | functions `lower_checked_arithmetic`, `lower_query`, `lower_reaches`; types `ArithmeticLowering`, `CheckedArithmeticRequest`, `CollectionLowering`, `CollectionQuery`, `QueryKind`, `GraphLowering`, `GraphRequest` | FR-031; placement is AD-001 OQ-2 |
+
+An item's own public fields, variants and inherent methods are part of the
+item and are not listed separately.
 
 The root crate takes `qsl-replay` from the same QSL repository and revision
-it already pins for its owner views, so the ruling adds no repository edge.
+it already pins for its owner views, so taking `qsl-replay` adds no
+repository edge.
 It has no dependency on `quire_spec_language::runtime`.
 
 ### Items QSL owns

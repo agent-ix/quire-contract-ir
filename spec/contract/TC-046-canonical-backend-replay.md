@@ -1,32 +1,34 @@
 ---
 id: TC-046
-title: "Contract IR defines no replay envelope and calls no replay executor"
+title: "Canonical backend counterexample replay (withdrawn from Contract IR)"
 type: TC
+status: withdrawn
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-037
-    type: verifies
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/TC-055
+    type: references
   - target: ix://agent-ix/quire-specification/TC-219
     type: references
 ---
-# TC-046: Contract IR defines no replay envelope and calls no replay executor
+# TC-046: Canonical backend counterexample replay (withdrawn from Contract IR)
 
 ## Description
 
-Verify FR-037-AC-6: counterexample replay is QSL's and codegen's, and Contract
-IR carries none of it. quire-specification:TC-219 and QSL's replay executor
-tests verify the replay properties themselves.
+This case verified FR-037's retired replay criteria. The replay properties are
+verified by quire-specification:TC-219 and QSL's replay executor tests.
+FR-037-AC-6, that Contract IR defines no replay type and calls no executor, is
+the same public-surface and source check FR-039 makes, so TC-055 verifies it
+and this case is withdrawn.
 
 ## Test Procedure
 
-Inventory the public items of both workspace crates and search `src/` and
-`crates/quire-contract-model/src/` for a replay envelope, request, result,
-parity or minimization type, and for a call to `qsl_replay::replay`,
-`quire_spec_language::runtime` or any other executor entry.
+None in this repository; see TC-055.
 
 ## Expected Results
 
-No such type is public and no such call exists.
+No Contract IR test carries a `TC-046` trace.
 
 ## Status
 
-Planned.
+Withdrawn from Contract IR.

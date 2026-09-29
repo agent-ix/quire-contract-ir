@@ -23,7 +23,7 @@ relationships:
 
 ## System Boundary
 
-This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and maps each outcome to one QSL `qsl_replay::TerminalValue`. The counterexample envelope, witness and replay source are QSL's `qsl-replay` types; the codegen backend adapter parses the Kani transcript, and the codegen replay adapter replays a counterexample through `qsl_replay::replay` (QSL ADR-011 E9). This boundary does not parse source or transcripts, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
+This boundary consumes already checked native clauses and exact finite model inputs. It chooses a bounded Kani profile, validates its input ABI, dispatches to versioned lowering modules, generates identified oracle/strategy/harness artifacts, interprets Kani results as typed outcomes, and maps each outcome whose target is decided to one QSL `qsl_replay::TerminalValue` (FR-031; the remaining outcomes are AD-001's OQ-3). The counterexample envelope, witness and replay source are QSL's `qsl-replay` types; the codegen backend adapter parses the Kani transcript, and the codegen replay adapter replays a counterexample through `qsl_replay::replay` (QSL ADR-011 E9). This boundary does not parse source or transcripts, define Quire semantics, make a release decision, execute a foreign runtime, or turn any bounded result into an unqualified claim about an unbounded domain.
 
 ## Views
 
@@ -42,7 +42,7 @@ The dispatch index is shared; family modules are separate for checked arithmetic
 - Version profile, ABI, support matrix, tool/options digest, and generators together.
 - Make finite universes, snapshots, completeness, identities, and resource bounds explicit.
 - Preserve invalid, incomplete, unavailable, and exhausted inputs as results rather than assumptions.
-- Couple every outcome to its provenance graph and its one QSL terminal value; leave the counterexample envelope and replay to QSL and codegen.
+- Couple every outcome to its provenance graph, and every outcome whose target is decided to its one QSL terminal value; leave the counterexample envelope and replay to QSL and codegen.
 - Keep shared vocabulary/index in one delivery lane; keep semantic families in separate Rust/test modules.
 
 ## Risks

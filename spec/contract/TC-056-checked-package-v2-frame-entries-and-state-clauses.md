@@ -40,13 +40,19 @@ anchor, parameter and signature case, nested and misplaced clause
 applications, a non-Boolean condition, each parameter body defect, each
 occurrence role, and pairs of defects across the frame, state and operation
 steps. Under `make qspec-vectors`, read QSpec's published V2 fixtures that
-carry these nodes from `QSPEC_DIR`.
+carry these nodes from `QSPEC_DIR`, and replay every entry of the
+`frame_mutations` array of `node-identity-vectors.json` in place on the
+frame node of QSpec's `fixtures/positive-all-families.json`, as QSpec's
+`proposals/checked-package-v2/README.md` describes, counting the entries
+replayed.
 
 ## Expected Results
 
-The unmutated package and QSpec's published fixtures admit. Each mutation
-returns exactly the code, cause and RFC 6901 locus its criterion names and no
-package; a package with defects in two steps reports the earlier step's
+The unmutated package and QSpec's published fixtures admit. Each authored
+mutation returns exactly the code, cause and RFC 6901 locus its criterion
+names and no package; each `frame_mutations` entry refuses with its
+`expected_code`, `expected_cause` and `expected_locus_digest`, and the count
+replayed equals the count published; a package with defects in two steps reports the earlier step's
 defect.
 
 ## Status

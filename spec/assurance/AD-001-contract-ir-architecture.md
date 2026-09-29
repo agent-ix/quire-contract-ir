@@ -74,17 +74,17 @@ discovery and human release decisions remain outside.
 ### Replay ownership
 
 The counterexample envelope, witness, replay source, FR-331 terminal record
-and obligation identity are QSL's `qsl-replay` types. Contract IR deletes its
-own copies: `CounterexamplePacket`, `PacketIdentity`, `ReplaySource`, the
-replay agreement types, `replay_counterexample`,
-`replay_with_native_runtime`, the `Witness` family, `KaniProviderResult` and
-`KaniProviderRecord`. Its Kani transcript parsing leaves with `Witness` to
-the codegen backend adapter. What stays is the map from each `KaniOutcome`
-to one QSL `TerminalValue` (FR-031). Replay runs only through
-`qsl_replay::replay`, from the codegen replay adapter; Contract IR has no
-dependency on `quire_spec_language::runtime` and calls no executor. The root
-crate takes `qsl-replay` from the QSL repository and revision it already
-pins, so this adds no repository edge.
+and obligation identity are QSL's `qsl-replay` types, and Contract IR defines
+none of them. [FR-039](../interface/FR-039-root-crate-public-interface.md)
+"Items QSL owns" names each root-crate item that therefore has no place in
+the interface; at this revision `src/kani/replay.rs` and `src/kani/witness.rs`
+still define them. Kani transcript parsing is the codegen backend adapter's.
+Contract IR's part is the map from a Kani outcome to a QSL `TerminalValue`
+for the outcomes whose target is decided (FR-031); the others are OQ-3.
+Replay runs only through `qsl_replay::replay`, from the codegen replay
+adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
+calls no executor. The root crate takes `qsl-replay` from the QSL repository
+and revision it already pins, so taking it adds no repository edge.
 
 ## Views
 
@@ -99,7 +99,7 @@ checked owner views -> predicate projection -> explicit Boolean valuation
 checked temporal + observations + valuations -> sibling native/TL requests
 validated native/TL formula results -> structural correspondence join
 exact campaign manifest -> typed graph -> descriptive model + strict re-export
-checked clause + kani-bounded/1 + finite input -> dispatch -> lowering -> KaniOutcome -> qsl_replay::TerminalValue
+checked clause + kani-bounded/1 + finite input -> dispatch -> lowering -> KaniOutcome -> qsl_replay::TerminalValue (decided outcomes)
 schema + corpus manifest + fixtures -> process runner -> JSON Lines results
 ```
 
@@ -151,9 +151,11 @@ migration apply only to the authored-contract interchange.
 ### OQ-1: The root crate's model re-export
 
 `src/lib.rs` describes the root crate as a "Compatibility bridge", and both
-crates re-export whole modules with `pub use …::*` (`pub use
-quire_contract_model::*` in the root; `pub use binding::*` and seven more in
-the model).
+crates re-export whole modules with `pub use …::*`: `pub use
+quire_contract_model::*` in the root, and seven globs in the model
+(`binding`, `canonical`, `checked_package`, `coverage`, `expression`,
+`identity`, `output_mapping`) beside two explicit lists (`conformance`,
+`limits`).
 
 - **(a) Keep the glob re-exports** and reword the doc comment to "owner
   integrations over the model". Cheapest; the public surface stays whatever

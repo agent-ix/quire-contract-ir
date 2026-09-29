@@ -46,9 +46,10 @@ wire (FR-322, FR-340), the seven members are not uniformly missing:
 
 - **Operation frame** already has a published QSpec wire carrier —
   FR-340's `state`/`frame` node, cited by FR-322's own `semantic_graph`
-  Properties — and this repository already admits and lowers it in full
-  ([FR-038-AC-12](./FR-038-consume-checked-package-v2.md) through
-  FR-038-AC-15, TC-053). ADR-002 names it among the seven because
+  Properties — and this repository admits it through
+  [FR-038-AC-12](./FR-038-consume-checked-package-v2.md) through
+  FR-038-AC-15 (TC-053) and
+  [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) (TC-056). ADR-002 names it among the seven because
   `filament-core-data#184`/#193 corrected its *document*-schema shape
   (`Operation.frame`, dotted access-path list → declaration `NodeRef`
   list, per FCD's own FR-141-AC-4); the wire this repository reads was not
@@ -56,7 +57,8 @@ wire (FR-322, FR-340), the seven members are not uniformly missing:
   no new work on this member.
 - **Embedded meaning vocabulary** is FR-208's closed Quire meaning id set,
   and the wire already carries it as `semantic_form` — FR-038 already
-  validates a `model` node against the closed eighteen-meaning list and
+  validates a `model` node against the closed fifteen-form list
+  [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) states and
   every other tag against its own closed form enum, refusing an
   unrecognized value as `invalid_semantic_graph`
   ([FR-038-AC-2](./FR-038-consume-checked-package-v2.md),
@@ -185,7 +187,7 @@ recorded in Dependencies and Status instead.
 | --- | --- | --- |
 | FR-344-AC-1 | A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses `unsupported_node_tag` at `semantic_graph.nodes.node_tag` or `invalid_semantic_graph` at `semantic_graph.nodes.semantic_form`, before any declaration is built and with the document never admitted with the offending node dropped. | Test (TC-222) |
 | FR-344-AC-2 | A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph`, never admitted as an ordinary `relation` term, at `/semantic_graph/nodes/{n}/body` (FR-038's pointer of the node body) in both of its shapes: when the body carries no `term` member at all — the case of `filament-core-data#184`/#193's published population shape — the refusal points at the body object that lacks it, and when it carries a `term` value that matches no arm's own closed member set, at that same body term. | Test (TC-222) |
-| FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which extend a `model`/`field_declaration` node rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at the pointer of the extra member, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
+| FR-344-AC-3 | A `quire.checked-package/v2` document carrying a subsets or redefines edge as an extra top-level member of an already-admitted node — FCD's published `field.subsets` and `field.redefines` shapes, which a producer would attach to the `model`/`object_type` node declaring the field, since the V2 wire has no node of its own for a field, rather than introducing a new `node_tag` or `semantic_form` — refuses `unknown_member` at the pointer of the extra member, in the strict closed-schema decode of the whole wire and therefore before any node tag, form or body of any node is validated, with the document never admitted with the extra member dropped. | Test (TC-222) |
 
 ## Dependencies
 

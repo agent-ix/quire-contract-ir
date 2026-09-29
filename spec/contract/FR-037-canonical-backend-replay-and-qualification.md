@@ -7,6 +7,8 @@ relationships:
     type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-039
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-036
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-197
@@ -24,12 +26,14 @@ relationships:
 
 ## Description
 
-When a backend reports a counterexample for a ContractPackage item, the
-replay of that counterexample shall run through QSL's `qsl-replay` crate: the
-codegen replay adapter builds QSL's `WitnessEnvelope` and `ReplayRequest` and
-calls `qsl_replay::replay` (QSL ADR-011 E9, FR-098). Contract IR shall define
-no replay envelope, replay request, parity verdict or minimization lineage of
-its own, and shall not invoke a replay executor.
+Contract IR shall define no replay envelope, replay request, replay result,
+parity verdict or minimization lineage of its own. When a backend reports a
+counterexample for a ContractPackage item, Contract IR shall not invoke a
+replay executor.
+Replay of that counterexample is QSL's and codegen's: QSL's `qsl-replay` crate
+owns the `WitnessEnvelope`, `ReplayRequest`, `ReplayResult` and the facade
+`qsl_replay::replay` (QSL ADR-011 E9, FR-098), and the codegen replay adapter
+builds the envelope and calls the facade.
 
 ## Inputs
 
@@ -54,7 +58,7 @@ Contract IR's part in a counterexample ends at the typed `KaniOutcome` and its
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, parity verdict or minimization type other than QSL's, and no Contract IR source calls a replay executor. | Test (TC-046) |
+| FR-037-AC-6 | Contract IR's public API names no replay envelope, replay request, replay result, parity verdict or minimization type other than QSL's, and no Contract IR source calls a replay executor. | Test (TC-055) |
 
 ### Retired criteria
 

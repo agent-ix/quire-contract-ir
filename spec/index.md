@@ -88,7 +88,9 @@ selection, the finite input/outcome firewall, module dispatch and artifact
 provenance are implemented against the integrated codegen corpus. That
 implementation applies only to its exact selected finite profile and does not
 qualify unbounded source semantics or another Kani/options selection. Each
-Kani outcome maps to one QSL `qsl_replay::TerminalValue` (FR-031-AC-5).
+Kani outcome whose target is decided maps to one QSL
+`qsl_replay::TerminalValue` (FR-031-AC-5); `Unavailable` and a non-vacuous
+`Inconclusive` await AD-001's OQ-3.
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`
 types, and the codegen replay adapter replays through `qsl_replay::replay`.
