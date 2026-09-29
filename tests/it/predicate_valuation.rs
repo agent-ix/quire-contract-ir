@@ -1,6 +1,6 @@
 use crate::support::result_fixture;
 use ix_trace_rs::trace;
-use quire_contract_ir::bridge::{BridgeDigest, BridgeLimits};
+use quire_contract_ir::bridge::BridgeLimits;
 use quire_contract_ir::predicate::{
     project, read_valuation, value, ExpectedValuation, PredicateCauseCode, PredicateValuationKind,
     TargetSelection,
@@ -44,42 +44,6 @@ fn tc_038_real_owner_mapping_is_the_only_boolean_valuation_source() {
     assert_eq!(decision.value(), Some(true));
     assert!(decision.causes().is_empty());
     assert!(decision.operation().is_none());
-    assert_eq!(
-        decision.availability_contract().revision(),
-        "2bdeb833a330bfa777c19eb4c28c423f856f3ba6"
-    );
-    assert_eq!(
-        decision.availability_contract().schema_digest(),
-        BridgeDigest::raw(quire_observation::authority::availability::SCHEMA_BYTES)
-    );
-    assert_eq!(
-        decision
-            .result_contract()
-            .expect("result selection")
-            .revision(),
-        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
-    );
-    assert_eq!(
-        decision
-            .result_contract()
-            .expect("result selection")
-            .schema_digest(),
-        BridgeDigest::raw(quire_protocol::result::SCHEMA_BYTES)
-    );
-    assert_eq!(
-        decision
-            .mapping_contract()
-            .expect("mapping selection")
-            .revision(),
-        "035fed1a4903dac5d5ef8c08b80195d3f11dadde"
-    );
-    assert_eq!(
-        decision
-            .mapping_contract()
-            .expect("mapping selection")
-            .schema_digest(),
-        BridgeDigest::raw(quire_protocol::result::contract_ir::SCHEMA_BYTES)
-    );
 
     let expected = ExpectedValuation::new(
         projection.validated(),

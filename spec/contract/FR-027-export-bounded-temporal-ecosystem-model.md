@@ -20,12 +20,11 @@ relationships:
 
 ## Description
 
-When an exact merged campaign manifest is selected, the Contract IR ecosystem-model subsystem SHALL strict-read that manifest and export one deterministic bounded description of the temporal ecosystem without executing, authorizing, accepting or certifying any described component.
+When a campaign manifest is selected, the Contract IR ecosystem-model subsystem SHALL strict-read that manifest and export one deterministic bounded description of the temporal ecosystem without executing, authorizing, accepting or certifying any described component.
 
 The input contract is
 `quire.contract.temporal-ecosystem-manifest/v1`; the output contract is
-`quire.contract.temporal-ecosystem-model/v1`. Both publish immutable schema
-bytes and lowercase SHA-256 schema digests.
+`quire.contract.temporal-ecosystem-model/v1`. Both publish JSON Schema bytes.
 
 ## Subsystem and public API
 
@@ -52,26 +51,24 @@ identity and the enclosing byte digest.
 The manifest fixes campaign identity, format version and the complete sorted
 distinct populations of:
 
-- the nine repository identities and exact 40-character lowercase merged
-  revisions;
+- the nine repository identities;
 - runtime components and their owning repository;
 - shared semantic objects, executable interfaces and exact owner contract
   selections;
-- requirements, test cases and review artifacts by immutable identity and
-  revision; and
+- requirements, test cases and review artifacts by identity; and
 - typed ownership, runtime-dependency, normative-reference, consumption and
   verification edges.
 
 The manifest reader rejects an absent campaign member, duplicate or dangling
 node, multiple executable owners for one contract, unknown node/edge kind,
-moving revision, dependency cycle, self-edge where forbidden, schema mismatch,
+dependency cycle, self-edge where forbidden, schema mismatch,
 or any edge whose endpoints do not admit that relation.
 
 ## Model construction and reading
 
 Export sorts every node by `(kind, identity)` and every edge by
 `(kind, source, target)`. The model retains the complete manifest selection,
-node/edge populations, exact contract schema digests, runtime and normative
+node/edge populations, contract selections, runtime and normative
 dependency directions, implementation/test/review links, unresolved gaps and
 its effective limits. It adds no fact not present in the checked manifest
 except deterministic adjacency and topological-order projections.
@@ -83,7 +80,7 @@ from the independently validated manifest and requires byte equality.
 
 Unknown, duplicate, missing or out-of-order fields; trailing data;
 noncanonical JSON; identity/digest mismatch; graph disagreement; same identity
-on unequal bytes; and every foreign campaign/revision/contract selection are
+on unequal bytes; and every foreign campaign or invalid contract selection are
 refused with no partial view.
 
 ## Bounds and failure
@@ -110,18 +107,18 @@ discovery.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-027-AC-1 | The exact nine-repository manifest strict-reads and exports byte-identical models under input permutation; each semantic node/edge/revision/contract mutation changes the applicable model identity. | Test (TC-040) |
-| FR-027-AC-2 | Missing, duplicate, dangling, multiply owned, ill-typed, cyclic, self-forbidden or moving-revision graphs refuse before a validated manifest or partial model is returned. | Test (TC-040) |
-| FR-027-AC-3 | Model reading re-exports from the independently validated manifest and rejects every byte, identity, schema, campaign, revision, count, adjacency and topological-order disagreement. | Test (TC-040) |
+| FR-027-AC-1 | The exact nine-repository manifest strict-reads and exports byte-identical models under input permutation; each semantic node/edge/contract mutation changes the applicable model identity. | Test (TC-040) |
+| FR-027-AC-2 | Missing, duplicate, dangling, multiply owned, ill-typed, cyclic, or self-forbidden graphs refuse before a validated manifest or partial model is returned. | Test (TC-040) |
+| FR-027-AC-3 | Model reading re-exports from the independently validated manifest and rejects every byte, identity, schema, campaign, count, adjacency and topological-order disagreement. | Test (TC-040) |
 | FR-027-AC-4 | Exact and one-over bounds cover every byte/depth/string/node/edge/work dimension, and allocation failure yields one deterministic decision with no retained partial graph. | Test (TC-040) |
 | FR-027-AC-5 | No public constructor, trust flag, callback, parser, evaluator, network lookup or ambient discovery can create a checked manifest/model or route model output into an authority or acceptance input. | Test (TC-040) |
-| FR-027-AC-6 | An improvement proposal retains its source model identity but has no acceptance state and becomes effective only through a distinct externally reviewed owner revision and contract selection. | Test (TC-040) |
+| FR-027-AC-6 | An improvement proposal retains its source model identity but has no acceptance state and becomes effective only through a distinct externally reviewed owner change and contract selection. | Test (TC-040) |
 
 ## Dependencies
 
 FR-016 supplies canonical encoding and digest rules. FR-025 and FR-026 supply
 the complete bridge objects described by the model. The shared semantic objects
-are selected from exact merged `quire-specification` revisions; owner
+are selected from `quire-specification`; owner
 contracts remain in their executable repositories. The application interface
 and non-authority boundary are defined by `tl-syntax` IF-006 and ADR-003.
 

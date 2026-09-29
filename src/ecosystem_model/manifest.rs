@@ -10,7 +10,7 @@ use crate::bridge::{
 
 use super::decision::{ModelCauseCode as Code, ModelDecision};
 use super::graph::{self, ValidatedGraph};
-use super::{MANIFEST_ID_PROFILE, MANIFEST_PROFILE, MANIFEST_SCHEMA_SHA256};
+use super::{MANIFEST_ID_PROFILE, MANIFEST_PROFILE};
 
 /// The exact repository identities in the temporal ecosystem.
 pub const REPOSITORY_IDENTITIES: [&str; 9] = [
@@ -114,46 +114,18 @@ impl Default for EcosystemLimits {
     }
 }
 
-/// One exact repository expected by the campaign reader.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct ExpectedRepository {
-    identity: Box<str>,
-    revision: Box<str>,
-}
-
-impl ExpectedRepository {
-    /// Selects one immutable merged repository revision.
-    #[must_use]
-    pub fn new(identity: impl Into<Box<str>>, revision: impl Into<Box<str>>) -> Self {
-        Self {
-            identity: identity.into(),
-            revision: revision.into(),
-        }
-    }
-}
-
 /// Exact external campaign authority used to admit one manifest.
 #[derive(Clone, Debug)]
 pub struct ExpectedCampaign {
     campaign: Box<str>,
-    repositories: Vec<ExpectedRepository>,
-    manifest_digest: BridgeDigest,
 }
 
 impl ExpectedCampaign {
-    /// Constructs an expectation for exactly nine immutable repositories.
+    /// Constructs an expectation for one campaign.
     #[must_use]
-    pub fn new(
-        campaign: impl Into<Box<str>>,
-        repositories: [ExpectedRepository; 9],
-        manifest_digest: BridgeDigest,
-    ) -> Self {
-        let mut repositories = Vec::from(repositories);
-        repositories.sort();
+    pub fn new(campaign: impl Into<Box<str>>) -> Self {
         Self {
             campaign: campaign.into(),
-            repositories,
-            manifest_digest,
         }
     }
 
@@ -161,12 +133,6 @@ impl ExpectedCampaign {
     #[must_use]
     pub fn campaign(&self) -> &str {
         &self.campaign
-    }
-
-    /// Returns SHA-256 of the exact selected canonical manifest bytes.
-    #[must_use]
-    pub const fn manifest_digest(&self) -> BridgeDigest {
-        self.manifest_digest
     }
 }
 
@@ -176,18 +142,15 @@ impl ExpectedCampaign {
 pub enum ManifestNode {
     Repository {
         identity: String,
-        revision: String,
     },
     Component {
         identity: String,
     },
     Object {
         identity: String,
-        revision: String,
     },
     Interface {
         identity: String,
-        revision: String,
     },
     Contract {
         identity: String,
@@ -195,15 +158,12 @@ pub enum ManifestNode {
     },
     Requirement {
         identity: String,
-        revision: String,
     },
     Test {
         identity: String,
-        revision: String,
     },
     Review {
         identity: String,
-        revision: String,
     },
 }
 
@@ -212,14 +172,14 @@ impl ManifestNode {
     #[must_use]
     pub fn identity(&self) -> &str {
         match self {
-            Self::Repository { identity, .. }
+            Self::Repository { identity }
             | Self::Component { identity }
-            | Self::Object { identity, .. }
-            | Self::Interface { identity, .. }
+            | Self::Object { identity }
+            | Self::Interface { identity }
             | Self::Contract { identity, .. }
-            | Self::Requirement { identity, .. }
-            | Self::Test { identity, .. }
-            | Self::Review { identity, .. } => identity,
+            | Self::Requirement { identity }
+            | Self::Test { identity }
+            | Self::Review { identity } => identity,
         }
     }
 
@@ -276,7 +236,6 @@ pub struct ManifestGap {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManifestWire {
     pub profile: String,
-    pub schema_digest: String,
     pub campaign: String,
     pub nodes: Vec<ManifestNode>,
     pub edges: Vec<ManifestEdge>,
@@ -361,11 +320,11 @@ pub fn read(
     }
     let wire: ManifestWire = canonical::decode(bytes, bridge_limits(limits, true))
         .map_err(|error| map_canonical(error, "manifest"))?;
-    if wire.profile != MANIFEST_PROFILE || wire.schema_digest != MANIFEST_SCHEMA_SHA256 {
+    if wire.profile != MANIFEST_PROFILE {
         return Err(ModelDecision::new(
             Code::ContractMismatch,
             "manifest.contract",
-            "manifest profile or schema digest differs",
+            "manifest profile differs",
         ));
     }
     if wire.campaign != expected.campaign.as_ref() {
@@ -375,15 +334,8 @@ pub fn read(
             "manifest campaign differs from the exact expectation",
         ));
     }
-    validate_populations(&wire, expected, limits)?;
+    validate_populations(&wire, limits)?;
     let byte_digest = BridgeDigest::raw(bytes);
-    if byte_digest != expected.manifest_digest {
-        return Err(ModelDecision::new(
-            Code::CampaignMismatch,
-            "manifest.digest",
-            "manifest bytes differ from the exact selected campaign",
-        ));
-    }
     let graph = graph::validate(&wire.nodes, &wire.edges, &wire.gaps, limits)?;
     let identity = BridgeDigest::domain(MANIFEST_ID_PROFILE, bytes);
     let mut retained = Vec::new();
@@ -400,11 +352,7 @@ pub fn read(
     })
 }
 
-fn validate_populations(
-    wire: &ManifestWire,
-    expected: &ExpectedCampaign,
-    limits: EcosystemLimits,
-) -> Result<(), ModelDecision> {
+fn validate_populations(wire: &ManifestWire, limits: EcosystemLimits) -> Result<(), ModelDecision> {
     let mut counts = [0_u64; 8];
     let mut seen = BTreeSet::new();
     let mut previous = None;
@@ -433,48 +381,28 @@ fn validate_populations(
         }
         previous = Some(key);
         let index = match node {
-            ManifestNode::Repository { identity, revision } => {
-                validate_revision(revision, identity)?;
-                actual_repositories.push(ExpectedRepository::new(
-                    identity.as_str(),
-                    revision.as_str(),
-                ));
+            ManifestNode::Repository { identity } => {
+                actual_repositories.push(identity.as_str());
                 0
             }
             ManifestNode::Component { .. } => 1,
-            ManifestNode::Object { identity, revision } => {
-                validate_revision(revision, identity)?;
-                2
-            }
-            ManifestNode::Interface { identity, revision } => {
-                validate_revision(revision, identity)?;
-                3
-            }
+            ManifestNode::Object { .. } => 2,
+            ManifestNode::Interface { .. } => 3,
             ManifestNode::Contract {
                 identity,
                 selection,
             } => {
                 if !selection.structurally_valid() {
-                    return Err(ModelDecision::new(
-                        Code::MovingRevision,
+                    return Err(invalid(
                         identity.as_str(),
-                        "contract selection is not immutable",
+                        "contract selection is not structurally valid",
                     ));
                 }
                 4
             }
-            ManifestNode::Requirement { identity, revision } => {
-                validate_revision(revision, identity)?;
-                5
-            }
-            ManifestNode::Test { identity, revision } => {
-                validate_revision(revision, identity)?;
-                6
-            }
-            ManifestNode::Review { identity, revision } => {
-                validate_revision(revision, identity)?;
-                7
-            }
+            ManifestNode::Requirement { .. } => 5,
+            ManifestNode::Test { .. } => 6,
+            ManifestNode::Review { .. } => 7,
         };
         counts[index] = counts[index].saturating_add(1);
     }
@@ -498,23 +426,12 @@ fn validate_populations(
             "node-kind population ceiling exceeded",
         ));
     }
-    actual_repositories.sort();
-    let identities: Vec<_> = actual_repositories
-        .iter()
-        .map(|repository| repository.identity.as_ref())
-        .collect();
-    if identities != REPOSITORY_IDENTITIES {
+    actual_repositories.sort_unstable();
+    if actual_repositories != REPOSITORY_IDENTITIES {
         return Err(ModelDecision::new(
             Code::RepositorySetMismatch,
             "manifest.repositories",
             "repository set is not the closed nine-repository ecosystem",
-        ));
-    }
-    if actual_repositories != expected.repositories {
-        return Err(ModelDecision::new(
-            Code::MovingRevision,
-            "manifest.repositories",
-            "repository revisions differ from the exact campaign expectation",
         ));
     }
     if u64_len(wire.edges.len())? > limits.edges || u64_len(wire.gaps.len())? > limits.gaps {
@@ -638,21 +555,6 @@ pub(crate) fn validate_text(
         return Err(invalid(
             path,
             "text is empty, contains controls, or exceeds the selected ceiling",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_revision(value: &str, path: &str) -> Result<(), ModelDecision> {
-    if value.len() != 40
-        || value
-            .bytes()
-            .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-    {
-        return Err(ModelDecision::new(
-            Code::MovingRevision,
-            path,
-            "revision is not an exact 40-character lowercase commit OID",
         ));
     }
     Ok(())

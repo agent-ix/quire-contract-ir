@@ -70,7 +70,7 @@ For each checked leaf, `PredicateRef` is lowercase SHA-256 over
 `quire-contract-ir`, a zero byte, profile
 `quire.contract.native-predicate-ref/v1`, a zero byte, and a canonical tuple of:
 
-- exact QSL handoff contract/schema selection, document identity/digest and
+- QSL handoff contract selection, document identity/digest and
   leaf/parent subject identities;
 - native definition, package, source, clause and expression identities/spans;
 - binding-requirements, model, declaration and typed-expression identities;
@@ -112,7 +112,7 @@ The mapped view must bind the selected predicate/native subject, source result,
 observation/capture/model/population, the four independent progress/closure
 owner assertions, completeness assertion/state/facts, settlement, decision
 support and correction predecessor. All mappings and owner artifacts must select
-exact immutable contracts/schema digests/revisions before content admission.
+their contract, package version and repository before content admission.
 
 Only the owner mapped view's `value:true` or `value:false` produces a `valued`
 decision. Every owner `nonValue` preserves its typed execution/truth/settlement/
@@ -171,11 +171,7 @@ the Contract IR identity, type and canonical foundations.
 
 ## Status
 
-Implemented for `quire-contract-ir#70` and `tl-syntax#52` against immutable QSL
-`f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07`, Quire Observation
-`9ac80e93f4b68a2c7d5a337f9a448ad10de798fc`, Quire Protocol
-`34d1752e6c5f789a52ccf115b0694eedd96cdd46`, and tl-syntax
-`842d82553f045eb69a7f38745756d968254fc25e` owner revisions. TC-038 traces all
+Implemented for `quire-contract-ir#70` and `tl-syntax#52`. TC-038 traces all
 eight acceptance criteria through real owner inputs, strict readers, negative
 identity/join cases, deterministic goldens, corrections, and bounded failure
 paths.

@@ -1,18 +1,14 @@
-//! Immutable owner-contract selections used by bridge decisions.
+//! Owner-contract selections used by bridge decisions.
 
 use serde::{Deserialize, Serialize};
 
-use super::BridgeDigest;
-
-/// Exact immutable owner contract selected before content admission.
+/// Exact owner contract selected before content admission.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractSelection {
     contract: String,
     package_version: String,
     repository: String,
-    revision: String,
-    schema_digest: BridgeDigest,
 }
 
 impl ContractSelection {
@@ -21,15 +17,11 @@ impl ContractSelection {
         contract: impl Into<String>,
         package_version: impl Into<String>,
         repository: impl Into<String>,
-        revision: impl Into<String>,
-        schema_digest: BridgeDigest,
     ) -> Self {
         Self {
             contract: contract.into(),
             package_version: package_version.into(),
             repository: repository.into(),
-            revision: revision.into(),
-            schema_digest,
         }
     }
 
@@ -45,35 +37,18 @@ impl ContractSelection {
         &self.package_version
     }
 
-    /// Returns the immutable repository identity.
+    /// Returns the owning repository identity.
     #[must_use]
     pub fn repository(&self) -> &str {
         &self.repository
     }
 
-    /// Returns the exact 40-character commit OID.
-    #[must_use]
-    pub fn revision(&self) -> &str {
-        &self.revision
-    }
-
-    /// Returns the exact schema-byte digest.
-    #[must_use]
-    pub const fn schema_digest(&self) -> BridgeDigest {
-        self.schema_digest
-    }
-
-    /// Checks the closed immutable selection shape without interpreting content.
+    /// Checks the closed selection shape without interpreting content.
     #[must_use]
     pub fn structurally_valid(&self) -> bool {
         valid_text(&self.contract)
             && valid_text(&self.package_version)
             && valid_text(&self.repository)
-            && self.revision.len() == 40
-            && self
-                .revision
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
     }
 }
 

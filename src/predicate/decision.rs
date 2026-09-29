@@ -112,10 +112,6 @@ pub enum PredicateCauseCode {
     ModelMismatch,
     #[serde(rename = "predicate_population_invalid")]
     PopulationInvalid,
-    #[serde(rename = "predicate_native_contract_conflict")]
-    NativeContractConflict,
-    #[serde(rename = "predicate_target_contract_conflict")]
-    TargetContractConflict,
     #[serde(rename = "predicate_identity_conflict")]
     IdentityConflict,
     #[serde(rename = "predicate_catalog_rejected")]
@@ -170,7 +166,7 @@ pub enum PredicateCauseCode {
 
 impl PredicateCauseCode {
     /// Every closed STD-001 predicate cause code.
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 36] = [
         Self::NativeContractUnavailable,
         Self::TargetContractUnavailable,
         Self::NativeProfileUnsupported,
@@ -182,8 +178,6 @@ impl PredicateCauseCode {
         Self::CheckedLeafMismatch,
         Self::ModelMismatch,
         Self::PopulationInvalid,
-        Self::NativeContractConflict,
-        Self::TargetContractConflict,
         Self::IdentityConflict,
         Self::CatalogRejected,
         Self::MapRejected,
@@ -226,8 +220,6 @@ impl PredicateCauseCode {
             Self::CheckedLeafMismatch => "predicate_checked_leaf_mismatch",
             Self::ModelMismatch => "predicate_model_mismatch",
             Self::PopulationInvalid => "predicate_population_invalid",
-            Self::NativeContractConflict => "predicate_native_contract_conflict",
-            Self::TargetContractConflict => "predicate_target_contract_conflict",
             Self::IdentityConflict => "predicate_identity_conflict",
             Self::CatalogRejected => "predicate_catalog_rejected",
             Self::MapRejected => "predicate_map_rejected",
@@ -947,12 +939,8 @@ pub(crate) fn expected_dimension(code: PredicateCauseCode) -> PredicateCauseDime
     use PredicateCauseCode as C;
     use PredicateCauseDimension as D;
     match code {
-        C::NativeContractUnavailable | C::NativeProfileUnsupported | C::NativeContractConflict => {
-            D::NativeContract
-        }
-        C::TargetContractUnavailable | C::TargetProfileUnsupported | C::TargetContractConflict => {
-            D::TargetContract
-        }
+        C::NativeContractUnavailable | C::NativeProfileUnsupported => D::NativeContract,
+        C::TargetContractUnavailable | C::TargetProfileUnsupported => D::TargetContract,
         C::SourceMismatch => D::Source,
         C::CheckedLeafMismatch => D::CheckedLeaf,
         C::ModelMismatch => D::Model,
@@ -984,14 +972,10 @@ pub(crate) fn expected_dimension(code: PredicateCauseCode) -> PredicateCauseDime
 }
 
 pub(crate) fn projection_kind(causes: &[PredicateCause]) -> PredicateProjectionKind {
-    if causes.iter().any(|cause| {
-        matches!(
-            cause.code,
-            PredicateCauseCode::NativeContractConflict
-                | PredicateCauseCode::TargetContractConflict
-                | PredicateCauseCode::IdentityConflict
-        )
-    }) {
+    if causes
+        .iter()
+        .any(|cause| matches!(cause.code, PredicateCauseCode::IdentityConflict))
+    {
         PredicateProjectionKind::Conflict
     } else if causes.iter().any(|cause| {
         matches!(

@@ -1,6 +1,6 @@
 use crate::support::v2_handoff;
 use ix_trace_rs::trace;
-use quire_contract_ir::bridge::{BridgeDigest, BridgeErrorCode, BridgeLimits, ContractSelection};
+use quire_contract_ir::bridge::{BridgeErrorCode, BridgeLimits, ContractSelection};
 use quire_contract_ir::predicate::{
     project, read_projection, ExpectedProjection, PredicateCause, PredicateCauseCode,
     PredicateCauseDimension, PredicateDecision, PredicateProjectionKind, TargetSelection,
@@ -96,16 +96,16 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .map(|value| value.predicate_ref().to_string())
             .collect::<Vec<_>>(),
         [
-            "069d5eb248ec4ccaae8245980c2abac031565e0b327148ad25ce7b7d5a695b6b",
-            "0c580b3a99ce490d6120a40c75d2b14808ff031a1907dfe82d9b610a1bd7cad7",
-            "11ccafe74076f3c09aeb2314cf293187ea7a57d16eb4b25c29f60d9338de1193",
-            "12bf2808e7c75563da1a70416d71d3535511729254e75fe16f2c611475e31473",
-            "1d8cd5b0cfbc567467ff912f2e650b58475134d0643530830bb4c9db7e74de5c",
-            "517490e4a9534f4eea107efec23804c47a6debefcdc2f4f87916ab363e1c8d0d",
-            "5a8b6d5d3c9313073e084999350b1cab039f10159d5a71976f63b497bfe0a476",
-            "886ecf7dc353d8a961b743ced4147023d439fb66988ec7a4d065cf03fa85fbd7",
-            "a64a472a54724fde696e66bf0a9fe5e6dfe060879b0aa444ec947ac2552d62f7",
-            "db7b76f1b45aebd9114cf614c8803b54aee0240c7e6ce041bed21167c02c39d4",
+            "05e58df9b487902e047b7379f5fb3d4fb627a18d93d1755ccae84567645e3d0a",
+            "30ffb210fe790931fc4f68298d9b77bf7fdf119ccc39dbebc540fefba8737561",
+            "3280f58362a3c6b72f12fb959d57997cd7a4a23d7ebb254e24c7f661503e6481",
+            "350b1315acded936b07676e5c37af86702e891233432947dada0c68d4f484f64",
+            "55ece20f3efb1c70129810264903a196399de34fb97bc31d3547510929a9e4eb",
+            "658629b61b4fabad90950478b4f5bbc7210ab5c707044735ce2837d6839c0243",
+            "6a6d96c1c6a7c604960148538640ca2a1c07d43991fa3d6022c4c874e788e5db",
+            "6dacfc12e8258399065e6c6ddfd18e9fcc893f07e43e2bc449d1fb998c45613f",
+            "f1f1542c576fc0de0c34c4e82cf180882d060bd295f461d5e37e1a4c449db7cb",
+            "f8f3096503d73bfc4108f7c7fa1d945985bcfaaaffff34c617068598d712e34a",
         ]
     );
     assert_eq!(
@@ -114,7 +114,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .signal_catalog_ref()
             .expect("signal ref")
             .to_string(),
-        "53f30bf79214d841d8e529951c8f03902dcc2dacd506546ae6be8ea10f98097d"
+        "cc9787751af760afb20a4997bf46586ecddda39450b65966fdac47c871ddae8d"
     );
     assert_eq!(
         projected
@@ -122,7 +122,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .proposition_map_ref()
             .expect("map ref")
             .to_string(),
-        "2417b49348b6c347de98f894d311b06595df7229a363c505dc0472ac9cb2d6ff"
+        "1f46ef1a5d725421f545904980c47bd18239b3a5a18bc4473f36ec6cf4c42230"
     );
     assert_eq!(
         projected
@@ -130,7 +130,7 @@ fn tc_038_real_owner_projection_is_bijective_deterministic_and_strict_readable()
             .projection_ref()
             .expect("projection ref")
             .to_string(),
-        "e6997e5edf969c8bbded607bd82add69b9b116713c047b60fe83119913c920e9"
+        "7adc230bcdbac6e0b139256bd8d2af89104ae2b3fd8bb743bb1ede539b0e290a"
     );
 
     let catalog = tl_syntax::SignalCatalogDocument::from_json_bytes(
@@ -234,10 +234,8 @@ fn tc_038_projection_rejects_duplicates_bounds_and_wrong_contracts_without_artif
     let current = TargetSelection::current();
     let wrong_native = ContractSelection::new(
         current.native().contract(),
-        current.native().package_version(),
+        "0.0.0",
         current.native().repository(),
-        "0000000000000000000000000000000000000000",
-        current.native().schema_digest(),
     );
     let wrong = TargetSelection::new(
         wrong_native,
@@ -245,7 +243,7 @@ fn tc_038_projection_rejects_duplicates_bounds_and_wrong_contracts_without_artif
         current.proposition_map().clone(),
     );
     let error = project(one, wrong, BridgeLimits::default())
-        .expect_err("wrong exact owner revision must fail");
+        .expect_err("wrong owner package version must fail");
     assert_eq!(
         error.semantic().expect("typed contract refusal").causes()[0].code(),
         PredicateCauseCode::NativeProfileUnsupported
@@ -256,8 +254,6 @@ fn tc_038_projection_rejects_duplicates_bounds_and_wrong_contracts_without_artif
             "",
             current.native().package_version(),
             current.native().repository(),
-            "",
-            current.native().schema_digest(),
         ),
         current.signal_catalog().clone(),
         current.proposition_map().clone(),
@@ -275,28 +271,6 @@ fn tc_038_projection_rejects_duplicates_bounds_and_wrong_contracts_without_artif
             .causes()[0]
             .code(),
         PredicateCauseCode::NativeContractUnavailable
-    );
-
-    let conflict = TargetSelection::new(
-        ContractSelection::new(
-            current.native().contract(),
-            current.native().package_version(),
-            current.native().repository(),
-            current.native().revision(),
-            BridgeDigest::raw(b"conflicting schema bytes"),
-        ),
-        current.signal_catalog().clone(),
-        current.proposition_map().clone(),
-    );
-    let error = project(one, conflict, BridgeLimits::default())
-        .expect_err("same owner identity with unequal schema must conflict");
-    assert_eq!(
-        error.semantic().expect("typed conflict decision").kind(),
-        PredicateProjectionKind::Conflict
-    );
-    assert_eq!(
-        error.semantic().expect("typed conflict decision").causes()[0].code(),
-        PredicateCauseCode::NativeContractConflict
     );
 }
 
@@ -354,39 +328,6 @@ fn tc_038_projection_reader_rejects_noncanonical_unknown_and_trailing_bytes() {
         read_projection(duplicate.as_bytes(), expected(), BridgeLimits::default()),
         Err(PredicateDecision::Operation(_))
     ));
-}
-
-#[trace("TC-038", "FR-025-AC-1", "FR-025-AC-2")]
-#[test]
-fn tc_038_owner_schema_and_selection_digests_are_exact() {
-    let current = TargetSelection::current();
-    // Frozen at the revision whose schema bytes `native` names; hashed into every predicate_ref.
-    assert_eq!(
-        current.native().revision(),
-        "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07"
-    );
-    assert_eq!(
-        current.signal_catalog().revision(),
-        "4a5614193d21e5ae99950ae683b04ba0ec931358"
-    );
-    assert_eq!(
-        current.proposition_map().revision(),
-        "4a5614193d21e5ae99950ae683b04ba0ec931358"
-    );
-    assert_eq!(
-        current.native().schema_digest(),
-        BridgeDigest::parse(checked_predicate::SCHEMA_SHA256).expect("QSL schema digest")
-    );
-    assert_eq!(
-        current.signal_catalog().schema_digest(),
-        BridgeDigest::parse(tl_syntax::SIGNAL_CATALOG_V1_SCHEMA_SHA256)
-            .expect("signal schema digest")
-    );
-    assert_eq!(
-        current.proposition_map().schema_digest(),
-        BridgeDigest::parse(tl_syntax::PROPOSITION_MAP_V1_SCHEMA_SHA256)
-            .expect("map schema digest")
-    );
 }
 
 #[trace("TC-038", "FR-025-AC-4", "STD-001")]

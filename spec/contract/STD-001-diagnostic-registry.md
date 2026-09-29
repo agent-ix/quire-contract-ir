@@ -116,8 +116,6 @@ be used outside those exact allocations.
 | `predicate_checked_leaf_mismatch` | Checked-leaf/parent-subject/clause/binding/declaration/expression identity is stale or unequal | first unequal checked-leaf field |
 | `predicate_model_mismatch` | Model/declaration-closure identity is stale or unequal | model field |
 | `predicate_population_invalid` | Selected predicate population is empty, duplicate, non-distinct, internally inconsistent with its declared members, or over the Contract IR limit; it does not mean formula-atom incompleteness | predicate population |
-| `predicate_native_contract_conflict` | Unequal native contract definitions claim one current contract identity | native contract identity and related candidate |
-| `predicate_target_contract_conflict` | Unequal target definitions claim one current contract identity | target contract identity and related candidate |
 | `predicate_identity_conflict` | Unequal predicate content claims one `PredicateRef` | conflicting predicate identity and related candidate |
 | `predicate_catalog_rejected` | The real signal-catalog strict reader rejects the generated document | catalog field/path |
 | `predicate_map_rejected` | The real proposition-map strict reader rejects the generated document | proposition-map field/path |
@@ -253,10 +251,9 @@ cannot be used outside those allocations.
 | `temporal_result_join_resource_exhausted` | Result-join allocation fails without a partial decision | result-join resource path |
 | `ecosystem_invalid_document` | A manifest or model is malformed, noncanonical, contains trailing data, or violates its closed shape | narrowest document field |
 | `ecosystem_resource_exhausted` | Manifest, graph, model, identity or proposal work exceeds one selected byte/depth/string/population/work/allocation ceiling | resource path |
-| `ecosystem_contract_mismatch` | Manifest/model profile or immutable schema digest differs from the selected v1 contract | contract field |
-| `ecosystem_campaign_mismatch` | Campaign identity or exact selected manifest byte digest differs | campaign or manifest-digest field |
+| `ecosystem_contract_mismatch` | Manifest/model profile differs from the selected v1 contract | contract field |
+| `ecosystem_campaign_mismatch` | Campaign identity differs from the selected campaign | campaign field |
 | `ecosystem_repository_set_mismatch` | Repository identities are not the closed nine-repository ecosystem | repository population |
-| `ecosystem_moving_revision` | A repository, semantic node, evidence node or contract selection does not name an exact selected lowercase merged revision | revision field |
 | `ecosystem_duplicate_node` | One global node identity occurs more than once | duplicate node identity |
 | `ecosystem_duplicate_edge` | One typed source/target edge occurs more than once | duplicate edge tuple |
 | `ecosystem_duplicate_gap` | One unresolved gap occurs more than once | duplicate gap identity |

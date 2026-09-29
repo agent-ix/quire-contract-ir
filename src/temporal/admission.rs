@@ -6,7 +6,7 @@ use quire_observation::authority::{
 use quire_spec_language::protocol_artifact::temporal_subject::ValidatedTemporalSubject;
 
 use crate::{
-    bridge::{BridgeDigest, BridgeError, BridgeErrorCode, BridgeLimits, ContractSelection},
+    bridge::{BridgeError, BridgeErrorCode, BridgeLimits, ContractSelection},
     predicate::{PredicateValuationDecision, ValidatedPredicateProjection},
 };
 
@@ -256,179 +256,80 @@ pub struct TargetSelection {
 impl TargetSelection {
     #[must_use]
     pub fn current() -> Self {
-        const QSL: &str = "9395be4268e650ca2753204d6d306c9cd7b453ec";
-        const TLS: &str = "4a5614193d21e5ae99950ae683b04ba0ec931358";
-        const TLM: &str = "452f013a3168512603d427bce3360bc14c1175a6";
-        const QMLTL: &str = "128929b2e3868861677c6a748e2973e6476c74c3";
-        const QOBS: &str = "2bdeb833a330bfa777c19eb4c28c423f856f3ba6";
-        const QPROTOCOL: &str = "035fed1a4903dac5d5ef8c08b80195d3f11dadde";
-        const QCI_PREDICATE: &str = "202210cf6339208740299ae4050d6f16908d557e";
-        let select = |contract: &str, version: &str, repo: &str, revision: &str, bytes: &[u8]| {
-            ContractSelection::new(contract, version, repo, revision, BridgeDigest::raw(bytes))
+        let select = |contract: &str, version: &str, repo: &str| {
+            ContractSelection::new(contract, version, repo)
         };
         Self {
             native: select(
                 "quire.checked-temporal-subject/v1",
                 "0.2.0",
                 "agent-ix/quire-spec-language",
-                QSL,
-                quire_spec_language::protocol_artifact::temporal_subject::SCHEMA_BYTES,
             ),
             predicate_projection: ContractSelection::new(
                 crate::predicate::PROFILE,
                 "0.1.0",
                 "agent-ix/quire-contract-ir",
-                QCI_PREDICATE,
-                BridgeDigest::raw(include_bytes!(
-                    "../../spec/contract/FR-025-native-predicate-tl-projection.md"
-                )),
             ),
             proposition_map: select(
                 "tl-syntax.proposition-map/v1",
                 "0.1.0",
                 "agent-ix/tl-syntax",
-                TLS,
-                tl_syntax::PROPOSITION_MAP_V1_SCHEMA_BYTES,
             ),
-            formula_v1: select(
-                "tl-syntax.formula/v1",
-                "0.1.0",
-                "agent-ix/tl-syntax",
-                TLS,
-                tl_syntax::FORMULA_V1_SCHEMA_BYTES,
-            ),
-            formula_v2: select(
-                "tl-syntax.formula/v2",
-                "0.1.0",
-                "agent-ix/tl-syntax",
-                TLS,
-                tl_syntax::FORMULA_V2_SCHEMA_BYTES,
-            ),
-            past_operators: select(
-                tl_syntax::PAST_OPERATORS_V1,
-                "0.1.0",
-                "agent-ix/tl-syntax",
-                TLS,
-                tl_syntax::PAST_OPERATORS_V1.as_bytes(),
-            ),
-            position_ledger: select(
-                position::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-observation",
-                QOBS,
-                position::SCHEMA_BYTES,
-            ),
-            clock: select(
-                clock::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-observation",
-                QOBS,
-                clock::SCHEMA_BYTES,
-            ),
-            capture: select(
-                capture::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-observation",
-                QOBS,
-                capture::SCHEMA_BYTES,
-            ),
-            progress: select(
-                progress::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-observation",
-                QOBS,
-                progress::SCHEMA_BYTES,
-            ),
-            closure: select(
-                closure::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-observation",
-                QOBS,
-                closure::SCHEMA_BYTES,
-            ),
+            formula_v1: select("tl-syntax.formula/v1", "0.1.0", "agent-ix/tl-syntax"),
+            formula_v2: select("tl-syntax.formula/v2", "0.1.0", "agent-ix/tl-syntax"),
+            past_operators: select(tl_syntax::PAST_OPERATORS_V1, "0.1.0", "agent-ix/tl-syntax"),
+            position_ledger: select(position::CONTRACT, "0.1.0", "agent-ix/quire-observation"),
+            clock: select(clock::CONTRACT, "0.1.0", "agent-ix/quire-observation"),
+            capture: select(capture::CONTRACT, "0.1.0", "agent-ix/quire-observation"),
+            progress: select(progress::CONTRACT, "0.1.0", "agent-ix/quire-observation"),
+            closure: select(closure::CONTRACT, "0.1.0", "agent-ix/quire-observation"),
             completeness: select(
                 completeness::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-observation",
-                QOBS,
-                completeness::SCHEMA_BYTES,
             ),
             availability: select(
                 availability::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-observation",
-                QOBS,
-                availability::SCHEMA_BYTES,
             ),
-            trace: select(
-                tl_mltl::wire::trace::CONTRACT,
-                "0.1.0",
-                "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::wire::trace::SCHEMA_BYTES,
-            ),
-            history: select(
-                tl_mltl::POSITION_HISTORY_V1,
-                "0.1.0",
-                "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::past::history::SCHEMA_BYTES,
-            ),
+            trace: select(tl_mltl::wire::trace::CONTRACT, "0.1.0", "agent-ix/tl-mltl"),
+            history: select(tl_mltl::POSITION_HISTORY_V1, "0.1.0", "agent-ix/tl-mltl"),
             history_requirement: select(
                 tl_mltl::HISTORY_REQUIREMENT_V1,
                 "0.1.0",
                 "agent-ix/tl-mltl",
-                TLM,
-                tl_mltl::past::requirement::SCHEMA_BYTES,
             ),
             request: select(
                 quire_mltl::request::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-mltl",
-                QMLTL,
-                quire_mltl::request::SCHEMA_BYTES,
             ),
-            evaluator_report: select(
-                quire_mltl::report::CONTRACT,
-                "0.1.0",
-                "agent-ix/quire-mltl",
-                QMLTL,
-                quire_mltl::report::SCHEMA_BYTES,
-            ),
+            evaluator_report: select(quire_mltl::report::CONTRACT, "0.1.0", "agent-ix/quire-mltl"),
             native_result: select(
                 quire_spec_language::protocol_artifact::native_temporal::result::CONTRACT,
                 "0.2.0",
                 "agent-ix/quire-spec-language",
-                QSL,
-                quire_spec_language::protocol_artifact::native_temporal::result::SCHEMA_BYTES,
             ),
             native_request: select(
                 quire_spec_language::protocol_artifact::native_temporal::request::CONTRACT,
                 "0.2.0",
                 "agent-ix/quire-spec-language",
-                QSL,
-                quire_spec_language::protocol_artifact::native_temporal::request::SCHEMA_BYTES,
             ),
             protocol_result: select(
                 quire_protocol::result::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-protocol",
-                QPROTOCOL,
-                quire_protocol::result::SCHEMA_BYTES,
             ),
             protocol_mapping: select(
                 quire_protocol::result::contract_ir::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-protocol",
-                QPROTOCOL,
-                quire_protocol::result::contract_ir::SCHEMA_BYTES,
             ),
             tl_mapping: select(
                 quire_mltl::contract_ir::CONTRACT,
                 "0.1.0",
                 "agent-ix/quire-mltl",
-                QMLTL,
-                quire_mltl::contract_ir::SCHEMA_BYTES,
             ),
         }
     }
@@ -657,9 +558,7 @@ fn validate_target(target: &TargetSelection, limits: BridgeLimits) -> Result<(),
             continue;
         }
         let (dimension, unsupported, unavailable, conflict) = axis.cause_codes();
-        let code = if !selected.structurally_valid()
-            || selected.schema_digest() != expected.schema_digest()
-        {
+        let code = if !selected.structurally_valid() {
             conflict
         } else if selected.contract() != expected.contract() {
             unsupported

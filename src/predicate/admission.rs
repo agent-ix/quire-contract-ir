@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use quire_spec_language::protocol_artifact::checked_predicate::ValidatedCheckedPredicate;
 
-use crate::bridge::{BridgeDigest, BridgeErrorCode, BridgeLimits, ContractSelection};
+use crate::bridge::{BridgeErrorCode, BridgeLimits, ContractSelection};
 
 use super::{
     artifacts::{build, finish_projection},
@@ -43,31 +43,16 @@ impl TargetSelection {
     #[must_use]
     pub fn current() -> Self {
         Self::new(
-            // Intentionally frozen at the QSL revision whose schema bytes it
-            // names (they are unchanged since); the revision string is hashed
-            // into every predicate_ref, so moving it changes them all.
             ContractSelection::new(
                 "quire.checked-predicate/v1",
                 "0.2.0",
                 "agent-ix/quire-spec-language",
-                "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07",
-                BridgeDigest::raw(
-                    quire_spec_language::protocol_artifact::checked_predicate::SCHEMA_BYTES,
-                ),
             ),
-            ContractSelection::new(
-                "tl-syntax.signal-catalog/v1",
-                "0.1.0",
-                "agent-ix/tl-syntax",
-                "4a5614193d21e5ae99950ae683b04ba0ec931358",
-                BridgeDigest::raw(tl_syntax::SIGNAL_CATALOG_V1_SCHEMA_BYTES),
-            ),
+            ContractSelection::new("tl-syntax.signal-catalog/v1", "0.1.0", "agent-ix/tl-syntax"),
             ContractSelection::new(
                 "tl-syntax.proposition-map/v1",
                 "0.1.0",
                 "agent-ix/tl-syntax",
-                "4a5614193d21e5ae99950ae683b04ba0ec931358",
-                BridgeDigest::raw(tl_syntax::PROPOSITION_MAP_V1_SCHEMA_BYTES),
             ),
         )
     }
@@ -246,7 +231,6 @@ fn selection_causes(target: &TargetSelection) -> Vec<PredicateCause> {
         &current.native,
         PredicateCauseCode::NativeContractUnavailable,
         PredicateCauseCode::NativeProfileUnsupported,
-        PredicateCauseCode::NativeContractConflict,
     )
     .into_iter()
     .collect::<Vec<_>>();
@@ -259,7 +243,6 @@ fn selection_causes(target: &TargetSelection) -> Vec<PredicateCause> {
             expected,
             PredicateCauseCode::TargetContractUnavailable,
             PredicateCauseCode::TargetProfileUnsupported,
-            PredicateCauseCode::TargetContractConflict,
         ) {
             causes.push(cause);
         }
@@ -273,27 +256,15 @@ fn selection_cause(
     expected: &ContractSelection,
     unavailable: PredicateCauseCode,
     unsupported: PredicateCauseCode,
-    conflict: PredicateCauseCode,
 ) -> Option<PredicateCause> {
     let code = if !selected.structurally_valid() {
         unavailable
-    } else if selected.contract() == expected.contract()
-        && selected.package_version() == expected.package_version()
-        && selected.repository() == expected.repository()
-        && selected.revision() == expected.revision()
-        && selected.schema_digest() != expected.schema_digest()
-    {
-        conflict
     } else if selected != expected {
         unsupported
     } else {
         return None;
     };
-    Some(PredicateCause::assigned(
-        code,
-        selected.contract(),
-        (!selected.revision().is_empty()).then(|| selected.revision().to_owned()),
-    ))
+    Some(PredicateCause::assigned(code, selected.contract(), None))
 }
 
 fn rejection(mut causes: Vec<PredicateCause>, limits: BridgeLimits) -> PredicateDecision {

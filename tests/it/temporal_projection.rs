@@ -1,7 +1,7 @@
 use crate::support::{result_fixture, temporal_fixture};
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    bridge::{BridgeDigest, BridgeLimits, ContractSelection},
+    bridge::{BridgeLimits, ContractSelection},
     predicate,
     temporal::{
         self, ExpectedTemporalJoin, ExpectedTemporalProjection, ObservationViews,
@@ -1383,8 +1383,6 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             format!("{}.unknown", selected.contract()),
             selected.package_version(),
             selected.repository(),
-            selected.revision(),
-            selected.schema_digest(),
         );
         assert_selection_refusal(
             fixture.temporal(),
@@ -1395,13 +1393,8 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             dimension,
             unsupported,
         );
-        let unavailable_selection = ContractSelection::new(
-            selected.contract(),
-            selected.package_version(),
-            selected.repository(),
-            "0000000000000000000000000000000000000000",
-            selected.schema_digest(),
-        );
+        let unavailable_selection =
+            ContractSelection::new(selected.contract(), "0.0.0", selected.repository());
         assert_selection_refusal(
             fixture.temporal(),
             predicates.validated(),
@@ -1411,13 +1404,8 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             dimension,
             unavailable,
         );
-        let conflict_selection = ContractSelection::new(
-            selected.contract(),
-            selected.package_version(),
-            selected.repository(),
-            selected.revision(),
-            BridgeDigest::raw(b"wrong-schema"),
-        );
+        let conflict_selection =
+            ContractSelection::new(selected.contract(), selected.package_version(), "");
         assert_selection_refusal(
             fixture.temporal(),
             predicates.validated(),
