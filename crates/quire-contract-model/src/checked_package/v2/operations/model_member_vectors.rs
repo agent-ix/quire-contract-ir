@@ -394,6 +394,8 @@ fn cause_wire(cause: crate::checked_package::shared::CheckedPackageRefusalCause)
         Cause::DigestDomainMismatch => "digest-domain-mismatch",
         Cause::ByteDigestMismatch => "byte-digest-mismatch",
         Cause::WrongModelSelection => "wrong-model-selection",
+        Cause::MissingName => "missing-name",
+        Cause::MalformedDeclaration => "malformed-declaration",
         other => panic!("no vector names {other:?}"),
     }
 }
@@ -802,4 +804,287 @@ fn tc_281_record_projection_reads_a_model_field_over_a_deref_result() {
         }
     }
     println!("conformance: {} model projection cases", cases.len());
+}
+
+/// A wire node of `tag`/`form` keyed `digest`, with its dependencies and
+/// body; its occurrences are left empty (the state and frame steps read
+/// none).
+fn state_node(
+    digest: &str,
+    tag: &str,
+    form: &str,
+    semantic_type: &str,
+    dependencies: &[&str],
+    body: Value,
+) -> Value {
+    json!({
+        "node_id": node_ref(digest),
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": tag,
+        "semantic_form": form,
+        "semantic_type": node_ref(semantic_type),
+        "dependencies": dependencies.iter().map(|dependency| node_ref(dependency)).collect::<Vec<_>>(),
+        "occurrences": [],
+        "body": body,
+    })
+}
+
+fn state_binding(name: &str, value: Value) -> Value {
+    json!({"term": "binding", "name": name, "value": value})
+}
+
+/// The operation anchor body naming `context`, `operation` and `frame`.
+fn anchor_body(context: &str, operation: &str, frame: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        state_binding("context", reference(context)),
+        state_binding("operation", {
+            json!({"term": "literal", "type": node_ref(&"7e".repeat(32)), "value_kind": "text", "value": operation})
+        }),
+        state_binding("frame", reference(frame)),
+    ]})
+}
+
+/// Which step decides a case.
+#[derive(Clone, Copy)]
+enum Step {
+    Frame,
+    State,
+}
+
+/// The frame or state step over `graph`: `None` when admitted, else the
+/// refusal's `{code, cause}` as the vectors spell it.
+fn decide_step(graph: &CaseGraph, owners: &ModelOwners<'_>, step: Step) -> Option<Value> {
+    let nodes: Vec<CheckedSemanticNodeV2> = graph
+        .nodes
+        .iter()
+        .map(|node| serde_json::from_value(node.clone()).expect("a case node"))
+        .collect();
+    let kinds: Vec<CheckedNodeKind> = nodes
+        .iter()
+        .map(|node| {
+            let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("tag");
+            CheckedNodeKind::decode(tag, &node.semantic_form).expect("form")
+        })
+        .collect();
+    let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    let mut meter = WorkMeter::new(u64::MAX);
+    let outcome = match step {
+        Step::Frame => super::super::frame::validate_frame_semantics(
+            &nodes, &kinds, &index, owners, &mut meter,
+        ),
+        Step::State => {
+            super::super::state::validate_state(&nodes, &kinds, &index, owners, &mut meter)
+        }
+    };
+    match outcome {
+        Ok(()) => None,
+        Err(crate::checked_package::common::ValidationFailure::Refused(refusal)) => {
+            Some(json!({"refused": {
+                "code": code_wire(refusal.code),
+                "cause": cause_wire(refusal.cause.expect("a cause")),
+            }}))
+        }
+        Err(other) => panic!("no limit is reached: {other:?}"),
+    }
+}
+
+/// Every published model declaration node, as wire nodes.
+fn model_graph(vectors: &Value) -> CaseGraph {
+    let mut graph = CaseGraph::default();
+    for vector in array(vectors, "model_declaration_nodes") {
+        graph.model_node(vector);
+    }
+    graph
+}
+
+/// The owner node a vector name's declaration node recovers.
+fn owner_node<'v>(vectors: &'v Value, name: &str) -> &'v str {
+    text(&node_vector(vectors, name)["preimage"]["owner"], "node")
+}
+
+/// TC-280 (FR-340-AC-13, FR-040-AC-3): a frame's field entry resolves among
+/// the exposed effective fields of its declaring object type, decided by the
+/// reader's frame step.
+#[test]
+fn tc_280_frame_field_cases_resolve_through_the_frame_step() {
+    let Some((vectors, _)) = vectors() else {
+        return;
+    };
+    let model = read_projection(&vectors["domain_package"]);
+    let owners = owners_of(&model);
+    let cases = array(&vectors, "frame_field_cases");
+    for case in cases {
+        let name = text(case, "name");
+        let declaration = text(node_vector(&vectors, text(case, "declaration")), "sha256");
+        let mut graph = model_graph(&vectors);
+        graph.nodes.push(state_node(
+            &"f1".repeat(32),
+            "state",
+            "frame",
+            declaration,
+            &[declaration],
+            json!({"term": "frame", "creates": [], "deletes": [], "modifies": [
+                {"kind": "field", "declaration": node_ref(declaration), "name": text(case, "field")},
+            ]}),
+        ));
+        let decided = decide_step(&graph, &owners, Step::Frame);
+        match case["expected"].get("resolves") {
+            Some(resolves) => {
+                assert_eq!(decided, None, "{name} is admitted");
+                let mut meter = WorkMeter::new(u64::MAX);
+                let resolved = model
+                    .resolve(
+                        owner_node(&vectors, text(case, "declaration")),
+                        MemberKind::Field,
+                        text(case, "field"),
+                        &mut Budget::new(&mut meter, 0),
+                    )
+                    .expect("the field resolves");
+                assert_eq!(resolved.identity(), resolves.as_str().expect("identity"), "{name}");
+            }
+            None => assert_eq!(decided.as_ref(), Some(&case["expected"]), "{name}"),
+        }
+    }
+    println!("conformance: {} model frame field cases", cases.len());
+}
+
+/// An anchor over `context` naming `operation`, with its frame: the frame
+/// key and the anchor key.
+fn add_anchor(graph: &mut CaseGraph, context: &str, operation: &str) -> (String, String) {
+    let frame = "f2".repeat(32);
+    let anchor = "a2".repeat(32);
+    graph.nodes.push(state_node(
+        &frame,
+        "state",
+        "frame",
+        context,
+        &[],
+        json!({"term": "frame", "creates": [], "deletes": [], "modifies": []}),
+    ));
+    graph.nodes.push(state_node(
+        &anchor,
+        "state",
+        "operation_anchor",
+        context,
+        &[context, &frame],
+        anchor_body(context, operation, &frame),
+    ));
+    (frame, anchor)
+}
+
+/// TC-280 (FR-342-AC-4, FR-040-AC-7): an anchor's operation resolves among
+/// its context's exposed operations to one the context declares, decided by
+/// the reader's state step.
+#[test]
+fn tc_280_anchor_cases_resolve_through_the_state_step() {
+    let Some((vectors, _)) = vectors() else {
+        return;
+    };
+    let model = read_projection(&vectors["domain_package"]);
+    let owners = owners_of(&model);
+    let cases = array(&vectors, "anchor_cases");
+    for case in cases {
+        let name = text(case, "name");
+        let context = text(node_vector(&vectors, text(case, "context")), "sha256");
+        let mut graph = model_graph(&vectors);
+        add_anchor(&mut graph, context, text(case, "operation"));
+        let decided = decide_step(&graph, &owners, Step::State);
+        match case["expected"].get("resolves") {
+            Some(resolves) => {
+                assert_eq!(decided, None, "{name} is admitted");
+                let mut meter = WorkMeter::new(u64::MAX);
+                let resolved = model
+                    .resolve(
+                        owner_node(&vectors, text(case, "context")),
+                        MemberKind::Operation,
+                        text(case, "operation"),
+                        &mut Budget::new(&mut meter, 0),
+                    )
+                    .expect("the operation resolves");
+                assert_eq!(resolved.identity(), resolves.as_str().expect("identity"), "{name}");
+            }
+            None => assert_eq!(decided.as_ref(), Some(&case["expected"]), "{name}"),
+        }
+    }
+    println!("conformance: {} model anchor cases", cases.len());
+}
+
+/// TC-280 (FR-341-AC-5, FR-040-AC-9): a clause's parameters are `self`,
+/// then the resolved operation's result for a postcondition, then its
+/// parameters, each of its derived type, decided by the reader's state step.
+#[test]
+fn tc_280_clause_signature_cases_type_through_the_state_step() {
+    let Some((vectors, _)) = vectors() else {
+        return;
+    };
+    let model = read_projection(&vectors["domain_package"]);
+    let owners = owners_of(&model);
+    let cases = array(&vectors, "clause_signature_cases");
+    for case in cases {
+        let name = text(case, "name");
+        let clause = text(case, "clause");
+        let context = text(node_vector(&vectors, text(case, "context")), "sha256");
+        let mut graph = model_graph(&vectors);
+        let anchor = match case["operation"].as_str() {
+            Some(operation) => add_anchor(&mut graph, context, operation).1,
+            None => context.to_owned(),
+        };
+        let parameters: Vec<String> = array(case, "parameters")
+            .iter()
+            .enumerate()
+            .map(|(level, parameter)| {
+                let type_key = match parameter["reference"].as_str() {
+                    Some(target) => {
+                        graph.reference_type(text(node_vector(&vectors, target), "sha256"))
+                    }
+                    None => member_type(parameter).node_key(),
+                };
+                let key = format!("{:02x}", 0xd0 + level).repeat(32);
+                graph.nodes.push(state_node(
+                    &key,
+                    "value",
+                    "parameter",
+                    &type_key,
+                    &[],
+                    json!({"term": "aggregate", "members": []}),
+                ));
+                key
+            })
+            .collect();
+        let condition = MemberType::Boolean.node_key();
+        let mut dependencies: Vec<&str> = parameters
+            .iter()
+            .map(String::as_str)
+            .chain([anchor.as_str(), condition.as_str()])
+            .collect();
+        dependencies.sort_unstable();
+        dependencies.dedup();
+        graph.nodes.push(state_node(
+            &"c0".repeat(32),
+            "state",
+            "state_clause",
+            &condition,
+            &dependencies,
+            json!({
+                "term": "application",
+                "operator": "state_clause",
+                "operation": {"identity": "quire.op.state.clause", "laws": [], "mode": null,
+                    "member": {"kind": "state_clause", "clause": clause}, "leaves": []},
+                "result_type": node_ref(&condition),
+                "arguments": [
+                    {"term": "aggregate", "members": parameters.iter().map(|key| reference(key)).collect::<Vec<_>>()},
+                    reference(&anchor),
+                    reference(&condition),
+                ],
+            }),
+        ));
+        let decided =
+            decide_step(&graph, &owners, Step::State).unwrap_or_else(|| json!({"admitted": true}));
+        assert_eq!(decided, case["expected"], "{name}");
+    }
+    println!("conformance: {} model clause signature cases", cases.len());
 }
