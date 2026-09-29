@@ -34,16 +34,17 @@ or canonicalization semantics.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
-- The implemented checked-predicate and temporal-clause compatibility bridges
-  from native Quire contracts to exact supported TL profiles.
+- The implemented checked-predicate and temporal-clause correspondence
+  bridges from native Quire contracts to exact supported TL profiles.
 - The bounded, non-authoritative export of the exact temporal-ecosystem
   component/object/interface/contract/evidence graph.
-- The cycle-free semantic-model package and compatibility bridge boundary.
+- The cycle-free `quire-contract-model` package and the `quire-contract-ir`
+  root crate, each with its own public item list and no item under two paths.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 - A versioned bounded-Kani profile boundary for finite checked native clauses,
   including explicit support/refusal/inconclusive capability classification,
-  finite input validation, typed outcomes, provenance, and the map from each
-  outcome to its QSL terminal value.
+  finite input validation, the dispatch index, typed outcomes, provenance, and
+  the map from each outcome to its QSL terminal value.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
   mapper seam, atomic generated-package assembler, and downstream observer reference.
 
@@ -51,6 +52,8 @@ or canonicalization semantics.
 
 - Native/TL source parsing, semantic evaluation, rewriting, code generation,
   solver execution or production monitoring.
+- The Kani family lowerings for checked arithmetic, collections and objects,
+  which are the codegen backend adapter's.
 - A universal producer runner, common evidence envelope/store, or parallel
   human-decision mechanism.
 - The eight downstream repository migrations.
@@ -83,14 +86,18 @@ with it; the identifier is not reused. TM-001 maps them to automated tests or re
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
 FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
-FR-029 through FR-031 define the bounded-Kani extension boundary. Profile
-selection, the finite input/outcome firewall, module dispatch and artifact
-provenance are implemented against the integrated codegen corpus. That
-implementation applies only to its exact selected finite profile and does not
-qualify unbounded source semantics or another Kani/options selection. Each
-Kani outcome whose target is decided maps to one QSL
-`qsl_replay::TerminalValue` (FR-031-AC-5); `Unavailable` and a non-vacuous
-`Inconclusive` await AD-001's OQ-3.
+FR-029 through FR-031 define the bounded-Kani extension boundary: the
+profile, finite input ABI, dispatch index, typed outcome and provenance. The
+family lowerings behind the dispatch index are the codegen backend adapter's.
+Profile selection, the finite input/outcome firewall, module dispatch and
+artifact provenance are implemented against the integrated codegen corpus.
+That implementation applies only to its exact selected finite profile and
+does not qualify unbounded source semantics or another Kani/options
+selection. Each Kani outcome maps to one QSL `qsl_replay::TerminalValue`
+(FR-031-AC-5): `Unavailable` by its solver-absent or backend-absent cause
+code (FR-030) to `Unsupported`, and a non-vacuous `Inconclusive` to QSL's
+inconclusive arm, or to a typed absence while the pinned `qsl-replay` has
+none.
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`
 types, and the codegen replay adapter replays through `qsl_replay::replay`.
@@ -111,8 +118,9 @@ strict reader that parses `contract_version` once, admits only
 identity, and lowers admitted items independently per request. FR-040 admits
 QSpec FR-340's frame `modifies` entries, FR-342's operation anchors and
 FR-341's state clause and parameter bodies in that reader, and FR-344 refuses
-the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-039 states the
-root crate's public interface. AD-001 is the repository architecture and
+the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-019 lists the
+model crate's public items and FR-039 the root crate's; the root crate
+re-exports no model item, so each public item has one import path. AD-001 is the repository architecture and
 versioning description; AD-002 and AD-003 are views inside it.
 STD-001 is the stable diagnostic code registry and STD-003 the closed
 output-mapping refusal registry. ADR-0053 fixes the formal clause source
@@ -124,8 +132,8 @@ TM-002 maps the substrate to staged verification.
 FR-025 implements the checked-predicate-to-Boolean-signal correspondence;
 FR-026 implements the native-temporal correspondence boundary. FR-027
 implements bounded non-authoritative observational model export, and
-FR-028 makes the owner/bridge dependency graph implementable without a Cargo
-cycle. None makes TL a user-authored Quire language or grants model output
+FR-028 makes the model/owner/root dependency graph implementable without a
+Cargo cycle. None makes TL a user-authored Quire language or grants model output
 authority over owner inputs, execution, evidence acceptance, or release.
 
 ## References
@@ -164,3 +172,4 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
 - [Frame entry and state clause test case](contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md).
 - [QSpec node-identity vector test case](contract/TC-057-qspec-node-identity-vectors.md).
+- [Model crate interface test case](contract/TC-058-model-crate-public-interface.md).

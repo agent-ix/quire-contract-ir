@@ -13,6 +13,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-spec-language/ADR-011
     type: references
+  - target: ix://agent-ix/quire-contract-codegen/ADR-002
+    type: references
 ---
 # FR-039: Expose the quire-contract-ir root crate's bridge, correspondence and bounded-Kani interface
 
@@ -28,9 +30,9 @@ modules:
   - temporal        # FR-026 native temporal to TL correspondence
   - ecosystem_model # FR-027 bounded non-authoritative ecosystem model
   - kani            # FR-029..FR-031 kani-bounded/1 profile boundary
-re_exports:
-  - quire_contract_model::* # FR-019 governs that surface
+re_exports: [] # model items are imported from quire_contract_model (FR-019)
 invariants:
+  - no public item is a quire_contract_model item under a second path
   - no public item is a QSL runtime type, and nothing calls quire_spec_language::runtime
   - replay, witness, counterexample-envelope, terminal-record and obligation-identity types are qsl_replay's
   - every conversion from untrusted input is fallible and returns a typed error
@@ -43,7 +45,8 @@ compatibility:
 ## Description
 
 The `quire-contract-ir` root crate shall expose exactly the public items
-listed below, beside the model re-export
+listed below and shall re-export no `quire_contract_model` item: the model's
+public items have one import path, `quire_contract_model`, which
 [FR-019](./FR-019-rust-library-interface.md) governs. It shall expose no
 counterexample packet, witness, replay source, replay agreement, terminal
 record or obligation identity of its own: those are QSL `qsl-replay` types,
@@ -60,9 +63,11 @@ caller-selected `BridgeLimits`.
 ## Outputs
 
 Validated projections, joins and model documents; typed `BridgeError` and
-decision values; bounded-Kani lowerings and typed `KaniOutcome`s; and, for
-each outcome, either its QSL `TerminalValue` (an outcome whose target FR-031
-decides) or a typed absence (an outcome FR-031 leaves to AD-001's OQ-3).
+decision values; the `kani-bounded/1` profile selection, validated finite
+inputs, dispatch routes, provenance and typed `KaniOutcome`s; and, for each
+outcome, either its QSL `TerminalValue` or, for a non-vacuous `Inconclusive`
+while the pinned `qsl_replay::TerminalValue` has no inconclusive arm, a typed
+absence (FR-031).
 
 ## Behavior
 
@@ -77,8 +82,7 @@ decides) or a typed absence (an outcome FR-031 leaves to AD-001's OQ-3).
 | `ecosystem_model::manifest` | function `read`; constants `REPOSITORY_IDENTITIES`, `OWNER_MAX`; and the same eight types the `ecosystem_model` row re-exports from it (`CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`) | FR-027 |
 | `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
 | `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind` | FR-030 |
-| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function from a `KaniOutcome` to its `qsl_replay::TerminalValue` or a typed absence, defined on the outcomes FR-031's map lists | FR-031 |
-| `kani` | functions `lower_checked_arithmetic`, `lower_query`, `lower_reaches`; types `ArithmeticLowering`, `CheckedArithmeticRequest`, `CollectionLowering`, `CollectionQuery`, `QueryKind`, `GraphLowering`, `GraphRequest` | FR-031; placement is AD-001 OQ-2 |
+| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function from a `KaniOutcome` to its `qsl_replay::TerminalValue` or a typed absence, as FR-031's map gives it | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.
@@ -87,6 +91,17 @@ The root crate takes `qsl-replay` from the same QSL repository and revision
 it already pins for its owner views, so taking `qsl-replay` adds no
 repository edge.
 It has no dependency on `quire_spec_language::runtime`.
+
+### Items codegen owns
+
+`lower_checked_arithmetic`, `lower_query`, `lower_reaches`,
+`ArithmeticLowering`, `CheckedArithmeticRequest`, `CollectionLowering`,
+`CollectionQuery`, `QueryKind`, `GraphLowering` and `GraphRequest` are not
+part of this interface. The family lowerings for checked arithmetic,
+collections and objects are codegen's backend adapter's
+(quire-contract-codegen `spec/decisions/ADR-002-backend-adapter-boundary.md`
+and `spec/functional/FR-007-bounded-kani-profile-corpus.md`), and the root
+crate has no `arithmetic`, `collections` or `objects` module.
 
 ### Items QSL owns
 
@@ -112,16 +127,17 @@ caller-selected and clamped to the owner maxima.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-039-AC-1 | The root crate's public items outside the `quire_contract_model` re-export are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item. | Test (TC-055) |
+| FR-039-AC-1 | The root crate's public items are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item; `src/lib.rs` re-exports no `quire_contract_model` item, and code naming a model item through `quire_contract_ir` fails to compile. | Test (TC-055) |
 | FR-039-AC-2 | No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `quire_spec_language::runtime`. | Test (TC-055) |
-| FR-039-AC-3 | Code naming any item the "Items QSL owns" section lists through `quire_contract_ir` fails to compile, and the value the `kani` outcome map returns for an outcome whose target is decided is a `qsl_replay::TerminalValue`, while for an undecided outcome it is the typed absence. | Test (TC-055) |
+| FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and the value the `kani` outcome map returns is a `qsl_replay::TerminalValue` for every outcome FR-031's table maps, while for a non-vacuous `Inconclusive` it is the typed absence. | Test (TC-055) |
 | FR-039-AC-4 | `BridgeErrorCode::all()` lists every variant exactly once, each `as_str()` spelling is registered in STD-001, and every public `bridge`, `predicate`, `temporal`, `ecosystem_model` and `kani` function over untrusted input returns a typed error with no public panic path under the negative corpora of TC-038 through TC-042. | Test (TC-055) |
 
 ## Dependencies
 
-[FR-019](./FR-019-rust-library-interface.md) governs the re-exported model
-surface. [FR-028](../contract/FR-028-separate-cycle-free-contract-model.md)
-fixes the model/bridge package split. [AD-001](../assurance/AD-001-contract-ir-architecture.md)
-records the module boundaries, the QSL replay-type ownership and the open
-questions on the model re-export (OQ-1) and the Kani lowering placement
-(OQ-2).
+[FR-019](./FR-019-rust-library-interface.md) governs the model crate's
+surface, which this crate does not re-export.
+[FR-028](../contract/FR-028-separate-cycle-free-contract-model.md) fixes the
+model/root package split. [AD-001](../assurance/AD-001-contract-ir-architecture.md)
+records the module boundaries, the one-path rule for public items, the
+QSL replay-type ownership and the placement of the Kani family lowerings in
+codegen's backend adapter.

@@ -14,6 +14,7 @@ relationships:
 name: ContractIrRustApi
 version: quire-contract-ir-v0.1
 ownership: quire-contract-ir
+crate: quire-contract-model
 inputs:
   - unvalidated package values
   - validation options
@@ -37,7 +38,7 @@ compatibility:
 
 ## Description
 
-The crate shall expose construction, validation, dependency derivation,
+The `quire-contract-model` crate shall expose construction, validation, dependency derivation,
 canonicalization, digest, migration, and coverage-classification operations
 without exposing mutable internal caches or downstream engine types.
 
@@ -53,8 +54,13 @@ dependency sets, and coverage classifications.
 
 ## Behavior
 
-The stable v0.1 surface is the public API re-exported by `quire_contract_ir`
-in a default-feature build. The model crate's `fault-injection` feature is
+The stable v0.1 surface is the public API of `quire_contract_model` in a
+default-feature build: exactly the items the Public items table below lists.
+The crate root re-exports each of them by name from its module and has no
+glob (`pub use …::*`) re-export, so a `pub` item a module adds does not join
+the surface unless this table lists it. The `quire-contract-ir` root crate
+re-exports none of these items (FR-039); a consumer imports them from
+`quire_contract_model`. The model crate's `fault-injection` feature is
 test-only and outside that surface: it exposes `MappingAllocationPoint` and
 `MappingExecutionControl::fail_allocation_at`, which inject one deterministic
 allocation failure so the integration tests can qualify all-or-nothing output
@@ -90,7 +96,7 @@ plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
 
-The crate root additionally exports two conformance helpers as stable v0.1 API:
+The model crate root additionally exports two conformance helpers as stable v0.1 API:
 `hex_digest`, which renders SHA-256 over a byte slice as 64 lowercase
 hexadecimal characters, and `expected_inventory`, which returns the sorted
 published construct and boundary inventory as owned `String` values. Both are
@@ -98,14 +104,14 @@ pure, allocate their own output, take no host handle, and are the supported way
 for a downstream tool to reproduce a published digest or inventory without
 reimplementing either. Their names, signatures and output spellings are stable.
 
-The crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
+The model crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
 sorted fixed-width `&'static [&'static str]` registries and retains
 `DiagnosticCode::ALL` as its sorted fixed-width enum registry. Their ordering,
 contents, names, and types are stable v0.1 API and are inspected alongside the
 other public signatures.
 
 All recursive or collection-bearing untrusted inputs undergo fixed-limit
-preflight before recursive conversion. The crate root exports the
+preflight before recursive conversion. The model crate root exports the
 wire-independent `MAX_SEMANTIC_NODES: u32 = 25000`,
 `MAX_SEMANTIC_DEPTH: u32 = 256`, and
 `MAX_SEMANTIC_COLLECTION_ITEMS: u32 = 10000`, plus the parser guard
@@ -121,6 +127,32 @@ validate, canonicalize, migrate, and classify calls return without panic for
 the complete negative corpus. Exact Rust 1.98.1 builds the library, runner, and
 tests with default features under NFR-005; the crate remains `publish = false`.
 
+### Public items
+
+These are the items the `quire_contract_model` crate root exports in a
+default-feature build, grouped by the module that defines them. An item's own
+public fields, variants, associated constants and inherent methods are part
+of the item and are not listed separately.
+
+| Module | Public items | Owning requirement |
+| --- | --- | --- |
+| `identity` | types `AnchorName`, `Clause`, `ClauseId`, `ClauseKind`, `ClauseRef`, `ContractPackage`, `DefinednessObligationKind`, `DependencyIdentity`, `DependencyKind`, `DependencyName`, `Diagnostic`, `DiagnosticCode`, `ExecutionPoint`, `PackageId`, `ReferenceBody`, `Requirement`, `RequirementId`, `RequirementRef`, `RequirementRevision`, `SchemaVersion`, `SemanticIdentity`, `Severity`, `SourceDocumentId`, `SourceIdentity`, `SourceLocation`, `SourceRevision`, `SourceSpan`, `StateObservation`; trait `DependencySource` | FR-011, FR-012, STD-001 |
+| `expression` | types `BooleanOperator`, `CollectionType`, `ComparisonOperator`, `DeclarationEnvironment`, `DischargedObligation`, `EnumDeclaration`, `EnumVariantDeclaration`, `Expression`, `ExpressionKind`, `FunctionParameter`, `IntegerDomain`, `IntegerType`, `NumericOperator`, `OverflowPolicy`, `PureFunctionDeclaration`, `QuantifierDomain`, `QuantifierKind`, `RationalType`, `RecordDeclaration`, `RecordFieldDeclaration`, `RecordLiteralField`, `SymbolName`, `TypeDeclaration`, `TypedExpression`, `TypedNode`, `ValueDeclaration`, `ValueDeclarationKind`, `ValueType`; constants `MAX_EXPRESSION_DEPTH`, `MAX_EXPRESSION_NODES`, `MAX_TEXT_LENGTH` | FR-013 through FR-015 |
+| `canonical` | function `migrate_reference_body`; types `CanonicalBytes`, `CanonicalDigest`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`, `MigrationReceipt`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
+| `coverage` | function `classify_coverage`; types `ArtifactCoverageRow`, `ArtifactId`, `ArtifactTrace`, `CoverageClass`, `CoverageReport`, `CoverageResult`, `OrphanReason`, `RequirementCoverageRow`, `TraceDepth` | FR-017 |
+| `binding` | types `BoundClause`, `BoundPackage`; constants `BOUND_IDENTITY_PROFILE`, `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
+| `conformance` | functions `expected_inventory`, `hex_digest`, `run_manifest`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
+| `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
+| `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `GeneratedOutputPackageId`, `GeneratorBytesDigest`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordId`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingRuleDigest`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `ObserverBytesDigest`, `ObserverDependencySetDigest`, `ObserverInvocationDigest`, `ObserverResultDigest`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceBytesDigest`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`, `TargetBytesDigest`; trait `OutputMapper`; constants `GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION`, `OUTPUT_MAPPING_RECORD_IDENTITY_VERSION`, `OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION`, `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
+| `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedRevision`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRegion`, `JsonPointer` | FR-038 |
+| `checked_package` (V2 reader) | types `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedDomainPackageRef`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `DOMAIN_PACKAGE_DIGEST`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040 |
+| `checked_package` (V2 nominal identity) | types `CheckedRational`, `DimensionPreimage`, `DimensionTerm`, `EnumDeclarationPreimage`, `EnumMemberPreimage`, `NominalIdentityPreimage`, `NominalOwner`, `UnitPreimage` | FR-038 |
+| `checked_package` (V2 vocabulary) | types `BoundedDomainForm`, `CheckedCapabilityDisposition`, `CheckedNodeKind`, `CheckedNodeTag`, `CheckedSelectionRole`, `ClaimForm`, `CompositeTypeForm`, `CorrespondenceForm`, `ExpressionForm`, `FunctionForm`, `ModelForm`, `ProtocolForm`, `RelationForm`, `ScalarTypeForm`, `StateForm`, `TemporalForm`, `ValueForm` | FR-038, FR-040 |
+| `checked_package` (V2 lowering) | types `CompleteContractNodeV2`, `CompleteContractPackageV2`, `CompleteLoweringProfileV2`, `CompleteLoweringRecordV2`, `CompleteLoweringResultV2`, `ContractPackageDependencyV2`; constants `CONTRACT_IR_SEMANTIC_DOMAIN`, `CONTRACT_PACKAGE_VERSION` | FR-035, FR-038 |
+
+With the `fault-injection` feature the crate root also exports
+`MappingAllocationPoint`; that item is outside the stable surface.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -128,6 +160,7 @@ tests with default features under NFR-005; the crate remains `publish = false`.
 | FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
 | FR-019-AC-3 | `hex_digest` renders SHA-256 as exactly 64 lowercase hexadecimal characters for empty and non-empty input, and `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
+| FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 
 ## Dependencies

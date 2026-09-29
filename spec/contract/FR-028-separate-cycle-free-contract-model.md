@@ -18,7 +18,7 @@ relationships:
 
 ## Description
 
-When the native owner and Contract IR bridge are composed, the Contract IR repository SHALL expose its existing stable semantic substrate from a dependency-free `quire-contract-model` package and keep the `quire-contract-ir` package as a compatibility-reexporting bridge consumer so the production Cargo graph remains acyclic.
+When the native owner and Contract IR owner integrations are composed, the Contract IR repository SHALL expose its stable semantic substrate only from a dependency-free `quire-contract-model` package, which the `quire-contract-ir` package consumes without re-exporting it, so the production Cargo graph remains acyclic and every model item has one import path.
 
 ## Package architecture
 
@@ -28,20 +28,20 @@ The repository becomes one Cargo workspace with:
   expression, definedness, canonicalization, identity, binding, limit,
   diagnostic, wire and conformance model. It has no dependency on QSL,
   observation, protocol or TL crates.
-- `quire-contract-ir`: the existing public package name. It depends on and
-  publicly re-exports the complete model API, then owns predicate, temporal and
-  ecosystem-model subsystems from FR-025 through FR-027.
+- `quire-contract-ir`: the root package. It depends on the model package,
+  re-exports none of its items, and owns the bridge, predicate, temporal,
+  ecosystem-model and bounded-Kani subsystems from FR-025 through FR-027 and
+  FR-029 through FR-031 (FR-039).
 
-Every existing `quire-contract-ir` public type, function, error, feature,
-canonical byte, diagnostic and conformance outcome remains available under its
-current path. A source-only move changes no wire/schema/profile/identity.
+A model type, function, error, feature, canonical byte, diagnostic and
+conformance outcome is reached through `quire_contract_model` only (FR-019).
+The package split changes no wire/schema/profile/identity.
 
-QSL replaces its production package selection with
-`quire-contract-model` at the exact reviewed revision while retaining the
-dependency key `quire-contract-ir`; its existing Rust imports therefore remain
-source-compatible. Contract IR may then depend on the QSL owner crate and the
-other owner crates without a reverse production edge. Test-only historical
-pins remain explicitly named and cannot enter production code.
+QSL's production graph depends on `quire-contract-model` at the exact
+reviewed revision and not on `quire-contract-ir`. Contract IR may then depend
+on the QSL owner crate and the other owner crates without a reverse
+production edge. Test-only pins remain explicitly named and cannot enter
+production code.
 
 ## Dependency and admission rules
 
@@ -66,20 +66,21 @@ callback, trait-object validator, wire mirror, trust flag or local owner parser.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-028-AC-1 | Cargo metadata for every production feature combination is acyclic and contains no owner or TL dependency reachable from `quire-contract-model`. | Test (TC-041) |
-| FR-028-AC-2 | The existing Contract IR public API, schemas, canonical bytes, identities, diagnostics and conformance corpus are byte/result identical through `quire-contract-ir` compatibility re-exports. | Test (TC-041) |
-| FR-028-AC-3 | QSL builds unchanged source imports against the pinned `quire-contract-model` package alias, while a locked composition build imports both the compatibility bridge and the real QSL owner API without a Cargo cycle. FR-025 owns adding that API as a production bridge dependency when its remaining owners are available. | Test (TC-041) |
+| FR-028-AC-2 | Schemas, canonical bytes, identities, diagnostics and the conformance corpus are byte/result identical through `quire_contract_model` paths, and the root package's runner produces the same results from them. | Test (TC-041) |
+| FR-028-AC-3 | QSL builds against `quire-contract-model` with no `quire-contract-ir` package in its production graph, while a locked composition build imports both the root package and the real QSL owner API without a Cargo cycle. FR-025 owns adding that API as a production root-package dependency. | Test (TC-041) |
 | FR-028-AC-4 | Default, all-feature and minimum-version builds prove that no optional, dev or historical dependency leaks into the production graph. | Test (TC-041) |
 | FR-028-AC-5 | The split introduces no copied owner wire type, public validation constructor, callback, trait object, trust flag or local QSL/observation/protocol/TL parser. | Test (TC-041) |
 
 ## Dependencies
 
-FR-019 supplies the established Rust library surface that the compatibility
-package preserves. FR-025/FR-026 consume the cycle-free owner graph. The exact
+FR-019 supplies the model crate's Rust library surface, which the root
+package does not re-export. FR-025/FR-026 consume the cycle-free owner graph. The exact
 workspace boundary and owner direction are defined by `tl-syntax` ADR-003 and
 IF-008.
 
 ## Status
 
-Implemented for `quire-contract-ir#73` as the architecture enablement for
-`tl-syntax#52/#64`; production owner integration remains allocated to FR-025
-and FR-026.
+AC-1, AC-3, AC-4 and AC-5 are implemented. AC-2 is planned: TC-041 reaches
+the model through the root package's `pub use quire_contract_model::*`
+re-export, which FR-039 excludes. Production owner integration remains
+allocated to FR-025 and FR-026.
