@@ -5,7 +5,6 @@ components require. Nothing here is evidence, and nothing here is retained.
 
 | File | What it is |
 | --- | --- |
-| `pins.json` | The Engineering Assurance release this repository adopts, and the digests of the artifacts it actually reads from it. |
 | `change-assurance.json` | The declaration for issue #39: its requirements, preservation constraints, proof obligations, and open unknowns. |
 
 ## Why there is no evidence in here
@@ -41,7 +40,7 @@ sealed record a statement somebody made rather than a shape a tool filled in.
 
 ```bash
 make assurance-inputs   # the native producers run here, and only here
-make assurance          # pins and the Quoin chain
+make assurance          # the Quoin chain
 ```
 
 The order matters and the split is the point. `assurance-inputs` runs the

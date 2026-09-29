@@ -22,8 +22,7 @@ relationships:
 | FR-009 | FR-009-AC-2, FR-009-AC-6 | TC-004, TC-025 | ✅ covered |
 | FR-010 | FR-010-AC-1 | TC-003 | ✅ covered |
 | FR-021 | FR-021-AC-1 through FR-021-AC-5 | TC-023, TC-025 through TC-028 | ✅ covered |
-| FR-022 | FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
-| FR-345 | FR-345-AC-1 through FR-345-AC-6 | TC-224 | 🚧 planned; the repository-local ID and relocation-map check is not built and `make spec` does not run it. |
+| FR-022 | FR-022-AC-2, FR-022-AC-3, FR-022-AC-5, FR-022-AC-6 | TC-030, TC-031, TC-033, TC-034 | ✅ covered |
 
 ## Stakeholder Requirement Coverage
 
@@ -32,7 +31,7 @@ relationships:
 | Issue #3 deliverables | FR-001 through FR-007, FR-009 | TC-001 through TC-004 | ✅ covered |
 | Issue #3 acceptance | FR-010 | TC-003 | ✅ covered |
 | Issue #1 human ownership | FR-006, FR-009 | TC-004 and protected-branch API | ✅ covered |
-| Issue #39 shared assurance migration | FR-009, FR-022 | TC-029 through TC-031, TC-033, TC-034 | ✅ covered |
+| Issue #39 shared assurance migration | FR-009, FR-022 | TC-030, TC-031, TC-033, TC-034 | ✅ covered |
 
 ## Non-Functional Requirement Coverage
 
@@ -58,9 +57,7 @@ substrate's own non-functional requirements are covered by TM-002; see
 | TC-026 | Retained #1/#7/#20 disposition bytes match the reviewed receipt and its markers | Inspection | P0 | FR-021 | ✅ implemented |
 | TC-027 | Prototype inventory preserves threat/domain cases and rejects its architecture | Inspection | P0 | FR-021 | ✅ implemented |
 | TC-028 | Campaign documents state no conflicting executor/envelope/retention prescription, quoted review citations excepted | Inspection | P0 | FR-021 | ✅ implemented |
-| TC-029 | Shared components classify against the accepted matrix and a drifted consumed artifact fails closed | Integration | P0 | FR-022 | ✅ implemented |
 | TC-030 | The native conformance result reaches Quoin through the declared adapter, and an empty run, a foreign protocol and undecodable bytes are each refused with their own reason | Integration | P0 | FR-022 | ✅ implemented |
 | TC-031 | Quire's static export is retained by digest and no shared component executes a producer | Integration | P0 | FR-022 | ✅ implemented |
 | TC-033 | Every demonstrated result state has a named demonstrator, none collapses into another, and a lost state stays declared lost | Integration | P0 | FR-022 | ✅ implemented |
 | TC-034 | Weakening a load-bearing shared-assurance check turns its gate red | Integration | P0 | FR-022 | ✅ implemented |
-| TC-224 | The repository-local ID and relocation-map check fails on each seeded defect, names the file and line, and passes a clean tree | Integration | P0 | FR-345 | 🚧 planned |

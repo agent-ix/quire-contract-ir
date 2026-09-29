@@ -199,9 +199,7 @@ from that point is immutable.
 For shared-assurance adoption, an operator or project-native system invokes the
 domain producer and supplies its structured result to Quoin. Quoin owns
 retention, integrity checks, audit, and report views; Quire supplies only static
-definition references; ix-flow owns any human decision. The shared components
-are reached at the exact released pins the accepted compatibility matrix
-records; a branch head, a bare revision, or a floating tag is not a pin. Failed,
+definition references; ix-flow owns any human decision. Failed,
 skipped, unavailable, not-computed, inconclusive, partial, stale, suspect,
 vacuous, tampered, unsupported, and unreadable states remain explicit and
 distinct from one another.
@@ -266,6 +264,6 @@ retention layout.
 | PGM-01-R06-AC-1 | Human authority is named and enforced by CODEOWNERS/protection. | TC-004; protected-branch API evidence |
 | PGM-01-R07-AC-1 | Each crate and emitted artifact has a boundary class. | TC-002 |
 | PGM-01-R09-AC-1 | An automated record cannot replace the human decision. | Policy inspection; TC-004 |
-| PGM-01-R09-AC-2 | The shared components are reached at accepted released pins and every non-success state the surviving path covers stays distinct. | TC-029, TC-033 |
+| PGM-01-R09-AC-2 | Every non-success state the surviving path covers stays distinct. | TC-033 |
 | PGM-01-R10-AC-1 | Release does not confer project validation/accreditation. | Policy inspection; TC-003 |
 | PGM-01-R11-AC-1 | Every shared responsibility has one owner; issue #7/#20 and the legacy prototype have explicit linked dispositions. | TC-023, TC-025 through TC-028 |

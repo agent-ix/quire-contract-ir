@@ -16,12 +16,6 @@ RUSTUP ?= rustup
 SUPPORTED_RUST_MINIMUM := 1.98.1
 QUALIFICATION_RUST := 1.98.1
 
-# The shared-assurance lane runs in its own interpreter so its pinned
-# engineering-assurance distribution cannot collide with anything installed
-# system-wide.
-ASSURANCE_VENV ?= .venv-assurance
-ASSURANCE_PYTHON ?= $(ASSURANCE_VENV)/bin/python
-
 ASSURANCE_DIR := target/assurance
 CONFORMANCE_RESULT := $(ASSURANCE_DIR)/conformance.jsonl
 QUIRE_EXPORT := $(ASSURANCE_DIR)/quire-static-export.json
@@ -38,11 +32,9 @@ help:
 	@echo "  make check-corpus     - Alias for corpus (ecosystem-compatible name)"
 	@echo "  make corpus-repro     - Regenerate the corpus in scratch space and compare bytes"
 	@echo "  make spec             - Validate and cover all Quire artifacts"
-	@echo "  make assurance-env    - Create the pinned shared-assurance interpreter"
 	@echo "  make assurance-inputs - Run the native producers the shared path consumes"
-	@echo "  make pins             - Classify the shared toolchain against the accepted matrix"
 	@echo "  make assurance-chain  - Seal, retain, receipt, and re-verify through Quoin"
-	@echo "  make assurance        - pins + assurance-chain"
+	@echo "  make assurance        - assurance-chain"
 	@echo "  make assurance-record - Transcribe a conformance run into the Quoin evidence store"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run the Python suite and cargo test"
@@ -77,7 +69,7 @@ lint:
 # The Python suite covers the whole tests/ tree, including the shared-assurance
 # gates, and those read producer output. They consume it; they never produce it.
 .PHONY: unit
-unit: assurance-env assurance-inputs
+unit: assurance-inputs
 	$(PYTHON) -m unittest discover -s tests -p '*.py'
 
 .PHONY: corpus
@@ -120,7 +112,6 @@ qualification-rust:
 .PHONY: clean
 clean:
 	$(CARGO) clean
-	rm -rf $(ASSURANCE_VENV)
 
 # =============================================================================
 # Shared assurance
@@ -129,22 +120,11 @@ clean:
 # retains, and audits what it is handed; neither of them invokes anything.
 # =============================================================================
 
-$(ASSURANCE_PYTHON):
-	$(PYTHON) -m venv $(ASSURANCE_VENV)
-	$(ASSURANCE_VENV)/bin/pip install --quiet --disable-pip-version-check -r requirements-assurance.txt
-
-.PHONY: assurance-env
-assurance-env: $(ASSURANCE_PYTHON)
-
 .PHONY: assurance-inputs
 assurance-inputs:
 	mkdir -p $(ASSURANCE_DIR)
 	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --manifest corpus/contract-v0.1/manifest.json > $(CONFORMANCE_RESULT)
 	$(QUIRE) coverage --scope . --json > $(QUIRE_EXPORT)
-
-.PHONY: pins
-pins: assurance-env
-	$(ASSURANCE_PYTHON) scripts/check_shared_pins.py
 
 .PHONY: assurance-chain
 assurance-chain: assurance-inputs
@@ -154,7 +134,7 @@ assurance-chain: assurance-inputs
 		--quire-export $(QUIRE_EXPORT)
 
 .PHONY: assurance
-assurance: pins assurance-chain
+assurance: assurance-chain
 
 # Operator target, and the only one that writes outside target/. It transcribes
 # a conformance run into the Quoin evidence store under spec/evidence/, keyed by

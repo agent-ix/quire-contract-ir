@@ -498,7 +498,7 @@ def run(
         output=quire_export,
         media_type="application/json",
         result="passed",
-        tool_version="0.31.0",
+        tool_version=chain.environment["quire"],
     )
     if sealed_export is None:
         raise ChainError(f"sealing the static-export attestation failed: {detail}")
@@ -769,7 +769,7 @@ def run(
         output=tampered_output,
         media_type="application/json",
         result="passed",
-        tool_version="0.31.0",
+        tool_version=chain.environment["quire"],
     )
     if sealed_tamper is None:
         raise ChainError(f"sealing the tamper attestation failed: {detail}")
@@ -808,7 +808,7 @@ def run(
         output=untampered,
         media_type="application/json",
         result="passed",
-        tool_version="0.31.0",
+        tool_version=chain.environment["quire"],
     )
     if sealed_untampered is None:
         raise ChainError(f"sealing the control attestation failed: {detail}")

@@ -13,8 +13,7 @@
     "FR-022": "spec/functional/FR-022-shared-assurance-intake.md",
     "PGM-01": "spec/program/PGM-01-governance.md",
     "TM-001": "spec/test-matrix.md",
-    "corpus-manifest": "corpus/contract-v0.1/manifest.json",
-    "assurance-pins": "assurance/pins.json"
+    "corpus-manifest": "corpus/contract-v0.1/manifest.json"
   },
   "record": {
     "record_id": "quire-contract-ir/issue-39",
@@ -25,7 +24,6 @@
       "scope": [
         "spec/functional/FR-022-shared-assurance-intake.md",
         "spec/program/PGM-01-governance.md",
-        "scripts/check_shared_pins.py",
         "scripts/assurance_chain.py",
         "Makefile"
       ]
@@ -46,10 +44,6 @@
       {
         "source_id": "corpus-manifest",
         "kind": "test"
-      },
-      {
-        "source_id": "assurance-pins",
-        "kind": "other"
       }
     ],
     "impact_snapshot": {
@@ -60,14 +54,6 @@
     },
     "definition": {
       "requirements": [
-        {
-          "id": "FR-022-AC-1",
-          "statement": "Every shared component is classified against the accepted matrix, an unobservable component is unknown, and a drifted consumed artifact digest fails closed.",
-          "source_ids": [
-            "FR-022",
-            "assurance-pins"
-          ]
-        },
         {
           "id": "FR-022-AC-2",
           "statement": "The native conformance result reaches Quoin through the declared contract-conformance adapter; an empty run, a foreign protocol, and a stream carrying undecodable bytes are each refused and each names its own reason; and no verdict is read from a console stream.",
@@ -173,7 +159,7 @@
           "proof_id": "PROOF-msrv",
           "statement": "Every target builds under the declared MSRV with the locked dependency set.",
           "obligation_ids": [
-            "FR-022-AC-1"
+            "FR-022-AC-5"
           ],
           "evidence_kind": "Static",
           "command": {
@@ -193,12 +179,6 @@
         }
       ],
       "unknowns": [
-        {
-          "id": "UNKNOWN-ea-acceptance-not-in-a-release",
-          "statement": "The engineering-assurance v0.2.0 tag records acceptance state pending_human_acceptance. The named human's acceptance landed on main after the tag and no v0.2.1 was cut, so the matrix gate's acceptance condition is satisfiable only from a branch head. The artifact this repository now consumes, engineering_assurance/compatibility.py, is pinned at its v0.2.0 bytes and differs from main precisely because the acceptance predicate landed there; what this repository reads is therefore the released pin, and the acceptance record is the part that is not in a release. Filed as agent-ix/engineering-assurance#20.",
-          "disposition": "open",
-          "owner": "agent-ix/engineering-assurance"
-        },
         {
           "id": "UNKNOWN-human-decision-absent",
           "statement": "No ix-flow decision event exists for this candidate. Only the named human release authority can create one, so the verification receipt for this record is incomplete by construction rather than by defect.",

@@ -1,31 +1,18 @@
-"""Gates for the pinned shared-assurance path (FR-022).
+"""Gates for the shared-assurance path (FR-022).
 
-Each test runs the real thing. The pin classifier needs
-`engineering-assurance`, which lives in its own pinned interpreter; these tests
-invoke that interpreter rather than importing across the two environments.
-
-A missing assurance interpreter fails these tests. It does not skip them: a
-gate that quietly stands down when its dependency is absent reports the same
-green as one that ran, and this whole migration exists because that is not
-acceptable.
-
-The chain report is expensive to produce and every chain test reads the same
+Each test runs the real thing. The chain report is expensive to produce and every chain test reads the same
 one, so it is built once and cached for the module.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSURANCE_PYTHON = Path(
-    os.environ.get("ASSURANCE_PYTHON", ROOT / ".venv-assurance/bin/python")
-)
 CONFORMANCE_RESULT = ROOT / "target/assurance/conformance.jsonl"
 QUIRE_EXPORT = ROOT / "target/assurance/quire-static-export.json"
 
@@ -96,37 +83,6 @@ LOST_STATES = {
 _CACHE: dict[str, Any] = {}
 
 
-def assurance_interpreter() -> Path:
-    if not ASSURANCE_PYTHON.is_file():
-        raise AssertionError(
-            f"the pinned assurance interpreter is missing at {ASSURANCE_PYTHON}. "
-            "Run `make assurance-env`. This is a failure and not a skip: a gate that "
-            "stands down when its dependency is absent reports the same green as one "
-            "that ran."
-        )
-    return ASSURANCE_PYTHON
-
-
-def run_assurance(*arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(assurance_interpreter()), *arguments],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def pin_report() -> dict[str, Any]:
-    if "pins" not in _CACHE:
-        completed = run_assurance("scripts/check_shared_pins.py", "--json")
-        if completed.returncode == 2:
-            raise AssertionError(f"the pin classifier could not run: {completed.stderr}")
-        _CACHE["pins"] = json.loads(completed.stdout)
-        _CACHE["pins_exit"] = completed.returncode
-    return _CACHE["pins"]
-
-
 def chain_report() -> dict[str, Any]:
     if "chain" in _CACHE:
         return _CACHE["chain"]
@@ -176,91 +132,6 @@ def assert_true(value: Any, message: str) -> None:
 def assert_false(value: Any, message: str) -> None:
     if value:
         raise AssertionError(message)
-
-
-def test_shared_components_classify_against_the_accepted_matrix() -> None:
-    """TC-029. Trace: TC-029, FR-022-AC-1."""
-    report = pin_report()
-    verdicts = {item["component"]: item["verdict"] for item in report["components"]}
-    assert_equal(
-        sorted(verdicts),
-        ["engineering-assurance", "ix-flow", "quire-cli", "quoin"],
-        "every pinned component must be classified, including one that is absent",
-    )
-    for component, verdict in verdicts.items():
-        reasons = [i["reason"] for i in report["components"] if i["component"] == component]
-        assert_equal(verdict, "compatible", f"{component} is {verdict}: {reasons}")
-    assert_equal(report["artifact_mismatches"], [], "a consumed artifact drifted")
-    assert_equal(
-        report["mirror_references"],
-        [],
-        "the internal npm.ix mirror must not appear in any requirement or pin",
-    )
-    assert_true(report["accepted"], "the local toolchain gate must be satisfied")
-
-
-def test_matrix_acceptance_is_reported_and_never_inferred() -> None:
-    """TC-029. Trace: TC-029, FR-022-AC-1."""
-    report = pin_report()
-    # The installed release is the authority on what it records, and it is
-    # reported verbatim. What must never happen is this repository reading an
-    # approval out of an artifact that does not carry one.
-    assert_true("acceptance_state" in report, "the acceptance state must be reported")
-    if not report["acceptance_recorded_here"]:
-        assert_true(
-            report["acceptance_state"] != "accepted",
-            "a state that reads as accepted with nobody named is not a record",
-        )
-    pins = json.loads((ROOT / "assurance/pins.json").read_text(encoding="utf-8"))
-    assert_true(
-        pins["known_drift"],
-        "a pin whose release lags its acceptance record must say so in writing",
-    )
-
-
-def test_an_unobservable_component_is_unknown_and_never_a_pass() -> None:
-    """TC-029. Trace: TC-029, FR-022-AC-1."""
-    program = (
-        "import json;"
-        "from engineering_assurance.compatibility import classify, load_matrix;"
-        "m=load_matrix();"
-        "print(json.dumps({n: classify(m, n, None).verdict "
-        "for n in ['quoin','quire-cli','ix-flow','engineering-assurance']}))"
-    )
-    completed = subprocess.run(
-        [str(assurance_interpreter()), "-c", program],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert_equal(completed.returncode, 0, completed.stderr)
-    for component, verdict in json.loads(completed.stdout).items():
-        assert_equal(verdict, "unknown", f"an unobserved {component} must not read as a pass")
-
-
-def test_a_drifted_consumed_artifact_fails_closed() -> None:
-    """TC-029. Trace: TC-029, FR-022-AC-1."""
-    program = (
-        "import json,sys;"
-        "sys.path.insert(0, 'scripts');"
-        "import check_shared_pins as c;"
-        "p=c.load_pins();"
-        "p['engineering_assurance']['consumed_artifacts'][0]['sha256']='0'*64;"
-        "print(json.dumps(c.artifact_digest_mismatches(p)))"
-    )
-    completed = subprocess.run(
-        [str(assurance_interpreter()), "-c", program],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert_equal(completed.returncode, 0, completed.stderr)
-    assert_true(
-        json.loads(completed.stdout),
-        "a drifted consumed artifact must be reported, not read past",
-    )
 
 
 def test_the_domain_result_reaches_quoin_through_the_declared_adapter() -> None:

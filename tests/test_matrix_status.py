@@ -307,7 +307,6 @@ class MatrixStatusTests(unittest.TestCase):
         self.assertEqual(
             declared["FR-022"],
             [
-                "FR-022-AC-1",
                 "FR-022-AC-2",
                 "FR-022-AC-3",
                 "FR-022-AC-5",
@@ -315,7 +314,7 @@ class MatrixStatusTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            cited_criteria("FR-022", "FR-022-AC-1 through FR-022-AC-3, FR-022-AC-5, FR-022-AC-6"),
+            cited_criteria("FR-022", "FR-022-AC-2, FR-022-AC-3, FR-022-AC-5, FR-022-AC-6"),
             set(declared["FR-022"]),
         )
 

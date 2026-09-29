@@ -9,11 +9,9 @@ make fmt            # format with rustfmt
 make fmt-check      # verify formatting (CI gate)
 make lint           # clippy with -D warnings
 make spec           # validate and cover all Quire artifacts
-make assurance-env  # create the pinned shared-assurance interpreter
 make assurance-inputs # run the native producers the shared path consumes
-make pins           # classify the shared toolchain against the accepted matrix
 make assurance-chain # seal, retain, receipt, and re-verify through Quoin
-make assurance      # pins + assurance-chain
+make assurance      # assurance-chain
 make assurance-record # transcribe a conformance run into the Quoin evidence store
 make release-check  # run all local release gates
 make test           # Python suite + cargo test
@@ -25,10 +23,6 @@ make ci             # all local release gates, including spec, exact Rust, and s
 ```
 
 The test target requires the Python declared by `.python-version`.
-
-The assurance targets run in a second interpreter, `.venv-assurance`, built from
-`requirements-assurance.txt`, so its pinned `engineering-assurance` distribution
-cannot collide with anything installed system-wide.
 
 ## Assurance boundaries
 

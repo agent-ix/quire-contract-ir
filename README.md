@@ -52,16 +52,11 @@ dependency of this crate.
 
 ```bash
 make assurance-inputs   # the native producers run here, and only here
-make assurance          # pins and the Quoin chain
+make assurance          # the Quoin chain
 ```
 
 `make assurance-inputs` runs the contract conformance runner and `quire
-coverage`. Everything after it consumes files that already exist. The shared
-components are reached at the accepted released pins, classified against
-Engineering Assurance's own compatibility matrix rather than against a second
-copy of it kept here; `assurance/pins.json` records which release is adopted and
-the digest of the artifact read from it. The packaged compatibility matrix is
-deliberately not digest-pinned there, and says why in the file.
+coverage`. Everything after it consumes files that already exist.
 
 This repository held ten immutable PGM-01 records under `evidence/`, read
 through Engineering Assurance's read-only compatibility mapping. It was the only
@@ -76,10 +71,6 @@ The same decision withdraws PGM-01-R08, so the derivation-evidence envelope
 schema, its Draft 7 validator, its fixture corpus and its pinned Python lane are
 deleted too. `schemas/README.md` explains which schemas are live and why.
 The constraint re-applies at the move toward stable releases.
-
-The assurance lane installs into its own interpreter (`make assurance-env`,
-`.venv-assurance`) so its pinned `engineering-assurance` distribution cannot
-collide with anything installed system-wide.
 
 ## License
 

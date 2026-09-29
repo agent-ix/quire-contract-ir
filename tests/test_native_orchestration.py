@@ -34,7 +34,6 @@ LANES = (
     ("cargo", "deny", "check"),
     ("cargo", "audit"),
     ("bash", "scripts/check_unsafe_comments.sh"),
-    ("python", "scripts/check_shared_pins.py"),
     ("quire", "coverage", "--scope", ".", "--json"),
     ("python", "scripts/assurance_chain.py"),
 )
@@ -74,8 +73,7 @@ sys.exit(7 if failure and invocation[:len(failure)] == failure else 0)
         result = subprocess.run(
             ["make", "--no-print-directory", target, "REVISION=test-candidate",
              f"CARGO={binary / 'cargo'}", f"PYTHON={binary / 'python'}",
-             f"QUIRE={binary / 'quire'}", f"QUOIN={binary / 'quoin'}",
-             f"ASSURANCE_PYTHON={binary / 'python'}"],
+             f"QUIRE={binary / 'quire'}", f"QUOIN={binary / 'quoin'}"],
             cwd=root, env=environment, capture_output=True, check=False,
         )
         calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
