@@ -1760,14 +1760,8 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
 }
 
 fn observer() -> StructuralObserverIdentity {
-    StructuralObserverIdentity::new(
-        "agent-ix/observer",
-        "example-parser",
-        "1.0.0",
-        "rev-observer",
-        "Apache-2.0",
-    )
-    .expect("qualified observer")
+    StructuralObserverIdentity::new("agent-ix/observer", "example-parser", "1.0.0", "Apache-2.0")
+        .expect("qualified observer")
 }
 
 /// Tracing: TC-043, FR-034-AC-4, FR-034-AC-5, NFR-061.
@@ -1797,7 +1791,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
             "agent-ix/observer",
             "example-parser",
             "2.0.0",
-            "rev-observer-new",
             "proprietary-observation-rights",
         )
         .expect("changed observer identity"),
@@ -1808,7 +1801,6 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     assert_eq!(accepted.observer().owner(), "agent-ix/observer");
     assert_eq!(accepted.observer().tool(), "example-parser");
     assert_eq!(accepted.observer().version(), "1.0.0");
-    assert_eq!(accepted.observer().revision(), "rev-observer");
     assert_eq!(accepted.observer().license(), "Apache-2.0");
     assert_eq!(
         accepted.result_digest(),

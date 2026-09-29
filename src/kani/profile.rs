@@ -28,17 +28,13 @@ pub struct CapabilityEntry {
     pub disposition: CapabilityDisposition,
 }
 
-/// Immutable selection of the Kani executable and profile ABI.
+/// Immutable selection of the bounded-Kani profile and its ABI.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProfileSelection {
     /// Profile family identifier.
     pub profile: String,
     /// Immutable profile revision.
     pub revision: String,
-    /// Kani executable SHA-256 identity.
-    pub executable_digest: String,
-    /// Digest of selected Kani options.
-    pub options_digest: String,
     /// Shared ABI revision.
     pub abi_revision: String,
 }
@@ -81,8 +77,6 @@ impl KaniProfile {
         }
         for (name, value) in [
             ("revision", selection.revision.as_str()),
-            ("executable_digest", selection.executable_digest.as_str()),
-            ("options_digest", selection.options_digest.as_str()),
             ("abi_revision", selection.abi_revision.as_str()),
         ] {
             if value.trim().is_empty() {

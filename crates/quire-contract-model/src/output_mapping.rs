@@ -2052,7 +2052,6 @@ pub struct StructuralObserverIdentity {
     owner: Box<str>,
     tool: Box<str>,
     version: Box<str>,
-    revision: Box<str>,
     license: Box<str>,
 }
 
@@ -2062,19 +2061,16 @@ impl StructuralObserverIdentity {
         owner: impl Into<String>,
         tool: impl Into<String>,
         version: impl Into<String>,
-        revision: impl Into<String>,
         license: impl Into<String>,
     ) -> Result<Self, MappingRequestError> {
         let owner = owner.into();
         let tool = tool.into();
         let version = version.into();
-        let revision = revision.into();
         let license = license.into();
         if ![
             owner.as_str(),
             tool.as_str(),
             version.as_str(),
-            revision.as_str(),
             license.as_str(),
         ]
         .into_iter()
@@ -2090,7 +2086,6 @@ impl StructuralObserverIdentity {
             owner: owner.into_boxed_str(),
             tool: tool.into_boxed_str(),
             version: version.into_boxed_str(),
-            revision: revision.into_boxed_str(),
             license: license.into_boxed_str(),
         })
     }
@@ -2108,11 +2103,6 @@ impl StructuralObserverIdentity {
     /// Observer release version.
     pub fn version(&self) -> &str {
         &self.version
-    }
-
-    /// Exact immutable observer revision.
-    pub fn revision(&self) -> &str {
-        &self.revision
     }
 
     /// Exact observer license or rights declaration.
