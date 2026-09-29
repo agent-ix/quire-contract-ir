@@ -43,9 +43,8 @@ mapped value's `category()` through QSL.
 The three-check proof is `proved` with count three and maps to
 `Proved { success_checks: 3 }`, category `Success`. The zero-check run is
 `inconclusive` with cause `kani_vacuous_proof`, no count and no Boolean
-claim, and maps to QSL's `inconclusive` terminal value carrying
-`InconclusiveCause::KaniVacuousProof` (QSpec FR-331-AC-8), category
-`Inconclusive`, and never to `Proved`. `Counterexample` maps to `Refuted`; `Refused`,
+claim, and maps to `Proved { success_checks: 0 }`, category `Inconclusive`
+with `vacuous_proof_cause()` `KaniVacuousProof` (QSpec FR-331-AC-8). `Counterexample` maps to `Refuted`; `Refused`,
 `InvalidInput` and `IncompleteInput` to `Declined` with three distinct
 `ProofRefusalCause`s; `TimedOut`, `ResourceExhausted` and `Cancelled` to
 `Incomplete` with three distinct `IncompleteCause`s. The two `Unavailable`

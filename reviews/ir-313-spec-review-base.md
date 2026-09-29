@@ -55,3 +55,13 @@ statement.
 | FND-001 | medium | FR-028-AC-2 now requires model reachability through quire_contract_model with no root re-export. The test still tagged FR-028-AC-2 asserts the opposite (`pub use quire_contract_model::*` present in src/lib.rs). quire coverage therefore reports FR-028-AC-2 backed while the matrix says planned. | tests/it/cycle_free_model.rs:211-247 |
 | FND-002 | medium | tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result carries TC-223 and FR-031-AC-5 tags but tests the retired KaniProviderResult map, not qsl_replay::TerminalValue. Coverage reports FR-031-AC-5 and TC-223 backed. Because of the TC-223 tag, the FR-030 matrix row also reads backed, although FR-030-AC-4 and FR-030-AC-5 are backed:false at AC level. | tests/it/kani_shared.rs:250-252 |
 | FND-003 | medium | FR-030 says no public constructor builds an `unavailable` outcome with another cause and that such a request returns a typed refusal. KaniOutcome has all-pub fields, and non_success accepts any kind and code, so a struct literal bypasses the rule. AC-5 checks only "yields no unavailable outcome" and does not check the typed refusal. | spec/contract/FR-030-bounded-kani-domain-and-outcomes.md:52 |
+
+## Dispositions
+
+Round 1, reviewed at `6d956434c36ab748c3a116aeb774b00312011792`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2c49e61 |
+| FND-002 | accepted-no-change | The stale tag on tests/it/kani_shared.rs:250 is code, and this PR is spec-only. The FR-031 matrix row, the TC-223 row and status, and FR-031's Status now each state that the tag is stale and does not back FR-031-AC-5 or TC-223. `quire coverage` still counts the row as backed until the TC-223 implementation retags the test. |
+| FND-003 | fixed | 2c49e61, 6d95643 |

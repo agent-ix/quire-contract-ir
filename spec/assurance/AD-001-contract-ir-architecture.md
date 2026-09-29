@@ -90,7 +90,7 @@ constructs; the lowering behind a module is codegen's.
 A construct for which the profile has no qualified interpretation is settled
 at negotiation: the capability matrix records it `unsupported`, its item
 settles `unsupported` in the QSpec FR-331 `dispositions` vocabulary with a
-warning naming the construct kind, and no artifact, `KaniOutcome` or
+warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290), and no artifact, `KaniOutcome` or
 `TerminalValue` exists for it (FR-029). Resource exhaustion, cancellation and
 an absent solver or backend are run outcomes only (FR-030).
 
@@ -108,9 +108,9 @@ Contract IR's part is the map from a Kani outcome to a QSL `TerminalValue`
 carries one of two cause codes, solver absent or backend absent (FR-030), and
 maps to QSL's `Unsupported` value with the matching `UnavailabilityCause`.
 The only `Inconclusive` outcome is a vacuous proof, a run whose obligation
-completed with zero SUCCESS checks; it maps to QSL's `inconclusive` terminal
-value carrying the vacuity cause (QSpec FR-331-AC-8) and is never recorded as
-`proved`.
+completed with zero SUCCESS checks; it maps to `Proved { success_checks: 0 }`,
+which QSL reads as category `Inconclusive` with the vacuity cause
+`KaniVacuousProof` (QSpec FR-331-AC-8).
 
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
@@ -183,8 +183,9 @@ the authored-contract interchange.
   objects belong to codegen's backend adapter, which emits the harness.
 - Map every Kani outcome kind to one existing QSL `TerminalValue`, with no
   new terminal value: `Unavailable` splits by its cause code into solver
-  absence and backend absence, a vacuous proof maps to QSL's `inconclusive`
-  value with the vacuity cause, and a construct the profile cannot interpret
+  absence and backend absence, a vacuous proof maps to
+  `Proved { success_checks: 0 }`, which QSL reads as inconclusive with the
+  vacuity cause, and a construct the profile cannot interpret
   settles `unsupported` at negotiation, before any run, and never becomes an
   outcome.
 - Construct and strict-read owner artifacts without parsing or evaluating an

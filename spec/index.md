@@ -95,8 +95,9 @@ That implementation applies only to its exact selected finite profile and
 does not qualify unbounded source semantics or another Kani/options
 selection. Each Kani outcome maps to one QSL `qsl_replay::TerminalValue`
 (FR-031-AC-5): `Unavailable` by its solver-absent or backend-absent cause
-code (FR-030) to `Unsupported`, and a vacuous proof to QSL's `inconclusive`
-value with the vacuity cause. A construct the profile cannot interpret
+code (FR-030) to `Unsupported`, and a vacuous proof to
+`Proved { success_checks: 0 }`, which QSL reads as inconclusive with the
+vacuity cause. A construct the profile cannot interpret
 settles `unsupported` at negotiation and produces no outcome (FR-029).
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`

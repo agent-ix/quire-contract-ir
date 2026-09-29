@@ -64,22 +64,24 @@ as follows, following QSL ADR-013 O-16's proof column and QSpec FR-331:
 | Outcome | `TerminalValue` |
 | --- | --- |
 | `Proved`, carrying its SUCCESS check count `n` (at least one, FR-030) | `Proved { success_checks: n }` |
-| `Inconclusive` with cause `kani_vacuous_proof` (a proof with zero SUCCESS checks, FR-030) | QSL's `inconclusive` terminal value carrying `InconclusiveCause::KaniVacuousProof` (QSpec FR-331-AC-8) |
+| `Inconclusive` with cause `kani_vacuous_proof` (a proof with zero SUCCESS checks, FR-030) | `Proved { success_checks: 0 }` |
 | `Counterexample` | `Refuted` |
 | `Refused`, `InvalidInput`, `IncompleteInput` | `Declined` with `ProofRefusalCause::Refused`, `InvalidInput`, `IncompleteInput` |
 | `TimedOut`, `ResourceExhausted`, `Cancelled` | `Incomplete` with `IncompleteCause::TimedOut`, `ResourceExhausted`, `Cancelled` |
 | `Unavailable` with cause `kani_solver_absent` (FR-030) | `Unsupported(UnavailabilityCause::SolverAbsent)` |
 | `Unavailable` with cause `kani_backend_absent` (FR-030) | `Unsupported(UnavailabilityCause::BackendAbsent)` |
 
-A zero-check run reaches the `inconclusive` terminal value only through
+QSL reads `Proved { success_checks: 0 }` as category `Inconclusive` with
+`vacuous_proof_cause()` `KaniVacuousProof`, the vacuity record QSpec
+FR-331-AC-8 requires. A zero-check run reaches that value only through
 FR-030's `kani_vacuous_proof` classification and never through the `Proved`
-kind; it is never recorded as `proved`. Because FR-030 admits no other
+kind. Because FR-030 admits no other
 `Inconclusive` cause and no `Unavailable` cause beyond the two above, the map
 is total over `KaniOutcome`. No outcome maps to `Tested` or `Failed`.
 
 A construct the profile has no qualified interpretation for never reaches
 this map: FR-029 settles its item `unsupported` at negotiation, with a
-warning naming the construct kind, and no `KaniOutcome` or `TerminalValue`
+warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290), and no `KaniOutcome` or `TerminalValue`
 exists for it.
 
 Contract IR defines no counterexample packet, witness, replay source, replay
@@ -93,7 +95,7 @@ backend adapter's.
 | --- | --- | --- |
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
 | FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
-| FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to QSL's `inconclusive` terminal value with `InconclusiveCause::KaniVacuousProof` and never to `Proved`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s, the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s, and `Unavailable` with `kani_solver_absent` and with `kani_backend_absent` to `Unsupported` with `SolverAbsent` and `BackendAbsent`; the test's `match` over `KaniOutcomeKind` has no wildcard; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
+| FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to `Proved { success_checks: 0 }`, whose QSL category is `Inconclusive`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s, the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s, and `Unavailable` with `kani_solver_absent` and with `kani_backend_absent` to `Unsupported` with `SolverAbsent` and `BackendAbsent`; the test's `match` over `KaniOutcomeKind` has no wildcard; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
 
 ### Retired criteria
 
@@ -133,9 +135,8 @@ confirms the digest changes; no generator yet emits one, because
 `ArithmeticLowering` and the object/collection lowerings carry no provenance
 field. That evidence is not a general proof-engine or release claim.
 
-AC-5 is planned against QSL's `TerminalValue`, whose `inconclusive` value
-for a vacuous proof QSL owns; today QSL represents it as
-`Proved { success_checks: 0 }`. Today `KaniOutcomeKind::provider_result`
+AC-5 is planned against QSL's `TerminalValue`. Today
+`KaniOutcomeKind::provider_result`
 maps to this crate's own `KaniProviderResult` and maps every `Unavailable`
 to one `Unsupported` value without reading its cause; that type and
 `KaniProviderRecord` are not part of the root crate's interface (FR-039).
