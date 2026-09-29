@@ -118,7 +118,11 @@ STD-001 is the stable diagnostic code registry and STD-003 the closed
 output-mapping refusal registry. ADR-0053 fixes the formal clause source
 profiles. ADR-0054 separates archetype
 datatype generation from optional formal type projection, while ADR-0055
-separates and pins the supported Rust minimum and qualification compiler.
+separates and pins the supported Rust minimum and qualification compiler. ADR-0056
+fixes the subsystem specification layout, registry format and ID-block
+allocation that this repository, Contract Codegen and Contract Runtime follow.
+FR-345 is this repository's local artifact-ID and relocation-map check that
+ADR-0056 names; TM-001 covers it.
 TM-002 maps the substrate to staged verification.
 
 FR-025 implements the checked-predicate-to-Boolean-signal correspondence;
@@ -159,6 +163,8 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Unadmitted ADR-002 2.0.0 members](contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md).
 - [Output-mapping refusal registry](contract/STD-003-output-mapping-refusal-registry.md).
 - [Formal clause source profiles](decisions/ADR-0053-formal-clause-source-profiles.md).
+- [Subsystem spec layout and ID-block allocation](decisions/ADR-0056-spec-layout-convention.md).
+- [Artifact ID and relocation-map check](functional/FR-345-check-artifact-ids-and-relocation-maps.md).
 - [Unadmitted ADR-002 member refusal test case](contract/TC-222-refuse-unadmitted-adr-002-members.md).
 - [Kani outcome to QSL terminal value test case](contract/TC-223-kani-outcome-fr331-result-map.md).
 - [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
