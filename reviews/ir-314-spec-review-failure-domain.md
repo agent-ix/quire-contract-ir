@@ -53,5 +53,6 @@ Embedded spec/ path consumers found by repo-wide search: tests/it/{governance_re
 | FND-001 | fixed | 5a3d953 |
 | FND-002 | fixed | 5a3d953 |
 | FND-003 | fixed | 5a3d953 |
+| FND-004 | fixed | 3f299ab |
 
 Correction to the original row's wording: TC-221 is this repository's own withdrawn test case (spec/contract/FR-031...:109, spec/contract-test-matrix.md:115), not only a quire-specification ID; the ADR now handles it as a withdrawn-ID trace tag to remove.

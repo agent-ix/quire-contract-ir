@@ -71,3 +71,4 @@ The layout, registry columns, TestMatrixIndex columns (checked against spec-arti
 | FND-003 | fixed | 5a3d953 |
 | FND-004 | fixed | 5a3d953 |
 | FND-005 | fixed | 5a3d953 |
+| FND-006 | fixed | 3f299ab |
