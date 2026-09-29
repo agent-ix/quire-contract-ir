@@ -4,9 +4,8 @@ use jsonschema::{Draft, JSONSchema};
 use quire_contract_ir::{
     bridge::{BridgeDigest, BridgeLimits, ContractSelection},
     ecosystem_model::{
-        self, manifest, EcosystemLimits, ExpectedCampaign, ExpectedRepository, ImprovementProposal,
-        ModelCauseCode, MANIFEST_SCHEMA_BYTES, MANIFEST_SCHEMA_SHA256, MODEL_PROFILE,
-        MODEL_SCHEMA_BYTES, MODEL_SCHEMA_SHA256,
+        self, manifest, EcosystemLimits, ExpectedCampaign, ImprovementProposal, ModelCauseCode,
+        MANIFEST_SCHEMA_BYTES, MODEL_PROFILE, MODEL_SCHEMA_BYTES,
     },
     predicate,
     temporal::{self, ObservationViews, PositionValuations},
@@ -20,45 +19,14 @@ use quire_spec_language::protocol_artifact::native_temporal::result::{
 use serde_json::{json, Value};
 use tl_mltl::wire::OwnerLimits;
 
-const QSPEC: &str = "983b0b28c479241fb066cbe4db3fc0980362de36";
-const TL_SYNTAX: &str = "842d82553f045eb69a7f38745756d968254fc25e";
-const TL_PARSE: &str = "2bc030dae8fdb30c9ddc967434c6c9902a3905dc";
-const TL_MLTL: &str = "22862189ac4eb515ab84928faec25b2eac47d835";
-const TL_REWRITE: &str = "c416951281c34e2b9d30187d401605f30f34a18b";
-const QSL: &str = "f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07";
-const QOBS: &str = "9ac80e93f4b68a2c7d5a337f9a448ad10de798fc";
-const QPROTOCOL: &str = "34d1752e6c5f789a52ccf115b0694eedd96cdd46";
-const QCI: &str = "0c450731626f40fd90c99e787cc0f7f5e053904c";
-// Repository nodes are the frozen Task-011 campaign snapshot: the QSL, QOBS,
-// QPROTOCOL, TL_SYNTAX and TL_MLTL revisions below are the campaign's, not the
-// current pins. Contract nodes come from `TargetSelection::current()` and carry
-// the live pins. The manifest reader checks only that a contract's repository
-// is a manifest repository, never that the revisions agree, so this mismatch is
-// not refused. IR-292 tracks enforcing FR-027 for selections.
 const CAMPAIGN: &str = "agent-ix/tl-syntax#52/PLAN-010/Task-011";
 
 /// The three quire-mltl contracts the bridge consumes but this manifest cannot
 /// name: its reader's repository set is closed at nine.
 const QUIRE_MLTL_GAP: &str = "TL-181 moved these to quire-mltl; the closed nine-repository reader cannot name that repository";
 
-fn repository_revisions() -> [(&'static str, &'static str); 9] {
-    [
-        ("agent-ix/quire-contract-ir", QCI),
-        ("agent-ix/quire-observation", QOBS),
-        ("agent-ix/quire-protocol", QPROTOCOL),
-        ("agent-ix/quire-spec-language", QSL),
-        ("agent-ix/quire-specification", QSPEC),
-        ("agent-ix/tl-mltl", TL_MLTL),
-        ("agent-ix/tl-parse", TL_PARSE),
-        ("agent-ix/tl-rewrite", TL_REWRITE),
-        ("agent-ix/tl-syntax", TL_SYNTAX),
-    ]
-}
-
-fn expected(bytes: &[u8]) -> ExpectedCampaign {
-    let repositories = repository_revisions()
-        .map(|(identity, revision)| ExpectedRepository::new(identity, revision));
-    ExpectedCampaign::new(CAMPAIGN, repositories, BridgeDigest::raw(bytes))
+fn expected() -> ExpectedCampaign {
+    ExpectedCampaign::new(CAMPAIGN)
 }
 
 fn canonical(value: &Value) -> Vec<u8> {
@@ -70,11 +38,9 @@ fn push_edge(edges: &mut Vec<Value>, kind: &str, source: &str, target: &str) {
 }
 
 fn manifest_value() -> Value {
-    let mut nodes: Vec<Value> = repository_revisions()
+    let mut nodes: Vec<Value> = manifest::REPOSITORY_IDENTITIES
         .into_iter()
-        .map(|(identity, revision)| {
-            json!({"kind": "repository", "identity": identity, "revision": revision})
-        })
+        .map(|identity| json!({"kind": "repository", "identity": identity}))
         .collect();
     let components = [
         (
@@ -106,27 +72,25 @@ fn manifest_value() -> Value {
             .map(|(identity, _)| json!({"kind": "component", "identity": identity})),
     );
     nodes.extend([
-        json!({"kind": "object", "identity": "ix://agent-ix/quire-specification/VO-008", "revision": QSPEC}),
-        json!({"kind": "interface", "identity": "ix://agent-ix/tl-syntax/IF-006", "revision": TL_SYNTAX}),
+        json!({"kind": "object", "identity": "ix://agent-ix/quire-specification/VO-008"}),
+        json!({"kind": "interface", "identity": "ix://agent-ix/tl-syntax/IF-006"}),
         contract_node(
             "contract:temporal-ecosystem-manifest-v1",
             "quire.contract.temporal-ecosystem-manifest/v1",
-            MANIFEST_SCHEMA_SHA256,
         ),
         contract_node(
             "contract:temporal-ecosystem-model-v1",
             "quire.contract.temporal-ecosystem-model/v1",
-            MODEL_SCHEMA_SHA256,
         ),
-        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-025", "revision": QCI}),
-        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-026", "revision": QCI}),
-        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-027", "revision": QCI}),
-        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-protocol/FR-006", "revision": QPROTOCOL}),
-        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-038", "revision": QCI}),
-        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-039", "revision": QCI}),
-        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-040", "revision": QCI}),
-        json!({"kind": "review", "identity": "ix://agent-ix/quire-contract-ir/SR-536", "revision": QCI}),
-        json!({"kind": "review", "identity": "ix://agent-ix/quire-contract-ir/SR-537", "revision": QCI}),
+        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-025"}),
+        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-026"}),
+        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-contract-ir/FR-027"}),
+        json!({"kind": "requirement", "identity": "ix://agent-ix/quire-protocol/FR-006"}),
+        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-038"}),
+        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-039"}),
+        json!({"kind": "test", "identity": "ix://agent-ix/quire-contract-ir/TC-040"}),
+        json!({"kind": "review", "identity": "ix://agent-ix/quire-contract-ir/SR-536"}),
+        json!({"kind": "review", "identity": "ix://agent-ix/quire-contract-ir/SR-537"}),
     ]);
     for selection in owner_selections() {
         let identity = format!("contract:{}", selection.contract());
@@ -282,7 +246,6 @@ fn manifest_value() -> Value {
     edges.sort_by(|left, right| edge_key(left).cmp(&edge_key(right)));
     json!({
         "profile": ecosystem_model::MANIFEST_PROFILE,
-        "schema_digest": MANIFEST_SCHEMA_SHA256,
         "campaign": CAMPAIGN,
         "nodes": nodes,
         "edges": edges,
@@ -298,16 +261,14 @@ fn manifest_value() -> Value {
     })
 }
 
-fn contract_node(identity: &str, contract: &str, schema_digest: &str) -> Value {
+fn contract_node(identity: &str, contract: &str) -> Value {
     json!({
         "kind": "contract",
         "identity": identity,
         "selection": {
             "contract": contract,
             "package_version": "0.1.0",
-            "repository": "agent-ix/quire-contract-ir",
-            "revision": QCI,
-            "schema_digest": schema_digest
+            "repository": "agent-ix/quire-contract-ir"
         }
     })
 }
@@ -406,21 +367,19 @@ fn read_value(
     limits: EcosystemLimits,
 ) -> Result<manifest::CheckedManifestSet, ecosystem_model::ModelDecision> {
     let bytes = canonical(value);
-    manifest::read(&bytes, &expected(&bytes), limits)
+    manifest::read(&bytes, &expected(), limits)
 }
 
 #[trace("TC-040", "FR-027-AC-1", "FR-027-AC-3", "FR-027-AC-5", "FR-027-AC-6")]
 #[test]
 fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
     let mut cause_labels = std::collections::BTreeSet::new();
-    let registry = include_str!("../../spec/contract/STD-001-diagnostic-registry.md");
     for code in ModelCauseCode::all() {
         assert!(cause_labels.insert(code.as_str()));
-        assert!(registry.contains(&format!("| `{}` |", code.as_str())));
     }
     let value = manifest_value();
     let bytes = canonical(&value);
-    let checked = manifest::read(&bytes, &expected(&bytes), EcosystemLimits::default())
+    let checked = manifest::read(&bytes, &expected(), EcosystemLimits::default())
         .expect("exact campaign manifest");
     assert_eq!(
         checked.nodes().len(),
@@ -464,22 +423,6 @@ fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
 
     let semantic_mutations = [
         mutate(&value, |changed| {
-            changed["nodes"]
-                .as_array_mut()
-                .expect("nodes")
-                .iter_mut()
-                .find(|node| node["identity"] == "ix://agent-ix/quire-contract-ir/SR-537")
-                .expect("review")["revision"] = json!("69ec82bf4da1bdbee710544a4570c2042dc781a0");
-        }),
-        mutate(&value, |changed| {
-            changed["nodes"]
-                .as_array_mut()
-                .expect("nodes")
-                .iter_mut()
-                .find(|node| node["identity"] == "contract:temporal-ecosystem-model-v1")
-                .expect("contract")["selection"]["schema_digest"] = json!("00".repeat(32));
-        }),
-        mutate(&value, |changed| {
             changed["edges"].as_array_mut().expect("edges").push(json!({
                 "kind": "normative-reference",
                 "source": "ix://agent-ix/quire-contract-ir/FR-026",
@@ -509,12 +452,9 @@ fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
     for mut changed in semantic_mutations {
         sort_manifest(&mut changed);
         let changed_bytes = canonical(&changed);
-        let changed_manifest = manifest::read(
-            &changed_bytes,
-            &expected(&changed_bytes),
-            EcosystemLimits::default(),
-        )
-        .expect("well-formed semantic mutation");
+        let changed_manifest =
+            manifest::read(&changed_bytes, &expected(), EcosystemLimits::default())
+                .expect("well-formed semantic mutation");
         let changed_model = ecosystem_model::export(&changed_manifest, EcosystemLimits::default())
             .expect("mutated model");
         assert_ne!(changed_model.identity(), model.identity());
@@ -542,14 +482,6 @@ fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
         .expect("compiled model schema");
     let model_value: Value = serde_json::from_slice(model.bytes()).expect("model JSON");
     assert!(model_validator.is_valid(&model_value));
-    assert_eq!(
-        BridgeDigest::raw(MANIFEST_SCHEMA_BYTES).to_string(),
-        MANIFEST_SCHEMA_SHA256
-    );
-    assert_eq!(
-        BridgeDigest::raw(MODEL_SCHEMA_BYTES).to_string(),
-        MODEL_SCHEMA_SHA256
-    );
 }
 
 #[trace("TC-040", "FR-027-AC-1", "FR-027-AC-5", "FR-027-AC-6")]
@@ -557,12 +489,8 @@ fn tc_040_exact_manifest_exports_and_rereads_one_non_authoritative_model() {
 fn tc_040_manifest_selection_executes_the_real_owner_bridge_path_end_to_end() {
     let manifest_value = manifest_value();
     let manifest_bytes = canonical(&manifest_value);
-    let checked = manifest::read(
-        &manifest_bytes,
-        &expected(&manifest_bytes),
-        EcosystemLimits::default(),
-    )
-    .expect("exact campaign manifest");
+    let checked = manifest::read(&manifest_bytes, &expected(), EcosystemLimits::default())
+        .expect("exact campaign manifest");
     let model =
         ecosystem_model::export(&checked, EcosystemLimits::default()).expect("campaign model");
     let validated_model =
@@ -796,17 +724,6 @@ fn tc_040_every_graph_identity_ownership_and_topology_violation_refuses() {
                 value["edges"].as_array_mut().expect("edges").push(json!({"kind":"runtime-dependency","source":"component:tl-syntax","target":"component:tl-parse"}));
             }),
         ),
-        (
-            ModelCauseCode::MovingRevision,
-            mutate(&base, |value| {
-                value["nodes"]
-                    .as_array_mut()
-                    .expect("nodes")
-                    .iter_mut()
-                    .find(|node| node["identity"] == "agent-ix/tl-parse")
-                    .expect("tl-parse")["revision"] = Value::String("main".to_owned());
-            }),
-        ),
     ];
     for (expected_code, mut value) in cases {
         sort_manifest(&mut value);
@@ -831,13 +748,13 @@ fn tc_040_manifest_and_model_readers_reject_hostile_or_replayed_bytes() {
     let value = manifest_value();
     let bytes = canonical(&value);
     let checked =
-        manifest::read(&bytes, &expected(&bytes), EcosystemLimits::default()).expect("manifest");
+        manifest::read(&bytes, &expected(), EcosystemLimits::default()).expect("manifest");
     let model = ecosystem_model::export(&checked, EcosystemLimits::default()).expect("model");
 
     let mut trailing = bytes.clone();
     trailing.push(b'\n');
     assert_eq!(
-        manifest::read(&trailing, &expected(&trailing), EcosystemLimits::default())
+        manifest::read(&trailing, &expected(), EcosystemLimits::default())
             .expect_err("trailing manifest data")
             .code(),
         ModelCauseCode::InvalidDocument
@@ -860,7 +777,7 @@ fn tc_040_manifest_and_model_readers_reject_hostile_or_replayed_bytes() {
     assert_eq!(
         manifest::read(
             duplicate.as_bytes(),
-            &expected(duplicate.as_bytes()),
+            &expected(),
             EcosystemLimits::default()
         )
         .expect_err("duplicate field")
@@ -872,13 +789,9 @@ fn tc_040_manifest_and_model_readers_reject_hostile_or_replayed_bytes() {
     wrong_campaign["campaign"] = json!("agent-ix/tl-syntax#foreign");
     let foreign_bytes = canonical(&wrong_campaign);
     assert_eq!(
-        manifest::read(
-            &foreign_bytes,
-            &expected(&bytes),
-            EcosystemLimits::default()
-        )
-        .expect_err("foreign campaign")
-        .code(),
+        manifest::read(&foreign_bytes, &expected(), EcosystemLimits::default())
+            .expect_err("foreign campaign")
+            .code(),
         ModelCauseCode::CampaignMismatch
     );
 
@@ -935,7 +848,7 @@ fn tc_040_every_manifest_and_model_resource_dimension_has_an_exact_cliff() {
         allocation_bytes: u64::try_from(bytes.len()).expect("manifest allocation"),
         ..EcosystemLimits::default()
     };
-    manifest::read(&bytes, &expected(&bytes), exact).expect("every exact manifest limit");
+    manifest::read(&bytes, &expected(), exact).expect("every exact manifest limit");
 
     let cliffs = vec![
         EcosystemLimits {
@@ -1001,7 +914,7 @@ fn tc_040_every_manifest_and_model_resource_dimension_has_an_exact_cliff() {
     ];
     for limits in cliffs {
         assert_eq!(
-            manifest::read(&bytes, &expected(&bytes), limits)
+            manifest::read(&bytes, &expected(), limits)
                 .expect_err("one-under ceiling")
                 .code(),
             ModelCauseCode::ResourceExhausted
@@ -1009,7 +922,7 @@ fn tc_040_every_manifest_and_model_resource_dimension_has_an_exact_cliff() {
     }
 
     let checked =
-        manifest::read(&bytes, &expected(&bytes), EcosystemLimits::default()).expect("manifest");
+        manifest::read(&bytes, &expected(), EcosystemLimits::default()).expect("manifest");
     let baseline = ecosystem_model::export(&checked, EcosystemLimits::default()).expect("model");
     let model_value: Value = serde_json::from_slice(baseline.bytes()).expect("model JSON");
     let model_counts = baseline.counts();

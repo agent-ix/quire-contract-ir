@@ -10,13 +10,12 @@ use super::manifest::{
     bridge_limits, resource, u64_len, CheckedManifestSet, EcosystemLimits, ManifestEdge,
     ManifestGap, ManifestNode,
 };
-use super::{MODEL_PROFILE, MODEL_SCHEMA_SHA256, PROPOSAL_ID_PROFILE};
+use super::{MODEL_PROFILE, PROPOSAL_ID_PROFILE};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ModelWire {
     pub profile: String,
-    pub schema_digest: String,
     pub identity: BridgeDigest,
     pub manifest_identity: BridgeDigest,
     pub campaign: String,
@@ -32,7 +31,6 @@ pub(crate) struct ModelWire {
 #[derive(Serialize)]
 struct ModelBody<'a> {
     profile: &'static str,
-    schema_digest: &'static str,
     manifest_identity: BridgeDigest,
     campaign: &'a str,
     limits: EcosystemLimits,
@@ -193,7 +191,6 @@ pub fn export(
     validate_counts(counts, limits)?;
     let body = ModelBody {
         profile: MODEL_PROFILE,
-        schema_digest: MODEL_SCHEMA_SHA256,
         manifest_identity: manifest.identity,
         campaign: &manifest.wire.campaign,
         limits,
@@ -209,7 +206,6 @@ pub fn export(
     let identity = model_identity(&body_bytes, limits)?;
     let wire = ModelWire {
         profile: MODEL_PROFILE.to_owned(),
-        schema_digest: MODEL_SCHEMA_SHA256.to_owned(),
         identity,
         manifest_identity: manifest.identity,
         campaign: manifest.wire.campaign.clone(),
@@ -263,16 +259,15 @@ pub(crate) fn validate_wire_identity(
     wire: &ModelWire,
     limits: EcosystemLimits,
 ) -> Result<(), ModelDecision> {
-    if wire.profile != MODEL_PROFILE || wire.schema_digest != MODEL_SCHEMA_SHA256 {
+    if wire.profile != MODEL_PROFILE {
         return Err(ModelDecision::new(
             Code::ContractMismatch,
             "model.contract",
-            "model profile or schema digest differs",
+            "model profile differs",
         ));
     }
     let body = ModelBody {
         profile: MODEL_PROFILE,
-        schema_digest: MODEL_SCHEMA_SHA256,
         manifest_identity: wire.manifest_identity,
         campaign: &wire.campaign,
         limits: wire.limits,

@@ -74,8 +74,8 @@ Before construction, the bridge SHALL admit and cross-check:
   checked predicate views;
 - observation position-ledger, clock, capture, progress, closure, completeness
   and availability views under their exact FR-004 contracts; and
-- immutable target formula, semantic, history/trace, request, evaluator-report
-  and selected-result-mapping contract/schema revisions.
+- target formula, semantic, history/trace, request, evaluator-report
+  and selected-result-mapping contract selections.
 
 Decision-scope progress, decision-scope closure, surrounding-execution progress
 and surrounding-execution closure are four distinct assertions. Each carries
@@ -246,12 +246,7 @@ FR-011/012/014 owns the selected temporal graphs and profiles.
 
 ## Status
 
-Implemented for `quire-contract-ir#71` against immutable QSL
-`f1700a9264d6d3bcdd07e0f77b70f3dae9ed4c07`, Quire Observation
-`9ac80e93f4b68a2c7d5a337f9a448ad10de798fc`, Quire Protocol
-`34d1752e6c5f789a52ccf115b0694eedd96cdd46`, tl-syntax
-`842d82553f045eb69a7f38745756d968254fc25e`, and tl-mltl
-`22862189ac4eb515ab84928faec25b2eac47d835` owner revisions. The implementation
+Implemented for `quire-contract-ir#71`. The implementation
 constructs and strict-reads sibling QSL-native and TL requests, admits both
 formula-wide result views, and joins them without parsing or evaluating either
 owner language inside Contract IR.

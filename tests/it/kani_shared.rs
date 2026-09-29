@@ -1,9 +1,9 @@
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
-    FiniteObject, FiniteReference, GeneratorProvenance, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    KaniProviderResult, ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds,
-    SemanticFamily, PROFILE,
+    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile, KaniProviderResult,
+    ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
+    PROFILE,
 };
 
 fn selection() -> ProfileSelection {
@@ -174,29 +174,6 @@ fn tc_042_dispatch_rejects_cross_family_or_duplicate_ownership() {
         DispatchIndex::new(vec![module.clone(), module]),
         Err(DispatchError::Conflict(_))
     ));
-}
-
-#[trace("TC-042", "FR-031-AC-2")]
-#[test]
-fn tc_042_provenance_identity_changes_with_an_assumption() {
-    let base = GeneratorProvenance {
-        clause_id: "clause:demo".into(),
-        input_id: "input:demo".into(),
-        profile_revision: "kani-bounded/1.0.0".into(),
-        executable_digest: "sha256:kani".into(),
-        options_digest: "sha256:options".into(),
-        assumptions: vec!["finite-population-valid".into()],
-        proof_dependencies: vec!["module:kani-definedness-arithmetic/1".into()],
-    };
-    let first = base
-        .identify("kani-harness/1", b"artifact")
-        .expect("complete provenance");
-    let mut changed = base;
-    changed.assumptions.push("checked-add-range".into());
-    let second = changed
-        .identify("kani-harness/1", b"artifact")
-        .expect("complete provenance");
-    assert_ne!(first.as_str(), second.as_str());
 }
 
 // Deliberately untraced: no acceptance criterion covers vacuous-proof

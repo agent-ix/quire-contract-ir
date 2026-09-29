@@ -4,10 +4,9 @@
   "title": "Quire temporal ecosystem manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["profile", "schema_digest", "campaign", "nodes", "edges", "gaps"],
+  "required": ["profile", "campaign", "nodes", "edges", "gaps"],
   "properties": {
     "profile": { "const": "quire.contract.temporal-ecosystem-manifest/v1" },
-    "schema_digest": { "$ref": "#/definitions/digest" },
     "campaign": { "$ref": "#/definitions/text" },
     "nodes": { "type": "array", "maxItems": 60265, "uniqueItems": true, "items": { "$ref": "#/definitions/node" } },
     "edges": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "#/definitions/edge" } },
@@ -16,25 +15,22 @@
   "definitions": {
     "text": { "type": "string", "minLength": 1, "maxLength": 1048576 },
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "selection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract", "package_version", "repository", "revision", "schema_digest"],
+      "required": ["contract", "package_version", "repository"],
       "properties": {
         "contract": { "$ref": "#/definitions/text" },
         "package_version": { "$ref": "#/definitions/text" },
-        "repository": { "$ref": "#/definitions/text" },
-        "revision": { "$ref": "#/definitions/revision" },
-        "schema_digest": { "$ref": "#/definitions/digest" }
+        "repository": { "$ref": "#/definitions/text" }
       }
     },
     "node": {
       "oneOf": [
         { "$ref": "#/definitions/repository" },
         { "$ref": "#/definitions/component" },
-        { "$ref": "#/definitions/revisionedObject" },
-        { "$ref": "#/definitions/revisionedInterface" },
+        { "$ref": "#/definitions/object" },
+        { "$ref": "#/definitions/interface" },
         { "$ref": "#/definitions/contract" },
         { "$ref": "#/definitions/requirement" },
         { "$ref": "#/definitions/test" },
@@ -43,23 +39,23 @@
     },
     "repository": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "repository" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "repository" }, "identity": { "$ref": "#/definitions/text" } }
     },
     "component": {
       "type": "object", "additionalProperties": false,
       "required": ["kind", "identity"],
       "properties": { "kind": { "const": "component" }, "identity": { "$ref": "#/definitions/text" } }
     },
-    "revisionedObject": {
+    "object": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "object" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "object" }, "identity": { "$ref": "#/definitions/text" } }
     },
-    "revisionedInterface": {
+    "interface": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "interface" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "interface" }, "identity": { "$ref": "#/definitions/text" } }
     },
     "contract": {
       "type": "object", "additionalProperties": false,
@@ -68,18 +64,18 @@
     },
     "requirement": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "requirement" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "requirement" }, "identity": { "$ref": "#/definitions/text" } }
     },
     "test": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "test" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "test" }, "identity": { "$ref": "#/definitions/text" } }
     },
     "review": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "identity", "revision"],
-      "properties": { "kind": { "const": "review" }, "identity": { "$ref": "#/definitions/text" }, "revision": { "$ref": "#/definitions/revision" } }
+      "required": ["kind", "identity"],
+      "properties": { "kind": { "const": "review" }, "identity": { "$ref": "#/definitions/text" } }
     },
     "edge": {
       "type": "object", "additionalProperties": false,

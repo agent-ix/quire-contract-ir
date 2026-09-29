@@ -59,7 +59,7 @@ integrations, which need other owners' crates (FR-039), and it re-exports no
 | `predicate` | native checked predicate to TL Boolean signal projection | FR-025 |
 | `temporal` | native temporal clause to TL formula correspondence and result join | FR-026 |
 | `ecosystem_model` | bounded, non-authoritative temporal-ecosystem model export | FR-027 |
-| `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index, typed outcome, provenance, and the Kani outcome to QSL terminal-value map | FR-029 through FR-031 |
+| `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index, typed outcome, and the Kani outcome to QSL terminal-value map | FR-029 through FR-031 |
 
 The conformance runner (`src/bin/`) and its fixtures stay in the root
 package.
@@ -69,8 +69,8 @@ package.
 | Owner | Holds | Contract IR's relation |
 | --- | --- | --- |
 | QSpec (`quire-specification`) | the normative language, the `quire.checked-package/v2` wire contract (FR-322, FR-340 through FR-342), the FR-331 backend-provider envelope, AD-016 | Contract IR reads QSpec's contracts and cites them; it copies none of QSpec's files |
-| QSL (`quire-spec-language`) | the compiler that produces checked packages, the owner views `predicate` and `temporal` read, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL at one pinned revision, names QSL's replay types and defines none of its own |
-| codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index, outcomes and provenance, and on `quire-contract-model` for model types |
+| QSL (`quire-spec-language`) | the compiler that produces checked packages, the owner views `predicate` and `temporal` read, and the `qsl-replay` crate: `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `TerminalValue`, `TerminalRecord`, `ObligationIdentity` and the replay facade `qsl_replay::replay` | QSL depends on `quire-contract-model`; the root crate depends on QSL, names QSL's replay types and defines none of its own |
+| codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the family lowerings for checked arithmetic, collections and objects in its backend adapter, the Kani transcript parser in that adapter, and the replay adapter that builds QSL's envelope and calls `qsl_replay::replay` (QSL ADR-011 E9) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
 
 Downstream solvers, Quoin, build infrastructure, ambient repository
@@ -81,7 +81,7 @@ discovery and human release decisions remain outside.
 The root crate's `kani` module holds the parts of the bounded-Kani boundary
 every backend reads: the `kani-bounded/1` profile and capability matrix
 (FR-029), the finite input ABI and typed outcome (FR-030), and the dispatch
-index, module descriptors, provenance and outcome map (FR-031). The family
+index, module descriptors and outcome map (FR-031). The family
 lowerings for checked arithmetic, collections and objects are
 Kani-specific and belong to the backend adapter in codegen, which emits the
 harness. The dispatch index names each family module and its declared
@@ -115,7 +115,7 @@ which QSL reads as category `Inconclusive` with the vacuity cause
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
 calls no executor. The root crate takes `qsl-replay` from the QSL repository
-and revision it already pins, so taking it adds no repository edge.
+it already depends on, so taking it adds no repository edge.
 
 ## Views
 
@@ -131,7 +131,7 @@ checked temporal + observations + valuations -> sibling native/TL requests
 validated native/TL formula results -> structural correspondence join
 exact campaign manifest -> typed graph -> descriptive model + strict re-export
 checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome -> qsl_replay::TerminalValue
-schema + corpus manifest + fixtures -> process runner -> JSON Lines results
+schema + corpus fixtures -> process runner -> JSON Lines results
 ```
 
 The Rust library and process runner share semantic operations. `serde`
@@ -176,8 +176,8 @@ the authored-contract interchange.
   dependency graph. Consumers that need model types depend on
   `quire-contract-model` directly.
 - Keep the shared bounded-Kani contract in Contract IR: the `kani-bounded/1`
-  profile, the finite input ABI, the dispatch index, the typed outcome and
-  provenance (`profile`, `abi`, `dispatch`, `outcome`, `provenance`), so any
+  profile, the finite input ABI, the dispatch index and the typed outcome
+  (`profile`, `abi`, `dispatch`, `outcome`), so any
   backend can read one versioned profile and input firewall. The
   Kani-specific family lowerings for checked arithmetic, collections and
   objects belong to codegen's backend adapter, which emits the harness.

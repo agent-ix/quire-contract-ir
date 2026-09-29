@@ -10,7 +10,6 @@ pub enum ModelCauseCode {
     ContractMismatch,
     CampaignMismatch,
     RepositorySetMismatch,
-    MovingRevision,
     DuplicateNode,
     DuplicateEdge,
     DuplicateGap,
@@ -26,13 +25,12 @@ pub enum ModelCauseCode {
 }
 
 impl ModelCauseCode {
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 17] = [
         Self::InvalidDocument,
         Self::ResourceExhausted,
         Self::ContractMismatch,
         Self::CampaignMismatch,
         Self::RepositorySetMismatch,
-        Self::MovingRevision,
         Self::DuplicateNode,
         Self::DuplicateEdge,
         Self::DuplicateGap,
@@ -62,7 +60,6 @@ impl ModelCauseCode {
             Self::ContractMismatch => "ecosystem_contract_mismatch",
             Self::CampaignMismatch => "ecosystem_campaign_mismatch",
             Self::RepositorySetMismatch => "ecosystem_repository_set_mismatch",
-            Self::MovingRevision => "ecosystem_moving_revision",
             Self::DuplicateNode => "ecosystem_duplicate_node",
             Self::DuplicateEdge => "ecosystem_duplicate_edge",
             Self::DuplicateGap => "ecosystem_duplicate_gap",

@@ -1,7 +1,7 @@
 use crate::support::{result_fixture, temporal_fixture};
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    bridge::{BridgeDigest, BridgeLimits, ContractSelection},
+    bridge::{BridgeLimits, ContractSelection},
     predicate,
     temporal::{
         self, ExpectedTemporalJoin, ExpectedTemporalProjection, ObservationViews,
@@ -1239,142 +1239,119 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             Dim::NativeContract,
             Code::TemporalNativeContractUnsupported,
             Code::TemporalNativeContractUnavailable,
-            Code::TemporalNativeContractConflict,
         ),
         (
             Dim::PredicateProjection,
             Code::TemporalPredicateProjectionContractUnsupported,
             Code::TemporalPredicateProjectionContractUnavailable,
-            Code::TemporalPredicateProjectionContractConflict,
         ),
         (
             Dim::FormulaContract,
             Code::TemporalFormulaContractUnsupported,
             Code::TemporalFormulaContractUnavailable,
-            Code::TemporalFormulaContractConflict,
         ),
         (
             Dim::FormulaContract,
             Code::TemporalFormulaContractUnsupported,
             Code::TemporalFormulaContractUnavailable,
-            Code::TemporalFormulaContractConflict,
         ),
         (
             Dim::FormulaContract,
             Code::TemporalFormulaContractUnsupported,
             Code::TemporalFormulaContractUnavailable,
-            Code::TemporalFormulaContractConflict,
         ),
         (
             Dim::SemanticContract,
             Code::TemporalSemanticContractUnsupported,
             Code::TemporalSemanticContractUnavailable,
-            Code::TemporalSemanticContractConflict,
         ),
         (
             Dim::ObservationContract,
             Code::TemporalObservationContractUnsupported,
             Code::TemporalObservationContractUnavailable,
-            Code::TemporalObservationContractConflict,
         ),
         (
             Dim::ClockContract,
             Code::TemporalClockContractUnsupported,
             Code::TemporalClockContractUnavailable,
-            Code::TemporalClockContractConflict,
         ),
         (
             Dim::CaptureContract,
             Code::TemporalCaptureContractUnsupported,
             Code::TemporalCaptureContractUnavailable,
-            Code::TemporalCaptureContractConflict,
         ),
         (
             Dim::ProgressContract,
             Code::TemporalProgressContractUnsupported,
             Code::TemporalProgressContractUnavailable,
-            Code::TemporalProgressContractConflict,
         ),
         (
             Dim::ProgressContract,
             Code::TemporalProgressContractUnsupported,
             Code::TemporalProgressContractUnavailable,
-            Code::TemporalProgressContractConflict,
         ),
         (
             Dim::CompletenessContract,
             Code::TemporalCompletenessContractUnsupported,
             Code::TemporalCompletenessContractUnavailable,
-            Code::TemporalCompletenessContractConflict,
         ),
         (
             Dim::AvailabilityContract,
             Code::TemporalAvailabilityContractUnsupported,
             Code::TemporalAvailabilityContractUnavailable,
-            Code::TemporalAvailabilityContractConflict,
         ),
         (
             Dim::TraceContract,
             Code::TemporalTraceContractUnsupported,
             Code::TemporalTraceContractUnavailable,
-            Code::TemporalTraceContractConflict,
         ),
         (
             Dim::TraceContract,
             Code::TemporalTraceContractUnsupported,
             Code::TemporalTraceContractUnavailable,
-            Code::TemporalTraceContractConflict,
         ),
         (
             Dim::RequestContract,
             Code::TemporalRequestContractUnsupported,
             Code::TemporalRequestContractUnavailable,
-            Code::TemporalRequestContractConflict,
         ),
         (
             Dim::RequestContract,
             Code::TemporalRequestContractUnsupported,
             Code::TemporalRequestContractUnavailable,
-            Code::TemporalRequestContractConflict,
         ),
         (
             Dim::EvaluatorContract,
             Code::TemporalEvaluatorContractUnsupported,
             Code::TemporalEvaluatorContractUnavailable,
-            Code::TemporalEvaluatorContractConflict,
         ),
         (
             Dim::RequestContract,
             Code::TemporalRequestContractUnsupported,
             Code::TemporalRequestContractUnavailable,
-            Code::TemporalRequestContractConflict,
         ),
         (
             Dim::NativeResultContract,
             Code::TemporalNativeResultContractUnsupported,
             Code::TemporalNativeResultContractUnavailable,
-            Code::TemporalNativeResultContractConflict,
         ),
         (
             Dim::NativeResultContract,
             Code::TemporalNativeResultContractUnsupported,
             Code::TemporalNativeResultContractUnavailable,
-            Code::TemporalNativeResultContractConflict,
         ),
         (
             Dim::NativeResultContract,
             Code::TemporalNativeResultContractUnsupported,
             Code::TemporalNativeResultContractUnavailable,
-            Code::TemporalNativeResultContractConflict,
         ),
         (
             Dim::TlResultContract,
             Code::TemporalTlResultContractUnsupported,
             Code::TemporalTlResultContractUnavailable,
-            Code::TemporalTlResultContractConflict,
         ),
     ];
-    for (axis, (dimension, unsupported, unavailable, conflict)) in
+    for (axis, (dimension, unsupported, unavailable)) in
         TargetContract::ALL.into_iter().zip(expected)
     {
         let current = temporal::TargetSelection::current();
@@ -1383,8 +1360,6 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             format!("{}.unknown", selected.contract()),
             selected.package_version(),
             selected.repository(),
-            selected.revision(),
-            selected.schema_digest(),
         );
         assert_selection_refusal(
             fixture.temporal(),
@@ -1395,13 +1370,8 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             dimension,
             unsupported,
         );
-        let unavailable_selection = ContractSelection::new(
-            selected.contract(),
-            selected.package_version(),
-            selected.repository(),
-            "0000000000000000000000000000000000000000",
-            selected.schema_digest(),
-        );
+        let unavailable_selection =
+            ContractSelection::new(selected.contract(), "0.0.0", selected.repository());
         assert_selection_refusal(
             fixture.temporal(),
             predicates.validated(),
@@ -1411,21 +1381,16 @@ fn tc_039_every_owner_contract_axis_is_selected_independently() {
             dimension,
             unavailable,
         );
-        let conflict_selection = ContractSelection::new(
-            selected.contract(),
-            selected.package_version(),
-            selected.repository(),
-            selected.revision(),
-            BridgeDigest::raw(b"wrong-schema"),
-        );
+        let invalid_selection =
+            ContractSelection::new(selected.contract(), selected.package_version(), "");
         assert_selection_refusal(
             fixture.temporal(),
             predicates.validated(),
             observations,
-            current.with_selection(axis, conflict_selection),
-            TemporalProjectionKind::Conflict,
+            current.with_selection(axis, invalid_selection),
+            TemporalProjectionKind::Unavailable,
             dimension,
-            conflict,
+            unavailable,
         );
     }
 }

@@ -14,7 +14,7 @@ The governance contract shall define explicit wire-schema identity, reject unkno
 
 ## Inputs
 
-A serialized document and its declared schema identity, major version, and schema digest.
+A serialized document and its declared schema identity and major version.
 
 ## Outputs
 
@@ -30,7 +30,7 @@ An accepted v1 document or an explicit unsupported-schema result.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-001-AC-2 | The canonical policy requires schema identity and digest pins and forbids silent migration. | Inspection (TC-001) |
+| FR-001-AC-2 | The canonical policy requires a declared schema identity, rejects an unknown major version and forbids silent migration. | Inspection (TC-001) |
 
 ### Retired criteria
 

@@ -95,7 +95,7 @@ The Quire standard owns profile definitions. The composed-v1 candidates use
 `ix:native` edition `1-draft` with independently versioned state-core, query,
 finite-graph, temporal, protocol, observation, package and diagnostic
 definitions accepted for implementation planning in Quire Specification PR
-#15. FS01–FS05 own final adoption and immutable definition pins. Historical
+#15. FS01–FS05 own final adoption. Historical
 `ix:native` / `0-draft` / `state-finite/0-draft` source, result and definition
 bytes remain historical and are never reinterpreted in place.
 
@@ -173,12 +173,9 @@ does not represent. Its oracle is the native meaning plus the explicit mapping
 contract and independent expected corpus. An upstream parser accepting emitted
 text is not proof of semantic correspondence.
 
-External tool/version/license investigation remains useful provenance for the
-mapping tickets but is not a first-party execution prerequisite. The complete
-pre-amendment proposal, including Eclipse OCL, NASA FRET and SysML pilot pins,
-is preserved at
-[Contract-IR `39bffb4`](https://github.com/agent-ix/quire-contract-ir/blob/39bffb40f41b7caceaf026f438546b15bf140ce4/spec/decisions/ADR-0053-formal-clause-source-profiles.md).
-The recorded SysML pilot correction remains LGPL-3.0-or-later.
+External tool and license investigation is useful input for the mapping
+tickets but is not a first-party execution prerequisite. The recorded SysML
+pilot correction remains LGPL-3.0-or-later.
 
 ### Eligibility and extension points
 

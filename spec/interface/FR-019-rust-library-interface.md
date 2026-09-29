@@ -96,13 +96,10 @@ plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
 
-The model crate root additionally exports two conformance helpers as stable v0.1 API:
-`hex_digest`, which renders SHA-256 over a byte slice as 64 lowercase
-hexadecimal characters, and `expected_inventory`, which returns the sorted
-published construct and boundary inventory as owned `String` values. Both are
-pure, allocate their own output, take no host handle, and are the supported way
-for a downstream tool to reproduce a published digest or inventory without
-reimplementing either. Their names, signatures and output spellings are stable.
+The model crate root additionally exports `expected_inventory` as stable v0.1
+API; it returns the sorted published construct and boundary inventory as owned
+`String` values, is pure, allocates its own output and takes no host handle.
+Its name, signature and output spelling are stable.
 
 The model crate root exports `PUBLIC_CONSTRUCT_TAGS` and `CONFORMANCE_BOUNDARIES` as
 sorted fixed-width `&'static [&'static str]` registries and retains
@@ -141,7 +138,7 @@ of the item and are not listed separately.
 | `canonical` | function `migrate_reference_body`; types `CanonicalBytes`, `CanonicalDigest`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`, `MigrationReceipt`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
 | `coverage` | function `classify_coverage`; types `ArtifactCoverageRow`, `ArtifactId`, `ArtifactTrace`, `CoverageClass`, `CoverageReport`, `CoverageResult`, `OrphanReason`, `RequirementCoverageRow`, `TraceDepth` | FR-017 |
 | `binding` | types `BoundClause`, `BoundPackage`; constants `BOUND_IDENTITY_PROFILE`, `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
-| `conformance` | functions `expected_inventory`, `hex_digest`, `run_manifest`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
+| `conformance` | functions `expected_inventory`, `run_corpus`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
 | `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `GeneratedOutputPackageId`, `GeneratorBytesDigest`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordId`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingRuleDigest`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `ObserverBytesDigest`, `ObserverDependencySetDigest`, `ObserverInvocationDigest`, `ObserverResultDigest`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceBytesDigest`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`, `TargetBytesDigest`; trait `OutputMapper`; constants `GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION`, `OUTPUT_MAPPING_RECORD_IDENTITY_VERSION`, `OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION`, `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedRevision`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRegion`, `JsonPointer` | FR-038 |
@@ -158,7 +155,7 @@ With the `fault-injection` feature the crate root also exports
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
-| FR-019-AC-3 | `hex_digest` renders SHA-256 as exactly 64 lowercase hexadecimal characters for empty and non-empty input, and `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
+| FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |

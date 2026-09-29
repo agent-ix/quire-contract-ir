@@ -7,14 +7,12 @@ use std::{
     process::{Command, Output},
 };
 
-use jsonschema::{Draft, JSONSchema};
 use quire_contract_ir::{
-    expected_inventory, CanonicalProfile, ContractPackage, DeclarationEnvironment, DiagnosticCode,
-    PackageId, RequirementId, RequirementRef, RequirementRevision, SourceDocumentId,
-    SourceIdentity, SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions,
-    ValueDeclaration, ValueDeclarationKind, ValueType, CONFORMANCE_BOUNDARIES,
-    MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
-    PUBLIC_CONSTRUCT_TAGS,
+    expected_inventory, ContractPackage, DeclarationEnvironment, DiagnosticCode, PackageId,
+    RequirementId, RequirementRef, RequirementRevision, SourceDocumentId, SourceIdentity,
+    SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions, ValueDeclaration,
+    ValueDeclarationKind, ValueType, MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH,
+    MAX_WIRE_JSON_DEPTH,
 };
 use serde_json::{json, Value};
 
@@ -33,34 +31,61 @@ fn runner(arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-fn run_manifest(path: &Path) -> Output {
-    runner(&["run", "--manifest", path.to_str().unwrap()])
+fn schemas() -> PathBuf {
+    repository().join("schemas")
 }
 
+fn run_with(corpus: &Path, schemas: &Path) -> Output {
+    runner(&[
+        "run",
+        "--corpus",
+        corpus.to_str().unwrap(),
+        "--schemas",
+        schemas.to_str().unwrap(),
+    ])
+}
+
+fn run_corpus(path: &Path) -> Output {
+    run_with(path, &schemas())
+}
+
+/// A scratch copy of the corpus at `<root>/contract-v0.1` with the schemas it
+/// runs against at `<root>/schemas`, so a test can change either.
 struct Scratch(PathBuf);
 
 impl Scratch {
-    fn corpus() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "quire-contract-ir-tc018-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+    fn corpus(label: &str) -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "quire-contract-ir-tc018-{}-{label}",
+            std::process::id()
         ));
-        if path.exists() {
-            fs::remove_dir_all(&path).unwrap();
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
         }
+        let path = root.join("contract-v0.1");
         copy_tree(&corpus(), &path);
+        copy_tree(&schemas(), &root.join("schemas"));
         Self(path)
     }
 
-    fn manifest(&self) -> PathBuf {
-        self.0.join("manifest.json")
+    fn root(&self) -> &Path {
+        self.0.parent().unwrap()
+    }
+
+    fn schemas(&self) -> PathBuf {
+        self.root().join("schemas")
+    }
+
+    fn run(&self) -> Output {
+        run_with(&self.0, &self.schemas())
     }
 }
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        if let Some(parent) = self.0.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
     }
 }
 
@@ -85,17 +110,13 @@ fn write_json(path: &Path, value: &Value) {
     fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
-fn refresh_expectation_digests(scratch: &Scratch, fixture_ids: &[&str]) {
-    let mut manifest = read_json(&scratch.manifest());
-    for fixture in manifest["fixtures"].as_array_mut().unwrap() {
-        let id = fixture["id"].as_str().unwrap();
-        if fixture_ids.contains(&id) {
-            let path = scratch.0.join(fixture["expectation"].as_str().unwrap());
-            fixture["expectation_sha256"] =
-                json!(quire_contract_ir::hex_digest(&fs::read(path).unwrap()));
-        }
-    }
-    write_json(&scratch.manifest(), &manifest);
+fn rows(output: &Output) -> Vec<Value> {
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|row| !row.is_empty())
+        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
+        .collect()
 }
 
 fn error_code(output: &Output) -> String {
@@ -106,91 +127,18 @@ fn error_code(output: &Output) -> String {
     error["code"].as_str().unwrap().to_owned()
 }
 
-/// TC-018. FR-018-AC-1.
-#[test]
-fn tc_018_normative_manifest_schema_rejects_shape_mutations() {
-    let schema =
-        read_json(&repository().join("schemas/contract-conformance-manifest-v1.schema.json"));
-    let validator = JSONSchema::options()
-        .with_draft(Draft::Draft7)
-        .compile(&schema)
-        .unwrap();
-    let baseline = read_json(&corpus().join("manifest.json"));
-    assert!(validator.is_valid(&baseline));
-    let mut mutations = Vec::new();
-    let mut missing = baseline.clone();
-    missing.as_object_mut().unwrap().remove("fixtures");
-    mutations.push(missing);
-    let mut empty = baseline.clone();
-    empty["fixtures"] = json!([]);
-    mutations.push(empty);
-    let mut unknown = baseline.clone();
-    unknown["unknown"] = json!(true);
-    mutations.push(unknown);
-    let mut operation = baseline.clone();
-    operation["fixtures"][0]["operation"] = json!("unknown");
-    mutations.push(operation);
-    let mut digest = baseline.clone();
-    digest["fixtures"][0]["input_sha256"] = json!("not-a-digest");
-    mutations.push(digest);
-    let mut trace = baseline;
-    trace["fixtures"][0]["trace_ids"] = json!([]);
-    mutations.push(trace);
-    for mutation in mutations {
-        assert!(!validator.is_valid(&mutation), "schema accepted {mutation}");
-    }
+fn input_count(corpus: &Path) -> usize {
+    fs::read_dir(corpus.join("inputs")).unwrap().count()
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-3, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1, FR-020-AC-3.
+/// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1.
 /// TC-019.
 /// FR-018-AC-1.
-/// FR-018-AC-3.
 /// FR-019-AC-1.
 /// FR-019-AC-3.
 /// FR-020-AC-1.
-/// FR-020-AC-3.
 #[test]
-fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
-    let root = repository();
-    let corpus = corpus();
-    assert_eq!(
-        fs::read(root.join("schemas/contract-package-reference-v1.schema.json")).unwrap(),
-        fs::read(corpus.join("schemas/contract-package-reference-v1.schema.json")).unwrap()
-    );
-    assert_eq!(
-        fs::read(root.join("schemas/contract-conformance-manifest-v1.schema.json")).unwrap(),
-        fs::read(corpus.join("schemas/contract-conformance-manifest-v1.schema.json")).unwrap()
-    );
-
-    for schema in [
-        root.join("schemas/contract-package-reference-v1.schema.json"),
-        root.join("schemas/contract-conformance-manifest-v1.schema.json"),
-    ] {
-        let value = read_json(&schema);
-        JSONSchema::options()
-            .with_draft(Draft::Draft7)
-            .compile(&value)
-            .unwrap();
-    }
-
-    let inventory: Vec<String> =
-        serde_json::from_slice(&fs::read(corpus.join("inventory.json")).unwrap()).unwrap();
-    assert_eq!(inventory, expected_inventory());
-
-    // FR-019-AC-3: hex_digest renders SHA-256 as exactly 64 lowercase hex
-    // characters, for empty and non-empty input alike.
-    for probe in [b"".as_slice(), b"contract-ir".as_slice()] {
-        let rendered = quire_contract_ir::hex_digest(probe);
-        assert_eq!(rendered.len(), 64);
-        assert!(rendered
-            .chars()
-            .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character)));
-    }
-    assert_eq!(
-        quire_contract_ir::hex_digest(b""),
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    );
-
+fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     // FR-019-AC-3: expected_inventory is exactly the five published registries
     // under their five stable prefixes, sorted, and nothing else.
     let mut rebuilt = quire_contract_ir::PUBLIC_CONSTRUCT_TAGS
@@ -227,67 +175,9 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     assert_eq!(published, rebuilt);
     assert!(published.windows(2).all(|pair| pair[0] < pair[1]));
 
-    // FR-020-AC-3: the two limits the runner enforces per file and per
-    // manifest are exact, and the per-file limit is strictly below the total
-    // preload budget, so no single file can exhaust a run on its own.
-    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES, 16_777_216);
-    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_FIXTURES, 10_000);
-    assert_eq!(quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES, 67_108_864);
-    const {
-        assert!(
-            quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES
-                < quire_contract_ir::MAX_CONFORMANCE_TOTAL_BYTES
-        );
-    }
-    assert!(PUBLIC_CONSTRUCT_TAGS
-        .windows(2)
-        .all(|pair| pair[0] < pair[1]));
-    assert!(CONFORMANCE_BOUNDARIES
-        .windows(2)
-        .all(|pair| pair[0] < pair[1]));
-    assert_eq!(MAX_SEMANTIC_NODES, 25_000);
-    assert_eq!(MAX_SEMANTIC_DEPTH, 256);
-    assert_eq!(MAX_SEMANTIC_COLLECTION_ITEMS, 10_000);
-    assert_eq!(MAX_WIRE_JSON_DEPTH, 576);
-    assert_eq!(
-        CanonicalProfile::V1.as_str(),
-        "quire.contract.canonical-json/v1"
-    );
-    assert!(ValidationOptions::strict().is_strict());
-    assert_eq!(
-        DiagnosticCode::ALL.last(),
-        Some(&DiagnosticCode::SemanticInputTooLarge)
-    );
-
-    for entry in walk_files(&corpus) {
-        if entry.extension().and_then(|value| value.to_str()) == Some("sha256")
-            || entry.file_name().and_then(|value| value.to_str()) == Some("README.md")
-        {
-            continue;
-        }
-        let sidecar = PathBuf::from(format!("{}.sha256", entry.display()));
-        assert!(sidecar.is_file(), "missing sidecar for {}", entry.display());
-        verify_sidecar(&entry, &sidecar);
-    }
-    for name in [
-        "contract-package-reference-v1.schema.json",
-        "contract-conformance-manifest-v1.schema.json",
-    ] {
-        let schema = root.join("schemas").join(name);
-        verify_sidecar(
-            &schema,
-            &PathBuf::from(format!("{}.sha256", schema.display())),
-        );
-    }
-    for entry in walk_files(&corpus.join("canonical")) {
-        if entry.extension().and_then(|value| value.to_str()) == Some("json") {
-            assert_ne!(fs::read(entry).unwrap().last(), Some(&b'\n'));
-        }
-    }
-
-    let manifest = corpus.join("manifest.json");
-    let first = run_manifest(&manifest);
-    let second = run_manifest(&manifest);
+    let corpus = corpus();
+    let first = run_corpus(&corpus);
+    let second = run_corpus(&corpus);
     assert!(
         first.status.success(),
         "{}",
@@ -295,165 +185,35 @@ fn tc_018_published_schema_inventory_sidecars_and_runner_are_exact() {
     );
     assert!(first.stderr.is_empty());
     assert_eq!(first.stdout, second.stdout);
-    let rows = first
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .filter(|row| !row.is_empty())
-        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
-        .collect::<Vec<_>>();
-    let manifest_value = read_json(&manifest);
-    let fixtures = manifest_value["fixtures"].as_array().unwrap();
-    let fixture_count = fixtures.len();
-    assert_eq!(rows.len(), fixture_count);
-    assert!(rows.iter().all(|row| row["status"] == "match"));
-    for (row, fixture) in rows.iter().zip(fixtures) {
-        assert_eq!(row["fixture_id"], fixture["id"]);
-        assert_eq!(row["trace_ids"], fixture["trace_ids"]);
+    let rows = rows(&first);
+    assert_eq!(rows.len(), input_count(&corpus));
+    let mut covered = BTreeSet::new();
+    for row in &rows {
+        assert_eq!(row["status"], "match");
         assert!(!row["trace_ids"].as_array().unwrap().is_empty());
-    }
-    let trace_ids = fixtures
-        .iter()
-        .flat_map(|fixture| fixture["trace_ids"].as_array().unwrap())
-        .map(|value| value.as_str().unwrap())
-        .collect::<BTreeSet<_>>();
-    let trace_map = read_json(&root.join("schemas/conformance-trace-map-v1.json"));
-    let mapped_ids = trace_map
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|group| group["trace_ids"].as_array().unwrap())
-        .map(|value| value.as_str().unwrap())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(trace_ids, mapped_ids);
-    let requirements = fs::read_dir(root.join("spec/contract"))
-        .unwrap()
-        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
-        .collect::<Vec<_>>()
-        .join("\n");
-    for target in &trace_ids {
-        assert!(
-            requirements.contains(&format!("| {target} |")),
-            "registry target {target} must name an authored acceptance criterion"
+        covered.extend(
+            row["covers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|token| token.as_str().unwrap().to_owned()),
         );
     }
-    let find_fixture = |id: &str| fixtures.iter().find(|fixture| fixture["id"] == id).unwrap();
-    assert_eq!(
-        find_fixture("package-invalid-namespace")["trace_ids"],
-        json!(["FR-011-AC-3", "FR-018-AC-1"])
-    );
-    assert_eq!(
-        find_fixture("package-reference")["trace_ids"],
-        json!(["FR-012-AC-2", "FR-018-AC-1"])
-    );
-    assert_eq!(
-        find_fixture("expression-value-input")["trace_ids"],
-        json!(["FR-012-AC-5", "FR-014-AC-4", "FR-014-AC-6", "FR-018-AC-1"])
-    );
-    for id in [
-        "coverage-cross-package",
-        "coverage-missing",
-        "coverage-stale",
-    ] {
-        assert_eq!(
-            find_fixture(id)["trace_ids"],
-            json!(["FR-017-AC-2", "FR-018-AC-1"])
-        );
-    }
-
-    let package_schema_value =
-        read_json(&root.join("schemas/contract-package-reference-v1.schema.json"));
-    let package_schema = JSONSchema::options()
-        .with_draft(Draft::Draft7)
-        .compile(&package_schema_value)
-        .unwrap();
-    let coverage_fixtures = manifest_value["fixtures"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|fixture| fixture["operation"] == "coverage")
-        .collect::<Vec<_>>();
-    assert_eq!(coverage_fixtures.len(), 8);
-    assert!(coverage_fixtures
-        .iter()
-        .all(|fixture| fixture["covers"].as_array().unwrap().len() <= 4));
-    let mut schema_negative = BTreeSet::new();
-    for fixture in manifest_value["fixtures"].as_array().unwrap() {
-        let operation = fixture["operation"].as_str().unwrap();
-        if operation == "expression" {
-            continue;
-        }
-        let input = read_json(&corpus.join(fixture["input"].as_str().unwrap()));
-        let package = if operation == "package" {
-            input.get("package").unwrap_or(&input)
-        } else {
-            &input["package"]
-        };
-        let schema_valid = package_schema.is_valid(package);
-        let expectation = read_json(&corpus.join(fixture["expectation"].as_str().unwrap()));
-        let semantic_success = expectation["valid"].as_bool() == Some(true)
-            || expectation
-                .get("coverage")
-                .is_some_and(|coverage| !coverage.is_null());
-        if semantic_success {
-            assert!(
-                schema_valid,
-                "successful fixture {} diverges from the package schema",
-                fixture["id"]
-            );
-        }
-        if !schema_valid {
-            schema_negative.insert(fixture["id"].as_str().unwrap().to_owned());
-        }
-    }
-    assert_eq!(
-        schema_negative,
-        [
-            "migration-unregistered",
-            "migration-unsupported",
-            "package-invalid-identifier",
-            "package-invalid-namespace",
-            "package-invalid-requirement-revision",
-            "package-invalid-schema",
-            "package-invalid-source-revision",
-            "package-malformed-reference",
-            "package-unknown-field",
-            "package-wire-depth-maximum",
-            "package-wire-depth-over",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-    );
-
-    let semantic_max = read_json(&corpus.join("inputs/expression-semantic-nodes-maximum.json"));
-    let semantic_over = read_json(&corpus.join("inputs/expression-semantic-nodes-over.json"));
-    let mut one_past = semantic_max;
-    one_past["values"][0]["value_type"] = json!({"kind": "option", "value": {"kind": "boolean"}});
-    assert_eq!(
-        semantic_over, one_past,
-        "semantic-node over fixture must add exactly one nested type node"
-    );
-
-    let version = runner(&["--version"]);
-    assert!(version.status.success());
-    assert!(version.stderr.is_empty());
-    assert_eq!(
-        String::from_utf8(version.stdout).unwrap(),
-        "quire-contract-ir 0.1.0 quire.contract.conformance-jsonl/v1\n"
-    );
+    assert_eq!(covered.into_iter().collect::<Vec<_>>(), published);
 
     let invalid_utf8 =
         ContractPackage::from_json_bytes(&[0xff], ValidationOptions::strict()).unwrap_err();
     assert_eq!(invalid_utf8[0].code, DiagnosticCode::InvalidWireFormat);
 }
 
-/// Tracing: TC-018, FR-018-AC-2, FR-020-AC-2.
+/// Tracing: TC-018, FR-018-AC-1, FR-018-AC-2, FR-020-AC-2.
 /// StR-003-VC-1.
+/// FR-018-AC-1.
 /// FR-018-AC-2.
 /// FR-020-AC-2.
 #[test]
 fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
-    let scratch = Scratch::corpus();
+    let scratch = Scratch::corpus("mismatch");
 
     let package_path = scratch.0.join("expectations/package-constructs.json");
     let mut package = read_json(&package_path);
@@ -464,9 +224,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         "path": "mutated"
     }]);
     package["canonical"][0]["bytes_path"] = json!("canonical/package-constructs-1.json");
-    package["canonical"][0]["bytes_sha256"] = json!(quire_contract_ir::hex_digest(
-        &fs::read(scratch.0.join("canonical/package-constructs-1.json")).unwrap()
-    ));
     package["canonical"][0]["digest"] =
         json!("0000000000000000000000000000000000000000000000000000000000000000");
     package["dependencies"] = json!([{
@@ -486,20 +243,11 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     let mut coverage = read_json(&coverage_path);
     coverage["coverage"] = Value::Null;
     write_json(&coverage_path, &coverage);
-    refresh_expectation_digests(
-        &scratch,
-        &["package-constructs", "migration-valid", "coverage-shallow"],
-    );
 
-    let mismatch = run_manifest(&scratch.manifest());
+    let mismatch = scratch.run();
     assert_eq!(mismatch.status.code(), Some(1));
     assert!(mismatch.stderr.is_empty());
-    let mismatch_rows = mismatch
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .filter(|row| !row.is_empty())
-        .map(|row| serde_json::from_slice::<Value>(row).unwrap())
-        .collect::<Vec<_>>();
+    let mismatch_rows = rows(&mismatch);
     let package_row = mismatch_rows
         .iter()
         .find(|row| row["fixture_id"] == "package-constructs")
@@ -546,308 +294,59 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         error_code(&runner(&["--version", "again"])),
         "invalid_invocation"
     );
-
-    let invalid = Scratch::corpus();
-    let mut manifest = read_json(&invalid.manifest());
-    manifest["package_schema"]["sha256"] =
-        json!("0000000000000000000000000000000000000000000000000000000000000000");
-    write_json(&invalid.manifest(), &manifest);
     assert_eq!(
-        error_code(&run_manifest(&invalid.manifest())),
-        "invalid_manifest"
+        error_code(&runner(&["run", "--manifest", "manifest.json"])),
+        "invalid_invocation"
     );
 
-    let malformed_schema = Scratch::corpus();
+    let malformed_schema = Scratch::corpus("malformed-schema");
     let schema_path = malformed_schema
-        .0
-        .join("schemas/contract-package-reference-v1.schema.json");
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
     let mut schema = read_json(&schema_path);
     schema["type"] = json!(17);
     write_json(&schema_path, &schema);
-    let mut manifest = read_json(&malformed_schema.manifest());
-    manifest["package_schema"]["sha256"] = json!(quire_contract_ir::hex_digest(
-        &fs::read(&schema_path).unwrap()
-    ));
-    write_json(&malformed_schema.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&malformed_schema.manifest())),
-        "invalid_manifest"
-    );
+    assert_eq!(error_code(&malformed_schema.run()), "invalid_corpus");
 
-    let tightened_schema = Scratch::corpus();
+    let tightened_schema = Scratch::corpus("tightened-schema");
     let schema_path = tightened_schema
-        .0
-        .join("schemas/contract-package-reference-v1.schema.json");
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
     let mut schema = read_json(&schema_path);
     schema["definitions"]["package"]["required"]
         .as_array_mut()
         .unwrap()
         .push(json!("reviewer_probe"));
     write_json(&schema_path, &schema);
-    let mut manifest = read_json(&tightened_schema.manifest());
-    manifest["package_schema"]["sha256"] = json!(quire_contract_ir::hex_digest(
-        &fs::read(&schema_path).unwrap()
-    ));
-    write_json(&tightened_schema.manifest(), &manifest);
     assert_eq!(
-        error_code(&run_manifest(&tightened_schema.manifest())),
-        "invalid_manifest",
+        error_code(&tightened_schema.run()),
+        "invalid_corpus",
         "successful semantic packages must be checked against the published schema"
     );
 
-    let false_coverage = Scratch::corpus();
-    let mut manifest = read_json(&false_coverage.manifest());
-    let covers = manifest["fixtures"][0]["covers"].as_array_mut().unwrap();
-    covers.push(json!("diagnostic:arity_mismatch"));
-    covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
-    write_json(&false_coverage.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&false_coverage.manifest())),
-        "invalid_manifest"
-    );
+    let missing = Scratch::corpus("missing-expectation");
+    fs::remove_file(missing.0.join("expectations/package-reference.json")).unwrap();
+    assert_eq!(error_code(&missing.run()), "fixture_io");
 
-    for (fixture_id, false_boundary) in [
-        ("package-invalid-namespace", "boundary:revision.current"),
-        ("package-invalid-namespace", "boundary:schema.1_1"),
-        ("package-invalid-namespace", "boundary:source_span.minimum"),
-        ("package-invalid-namespace", "boundary:wire.depth.maximum"),
-        ("package-stale-reference", "boundary:artifact.stale"),
-    ] {
-        let false_boundary_claim = Scratch::corpus();
-        let mut manifest = read_json(&false_boundary_claim.manifest());
-        let fixture = manifest["fixtures"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|fixture| fixture["id"] == fixture_id)
-            .unwrap();
-        let covers = fixture["covers"].as_array_mut().unwrap();
-        covers.push(json!(false_boundary));
-        covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
-        write_json(&false_boundary_claim.manifest(), &manifest);
-        assert_eq!(
-            error_code(&run_manifest(&false_boundary_claim.manifest())),
-            "invalid_manifest",
-            "{fixture_id} must not claim {false_boundary}"
-        );
+    let unknown_operation = Scratch::corpus("unknown-operation");
+    fs::copy(
+        unknown_operation.0.join("inputs/package-reference.json"),
+        unknown_operation.0.join("inputs/unknown-reference.json"),
+    )
+    .unwrap();
+    assert_eq!(error_code(&unknown_operation.run()), "invalid_corpus");
+
+    let uncovered = Scratch::corpus("uncovered");
+    for directory in ["inputs", "expectations"] {
+        fs::remove_file(uncovered.0.join(directory).join("coverage-digest.json")).unwrap();
     }
+    assert_eq!(error_code(&uncovered.run()), "invalid_corpus");
 
-    let unsupported = Scratch::corpus();
-    let mut manifest = read_json(&unsupported.manifest());
-    manifest["canonical_profile"] = json!("unknown/profile");
-    write_json(&unsupported.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&unsupported.manifest())),
-        "unsupported_profile"
-    );
-
-    let unsafe_path = Scratch::corpus();
-    let mut manifest = read_json(&unsafe_path.manifest());
-    manifest["package_schema"]["path"] = json!("../escape.json");
-    write_json(&unsafe_path.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&unsafe_path.manifest())),
-        "unsafe_path"
-    );
-
-    let missing = Scratch::corpus();
-    let mut manifest = read_json(&missing.manifest());
-    manifest["fixtures"][0]["input"] = json!("inputs/missing.json");
-    write_json(&missing.manifest(), &manifest);
-    assert_eq!(error_code(&run_manifest(&missing.manifest())), "fixture_io");
-
-    let exhausted = Scratch::corpus();
-    fs::write(exhausted.manifest(), vec![b' '; 16_777_217]).unwrap();
-    assert_eq!(
-        error_code(&run_manifest(&exhausted.manifest())),
-        "resource_exhausted"
-    );
-
-    let tampered_input = Scratch::corpus();
-    let input_path = tampered_input.0.join("inputs/package-reference.json");
-    let mut input = read_json(&input_path);
-    input["source"]["document"] = json!("tampered");
-    write_json(&input_path, &input);
-    assert_eq!(
-        error_code(&run_manifest(&tampered_input.manifest())),
-        "invalid_manifest"
-    );
-
-    let tampered_canonical = Scratch::corpus();
-    let canonical_path = tampered_canonical
-        .0
-        .join("canonical/package-constructs-0.json");
-    fs::write(&canonical_path, b"{}").unwrap();
-    assert_eq!(
-        error_code(&run_manifest(&tampered_canonical.manifest())),
-        "invalid_manifest"
-    );
-
-    let controls = Scratch::corpus();
-    let baseline = read_json(&controls.manifest());
-
-    for (id, false_target) in [
-        ("package-reference", "FR-012-AC-5"),
-        ("expression-value-input", "FR-012-AC-2"),
-        ("coverage-cross-package", "FR-012-AC-3"),
-        ("coverage-missing", "FR-012-AC-3"),
-        ("coverage-stale", "FR-012-AC-3"),
-    ] {
-        let mut manifest = baseline.clone();
-        let fixture = manifest["fixtures"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|fixture| fixture["id"] == id)
-            .unwrap();
-        let mut targets = fixture["trace_ids"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|target| target.as_str().unwrap().to_owned())
-            .collect::<BTreeSet<_>>();
-        targets.insert(false_target.to_owned());
-        fixture["trace_ids"] = json!(targets.into_iter().collect::<Vec<_>>());
-        write_json(&controls.manifest(), &manifest);
-        let output = run_manifest(&controls.manifest());
-        assert_eq!(error_code(&output), "invalid_manifest");
-        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-        assert_eq!(error["path"], format!("fixtures.{id}.trace_ids"));
-    }
-
-    // A valid criterion identifier still cannot be attached to an unrelated fixture.
-    for targets in [
-        json!(["FR-016-AC-2"]),
-        json!(["FR-018-AC-1"]),
-        json!(["FR-011-AC-3", "FR-016-AC-2", "FR-018-AC-1"]),
-    ] {
-        let mut manifest = baseline.clone();
-        let fixture = manifest["fixtures"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|fixture| fixture["id"] == "package-invalid-namespace")
-            .unwrap();
-        fixture["trace_ids"] = targets;
-        write_json(&controls.manifest(), &manifest);
-        let output = run_manifest(&controls.manifest());
-        assert_eq!(error_code(&output), "invalid_manifest");
-        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-        assert_eq!(
-            error["path"],
-            "fixtures.package-invalid-namespace.trace_ids"
-        );
-    }
-
-    let mut manifest = baseline.clone();
-    manifest["fixtures"][1]["id"] = manifest["fixtures"][0]["id"].clone();
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "invalid_manifest"
-    );
-
-    let mut manifest = baseline.clone();
-    manifest["fixtures"][0]["trace_ids"]
-        .as_array_mut()
-        .unwrap()
-        .reverse();
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "invalid_manifest"
-    );
-
-    let mut manifest = baseline.clone();
-    let covers = manifest["fixtures"][0]["covers"].as_array_mut().unwrap();
-    covers.push(json!("boundary:not-registered"));
-    covers.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "invalid_manifest"
-    );
-
-    let mut manifest = baseline.clone();
-    manifest["fixtures"][0]["trace_ids"] = json!([]);
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "invalid_manifest"
-    );
-
-    let mut manifest = baseline.clone();
-    let covers = manifest["fixtures"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find_map(|fixture| {
-            let covers = fixture["covers"].as_array_mut().unwrap();
-            (covers.len() > 1).then_some(covers)
-        })
-        .unwrap();
-    covers.swap(0, 1);
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "invalid_manifest"
-    );
-
-    let mut manifest = baseline.clone();
-    let prototype = manifest["fixtures"][0].clone();
-    let fixtures = manifest["fixtures"].as_array_mut().unwrap();
-    while fixtures.len() <= 10_000 {
-        let mut fixture = prototype.clone();
-        fixture["id"] = json!(format!("count-probe-{}", fixtures.len()));
-        fixtures.push(fixture);
-    }
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
-
-    let oversized_path = controls.0.join("inputs/oversized.json");
-    fs::write(&oversized_path, vec![b' '; 16_777_217]).unwrap();
-    let mut manifest = baseline.clone();
-    manifest["fixtures"][0]["input"] = json!("inputs/oversized.json");
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
-
-    let mut manifest = baseline.clone();
-    let prototype = manifest["fixtures"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|fixture| fixture["id"] == "expression-semantic-nodes-over")
-        .unwrap()
-        .clone();
-    let fixtures = manifest["fixtures"].as_array_mut().unwrap();
-    for index in 0..5 {
-        let mut fixture = prototype.clone();
-        fixture["id"] = json!(format!("aggregate-probe-{index}"));
-        fixtures.push(fixture);
-    }
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
-
-    let mut manifest = baseline.clone();
-    manifest["package_schema"]["path"] = json!("/etc/shadow");
-    write_json(&controls.manifest(), &manifest);
-    let absolute = run_manifest(&controls.manifest());
-    assert_eq!(error_code(&absolute), "unsafe_path");
-    assert!(!String::from_utf8_lossy(&absolute.stderr).contains("/etc/shadow"));
-
-    write_json(&controls.manifest(), &baseline);
+    let controls = Scratch::corpus("controls");
     let bare = Command::new(env!("CARGO_BIN_EXE_quire-contract-conformance"))
         .current_dir(&controls.0)
-        .args(["run", "--manifest", "manifest.json"])
+        .args(["run", "--corpus", ".", "--schemas"])
+        .arg(controls.schemas())
         .output()
         .unwrap();
     assert!(
@@ -856,39 +355,67 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
         String::from_utf8_lossy(&bare.stderr)
     );
 
+    let count = Scratch::corpus("count");
+    let prototype = fs::read(count.0.join("inputs/package-reference.json")).unwrap();
+    for index in 0..=10_000 {
+        fs::write(
+            count
+                .0
+                .join(format!("inputs/package-count-probe-{index}.json")),
+            &prototype,
+        )
+        .unwrap();
+    }
+    assert_eq!(error_code(&count.run()), "resource_exhausted");
+
+    let oversized = Scratch::corpus("oversized");
+    fs::write(
+        oversized.0.join("inputs/package-oversized.json"),
+        vec![b' '; 16_777_217],
+    )
+    .unwrap();
+    assert_eq!(error_code(&oversized.run()), "resource_exhausted");
+
+    let aggregate = Scratch::corpus("aggregate");
+    let input = fs::read(
+        aggregate
+            .0
+            .join("inputs/expression-semantic-nodes-over.json"),
+    )
+    .unwrap();
+    let expectation = fs::read(
+        aggregate
+            .0
+            .join("expectations/expression-semantic-nodes-over.json"),
+    )
+    .unwrap();
+    for index in 0..5 {
+        let name = format!("expression-aggregate-probe-{index}.json");
+        fs::write(aggregate.0.join("inputs").join(&name), &input).unwrap();
+        fs::write(aggregate.0.join("expectations").join(&name), &expectation).unwrap();
+    }
+    assert_eq!(error_code(&aggregate.run()), "resource_exhausted");
+
     let mut deeply_nested = vec![b'['; 60_000];
     deeply_nested.push(b'0');
     deeply_nested.extend(std::iter::repeat_n(b']', 60_000));
-    fs::write(controls.manifest(), &deeply_nested).unwrap();
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
+    let deep_input = Scratch::corpus("deep-input");
+    fs::write(
+        deep_input.0.join("inputs/package-reference.json"),
+        &deeply_nested,
+    )
+    .unwrap();
+    assert_eq!(error_code(&deep_input.run()), "resource_exhausted");
 
-    write_json(&controls.manifest(), &baseline);
-    let deep_input_path = controls.0.join("inputs/deep.json");
-    fs::write(&deep_input_path, &deeply_nested).unwrap();
-    let mut manifest = baseline.clone();
-    manifest["fixtures"][0]["input"] = json!("inputs/deep.json");
-    manifest["fixtures"][0]["input_sha256"] = json!(quire_contract_ir::hex_digest(&deeply_nested));
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
-
-    write_json(&controls.manifest(), &baseline);
-    let schema_path = controls
-        .0
-        .join("schemas/contract-conformance-manifest-v1.schema.json");
-    fs::write(&schema_path, &deeply_nested).unwrap();
-    let mut manifest = baseline;
-    manifest["conformance_schema"]["sha256"] = json!(quire_contract_ir::hex_digest(&deeply_nested));
-    write_json(&controls.manifest(), &manifest);
-    assert_eq!(
-        error_code(&run_manifest(&controls.manifest())),
-        "resource_exhausted"
-    );
+    let deep_schema = Scratch::corpus("deep-schema");
+    fs::write(
+        deep_schema
+            .schemas()
+            .join("contract-conformance-fixture-v1.schema.json"),
+        &deeply_nested,
+    )
+    .unwrap();
+    assert_eq!(error_code(&deep_schema.run()), "resource_exhausted");
 
     #[cfg(unix)]
     {
@@ -901,20 +428,90 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     }
 }
 
+/// Tracing: TC-018, FR-018-AC-1, FR-020-AC-2.
+/// FR-018-AC-1.
+/// FR-020-AC-2.
+#[test]
+fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
+    let version = runner(&["--version"]);
+    assert_eq!(version.status.code(), Some(0));
+    assert!(version.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(version.stdout).unwrap(),
+        format!(
+            "quire-contract-ir {} quire.contract.conformance-jsonl/v1\n",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+
+    let traversal = Scratch::corpus("traversal");
+    let path = traversal.0.join("expectations/package-constructs.json");
+    let mut expectation = read_json(&path);
+    expectation["canonical"][0]["bytes_path"] = json!("../escape.json");
+    write_json(&path, &expectation);
+    let output = traversal.run();
+    assert_eq!(error_code(&output), "unsafe_path");
+    let root = traversal.root().to_str().unwrap().to_owned();
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(&root));
+
+    #[cfg(unix)]
+    {
+        let symlink = Scratch::corpus("symlink");
+        let outside = symlink.root().join("outside.json");
+        fs::copy(symlink.0.join("inputs/package-reference.json"), &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, symlink.0.join("inputs/package-escape.json")).unwrap();
+        let output = symlink.run();
+        assert_eq!(error_code(&output), "unsafe_path");
+        let root = symlink.root().to_str().unwrap().to_owned();
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(&root));
+    }
+
+    let foreign = Scratch::corpus("foreign-schema");
+    let path = foreign
+        .schemas()
+        .join("contract-package-reference-v1.schema.json");
+    let mut schema = read_json(&path);
+    schema["$id"] = json!("https://example.invalid/other-package.schema.json");
+    write_json(&path, &schema);
+    assert_eq!(error_code(&foreign.run()), "unsupported_profile");
+
+    let stray = Scratch::corpus("stray-input");
+    fs::write(stray.0.join("inputs/notes.txt"), b"not a fixture").unwrap();
+    assert_eq!(error_code(&stray.run()), "invalid_corpus");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt as _;
+        let non_utf8 = Scratch::corpus("non-utf8-input");
+        fs::write(
+            non_utf8
+                .0
+                .join("inputs")
+                .join(OsString::from_vec(b"package-\xff.json".to_vec())),
+            b"{}",
+        )
+        .unwrap();
+        assert_eq!(error_code(&non_utf8.run()), "invalid_corpus");
+    }
+
+    let orphan = Scratch::corpus("orphan-expectation");
+    fs::copy(
+        orphan.0.join("expectations/package-reference.json"),
+        orphan.0.join("expectations/package-orphan.json"),
+    )
+    .unwrap();
+    assert_eq!(error_code(&orphan.run()), "invalid_corpus");
+}
+
 /// Tracing: TC-018, FR-019-AC-2, NFR-003-AC-1.
 /// FR-019-AC-2.
 #[test]
 fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
-    let linked_run =
-        catch_unwind(|| quire_contract_ir::run_manifest(&corpus().join("manifest.json")));
+    let linked_run = catch_unwind(|| quire_contract_ir::run_corpus(&corpus(), &schemas()));
     let linked_results = linked_run
         .expect("the linked runner panicked over the complete corpus")
         .expect("the linked runner rejected the published corpus");
-    let authored_fixture_count = read_json(&corpus().join("manifest.json"))["fixtures"]
-        .as_array()
-        .unwrap()
-        .len();
-    assert_eq!(linked_results.len(), authored_fixture_count);
+    assert_eq!(linked_results.len(), input_count(&corpus()));
     assert!(linked_results
         .iter()
         .all(|result| result.status() == quire_contract_ir::FixtureStatus::Match));
@@ -1039,7 +636,8 @@ fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
     );
 }
 
-/// TC-018. FR-018-AC-3.
+/// Tracing: TC-018, FR-018-AC-3.
+/// FR-018-AC-3.
 #[test]
 fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
     // Independent authored counts, not the producer's scanner or depth constant.
@@ -1057,27 +655,4 @@ fn tc_018_wire_depth_controls_ignore_quoted_delimiters_and_pin_literal_cliff() {
         assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidWireFormat);
         assert_eq!(diagnostics[0].path, expected_path);
     }
-}
-
-fn walk_files(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(root).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_dir() {
-            files.extend(walk_files(&entry.path()));
-        } else {
-            files.push(entry.path());
-        }
-    }
-    files.sort();
-    files
-}
-
-fn verify_sidecar(file: &Path, sidecar: &Path) {
-    let sidecar = fs::read_to_string(sidecar).unwrap();
-    let expected = sidecar.split_whitespace().next().unwrap();
-    assert_eq!(
-        quire_contract_ir::hex_digest(&fs::read(file).unwrap()),
-        expected
-    );
 }

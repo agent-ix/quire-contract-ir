@@ -52,7 +52,7 @@ IEEE width preservation, verdict parity and minimization lineage are
 properties of the QSL envelope and replay executor (QSL FR-070 through
 FR-073, FR-098) and of the codegen replay adapter, not of Contract IR.
 Contract IR's part in a counterexample ends at the typed `KaniOutcome` and its
-`TerminalValue` ([FR-031](./FR-031-bounded-kani-dispatch-replay-provenance.md)).
+`TerminalValue` ([FR-031](./FR-031-bounded-kani-dispatch-and-terminal-map.md)).
 The root crate has no `replay` or `witness` module: the witness and replay
 types are QSL's `qsl-replay` types, and the Kani transcript parser is the
 codegen backend adapter's.

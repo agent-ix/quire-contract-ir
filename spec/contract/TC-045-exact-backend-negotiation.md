@@ -27,7 +27,7 @@ for which the provider manifest advertises no matching FR-290 capability.
 
 ## Expected Results
 
-Every supported artifact has exact independently traceable domains and pins.
+Every supported artifact has exact, independently traceable domains and bounds.
 Every missing or unsupported item has a separate `requires_bound`,
 `unsupported`, or `invalid_request` record and no generated artifact. The
 claim with no advertised capability settles `unsupported` and its record

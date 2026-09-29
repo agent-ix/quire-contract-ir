@@ -9,16 +9,10 @@ fn normalized_policy() -> String {
 /// Tracing: TC-001
 /// TC-001.
 /// FR-001-AC-2.
-/// FR-002-AC-1.
 #[test]
-fn tc_001_defines_compatibility_and_exact_pins() {
+fn tc_001_defines_schema_compatibility() {
     let policy = normalized_policy();
-    for phrase in [
-        "reject an unknown major version",
-        "shall not guess",
-        "exact source revisions",
-        "schema identity and SHA-256 digest",
-    ] {
+    for phrase in ["reject an unknown major version", "shall not guess"] {
         assert!(policy.contains(phrase), "missing policy phrase: {phrase}");
     }
 }
@@ -83,7 +77,6 @@ fn tc_003_defines_license_clean_room_agent_and_qualification_boundaries() {
 /// Tracing: TC-004
 /// TC-004.
 /// FR-006-AC-1.
-/// FR-009-AC-2.
 #[test]
 fn tc_004_names_the_enforced_human_decision_owner() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

@@ -1,4 +1,4 @@
-//! Shared bounded-Kani profile, ABI, outcome, provenance, and dispatch contracts.
+//! Shared bounded-Kani profile, ABI, outcome, and dispatch contracts.
 //!
 //! Semantic-family lowerings deliberately live outside this module.  This
 //! boundary validates a finite offered population before any harness can add a
@@ -11,7 +11,6 @@ mod dispatch;
 mod objects;
 mod outcome;
 mod profile;
-mod provenance;
 mod replay;
 mod witness;
 
@@ -27,7 +26,6 @@ pub use outcome::{KaniOutcome, KaniOutcomeKind, KaniProviderRecord, KaniProvider
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };
-pub use provenance::{ArtifactIdentity, GeneratorProvenance, ProvenanceError};
 pub use replay::{
     replay_counterexample, replay_with_native_runtime, CounterexamplePacket,
     InputNativeReplayAgreement, InputReplayAgreement, NativeReplayAgreement, PacketIdentity,

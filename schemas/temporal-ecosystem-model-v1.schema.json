@@ -4,10 +4,9 @@
   "title": "Quire bounded temporal ecosystem model v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["profile", "schema_digest", "identity", "manifest_identity", "campaign", "limits", "counts", "nodes", "edges", "gaps", "adjacency", "topological_order"],
+  "required": ["profile", "identity", "manifest_identity", "campaign", "limits", "counts", "nodes", "edges", "gaps", "adjacency", "topological_order"],
   "properties": {
     "profile": { "const": "quire.contract.temporal-ecosystem-model/v1" },
-    "schema_digest": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
     "identity": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
     "manifest_identity": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/digest" },
     "campaign": { "$ref": "temporal-ecosystem-manifest-v1.schema.json#/definitions/text" },

@@ -15,9 +15,9 @@ version_pins:
   serde: "exact Cargo.lock resolution"
   serde_json: "exact Cargo.lock resolution"
   sha2: "exact Cargo.lock resolution"
-  json_schema: "Draft 7 checked-in schema digest"
+  json_schema: "Draft 7"
 controls:
-  surfaces: [typed Result API, stable diagnostic registry, JSON Lines runner output, corpus manifest, golden digest fixtures]
+  surfaces: [typed Result API, stable diagnostic registry, JSON Lines runner output, corpus fixtures, golden digest fixtures]
   fallback: preserve input and diagnostics; emit no canonical identity for invalid input
   abstention: classify unsupported or inconclusive conditions explicitly
   escalation: block merge or source release and assign the finding to the named owner
@@ -58,6 +58,6 @@ success.
 
 ## Replacement
 
-A replacement runs the complete pinned corpus on supported platforms, matches
+A replacement runs the complete conformance corpus on supported platforms, matches
 canonical bytes and digests, preserves diagnostic/dependency semantics, and
 receives independent review before adoption.

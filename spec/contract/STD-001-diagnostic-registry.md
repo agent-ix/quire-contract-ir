@@ -116,8 +116,6 @@ be used outside those exact allocations.
 | `predicate_checked_leaf_mismatch` | Checked-leaf/parent-subject/clause/binding/declaration/expression identity is stale or unequal | first unequal checked-leaf field |
 | `predicate_model_mismatch` | Model/declaration-closure identity is stale or unequal | model field |
 | `predicate_population_invalid` | Selected predicate population is empty, duplicate, non-distinct, internally inconsistent with its declared members, or over the Contract IR limit; it does not mean formula-atom incompleteness | predicate population |
-| `predicate_native_contract_conflict` | Unequal native contract definitions claim one current contract identity | native contract identity and related candidate |
-| `predicate_target_contract_conflict` | Unequal target definitions claim one current contract identity | target contract identity and related candidate |
 | `predicate_identity_conflict` | Unequal predicate content claims one `PredicateRef` | conflicting predicate identity and related candidate |
 | `predicate_catalog_rejected` | The real signal-catalog strict reader rejects the generated document | catalog field/path |
 | `predicate_map_rejected` | The real proposition-map strict reader rejects the generated document | proposition-map field/path |
@@ -157,12 +155,10 @@ cannot be used outside those allocations.
 | `invalid_native_temporal_bridge` | A selected input strict reader rejects a v1 input, or a projection/result request or decision violates its strict tagged shape, UTF-8, enum, byte, depth, count or string bound | narrowest rejected public field path |
 | `temporal_native_contract_unsupported` | A well-formed native temporal contract selection is outside the admitted v1 domain | native-contract field and raw discriminator |
 | `temporal_native_contract_unavailable` | The selected accepted native temporal contract or public strict reader cannot be reached | native-contract field |
-| `temporal_native_contract_conflict` | Unequal native temporal contract definitions claim one current identity | native-contract identity and related candidate |
 | `temporal_subject_mismatch` | Native subject identity, revision, digest, model, source span or tree identity is stale or unequal | first unequal native-subject field |
 | `temporal_predicate_projection_incomplete` | A required checked leaf has no admitted FR-025 correspondence yet | exact native `holds` leaf |
 | `temporal_predicate_projection_contract_unsupported` | A well-formed FR-025 projection contract selection is outside the admitted v1 domain | predicate-projection-contract field and raw discriminator |
 | `temporal_predicate_projection_contract_unavailable` | The selected accepted FR-025 projection contract or public strict reader cannot be reached | predicate-projection-contract field |
-| `temporal_predicate_projection_contract_conflict` | Unequal FR-025 projection contract definitions claim one selected identity | predicate-projection-contract identity and related candidate |
 | `temporal_predicate_projection_unavailable` | The exact admitted FR-025 projection or required valuation decision cannot be reached | predicate-projection field |
 | `temporal_predicate_projection_unsupported` | A required FR-025 valuation decision reports unsupported | predicate-projection field |
 | `temporal_predicate_projection_failed` | A required FR-025 valuation decision reports failed execution | predicate-projection field |
@@ -175,17 +171,14 @@ cannot be used outside those allocations.
 | `temporal_clock_incomplete` | A required fixed-sample clock component or sample is not yet available | clock/sample field |
 | `temporal_clock_contract_unsupported` | A well-formed clock contract selection is outside the admitted v1 domain | clock-contract field and raw discriminator |
 | `temporal_clock_contract_unavailable` | The selected accepted clock contract or public strict reader cannot be reached | clock-contract field |
-| `temporal_clock_contract_conflict` | Unequal clock contract definitions claim one selected identity | clock-contract identity and related candidate |
 | `temporal_clock_unavailable` | The authority-verified clock binding cannot be reached | clock field |
 | `temporal_clock_mismatch` | Clock identity, epoch, period, unit or sample-position mapping is stale or unequal | first unequal clock field |
 | `temporal_observation_incomplete` | The observation is closed-incomplete or required observation/history is not yet complete | observation field |
 | `temporal_observation_contract_unsupported` | A well-formed observation contract selection is outside the admitted v1 domain | observation-contract field and raw discriminator |
 | `temporal_observation_contract_unavailable` | The selected accepted observation contract or public strict reader cannot be reached | observation-contract field |
-| `temporal_observation_contract_conflict` | Unequal observation contract definitions claim one selected identity | observation-contract identity and related candidate |
 | `temporal_observation_mismatch` | Observation identity, revision, state or immutable content is stale or unequal | first unequal observation field |
 | `temporal_capture_contract_unsupported` | A well-formed capture contract selection is outside the admitted v1 domain | capture-contract field and raw discriminator |
 | `temporal_capture_contract_unavailable` | The selected accepted capture contract or public strict reader cannot be reached | capture-contract field |
-| `temporal_capture_contract_conflict` | Unequal capture contract definitions claim one selected identity | capture-contract identity and related candidate |
 | `temporal_activation_incomplete` | The temporal activation state is not yet known | activation field |
 | `temporal_activation_inactive` | A caller requests evaluation for an authoritatively inactive temporal scope | activation field |
 | `temporal_activation_mismatch` | Activation identity is stale or unequal | activation field |
@@ -193,34 +186,26 @@ cannot be used outside those allocations.
 | `temporal_capture_mismatch` | Capture binding is stale or foreign by identity, revision or expected digest; unequal content claiming the same identity is instead `temporal_identity_conflict` | first stale or foreign capture field |
 | `temporal_formula_contract_unsupported` | A well-formed TL formula contract selection is outside the admitted v1 domain | formula-contract field and raw discriminator |
 | `temporal_formula_contract_unavailable` | The selected accepted TL formula contract or public strict reader cannot be reached | formula-contract field |
-| `temporal_formula_contract_conflict` | Unequal TL formula contract definitions claim one selected identity | formula-contract identity and related candidate |
 | `temporal_semantic_contract_unsupported` | A well-formed TL semantic contract selection is outside the closed v1 support table | semantic-contract field and raw discriminator |
 | `temporal_semantic_contract_unavailable` | The selected accepted TL semantic contract or public strict reader cannot be reached | semantic-contract field |
-| `temporal_semantic_contract_conflict` | Unequal TL semantic contract definitions claim one selected identity | semantic-contract identity and related candidate |
 | `temporal_evaluator_contract_unsupported` | A well-formed TL evaluator contract selection is outside the admitted v1 domain | evaluator-contract field and raw discriminator |
 | `temporal_evaluator_contract_unavailable` | The selected accepted TL evaluator contract or public strict reader cannot be reached | evaluator-contract field |
-| `temporal_evaluator_contract_conflict` | Unequal TL evaluator contract definitions claim one selected identity | evaluator-contract identity and related candidate |
 | `temporal_trace_contract_unsupported` | A well-formed TL trace contract selection is outside the admitted v1 domain | trace-contract field and raw discriminator |
 | `temporal_trace_contract_unavailable` | The selected accepted TL trace contract or public strict reader cannot be reached | trace-contract field |
-| `temporal_trace_contract_conflict` | Unequal TL trace contract definitions claim one selected identity | trace-contract identity and related candidate |
 | `temporal_request_contract_unsupported` | A well-formed TL evaluator-request contract selection is outside the admitted v1 domain | request-contract field and raw discriminator |
 | `temporal_request_contract_unavailable` | The selected accepted TL evaluator-request contract or public strict reader cannot be reached | request-contract field |
-| `temporal_request_contract_conflict` | Unequal TL evaluator-request contract definitions claim one selected identity | request-contract identity and related candidate |
 | `temporal_formula_rejected` | The real selected TL formula strict reader rejects the generated formula | narrowest rejected formula field |
 | `temporal_trace_rejected` | The real selected TL trace strict reader rejects the generated complete valuation trace | narrowest rejected trace field |
 | `temporal_request_rejected` | The real selected TL request strict reader rejects the generated formula/trace request | narrowest rejected request field |
 | `temporal_identity_conflict` | Unequal subject, clock, observation, capture, formula, trace or request content claims one identity | conflicting identity and related candidate |
 | `temporal_availability_contract_unsupported` | A well-formed result-availability contract selection is outside the admitted v1 domain | availability-contract field and raw discriminator |
 | `temporal_availability_contract_unavailable` | The selected accepted availability contract or public strict reader cannot be reached | availability-contract field |
-| `temporal_availability_contract_conflict` | Unequal result-availability contract definitions claim one selected identity | availability-contract identity and related candidate |
 | `temporal_availability_assertion_mismatch` | The availability assertion identity, revision, digest, observation binding or classifications are stale or unequal | first unequal availability field |
 | `temporal_availability_assertion_conflict` | Unequal availability assertion content claims one authority-owned identity | conflicting availability identity and related candidate |
 | `temporal_native_result_contract_unsupported` | A well-formed native-result contract selection is outside the admitted v1 domain | native-result-contract field and raw discriminator |
 | `temporal_native_result_contract_unavailable` | The selected accepted native-result contract or public strict reader cannot be reached | native-result-contract field |
-| `temporal_native_result_contract_conflict` | Unequal native-result contract definitions claim one selected identity | native-result-contract identity and related candidate |
 | `temporal_tl_result_contract_unsupported` | A well-formed TL-result contract selection is outside the admitted v1 domain | TL-result-contract field and raw discriminator |
 | `temporal_tl_result_contract_unavailable` | The selected accepted TL-result contract or public strict reader cannot be reached | TL-result-contract field |
-| `temporal_tl_result_contract_conflict` | Unequal TL-result contract definitions claim one selected identity | TL-result-contract identity and related candidate |
 | `temporal_native_result_unavailable` | The verified availability assertion classifies the native producer or result as unavailable | native result availability field |
 | `temporal_tl_result_unavailable` | The verified availability assertion classifies the TL producer or result as unavailable | TL result availability field |
 | `temporal_native_result_incomplete` | Native assessment execution is resource-incomplete or native truth is unavailable because exact decision support is incomplete | native execution/truth/support field |
@@ -237,7 +222,6 @@ cannot be used outside those allocations.
 | `temporal_result_identity_conflict` | Unequal available result content claims one producer-owned result identity | conflicting result identity and related candidate |
 | `temporal_progress_contract_unsupported` | An embedded progress contract selection is outside the admitted v1 domain | progress-contract field and raw discriminator |
 | `temporal_progress_contract_unavailable` | An embedded accepted progress contract or public strict reader cannot be reached | progress-contract field |
-| `temporal_progress_contract_conflict` | Unequal progress contract definitions claim one selected identity | progress-contract identity and related candidate |
 | `temporal_progress_mismatch` | Available native and TL progress values cannot agree under the exact join table | progress fields |
 | `temporal_closure_mismatch` | Result progress or surrounding-execution closure is inconsistent with the immutable observation state | observation-state/progress or execution-closure field |
 | `temporal_result_closure_disagreement` | Otherwise valid native and TL views disagree on decision-scope or surrounding-execution closure | first unequal closure field |
@@ -246,17 +230,15 @@ cannot be used outside those allocations.
 | `temporal_support_mismatch` | Otherwise valid native and TL views disagree on exact decision support | decision-support fields |
 | `temporal_completeness_contract_unsupported` | An embedded completeness contract selection is outside the admitted v1 domain | completeness-contract field and raw discriminator |
 | `temporal_completeness_contract_unavailable` | An embedded accepted completeness contract or public strict reader cannot be reached | completeness-contract field |
-| `temporal_completeness_contract_conflict` | Unequal completeness contract definitions claim one selected identity | completeness-contract identity and related candidate |
 | `temporal_completeness_mismatch` | Otherwise valid native and TL views disagree on completeness contract, identity, digest or state | completeness fields |
 | `temporal_supersession_invalid` | Correction relation, direct predecessor, contradicted premise or corrected input is absent, self-referential, same-revision, wrong-subject, wrong-producer or digest-inconsistent | narrowest relation/predecessor/premise/input field |
 | `temporal_projection_resource_exhausted` | Formula, valuation, trace, request or correspondence allocation fails without a partial artifact | projection resource path |
 | `temporal_result_join_resource_exhausted` | Result-join allocation fails without a partial decision | result-join resource path |
 | `ecosystem_invalid_document` | A manifest or model is malformed, noncanonical, contains trailing data, or violates its closed shape | narrowest document field |
 | `ecosystem_resource_exhausted` | Manifest, graph, model, identity or proposal work exceeds one selected byte/depth/string/population/work/allocation ceiling | resource path |
-| `ecosystem_contract_mismatch` | Manifest/model profile or immutable schema digest differs from the selected v1 contract | contract field |
-| `ecosystem_campaign_mismatch` | Campaign identity or exact selected manifest byte digest differs | campaign or manifest-digest field |
+| `ecosystem_contract_mismatch` | Manifest/model profile differs from the selected v1 contract | contract field |
+| `ecosystem_campaign_mismatch` | Campaign identity differs from the selected campaign | campaign field |
 | `ecosystem_repository_set_mismatch` | Repository identities are not the closed nine-repository ecosystem | repository population |
-| `ecosystem_moving_revision` | A repository, semantic node, evidence node or contract selection does not name an exact selected lowercase merged revision | revision field |
 | `ecosystem_duplicate_node` | One global node identity occurs more than once | duplicate node identity |
 | `ecosystem_duplicate_edge` | One typed source/target edge occurs more than once | duplicate edge tuple |
 | `ecosystem_duplicate_gap` | One unresolved gap occurs more than once | duplicate gap identity |
