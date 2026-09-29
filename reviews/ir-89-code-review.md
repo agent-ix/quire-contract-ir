@@ -90,6 +90,7 @@ Round 1, reviewed at `1d89455fc04ddfb60cd2ac932886f1b223cd3688` (rebased on orig
 | FND-002 | fixed | 1d89455 |
 | FND-003 | fixed | 1d89455 |
 | FND-004 | fixed | 1d89455 |
+| FND-005 | fixed | 83670e7 (round 3, reviewed at c877c64) |
 
 ## New findings (disposition pass 2)
 
