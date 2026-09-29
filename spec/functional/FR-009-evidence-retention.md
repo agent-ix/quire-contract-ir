@@ -43,15 +43,13 @@ release decision.
   producer. Quire exports static definitions without execution. ix-flow owns the
   attributed decision event.
 - Published contract and temporal crates acquire no runtime dependency on
-  Quire or Quoin. Exact pinned development-time CLIs are used at the boundary,
-  as specified by [FR-022](./FR-022-shared-assurance-intake.md).
+  Quire or Quoin.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-009-AC-2 | Only the named human can close the release decision. | Inspection (TC-004) |
-| FR-009-AC-6 | New retention/audit and human-decision references name Quoin and ix-flow while both Quire and Quoin remain non-executing. | Inspection (TC-025) |
 
 ### Retired criteria
 
@@ -61,8 +59,7 @@ corpus, its envelope schema and its validator are deleted with the withdrawal of
 PGM-01-R08, so there is no fixture left to hold a status. This retirement has a
 cost and it is stated rather than absorbed: the solver fixture was the only
 demonstrator of the `inconclusive` result state anywhere in this repository, so
-`inconclusive` joins `suspect` as a declared loss under
-[FR-022](./FR-022-shared-assurance-intake.md) rather than being quietly covered
+`inconclusive` is a declared loss rather than being quietly covered
 by a neighbouring state. The identifier is not reused.
 
 `FR-009-AC-4` required the append-only correction record and the claim it
@@ -81,12 +78,10 @@ that depends on one. Neither identifier is reused.
 `HEAD` tree, match input checksums, and select exactly one current record. That
 verifier was the repository-local retention and integrity authority this
 migration removes, so the criterion is retired rather than reassigned: intake,
-integrity, and audit are Quoin's under
-[FR-022](./FR-022-shared-assurance-intake.md), and its `unavailable` outcome is
+integrity, and audit are Quoin's, and its `unavailable` outcome is
 a first-class state there rather than a local exit code. The identifier is not
 reused.
 
 ## Dependencies
 
 - **Governed by**: [PGM-01](../program/PGM-01-governance.md).
-- The current assurance path is [FR-022](./FR-022-shared-assurance-intake.md).

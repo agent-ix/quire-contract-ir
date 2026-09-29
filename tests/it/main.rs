@@ -34,7 +34,6 @@ mod executable_binding;
 mod expression;
 mod foundation;
 mod governance;
-mod governance_reconciliation;
 mod identity;
 mod integration;
 mod kani_arithmetic;

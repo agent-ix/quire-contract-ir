@@ -9,16 +9,10 @@ fn normalized_policy() -> String {
 /// Tracing: TC-001
 /// TC-001.
 /// FR-001-AC-2.
-/// FR-002-AC-1.
 #[test]
-fn tc_001_defines_compatibility_and_exact_pins() {
+fn tc_001_defines_schema_compatibility() {
     let policy = normalized_policy();
-    for phrase in [
-        "reject an unknown major version",
-        "shall not guess",
-        "exact source revisions",
-        "schema identity and SHA-256 digest",
-    ] {
+    for phrase in ["reject an unknown major version", "shall not guess"] {
         assert!(policy.contains(phrase), "missing policy phrase: {phrase}");
     }
 }

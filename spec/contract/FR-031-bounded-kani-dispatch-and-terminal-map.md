@@ -1,6 +1,6 @@
 ---
 id: FR-031
-title: "Dispatch bounded Kani modules with provenance and map outcomes to QSL terminal records"
+title: "Dispatch bounded Kani modules and map outcomes to QSL terminal records"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-001
@@ -26,13 +26,12 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/FR-098
     type: references
 ---
-# FR-031: Dispatch bounded Kani modules with provenance and map outcomes to QSL terminal records
+# FR-031: Dispatch bounded Kani modules and map outcomes to QSL terminal records
 
 ## Description
 
-The bounded-Kani boundary shall dispatch semantic families modularly, preserve
-artifact identity through oracle/strategy/harness generation, and map each
-Kani outcome to one QSL `qsl_replay::TerminalValue`. The family lowerings
+The bounded-Kani boundary shall dispatch semantic families modularly and map
+each Kani outcome to one QSL `qsl_replay::TerminalValue`. The family lowerings
 behind the dispatch index are codegen's backend adapter's, not Contract IR's.
 Replay of a
 counterexample is not a Contract IR operation: the counterexample envelope,
@@ -43,20 +42,17 @@ replay adapter calls.
 
 ## Inputs
 
-A validated bounded execution input (FR-030), the selected `kani-bounded/1`
-profile and capability matrix (FR-029), and the checked-clause and model
-identities the generated artifacts bind.
+A validated bounded execution input (FR-030) and the selected `kani-bounded/1`
+profile and capability matrix (FR-029).
 
 ## Outputs
 
-A dispatch route and typed `KaniOutcome` with its provenance, and the one
+A dispatch route and typed `KaniOutcome`, and the one
 `qsl_replay::TerminalValue` the outcome records.
 
 ## Behavior
 
-The dispatch index is the only cross-module vocabulary and routing authority. Contract IR keeps the profile, the finite input ABI, the dispatch index and its module descriptors, the typed outcome and provenance; the checked-arithmetic, collection and object lowerings each family module performs belong to the backend adapter in codegen, and the root crate carries no family lowering. The index selects independently versioned modules for definedness/checked arithmetic, finite object/reference/graph semantics, and bounded collection/query semantics. Each module declares constructs it owns, exact input/output ABI revision, definedness dependencies, resource charges, and supported/refused/unsupported cases (FR-029). Modules cannot invent source meaning, reinterpret another module's values, or silently substitute structural equality for identity, a collection set for an ordered duplicate-preserving sequence, or bounded graph search for unbounded reachability.
-
-Oracle, strategy, lowering, and harness generators are explicit interfaces with content identities. Their generated artifacts bind the checked-clause identity, profile selection, complete input identity, module identities, Kani executable digest/options, declared assumptions, and proof dependencies. Any change in a bound, assumption, selected module, tool/options digest, source/model/snapshot identity, or generator bytes changes the artifact identity.
+The dispatch index is the only cross-module vocabulary and routing authority. Contract IR keeps the profile, the finite input ABI, the dispatch index and its module descriptors, and the typed outcome; the checked-arithmetic, collection and object lowerings each family module performs belong to the backend adapter in codegen, and the root crate carries no family lowering. The index selects independently versioned modules for definedness/checked arithmetic, finite object/reference/graph semantics, and bounded collection/query semantics. Each module declares constructs it owns, exact input/output ABI revision, definedness dependencies, resource charges, and supported/refused/unsupported cases (FR-029). Modules cannot invent source meaning, reinterpret another module's values, or silently substitute structural equality for identity, a collection set for an ordered duplicate-preserving sequence, or bounded graph search for unbounded reachability.
 
 The bounded-Kani boundary shall map Kani outcomes to QSL `TerminalValue`s
 as follows, following QSL ADR-013 O-16's proof column and QSpec FR-331:
@@ -94,7 +90,6 @@ backend adapter's.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
-| FR-031-AC-2 | Every generated lowering, oracle, strategy, harness, proof, and result has exact provenance binding Kani version/digest/options, assumptions, bounds, inputs, modules, and dependencies. | Test (TC-042) |
 | FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to `Proved { success_checks: 0 }`, whose QSL category is `Inconclusive`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s, the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s, and `Unavailable` with `kani_solver_absent` and with `kani_backend_absent` to `Unsupported` with `SolverAbsent` and `BackendAbsent`; the test's `match` over `KaniOutcomeKind` has no wildcard; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
 
 ### Retired criteria
@@ -124,16 +119,10 @@ the root crate's public surface after those types leave it.
 
 ## Status
 
-AC-1 and AC-2 are implemented and qualified against the integrated codegen
-corpus. The dispatch index routes the three families through distinct
-modules, refusing an unowned construct and a duplicate module owner; it does
-not itself prove that a module cannot approximate another family's
+AC-1 is implemented. The dispatch index routes the three families through
+distinct modules, refusing an unowned construct and a duplicate module owner;
+it does not itself prove that a module cannot approximate another family's
 structural equality, collection-set, or bounded graph search semantics.
-`GeneratorProvenance` and `ArtifactIdentity` (`src/kani/provenance.rs`) are
-identity-sensitive, and the test tagged AC-2 mutates a single assumption and
-confirms the digest changes; no generator yet emits one, because
-`ArithmeticLowering` and the object/collection lowerings carry no provenance
-field. That evidence is not a general proof-engine or release claim.
 
 AC-5 is planned against QSL's `TerminalValue`. Today
 `KaniOutcomeKind::provider_result`

@@ -18,7 +18,7 @@ security_critical: false
 
 ## Purpose
 
-This specification owns PGM-01, the shared-assurance ownership boundary, and the versioned semantic contract substrate
+This specification owns PGM-01 and the versioned semantic contract substrate
 for the contract-derived verification program. Downstream code generation and
 analysis consume this model and shall not invent parallel identity, expression,
 or canonicalization semantics.
@@ -27,10 +27,9 @@ or canonicalization semantics.
 
 ### In Scope
 
-- Wire-schema and crate compatibility, dependency pins, and release order.
+- Wire-schema and crate compatibility, and release order.
 - Licensing, third-party provenance, clean-room grammar, and contribution rules.
-- Tool and artifact classification, domain-result provenance, shared assurance
-  ownership, and release authority.
+- Tool and artifact classification and release authority.
 - The boundary between reusable qualification support and project decisions.
 - Package, requirement, clause, anchor, type, expression, and dependency identity.
 - Definedness, canonical encoding, stable digests, schema evolution, and orphan handling.
@@ -43,7 +42,7 @@ or canonicalization semantics.
 - Public Rust, serialized JSON, and conformance-runner interfaces.
 - A versioned bounded-Kani profile boundary for finite checked native clauses,
   including explicit supported/refused/unsupported capability classification,
-  finite input validation, the dispatch index, typed outcomes, provenance, and
+  finite input validation, the dispatch index, typed outcomes, and
   the map from each outcome to its QSL terminal value.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
   mapper seam, atomic generated-package assembler, and downstream observer reference.
@@ -78,19 +77,19 @@ The named human release owner decides whether an exact candidate may be tagged.
 
 ## Requirements Architecture
 
-The canonical policy owns PGM-01-R01 through PGM-01-R11, of which R08 is
-withdrawn. Discrete requirements FR-001 through FR-007, FR-009, FR-010, FR-021,
-and FR-022 provide traceable artifact identities without redefining that policy.
+The canonical policy owns PGM-01-R01 through PGM-01-R10, of which R08 is
+withdrawn. Discrete requirements FR-001, FR-003 through FR-007, FR-009 and
+FR-010 provide traceable artifact identities without redefining that policy.
 FR-008 carried the withdrawn R08 derivation-evidence envelope and is deleted
 with it; the identifier is not reused. TM-001 maps them to automated tests or retained inspection.
 Typed review, plan, task, assurance, and gap artifacts preserve the spec-first
 workflow. StR-001 through StR-003, FR-011 through FR-020, FR-023, FR-025, and
 FR-026 through FR-028, alongside NFR-001 through NFR-005, define the v0.1 semantic substrate.
 FR-029 through FR-031 define the bounded-Kani extension boundary: the
-profile, finite input ABI, dispatch index, typed outcome and provenance. The
+profile, finite input ABI, dispatch index and typed outcome. The
 family lowerings behind the dispatch index are the codegen backend adapter's.
-Profile selection, the finite input/outcome firewall, module dispatch and
-artifact provenance are implemented against the integrated codegen corpus.
+Profile selection, the finite input/outcome firewall and module dispatch are
+implemented against the integrated codegen corpus.
 That implementation applies only to its exact selected finite profile and
 does not qualify unbounded source semantics or another Kani/options
 selection. Each Kani outcome maps to one QSL `qsl_replay::TerminalValue`
@@ -150,7 +149,7 @@ authority over owner inputs, execution, evidence acceptance, or release.
 - [Native predicate to TL Boolean projection](contract/FR-025-native-predicate-tl-projection.md).
 - [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
 - [Bounded Kani domains and outcomes](contract/FR-030-bounded-kani-domain-and-outcomes.md).
-- [Bounded Kani dispatch, replay, and provenance](contract/FR-031-bounded-kani-dispatch-replay-provenance.md).
+- [Bounded Kani dispatch and terminal-value map](contract/FR-031-bounded-kani-dispatch-and-terminal-map.md).
 - [Output-mapping request admission](contract/FR-032-admit-output-mapping-request.md).
 - [Per-obligation output accounting](contract/FR-033-account-for-output-obligations.md).
 - [Atomic output package assembly](contract/FR-034-assemble-output-package-atomically.md).

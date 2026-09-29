@@ -62,7 +62,7 @@ caller-selected `BridgeLimits`.
 
 Validated projections, joins and model documents; typed `BridgeError` and
 decision values; the `kani-bounded/1` profile selection, validated finite
-inputs, dispatch routes, provenance and typed `KaniOutcome`s; and, for each
+inputs, dispatch routes and typed `KaniOutcome`s; and, for each
 outcome, its one QSL `TerminalValue` (FR-031).
 
 ## Behavior
@@ -78,7 +78,7 @@ outcome, its one QSL `TerminalValue` (FR-031).
 | `ecosystem_model::manifest` | function `read`; constants `REPOSITORY_IDENTITIES`, `OWNER_MAX`; and the same eight types the `ecosystem_model` row re-exports from it (`CheckedManifestSet`, `EcosystemLimits`, `ExpectedCampaign`, `ExpectedRepository`, `ManifestEdge`, `ManifestEdgeKind`, `ManifestGap`, `ManifestNode`) | FR-027 |
 | `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
 | `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind`, `KaniOutcomeError` | FR-030, STD-001 |
-| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`, `GeneratorProvenance`, `ArtifactIdentity`, `ProvenanceError`; and one public function, total over `KaniOutcome`, from a `KaniOutcome` to its `qsl_replay::TerminalValue` as FR-031's map gives it | FR-031 |
+| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`; and one public function, total over `KaniOutcome`, from a `KaniOutcome` to its `qsl_replay::TerminalValue` as FR-031's map gives it | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.

@@ -9,24 +9,20 @@ make fmt            # format with rustfmt
 make fmt-check      # verify formatting (CI gate)
 make lint           # clippy with -D warnings
 make spec           # validate and cover all Quire artifacts
-make assurance-inputs # run the native producers the shared path consumes
-make assurance-chain # seal, retain, receipt, and re-verify through Quoin
-make assurance      # assurance-chain
-make assurance-record # transcribe a conformance run into the Quoin evidence store
 make release-check  # run all local release gates
 make test           # Python suite + cargo test
 make build          # release build
-make clean          # cargo clean and drop the assurance workspace
+make clean          # cargo clean
 make deny           # all cargo-deny policy checks
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
-make ci             # all local release gates, including spec, exact Rust, and shared assurance
+make ci             # all local release gates, including spec and exact Rust
 ```
 
 The test target requires the Python declared by `.python-version`.
 
 ## Assurance boundaries
 
-Producers run natively, in `make assurance-inputs` and nowhere else. Quire
+Producers run natively. Quire
 exports static facts and Quoin transcribes, retains, audits, and reports bytes
 it is handed; neither runs anything. No gate reads a verdict from stdout or
 stderr — a verdict recovered from console text is a verdict the producer never

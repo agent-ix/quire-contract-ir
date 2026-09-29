@@ -36,7 +36,7 @@ The initial profile has separately addressable entries for checked arithmetic an
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-029-AC-1 | A selected profile binds its versioned Kani/tool, lowering, harness, oracle/strategy, replay, provenance, bounds, and capability-matrix identities before lowering. | Test (TC-042) |
+| FR-029-AC-1 | A selected profile binds its versioned Kani/tool, lowering, harness, oracle/strategy, replay, bounds, and capability-matrix identities before lowering. | Test (TC-042) |
 | FR-029-AC-2 | Every encountered construct has exactly one supported, refused, or unsupported matrix entry; an unsupported entry settles its item `unsupported` with a warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290) and emits no artifact, `KaniOutcome` or `TerminalValue`; no matrix entry records resource exhaustion, cancellation or an absent executable; unknown, conflicting, and incomplete matrices refuse with the originating source identity. | Test (TC-042) |
 | FR-029-AC-3 | A scalar capability refuses an object, reference, graph, collection, query, temporal, or unbounded-population request with its source identity. | Test (TC-042) |
 

@@ -36,11 +36,8 @@ testing, provenance, and human release gates as every other contribution.
 
 The canonical cross-repository governance contract is
 [`PGM-01`](spec/program/PGM-01-governance.md). It defines compatibility,
-domain-result provenance, shared assurance ownership, release ordering, and the
-qualification boundary for the repositories in the contract-derived
-verification program. The reviewed
-[shared-assurance reconciliation](spec/program/STD-002-shared-assurance-governance.md) records
-the campaign issue and legacy-prototype dispositions.
+release ordering, and the qualification boundary for the repositories in the
+contract-derived verification program.
 
 Domain tools and project-native systems execute verification and own their
 structured results. Quire exports static definitions, Quoin consumes explicit
@@ -48,15 +45,7 @@ results for retention/audit/reporting, and ix-flow records attributed human
 decisions. Quire and Quoin are non-executing, and neither is a runtime
 dependency of this crate.
 
-## Shared assurance
-
-```bash
-make assurance-inputs   # the native producers run here, and only here
-make assurance          # the Quoin chain
-```
-
-`make assurance-inputs` runs the contract conformance runner and `quire
-coverage`. Everything after it consumes files that already exist.
+## Retained evidence
 
 This repository held ten immutable PGM-01 records under `evidence/`, read
 through Engineering Assurance's read-only compatibility mapping. It was the only

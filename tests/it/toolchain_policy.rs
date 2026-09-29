@@ -21,8 +21,6 @@ struct PolicySurface {
     makefile: String,
     workflow: String,
     component_assurance: String,
-    change_assurance: String,
-    assurance_chain: String,
     decision: String,
 }
 
@@ -35,8 +33,6 @@ impl PolicySurface {
             makefile: read("Makefile"),
             workflow: read(".github/workflows/ci.yml"),
             component_assurance: read("spec/assurance/CAC-001-semantic-validator.md"),
-            change_assurance: read("assurance/change-assurance.json"),
-            assurance_chain: read("scripts/assurance_chain.py"),
             decision: read("spec/decisions/ADR-0055-qualified-rust-baseline.md"),
         }
     }
@@ -98,12 +94,6 @@ impl PolicySurface {
             .contains("supported-rust-minimum=1.98.1; qualification-rust=1.98.1")
         {
             failures.push("component-assurance compiler declarations");
-        }
-        if !self.change_assurance.contains("\"1.98.1\"") {
-            failures.push("change-assurance compiler declaration");
-        }
-        if !self.assurance_chain.contains("tool_version=\"1.98.1\"") {
-            failures.push("assurance scenario compiler identity");
         }
         let decision = self
             .decision
@@ -181,16 +171,6 @@ fn tc_036_exact_supported_and_qualification_rust_policy_agree() {
         .component_assurance
         .replace("qualification-rust=1.98.1", "qualification-rust=1.85");
     mutations.push(("inconsistent assurance version", mutated));
-
-    let mut mutated = policy.clone();
-    mutated.change_assurance = mutated.change_assurance.replace("\"1.98.1\"", "\"1.75\"");
-    mutations.push(("stale sealed assurance input", mutated));
-
-    let mut mutated = policy.clone();
-    mutated.assurance_chain = mutated
-        .assurance_chain
-        .replace("tool_version=\"1.98.1\"", "tool_version=\"1.75.0\"");
-    mutations.push(("stale generated attestation identity", mutated));
 
     let mut mutated = policy.clone();
     mutated.decision = mutated

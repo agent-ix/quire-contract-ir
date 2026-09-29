@@ -34,8 +34,6 @@ LANES = (
     ("cargo", "deny", "check"),
     ("cargo", "audit"),
     ("bash", "scripts/check_unsafe_comments.sh"),
-    ("quire", "coverage", "--scope", ".", "--json"),
-    ("python", "scripts/assurance_chain.py"),
 )
 
 
@@ -56,7 +54,7 @@ with open(os.environ["INVOCATIONS"], "a", encoding="utf-8") as stream:
 failure = json.loads(os.environ["FAIL_LANE"])
 sys.exit(7 if failure and invocation[:len(failure)] == failure else 0)
 '''
-        for tool in ("cargo", "python", "quire", "quoin", "rustup", "bash"):
+        for tool in ("cargo", "python", "quire", "rustup", "bash"):
             path = binary / tool
             path.write_text(double, encoding="utf-8")
             path.chmod(0o755)
@@ -71,9 +69,9 @@ sys.exit(7 if failure and invocation[:len(failure)] == failure else 0)
             "MAKEOVERRIDES": "",
         }
         result = subprocess.run(
-            ["make", "--no-print-directory", target, "REVISION=test-candidate",
+            ["make", "--no-print-directory", target,
              f"CARGO={binary / 'cargo'}", f"PYTHON={binary / 'python'}",
-             f"QUIRE={binary / 'quire'}", f"QUOIN={binary / 'quoin'}"],
+             f"QUIRE={binary / 'quire'}"],
             cwd=root, env=environment, capture_output=True, check=False,
         )
         calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -119,12 +117,5 @@ class NativeOrchestrationTests(unittest.TestCase):
     def test_registry_commands_match_the_native_interfaces(self) -> None:
         """TC-021. Trace: NFR-004-AC-6."""
         registry = (ROOT / "spec/evidence/suites.md").read_text()
-        makefile = (ROOT / "Makefile").read_text()
-        suite = next(line for line in registry.splitlines() if line.startswith("| SUITE-001 |"))
-        self.assertTrue(suite.endswith("| Integration |"))
-        self.assertIn("--kind Integration", makefile)
         self.assertNotIn("planning/**/*.md", registry)
-        chain = next(line for line in registry.splitlines() if line.startswith("| SUITE-004 |"))
-        self.assertIn("--conformance target/assurance/conformance.jsonl", chain)
-        self.assertIn("--quire-export target/assurance/quire-static-export.json", chain)
         self.assertIn("not release qualification", (ROOT / ".github/workflows/ci.yml").read_text())
