@@ -3,16 +3,6 @@
 version = 4
 
 [[package]]
-name = "agent-ix-baseline-producer"
-version = "0.0.0"
-source = "git+https://github.com/agent-ix/filament-core-data?rev=a6fe662542770e6acbec4917cfe1772b349ee414#a6fe662542770e6acbec4917cfe1772b349ee414"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
 name = "agent-ix-extraction-frontend"
 version = "0.0.0"
 source = "git+https://github.com/agent-ix/filament-core-data?rev=1572ba4ba8fad0e94e9a0b19a569f82a5181b488#1572ba4ba8fad0e94e9a0b19a569f82a5181b488"
@@ -378,14 +368,6 @@ name = "email_address"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "engineering-assurance"
-version = "0.3.1"
-source = "git+https://github.com/agent-ix/engineering-assurance?rev=712f4ff76c2b1e01d26d10efd97a0eef0235defa#712f4ff76c2b1e01d26d10efd97a0eef0235defa"
 dependencies = [
  "serde",
 ]
@@ -1315,24 +1297,16 @@ dependencies = [
 name = "quire-contract-ir"
 version = "0.1.0"
 dependencies = [
- "agent-ix-baseline-producer",
  "ix-trace-rs",
  "jsonschema 0.17.1",
  "qsl-foundation",
  "quire-contract-model 0.1.0",
  "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=7b1ec7a19f031dcea433293a25af57f0bb6a14f8)",
- "quire-mltl",
- "quire-observation",
- "quire-protocol",
  "quire-spec-language",
  "serde",
  "serde_json",
- "serde_stacker",
  "sha2",
- "stacker",
  "thiserror",
- "tl-mltl",
- "tl-syntax",
 ]
 
 [[package]]
@@ -1374,47 +1348,6 @@ dependencies = [
  "num-traits",
  "thiserror",
  "unicode-normalization",
-]
-
-[[package]]
-name = "quire-mltl"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-mltl?rev=128929b2e3868861677c6a748e2973e6476c74c3#128929b2e3868861677c6a748e2973e6476c74c3"
-dependencies = [
- "quire-observation",
- "serde",
- "serde_json",
- "sha2",
- "tl-mltl",
- "tl-syntax",
-]
-
-[[package]]
-name = "quire-observation"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-observation?rev=2bdeb833a330bfa777c19eb4c28c423f856f3ba6#2bdeb833a330bfa777c19eb4c28c423f856f3ba6"
-dependencies = [
- "agent-ix-baseline-producer",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "quire-protocol"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-protocol?rev=035fed1a4903dac5d5ef8c08b80195d3f11dadde#035fed1a4903dac5d5ef8c08b80195d3f11dadde"
-dependencies = [
- "engineering-assurance",
- "jsonschema 0.17.1",
- "qsl-foundation",
- "quire-observation",
- "quire-spec-language",
- "quire-verification-contracts 0.1.0 (git+https://github.com/agent-ix/quire-verification-contracts?rev=da8d7272051b1cf02768ec459539551414fd6c21)",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -1485,23 +1418,6 @@ dependencies = [
 name = "quire-verification-contracts"
 version = "0.1.0"
 source = "git+https://github.com/agent-ix/quire-verification-contracts?rev=61f4a44d76d51cc53b2dfe7ed10aba7b23cfa6ef#61f4a44d76d51cc53b2dfe7ed10aba7b23cfa6ef"
-dependencies = [
- "chrono",
- "jsonschema 0.55.1",
- "regress",
- "schemars",
- "serde",
- "serde_json",
- "serde_json_canonicalizer",
- "sha2",
- "thiserror",
- "typify",
-]
-
-[[package]]
-name = "quire-verification-contracts"
-version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-verification-contracts?rev=da8d7272051b1cf02768ec459539551414fd6c21#da8d7272051b1cf02768ec459539551414fd6c21"
 dependencies = [
  "chrono",
  "jsonschema 0.55.1",
@@ -2023,27 +1939,6 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
-
-[[package]]
-name = "tl-mltl"
-version = "0.3.0"
-source = "git+https://github.com/agent-ix/tl-mltl?rev=452f013a3168512603d427bce3360bc14c1175a6#452f013a3168512603d427bce3360bc14c1175a6"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
- "tl-syntax",
-]
-
-[[package]]
-name = "tl-syntax"
-version = "0.3.0"
-source = "git+https://github.com/agent-ix/tl-syntax?rev=4a5614193d21e5ae99950ae683b04ba0ec931358#4a5614193d21e5ae99950ae683b04ba0ec931358"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
-]
 
 [[package]]
 name = "tracing"

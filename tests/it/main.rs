@@ -9,9 +9,6 @@
 //! instead of once per file. `tests/support/` moved to `tests/it/support/` and
 //! is now a single shared module (`crate::support::*`) instead of a
 //! `#[path = "support/…"]` copy compiled into each of several binaries.
-//!
-//! `tests/fixtures/model-alias-consumer` and `tests/fixtures/bridge-qsl-consumer`
-//! are standalone compile-fixture crates, unaffected by this merge.
 
 mod support;
 
