@@ -747,10 +747,9 @@ fn claim_clause_body() -> Value {
 
 /// A plain graph node: `dependencies` is the node's own wire `dependencies`
 /// array (identity-based, distinct from the lowering closure), and
-/// `occurrences` is a single `generated`-role occurrence. No fixture node
-/// this generator builds carries a `declaration`-role occurrence or a
-/// nominal preimage, so `declaration` and `nominal_identity_preimage` (both
-/// optional wire members) are simply omitted.
+/// `occurrences` is a single `generated`-role occurrence. It carries no
+/// `declaration` and no nominal preimage; [`declared`] makes one a source
+/// declaration.
 fn plain_node(
     digest: &str,
     node_tag: &str,
@@ -769,6 +768,14 @@ fn plain_node(
         "occurrences": [{"role": "generated", "ordinal": 0}],
         "body": body,
     })
+}
+
+/// `node` as a source declaration named `qualified_name`: its one
+/// occurrence has the `declaration` role and it carries the name.
+fn declared(mut node: Value, qualified_name: &[&str]) -> Value {
+    node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    node["declaration"] = json!({ "qualified_name": qualified_name });
+    node
 }
 
 /// An empty `aggregate` term: the simplest closed `SemanticTerm` body,
@@ -1107,7 +1114,6 @@ fn build_v2_all_families() -> Value {
     let f3030 = family_key("3030");
     let f7070 = family_key("7070");
     let f8080 = family_key("8080");
-    let f1414 = family_key("1414");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
     let frame_key = "f4a0".repeat(16);
@@ -1188,7 +1194,7 @@ fn build_v2_all_families() -> Value {
         plain_node(
             &f3030,
             "state",
-            "state_clause",
+            "snapshot",
             &aaaa,
             &[aaaa.as_str()],
             empty_aggregate(),
@@ -1236,21 +1242,16 @@ fn build_v2_all_families() -> Value {
             &[],
             empty_aggregate(),
         ),
-        plain_node(
-            &f1414,
-            "model",
-            "field_declaration",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
-        ),
-        plain_node(
-            &f1515,
-            "model",
-            "object_type",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+        declared(
+            plain_node(
+                &f1515,
+                "model",
+                "object_type",
+                &aaaa,
+                &[aaaa.as_str()],
+                empty_aggregate(),
+            ),
+            &["Example", "Account"],
         ),
         plain_node(
             &f1616,
@@ -1264,16 +1265,14 @@ fn build_v2_all_families() -> Value {
             &frame_key,
             "state",
             "frame",
-            &aaaa,
-            &[
-                f1414.as_str(),
-                f1515.as_str(),
-                f1616.as_str(),
-                f2020.as_str(),
-            ],
+            &f1515,
+            &[f1515.as_str(), f1616.as_str(), f2020.as_str()],
             json!({
                 "term": "frame",
-                "modifies": [node_id(&f1414), node_id(&f2020)],
+                "modifies": [
+                    {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
+                    {"kind": "relationship", "declaration": node_id(&f2020)},
+                ],
                 "creates": [node_id(&f1515)],
                 "deletes": [node_id(&f1616)],
             }),
