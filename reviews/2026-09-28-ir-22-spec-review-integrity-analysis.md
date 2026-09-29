@@ -101,3 +101,10 @@ Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
 | FND-006 | fixed | 24b0778 |
 | FND-007 | fixed | 24b0778 |
 | FND-008 | fixed | 24b0778 |
+
+Round 2, reviewed at `3277b2da2439244de4475b615f9fd591d9e4407b`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-009 | fixed | 3277b2d |
+| FND-010 | deferred | This belongs to the Contract IR code PR that implements FR-030-AC-4 and TC-223. That PR adds the counted proved constructor, and it has to update codegen's count-less KaniOutcome::proved callers (src/bounded_kani_corpus.rs:346, src/bounded_kani_replay.rs:74) at the same time. The team leader recorded it on IR-22 (comment 05d2a160). No spec text in this PR is wrong. |

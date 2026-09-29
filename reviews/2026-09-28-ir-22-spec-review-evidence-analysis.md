@@ -85,3 +85,10 @@ Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
 | FND-002 | fixed | 24b0778 |
 | FND-003 | fixed | 24b0778 |
 | FND-004 | fixed | 24b0778 |
+
+Round 2, reviewed at `3277b2da2439244de4475b615f9fd591d9e4407b`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-005 | deferred | This belongs to the Contract IR code PR that implements TC-223. That PR must retag or delete the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 in the same commit, so that quire's strict count stops crediting TC-223 and FR-030-AC-4. The team leader recorded it on IR-22 (comment 05d2a160). The matrix prose already discloses the legacy test, and no spec text in this PR is wrong. |
+| FND-006 | fixed | 3277b2d |
