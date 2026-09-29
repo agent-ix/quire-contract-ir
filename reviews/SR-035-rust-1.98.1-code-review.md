@@ -5,11 +5,6 @@ type: SpecReview
 analysis: code-review
 scope: "agent-c/rust-1.98.1 implementation commit 32b9a73 against origin/main 690bde7; NFR-005 and TC-036/TC-037"
 review_set: subset
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/NFR-005
-    type: reviews
-  - target: ix://agent-ix/quire-contract-ir/ADR-0055
-    type: references
 ---
 
 # SR-035: Rust review — exact 1.98.1 qualification

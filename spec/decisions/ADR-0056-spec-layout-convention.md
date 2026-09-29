@@ -131,7 +131,9 @@ same document.
    never carries a subsystem, crate or module prefix (`FR-041`, never
    `FR-CORE-041`). The subsystem is the directory.
 2. An ID is never renumbered by a move and never reissued after deletion. A
-   file keeps its ID and its slug when its directory changes.
+   file keeps its ID and its slug when its directory changes. The same holds for
+   acceptance-criterion IDs (`FR-031-AC-4`): a deleted criterion's ID is never
+   reissued, and a test still tracing to it is retagged or deleted with it.
 3. A family keeps the digit width it already uses in the repository
    (`ADR-0056`, `FR-041`, `TC-058`); a move never re-pads an ID.
 4. An unprefixed ID names an artifact in the same repository. A reference to

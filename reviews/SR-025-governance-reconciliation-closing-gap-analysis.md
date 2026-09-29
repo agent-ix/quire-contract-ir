@@ -8,8 +8,6 @@ review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/PLAN-003
     type: reviews
-  - target: ix://agent-ix/quire-contract-ir/TM-001
-    type: references
 ---
 
 # SR-025: Gap analysis — closing shared assurance governance reconciliation

@@ -48,7 +48,8 @@ that correspondence is absent, the provider shall return `requires_bound` or
 `unsupported`. When the provider manifest advertises no matching FR-290
 capability for a requested claim, the provider shall settle that claim
 `unsupported` and carry a warning naming the required capability. The
-provider shall generate Rust-only artifacts with `publish = false`.
+provider shall generate Rust-only artifacts with `publish = false`. The provider shall identify package, claim,
+domain, and bounds in each emitted artifact.
 
 ## Acceptance Criteria
 

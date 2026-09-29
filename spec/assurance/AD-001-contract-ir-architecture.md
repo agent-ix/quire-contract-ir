@@ -190,3 +190,6 @@ the authored-contract interchange.
   constructor-private inputs and strict re-derivation.
 - Native/TL semantic disagreement: retained as a typed conflict rather than
   repaired, coerced, or hidden behind either owner's result vocabulary.
+- Self-model authority confusion: controlled by constructor-private checked
+  views, absent acceptance fields, and no conversion from model/proposal output
+  into executable owner inputs.

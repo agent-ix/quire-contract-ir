@@ -16,8 +16,6 @@ relationships:
     type: reviews
   - target: ix://agent-ix/quire-contract-ir/AD-001
     type: reviews
-  - target: ix://agent-ix/quire-contract-ir/MP-002
-    type: reviews
   - target: ix://agent-ix/quire-contract-ir/FR-037
     type: reviews
 ---

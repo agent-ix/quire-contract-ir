@@ -5,9 +5,6 @@ type: SpecReview
 analysis: evidence
 scope: "AP-001, CAC-001, MP-001, AA-001, TM-002"
 review_set: subset
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/MP-001
-    type: reviews
 ---
 # Evidence review of the contract IR v0.1 foundation
 

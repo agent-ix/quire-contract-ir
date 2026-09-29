@@ -8,8 +8,6 @@ priority: P0
 relationships:
   - target: ix://agent-ix/quire-contract-ir/TASK-002
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/TM-001
-    type: verifies
 ---
 # TASK-003: Bind PGM-01 tests and local gates
 

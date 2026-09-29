@@ -5,9 +5,6 @@ type: Task
 status: done
 track: S
 priority: P0
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/PGM-01
-    type: references
 ---
 # TASK-001: Author and review PGM-01 requirements
 

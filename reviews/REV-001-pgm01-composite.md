@@ -2,9 +2,6 @@
 id: REV-001
 title: "PGM-01 composite specification review"
 type: Review
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/PGM-01
-    type: reviews
 ---
 # PGM-01 composite specification review
 

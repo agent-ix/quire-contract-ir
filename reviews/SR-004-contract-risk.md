@@ -5,9 +5,6 @@ type: SpecReview
 analysis: risk-complexity
 scope: "FR-011 through FR-020; NFR-001 through NFR-004"
 review_set: subset
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/AP-001
-    type: reviews
 ---
 # Risk and complexity review of the contract IR v0.1 foundation
 
