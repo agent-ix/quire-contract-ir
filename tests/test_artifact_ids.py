@@ -144,6 +144,7 @@ class DuplicateArtifactIdTests(unittest.TestCase):
         """TC-224. Trace: TC-224, FR-345-AC-1."""
         with scratch_tree() as tree:
             tree.write("spec/functional/FR-002-b.md", artifact("FR-002", body="id: FR-001\n"))
+            tree.write("spec/notes.md", "---\ntype: Note\n---\nid: FR-001\n")
             for path in (
                 "plan/PLAN-001-a/index.md",
                 "plan/PLAN-001-b/index.md",
@@ -209,13 +210,16 @@ class IdBlockTests(unittest.TestCase):
                 master(
                     "FR | FR-900..FR-919 | `a` | open",
                     "FR | FR-910..FR-929 | `b` | open",
+                    "FR | FR-880..FR-900 | `c` | closed",
                 ),
             )
             self.assertEqual(
                 tree.findings(),
                 [
                     "ID blocks of family FR overlap from FR-910 to FR-919: "
-                    "spec/spec.md:11, spec/spec.md:12"
+                    "spec/spec.md:11, spec/spec.md:12",
+                    "ID blocks of family FR overlap from FR-900 to FR-900: "
+                    "spec/spec.md:11, spec/spec.md:13",
                 ],
             )
 
