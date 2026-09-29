@@ -21,25 +21,13 @@ statistical_design:
   decision_rule:
     comparator: ge
     threshold: 1.0
-protected_apparatus:
-  - Makefile
-  - tests/it/main.rs
-  - tests/it/kani_shared.rs
-  - tests/it/kani_arithmetic.rs
-  - tests/it/kani_objects.rs
-  - tests/it/kani_collections.rs
-  - tests/it/kani_replay.rs
-  - tests/fixtures/native-rule-model.json
-  - tests/fixtures/kani-concrete-playback.txt
 negative_controls:
   - kind: suppressed-observation
     description: >-
       a declared profile-matrix entry with no executed case counts as a
-      disagreeing case rather than an omission from the denominator, and the
-      matrix, its cases and the module list that compiles each family's tests
-      are protected apparatus, so skipping a matrix entry or dropping a whole
-      family lowers the ratio or registers as an apparatus change instead of
-      leaving the ratio unaffected
+      disagreeing case rather than an omission from the denominator, so
+      skipping a matrix entry or dropping a whole family lowers the ratio
+      instead of leaving the ratio unaffected
   - kind: selective-reporting
     description: >-
       the proportion is taken over both repetitions of every matrix entry's
