@@ -70,16 +70,3 @@ scripts/               # local tooling
 `quire-contract-ir` dependencies. Owner integrations belong in the root bridge
 package so the production graph remains acyclic. All Cargo gates must use
 `--workspace`; a root-package-only result is incomplete.
-
-## No unasked-for ceremony, no file tracking
-
-We have git. Do not reimplement file tracking: no relocation maps, old/new-path ledgers,
-id-set snapshots, manifests, digests or provenance records over files in this repo, and no
-script that re-derives what `git diff -M` or `git log --follow` shows. A restructure is
-`git mv`; the reviewer reads the diff.
-
-Build only what was asked. Do not add checks, gates, pins, ledgers, scripts or tickets
-nobody requested. Before adding any, ask: did the requester ask for it, and does running
-code read it today? If not, do not add it.
-
-No vendoring and no copying files between repos. Depend on the authoritative source.
