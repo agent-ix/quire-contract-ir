@@ -1084,17 +1084,18 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
 
 /// Builds `v2_all_families()`: one node per V2 semantic-node family (in
 /// `CheckedNodeTag::ALL` order, positions 0-12, keyed `aaaa`.."7070"), plus
-/// five supporting nodes the family nodes' own required members reference —
+/// four supporting nodes the family nodes' own required members reference —
 /// a second `pure_function` the `function` family's real `application`
-/// argument names, a `field_declaration`/`object_type`/`process` triple the
-/// `state` family's frame body's `modifies`/`creates`/`deletes` name, and the
-/// dedicated `state`/`frame` node itself (the `state` family's own
-/// representative node is a plain `state_clause`, so its lowering closure
+/// argument names, the source-declared `object_type` (`Example::Account`,
+/// self-typed) and the `process` the `state` family's frame body names, and
+/// the dedicated `state`/`frame` node itself, typed by that object type and
+/// modifying its `balance` field and the relationship node (the `state`
+/// family's own representative node is a plain `snapshot`, so its lowering closure
 /// stays the uniform single-`aaaa` shape every other plain family node has;
 /// `checked_package_v2_frame_bodies.rs` locates the one real frame node by
 /// its `(node_tag, semantic_form)` shape, not by position).
 ///
-/// Every node is typed by node 0 (`aaaa`, a self-typed `scalar_type`/
+/// Every other node is typed by node 0 (`aaaa`, a self-typed `scalar_type`/
 /// `boolean`) for simplicity; the two nodes whose lowering closure must reach
 /// a second node (`eeee`/`7070`, the `expression` and `correspondence`
 /// families) also depend on node 3 (`dddd`). The function/temporal/protocol/

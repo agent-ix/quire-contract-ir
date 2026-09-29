@@ -46,8 +46,6 @@ defect is reported over the higher one's.
 
 Implemented in `tests/it/checked_package_v2_frame_bodies.rs` and in the
 eligibility enumeration test in
-`crates/quire-contract-model/src/checked_package/v2/mod.rs`, one
-representative authored case per rule. That enumeration still asserts the
-two `modifies` triples FR-040 replaces (`relation`/`relationship` and
-`model`/`field_declaration` as bare node keys); those assertions move to
-TC-056 when the reader adopts FR-040.
+`crates/quire-contract-model/src/checked_package/v2/frame.rs`, one
+representative authored case per rule. The `modifies` eligibility
+enumeration is TC-056's, in the same file.

@@ -95,9 +95,16 @@ locus of an entry's refusal is its declaring node key. None of the five
 systems forms is an admitted declaring node.
 
 A field entry's `name` resolves among the fields of its declaring node by
-FR-038's model-owned member resolution: for a `model`/`object_type` node, the
-exposed effective field members of that object type, own and inherited; for a
-`model`/`record_value_type` node, the fields its record declaration declares.
+FR-038's model-owned member resolution, and only where FR-038 scopes that
+resolution: when the declaring node is a model declaration node, one whose
+`declaration` is a `model_declaration` (QSpec's `ModelDeclarationNode`). For
+such a `model`/`object_type` node the candidates are the exposed effective
+field members of that object type, own and inherited. A declaring node that is
+not a model declaration node, including a source-declared object type carrying
+a `declaration`, is joined and ordered but its field name is not resolved.
+QSpec's `ModelDeclarationNode` has no `record_value_type` form, so a field
+entry on a `model`/`record_value_type` node is joined and ordered and its name
+is not resolved; how that name resolves is pending a QSpec ruling.
 Operation members are not candidates. An unrecovered owner refuses with that
 resolution's own refusal (`missing_declaration`/`missing-selection` or
 `invalid_package`/`stale-node-key`), no field of that name as
@@ -135,7 +142,9 @@ inherits as `invalid_model_binding`/`malformed-declaration`). Once every
 anchor's own joins hold, a second anchor naming the same (`context`,
 `operation`) pair, or the same `frame` target as another anchor, refuses as
 `ambiguous_declaration`/`ambiguous-name` at the second anchor in ascending
-node-id digest order.
+node-id digest order. The `operation` name is resolved only when the
+`context` target is a model declaration node, as for field entries; any other
+`context` admits its `operation` name unresolved.
 
 ### State clause body
 
@@ -170,11 +179,25 @@ failure:
    for an invariant and the anchor's `context` otherwise, and an invariant
    binds `self` alone. A different count or type refuses as
    `ill_typed`/`operator-ineligible` at the clause node, checking `self`,
-   then `result`, then the operation's parameters.
+   then `result`, then the operation's parameters. `self` is checked for
+   every clause. The result and the operation's parameters are checked only
+   when the operation resolves, that is when `C` is a model declaration node;
+   a clause anchored on any other context is checked for `self` alone. A
+   result or parameter type is compared by the node key of the resolved
+   member's slot type.
+
+A clause node's own `semantic_type` is not checked beyond the catalog's
+`result_type` for `quire.op.state.clause` being the `scalar_type`/`boolean`
+node.
 
 A `value`/`parameter` node's `body` is an `aggregate` of exactly two
-bindings in order: `name`, a `text` literal, and `level`, an `integer`
-literal. Every occurrence has role `expression`.
+bindings in order: `name`, a `text` literal whose value is an identifier, and
+`level`, an `integer` literal. Every occurrence has role `expression`. A body
+of any other shape refuses at the node's `body`.
+
+An operation whose catalog entry carries the `reference_edge` constraint
+(`quire.op.model.reaches_field`) is not admitted: its application refuses as
+`ill_typed`/`operator-ineligible` at its first argument.
 
 The operation catalog shall hold `quire.op.state.clause` with operator class
 `state_clause`, operands `aggregate`, `object` and `boolean`, result `clause`
@@ -196,7 +219,7 @@ operation anchor, then every state clause, and reports the first defect.
 | --- | --- | --- |
 | FR-040-AC-1 | A `modifies` array holding a `relationship` entry and a `field` entry, each naming an eligible declared dependency, admits; an all-empty frame body admits; a bare node key, an entry of another `kind`, a `field` entry without `name`, a `relationship` entry carrying `name`, and an entry with an extra member each refuse as `invalid_semantic_graph` with no cause, located at that entry. | Test (TC-056) |
 | FR-040-AC-2 | A relationship entry naming an object type, a field entry declared on a process, a relationship or a systems node, and a `creates` entry naming a relationship each refuse as `invalid_model_binding`/`malformed-declaration` at the entry's declaring node key; an entry naming no declared dependency of the frame, or no node of the package, refuses as `missing_declaration`/`missing-name`. | Test (TC-056) |
-| FR-040-AC-3 | A field entry resolves among the exposed effective fields of its declaring object type, own and inherited, and among the declared fields of a record value type; a field entry on an object type for a field typed with a record value type and a field entry on that record value type's own node are distinct entries and both admit in one frame; an undeclared name and an operation's name refuse as `missing_declaration`/`missing-name`; a name two supertypes both expose refuses as `ambiguous_declaration`/`ambiguous-name`; a declaring node keyed under an unselected domain package version refuses as `missing_declaration`/`missing-selection`. | Test (TC-056) |
+| FR-040-AC-3 | A field entry on a model declaration object type resolves among its exposed effective fields, own and inherited; a field entry on a source-declared object type and one on a `record_value_type` node admit with their names unresolved (record value type resolution is pending a QSpec ruling); an undeclared name and an operation's name refuse as `missing_declaration`/`missing-name`; a name two supertypes both expose refuses as `ambiguous_declaration`/`ambiguous-name`; a declaring node keyed under an unselected domain package version refuses as `missing_declaration`/`missing-selection`. | Test (TC-056) |
 | FR-040-AC-4 | Two field entries of one declaring node in descending name order refuse as `invalid_semantic_graph`; a frame carrying a meaning-join defect and a canonical-order defect reports the meaning-join refusal regardless of member or array position; with two defective frames, the lower node-id frame's own defect is reported. | Test (TC-056) |
 | FR-040-AC-5 | A frame whose `semantic_type` names a node that is not `model`/`object_type` refuses as `invalid_model_binding`/`malformed-declaration` at its `semantic_type` before any entry defect; a frame occurrence with a role other than `generated` refuses as `invalid_semantic_graph` with no cause, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-6 | Each of the fifteen `model` forms admits as a node form; `field_declaration`, `operation_declaration`, `clause_member_declaration` and any other `model` form refuse as `invalid_semantic_graph` with no cause, located at the node's `semantic_form`. | Test (TC-056) |

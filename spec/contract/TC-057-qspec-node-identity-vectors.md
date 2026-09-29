@@ -26,13 +26,19 @@ Under `make qspec-vectors`, read the file's arrays from `QSPEC_DIR`:
 
 - `vectors` (nominal preimages) and `operation_vectors` (application-node
   preimages): re-derive each `sha256` through this crate's nominal and
-  application preimage encoders, then build one package holding every vector
-  node and read it through the V2 reader.
+  application preimage encoders. Build one package per domain package version
+  the nominal vectors' model owners name, since one lock selects one version
+  of a domain package, and read each through the V2 reader. Check the
+  operation vectors `positive-operation-identities.json` carries against that
+  fixture, add the rest to it as nodes with their laws selected, and read it.
 - `invalid_mutations` and `operation_mutations`: apply each entry's RFC 6902
   `patch` to its `base` vector's preimage, key the node under its
   `retained_sha256`, place it in a package and read it; for a `stale_key`
   operation mutation, also confirm that the patched preimage's digest equals
-  the `rekeyed_as` vector's `sha256`.
+  the `rekeyed_as` vector's `sha256`. Any other operation mutation is first
+  read under its retained key and shown to refuse, then keyed under its
+  patched preimage's own digest and read, so a stale key does not pre-empt
+  the refusal the entry expects.
 
 Count the entries replayed from each array. Run once with `QSPEC_DIR` unset.
 The `frame_mutations` array is replayed by TC-056.
@@ -48,6 +54,7 @@ passing.
 
 ## Status
 
-Planned. The `function-call` vector already runs through the reader in
-`tests/it/checked_package_v2_dependency_reference.rs`; the full vector set
-does not.
+Implemented in `tests/it/checked_package_v2_node_identity_vectors.rs`
+(`qspec_node_identity_vectors`), run by `make qspec-vectors`. It replays 17
+`vectors`, 21 `operation_vectors`, 13 `invalid_mutations` and 24
+`operation_mutations`.

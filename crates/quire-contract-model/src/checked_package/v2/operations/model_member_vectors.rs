@@ -909,6 +909,8 @@ fn owner_node<'v>(vectors: &'v Value, name: &str) -> &'v str {
 /// TC-280 (FR-340-AC-13, FR-040-AC-3): a frame's field entry resolves among
 /// the exposed effective fields of its declaring object type, decided by the
 /// reader's frame step.
+///
+/// Tracing: TC-056, FR-040-AC-3
 #[test]
 fn tc_280_frame_field_cases_resolve_through_the_frame_step() {
     let Some((vectors, _)) = vectors() else {
@@ -983,6 +985,8 @@ fn add_anchor(graph: &mut CaseGraph, context: &str, operation: &str) -> (String,
 /// TC-280 (FR-342-AC-4, FR-040-AC-7): an anchor's operation resolves among
 /// its context's exposed operations to one the context declares, decided by
 /// the reader's state step.
+///
+/// Tracing: TC-056, FR-040-AC-7
 #[test]
 fn tc_280_anchor_cases_resolve_through_the_state_step() {
     let Some((vectors, _)) = vectors() else {
@@ -1024,6 +1028,8 @@ fn tc_280_anchor_cases_resolve_through_the_state_step() {
 /// TC-280 (FR-341-AC-5, FR-040-AC-9): a clause's parameters are `self`,
 /// then the resolved operation's result for a postcondition, then its
 /// parameters, each of its derived type, decided by the reader's state step.
+///
+/// Tracing: TC-056, FR-040-AC-9
 #[test]
 fn tc_280_clause_signature_cases_type_through_the_state_step() {
     let Some((vectors, _)) = vectors() else {

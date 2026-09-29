@@ -24,22 +24,24 @@ fix, in their reader order.
 
 ## Test Procedure
 
-Build, from this repository's own public vocabulary, a domain package with an
-`Order` object type declaring `total`, `scaled(n: Integer): Integer` and
-`reset()`, a subtype `Sub`, a record value type `Address` with `street`, and a
-relationship; and a checked package with a frame per operation, an operation
-anchor per operation, an invariant on `Order`, and a precondition and a
-postcondition on `scaled`. Read it and confirm it admits. Then apply each
-single mutation the FR-040 criteria name and read each mutated package:
-entry shapes and kinds, eligibility per member, field-name resolution cases
-(own, inherited, record value type, undeclared, operation name, ambiguous,
-unselected version), misordered `modifies`, a meaning-join defect with an
+Build, from this repository's own public vocabulary, checked packages
+holding frames, operation anchors, an invariant, a precondition and a
+postcondition, and parameter nodes. Read each and confirm it admits. Then
+apply each single mutation the FR-040 criteria name and read each mutated
+package: entry shapes and kinds, eligibility per member, misordered
+`modifies`, a meaning-join defect with an
 order defect, two defective frames, frame `semantic_type`, each removed
 `model` form, each anchor binding and join, duplicate anchors, each clause
 anchor, parameter and signature case, nested and misplaced clause
 applications, a non-Boolean condition, each parameter body defect, each
 occurrence role, and pairs of defects across the frame, state and operation
-steps. Under `make qspec-vectors`, read QSpec's published V2 fixtures that
+steps. Field-name, anchor-operation and clause-signature resolution
+against a domain package (own, inherited, redefined, undeclared, another
+member kind's name, ambiguous, unselected version, systems context, and the
+`self`/result/parameter types) replay QSpec TC-280's `frame_field_cases`,
+`anchor_cases` and `clause_signature_cases` from
+`model-member-type-vectors.json` through the reader's frame and state steps
+rather than authoring them again. Under `make qspec-vectors`, read QSpec's published V2 fixtures that
 carry these nodes from `QSPEC_DIR`, and replay every entry of the
 `frame_mutations` array of `node-identity-vectors.json` in place on the
 frame node of QSpec's `fixtures/positive-all-families.json`, as QSpec's
@@ -57,4 +59,11 @@ defect.
 
 ## Status
 
-Planned.
+Implemented. Authored cases: `tests/it/checked_package_v2_frame_entries.rs`
+(FR-040-AC-1, 2, 4 to 8, 10 to 12) and the entry eligibility tests in
+`crates/quire-contract-model/src/checked_package/v2/frame.rs`. QSpec TC-280
+replays: `crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs`
+(FR-040-AC-3, 7, 9). QSpec fixtures and the 30 `frame_mutations`:
+`qspec_frame_mutations_and_published_fixtures` (FR-040-AC-13). Field-name
+resolution for a `record_value_type` declaring node is pending a QSpec
+ruling and is not tested.
