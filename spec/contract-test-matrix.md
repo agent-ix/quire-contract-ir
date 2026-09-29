@@ -57,7 +57,6 @@ relationships:
 | NFR-002 | vocabulary, schema, API, and exact Rust inspection | TC-015, TC-016, TC-019 | AC-2/3/4 implemented; cross-platform AC-1 planned |
 | NFR-003 | negative corpus, mutation, panic-free, and orphan checks | TC-017 through TC-019 | version and orphan fail-closed checks implemented (TC-017, TC-018); threshold analysis (TC-019) planned |
 | NFR-004 | repository/assurance/plan inspection | TC-014, TC-020, TC-021 | foundation covered |
-| NFR-005 | executed compatibility matrix | `make ci` | ✅ implemented |
 
 ## Diagnostic Registry Coverage
 

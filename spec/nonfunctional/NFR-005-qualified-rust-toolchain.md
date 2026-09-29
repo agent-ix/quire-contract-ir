@@ -31,13 +31,6 @@ the exact required compiler-adjacent tools and embedded targets.
 | Required tools | each required operation executes | launch/version-only evidence or genuine incompatibility fails | Test |
 | Formatting migration | formatted by 1.98.1 | unchecked output fails; changed formatting is permitted | Test |
 
-## Acceptance Criteria
-
-| ID | Criteria | Verification |
-|---|---|---|
-| NFR-005-AC-2 | Locked all-target tests, warning-denied Clippy, rustfmt, release build, unsafe audit and declared target builds execute under 1.98.1; formatting changes and remediated lint findings are accepted migration output. | Test (`make ci`) |
-| NFR-005-AC-3 | Required cargo-deny/audit and any repository-specific compiler tools execute their real operation under the candidate environment; domain findings are reported separately from launch/protocol/compiler incompatibility. | Test (`make ci`) |
-
 ## Known non-compatibility findings
 
 The `idna 0.4.0` and `time 0.3.36` vulnerabilities observed during
