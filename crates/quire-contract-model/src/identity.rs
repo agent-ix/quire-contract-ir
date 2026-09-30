@@ -79,7 +79,6 @@ diagnostic_codes! {
     PotentiallyUndefined => "potentially_undefined",
     ExpressionTooLarge => "expression_too_large",
     UnsupportedSchemaVersion => "unsupported_schema_version",
-    UnregisteredMigration => "unregistered_migration",
     CanonicalizationResourceExhausted => "canonicalization_resource_exhausted",
     DuplicateArtifactTrace => "duplicate_artifact_trace",
     StaleTraceDigest => "stale_trace_digest",
@@ -365,7 +364,6 @@ pub struct SchemaVersion {
 }
 
 impl SchemaVersion {
-    pub const V1_0: Self = Self { major: 1, minor: 0 };
     pub const V1_1: Self = Self { major: 1, minor: 1 };
 
     pub fn new(major: u16, minor: u16) -> Result<Self, Diagnostic> {
@@ -1292,11 +1290,11 @@ impl VersionPreflight {
     fn validate(self) -> Result<SchemaVersion, Diagnostic> {
         let version = self.schema_version.validate()?;
         match (version.major(), version.minor()) {
-            (1, 0 | 1) => Ok(version),
+            (1, 1) => Ok(version),
             (1, _) => Err(Diagnostic::error(
-                DiagnosticCode::UnregisteredMigration,
-                "schema minor has no registered migration",
-                "schema_version",
+                DiagnosticCode::UnsupportedSchemaVersion,
+                "schema minor is unsupported",
+                "schema_version.minor",
             )),
             (_, _) => Err(Diagnostic::error(
                 DiagnosticCode::UnsupportedSchemaVersion,

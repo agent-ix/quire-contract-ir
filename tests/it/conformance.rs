@@ -233,12 +233,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     }]);
     write_json(&package_path, &package);
 
-    let migration_path = scratch.0.join("expectations/migration-valid.json");
-    let mut migration = read_json(&migration_path);
-    migration["migration_receipt"]["target_package_digest"] =
-        json!("0000000000000000000000000000000000000000000000000000000000000000");
-    write_json(&migration_path, &migration);
-
     let coverage_path = scratch.0.join("expectations/coverage-shallow.json");
     let mut coverage = read_json(&coverage_path);
     coverage["coverage"] = Value::Null;
@@ -281,7 +275,6 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
             "coverage",
             "dependencies",
             "diagnostics",
-            "migration_receipt",
             "validity",
         ]
         .into_iter()
