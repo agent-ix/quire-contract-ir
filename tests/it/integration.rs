@@ -5,6 +5,6 @@ use quire_contract_ir::SchemaVersion;
 /// FR-011-AC-1.
 #[test]
 fn tc_015_public_api_exposes_the_v1_wire_schema() {
-    assert_eq!(SchemaVersion::V1_0.major(), 1);
-    assert_eq!(SchemaVersion::V1_0.minor(), 0);
+    assert_eq!(SchemaVersion::V1_1.major(), 1);
+    assert_eq!(SchemaVersion::V1_1.minor(), 1);
 }

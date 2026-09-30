@@ -136,7 +136,7 @@
             "text_bound_exceeded", "unbounded_collection", "collection_bound_exceeded", "orphaned_type_reference", "recursive_type",
             "orphaned_value_reference", "orphaned_function_reference", "invalid_state_observation", "invalid_scope", "arity_mismatch",
             "ill_typed_expression", "result_type_mismatch", "non_boolean_clause_root", "potentially_undefined", "expression_too_large",
-            "unsupported_schema_version", "unregistered_migration", "canonicalization_resource_exhausted", "duplicate_artifact_trace",
+            "unsupported_schema_version", "canonicalization_resource_exhausted", "duplicate_artifact_trace",
             "stale_trace_digest", "semantic_input_too_large"
           ]
         },
@@ -414,15 +414,6 @@
         "clause_root": { "type": "boolean" }
       }
     },
-    "migrationInput": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["package", "target_version"],
-      "properties": {
-        "package": { "$ref": "#/definitions/package" },
-        "target_version": { "$ref": "#/definitions/schemaVersion" }
-      }
-    },
     "traceDepth": {
       "type": "object",
       "additionalProperties": false,
@@ -481,29 +472,6 @@
       }
     },
     "expressionExpectation": { "$ref": "#/definitions/packageExpectation" },
-    "migrationReceipt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["migration_id", "source_version", "target_version", "source_package_digest", "target_package_digest"],
-      "properties": {
-        "migration_id": { "const": "reference_body_1_0_to_1_1" },
-        "source_version": { "$ref": "#/definitions/schemaVersion" },
-        "target_version": { "$ref": "#/definitions/schemaVersion" },
-        "source_package_digest": { "$ref": "#/definitions/digest" },
-        "target_package_digest": { "$ref": "#/definitions/digest" }
-      }
-    },
-    "migrationExpectation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["valid", "diagnostics", "canonical", "migration_receipt"],
-      "properties": {
-        "valid": { "type": "boolean" },
-        "diagnostics": { "type": "array", "items": { "$ref": "#/definitions/diagnostic" } },
-        "canonical": { "type": "array", "items": { "$ref": "#/definitions/canonicalExpectation" } },
-        "migration_receipt": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/migrationReceipt" }] }
-      }
-    },
     "requirementCoverageRow": {
       "type": "object",
       "additionalProperties": false,

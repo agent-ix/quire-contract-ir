@@ -395,16 +395,15 @@ def build_cases() -> list:
              "diagnostic:semantic_input_too_large", "boundary:semantic_collection.over_maximum",
              "boundary:collection.over_maximum")
 
-    migration = {"package": package(), "target_version": {"major": 1, "minor": 1}}
-    migration["package"]["schema_version"] = {"major": 1, "minor": 0}
-    add_case(cases, "migration-valid", "migration", migration,
-             "construct:migration.reference_body_1_0_to_1_1", "boundary:schema.1_0")
-    unregistered = copy.deepcopy(migration); unregistered["package"]["schema_version"] = {"major": 1, "minor": 2}
-    add_case(cases, "migration-unregistered", "migration", unregistered,
-             "diagnostic:unregistered_migration", "boundary:schema.unregistered_minor")
-    unsupported = copy.deepcopy(migration); unsupported["package"]["schema_version"] = {"major": 2, "minor": 0}
-    add_case(cases, "migration-unsupported", "migration", unsupported,
-             "diagnostic:unsupported_schema_version", "boundary:schema.unknown_major")
+    for case_id, version, boundary in (
+        ("package-schema-1-0", {"major": 1, "minor": 0}, "boundary:schema.unsupported_minor"),
+        ("package-schema-1-2", {"major": 1, "minor": 2}, "boundary:schema.unsupported_minor"),
+        ("package-schema-2-0", {"major": 2, "minor": 0}, "boundary:schema.unknown_major"),
+    ):
+        unsupported = package()
+        unsupported["schema_version"] = version
+        add_case(cases, case_id, "package", unsupported,
+                 "diagnostic:unsupported_schema_version", boundary)
 
     coverage_package = package(2)
     requirement_digest = "534e1e3e27345bd9a9fc7a9723793b76b9dfc6f3b35a43c23ba811bf0ef39046"
@@ -449,8 +448,6 @@ def write_json(path: pathlib.Path, value: object) -> None:
 def placeholder(operation: str) -> dict:
     if operation in ("package", "expression"):
         return {"valid": False, "diagnostics": [], "canonical": [], "dependencies": []}
-    if operation == "migration":
-        return {"valid": False, "diagnostics": [], "canonical": [], "migration_receipt": None}
     return {"diagnostics": [], "coverage": None}
 
 

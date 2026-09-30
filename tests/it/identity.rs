@@ -89,7 +89,7 @@ fn valid_package_at(revision: u64) -> ContractPackage<ReferenceBody> {
     .unwrap();
     ContractPackage::new(
         package_id,
-        SchemaVersion::V1_0,
+        SchemaVersion::V1_1,
         source,
         vec![requirement, unrelated],
     )
@@ -136,7 +136,7 @@ fn tc_015_identity_anchor_dependency_and_reference_contract_conforms() {
     let json = serde_json::to_string_pretty(&package).unwrap();
     let round_trip = ContractPackage::from_json_str(&json, ValidationOptions::strict()).unwrap();
     assert_eq!(round_trip, package);
-    assert_eq!(package.schema_version(), SchemaVersion::new(1, 0).unwrap());
+    assert_eq!(package.schema_version(), SchemaVersion::new(1, 1).unwrap());
     assert_eq!(
         SchemaVersion::new(0, 1).unwrap_err().code,
         DiagnosticCode::InvalidSchemaVersion

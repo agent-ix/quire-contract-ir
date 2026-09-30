@@ -135,8 +135,8 @@ fn accepts_bridge_version(_: quire_contract_ir::SchemaVersion) {}
 #[trace("TC-041", "FR-028-AC-2", "FR-028-AC-5")]
 #[test]
 fn tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single() {
-    accepts_model_version(quire_contract_ir::SchemaVersion::V1_0);
-    accepts_bridge_version(quire_contract_model::SchemaVersion::V1_0);
+    accepts_model_version(quire_contract_ir::SchemaVersion::V1_1);
+    accepts_bridge_version(quire_contract_model::SchemaVersion::V1_1);
     assert_eq!(
         quire_contract_ir::CANONICAL_PROFILE,
         quire_contract_model::CANONICAL_PROFILE
