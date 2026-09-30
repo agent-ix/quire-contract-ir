@@ -25,8 +25,8 @@ make clean          # cargo clean
 make deny           # all cargo-deny policy checks
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # all local release gates
-make use-local      # patch first-party git deps (ix-trace-rs, quire-verification-contracts) to ../<repo> via gitignored .cargo/config.toml
-make use-remote     # delete .cargo/config.toml; build from GitHub main
+make use-local      # patch first-party git deps (ix-trace-rs, quire-verification-contracts) to sibling checkouts via a gitignored .cargo/config.toml; snapshots Cargo.lock to .cargo/Cargo.lock.pre-local; fails if cargo metadata fails or a patch is unused
+make use-remote     # delete the patch config and restore Cargo.lock from that snapshot (no snapshot: lock untouched)
 ```
 
 ## Safety scaffolding

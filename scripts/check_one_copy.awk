@@ -1,6 +1,7 @@
 # Why this gate exists: fail if any agent-ix git crate is resolved more than once
 # in Cargo.lock. Two git specs of one crate (a stray rev or branch) build it twice
-# with types that do not unify. Usage: awk -F'"' -f scripts/check_one_copy.awk Cargo.lock
+# with types that do not unify. Usage: awk -f scripts/check_one_copy.awk Cargo.lock
+BEGIN { FS = "\"" }
 function flush() { if (name != "") { count[name]++; if (index(src, "git+https://github.com/agent-ix/") == 1) first[name] = 1 } name = ""; src = "" }
 /^\[\[package\]\]/ { flush(); next }
 /^name = /   { name = $2 }
