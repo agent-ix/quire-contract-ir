@@ -60,8 +60,7 @@ Each result contains protocol, corpus ID, fixture ID, operation, closed status
 `match` or `mismatch`, unique mismatch kinds in fixed registry order, the fixture's observed `covers`
 and sorted `trace_ids`, actual structured result, and tool identity: crate version, package-schema path, canonical profile,
 and runner protocol. Mismatch kinds are `validity`, `diagnostics`,
-`canonical_bytes`, `canonical_digest`, `dependencies`, `migration_receipt`, and
-`coverage`. A fixture with several drifts retains all applicable kinds once in
+`canonical_bytes`, `canonical_digest`, `dependencies`, and `coverage`. A fixture with several drifts retains all applicable kinds once in
 this fixed registry order, which is not lexical sorting. Diagnostic messages may be emitted for humans but never
 participate in comparison.
 

@@ -17,7 +17,7 @@ condition shall retain a stable code and the narrowest available source span.
 
 ## Scope
 
-Parsing, validation, migration, dependency derivation, canonicalization,
+Parsing, validation, dependency derivation, canonicalization,
 coverage classification, and the conformance runner.
 
 ## Measurement and Evaluation

@@ -29,14 +29,14 @@ status for any mismatch.
 The published package schema is JSON Schema Draft 7 with identity
 `https://agent-ix.github.io/quire-contract-ir/schemas/contract-package-reference-v1.schema.json`.
 It describes the complete `ContractPackage<ReferenceBody>` wire representation
-for supported schema versions 1.0 and 1.1, closes every object with
+for the supported schema version 1.1, closes every object with
 `additionalProperties: false`, uses fixed-width numeric bounds, and carries no
 implementation-language names. Schema success never substitutes for semantic validation.
 
 Fixture payloads are validated by Draft 7 schema identity
 `https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json`.
 The conformance schema exposes the named subschemas `packageInput`,
-`expressionInput`, `migrationInput`, `coverageInput`, and one corresponding
+`expressionInput`, `coverageInput`, and one corresponding
 `*Expectation` subschema for each operation. The runner selects the input and
 expectation subschemas from the fixture's operation before any semantic
 conversion; every object forbids unknown fields.
@@ -62,7 +62,6 @@ The four closed fixture operations are:
 |---|---|---|
 | `package` | package JSON, optionally wrapped with authored clause-resolution references and a canonical byte limit, or raw package JSON text for decoder-boundary probes | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
 | `expression` | declarations, expression, expected type, execution point, clause-root flag | validity, ordered diagnostics, separate declaration/expression canonical outputs and expression dependencies |
-| `migration` | reference-body package and explicit target version | validity, ordered diagnostics, migrated package digest, immutable receipt |
 | `coverage` | reference-body package and artifact traces | ordered diagnostics and sorted requirement/artifact rows |
 
 Expression fixture syntax covers every FR-013/FR-014 declaration, value type,
@@ -113,8 +112,8 @@ a package reference diagnostic cannot claim an artifact-trace boundary.
 
 The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `revision.current`,
-`revision.stale`, `schema.1_0`, `schema.1_1`, `schema.zero_major`,
-`schema.unknown_major`, `schema.unregistered_minor`, `integer.minimum`,
+`revision.stale`, `schema.1_1`, `schema.zero_major`,
+`schema.unknown_major`, `schema.unsupported_minor`, `integer.minimum`,
 `integer.maximum`, `integer.out_of_range`, `rational.normalized`,
 `rational.zero_denominator`, `rational.maximum_denominator`, `text.maximum`,
 `text.over_maximum`, `collection.declared_maximum`,
@@ -158,7 +157,7 @@ determinism for this implementation, not independent semantic correctness.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-018-AC-1 | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory, so every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. | Test (TC-018) |
-| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
+| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
 | FR-018-AC-3 | Raw package probes pin exact and one-past wire depth, and quoted delimiters do not count toward depth. | Test (TC-018) |
 
 ## Dependencies

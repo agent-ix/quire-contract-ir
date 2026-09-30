@@ -51,9 +51,8 @@ semantic content and are excluded.
 
 The package semantic value includes `schema_version` as the object
 `{"major":<u16>,"minor":<u16>}` in addition to the package namespace and its
-complete requirements. Consequently the registered 1.0-to-1.1 migration
-changes the package canonical bytes and package digest even when every other
-semantic field is preserved.
+complete requirements, so a package's canonical bytes and digest change with
+its schema version even when every other semantic field is preserved.
 
 Every value type and expression variant uses its registered snake-case tag and
 all fields that affect type checking or execution. Rational literals use their
@@ -72,7 +71,7 @@ objects, so changing one clause changes that clause, its enclosing requirement,
 and its package while unrelated clause digests remain unchanged.
 
 Canonicalization is defined only for values already accepted by FR-011 through
-FR-015 and for schema versions 1.0 or 1.1. It performs no repair, migration, or
+FR-015 and for schema version 1.1. It performs no repair, migration, or
 best-effort interpretation. Repeated canonicalization is side-effect-free and
 byte-identical. Public byte lengths use `u64`; implementations must reject a
 host allocation failure rather than emit partial bytes.

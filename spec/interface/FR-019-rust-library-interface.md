@@ -33,7 +33,7 @@ invariants:
 ## Description
 
 The `quire-contract-model` crate shall expose construction, validation, dependency derivation,
-canonicalization, digest, migration, and coverage-classification operations
+canonicalization, digest, and coverage-classification operations
 without exposing mutable internal caches or downstream engine types.
 
 ## Inputs
@@ -67,7 +67,7 @@ Serde deserialization trait implementations are not part of that surface:
 untrusted package JSON enters through `ContractPackage::from_json_str` or
 `from_json_bytes`, while validated values remain serializable.
 Unvalidated JSON enters only through wire/request decoders. Validated identity,
-package, declaration, expression, canonical, migration, and coverage types keep
+package, declaration, expression, canonical, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There
 is no `From`/unchecked constructor from untrusted wire values to validated
 types. `ValidationOptions::strict()` is the sole option set and cannot
@@ -84,8 +84,7 @@ span, semantic path, related identities, and obligation kind. Callers never
 need to parse display/debug/panic text.
 
 Canonical APIs require the explicit closed `CanonicalProfile`, which registers
-only `quire.contract.canonical-json/v1`. Migration requires explicit source and
-target versions. Coverage accepts immutable traces and returns a complete report
+only `quire.contract.canonical-json/v1`. Coverage accepts immutable traces and returns a complete report
 plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
@@ -111,10 +110,10 @@ contain at most that many decoded semantic nodes; nested value-type or other
 recursive structure may be at most that deep; and every declaration,
 requirement, clause, field, variant, parameter, trace, item, or other semantic
 collection may contain at most that many entries. Preflight is iterative and
-occurs before recursive validation, canonicalization, migration, or coverage.
+occurs before recursive validation, canonicalization, or coverage.
 The first node, depth, or collection path crossing a limit returns
 `semantic_input_too_large` and no partial semantic result. Public decode,
-validate, canonicalize, migrate, and classify calls return without panic for
+validate, canonicalize, and classify calls return without panic for
 the complete negative corpus.
 
 ### Public items
@@ -128,7 +127,7 @@ of the item and are not listed separately.
 | --- | --- | --- |
 | `identity` | types `AnchorName`, `Clause`, `ClauseId`, `ClauseKind`, `ClauseRef`, `ContractPackage`, `DefinednessObligationKind`, `DependencyIdentity`, `DependencyKind`, `DependencyName`, `Diagnostic`, `DiagnosticCode`, `ExecutionPoint`, `PackageId`, `ReferenceBody`, `Requirement`, `RequirementId`, `RequirementRef`, `RequirementRevision`, `SchemaVersion`, `SemanticIdentity`, `Severity`, `SourceDocumentId`, `SourceIdentity`, `SourceLocation`, `SourceRevision`, `SourceSpan`, `StateObservation`; trait `DependencySource` | FR-011, FR-012, STD-001 |
 | `expression` | types `BooleanOperator`, `CollectionType`, `ComparisonOperator`, `DeclarationEnvironment`, `DischargedObligation`, `EnumDeclaration`, `EnumVariantDeclaration`, `Expression`, `ExpressionKind`, `FunctionParameter`, `IntegerDomain`, `IntegerType`, `NumericOperator`, `OverflowPolicy`, `PureFunctionDeclaration`, `QuantifierDomain`, `QuantifierKind`, `RationalType`, `RecordDeclaration`, `RecordFieldDeclaration`, `RecordLiteralField`, `SymbolName`, `TypeDeclaration`, `TypedExpression`, `TypedNode`, `ValueDeclaration`, `ValueDeclarationKind`, `ValueType`; constants `MAX_EXPRESSION_DEPTH`, `MAX_EXPRESSION_NODES`, `MAX_TEXT_LENGTH` | FR-013 through FR-015 |
-| `canonical` | function `migrate_reference_body`; types `CanonicalBytes`, `CanonicalDigest`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`, `MigrationReceipt`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
+| `canonical` | types `CanonicalBytes`, `CanonicalDigest`, `CanonicalKind`, `CanonicalOutput`, `CanonicalProfile`; trait `CanonicalBody`; constant `CANONICAL_PROFILE` | FR-016, FR-017 |
 | `coverage` | function `classify_coverage`; types `ArtifactCoverageRow`, `ArtifactId`, `ArtifactTrace`, `CoverageClass`, `CoverageReport`, `CoverageResult`, `OrphanReason`, `RequirementCoverageRow`, `TraceDepth` | FR-017 |
 | `binding` | types `BoundClause`, `BoundPackage`; constants `BOUND_IDENTITY_PROFILE`, `EXECUTABLE_PROJECTION_FORMAT`, `EXECUTABLE_PROJECTION_SCHEMA` | FR-023 |
 | `conformance` | functions `expected_inventory`, `run_corpus`; types `ConformanceOperation`, `FixtureResult`, `FixtureStatus`, `RunnerError`, `RunnerErrorCode`, `ToolIdentity`, `ValidationOptions`; constants `CONFORMANCE_BOUNDARIES`, `CONFORMANCE_PROTOCOL`, `CONFORMANCE_SCHEMA_ID`, `MAX_CONFORMANCE_FILE_BYTES`, `MAX_CONFORMANCE_FIXTURES`, `MAX_CONFORMANCE_TOTAL_BYTES`, `PACKAGE_SCHEMA_ID`, `PUBLIC_CONSTRUCT_TAGS` | FR-018 through FR-020 |
@@ -147,11 +146,11 @@ With the `fault-injection` feature the crate root also exports
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical/migration profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
+| FR-019-AC-1 | Compile-time/API fixtures plus public-source signature inspection show wire/request values are distinct from private-field validated values, unknown members are rejected consistently with the published schema, every conversion is fallible, canonical profiles are explicit, the fixed conformance registries, three semantic-limit constants, and wire-depth constant are stable public exports, and forbidden host/downstream/schema-library vocabulary is absent without requiring nightly rustdoc JSON. | Inspection (TC-018) |
 | FR-019-AC-3 | `expected_inventory` equals the five prefixed registries and nothing else, strictly ascending with no duplicate. | Test (TC-018) |
 | FR-019-AC-4 | A default-feature build of `quire-contract-model` exports neither `MappingAllocationPoint` nor `MappingExecutionControl::fail_allocation_at`: code naming either fails to compile without the `fault-injection` feature. | Test (TC-018) |
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
-| FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, migration, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
+| FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
 
 ## Dependencies
 

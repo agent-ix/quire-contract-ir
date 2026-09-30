@@ -79,8 +79,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `unsupported_schema_version` | Wire preflight reads a nonzero schema major other than 1 | `schema_version.major` path; no semantic span |
-| `unregistered_migration` | Major 1 minor is not 0/1, or a requested migration edge is not the registered 1.0-to-1.1 edge | `schema_version` or migration request path |
+| `unsupported_schema_version` | Wire preflight reads a valid schema version other than 1.1 | `schema_version` path; no semantic span |
 | `canonicalization_resource_exhausted` | Canonical byte allocation cannot be reserved without exceeding host resources | canonicalized object path; source span when the object has one |
 | `duplicate_artifact_trace` | A later artifact trace repeats an artifact ID in one classification input | later trace span |
 | `stale_trace_digest` | A deep trace's requirement digest differs from the resolved current requirement digest | digest-token span |
@@ -138,7 +137,7 @@ Declaration-environment diagnostics precede expression diagnostics and follow
 stored declaration/field/variant/parameter order.
 
 Wire precedence is JSON/top-level structure, schema-version numeric
-grammar, unsupported major, unregistered minor/migration edge, then semantic
+grammar, unsupported version, then semantic
 package interpretation. Canonicalization accepts validated values only and
 performs no diagnostic recovery; resource exhaustion produces no partial bytes
 or digest. Coverage precedence per trace is duplicate artifact ID,

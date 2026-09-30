@@ -24,7 +24,7 @@ tools to compare identities across operating systems and languages.
 | ID | Criteria | Validation |
 |---|---|---|
 | StR-002-VC-1 | Semantically identical supported packages produce identical canonical bytes and digests on every supported platform. | Golden corpus and cross-platform comparison (TC-017) |
-| StR-002-VC-2 | Unknown schema majors and unregistered migrations produce structured rejection. | Negative schema fixtures (TC-018) |
+| StR-002-VC-2 | Unsupported schema versions produce structured rejection. | Negative schema fixtures (TC-018) |
 
 ## Dependencies
 
