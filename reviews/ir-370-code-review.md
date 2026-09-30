@@ -90,3 +90,9 @@ Not mergeable until FND-001 is fixed. The fix is small and local. Rules 1-3,
 refusal locations, budget charging and step-2 refusal pass-through are
 correct. The mutations show the new tests catch every rule except the
 direction of rule 4.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 467ac07: rule 4 now calls the one-way `DomainModel::conforms_to(end_owner.node, edge_owner)` (model_members.rs:504-513, operations.rs:1254); `(SUB, "child", SUB, ORDER)` refusal pins it. Mutations symmetric-conform and reversed-conform both go red. |

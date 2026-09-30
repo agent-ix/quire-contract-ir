@@ -47,3 +47,10 @@ on `origin/main` (3e7935f). The PR changes nothing in that set.
 
 Not mergeable as is. FND-001 and FND-002 are both small test and spec
 additions to make in this PR.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 467ac07: FR-040-AC-13 added (TC-056 row and FR-040 matrix row updated); both tests retagged `#[trace("TC-056", "FR-040-AC-13")]`; coverage shows FR-040 13/13 backed, unbacked set unchanged (22, identical to origin/main). |
+| FND-002 | fixed | 467ac07: refusal cases added for ambiguous name (`Both.code`), unselected version (missing-selection at member declaration), object operand and supertype target; admission cases for `SubSub`. Mutations dropping step-2 refusal pass-through and the unselected pass-through both go red. |

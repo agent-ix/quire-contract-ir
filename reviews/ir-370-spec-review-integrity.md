@@ -34,3 +34,9 @@ is recorded in SR-625 FND-001.
 ## Verdict
 
 One low wording defect. Otherwise the statement is consistent with FR-322.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 467ac07: FR-040 now reads "at the operand, the member declaration or the member name at fault", and names missing-selection at the member declaration and ambiguous-name at the member name. |
