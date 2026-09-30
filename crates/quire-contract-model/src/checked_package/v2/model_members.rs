@@ -501,6 +501,17 @@ impl DomainModel {
             || self.ancestors(b, budget)?.contains(a))
     }
 
+    /// Whether `sub` is `sup` or a chain of declared supertypes leads from
+    /// `sub` to `sup` (FR-151's conformance relation, one way).
+    pub(super) fn conforms_to(
+        &self,
+        sub: &str,
+        sup: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<bool, ValidationFailure> {
+        Ok(sub == sup || self.ancestors(sub, budget)?.contains(sup))
+    }
+
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
     /// effective members of the object type `node`. Every ancestor edge,
     /// member and redefinition pair visited is one work unit.

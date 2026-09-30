@@ -1120,7 +1120,7 @@ fn check_operands(
 /// on `D` to a field owned by object type `T`; the field's type is
 /// `Reference<T>`, `Option<Reference<T>>` or a bounded
 /// `Sequence<Reference<T>>`; and operand 1 is a `Reference<B>` whose object
-/// type `B` conforms to `T`. An operand whose type cannot be resolved cannot
+/// type `B` is `T` or a declared subtype of `T`. An operand whose type cannot be resolved cannot
 /// be shown to satisfy the edge and is refused.
 fn check_reference_edge(
     application: Application<'_>,
@@ -1251,7 +1251,7 @@ fn check_reference_edge(
     let mut budget = Budget::new(meter, owner.selection);
     if owner
         .package
-        .conforms(end_owner.node, edge_owner, &mut budget)?
+        .conforms_to(end_owner.node, edge_owner, &mut budget)?
     {
         Ok(None)
     } else {

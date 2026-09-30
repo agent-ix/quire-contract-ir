@@ -322,11 +322,23 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
 }
 
 const SUB: &str = "ix://acme/orders/Sub";
+const SUBSUB: &str = "ix://acme/orders/SubSub";
 const INVOICE: &str = "ix://acme/orders/Invoice";
+const TAGGED: &str = "ix://acme/orders/Tagged";
+const CODED: &str = "ix://acme/orders/Coded";
+const BOTH: &str = "ix://acme/orders/Both";
+const MODELS: [&str; 7] = [ORDER, SUB, SUBSUB, INVOICE, TAGGED, CODED, BOTH];
+const OTHER_VERSION: &str = "2.0.0";
 
-fn edge_field(name: &str, type_ref: &str, presence: &str, multiplicity: Value) -> Value {
+fn edge_field(
+    owner: &str,
+    name: &str,
+    type_ref: &str,
+    presence: &str,
+    multiplicity: Value,
+) -> Value {
     json!({
-        "identity": format!("{ORDER}/{name}"), "name": name, "typeRef": type_ref,
+        "identity": format!("{owner}/{name}"), "name": name, "typeRef": type_ref,
         "presence": presence, "nullable": false, "defaultKind": "none",
         "multiplicity": multiplicity,
     })
@@ -342,34 +354,50 @@ fn object_type_declaration(node: &str, supertypes: &[&str], fields: Vec<Value>) 
 }
 
 /// A document whose `Order` declares one edge-shaped and several
-/// non-edge-shaped fields, with `Sub` specializing `Order` and an unrelated
-/// `Invoice`.
+/// non-edge-shaped fields; `Sub` specializes `Order` and declares an
+/// optional `Sub` edge, `SubSub` specializes `Sub`, `Invoice` is unrelated,
+/// and `Both` inherits a `code` field from each of `Tagged` and `Coded`.
 fn edge_document() -> Value {
     let one = json!({"lower": 1, "upper": 1, "ordered": false, "unique": true});
+    let order = |name: &str, presence: &str, multiplicity: Value| {
+        edge_field(ORDER, name, ORDER, presence, multiplicity)
+    };
     let fields = vec![
-        edge_field("parent", ORDER, "optional", one.clone()),
-        edge_field("origin", ORDER, "required", one.clone()),
-        edge_field(
+        order("parent", "optional", one.clone()),
+        order("origin", "required", one.clone()),
+        order(
             "prior",
-            ORDER,
             "required",
             json!({"lower": 0, "upper": 3, "ordered": true, "unique": false}),
         ),
-        edge_field(
+        order(
             "peers",
-            ORDER,
             "required",
             json!({"lower": 0, "upper": 3, "ordered": false, "unique": true}),
         ),
-        edge_field(
+        order(
             "trail",
-            ORDER,
             "required",
             json!({"lower": 0, "ordered": true, "unique": false}),
         ),
-        edge_field("invoice", INVOICE, "required", one.clone()),
-        edge_field("total", "ix://quire/native/Integer", "required", one),
+        edge_field(ORDER, "invoice", INVOICE, "required", one.clone()),
+        edge_field(
+            ORDER,
+            "total",
+            "ix://quire/native/Integer",
+            "required",
+            one.clone(),
+        ),
     ];
+    let code = |owner: &str| {
+        vec![edge_field(
+            owner,
+            "code",
+            "ix://quire/native/Integer",
+            "required",
+            one.clone(),
+        )]
+    };
     json!({
         "contractVersion": "2.0.0",
         "package": {"identity": IDENTITY, "version": VERSION},
@@ -379,35 +407,50 @@ fn edge_document() -> Value {
         }],
         "types": [
             object_type_declaration(ORDER, &[], fields),
-            object_type_declaration(SUB, &[ORDER], vec![]),
+            object_type_declaration(
+                SUB,
+                &[ORDER],
+                vec![edge_field(SUB, "child", SUB, "optional", one.clone())],
+            ),
+            object_type_declaration(SUBSUB, &[SUB], vec![]),
             object_type_declaration(INVOICE, &[], vec![]),
+            object_type_declaration(TAGGED, &[], code(TAGGED)),
+            object_type_declaration(CODED, &[], code(CODED)),
+            object_type_declaration(BOTH, &[TAGGED, CODED], vec![]),
         ],
     })
 }
 
-fn declaration_key_of(node: &str) -> String {
+fn declaration_key_of(node: &str, version: &str) -> String {
     structural_key(
         "model",
         "object_type",
         None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "version": VERSION, "node": node})),
+        Some(json!({"kind": "model", "identity": IDENTITY, "version": version, "node": node})),
         &empty(),
     )
 }
 
-/// The position of the `reaches_field` application in [`reaches_package`]'s graph.
-const REACHES: usize = 11;
+/// What an operand of [`reaches_package`] is typed as.
+#[derive(Clone, Copy)]
+enum Operand {
+    /// `Reference<node>`.
+    Reference(&'static str),
+    /// `node` itself, an object.
+    Object(&'static str),
+}
 
 /// A package over [`edge_document`] holding `reaches(source, target, name)`
 /// as a `quire.op.model.reaches_field` application whose member declaration
-/// is `declaring`, with operands typed `Reference<source>` and
-/// `Reference<target>`.
+/// is `declaring` (keyed under `version`), with the operands typed as
+/// given. Returns the package, its evidence, and the application's node
+/// position.
 fn reaches_package(
-    declaring: &str,
+    (declaring, version): (&str, &str),
     name: &str,
-    source: &str,
-    target: &str,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+    source: Operand,
+    target: Operand,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence, usize) {
     let document = edge_document();
     let digest = sha256_hex(&canonical(&document));
     let mut package = nominal_package(&[]);
@@ -417,17 +460,14 @@ fn reaches_package(
     }]);
 
     let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
-    let models: Vec<(String, String)> = [ORDER, SUB, INVOICE]
+    let mut models: Vec<(String, String)> = MODELS
         .into_iter()
-        .map(|node| (node.to_owned(), declaration_key_of(node)))
+        .map(|node| (node.to_owned(), declaration_key_of(node, VERSION)))
         .collect();
-    let model_of = |node: &str| {
-        models
-            .iter()
-            .find(|(candidate, _)| candidate == node)
-            .map(|(_, key)| key.clone())
-            .expect("declared model")
-    };
+    models.push((
+        "unselected".to_owned(),
+        declaration_key_of(ORDER, OTHER_VERSION),
+    ));
     let reference_types: Vec<(String, String, Value)> = models
         .iter()
         .map(|(node, key)| {
@@ -436,16 +476,35 @@ fn reaches_package(
             (node.clone(), type_key, body)
         })
         .collect();
-    let reference_type_of = |node: &str| {
-        reference_types
+    let model_of = |node: &str, version: &str| {
+        let name = if version == VERSION {
+            node
+        } else {
+            "unselected"
+        };
+        models
             .iter()
-            .find(|(candidate, _, _)| candidate == node)
-            .map(|(_, key, _)| key.clone())
-            .expect("reference type")
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, key)| key.clone())
+            .expect("declared model")
     };
-    let (receiver, receiver_node) = parameter("receiver", "0", &reference_type_of(source));
-    let (argument, argument_node) = parameter("argument", "1", &reference_type_of(target));
-    let declaring_key = model_of(declaring);
+    // A reference operand is a parameter of the reference type; an object
+    // operand names the model declaration node itself.
+    let operand = |operand: Operand, name: &str, level: &str| match operand {
+        Operand::Reference(node) => {
+            let type_key = reference_types
+                .iter()
+                .find(|(candidate, _, _)| candidate == node)
+                .map(|(_, key, _)| key.clone())
+                .expect("reference type");
+            let (key, node) = parameter(name, level, &type_key);
+            (key, Some(node))
+        }
+        Operand::Object(node) => (model_of(node, VERSION), None),
+    };
+    let (receiver, receiver_node) = operand(source, "receiver", "0");
+    let (argument, argument_node) = operand(target, "argument", "1");
+    let declaring_key = model_of(declaring, version);
     let body = json!({
         "term": "application",
         "operator": "reaches",
@@ -468,6 +527,11 @@ fn reaches_package(
     })));
     let mut dependencies = [receiver.as_str(), argument.as_str(), declaring_key.as_str()];
     dependencies.sort_unstable();
+    let dependencies: Vec<&str> = {
+        let mut unique = dependencies.to_vec();
+        unique.dedup();
+        unique
+    };
     let mut nodes = vec![
         wire_node(&INTEGER, "scalar_type", "integer", &INTEGER, &[], empty()),
         wire_node(&TEXT, "scalar_type", "text", &TEXT, &[], empty()),
@@ -486,7 +550,7 @@ fn reaches_package(
             type_body.clone(),
         ));
     }
-    nodes.extend([receiver_node, argument_node]);
+    nodes.extend(receiver_node.into_iter().chain(argument_node));
     nodes.push(wire_node(
         &reaches,
         "expression",
@@ -495,6 +559,7 @@ fn reaches_package(
         &dependencies,
         body,
     ));
+    let position = nodes.len() - 1;
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -503,26 +568,44 @@ fn reaches_package(
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
     evidence.insert_domain_package_document(digest, canonical(&document));
-    (package, evidence)
+    (package, evidence, position)
+}
+
+const SELECTED: &str = VERSION;
+
+fn reaches(
+    declaring: &'static str,
+    name: &str,
+    source: &'static str,
+    target: &'static str,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence, usize) {
+    reaches_package(
+        (declaring, SELECTED),
+        name,
+        Operand::Reference(source),
+        Operand::Reference(target),
+    )
 }
 
 /// FR-322 "Reaches over a field": an optional, a required and a bounded
 /// sequence reference to the owner are edges, including through a subtype
-/// declaring node and a subtype target.
+/// declaring node, a subtype target and a target two levels down.
 ///
-/// Tracing: TC-048, FR-038-AC-29
-#[trace("TC-048", "FR-038-AC-29")]
+/// Tracing: TC-056, FR-040-AC-13
+#[trace("TC-056", "FR-040-AC-13")]
 #[test]
-fn tc_048_reaches_field_admits_each_reference_edge_shape() {
+fn tc_056_reaches_field_admits_each_reference_edge_shape() {
     let admitted = [
         (ORDER, "parent", ORDER, ORDER),
         (ORDER, "prior", ORDER, ORDER),
         (ORDER, "origin", ORDER, ORDER),
         (SUB, "parent", SUB, ORDER),
         (ORDER, "parent", ORDER, SUB),
+        (ORDER, "parent", ORDER, SUBSUB),
+        (SUB, "child", SUB, SUBSUB),
     ];
     for (declaring, name, source, target) in admitted {
-        let (package, evidence) = reaches_package(declaring, name, source, target);
+        let (package, evidence, _) = reaches(declaring, name, source, target);
         match read(&package, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => {}
             other => panic!("{name} over {source}/{target}: expected admission, got {other:?}"),
@@ -531,39 +614,91 @@ fn tc_048_reaches_field_admits_each_reference_edge_shape() {
 }
 
 /// FR-322 "Reaches over a field": a field that is not a reference edge to
-/// its owner, an operand that does not name the declaring node, an operand
-/// that does not conform, and an undeclared field each refuse at the
-/// operand or member at fault.
+/// its owner, an operand that does not name the declaring node, a target
+/// that is not a subtype of the edge's owner (a supertype included), an
+/// object operand, an undeclared field, an ambiguous field name and an
+/// unselected declaration each refuse with their own code at the operand or
+/// member at fault.
 ///
-/// Tracing: TC-048, FR-038-AC-29
-#[trace("TC-048", "FR-038-AC-29")]
+/// Tracing: TC-056, FR-040-AC-13
+#[trace("TC-056", "FR-040-AC-13")]
 #[test]
-fn tc_048_reaches_field_refuses_an_invalid_edge_where_it_fails() {
-    let member_name = format!("/semantic_graph/nodes/{REACHES}/body/operation/member/name");
-    let operand =
-        |position: usize| format!("/semantic_graph/nodes/{REACHES}/body/arguments/{position}");
-    let refused_cases = [
-        (ORDER, "peers", ORDER, ORDER, member_name.clone()),
-        (ORDER, "trail", ORDER, ORDER, member_name.clone()),
-        (ORDER, "invoice", ORDER, ORDER, member_name.clone()),
-        (ORDER, "total", ORDER, ORDER, member_name.clone()),
-        (ORDER, "missing", ORDER, ORDER, member_name),
-        (ORDER, "parent", ORDER, INVOICE, operand(1)),
-        (ORDER, "parent", SUB, ORDER, operand(0)),
+fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
+    use CheckedPackageRefusalCause as Cause;
+    use CheckedPackageRefusalCode as Code;
+    let ineligible = (Code::IllTyped, Cause::OperatorIneligible);
+    let name = "body/operation/member/name";
+    let declaration = "body/operation/member/declaration";
+    let first = "body/arguments/0";
+    let second = "body/arguments/1";
+    let by_reference = |declaring, member, source, target| {
+        reaches_package(
+            (declaring, SELECTED),
+            member,
+            Operand::Reference(source),
+            Operand::Reference(target),
+        )
+    };
+    let cases = [
+        (by_reference(ORDER, "peers", ORDER, ORDER), ineligible, name),
+        (by_reference(ORDER, "trail", ORDER, ORDER), ineligible, name),
+        (
+            by_reference(ORDER, "invoice", ORDER, ORDER),
+            ineligible,
+            name,
+        ),
+        (by_reference(ORDER, "total", ORDER, ORDER), ineligible, name),
+        (
+            by_reference(ORDER, "missing", ORDER, ORDER),
+            ineligible,
+            name,
+        ),
+        (
+            by_reference(ORDER, "parent", ORDER, INVOICE),
+            ineligible,
+            second,
+        ),
+        (by_reference(ORDER, "parent", SUB, ORDER), ineligible, first),
+        // An edge to `Sub` does not reach an `Order`, a supertype of its owner.
+        (by_reference(SUB, "child", SUB, ORDER), ineligible, second),
+        (
+            reaches_package(
+                (ORDER, SELECTED),
+                "parent",
+                Operand::Reference(ORDER),
+                Operand::Object(ORDER),
+            ),
+            ineligible,
+            second,
+        ),
+        (
+            by_reference(BOTH, "code", BOTH, BOTH),
+            (Code::AmbiguousDeclaration, Cause::AmbiguousName),
+            name,
+        ),
+        (
+            reaches_package(
+                (ORDER, OTHER_VERSION),
+                "parent",
+                Operand::Reference("unselected"),
+                Operand::Reference("unselected"),
+            ),
+            (Code::MissingDeclaration, Cause::MissingSelection),
+            declaration,
+        ),
     ];
-    for (declaring, name, source, target, path) in refused_cases {
-        let (package, evidence) = reaches_package(declaring, name, source, target);
+    for ((package, evidence, position), (code, cause), path) in cases {
         let refusal = refused(&package, &evidence);
-        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{name}");
-        assert_eq!(
-            refusal.cause,
-            Some(CheckedPackageRefusalCause::OperatorIneligible),
-            "{name}"
-        );
+        let expected = format!("/semantic_graph/nodes/{position}/{path}");
         assert_eq!(
             refusal.path.as_ref().map(ToString::to_string).as_deref(),
-            Some(path.as_str()),
-            "{name} over {source}/{target}"
+            Some(expected.as_str()),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (code, Some(cause)),
+            "{expected}"
         );
     }
 }

@@ -16,7 +16,7 @@ relationships:
 
 ## Description
 
-Verify FR-040-AC-1 through FR-040-AC-12: the V2 reader admits QSpec FR-340's
+Verify FR-040-AC-1 through FR-040-AC-13: the V2 reader admits QSpec FR-340's
 `FrameModifiesEntry` values, FR-342's operation anchor body, FR-341's state
 clause and parameter bodies and exactly the fifteen `model` forms, and
 refuses every other shape with the code, cause and locus those requirements
@@ -53,5 +53,5 @@ in two steps reports the earlier step's defect.
 ## Status
 
 Implemented in `tests/it/checked_package_v2_frame_entries.rs`
-(FR-040-AC-1 to AC-12) and the entry eligibility tests in
+(FR-040-AC-1 to AC-13) and the entry eligibility tests in
 `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
