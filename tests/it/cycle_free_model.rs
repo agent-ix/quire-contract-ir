@@ -65,67 +65,31 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         assert_eq!(dependency["optional"], false);
     }
 
-    assert_spec_language_production_graph_excludes(&workspace, "quire-contract-ir");
-}
-
-/// Walk the resolved graph from every `quire-spec-language` node over normal
-/// (non-dev, non-build) dependency edges and assert `target` is unreachable.
-fn assert_spec_language_production_graph_excludes(metadata: &Value, target: &str) {
-    let nodes = metadata["resolve"]["nodes"]
+    // The root package depends on the model and on no crate from the
+    // quire-spec-language repository, in any dependency kind, by name and by source.
+    let root = package(&workspace, "quire-contract-ir");
+    for dependency in root["dependencies"]
         .as_array()
-        .expect("resolve nodes must be an array");
-    let name_of = |id: &str| -> String {
-        let package = metadata["packages"]
-            .as_array()
-            .expect("metadata packages must be an array")
-            .iter()
-            .find(|package| package["id"] == id)
-            .unwrap_or_else(|| panic!("metadata must contain package {id}"));
-        package["name"]
+        .expect("root dependencies must be an array")
+    {
+        let name = dependency["name"]
             .as_str()
-            .expect("package names must be strings")
-            .to_owned()
-    };
-    let mut pending: Vec<String> = nodes
-        .iter()
-        .filter_map(|node| node["id"].as_str())
-        .filter(|id| name_of(id) == "quire-spec-language")
-        .map(str::to_owned)
-        .collect();
-    assert!(
-        !pending.is_empty(),
-        "graph must contain quire-spec-language"
-    );
-    let mut seen = std::collections::BTreeSet::new();
-    while let Some(id) = pending.pop() {
-        if !seen.insert(id.clone()) {
-            continue;
-        }
-        assert_ne!(
-            name_of(&id),
-            target,
-            "{target} is reachable from quire-spec-language over production edges"
+            .expect("dependency names must be strings");
+        assert!(
+            name != "quire-spec-language" && !name.starts_with("qsl-"),
+            "root package depends on QSL crate {name}"
         );
-        let node = nodes
-            .iter()
-            .find(|node| node["id"] == id.as_str())
-            .unwrap_or_else(|| panic!("resolve must contain node {id}"));
-        for dependency in node["deps"].as_array().expect("node deps must be an array") {
-            let normal = dependency["dep_kinds"]
-                .as_array()
-                .expect("dep_kinds must be an array")
-                .iter()
-                .any(|kind| kind["kind"].is_null());
-            if normal {
-                pending.push(
-                    dependency["pkg"]
-                        .as_str()
-                        .expect("dependency pkg must be a string")
-                        .to_owned(),
-                );
-            }
-        }
+        let source = dependency["source"].as_str().unwrap_or("");
+        assert!(
+            !source.starts_with("git+https://github.com/agent-ix/quire-spec-language"),
+            "root package depends on {name} from the quire-spec-language repository: {source}"
+        );
     }
+    assert!(root["dependencies"]
+        .as_array()
+        .expect("root dependencies must be an array")
+        .iter()
+        .any(|dependency| dependency["name"] == "quire-contract-model"));
 }
 
 fn accepts_model_version(_: quire_contract_model::SchemaVersion) {}

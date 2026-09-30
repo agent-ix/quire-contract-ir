@@ -222,8 +222,8 @@ fn every_kind() -> [KaniOutcomeKind; 10] {
     ]
 }
 
-/// Tracing: TC-223, FR-031-AC-5
-#[trace("TC-223", "FR-031-AC-5")]
+/// Tracing: TC-223
+#[trace("TC-223")]
 #[test]
 fn tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result() {
     for kind in every_kind() {

@@ -64,16 +64,14 @@ family lowerings behind the dispatch index are the codegen backend adapter's.
 Profile selection, the finite input/outcome firewall and module dispatch are
 implemented against the integrated codegen corpus.
 That implementation applies only to its exact selected finite profile and
-does not qualify unbounded source semantics. Each Kani outcome maps to one QSL `qsl_replay::TerminalValue`
-(FR-031-AC-5): `Unavailable` by its solver-absent or backend-absent cause
-code (FR-030) to `Unsupported`, and a vacuous proof to
-`Proved { success_checks: 0 }`, which QSL reads as inconclusive with the
-vacuity cause. A construct the profile cannot interpret
+does not qualify unbounded source semantics. The map from a Kani outcome to a QSL `qsl_replay::TerminalValue` is owned by
+`agent-ix/quire-contract-codegen` (tracked there under Linear IR-358); Contract
+IR exposes only its own Kani outcome types (FR-031-AC-5 is retired). A construct the profile cannot interpret
 settles `unsupported` at negotiation and produces no outcome (FR-029).
 Counterexample replay is not a Contract IR operation: the envelope, witness,
 replay source, terminal record and obligation identity are QSL's `qsl-replay`
 types, and the codegen replay adapter replays through `qsl_replay::replay`.
-TC-222 verifies the FR-344 refusals and TC-223 the outcome map.
+TC-222 verifies the FR-344 refusals and TC-223 the outcome constructors.
 FR-032 through FR-034 define the cycle-free target-neutral FS06 coordinator,
 record, and atomic package foundation. They implement accepted QSpec AD-004 and
 FR-120/121/125/269/297/298/299 without implementing any target-specific
@@ -130,7 +128,7 @@ Cargo cycle.
 - [Formal clause source profiles](decisions/ADR-0053-formal-clause-source-profiles.md).
 - [Subsystem spec layout and registry format](decisions/ADR-0056-spec-layout-convention.md).
 - [Unadmitted ADR-002 member refusal test case](contract/TC-222-refuse-unadmitted-adr-002-members.md).
-- [Kani outcome to QSL terminal value test case](contract/TC-223-kani-outcome-fr331-result-map.md).
+- [Kani outcome constructor test case](contract/TC-223-kani-outcome-fr331-result-map.md).
 - [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
 - [Frame entry and state clause test case](contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md).
 - [Model crate interface test case](contract/TC-058-model-crate-public-interface.md).

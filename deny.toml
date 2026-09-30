@@ -18,6 +18,9 @@ confidence-threshold = 0.9
 multiple-versions = "allow"
 wildcards = "warn"
 
+# One copy of every first-party crate is enforced by scripts/check_one_copy.awk
+# (run from `make deny`), which reads Cargo.lock.
+
 [advisories]
 version = 2
 
@@ -25,11 +28,6 @@ version = 2
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/agent-ix/filament-core-data",
     "https://github.com/agent-ix/ix-trace-rs",
-    "https://github.com/agent-ix/quire-canonical",
-    "https://github.com/agent-ix/quire-contract-ir",
-    "https://github.com/agent-ix/quire-rs",
-    "https://github.com/agent-ix/quire-spec-language",
     "https://github.com/agent-ix/quire-verification-contracts",
 ]
