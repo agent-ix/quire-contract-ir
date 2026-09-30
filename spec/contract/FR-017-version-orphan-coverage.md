@@ -29,8 +29,10 @@ migration; a later migration is introduced by its own requirement.
 
 Wire version preflight reads only the top-level `schema_version` object before
 semantic package decoding. A missing/malformed version retains the existing
-grammar/`invalid_wire_format` or `invalid_schema_version` precedence. Any version
-other than 1.1 fails `unsupported_schema_version`. No rejected version reaches
+grammar/`invalid_wire_format` or `invalid_schema_version` precedence. Any
+well-formed version other than 1.1 fails `unsupported_schema_version`: at
+`schema_version.major` when the major is not 1, otherwise at
+`schema_version.minor`. No rejected version reaches
 identifier, source, requirement, clause, dependency, or expression validation,
 and no best-effort field interpretation occurs.
 
@@ -91,7 +93,7 @@ canonicalization or coverage recursion begins.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-017-AC-1 | Version preflight accepts schema 1.1 and rejects every other major or minor with `unsupported_schema_version` before semantic interpretation. | Test (TC-017) |
+| FR-017-AC-1 | Version preflight accepts schema 1.1; schemas 1.0, 1.2 and 2.0 each fail `unsupported_schema_version` at the specified path, and a zero major fails `invalid_schema_version`, all before semantic interpretation. | Test (TC-017) |
 | FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale, missing, cross-package, duplicate, digest-mismatched, and over-limit inputs retain distinct diagnostics and cannot make a current requirement appear covered. | Test (TC-017, TC-018) |
 
 ## Dependencies

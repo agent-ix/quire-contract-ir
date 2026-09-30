@@ -31,7 +31,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 |---|---|---|
 | `invalid_package_namespace` | Empty or malformed package namespace | package identity path |
 | `invalid_wire_format` | JSON syntax or closed wire shape prevents decoding, or the 576-level wire-nesting limit is exceeded | document path; `document.nesting` identifies pre-decode depth refusal |
-| `invalid_schema_version` | Zero schema major; schema minor zero is valid | schema-version path |
+| `invalid_schema_version` | Zero schema major | schema-version path |
 | `invalid_identifier` | Empty or malformed source-document, requirement, clause, anchor, or dependency-path-segment identifier | offending identity path |
 | `invalid_requirement_revision` | Zero or non-increasing requirement revision | requirement revision path |
 | `invalid_source_revision` | Zero source-document revision | source revision path |
@@ -79,7 +79,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `unsupported_schema_version` | Wire preflight reads a valid schema version other than 1.1 | `schema_version` path; no semantic span |
+| `unsupported_schema_version` | A well-formed schema version other than 1.1, read by wire preflight or presented to a canonical API | preflight: `schema_version.major` when the major is not 1, otherwise `schema_version.minor`; canonical API: `schema_version`; no semantic span |
 | `canonicalization_resource_exhausted` | Canonical byte allocation cannot be reserved without exceeding host resources | canonicalized object path; source span when the object has one |
 | `duplicate_artifact_trace` | A later artifact trace repeats an artifact ID in one classification input | later trace span |
 | `stale_trace_digest` | A deep trace's requirement digest differs from the resolved current requirement digest | digest-token span |

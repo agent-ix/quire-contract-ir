@@ -45,7 +45,7 @@ The corpus is a directory. Its name is the corpus identity and is a validated
 identifier. The runner reads the package and fixture schemas from the schema
 directory it is given. Each `inputs/<id>.json` is one fixture whose operation is the `<id>` prefix before
 the first `-`, and whose expectation is `expectations/<id>.json`. A fixture
-name that does not start with one of the four operations fails, as does any
+name that does not start with one of the three operations fails, as does any
 `inputs/` or `expectations/` entry that is not a UTF-8 `.json` file and any
 expectation with no input. Canonical-byte
 paths in an expectation are relative to the corpus directory, contain no empty,
@@ -56,7 +56,7 @@ fields, malformed inputs or expectations, or resource-limit breach fail before
 any fixture executes. Every file read shares a 67108864-byte aggregate preload
 budget.
 
-The four closed fixture operations are:
+The three closed fixture operations are:
 
 | Operation | Declarative input | Comparable result |
 |---|---|---|
@@ -85,7 +85,7 @@ still owns criteria not exercised by this corpus. Coverage tokens are the closed
 `obligation:<DefinednessObligationKind>`, `boundary:<registered-boundary>`, and
 `operation:<operation>`. The Rust library
 exports the sorted fixed-width registries `PUBLIC_CONSTRUCT_TAGS` and
-`CONFORMANCE_BOUNDARIES`; operation tokens come from the four-operation enum,
+`CONFORMANCE_BOUNDARIES`; operation tokens come from the three-operation enum,
 diagnostic tokens from `DiagnosticCode::ALL`, and obligation tokens from all
 four `DefinednessObligationKind` values. Construct tags are qualified by
 wire namespace, for example `expression.boolean_literal`, `type.boolean`, and
@@ -95,7 +95,7 @@ absent required token is a corpus failure. Every STD-001 diagnostic has a
 failing fixture, every public wire construct has a successful fixture, and the
 four obligation values have distinct `potentially_undefined` fixtures. The
 inventory is derived exactly from `PUBLIC_CONSTRUCT_TAGS`,
-`CONFORMANCE_BOUNDARIES`, the four-operation enum, `DiagnosticCode::ALL`, and
+`CONFORMANCE_BOUNDARIES`, the three-operation enum, `DiagnosticCode::ALL`, and
 the four-obligation enum.
 
 Coverage tokens are observations, never fixture declarations.
