@@ -11,12 +11,13 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    sha256_hex, v2_all_families,
+    sha256_hex, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 
@@ -1651,6 +1652,50 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
             Code::IllTyped,
             Cause::OperatorIneligible,
             &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
+        );
+    }
+}
+
+/// Tracing: TC-056
+/// ACs: FR-040-AC-8, FR-040-AC-9
+#[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
+#[test]
+fn tc_056_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
+    let package = StatePackage::new();
+    let value = package.value.clone();
+    let frame = package.at("state", "frame");
+    let clauses = [package.clause("invariant"), package.clause("precondition")];
+    let admitted = match read(&value) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => *admitted,
+        other => panic!("expected admission, read {other:?}"),
+    };
+    let profile = CompleteLoweringProfileV2 {
+        // Lowering needs every tag in a node's dependency closure supported,
+        // so the profile admits each tag the package uses, state included.
+        supported_tags: nodes(&value)
+            .iter()
+            .map(|node| {
+                serde_json::from_value(node["node_tag"].clone()).expect("a checked node tag")
+            })
+            .collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let positions = [frame, clauses[0], clauses[1]];
+    let requested = positions
+        .iter()
+        .map(|&at| typed_node_id(&digest(&value, at)))
+        .collect::<Vec<_>>();
+    let result = admitted.lower(&requested, &profile);
+    assert_eq!(result.records.len(), positions.len());
+    for (&at, record) in positions.iter().zip(&result.records) {
+        let CompleteLoweringRecordV2::Lowered { node } = record else {
+            panic!("node {at} did not lower: {record:?}");
+        };
+        assert_eq!(node.node_tag, CheckedNodeTag::State);
+        assert_eq!(
+            serde_json::to_value(&node.node).expect("node"),
+            nodes(&value)[at]
         );
     }
 }
