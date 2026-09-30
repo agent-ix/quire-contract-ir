@@ -1,13 +1,13 @@
 use quire_contract_ir::{
-    classify_coverage, migrate_reference_body, AnchorName, ArtifactId, ArtifactTrace,
-    CanonicalDigest, CanonicalKind, CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType,
-    ContractPackage, CoverageClass, DeclarationEnvironment, DiagnosticCode, EnumDeclaration,
-    EnumVariantDeclaration, ExecutionPoint, Expression, ExpressionKind, FunctionParameter,
-    OrphanReason, PackageId, PureFunctionDeclaration, RationalType, RecordDeclaration,
-    RecordFieldDeclaration, RecordLiteralField, ReferenceBody, Requirement, RequirementId,
-    RequirementRef, RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity,
-    SourceLocation, SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions,
-    ValueDeclaration, ValueDeclarationKind, ValueType,
+    classify_coverage, AnchorName, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalKind,
+    CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType, ContractPackage, CoverageClass,
+    DeclarationEnvironment, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration,
+    ExecutionPoint, Expression, ExpressionKind, FunctionParameter, OrphanReason, PackageId,
+    PureFunctionDeclaration, RationalType, RecordDeclaration, RecordFieldDeclaration,
+    RecordLiteralField, ReferenceBody, Requirement, RequirementId, RequirementRef,
+    RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity, SourceLocation,
+    SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions, ValueDeclaration,
+    ValueDeclarationKind, ValueType,
 };
 
 fn source(document: &str) -> SourceIdentity {
@@ -66,7 +66,7 @@ fn package_fixture(document: &str, reverse: bool, changed: bool) -> ContractPack
     } else {
         vec![first, second]
     };
-    ContractPackage::new(package_id, SchemaVersion::V1_0, source, requirements).unwrap()
+    ContractPackage::new(package_id, SchemaVersion::V1_1, source, requirements).unwrap()
 }
 
 fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) -> RequirementRef {
@@ -96,19 +96,19 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let text = std::str::from_utf8(output.bytes().as_slice()).unwrap();
     assert_eq!(
         text,
-        "{\"kind\":\"package\",\"profile\":\"quire.contract.canonical-json/v1\",\"value\":{\"id\":\"agent-ix/pkg\",\"requirements\":[{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}}],\"id\":\"REQ_a\",\"package\":\"agent-ix/pkg\",\"revision\":1},{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_b\",\"revision\":2}}],\"id\":\"REQ_b\",\"package\":\"agent-ix/pkg\",\"revision\":2}],\"schema_version\":{\"major\":1,\"minor\":0}}}"
+        "{\"kind\":\"package\",\"profile\":\"quire.contract.canonical-json/v1\",\"value\":{\"id\":\"agent-ix/pkg\",\"requirements\":[{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_a\",\"revision\":1}}],\"id\":\"REQ_a\",\"package\":\"agent-ix/pkg\",\"revision\":1},{\"clauses\":[{\"body\":{\"node\":\"literal\"},\"id\":\"note\",\"kind\":\"information\",\"requirement\":{\"package\":\"agent-ix/pkg\",\"requirement\":\"REQ_b\",\"revision\":2}}],\"id\":\"REQ_b\",\"package\":\"agent-ix/pkg\",\"revision\":2}],\"schema_version\":{\"major\":1,\"minor\":1}}}"
     );
     assert!(!text.contains("canonical_a"));
     assert_eq!(
         output.digest().to_string(),
-        "b6e1a7da8f8bdc86ffa723af858bb7a5bbced174c42ea4e542cfd76212133577"
+        "1765842d951ec37feedd127c8e7f7650a4ca53f5ee2c1a9c633e942f54acb9bc"
     );
     assert_eq!(
         CanonicalDigest::parse(&output.digest().to_string()).unwrap(),
         output.digest()
     );
     assert_eq!(
-        CanonicalDigest::parse("B6E1A7DA8F8BDC86FFA723AF858BB7A5BBCED174C42EA4E542CFD76212133577")
+        CanonicalDigest::parse("1765842D951EC37FEEDD127C8E7F7650A4CA53F5EE2C1A9C633E942F54ACB9BC")
             .unwrap_err()
             .code,
         DiagnosticCode::InvalidWireFormat
@@ -180,7 +180,7 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
             .canonical_package(CanonicalProfile::V1)
             .unwrap_err()
             .code,
-        DiagnosticCode::UnregisteredMigration
+        DiagnosticCode::UnsupportedSchemaVersion
     );
 
     // FR-016-AC-4: the budget-free form is the budgeted form at u64::MAX, for
@@ -631,55 +631,44 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
 /// FR-017-AC-1.
 /// NFR-003-AC-1.
 #[test]
-fn tc_017_version_preflight_and_registered_migration_fail_closed() {
-    let package = package_fixture("migration", false, false);
-    let (migrated, receipt) =
-        migrate_reference_body(package.clone(), SchemaVersion::V1_1, CanonicalProfile::V1).unwrap();
-    assert_eq!(migrated.schema_version(), SchemaVersion::V1_1);
-    assert_eq!(receipt.migration_id(), "reference_body_1_0_to_1_1");
-    assert_eq!(receipt.source_version(), SchemaVersion::V1_0);
-    assert_eq!(receipt.target_version(), SchemaVersion::V1_1);
-    assert_ne!(
-        receipt.source_package_digest(),
-        receipt.target_package_digest()
-    );
-    assert_eq!(package.id(), migrated.id());
-    assert_eq!(package.requirements(), migrated.requirements());
-    assert_eq!(
-        migrate_reference_body(package.clone(), SchemaVersion::V1_0, CanonicalProfile::V1,)
-            .unwrap_err()[0]
-            .code,
-        DiagnosticCode::UnregisteredMigration
-    );
-
+fn tc_017_version_preflight_supports_only_schema_1_1() {
+    let package = package_fixture("preflight", false, false);
     let mut wire = serde_json::to_value(&package).unwrap();
+    let decode = |wire: &serde_json::Value| {
+        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict())
+    };
+
+    assert_eq!(decode(&wire).unwrap().schema_version(), SchemaVersion::V1_1);
+
+    // Preflight precedes semantic validation: the invalid id is never reached.
     wire["id"] = serde_json::json!("bad id");
-    wire["schema_version"] = serde_json::json!({"major": 2, "minor": 0});
-    assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
-            [0]
-        .code,
-        DiagnosticCode::UnsupportedSchemaVersion
-    );
-    wire["schema_version"] = serde_json::json!({"major": 1, "minor": 9});
-    assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
-            [0]
-        .code,
-        DiagnosticCode::UnregisteredMigration
-    );
-    wire["schema_version"] = serde_json::json!({"major": 0, "minor": 1});
-    assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
-            [0]
-        .code,
-        DiagnosticCode::InvalidSchemaVersion
-    );
+    for (major, minor, path) in [
+        (1, 0, "schema_version.minor"),
+        (1, 2, "schema_version.minor"),
+        (1, 9, "schema_version.minor"),
+        (2, 0, "schema_version.major"),
+        (2, 1, "schema_version.major"),
+    ] {
+        wire["schema_version"] = serde_json::json!({"major": major, "minor": minor});
+        let diagnostics = decode(&wire).unwrap_err();
+        assert_eq!(diagnostics.len(), 1, "{major}.{minor}");
+        assert_eq!(
+            diagnostics[0].code,
+            DiagnosticCode::UnsupportedSchemaVersion,
+            "{major}.{minor}"
+        );
+        assert_eq!(diagnostics[0].path, path, "{major}.{minor}");
+    }
+    for minor in [0, 1] {
+        wire["schema_version"] = serde_json::json!({"major": 0, "minor": minor});
+        assert_eq!(
+            decode(&wire).unwrap_err()[0].code,
+            DiagnosticCode::InvalidSchemaVersion
+        );
+    }
     wire.as_object_mut().unwrap().remove("schema_version");
     assert_eq!(
-        ContractPackage::from_json_str(&wire.to_string(), ValidationOptions::strict()).unwrap_err()
-            [0]
-        .code,
+        decode(&wire).unwrap_err()[0].code,
         DiagnosticCode::InvalidWireFormat
     );
 }

@@ -11,10 +11,10 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::{
-    classify_coverage, migrate_reference_body, ArtifactId, ArtifactTrace, CanonicalDigest,
-    CanonicalOutput, CanonicalProfile, ClauseRef, ContractPackage, Diagnostic, DiagnosticCode,
-    ReferenceBody, RequirementRef, SchemaVersion, SourceSpan, MAX_SEMANTIC_COLLECTION_ITEMS,
-    MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
+    classify_coverage, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalOutput,
+    CanonicalProfile, ClauseRef, ContractPackage, Diagnostic, DiagnosticCode, ReferenceBody,
+    RequirementRef, SourceSpan, MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH,
+    MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
 };
 
 pub const CONFORMANCE_PROTOCOL: &str = "quire.contract.conformance-jsonl/v1";
@@ -91,7 +91,6 @@ pub const PUBLIC_CONSTRUCT_TAGS: &[&str] = &[
     "expression.text_literal",
     "expression.unwrap",
     "expression.value_reference",
-    "migration.reference_body_1_0_to_1_1",
     "reference_body.composite",
     "reference_body.literal",
     "reference_body.reference",
@@ -132,10 +131,9 @@ pub const CONFORMANCE_BOUNDARIES: &[&str] = &[
     "rational.zero_denominator",
     "revision.current",
     "revision.stale",
-    "schema.1_0",
     "schema.1_1",
     "schema.unknown_major",
-    "schema.unregistered_minor",
+    "schema.unsupported_minor",
     "schema.zero_major",
     "semantic.nodes.maximum",
     "semantic.nodes.over_maximum",
@@ -156,23 +154,16 @@ pub const CONFORMANCE_BOUNDARIES: &[&str] = &[
 pub enum ConformanceOperation {
     Package,
     Expression,
-    Migration,
     Coverage,
 }
 
 impl ConformanceOperation {
-    pub const ALL: &'static [Self] = &[
-        Self::Package,
-        Self::Expression,
-        Self::Migration,
-        Self::Coverage,
-    ];
+    pub const ALL: &'static [Self] = &[Self::Package, Self::Expression, Self::Coverage];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Package => "package",
             Self::Expression => "expression",
-            Self::Migration => "migration",
             Self::Coverage => "coverage",
         }
     }
@@ -181,7 +172,6 @@ impl ConformanceOperation {
         match self {
             Self::Package => "packageInput",
             Self::Expression => "expressionInput",
-            Self::Migration => "migrationInput",
             Self::Coverage => "coverageInput",
         }
     }
@@ -190,7 +180,6 @@ impl ConformanceOperation {
         match self {
             Self::Package => "packageExpectation",
             Self::Expression => "expressionExpectation",
-            Self::Migration => "migrationExpectation",
             Self::Coverage => "coverageExpectation",
         }
     }
@@ -798,15 +787,13 @@ fn validate_successful_package_schema(
             parse_json(document.as_bytes(), "package", "package JSON is malformed")?
         }
         ConformanceOperation::Package => input.get("package").unwrap_or(input).clone(),
-        ConformanceOperation::Migration | ConformanceOperation::Coverage => {
-            input.get("package").cloned().ok_or_else(|| {
-                RunnerError::new(
-                    RunnerErrorCode::InvalidCorpus,
-                    format!("fixtures.{fixture_id}.input.package"),
-                    "successful operation has no package input",
-                )
-            })?
-        }
+        ConformanceOperation::Coverage => input.get("package").cloned().ok_or_else(|| {
+            RunnerError::new(
+                RunnerErrorCode::InvalidCorpus,
+                format!("fixtures.{fixture_id}.input.package"),
+                "successful operation has no package input",
+            )
+        })?,
         ConformanceOperation::Expression => return Ok(()),
     };
     let path = format!("fixtures.{fixture_id}.input.package");
@@ -1110,7 +1097,7 @@ fn observed_coverage(
     }
     observe_structural_boundaries(input, actual, succeeded, &diagnostic_codes, &mut observed);
     if succeeded {
-        observe_constructs(input, actual, operation, &mut observed);
+        observe_constructs(input, actual, &mut observed);
     }
     observed
 }
@@ -1201,9 +1188,6 @@ fn observe_structural_boundaries(
                         version.get("major").and_then(Value::as_u64),
                         version.get("minor").and_then(Value::as_u64),
                     ) {
-                        (Some(1), Some(0)) => {
-                            record("boundary:schema.1_0");
-                        }
                         (Some(1), Some(1)) => {
                             record("boundary:schema.1_1");
                         }
@@ -1211,7 +1195,7 @@ fn observe_structural_boundaries(
                             record("boundary:schema.zero_major");
                         }
                         (Some(1), Some(_)) => {
-                            record("boundary:schema.unregistered_minor");
+                            record("boundary:schema.unsupported_minor");
                         }
                         (Some(_), _) => {
                             record("boundary:schema.unknown_major");
@@ -1395,8 +1379,9 @@ fn structural_boundary_observed(
         | "boundary:type.depth.over_maximum" => Some("semantic_input_too_large"),
         "boundary:revision.stale" => Some("stale_requirement_revision"),
         "boundary:schema.zero_major" => Some("invalid_schema_version"),
-        "boundary:schema.unregistered_minor" => Some("unregistered_migration"),
-        "boundary:schema.unknown_major" => Some("unsupported_schema_version"),
+        "boundary:schema.unknown_major" | "boundary:schema.unsupported_minor" => {
+            Some("unsupported_schema_version")
+        }
         "boundary:source_span.reversed" => Some("invalid_source_span"),
         _ => None,
     };
@@ -1676,19 +1661,7 @@ fn observes_current_revision(input: &Value) -> bool {
         .any(|requirement| requirement.get("revision").and_then(Value::as_u64) == Some(1))
 }
 
-fn observe_constructs(
-    input: &Value,
-    actual: &Value,
-    operation: ConformanceOperation,
-    observed: &mut BTreeSet<String>,
-) {
-    if operation == ConformanceOperation::Migration
-        && actual
-            .get("migration_receipt")
-            .is_some_and(|value| !value.is_null())
-    {
-        observed.insert("construct:migration.reference_body_1_0_to_1_1".to_owned());
-    }
+fn observe_constructs(input: &Value, actual: &Value, observed: &mut BTreeSet<String>) {
     let expression_nodes = [
         "boolean_literal",
         "integer_literal",
@@ -1852,7 +1825,6 @@ fn execute(operation: ConformanceOperation, input: Value) -> Value {
     match operation {
         ConformanceOperation::Package => execute_package(input),
         ConformanceOperation::Expression => crate::wire::execute_expression(input),
-        ConformanceOperation::Migration => execute_migration(input),
         ConformanceOperation::Coverage => execute_coverage(input),
     }
 }
@@ -1988,39 +1960,6 @@ pub(crate) fn canonical_value(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MigrationInput {
-    package: Value,
-    target_version: SchemaVersion,
-}
-
-fn execute_migration(input: Value) -> Value {
-    let request: MigrationInput = match serde_json::from_value(input) {
-        Ok(request) => request,
-        Err(_) => return invalid_wire_actual("migration"),
-    };
-    let package = match parse_package(&request.package) {
-        Ok(package) => package,
-        Err(diagnostics) => return migration_invalid_actual(diagnostics),
-    };
-    match migrate_reference_body(package, request.target_version, CanonicalProfile::V1) {
-        Ok((package, receipt)) => match package.canonical_package(CanonicalProfile::V1) {
-            Ok(output) => match canonical_value("migrated_package", output) {
-                Ok(output) => json!({
-                    "valid": true,
-                    "diagnostics": [],
-                    "canonical": [output],
-                    "migration_receipt": receipt,
-                }),
-                Err(diagnostic) => migration_invalid_actual(vec![diagnostic]),
-            },
-            Err(diagnostic) => migration_invalid_actual(vec![diagnostic]),
-        },
-        Err(diagnostics) => migration_invalid_actual(diagnostics),
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CoverageInput {
     package: Value,
     traces: Vec<WireArtifactTrace>,
@@ -2112,15 +2051,6 @@ fn invalid_actual(diagnostics: Vec<Diagnostic>) -> Value {
     })
 }
 
-fn migration_invalid_actual(diagnostics: Vec<Diagnostic>) -> Value {
-    json!({
-        "valid": false,
-        "diagnostics": diagnostics_value(&diagnostics),
-        "canonical": [],
-        "migration_receipt": null,
-    })
-}
-
 fn coverage_invalid_actual(diagnostics: Vec<Diagnostic>) -> Value {
     json!({
         "diagnostics": diagnostics_value(&diagnostics),
@@ -2168,9 +2098,6 @@ fn mismatch_kinds(actual: &Value, expected: &Value) -> Vec<&'static str> {
     }
     if field(actual, "dependencies") != field(expected, "dependencies") {
         kinds.push("dependencies");
-    }
-    if field(actual, "migration_receipt") != field(expected, "migration_receipt") {
-        kinds.push("migration_receipt");
     }
     if field(actual, "coverage") != field(expected, "coverage") {
         kinds.push("coverage");

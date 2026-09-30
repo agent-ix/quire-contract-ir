@@ -328,18 +328,14 @@ impl TypedExpression {
 }
 
 fn ensure_supported(version: SchemaVersion) -> Result<(), Diagnostic> {
-    match (version.major(), version.minor()) {
-        (1, 0 | 1) => Ok(()),
-        (1, _) => Err(Diagnostic::error(
-            DiagnosticCode::UnregisteredMigration,
-            "schema minor has no registered canonicalization",
-            "schema_version",
-        )),
-        (_, _) => Err(Diagnostic::error(
+    if version == SchemaVersion::V1_1 {
+        Ok(())
+    } else {
+        Err(Diagnostic::error(
             DiagnosticCode::UnsupportedSchemaVersion,
-            "schema major is unsupported",
-            "schema_version.major",
-        )),
+            "schema version is unsupported",
+            "schema_version",
+        ))
     }
 }
 
@@ -730,71 +726,4 @@ impl<'a> CanonicalWriter<'a> {
     fn invalid_value(&self, message: &str) -> Diagnostic {
         Diagnostic::error(DiagnosticCode::InvalidWireFormat, message, self.path)
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct MigrationReceipt {
-    migration_id: &'static str,
-    source_version: SchemaVersion,
-    target_version: SchemaVersion,
-    source_package_digest: CanonicalDigest,
-    target_package_digest: CanonicalDigest,
-}
-
-impl MigrationReceipt {
-    pub const fn migration_id(&self) -> &'static str {
-        self.migration_id
-    }
-
-    pub const fn source_version(&self) -> SchemaVersion {
-        self.source_version
-    }
-
-    pub const fn target_version(&self) -> SchemaVersion {
-        self.target_version
-    }
-
-    pub const fn source_package_digest(&self) -> CanonicalDigest {
-        self.source_package_digest
-    }
-
-    pub const fn target_package_digest(&self) -> CanonicalDigest {
-        self.target_package_digest
-    }
-}
-
-pub fn migrate_reference_body(
-    package: ContractPackage<ReferenceBody>,
-    target_version: SchemaVersion,
-    profile: CanonicalProfile,
-) -> Result<(ContractPackage<ReferenceBody>, MigrationReceipt), Vec<Diagnostic>> {
-    if package.schema_version() != SchemaVersion::V1_0 || target_version != SchemaVersion::V1_1 {
-        return Err(vec![Diagnostic::error(
-            DiagnosticCode::UnregisteredMigration,
-            "only reference_body_1_0_to_1_1 is registered",
-            "migration",
-        )]);
-    }
-    let source_package_digest = package
-        .canonical_package(profile)
-        .map_err(|diagnostic| vec![diagnostic])?
-        .digest();
-    let migrated = ContractPackage::new(
-        package.id().clone(),
-        target_version,
-        package.source().clone(),
-        package.requirements().to_vec(),
-    )?;
-    let target_package_digest = migrated
-        .canonical_package(profile)
-        .map_err(|diagnostic| vec![diagnostic])?
-        .digest();
-    let receipt = MigrationReceipt {
-        migration_id: "reference_body_1_0_to_1_1",
-        source_version: SchemaVersion::V1_0,
-        target_version,
-        source_package_digest,
-        target_package_digest,
-    };
-    Ok((migrated, receipt))
 }

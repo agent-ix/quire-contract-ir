@@ -1,5 +1,6 @@
 {
   "canonical": [],
+  "dependencies": [],
   "diagnostics": [
     {
       "code": "unsupported_schema_version",
@@ -7,6 +8,5 @@
       "severity": "error"
     }
   ],
-  "migration_receipt": null,
   "valid": false
 }

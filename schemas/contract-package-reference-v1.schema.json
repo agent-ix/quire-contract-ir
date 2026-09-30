@@ -33,7 +33,7 @@
       "required": ["major", "minor"],
       "properties": {
         "major": { "const": 1 },
-        "minor": { "enum": [0, 1] }
+        "minor": { "const": 1 }
       }
     },
     "sourceIdentity": {
