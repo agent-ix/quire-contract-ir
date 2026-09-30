@@ -1057,7 +1057,7 @@ fn check_operands(
             OperationConstraintKind::SameType => {
                 let types: Option<Vec<CheckedNodeId>> = indices
                     .iter()
-                    .map(|position| argument_type_id(&arguments[*position]))
+                    .map(|position| operand_type_node(&arguments[*position], nodes, kinds, index))
                     .collect();
                 if let Some(types) = types {
                     if let Some(pair) = types.windows(2).position(|pair| pair[0] != pair[1]) {
@@ -2743,6 +2743,85 @@ mod tests {
             ))),
             "a leaf mode value that disagrees with what the named field's own type pins must \
              be refused as operation-mode-type-mismatch, got {result:?}"
+        );
+    }
+
+    /// `same_type` compares the type node each operand resolves to, not the
+    /// operands' own nodes: [`STRUCTURAL_EQ_IDENTITY`] over two distinct
+    /// parameters of one record type is admitted, and over parameters of two
+    /// different record types is refused at the second operand.
+    #[test]
+    fn operation_defect_same_type_compares_operand_types_not_operand_nodes() {
+        let record = |id_byte: char, field: &str| {
+            graph_node(
+                id_byte,
+                "composite_type",
+                "record",
+                &node_id(id_byte),
+                json!({
+                    "term": "aggregate",
+                    "members": [{
+                        "term": "binding",
+                        "name": field,
+                        "value": {
+                            "term": "reference",
+                            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest('i') },
+                        },
+                    }],
+                }),
+            )
+        };
+        let parameter = |id_byte: char, type_byte: char| {
+            graph_node(
+                id_byte,
+                "value",
+                "parameter",
+                &node_id(type_byte),
+                json!({ "term": "aggregate", "members": [] }),
+            )
+        };
+        let operand = |id_byte: char| {
+            json!({
+                "term": "reference",
+                "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+            })
+        };
+        let mut operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
+        operation["leaves"] = json!([{ "path": ["field:name"], "laws": [] }]);
+        let defect = |second: char| {
+            let root = custom_application_node(
+                "binary",
+                operation.clone(),
+                vec![operand('a'), operand(second)],
+            );
+            let graph = vec![
+                root,
+                record('r', "name"),
+                record('s', "label"),
+                parameter('a', 'r'),
+                parameter('b', 'r'),
+                parameter('c', 's'),
+            ];
+            let locus = graph[0].node_id.clone();
+            (defect_for_graph(graph), locus)
+        };
+
+        let (same, _) = defect('b');
+        assert_eq!(
+            same,
+            Ok(None),
+            "distinct parameters of one record type must be admitted, got {same:?}"
+        );
+        let (different, locus) = defect('c');
+        assert_eq!(
+            different,
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/1",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                locus,
+            ))),
+            "parameters of different record types must be refused at the second operand"
         );
     }
 
