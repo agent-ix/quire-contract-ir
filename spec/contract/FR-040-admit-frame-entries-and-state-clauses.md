@@ -201,8 +201,19 @@ bindings in order: `name`, a `text` literal whose value is an identifier, and
 of any other shape refuses at the node's `body`.
 
 An operation whose catalog entry carries the `reference_edge` constraint
-(`quire.op.model.reaches_field`) is not admitted: its application refuses as
-`ill_typed`/`operator-ineligible` at its first argument.
+(`quire.op.model.reaches_field`) is admitted exactly when, in order: operand 0
+is `Reference<D>` for the `field` member's declaring model node `D`; the
+member's name resolves on `D` to a field declared by object type `T` (`D` or
+one of its supertypes); that field's type is `Reference<T>`,
+`Option<Reference<T>>` or a bounded `Sequence<Reference<T>>`; and operand 1 is
+`Reference<B>` for an object type `B` of the same selected document that is
+`T` or a declared subtype of `T` (conformance one way, from `B` to `T`: a
+supertype of `T` is not admitted). Any other application refuses as
+`ill_typed`/`operator-ineligible` at the operand, the member declaration or
+the member name at fault; a declaration keyed under an unselected version
+refuses as `missing_declaration`/`missing-selection` at the member
+declaration, and an ambiguous name as `ambiguous_declaration`/`ambiguous-name`
+at the member name.
 
 The operation catalog shall hold `quire.op.state.clause` with operator class
 `state_clause`, operands `aggregate`, `object` and `boolean`, result `clause`
@@ -234,6 +245,7 @@ operation anchor, then every state clause, and reports the first defect.
 | FR-040-AC-10 | A `quire.op.state.clause` application nested in another term, and one standing as the body root of a node that is not `state`/`state_clause`, refuse as `ill_typed`/`operator-ineligible` at the holding node; a non-Boolean condition refuses as `ill_typed`/`operator-ineligible` at the operation step. | Test (TC-056) |
 | FR-040-AC-11 | A `value`/`parameter` body of `name` then `level` admits; reordered bindings, a non-text `name`, a non-integer `level`, and a missing binding each refuse as `invalid_semantic_graph` with no cause, located at the node's `body`; an occurrence role other than `expression` refuses the same way, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-12 | A package carrying a frame defect and a state defect reports the frame defect; one carrying an anchor defect and a clause defect reports the anchor defect; one carrying a state defect and an operation defect reports the state defect. | Test (TC-056) |
+| FR-040-AC-13 | A `quire.op.model.reaches_field` application over `Reference<D>` operands admits when its field resolves on `D` to a `Reference<T>`, `Option<Reference<T>>` or bounded `Sequence<Reference<T>>` of the field's owner `T` and operand 1 references `T` or a subtype of `T`, including one two levels down and an inherited edge. A set, an unbounded sequence, a reference to another type and a non-reference field, an undeclared name, an operand 0 that does not name the declaring node, an operand 1 that is a supertype of `T`, unrelated or an object refuse as `ill_typed`/`operator-ineligible` at the operand, member declaration or member name at fault; an ambiguous name refuses as `ambiguous_declaration`/`ambiguous-name` and a declaring node keyed under an unselected version as `missing_declaration`/`missing-selection`. | Test (TC-056) |
 
 ## Dependencies
 
