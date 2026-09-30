@@ -344,11 +344,12 @@ impl CheckedPackageV2 {
         // `semantic_type`, `dependencies` or any body reference other than a
         // `literal.type` annotation; the requested node is always in it.
         let mut typed = BTreeSet::from([request.clone()]);
-        // FR-038: the types a `composite_type` node itself names as an element
-        // or field type. Such a position is covered only by a type that needs
-        // no bound, never by a `bounded_domain` over the same shared type
-        // node elsewhere in the closure.
-        let mut named_by_composite = BTreeSet::new();
+        // FR-038: the types named at a position: a `composite_type` node's
+        // element or field types and a parameter's own type. A position is
+        // covered only by a type that needs no bound, never by a
+        // `bounded_domain` over the same shared type node elsewhere in the
+        // closure.
+        let mut positions = BTreeSet::new();
         let mut queue = VecDeque::from([start]);
         while let Some(position) = queue.pop_front() {
             work = work.saturating_add(1);
@@ -410,11 +411,14 @@ impl CheckedPackageV2 {
             if work > profile.work_limit {
                 return failed(work);
             }
-            for (successor, role) in successors {
+            let composite = kind.tag() == CheckedNodeTag::CompositeType;
+            let parameter = matches!(kind, CheckedNodeKind::Value(ValueForm::Parameter));
+            for (edge, (successor, role)) in successors.into_iter().enumerate() {
                 if let Some(&next) = index.get(&successor) {
                     if role == EdgeRole::Typing && next != position {
-                        if kind.tag() == CheckedNodeTag::CompositeType {
-                            named_by_composite.insert(successor.clone());
+                        // Edge 0 is the node's own `semantic_type`.
+                        if composite || (parameter && edge == 0) {
+                            positions.insert(successor.clone());
                         }
                         typed.insert(successor);
                     }
@@ -460,12 +464,8 @@ impl CheckedPackageV2 {
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
                 is_recursive_type(node, *kind)
                     || (requires_bound(*kind)
-                        && (named_by_composite.contains(&node.node_id)
-                            || (typed.contains(&node.node_id)
-                                && !ordered.iter().any(|(domain, domain_kind)| {
-                                    domain_kind.tag() == CheckedNodeTag::BoundedDomain
-                                        && domain.semantic_type == node.node_id
-                                }))))
+                        && (positions.contains(&node.node_id)
+                            || (typed.contains(&node.node_id) && !is_bounded(node, &ordered))))
             }) {
                 return CompleteLoweringRecordV2::RequiresBound {
                     node_id: request.clone(),
@@ -522,6 +522,17 @@ impl CheckedPackageV2 {
 
 fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(tag.as_wire())
+}
+
+/// Whether the closure holds a `bounded_domain` whose `semantic_type` is
+/// `node`.
+fn is_bounded(
+    node: &CheckedSemanticNodeV2,
+    closure: &[(&CheckedSemanticNodeV2, CheckedNodeKind)],
+) -> bool {
+    closure.iter().any(|(domain, kind)| {
+        kind.tag() == CheckedNodeTag::BoundedDomain && domain.semantic_type == node.node_id
+    })
 }
 
 /// Whether a node is a scalar or composite type declared as a member of a

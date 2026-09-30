@@ -541,8 +541,8 @@ against an earlier frame's.
 When a caller lowers requested items, the lowerer shall charge work per request and, for each visited reachable node, per node, per body term and per successor edge, return
 `invalid_input` for an absent node key, `unsupported` when any reachable node's
 tag is outside the profile, `requires_bound` when the profile requires bounds
-and a reachable unbounded numeric, text or collection type that some reachable
-node is typed at has no reachable `bounded_domain` typed by it, and `failed` at the work limit. A lowered record
+and a reachable type is unbounded at a position or is recursive (both defined
+below), and `failed` at the work limit. A lowered record
 carries the node, its exact source-map entries, semantic type, reachable
 dependency keys, bounding domain keys, reachable claim keys and a
 `quire.contract-ir.semantic/v1` digest. A non-lowered record carries no node.
@@ -566,37 +566,49 @@ Where a record names the "first" offending node, first shall mean the least
 `node_id` in ascending key order over the whole closure, not the first node the
 traversal reached. A record therefore never depends on visit order.
 
-A reachable type is unbounded exactly when its family and semantic form are a
-`scalar_type` of form `integer`, `rational`, `decimal` or `text`, or a
+A reachable type is unbounded by form exactly when its family and semantic form
+are a `scalar_type` of form `integer`, `rational`, `decimal` or `text`, or a
 `composite_type` of form `sequence`, `set`, `bag` or `ordered_set`. No other
-family and no other form of those two families is unbounded, so `boolean`,
+family and no other form of those two families is unbounded by form, so `boolean`,
 `float32`, `float64`, `dimension`, `unit`, `enum`, `option`, `record`, `tuple`,
-`alias` and `reference` never raise `requires_bound`. A type that a value,
-expression or the requested node is typed at is bounded when the closure holds a
-reachable `bounded_domain` node whose `semantic_type` is that type's key.
-
-A type a `composite_type` node itself names as an element or field type is a
-type position, and a position is bounded only by its own type: a `bounded_domain`
-over the same shared type node elsewhere in the closure does not cover it, so
-`{n: Integer, k: Int[0,9]}` raises `requires_bound` naming `integer` although the
-`integer_range` for `k` is over the same `integer` node, and
-`Sequence<Integer>[0,3]` does too. A `bounded_domain`'s own base type and the
-literals of its bounds are not type positions, so `Sequence<Boolean>[0,3]`
-lowers.
-
-A `scalar_type` or `composite_type` node that declares a `recursion_group` is a
-recursive type. Its depth is unbounded and no `bounded_domain` form bounds depth,
-so it raises `requires_bound` naming the least such node key, whatever bounds its
-fields carry.
+`alias` and `reference` raise `requires_bound` only as a recursive type.
+`unit` and `compound_unit` types need no bound here, whatever a consumer's own
+extent classification says of a quantity.
 
 `requires_bound` tests only a type that a reachable node is typed at: a node
 other than the type itself names it through `semantic_type`, `dependencies` or
 a body `reference` target or `application` `result_type`, or it is the
 requested node. A type reached only as a `literal.type` annotation, such as the
-`text` node QSL FR-092 gives the name literal of every parameter (FR-322 requires each literal to carry a `type`), is in the
-closure and in `dependencies` but is not a value's type, so it never raises
-`requires_bound`; `x + 1` over `x: Int[0,9]` lowers under a bounds-required
-profile. A value typed at an unbounded type still raises it.
+`text` node QSL FR-092 gives the name literal of every parameter (FR-322
+requires each literal to carry a `type`), is in the closure and in
+`dependencies` but is not a value's type, so it never raises `requires_bound`.
+
+A type that is unbounded by form is unbounded at a position when either of these
+holds, and a `bounded_domain` elsewhere in the closure never covers a position:
+
+- A `composite_type` node names it as an element or field type.
+- A `value`/`parameter` node's own `semantic_type` is it.
+
+So `{n: Integer, k: Int[0,9]}` raises `requires_bound` naming `integer` although
+the `integer_range` for `k` is over the same `integer` node; `Sequence<Integer>[0,3]`
+does too; and `(x + 1) + n` over `x: Int[0,9]` and `n: Integer` raises it for
+`n`. A `bounded_domain`'s own base type, the literals of its bounds, an
+`application`'s `result_type` and its own `semantic_type` are not positions, so
+`Sequence<Boolean>[0,3]` and `x + 1` over `x: Int[0,9]` lower under a
+bounds-required profile. A type that is unbounded by form and is typed at by
+the requested node, a `literal` value or an `expression` but is named at no
+position is bounded when the closure holds a reachable `bounded_domain` node
+whose `semantic_type` is that type's key.
+
+A `scalar_type` or `composite_type` node that declares a `recursion_group` is a
+recursive type, whatever its form. Its depth is unbounded and no `bounded_domain`
+form bounds depth, so it raises `requires_bound` naming itself, whatever bounds
+its fields carry. The label alone decides: the reader admits a label on a node
+outside any cycle, and a recursive type reached only as a `literal.type`
+annotation also raises it.
+
+Where more than one reachable type raises `requires_bound`, the record names the
+least offending node key overall, positional or recursive.
 
 A lowered record's `dependencies` shall be every node key reachable from the
 requested node excluding the requested node itself, in ascending key order.
@@ -620,7 +632,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records. | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
-| FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
+| FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
 | FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing identity and version but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest the package evidence does not attest refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is evaluated against evidence, so the outcome does not depend on array position. | Test (TC-048) |
 | FR-038-AC-12 | A `creates` or `deletes` entry's eligibility is exactly `model`/`object_type` and `model`/`process`, and this eligibility predicate is checked against every `(member, tag, form)` triple the closed node taxonomy can produce, not sampled; the `modifies` entry shape and its eligibility are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. The refusal an ineligible triple drives — `invalid_model_binding` with cause `malformed-declaration`, located at the offending entry — is verified end-to-end through the reader for a representative ineligible triple in each of `creates` and `deletes` and every node family; the reader's mapping from an ineligible predicate result to that refusal depends only on which member the entry sits in, never on its tag or form, so this sample together with the exhaustive predicate check covers the full triple space without driving every one of it through the reader. Each of the two eligible triples the published all-families fixture's own frame body does not already exercise (`process` in `creates`, `object_type` in `deletes`) is independently shown admitted. | Test (TC-053) |
@@ -649,6 +661,8 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-37 | A `dependency_selections` entry with no package supplied for its `identity` refuses `missing_import`/`missing-selection` at the entry, one supplied under another `version` `stale_dependency`/`revision-mismatch` at its `version`, and one whose package has another `package_id` `stale_dependency`/`byte-digest-mismatch` at its `package_id.digest`; a term whose `package` no entry names refuses `missing_declaration`/`missing-selection` at the `package`, a `node` naming no node or a node without a `declaration` `missing_declaration`/`missing-name` at the `node`, and a `node` naming a declared node that is no function `ill_typed`/`operator-ineligible`, each carrying the calling node as its locus. | Test (TC-048) |
 | FR-038-AC-38 | A dependency function whose parameter is a declared record, whose result is a declared record, whose parameter is a `Set` of one, a tuple holding one, or a `Reference` to a `model` node refuses `ill_typed`/`operator-ineligible` at the callee; the same function over a `Set` of a bounded integer admits. | Test (TC-048) |
 | FR-038-AC-39 | Under a bounds-required profile, `x + 1` over a parameter `x` typed at an `integer_range` domain over `integer` lowers although the parameter's name literal is annotated with the unbounded `text` type, and the annotation stays in the closure and in `dependencies`; a parameter typed at an unbounded `integer` or `rational` type refuses `requires_bound` naming that type. | Test (TC-050) |
+| FR-038-AC-40 | Under a bounds-required profile a `bounded_domain` over a shared unbounded type does not bound another position naming it: `{n: Integer, k: Int[0,9]}`, `Sequence<Integer>[0,3]` beside `Int[0,9]`, and `(x + 1) + n` over `x: Int[0,9]` and an `n` typed at `integer` each return `requires_bound` naming `integer`, while `Sequence<Boolean>[0,3]`, a record of bounded collections and ranged fields, and `x + 1` over `x: Int[0,9]` lower. | Test (TC-050) |
+| FR-038-AC-41 | Under a bounds-required profile a `scalar_type` or `composite_type` node declaring a `recursion_group` returns `requires_bound` naming the least offending node key, although every field of the recursive record is bounded. | Test (TC-050) |
 
 ## Dependencies
 
