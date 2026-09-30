@@ -3,7 +3,7 @@ id: SR-047
 title: "Evidence review of native predicate to TL projection"
 type: SpecReview
 analysis: evidence
-scope: "FR-025 acceptance criteria; TC-038; SUITE-005 through SUITE-008; Quire/Quoin local results at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "FR-025 acceptance criteria; TC-038; SUITE-005 through SUITE-008; Quire/Quoin local results"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

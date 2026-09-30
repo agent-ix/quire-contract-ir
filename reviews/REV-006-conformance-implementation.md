@@ -96,18 +96,18 @@ refinement of that issue-level shorthand.
 ## Closing gate
 
 FND-125 through FND-175 have producer dispositions. Reviewer comment
-`5481162405` was written against `37eb001`, and comment `5481528618` reviewed
-`db24d90`; their still-applicable findings were reproduced or checked against
+`5481162405` was written against an earlier revision, and comment `5481528618` reviewed
+another; their still-applicable findings were reproduced or checked against
 the current candidate rather than dismissed as stale. A fresh independent
 closing CLI review was attempted twice but was unavailable (`API Error:
 ENOTIMP`), so the closing gap audit remains a producer result and found
-FND-161. After that remediation, the exact `be548a0` candidate passed the
+FND-161. After that remediation, the exact candidate passed the
 composite local CI lane with 13 Python tests and 34 Rust tests, the independent
 99-row corpus and byte-reproduction lanes, Rust 1.75 compatibility, 67/67 Quire
 grammar validation plus the fail-closed local completed-row census, the
 optimized 60,000-level depth regression, and `git diff --check`. GitHub Actions
 was not dispatched and reported no branch runs or PR checks. The GitHub
-reviewer was asked to re-review `be548a0`; no later response or formal review
+reviewer was asked to re-review the candidate; no later response or formal review
 was present at closure capture. Accordingly, this completed finding record
 remains explicitly inconclusive as independent approval. It does not claim
 downstream execution, cross-platform CI, or release authority.

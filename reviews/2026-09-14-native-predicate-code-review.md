@@ -17,8 +17,7 @@ relationships:
 ## Summary
 
 The review evaluated implementation candidate
-`db6bbf551d5e321c8051011d63221e03e9bfaece` against cycle-free Contract IR base
-`53cc03c639e2e26528132d34d96dc56449df78e8`. The candidate implements the
+against the cycle-free Contract IR base. The candidate implements the
 complete FR-025 predicate subsystem over real constructor-private QSL, Quire
 Observation and Quire Protocol views and real tl-syntax signal-catalog and
 proposition-map constructors/readers. It adds no source parser, evaluator,
@@ -35,9 +34,7 @@ scoped finding remains.
 
 `AP-001` (`spec/assurance/AP-001-contract-ir-v01.md`) applies because this
 identified v0.1 candidate can affect semantic drift, false coverage and stable
-canonical identity. The review evaluated base
-`53cc03c639e2e26528132d34d96dc56449df78e8`, candidate
-`db6bbf551d5e321c8051011d63221e03e9bfaece`, every changed production/test/spec
+canonical identity. The review evaluated the base, the candidate, every changed production/test/spec
 path, the exact Cargo-resolved owner graph, and FR-025/TC-038 traceability.
 Available context includes AP-001 and the repository's declared architecture,
 canonicalization, diagnostic and test-matrix controls. Hosted cross-platform

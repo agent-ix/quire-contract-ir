@@ -14,7 +14,7 @@ relationships:
 ## Summary
 
 The deterministic EARS engine and semantic review found no remaining grammar,
-subject, trigger, response, or intent defect in FR-026 at snapshot `558c4dc`.
+subject, trigger, response, or intent defect in FR-026.
 The full specification tree reports 56/56 documents grammar-clean and zero
 grammar findings.
 

@@ -5,7 +5,7 @@ type: SpecReview
 analysis: ears-conformance
 scope: "QCI #96; unchanged FR-029–FR-031 normative statements"
 review_set: subset
-evaluated_revision: "task/96-kani-tracking based on c269a1a"
+evaluated_revision: "task/96-kani-tracking"
 review_date: "2026-09-15"
 ---
 # EARS review of bounded-Kani implementation-status reconciliation

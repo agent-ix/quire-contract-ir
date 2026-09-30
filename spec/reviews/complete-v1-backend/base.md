@@ -20,7 +20,7 @@ relationships:
 ## Summary
 
 The owner selected `all`. The reviewed artifacts adopt accepted QSpec
-8d0fbad contracts without changing source-language authority, split lowering,
+contracts without changing source-language authority, split lowering,
 negotiation, and replay into separately testable requirements, and bind every
 new acceptance criterion to TC-044, TC-045, or TC-046.
 

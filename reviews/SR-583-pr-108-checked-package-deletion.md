@@ -3,7 +3,7 @@ id: SR-583
 title: "PR #108 review — CheckedPackage V1 deletion and V2 domain package consumption (AD-006)"
 type: SpecReview
 analysis: gap-analysis
-scope: "Contract IR PR #108 diff (a5154d39...48e0cdc): FR-038, TC-048, TC-050"
+scope: "Contract IR PR #108 diff: FR-038, TC-048, TC-050"
 review_set: subset
 relationships:
   - { target: "ix://agent-ix/quire-contract-ir/FR-038", type: reviews }
@@ -14,19 +14,18 @@ relationships:
 ## Summary
 
 Code review, Rust review and gap analysis of the Contract IR PR #108 diff,
-base `a5154d39` to head `48e0cdc`. The PR deletes CheckedPackage V1 and the
+base to head. The PR deletes CheckedPackage V1 and the
 V1-to-V2 migration contract under the owner's 2026-09-17 ruling: prerelease
 software keeps no migration path, compatibility layer, fallback or frozen
 legacy version. Contract IR now consumes exactly one contract, QSpec I04
-`quire.checked-package/v2` at `5626bc8f` (AD-006 `sha256-jcs` domain package
+`quire.checked-package/v2` (AD-006 `sha256-jcs` domain package
 model selections). FR-038 is the sole consumer requirement; TC-048 covers the
 strict reader and identity re-derivation, TC-050 covers independent per-item
 lowering.
 
 Checked against upstream and against the repository's own spec:
 
-- **Vendored bytes.** All vendored blobs equal the upstream tree at
-  `5626bc8`. `PROVENANCE` names every vendored path, its blob and its
+- **Vendored bytes.** All vendored blobs equal the upstream tree. `PROVENANCE` names every vendored path, its blob and its
   SHA-256, and records every upstream proposal file this repository
   deliberately does not vendor, with a reason for each.
 - **Strict ModelRef.** `CheckedDomainPackageRef` uses `deny_unknown_fields`. A
@@ -61,7 +60,7 @@ targets this PR leaves for the CheckedPackage surface. All pass. `cargo fmt
 
 **PASS**. The code and tests are sound. This file replaces
 `reviews/2026-09-16-pr-108-v2-domain-package-review.md` (`id: SR-581`), which
-reviewed a superseded revision (`ea91a5c`) of this PR: its id collided with
+reviewed a superseded revision of this PR: its id collided with
 `spec/reviews/checked-package-v2/base.md`'s own `SR-581`, its scope and a
 relationship cited `TC-047` and `TC-049`, both deleted by this PR, it
 narrated the deleted migration design, it listed four test targets this PR

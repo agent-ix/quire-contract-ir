@@ -3,7 +3,7 @@ id: SR-045
 title: "EARS review of native predicate to TL projection"
 type: SpecReview
 analysis: ears-conformance
-scope: "FR-025 and affected matrix/registry requirements at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "FR-025 and affected matrix/registry requirements"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

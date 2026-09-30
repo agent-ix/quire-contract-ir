@@ -3,7 +3,7 @@ id: SR-060
 title: "Follow-up review of issue 64 observation closure selection"
 type: SpecReview
 analysis: base
-scope: "PR #68 head 8f967516; FR-026 observation-state selection and STD-001 closure diagnostics"
+scope: "PR #68 head; FR-026 observation-state selection and STD-001 closure diagnostics"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-026
@@ -17,8 +17,7 @@ relationships:
 
 ## Summary
 
-This independent follow-up reviews exact PR #68 head
-`8f967516b11cc4a4c0286750bdb11e6f8cb2e842`, whose observation-closure
+This independent follow-up reviews the PR #68 head, whose observation-closure
 clarification post-dates SR-052 through SR-059. It covers only the changed
 FR-026 selection, result-binding and acceptance-criterion text, and the
 corresponding `temporal_closure_mismatch` diagnostic allocation.
@@ -39,7 +38,7 @@ corresponding `temporal_closure_mismatch` diagnostic allocation.
   mismatch from an otherwise-valid native/TL closure disagreement.
 - The new acceptance-criterion behavior is covered by a truthful planned
   TC-039 allocation and retains its declared dependency boundary.
-- `git diff --check 8f967516^ 8f967516` passes. Exact-head validation reports
+- `git diff --check` passes. Exact-head validation reports
   115/115 grammar-clean documents; the two matrix header structural findings
   are present unchanged on the `origin/main` baseline and are outside this
   follow-up scope.

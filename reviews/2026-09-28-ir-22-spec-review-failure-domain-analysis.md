@@ -3,7 +3,7 @@ id: SR-589
 title: "PR #202 failure-domain review"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 ---
 # SR-589: PR #202 failure-domain review

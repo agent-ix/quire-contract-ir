@@ -3,7 +3,7 @@ id: SR-593
 title: "ears-conformance review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@11c6b013a0c94ddbf76040cbe81142858935eae3; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
+scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
 # SR-593: ears-conformance review of PR 203
@@ -44,8 +44,8 @@ The statement and behaviour bullets use SHALL with explicit When-triggers; AC-1.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 5a3d953 |
-| FND-002 | fixed | 5a3d953 |
-| FND-003 | fixed | 5a3d953 |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |

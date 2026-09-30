@@ -26,7 +26,7 @@ a confirmed vulnerability.
 
 | ID | Severity | Finding | Disposition |
 |---|---|---|---|
-| FND-097 | critical (reported) | The reviewer alleged that `zmij` in the lockfile substituted for `serde_json`'s legitimate `ryu` dependency. | rejected as factually false: the official immutable `serde_json` v1.0.151 source manifest at commit `de8500740cdcabffb9734f503e4889def823cf10` declares `zmij = "1.0"`; the checksummed local crate manifest and source agree, and offline `cargo tree -i zmij` resolves it directly beneath the pinned `serde_json`. Forcing `ryu` would contradict upstream. |
+| FND-097 | critical (reported) | The reviewer alleged that `zmij` in the lockfile substituted for `serde_json`'s legitimate `ryu` dependency. | rejected as factually false: the official immutable `serde_json` v1.0.151 source manifest declares `zmij = "1.0"`; the checksummed local crate manifest and source agree, and offline `cargo tree -i zmij` resolves it directly beneath the pinned `serde_json`. Forcing `ryu` would contradict upstream. |
 | FND-098 | medium | The deterministic resource-failure harness was unavailable for requirement, clause, and declaration output and untested for expression output. | fixed: all five closed kinds expose `_with_limit` entry points and TC-017 forces limit-zero failure for each, returning only `canonicalization_resource_exhausted`. |
 | FND-099 | medium | FND-097's rejection cited local cache and command evidence that was not independently inspectable from the repository. | fixed: this review now retains an immutable official upstream source link resolving the v1.0.151 manifest at the commit above. |
 | FND-100 | medium | Resource-exhaustion diagnostics omitted available requirement, clause, and expression spans. | fixed: canonical writers retain the object's optional span and attach it to allocation failures; TC-017 asserts all three spans while package/declaration aggregates remain spanless. |
@@ -68,7 +68,7 @@ FND-104 and FND-105, repeated the disproved dependency allegation and a process
 variant caused by its own lack of network access. No actionable code finding is
 open. FND-097/FND-099/FND-103 through FND-105 remain independently checkable in
 the official immutable
-[v1.0.151 manifest](https://github.com/serde-rs/json/blob/de8500740cdcabffb9734f503e4889def823cf10/Cargo.toml#L15-L20)
+[v1.0.151 manifest](https://github.com/serde-rs/json/blob/v1.0.151/Cargo.toml#L15-L20)
 and crates.io API links above.
 
 The producer's full local `make ci` gate passed formatting, Clippy with warnings

@@ -25,7 +25,7 @@ relationships:
 
 ### Accepted upstream authority
 
-- [x] QSpec FS06 AD-004 and FR-120/121/125/269/297/298/299 are accepted at `a343138`.
+- [x] QSpec FS06 AD-004 and FR-120/121/125/269/297/298/299 are accepted.
 - [x] QSpec NFR-060/061 and TC-150/154/155 fix limits, dependency containment,
   determinism, atomicity, and observer separation.
 - [x] Contract IR FR-023 supplies strict bound clauses and FR-028 supplies the

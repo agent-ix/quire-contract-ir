@@ -3,7 +3,7 @@ id: SR-584
 title: "PR #202 integrity review: QSL-owned replay, root API, V2 frame/state spec"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-031
@@ -23,11 +23,11 @@ relationships:
 
 ## Summary
 
-Integrity analysis (completeness, consistency, atomicity) of the spec-only diff `origin/main...5c4a505` (29 files under `spec/`), checked against the code at origin/main `48ab5dc` and against the binding owner ruling: QSL owns the replay and proof types in `qsl-replay`, Contract IR deletes its copies, codegen keeps the Kani transcript parser, replay runs only through `qsl_replay::replay`, and `runtime::execute` is retired.
+Integrity analysis (completeness, consistency, atomicity) of the spec-only diff (29 files under `spec/`), checked against the code and against the binding owner ruling: QSL owns the replay and proof types in `qsl-replay`, Contract IR deletes its copies, codegen keeps the Kani transcript parser, replay runs only through `qsl_replay::replay`, and `runtime::execute` is retired.
 
 Ticket: IR-22 (also IR-27, IR-89 per the PR title).
 
-Confirmed at this head: no `runtime::execute`, `CheckedPackage::call`, `#243` or `complete-V1 executor` text remains anywhere under `spec/` (the only surviving names are the deletion lists in AD-001 and FR-039). FR-031-AC-3 and AC-4 and FR-037-AC-1 through AC-5 are retired, each with a reason. Every `qsl_replay` name the PR cites (`TerminalValue` with `Proved { success_checks }`, `ProofRefusalCause`, `IncompleteCause`, `UnavailabilityCause::{SolverAbsent, BackendAbsent}`, `InconclusiveCause::KaniVacuousProof`, `TerminalRecord`, `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `ObligationIdentity`, `replay`) exists in `qsl-replay` at the QSL revision the root crate already pins (`9395be4`). FR-039's `bridge` and `kani` rows match `src/` exactly, and its "Items QSL owns" list matches `src/kani/{replay,witness,outcome}.rs` exactly. AD-001's four versioned contracts match the code (`SchemaVersion` 1.0/1.1 with one registered 1.0-to-1.1 migration, `quire.checked-package/v2`, `quire.contract-ir.contract-package/v1` / `lowered-node/v1`, `kani-bounded/1`). OQ-1 to OQ-3 are stated as open questions with options, and OQ-1's and OQ-2's factual premises hold (QSL depends on the model crate under the `quire-contract-ir` alias; codegen's `bounded_kani_corpus.rs` consumes the family lowerings). ADs and APs stay `proposed`. No ID collision exists in `spec/` and cross-repo references are prefixed rather than renumbered.
+Confirmed at this head: no `runtime::execute`, `CheckedPackage::call`, `#243` or `complete-V1 executor` text remains anywhere under `spec/` (the only surviving names are the deletion lists in AD-001 and FR-039). FR-031-AC-3 and AC-4 and FR-037-AC-1 through AC-5 are retired, each with a reason. Every `qsl_replay` name the PR cites (`TerminalValue` with `Proved { success_checks }`, `ProofRefusalCause`, `IncompleteCause`, `UnavailabilityCause::{SolverAbsent, BackendAbsent}`, `InconclusiveCause::KaniVacuousProof`, `TerminalRecord`, `Witness`, `ReplaySource`, `WitnessEnvelope`, `ReplayRequest`, `ReplayResult`, `ObligationIdentity`, `replay`) exists in `qsl-replay` at the QSL revision the root crate already pins. FR-039's `bridge` and `kani` rows match `src/` exactly, and its "Items QSL owns" list matches `src/kani/{replay,witness,outcome}.rs` exactly. AD-001's four versioned contracts match the code (`SchemaVersion` 1.0/1.1 with one registered 1.0-to-1.1 migration, `quire.checked-package/v2`, `quire.contract-ir.contract-package/v1` / `lowered-node/v1`, `kani-bounded/1`). OQ-1 to OQ-3 are stated as open questions with options, and OQ-1's and OQ-2's factual premises hold (QSL depends on the model crate under the `quire-contract-ir` alias; codegen's `bounded_kani_corpus.rs` consumes the family lowerings). ADs and APs stay `proposed`. No ID collision exists in `spec/` and cross-repo references are prefixed rather than renumbered.
 
 Scope examined (all 29 changed files):
 
@@ -87,22 +87,22 @@ Scope examined (all 29 changed files):
 
 ## Dispositions
 
-Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+Round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 24b0778 |
-| FND-002 | fixed | 24b0778 |
-| FND-003 | fixed | 24b0778 |
-| FND-004 | fixed | 24b0778 |
-| FND-005 | fixed | 24b0778 |
-| FND-006 | fixed | 24b0778 |
-| FND-007 | fixed | 24b0778 |
-| FND-008 | fixed | 24b0778 |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
+| FND-005 | fixed | resolved |
+| FND-006 | fixed | resolved |
+| FND-007 | fixed | resolved |
+| FND-008 | fixed | resolved |
 
-Round 2, reviewed at `3277b2da2439244de4475b615f9fd591d9e4407b`.
+Round 2.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-009 | fixed | 3277b2d |
-| FND-010 | deferred | This belongs to the Contract IR code PR that implements FR-030-AC-4 and TC-223. That PR adds the counted proved constructor, and it has to update codegen's count-less KaniOutcome::proved callers (src/bounded_kani_corpus.rs:346, src/bounded_kani_replay.rs:74) at the same time. The team leader recorded it on IR-22 (comment 05d2a160). No spec text in this PR is wrong. |
+| FND-009 | fixed | resolved |
+| FND-010 | deferred | This belongs to the Contract IR code PR that implements FR-030-AC-4 and TC-223. That PR adds the counted proved constructor, and it has to update codegen's count-less KaniOutcome::proved callers (src/bounded_kani_corpus.rs:346, src/bounded_kani_replay.rs:74) at the same time. The team leader recorded it on IR-22. No spec text in this PR is wrong. |

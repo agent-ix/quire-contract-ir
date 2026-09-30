@@ -3,7 +3,7 @@ id: SR-051
 title: "Scope-boundary review of native predicate to TL projection"
 type: SpecReview
 analysis: scope-boundary
-scope: "issue #63 ownership against native frontend, Contract IR, tl-syntax, issue #64 and output-only issue #57 at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "issue #63 ownership against native frontend, Contract IR, tl-syntax, issue #64 and output-only issue #57"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

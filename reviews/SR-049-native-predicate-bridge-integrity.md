@@ -3,7 +3,7 @@ id: SR-049
 title: "Integrity review of native predicate to TL projection"
 type: SpecReview
 analysis: integrity
-scope: "PredicateRef, result_projection_ref, sibling artifact refs, projection_set_ref, source-result authority and supersession at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "PredicateRef, result_projection_ref, sibling artifact refs, projection_set_ref, source-result authority and supersession"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

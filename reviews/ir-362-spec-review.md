@@ -3,14 +3,14 @@ id: SR-601
 title: "spec review of PR 221 (schema 1.1 only, no registered migration)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c66dc211eae993347ec39dadf7fc398ee6ad42bf; spec/contract/FR-016-canonicalization-digests.md, spec/contract/FR-017-version-orphan-coverage.md, spec/contract/FR-018-conformance-corpus.md, spec/contract/STD-001-diagnostic-registry.md, spec/interface/FR-019-rust-library-interface.md, spec/interface/FR-020-json-conformance-interface.md, spec/nonfunctional/NFR-003-diagnostic-integrity.md, spec/stakeholder/StR-002-portable-interchange.md, spec/contract-test-matrix.md, spec/contract/FR-011-package-identity.md (context)"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-016-canonicalization-digests.md, spec/contract/FR-017-version-orphan-coverage.md, spec/contract/FR-018-conformance-corpus.md, spec/contract/STD-001-diagnostic-registry.md, spec/interface/FR-019-rust-library-interface.md, spec/interface/FR-020-json-conformance-interface.md, spec/nonfunctional/NFR-003-diagnostic-integrity.md, spec/stakeholder/StR-002-portable-interchange.md, spec/contract-test-matrix.md, spec/contract/FR-011-package-identity.md (context)"
 review_set: base
 ---
 # SR-601: spec review of PR 221
 
 ## Summary
 
-Ticket: IR-362. Reviews the spec-only diff of PR 221 against origin/main (7caa62c). Owner decision: schema 1.1 is the only supported version, every other version fails `unsupported_schema_version`, no migration, no 1.0 reader. Spec/code disagreement on migration items is expected (code follows in a separate PR) and is not flagged here. Checked: residual migration / 1.0 / `migration_receipt` / `unregistered_migration` text, cross-document consistency of FR-016..FR-020, STD-001, NFR-003, StR-002 and the matrix, the boundary-token rename, and AC testability. `make spec`: validate 243/243 grammar-clean; coverage 22 unbacked rows, the same set as origin/main, none new.
+Ticket: IR-362. Reviews the spec-only diff of PR 221 against origin/main. Owner decision: schema 1.1 is the only supported version, every other version fails `unsupported_schema_version`, no migration, no 1.0 reader. Spec/code disagreement on migration items is expected (code follows in a separate PR) and is not flagged here. Checked: residual migration / 1.0 / `migration_receipt` / `unregistered_migration` text, cross-document consistency of FR-016..FR-020, STD-001, NFR-003, StR-002 and the matrix, the boundary-token rename, and AC testability. `make spec`: validate 243/243 grammar-clean; coverage 22 unbacked rows, the same set as origin/main, none new.
 
 ## Findings
 

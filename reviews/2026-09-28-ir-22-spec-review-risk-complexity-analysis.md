@@ -3,7 +3,7 @@ id: SR-590
 title: "PR #202 risk and complexity review"
 type: SpecReview
 analysis: risk-complexity
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 ---
 # SR-590: PR #202 risk and complexity review
@@ -14,7 +14,7 @@ Risk and volatility analysis.
 
 Ticket: IR-22.
 
-The main volatility is OQ-2 (moving the family lowerings to codegen) and OQ-1 (glob versus explicit re-exports). Each changes FR-039's table, and FR-039 already flags both with a placement note. OQ-3 depends on a QSL change to `TerminalValue`. This is recorded as an open question with options rather than as a gate, so Contract IR work does not wait on QSL. FR-040 restates QSpec text that was accepted recently (the QSpec origin/main head is `e56756f`, STD-111). If QSpec revises FR-340, FR-341 or FR-342, FR-040 drifts. The mitigation is that TC-056 reads QSpec's published fixtures at run time under `make qspec-vectors` rather than copying them.
+The main volatility is OQ-2 (moving the family lowerings to codegen) and OQ-1 (glob versus explicit re-exports). Each changes FR-039's table, and FR-039 already flags both with a placement note. OQ-3 depends on a QSL change to `TerminalValue`. This is recorded as an open question with options rather than as a gate, so Contract IR work does not wait on QSL. FR-040 restates QSpec text that was accepted recently (STD-111). If QSpec revises FR-340, FR-341 or FR-342, FR-040 drifts. The mitigation is that TC-056 reads QSpec's published fixtures at run time under `make qspec-vectors` rather than copying them.
 
 Scope examined (all 29 changed files):
 

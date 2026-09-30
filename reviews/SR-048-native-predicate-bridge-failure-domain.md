@@ -3,7 +3,7 @@ id: SR-048
 title: "Failure-domain review of native predicate to TL projection"
 type: SpecReview
 analysis: failure-domain
-scope: "projection/valuation decisions, strict decode, result availability, completeness, resource and correction cases at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "projection/valuation decisions, strict decode, result availability, completeness, resource and correction cases"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

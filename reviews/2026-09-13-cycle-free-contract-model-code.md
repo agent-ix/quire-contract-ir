@@ -15,8 +15,7 @@ relationships:
 ## Summary
 
 The review evaluated the complete cycle-free package split and compatibility
-boundary at `a07ed49a6ecac5275fe223ae8aa18de40c4d23b3` against
-`58f834be44927e31755b3abf797a35fb9cace507`. The final implementation retains
+boundary. The final implementation retains
 one semantic source, keeps owners outside the model and production bridge
 closure, and proves the exact real-QSL composition with a clean-run-reproducible
 locked fixture.
@@ -31,9 +30,7 @@ remains.
 
 `AP-001` (`spec/assurance/AP-001-contract-ir-v01.md`) applies to this identified
 v0.1 source candidate because the split can affect semantic-drift,
-false-coverage and canonical-identity controls. The review evaluated candidate
-`a07ed49a6ecac5275fe223ae8aa18de40c4d23b3`, comparison base
-`58f834be44927e31755b3abf797a35fb9cace507`, every changed Cargo/Make/CI path,
+false-coverage and canonical-identity controls. The review evaluated the candidate, every changed Cargo/Make/CI path,
 the moved model sources, compatibility re-export, TC-041 fixtures and the
 FR-028 matrix rows. `AD-001`, `CAC-001`, `MP-001` and active `AA-001` were
 available, but the first three remain proposed and `AA-001` retains an open

@@ -33,8 +33,7 @@ backed; no scoped task, matrix, reverse-trace, stub or public-behavior gap remai
 
 ## Coverage
 
-- Reconciliation: `quire coverage` 0.32.0, engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: `quire coverage` 0.32.0.
 - Plan tasks done: 3/3; dependency order is TASK-025 → TASK-026 → TASK-027.
 - Scoped acceptance criteria backed: 14/14 — FR-032 4/4, FR-033 5/5 and
   FR-034 5/5.

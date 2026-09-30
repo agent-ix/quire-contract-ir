@@ -5,7 +5,6 @@ type: SpecReview
 analysis: gap-analysis
 scope: "plan/issue-53-formal-profile-qualification.md, ADR-0053, TM-002, PR #72 diff"
 review_set: subset
-evaluated_revision: "935c5cd"
 review_date: "2026-09-13"
 relationships:
   - { target: ix://agent-ix/quire-contract-ir/PLAN-006, type: reviews }
@@ -33,7 +32,7 @@ gap remains for Contract-IR #53.
 ## Coverage
 
 - Reconciliation: `quire coverage --scope . --json`, Quire CLI 0.32.0,
-  engine `0.46.0@a874fb64`, installed `spec-artifacts-process` trace model; no
+  engine 0.46.0, installed `spec-artifacts-process` trace model; no
   grep fallback.
 - PLAN-006 decision checklist: 6 / 6 done; plan status `done`.
 - Relevant existing Contract IR semantic rows: FR-012 through FR-016 remain

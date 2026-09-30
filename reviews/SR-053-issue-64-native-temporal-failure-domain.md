@@ -15,7 +15,7 @@ relationships:
 
 The failure-domain review challenged identity authority, missing valuations,
 partial traces, progress/closure confusion, contradictory results, and late
-supersession at exact snapshot `558c4dc`. Four material gaps were fixed without
+supersession. Four material gaps were fixed without
 moving evaluation or observation ownership into Contract IR.
 
 ## Findings

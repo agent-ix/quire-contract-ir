@@ -3,7 +3,7 @@ id: SR-592
 title: "PR #205 FR-040 and FR-038-AC-40 gap analysis"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@97bcea493dbc71b1785ba67d25ff632a2f8fd141; FR-040-AC-1..13, FR-038-AC-22, FR-038-AC-40; TC-056, TC-057; tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_node_identity_vectors.rs, crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs, crates/quire-contract-model/src/checked_package/v2/frame.rs (tests)"
+scope: "agent-ix/quire-contract-ir; FR-040-AC-1..13, FR-038-AC-22, FR-038-AC-40; TC-056, TC-057; tests/it/checked_package_v2_frame_entries.rs, tests/it/checked_package_v2_node_identity_vectors.rs, crates/quire-contract-model/src/checked_package/v2/operations/model_member_vectors.rs, crates/quire-contract-model/src/checked_package/v2/frame.rs (tests)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-040
@@ -20,9 +20,9 @@ relationships:
 Ticket: IR-89.
 
 Each acceptance criterion was traced to the tests that back it. The oracle
-strength of each test was checked against QSpec origin/main `e56756f`.
+strength of each test was checked against QSpec origin/main.
 
-`quire coverage --scope . --strict` at `97bcea4` reports 20 unbacked rows
+`quire coverage --scope . --strict` reports 20 unbacked rows
 (origin/main reports 37). None of the 20 is an FR-040, TC-056, TC-057 or
 FR-038-AC-40 row, and FR-040 is 13/13. The exit code is 1 because of the 20
 pre-existing unbacked rows, which belong to FR-036, FR-037, FR-039 and FR-344.
@@ -62,19 +62,19 @@ caught SR-591 FND-001.
 
 ## Dispositions
 
-Round 1, reviewed at `1d89455fc04ddfb60cd2ac932886f1b223cd3688` (rebased on origin/main `a38f3db`).
+Round 1.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 1d89455 |
-| FND-002 | fixed | 1d89455 |
-| FND-003 | fixed | 1d89455 |
-| FND-004 | fixed | 1d89455 |
-| FND-005 | fixed | 24f0eae (round 3, reviewed at c877c64) |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
+| FND-005 | fixed | resolved |
 
 ## New findings (disposition pass 2)
 
-Round 2, reviewed at `995bd4bec7fe526c7891f728044fec4c2e7d469e`. FND-001 and FND-004 stay fixed: the tests are kept and still pass. The test code behind FND-002 and FND-003 was deleted by owner order, so those two need no further action.
+Round 2. FND-001 and FND-004 stay fixed: the tests are kept and still pass. The test code behind FND-002 and FND-003 was deleted by owner order, so those two need no further action.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

@@ -3,7 +3,7 @@ id: SR-602
 title: "gap analysis of PR 221 (schema 1.1 only, no registered migration)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@c66dc211eae993347ec39dadf7fc398ee6ad42bf; spec/contract/FR-016..FR-018, spec/contract/STD-001, spec/interface/FR-019, spec/interface/FR-020, spec/nonfunctional/NFR-003, spec/stakeholder/StR-002, spec/contract-test-matrix.md; code read for follow-up inventory: crates/quire-contract-model/src, schemas, corpus/contract-v0.1, scripts/generate_conformance_corpus.py, tests"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-016..FR-018, spec/contract/STD-001, spec/interface/FR-019, spec/interface/FR-020, spec/nonfunctional/NFR-003, spec/stakeholder/StR-002, spec/contract-test-matrix.md; code read for follow-up inventory: crates/quire-contract-model/src, schemas, corpus/contract-v0.1, scripts/generate_conformance_corpus.py, tests"
 review_set: base
 ---
 # SR-602: gap analysis of PR 221
@@ -12,7 +12,7 @@ review_set: base
 
 Ticket: IR-362. Planless gap analysis. Plan completion: not assessed. The diff is spec-only; the owner deferred the code change to a follow-up PR, so spec/code disagreement on migration items is excluded from findings. Instead this records every code, corpus, schema, script and test location the follow-up must change. `make spec`: validate passes (243/243); coverage reports 22 unbacked rows and 0 contradicted statuses, the same rows as origin/main (FR-036/037/039/344 and their ACs, TC-045/055/058/222, FR-019-AC-5); none is new and none belongs to an AC this PR edits.
 
-Follow-up inventory (reviewed sha c66dc21):
+Follow-up inventory:
 
 - crates/quire-contract-model/src/identity.rs:82 remove `UnregisteredMigration` from the DiagnosticCode registry (drops it from `DiagnosticCode::ALL` and the inventory).
 - crates/quire-contract-model/src/identity.rs:368 remove `SchemaVersion::V1_0`.

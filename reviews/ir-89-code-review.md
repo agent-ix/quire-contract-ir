@@ -3,7 +3,7 @@ id: SR-591
 title: "PR #205 code and Rust review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir@97bcea493dbc71b1785ba67d25ff632a2f8fd141; crates/quire-contract-model/src/checked_package/v2/ (frame.rs, state.rs, structural.rs, mod.rs, operations.rs, model_members.rs, identity.rs, vocabulary.rs, lower.rs), Cargo.toml, Cargo.lock, Makefile, tests/it/ (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/ (frame.rs, state.rs, structural.rs, mod.rs, operations.rs, model_members.rs, identity.rs, vocabulary.rs, lower.rs), Cargo.toml, Cargo.lock, Makefile, tests/it/ (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-040
@@ -15,7 +15,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-89. PR agent-ix/quire-contract-ir#205, head `97bcea4`. The review
+Ticket: IR-89. PR agent-ix/quire-contract-ir#205. The review
 covers code-review with the rust-review lane folded in.
 
 Examined units:
@@ -31,10 +31,10 @@ Examined units:
 - `v2/mod.rs`: `locate_in_preimage` remap and reader order.
 - `v2/identity.rs`: `ModelOwner.version`.
 - `v2/vocabulary.rs`: the 15 model forms and the new closed vocabularies.
-- Catalog bump `61f4a44` to `4c49706`.
+- The catalog bump.
 - The `string-edge` markers.
 
-Measured by the reviewer at `97bcea4`, with its own logs and exit codes:
+Measured by the reviewer, with its own logs and exit codes:
 
 | Gate | Exit |
 | --- | --- |
@@ -45,7 +45,7 @@ Measured by the reviewer at `97bcea4`, with its own logs and exit codes:
 | model doctests | 0 |
 | `make corpus` | 0 |
 | `make audit-unsafe` | 0 |
-| `make qspec-vectors` against quire-specification `e56756f` | 0 (13 of 13 conformance lines) |
+| `make qspec-vectors` against quire-specification | 0 (13 of 13 conformance lines) |
 
 ## Verdict
 
@@ -82,20 +82,20 @@ quadratic duplicate check.
 
 ## Dispositions
 
-Round 1, reviewed at `1d89455fc04ddfb60cd2ac932886f1b223cd3688` (rebased on origin/main `a38f3db`).
+Round 1.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 1d89455 |
-| FND-002 | fixed | 1d89455 |
-| FND-003 | fixed | 1d89455 |
-| FND-004 | fixed | 1d89455 |
-| FND-005 | fixed | 83670e7 (round 3, reviewed at c877c64) |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
+| FND-005 | fixed | resolved |
 
 ## New findings (disposition pass 2)
 
-Round 2, reviewed at `995bd4bec7fe526c7891f728044fec4c2e7d469e`. No reader (non-test) code changed since `1d89455`, so FND-001 to FND-004 stay fixed.
+Round 2. No reader (non-test) code changed since round 1, so FND-001 to FND-004 stay fixed.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | A comment still says "QSpec's published `frame_mutations` are replayed by TC-056", but that replay was deleted in `4ee698d`. | tests/it/checked_package_v2_frame_bodies.rs:68-69 |
+| FND-005 | low | A comment still says "QSpec's published `frame_mutations` are replayed by TC-056", but that replay was deleted. | tests/it/checked_package_v2_frame_bodies.rs:68-69 |

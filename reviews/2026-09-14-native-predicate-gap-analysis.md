@@ -16,8 +16,7 @@ relationships:
 
 ## Summary
 
-The targeted QCI allocation of PLAN-010 Task-006 is implemented at candidate
-`db6bbf551d5e321c8051011d63221e03e9bfaece`: checked native predicates project
+The targeted QCI allocation of PLAN-010 Task-006 is implemented: checked native predicates project
 bijectively into strict-read TL Boolean artifacts, and runtime values come only
 from exact owner availability and mapped-result views. Projection and valuation
 fail closed without partial output, alternate parsing/evaluation or Boolean
@@ -38,8 +37,7 @@ are not counted as complete here.
 
 ## Coverage
 
-- Reconciliation: `quire coverage` 0.32.0, engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: `quire coverage` 0.32.0.
 - Scoped implementation allocation: 1/1 complete for PLAN-010 Task-006.
 - FR-025 acceptance criteria backed: 8/8.
 - TC-038 source symbols: 16 executing Rust tests across artifact join,

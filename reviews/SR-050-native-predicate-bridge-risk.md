@@ -3,7 +3,7 @@ id: SR-050
 title: "Risk and complexity review of native predicate to TL projection"
 type: SpecReview
 analysis: risk-complexity
-scope: "cross-repository canonical wire, 10k populations, strict readers, failure injection and dependency volatility at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "cross-repository canonical wire, 10k populations, strict readers, failure injection and dependency volatility"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

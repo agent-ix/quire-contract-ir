@@ -43,8 +43,7 @@ with no reverse gap or broader finite-to-unbounded qualification claim.
 
 ## Coverage
 
-- Reconciliation: `quire coverage --scope . --json` with Quire 0.32.0 / engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: `quire coverage --scope . --json` with Quire 0.32.0.
 - TM-002 Test Case Summary: 16/16 rows backed; targeted FR-029, FR-030, FR-031
   and TC-042 have zero unbacked rows and zero status lies.
 - TC-042 execution: 13/13 focused Rust tests passed across

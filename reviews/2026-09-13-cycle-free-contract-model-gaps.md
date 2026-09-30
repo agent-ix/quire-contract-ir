@@ -35,8 +35,7 @@ remains.
 
 ## Coverage
 
-- Reconciliation: `quire coverage` 0.32.0, engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: `quire coverage` 0.32.0.
 - Scoped QCI implementation allocation: 1/1 complete; the umbrella Task-012
   merge/status transition is tracked in `tl-syntax` and is not silently counted
   as promoted here.

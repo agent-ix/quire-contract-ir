@@ -5,7 +5,7 @@ type: SpecReview
 analysis: base
 scope: "QCI #106; FR-038; TC-048, TC-050; TM-002 FR-038/TC-048/TC-050 rows; PLAN-009 E01b"
 review_set: subset
-evaluated_revision: "agent-e/106-v2-model-domain-package based on 48e0cdc"
+evaluated_revision: "agent-e/106-v2-model-domain-package"
 review_date: "2026-09-17"
 ---
 # Base review of CheckedPackage V2 consumption
@@ -13,7 +13,7 @@ review_date: "2026-09-17"
 ## Summary
 
 PASS after fixes. FR-038 is the sole consumer requirement for the admitted
-QSpec I04 V2 contract (`5626bc8f`). Every acceptance criterion is verified by
+QSpec I04 V2 contract. Every acceptance criterion is verified by
 exactly one planned test case, and the normative QSpec criteria
 FR-322-AC-4/8/10/11, FR-201-AC-5 and FR-195-AC-1..5 each map to an FR-038
 criterion.

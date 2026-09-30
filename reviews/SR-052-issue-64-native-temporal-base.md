@@ -15,8 +15,7 @@ relationships:
 
 ## Summary
 
-The base review examined immutable specification snapshot
-`558c4dccbed3128922517e2ec49cf6779817e9b6`. FR-026 now specifies an exact
+The base review examined the immutable specification snapshot. FR-026 now specifies an exact
 native-Quire-to-TL formula, valuation, trace, request, correspondence, and
 result-join boundary. The specification is reviewable and fail-closed;
 implementation remains planned and blocked on the declared public authorities.
@@ -25,7 +24,7 @@ implementation remains planned and blocked on the declared public authorities.
 
 | ID | Severity | Summary | Refs | Escape Cause |
 |---|---|---|---|---|
-| FND-6401 | high | **Fixed:** the carried review files were mechanical renames whose contents reviewed an earlier, materially smaller proposal. SR-052 through SR-059 now review exact snapshot `558c4dc` and its actual FR-026 interface. | SR-052 through SR-059; FR-026 | correct-requirement-no-evidence |
+| FND-6401 | high | **Fixed:** the carried review files were mechanical renames whose contents reviewed an earlier, materially smaller proposal. SR-052 through SR-059 now review the exact snapshot and its actual FR-026 interface. | SR-052 through SR-059; FR-026 | correct-requirement-no-evidence |
 | FND-6402 | high | **Fixed:** the prior public record stopped at formula/correspondence identity and a flattened result progress field. FR-026 now defines complete valuation, TL trace/request, both progress and closure axes, truth, settlement, support, completeness, and predecessor bindings. | FR-026 Public v1 records; Valuation, trace and evaluator request; Progress, closure and result joining | missing-requirement |
 | FND-6403 | medium | **Fixed:** TC-039 did not enumerate the new trace/request and result-axis obligations. Its planned corpus now mutates every artifact and result binding dimension while retaining a truthful dependency-blocked status. | TM-002 TC-039; FR-026-AC-1 through FR-026-AC-8 | correct-requirement-no-evidence |
 
@@ -52,8 +51,7 @@ qualification, hosted-CI evidence, or release readiness.
 
 ## Independent Audit
 
-Three read-only audits reported no remaining finding on exact snapshot
-`558c4dccbed3128922517e2ec49cf6779817e9b6`: temporal semantics;
+Three read-only audits reported no remaining finding on the exact snapshot: temporal semantics;
 cross-repository contract and diagnostic consistency; and
 M0/admission/matrix stranding.
 

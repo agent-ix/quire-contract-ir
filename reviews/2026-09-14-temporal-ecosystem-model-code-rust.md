@@ -16,10 +16,9 @@ relationships:
 
 ## Summary
 
-The review evaluated exact candidate
-`60cc38be060821ef64b150b5017d0cddf48978f3` against FR-027, AD-001,
-PLAN-007, TC-040 and the complete diff from merged base
-`69ec82bf4da1bdbee710544a4570c2042dc781a5`. The candidate implements a
+The review evaluated the candidate
+against FR-027, AD-001,
+PLAN-007, TC-040 and the complete diff from the merged base. The candidate implements a
 closed nine-repository manifest, typed ownership/dependency/evidence graph,
 deterministic bounded model, independent re-exporting reader and descriptive
 proposal value. It exercises the real predicate and temporal owner path but
@@ -45,7 +44,7 @@ finding found during review was repaired. No actionable scoped finding remains.
 | FND-6507 | low | **FIXED:** the first schema node maximum was miscomputed and did not declare unique arrays. Both immutable schemas now match the closed maxima and require unique node/edge/gap populations and topological identities. | `schemas/temporal-ecosystem-*.schema.json` |
 | FND-6508 | low | **FIXED:** authority-boundary coverage inspected the API but did not compile a forbidden consumer. Compile-fail doctests now prove checked manifests cannot be forged and validated models expose no acceptance transition. | `src/ecosystem_model/manifest.rs`; `src/ecosystem_model/reader.rs` |
 | FND-6509 | low | **FIXED:** the initial example manifest selected only its two new document contracts. It now retains every exact predicate and temporal owner contract exercised by the end-to-end path. | `tests/ecosystem_model.rs`; FR-027-AC-1/5 |
-| FND-6512 | medium | **FIXED after promotion:** GitHub's required rebase merge rewrote the reviewed implementation commit, so the candidate manifest revision was not reachable from `main`. The manifest now selects promoted implementation commit `0c450731626f40fd90c99e787cc0f7f5e053904c`; its tree is byte-identical to reviewed implementation commit `4da7c1d172d232735a9e53514e811a9512c8228f`. | PR #79; `tests/ecosystem_model.rs` |
+| FND-6512 | medium | **FIXED after promotion:** GitHub's required rebase merge rewrote the reviewed implementation commit, so the candidate manifest revision was not reachable from `main`. The manifest now selects the promoted implementation commit, whose tree is byte-identical to the reviewed implementation commit. | PR #79; `tests/ecosystem_model.rs` |
 
 ## Rust Review
 
@@ -89,11 +88,3 @@ are fully backed, and Quire reports zero unbacked matrix rows, status lies or
 untracked symbols. The seven remaining repository-wide denominator gaps are
 pre-existing NFR portability/toolchain rows outside PLAN-007.
 
-## Promotion Reconciliation
-
-PR #79 rebase-merged as `73fa159aae46bf830809faf3320619ada37840f6`.
-GitHub rewrote the three commit identities while preserving their trees:
-implementation `4da7c1d` became `0c45073`, manifest pin `60cc38b` became
-`0950c5a`, and review closure `4cf582b` became `73fa159`. The follow-up changes
-only the selected QCI revision in TC-040 and this audit record; it does not
-alter the reviewed production implementation or either immutable schema.
