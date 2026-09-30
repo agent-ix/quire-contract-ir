@@ -41,3 +41,21 @@ What was measured: the new test passes at the PR head. With the one-line fix rev
 ## Verdict
 
 The fix is correct and minimal. It is the smallest change that makes `same_type` follow FR-322, and it introduces no new false refusal or false admit: for non-`reference` operands, behaviour is unchanged. Mergeable. FND-001 is pre-existing and should be deferred to a follow-up ticket. FND-002 and FND-003 are low.
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@82bea50be15fe315027e93a59eef49d02a756517.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | Nothing tests the widening of `argument_family` to `literal`/`application` terms. It newly subjects those operands to the operand-position family checks. With the widening reverted, `cargo test --workspace --all-targets` stays green (177 + 50). The literal type pins that `check_mode_type` now reads through `operand_type_node` have no test either | crates/quire-contract-model/src/checked_package/v2/operations.rs:662 |
+| FND-005 | low | `argument_family` gives a clause application the family of its declared `result_type`, `boolean`. FR-322 says a clause application's family is `clause`, which only `any_term` admits. So a clause application at a `boolean`/`any_value` position, or compared by `same_family` with a boolean, is admitted. There is no false refusal, because no catalog position requires `clause` alone, and the outcome equals the old skip | crates/quire-contract-model/src/checked_package/v2/operations.rs:662-665 |
+| FND-006 | low | The `argument_family` doc comment still says that only `reference` and `binding` resolve and that "Every other term shape is not resolved". `literal` and `application` now resolve too | crates/quire-contract-model/src/checked_package/v2/operations.rs:643-654 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 82bea50 |
+| FND-002 | fixed | 82bea50 |
+| FND-003 | fixed | 82bea50 |

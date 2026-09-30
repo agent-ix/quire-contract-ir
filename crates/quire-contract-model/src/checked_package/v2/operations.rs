@@ -657,10 +657,13 @@ fn operation_defect(
 /// one of those (a `value` node — a literal, a `record_value`, ...), falls
 /// back to its own `semantic_type` (recursing through `bounded_domain`
 /// refinements, e.g. a `float_rounding`/`text_bounds` wrapper, to the family
-/// it refines). `binding` is the catalog's `binder` family
-/// (`quire.op.collection.sum.*`'s bound variable). Every other term shape is
-/// not resolved (`None`), so a caller skips the check it would otherwise
-/// support rather than guess.
+/// it refines). A `literal` resolves through its declared `type` and an
+/// `application` through its `result_type`, except that a clause application
+/// (a catalogued `clause` result) has family `clause`. `binding` is the
+/// catalog's `binder` family (`quire.op.collection.sum.*`'s bound
+/// variable). Every other term shape, and any term whose type does not
+/// resolve, is not resolved (`None`), so a caller skips the check it would
+/// otherwise support rather than guess.
 fn argument_family(
     argument: &Value,
     nodes: &[CheckedSemanticNodeV2],
@@ -668,6 +671,7 @@ fn argument_family(
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
     match body_term(argument) {
+        Some(BodyTerm::Application) if is_clause_application(argument) => Some("clause"),
         Some(BodyTerm::Reference | BodyTerm::Literal | BodyTerm::Application) => {
             let type_node = operand_type_node(argument, nodes, kinds, index)?;
             resolve_family(&type_node, nodes, kinds, index, 0)
@@ -679,6 +683,16 @@ fn argument_family(
         // `quire.op.function.call` callee, so no operand check reads it.
         Some(BodyTerm::Aggregate | BodyTerm::DependencyReference | BodyTerm::Frame) | None => None,
     }
+}
+
+/// Whether an `application` term's catalogued operation has result `clause`.
+fn is_clause_application(argument: &Value) -> bool {
+    argument
+        .get("operation")
+        .and_then(|operation| operation.get("identity"))
+        .and_then(Value::as_str)
+        .and_then(|identity| operation_catalog().entry(identity))
+        .is_some_and(|entry| &*entry.result == "clause")
 }
 
 /// The node a `reference` term names, unresolved; `None` for any other term.
@@ -2892,6 +2906,122 @@ mod tests {
             defect(literal('p'), untyped).0,
             Ok(None),
             "an operand that resolves to no type is not decided"
+        );
+    }
+
+    /// Literal and nested-application operands take part in the family and
+    /// mode-pin checks: a literal typed as another family than its operand
+    /// position is refused at that argument, a literal whose type pins a
+    /// different `rounding` than the operation's mode is refused as
+    /// `operation-mode-type-mismatch`, and a clause application has family
+    /// `clause`, so it fits no `boolean` position.
+    #[test]
+    fn operation_defect_checks_literal_and_application_operands() {
+        let typed_literal = |type_byte: char| {
+            json!({
+                "term": "literal",
+                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "value": 1,
+            })
+        };
+        let scalar_node = |id_byte: char, form: &str| {
+            graph_node(
+                id_byte,
+                "scalar_type",
+                form,
+                &node_id(id_byte),
+                json!({ "term": "aggregate", "members": [] }),
+            )
+        };
+
+        // Wrong family: `integer.add` over a Boolean literal.
+        let add = |first: Value| {
+            custom_application_node(
+                "binary",
+                plain_operation(CATALOGUED_IDENTITY),
+                vec![first, typed_literal('i')],
+            )
+        };
+        let graph = |root: CheckedSemanticNodeV2| {
+            vec![
+                root,
+                scalar_node('i', "integer"),
+                scalar_node('b', "boolean"),
+                scalar_node('5', "decimal"),
+            ]
+        };
+        assert_eq!(defect_for_graph(graph(add(typed_literal('i')))), Ok(None));
+        let root = add(typed_literal('b'));
+        let locus = root.node_id.clone();
+        assert_eq!(
+            defect_for_graph(graph(root)),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/0",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                locus,
+            ))),
+            "a Boolean literal at an integer position"
+        );
+
+        // Mode pin: a decimal literal whose type pins `nearest-even` under
+        // a `toward-zero` operation mode.
+        let pinned = graph_node(
+            '4',
+            "bounded_domain",
+            "decimal_range",
+            &node_id('5'),
+            json!({
+                "term": "aggregate",
+                "members": [{
+                    "term": "binding",
+                    "name": "rounding",
+                    "value": { "term": "literal", "value": "nearest-even" },
+                }],
+            }),
+        );
+        let mut operation = plain_operation(DECIMAL_ADD_IDENTITY);
+        operation["mode"] = json!({ "kind": "rounding", "value": "toward-zero" });
+        let root = custom_application_node(
+            "binary",
+            operation,
+            vec![typed_literal('4'), json!({ "term": "literal", "value": 0 })],
+        );
+        let locus = root.node_id.clone();
+        assert_eq!(
+            defect_for_graph(vec![root, pinned, scalar_node('5', "decimal")]),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/mode/value",
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                locus,
+            ))),
+            "a literal's own type pins the rounding mode"
+        );
+
+        // A clause application is `clause`, not its Boolean `result_type`.
+        let clause = json!({
+            "term": "application",
+            "operator": "state_clause",
+            "operation": plain_operation("quire.op.state.clause"),
+            "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest('b') },
+            "arguments": [],
+        });
+        let root = custom_application_node(
+            "unary",
+            plain_operation("quire.op.boolean.not"),
+            vec![clause],
+        );
+        let locus = root.node_id.clone();
+        assert_eq!(
+            defect_for_graph(graph(root)),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/0",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                locus,
+            ))),
+            "a clause application at a boolean position"
         );
     }
 
