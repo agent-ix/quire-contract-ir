@@ -1,6 +1,6 @@
 //! Exact I04 contract-version refusal before any decode.
 
-use super::common::{canonical_value, ValidationFailure};
+use super::common::{read_value, ValidationFailure};
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
@@ -45,7 +45,16 @@ fn dispatch(
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
-    let value = canonical_value(bytes, limits)?;
+    read_value(bytes, limits, |value| {
+        dispatch_value(value, limits, evidence)
+    })
+}
+
+fn dispatch_value(
+    value: Value,
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
     let version = match &value {
         Value::Object(members) => match members.get("contract_version") {
             Some(Value::String(version)) => version.clone(),

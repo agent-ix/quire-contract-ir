@@ -28,10 +28,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exceeds, first_difference, is_digest,
-    is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
-    ValidationFailure, NODE_DOMAIN,
+    count, decode_closed, digest_json, exceeds, first_difference, is_digest, is_nonempty,
+    node_pointer, read_value, validate_locked_artifact, validate_source_map_entries, validate_term,
+    ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
+    NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -539,9 +539,9 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        match canonical_value(bytes, limits)
-            .and_then(|value| Self::admit_value(value, limits, evidence))
-        {
+        match read_value(bytes, limits, |value| {
+            Self::admit_value(value, limits, evidence)
+        }) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(
                 CheckedPackageV2ReadResult::Refused,

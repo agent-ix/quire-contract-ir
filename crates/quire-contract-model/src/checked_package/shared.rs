@@ -14,8 +14,7 @@ pub struct CheckedPackageReadLimits {
     pub bytes: u64,
     /// Maximum JSON nesting depth, counting each container as one level and
     /// a scalar value as one level below its container: `[]` is depth 1,
-    /// `[1]` and `{"a":1}` are depth 2. The reader never admits more than
-    /// [`Self::MAXIMUM_DEPTH`]; a larger value here reads as that maximum.
+    /// `[1]` and `{"a":1}` are depth 2.
     pub depth: u64,
     /// Maximum semantic graph nodes.
     pub nodes: u64,
@@ -30,16 +29,11 @@ pub struct CheckedPackageReadLimits {
 }
 
 impl CheckedPackageReadLimits {
-    /// The deepest document the reader admits, whatever `depth` a caller
-    /// supplies: every stage after the first parse pass walks the value
-    /// recursively, and this ceiling bounds that recursion.
-    pub const MAXIMUM_DEPTH: u64 = 128;
-
     /// A finite default appropriate for one local request.
     pub const fn bounded() -> Self {
         Self {
             bytes: 1 << 20,
-            depth: Self::MAXIMUM_DEPTH,
+            depth: 128,
             nodes: 10_000,
             edges: 100_000,
             occurrences: 100_000,

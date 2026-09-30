@@ -2618,59 +2618,93 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
 /// Tracing: TC-048, FR-038-AC-3
 #[trace("TC-048", "FR-038-AC-3")]
 #[test]
-fn tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_members_pass() {
+fn tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_pass() {
     let evidence = evidence_for(&v2_all_families());
-    let limits = CheckedPackageReadLimits::bounded();
+    let with_depth = |depth: u64| CheckedPackageReadLimits {
+        bytes: 1 << 24,
+        depth,
+        ..CheckedPackageReadLimits::bounded()
+    };
     let incomplete_depth =
         |bytes: &[u8], limits| match CheckedPackageV2::read(bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
             other => panic!("expected depth incompleteness, got {other:?}"),
         };
-    // Two hundred nested arrays: past serde_json's own nesting cap of 128 as
-    // well as the depth limit. The measured depth is reported.
-    let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
-    // The charge fails at the first value one level past the limit.
-    let past_limit = "/0".repeat(128);
-    let expected = crate::support::checked_package::incomplete(
-        CheckedPackageLimit::Depth,
-        128,
-        200,
-        Some(&past_limit),
-    );
-    assert_eq!(incomplete_depth(deep.as_bytes(), limits), expected);
-    // A limit above the reader's maximum reads as that maximum, so a caller
-    // raising it cannot make the reader recurse past it: a document a
-    // hundred thousand levels deep is measured and reported, not parsed.
-    let raised = CheckedPackageReadLimits {
-        depth: 300,
-        ..limits
-    };
-    assert_eq!(incomplete_depth(deep.as_bytes(), raised), expected);
-    let very_deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
-    let unbounded = CheckedPackageReadLimits {
-        bytes: 1 << 24,
-        depth: u64::MAX,
-        ..limits
-    };
+    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    // Past serde_json's own nesting cap of 128, the caller's limit decides:
+    // the document is charged at the first value one level past it, and what
+    // is reported is the caller's limit, not the parser's.
+    let deep = nested(200);
+    for limit in [128_u64, 199] {
+        let past_limit = "/0".repeat(usize::try_from(limit).expect("small"));
+        assert_eq!(
+            incomplete_depth(deep.as_bytes(), with_depth(limit)),
+            crate::support::checked_package::incomplete(
+                CheckedPackageLimit::Depth,
+                limit,
+                200,
+                Some(&past_limit),
+            ),
+            "limit {limit}"
+        );
+    }
+    // A limit that admits the document reads it as the package it is not: it
+    // is refused as a malformed wire, not stopped for its depth.
+    for limit in [200_u64, 300, u64::MAX] {
+        assert_eq!(
+            refused_with(deep.as_bytes(), with_depth(limit), &evidence),
+            refusal(CheckedPackageRefusalCode::MalformedWire, ""),
+            "limit {limit}"
+        );
+    }
+    // A document a hundred thousand levels deep, under a limit that admits
+    // it, neither overflows the stack nor is refused for its depth.
+    let very_deep = nested(100_000);
     assert_eq!(
-        incomplete_depth(very_deep.as_bytes(), unbounded),
-        crate::support::checked_package::incomplete(
-            CheckedPackageLimit::Depth,
-            128,
-            100_000,
-            Some(&past_limit),
-        )
+        refused_with(very_deep.as_bytes(), with_depth(u64::MAX), &evidence),
+        refusal(CheckedPackageRefusalCode::MalformedWire, "")
     );
+    // The same holds for a V2 document whose unknown member holds the nesting,
+    // which reaches the decoder's own error paths, and for the version
+    // dispatch.
+    let most = 200_000;
+    let hidden = format!(
+        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
+        nested(most)
+    );
+    assert!(matches!(
+        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    let hidden = format!(
+        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
+        nested(100_000)
+    );
+    assert!(matches!(
+        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageDispatchResult::Refused(_)
+    ));
     // Syntax and member validation run before depth is charged: a syntax
     // error or a duplicate member anywhere in an over-deep document refuses.
     let malformed = format!("{}x{}", "[".repeat(200), "]".repeat(200));
     assert_eq!(
-        refused_bytes(malformed.as_bytes(), &evidence),
+        refused_with(malformed.as_bytes(), with_depth(128), &evidence),
         refusal_bytes(CheckedPackageRefusalCode::MalformedWire)
     );
     let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
     assert_eq!(
-        refused_bytes(duplicate.as_bytes(), &evidence),
+        refused_with(duplicate.as_bytes(), with_depth(128), &evidence),
         refusal(CheckedPackageRefusalCode::DuplicateMember, "/a")
     );
+}
+
+fn refused_with(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+) -> CheckedPackageRefusal {
+    match CheckedPackageV2::read(bytes, limits, evidence) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("expected V2 refusal, got {other:?}"),
+    }
 }
