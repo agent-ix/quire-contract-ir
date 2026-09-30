@@ -1,17 +1,10 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{path::PathBuf, process::Command};
 
 use ix_trace_rs::trace;
 use serde_json::Value;
 
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn metadata(manifest: &Path) -> Value {
+fn metadata() -> Value {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let output = Command::new(env!("CARGO"))
         .args([
             "metadata",
@@ -21,7 +14,7 @@ fn metadata(manifest: &Path) -> Value {
             "1",
             "--manifest-path",
         ])
-        .arg(manifest)
+        .arg(&manifest)
         .output()
         .expect("cargo metadata must start");
     assert!(
@@ -41,13 +34,11 @@ fn package<'a>(metadata: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("metadata must contain {name}"))
 }
 
-#[trace("TC-041", "FR-028-AC-1", "FR-028-AC-4")]
+#[trace("TC-041", "FR-028-AC-1", "FR-028-AC-3", "FR-028-AC-4")]
 #[test]
 fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
-    let repository = root();
-    let workspace = metadata(&repository.join("Cargo.toml"));
+    let workspace = metadata();
     let model = package(&workspace, "quire-contract-model");
-    let bridge = package(&workspace, "quire-contract-ir");
 
     let model_dependencies = model["dependencies"]
         .as_array()
@@ -71,106 +62,69 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
             !forbidden.contains(&name),
             "cycle-free model contains forbidden production dependency {name}"
         );
-        assert_eq!(dependency["kind"], Value::Null);
         assert_eq!(dependency["optional"], false);
     }
-    // FR-028 admits no optional feature that reintroduces an owner or bridge
-    // dependency. The one feature the model declares is the test-only
-    // `fault-injection` switch (FR-019), and it enables nothing.
-    assert_eq!(
-        model["features"],
-        serde_json::json!({ "fault-injection": [] })
-    );
 
-    let bridge_dependencies = bridge["dependencies"]
-        .as_array()
-        .expect("bridge dependencies must be an array");
-    assert!(bridge_dependencies.iter().any(|dependency| {
-        dependency["name"] == "quire-contract-model" && dependency["kind"] == Value::Null
-    }));
-    assert_eq!(
-        bridge["features"]
-            .as_object()
-            .map(|features| features.len()),
-        Some(0)
-    );
+    assert_spec_language_production_graph_excludes(&workspace, "quire-contract-ir");
+}
 
-    let packages = workspace["packages"]
+/// Walk the resolved graph from every `quire-spec-language` node over normal
+/// (non-dev, non-build) dependency edges and assert `target` is unreachable.
+fn assert_spec_language_production_graph_excludes(metadata: &Value, target: &str) {
+    let nodes = metadata["resolve"]["nodes"]
         .as_array()
-        .expect("workspace packages must be an array");
-    let names: BTreeMap<_, _> = packages
+        .expect("resolve nodes must be an array");
+    let name_of = |id: &str| -> String {
+        let package = metadata["packages"]
+            .as_array()
+            .expect("metadata packages must be an array")
+            .iter()
+            .find(|package| package["id"] == id)
+            .unwrap_or_else(|| panic!("metadata must contain package {id}"));
+        package["name"]
+            .as_str()
+            .expect("package names must be strings")
+            .to_owned()
+    };
+    let mut pending: Vec<String> = nodes
         .iter()
-        .map(|package| {
-            (
-                package["id"].as_str().expect("package id must be a string"),
-                package["name"]
-                    .as_str()
-                    .expect("package name must be a string"),
-            )
-        })
+        .filter_map(|node| node["id"].as_str())
+        .filter(|id| name_of(id) == "quire-spec-language")
+        .map(str::to_owned)
         .collect();
-    let resolve = workspace["resolve"]
-        .as_object()
-        .expect("workspace resolve must be an object");
-    let root_id = resolve["root"]
-        .as_str()
-        .expect("workspace root id must be a string");
-    let nodes: BTreeMap<_, _> = resolve["nodes"]
-        .as_array()
-        .expect("workspace resolve nodes must be an array")
-        .iter()
-        .map(|node| {
-            (
-                node["id"]
-                    .as_str()
-                    .expect("resolve node id must be a string"),
-                node,
-            )
-        })
-        .collect();
-    let mut production = BTreeSet::new();
-    let mut pending = vec![root_id];
-    while let Some(package_id) = pending.pop() {
-        if !production.insert(package_id) {
+    assert!(
+        !pending.is_empty(),
+        "graph must contain quire-spec-language"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id.clone()) {
             continue;
         }
+        assert_ne!(
+            name_of(&id),
+            target,
+            "{target} is reachable from quire-spec-language over production edges"
+        );
         let node = nodes
-            .get(package_id)
-            .expect("every production package must have a resolve node");
-        for dependency in node["deps"]
-            .as_array()
-            .expect("resolved dependencies must be an array")
-        {
-            let is_normal = dependency["dep_kinds"]
+            .iter()
+            .find(|node| node["id"] == id.as_str())
+            .unwrap_or_else(|| panic!("resolve must contain node {id}"));
+        for dependency in node["deps"].as_array().expect("node deps must be an array") {
+            let normal = dependency["dep_kinds"]
                 .as_array()
-                .expect("dependency kinds must be an array")
+                .expect("dep_kinds must be an array")
                 .iter()
                 .any(|kind| kind["kind"].is_null());
-            if is_normal {
+            if normal {
                 pending.push(
                     dependency["pkg"]
                         .as_str()
-                        .expect("dependency package id must be a string"),
+                        .expect("dependency pkg must be a string")
+                        .to_owned(),
                 );
             }
         }
-    }
-    for owner in [
-        "quire-observation",
-        "quire-protocol",
-        "quire-spec-language",
-        "tl-syntax",
-    ] {
-        assert!(
-            production.iter().any(|id| names[id] == owner),
-            "implemented FR-025 bridge must compile against production owner {owner}"
-        );
-        assert!(
-            bridge_dependencies
-                .iter()
-                .any(|dependency| dependency["name"] == owner && dependency["kind"] == Value::Null),
-            "bridge lacks production owner {owner}"
-        );
     }
 }
 
@@ -186,60 +140,5 @@ fn tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single() 
     assert_eq!(
         quire_contract_ir::CANONICAL_PROFILE,
         quire_contract_model::CANONICAL_PROFILE
-    );
-}
-
-#[trace("TC-041", "FR-028-AC-3")]
-#[test]
-fn tc_041_existing_contract_ir_imports_build_through_the_model_package_alias() {
-    let repository = root();
-    let manifest = repository.join("tests/fixtures/model-alias-consumer/Cargo.toml");
-    let output = Command::new(env!("CARGO"))
-        .args([
-            "check",
-            "--locked",
-            "--offline",
-            "--all-targets",
-            "--manifest-path",
-        ])
-        .arg(&manifest)
-        .arg("--target-dir")
-        .arg(repository.join("target/tc-041-model-alias"))
-        .output()
-        .expect("aliased model consumer check must start");
-    assert!(
-        output.status.success(),
-        "aliased model consumer failed to build: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[trace("TC-041", "FR-028-AC-3", "FR-028-AC-4", "FR-028-AC-5")]
-#[test]
-fn tc_041_bridge_and_real_qsl_owner_api_compose_without_a_cycle() {
-    let repository = root();
-    let manifest = repository.join("tests/fixtures/bridge-qsl-consumer/Cargo.toml");
-    let composition = metadata(&manifest);
-    package(&composition, "quire-spec-language");
-    let bridge = package(&composition, "quire-contract-ir");
-    assert_eq!(bridge["source"], Value::Null);
-
-    let output = Command::new(env!("CARGO"))
-        .args([
-            "check",
-            "--locked",
-            "--offline",
-            "--all-targets",
-            "--manifest-path",
-        ])
-        .arg(&manifest)
-        .arg("--target-dir")
-        .arg(repository.join("target/tc-041-bridge-qsl"))
-        .output()
-        .expect("bridge and QSL composition check must start");
-    assert!(
-        output.status.success(),
-        "bridge and QSL owner APIs failed to compose: {}",
-        String::from_utf8_lossy(&output.stderr)
     );
 }

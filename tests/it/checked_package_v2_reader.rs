@@ -579,9 +579,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let detail: Build = Box::new(|literal| {
         let mut changed = base.clone();
         let target = base["semantic_graph"]["nodes"][0]["node_id"].clone();
-        // FR-208's new `DiagnosticCausePairing` (added by this re-pin) requires
-        // `cause_tag: "invalid-value"` to pair with `code: "invalid_package"`,
-        // not `"ill_typed"` as this case used before.
+        // FR-208's `DiagnosticCausePairing` requires `cause_tag: "invalid-value"`
+        // to pair with `code: "invalid_package"`.
         changed["diagnostics"]["entries"] = json!([{
             "stage":"type_checking","code":"invalid_package","cause_tag":"invalid-value",
             "details":[{"term":"literal","type":target,"value_kind":"integer","value":literal}],"loci":[]

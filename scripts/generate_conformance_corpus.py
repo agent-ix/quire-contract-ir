@@ -16,7 +16,6 @@ import os
 import pathlib
 import shutil
 import subprocess
-import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "corpus" / "contract-v0.1"
@@ -495,45 +494,16 @@ def generate(corpus: pathlib.Path, runner: pathlib.Path) -> None:
         raise SystemExit("regenerated corpus does not match its own expectations")
 
 
-def compare_corpus(candidate: pathlib.Path) -> None:
-    expected_files = {
-        path.relative_to(DEFAULT_CORPUS) for path in DEFAULT_CORPUS.rglob("*") if path.is_file()
-    }
-    candidate_files = {
-        path.relative_to(candidate) for path in candidate.rglob("*") if path.is_file()
-    }
-    if expected_files != candidate_files:
-        raise SystemExit("regenerated corpus file census differs from checked-in corpus")
-    changed = [
-        path
-        for path in sorted(expected_files)
-        if (DEFAULT_CORPUS / path).read_bytes() != (candidate / path).read_bytes()
-    ]
-    if changed:
-        raise SystemExit(f"regenerated corpus differs: {', '.join(map(str, changed[:10]))}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
     parser.add_argument("--output", type=pathlib.Path)
     parser.add_argument("--runner", type=pathlib.Path, default=default_runner())
     args = parser.parse_args()
-    if args.check and args.output is not None:
-        parser.error("--check and --output are mutually exclusive")
-    if args.check:
-        with tempfile.TemporaryDirectory(prefix="quire-contract-corpus-") as directory:
-            candidate = pathlib.Path(directory) / "contract-v0.1"
-            candidate.mkdir()
-            shutil.copyfile(DEFAULT_CORPUS / "README.md", candidate / "README.md")
-            generate(candidate, args.runner)
-            compare_corpus(candidate)
-    else:
-        corpus = args.output or DEFAULT_CORPUS
-        if corpus != DEFAULT_CORPUS:
-            corpus.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(DEFAULT_CORPUS / "README.md", corpus / "README.md")
-        generate(corpus, args.runner)
+    corpus = args.output or DEFAULT_CORPUS
+    if corpus != DEFAULT_CORPUS:
+        corpus.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(DEFAULT_CORPUS / "README.md", corpus / "README.md")
+    generate(corpus, args.runner)
 
 
 if __name__ == "__main__":

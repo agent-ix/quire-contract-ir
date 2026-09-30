@@ -8,13 +8,12 @@ use quire_contract_ir::{
     MappingCandidate, MappingCause, MappingCondition, MappingDependencyKind, MappingDependencyRef,
     MappingDisposition, MappingExecutionControl, MappingLimits, MappingRequestError,
     MappingRequestErrorCode, MappingRuleDigest, MappingWorkBudget, ModelSourceSelection,
-    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, ObserverResultDigest,
-    OutputByteRegion, OutputCapability, OutputGeneratorIdentity, OutputMapper,
-    OutputMappingProfile, PackageId, ProtocolAdequacyRef, ProtocolAdequacyState,
-    RequestedMappingObligation, RequirementId, RequirementRef, RequirementRevision,
-    SemanticSourceSelection, SourceBytesDigest, SourceFactState, StructuralObservationOutcome,
-    StructuralObservationRef, StructuralObserverIdentity, TargetBytesDigest,
-    EXECUTABLE_PROJECTION_FORMAT,
+    NativeSourceSelection, ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion,
+    OutputCapability, OutputGeneratorIdentity, OutputMapper, OutputMappingProfile, PackageId,
+    ProtocolAdequacyRef, ProtocolAdequacyState, RequestedMappingObligation, RequirementId,
+    RequirementRef, RequirementRevision, SemanticSourceSelection, SourceBytesDigest,
+    SourceFactState, StructuralObservationOutcome, StructuralObservationRef,
+    StructuralObserverIdentity, TargetBytesDigest, EXECUTABLE_PROJECTION_FORMAT,
 };
 use serde_json::{json, Value};
 
@@ -1428,9 +1427,8 @@ fn tc_043_mapping_aggregates_accept_exact_and_refuse_just_over_bounds() {
     );
 }
 
-fn generator(version: &str) -> OutputGeneratorIdentity {
-    OutputGeneratorIdentity::new("agent-ix/quire-contract-ir", version)
-        .expect("Rust generator identity")
+fn generator() -> OutputGeneratorIdentity {
+    OutputGeneratorIdentity::new("agent-ix/quire-contract-ir").expect("Rust generator identity")
 }
 
 fn mapped(package: &BoundPackage, limits: MappingLimits) -> quire_contract_ir::CompletedMappings {
@@ -1447,18 +1445,11 @@ fn mapped(package: &BoundPackage, limits: MappingLimits) -> quire_contract_ir::C
 fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
     let package = bound_package();
     let mapped = mapped(&package, limits());
-    let generated = assemble_output_package(
-        &mapped,
-        generator("0.1.0"),
-        &MappingExecutionControl::active(),
-    )
-    .expect("generated output package");
-    let replay = assemble_output_package(
-        &mapped,
-        generator("0.1.0"),
-        &MappingExecutionControl::active(),
-    )
-    .expect("replayed output package");
+    let generated =
+        assemble_output_package(&mapped, generator(), &MappingExecutionControl::active())
+            .expect("generated output package");
+    let replay = assemble_output_package(&mapped, generator(), &MappingExecutionControl::active())
+        .expect("replayed output package");
 
     assert_eq!(generated, replay);
     assert_eq!(generated.target_bytes(), b"-- a_assert\n-- b_case\n");
@@ -1480,7 +1471,7 @@ fn tc_043_package_assembly_is_deterministic_complete_and_region_safe() {
         generated.source_package(),
         mapped.request().source_package()
     );
-    assert_eq!(generated.generator(), &generator("0.1.0"));
+    assert_eq!(generated.generator(), &generator());
 }
 
 /// Tracing: TC-043, FR-032-AC-1, FR-034-AC-1.
@@ -1516,12 +1507,9 @@ fn tc_043_common_assembly_accepts_each_exact_profile_without_claiming_target_sem
         let mut mapper = DeterministicMapper::new(profile.clone());
         let mapped = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
             .expect("target-neutral mapper coordination");
-        let generated = assemble_output_package(
-            &mapped,
-            generator("0.1.0"),
-            &MappingExecutionControl::active(),
-        )
-        .expect("target-neutral package assembly");
+        let generated =
+            assemble_output_package(&mapped, generator(), &MappingExecutionControl::active())
+                .expect("target-neutral package assembly");
         assert_eq!(generated.target_profile(), &profile);
     }
 }
@@ -1534,22 +1522,14 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     let baseline_mapped = mapped(&package, limits());
     let baseline = assemble_output_package(
         &baseline_mapped,
-        generator("0.1.0"),
+        generator(),
         &MappingExecutionControl::active(),
     )
     .expect("baseline package");
 
-    let changed_generator = assemble_output_package(
-        &baseline_mapped,
-        generator("0.1.1"),
-        &MappingExecutionControl::active(),
-    )
-    .expect("changed generator package");
-    assert_ne!(baseline.package_id(), changed_generator.package_id());
     let changed_owner = assemble_output_package(
         &baseline_mapped,
-        OutputGeneratorIdentity::new("agent-ix/another-generator", "0.1.0")
-            .expect("other generator owner"),
+        OutputGeneratorIdentity::new("agent-ix/another-generator").expect("other generator owner"),
         &MappingExecutionControl::active(),
     )
     .expect("changed generator owner package");
@@ -1580,7 +1560,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     .expect("changed-profile mapping");
     let changed_profile_package = assemble_output_package(
         &changed_profile_mapped,
-        generator("0.1.0"),
+        generator(),
         &MappingExecutionControl::active(),
     )
     .expect("changed-profile package");
@@ -1591,7 +1571,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     let changed_limits_mapped = mapped(&package, changed_limits);
     let changed_limits_package = assemble_output_package(
         &changed_limits_mapped,
-        generator("0.1.0"),
+        generator(),
         &MappingExecutionControl::active(),
     )
     .expect("changed limits package");
@@ -1609,7 +1589,7 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     .expect("changed target text mapping");
     let changed_text = assemble_output_package(
         &changed_text_mapped,
-        generator("0.1.0"),
+        generator(),
         &MappingExecutionControl::active(),
     )
     .expect("changed target text package");
@@ -1636,29 +1616,30 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     .expect("changed source mapping");
     let changed_source = assemble_output_package(
         &changed_source_mapped,
-        generator("0.1.0"),
+        generator(),
         &MappingExecutionControl::active(),
     )
     .expect("changed source package");
     assert_ne!(baseline.package_id(), changed_source.package_id());
 
-    for invalid_version in [
-        "not-semver",
-        "01.0.0",
-        "1.0.0-01",
-        "1.0.0-",
-        "1.0.0+",
-        "1.0.0+build+other",
+    for refused_owner in [
+        String::new(),
+        "x".repeat(257),
+        "agent ix".to_string(),
+        "agent-ix/\u{e9}".to_string(),
     ] {
-        assert_eq!(
-            OutputGeneratorIdentity::new("agent-ix/quire-contract-ir", invalid_version)
-                .expect_err("invalid generator semantic version accepted")
-                .code(),
-            MappingRequestErrorCode::InvalidGenerator
-        );
+        let error = OutputGeneratorIdentity::new(refused_owner.as_str())
+            .expect_err("invalid generator owner accepted");
+        assert_eq!(error.code(), MappingRequestErrorCode::InvalidGenerator);
+        assert_eq!(error.path(), "generator");
     }
-    OutputGeneratorIdentity::new("agent-ix/quire-contract-ir", "1.2.3-alpha.1+build.5")
-        .expect("valid generator semantic version");
+    assert_eq!(
+        OutputGeneratorIdentity::new("x".repeat(256))
+            .expect("256-byte generator owner is within the bound")
+            .owner()
+            .len(),
+        256
+    );
 }
 
 /// Tracing: TC-043, FR-034-AC-2, FR-034-AC-3, NFR-060.
@@ -1709,7 +1690,7 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
 
     let cancelled = MappingExecutionControl::cancelled();
     assert_eq!(
-        assemble_output_package(&mapped, generator("0.1.0"), &cancelled)
+        assemble_output_package(&mapped, generator(), &cancelled)
             .expect_err("cancelled assembly emitted a package")
             .code(),
         MappingRequestErrorCode::Cancelled
@@ -1721,7 +1702,7 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
     ] {
         let control = MappingExecutionControl::fail_allocation_at(point);
         assert_eq!(
-            assemble_output_package(&mapped, generator("0.1.0"), &control)
+            assemble_output_package(&mapped, generator(), &control)
                 .expect_err("allocation failure emitted a package")
                 .code(),
             MappingRequestErrorCode::AllocationFailed
@@ -1759,8 +1740,7 @@ fn tc_043_cancellation_and_allocation_failures_expose_no_package() {
 }
 
 fn observer() -> StructuralObserverIdentity {
-    StructuralObserverIdentity::new("agent-ix/observer", "example-parser", "1.0.0", "Apache-2.0")
-        .expect("qualified observer")
+    StructuralObserverIdentity::new("agent-ix/observer").expect("qualified observer")
 }
 
 /// Tracing: TC-043, FR-034-AC-4, FR-034-AC-5, NFR-061.
@@ -1769,46 +1749,45 @@ fn observer() -> StructuralObserverIdentity {
 fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let package = bound_package();
     let mapped = mapped(&package, limits());
-    let generated = assemble_output_package(
-        &mapped,
-        generator("0.1.0"),
-        &MappingExecutionControl::active(),
-    )
-    .expect("generated package");
+    let generated =
+        assemble_output_package(&mapped, generator(), &MappingExecutionControl::active())
+            .expect("generated package");
     let package_id = generated.package_id();
     let bytes = generated.target_bytes().to_vec();
     let records = generated.records().to_vec();
 
-    let accepted = StructuralObservationRef::accepted(
-        &generated,
-        observer(),
-        ObserverResultDigest::from_bytes(digest(25)),
+    for refused_owner in [
+        String::new(),
+        "x".repeat(257),
+        "agent ix".to_string(),
+        "agent-ix/\u{e9}".to_string(),
+    ] {
+        let error = StructuralObserverIdentity::new(refused_owner.as_str())
+            .expect_err("invalid observer owner accepted");
+        assert_eq!(error.code(), MappingRequestErrorCode::InvalidObserver);
+        assert_eq!(error.path(), "observer");
+    }
+    assert_eq!(
+        StructuralObserverIdentity::new("x".repeat(256))
+            .expect("256-byte observer owner is within the bound")
+            .owner()
+            .len(),
+        256
     );
+    let accepted = StructuralObservationRef::accepted(&generated, observer());
     let refused = StructuralObservationRef::refused(
         &generated,
-        StructuralObserverIdentity::new(
-            "agent-ix/observer",
-            "example-parser",
-            "2.0.0",
-            "proprietary-observation-rights",
-        )
-        .expect("changed observer identity"),
+        StructuralObserverIdentity::new("agent-ix/other-observer")
+            .expect("changed observer identity"),
         cause("observer-rights-unavailable"),
     );
     assert_eq!(accepted.package_id(), package_id);
     assert_eq!(accepted.outcome(), StructuralObservationOutcome::Accepted);
     assert_eq!(accepted.observer().owner(), "agent-ix/observer");
-    assert_eq!(accepted.observer().tool(), "example-parser");
-    assert_eq!(accepted.observer().version(), "1.0.0");
-    assert_eq!(accepted.observer().license(), "Apache-2.0");
-    assert_eq!(
-        accepted.result_digest(),
-        Some(ObserverResultDigest::from_bytes(digest(25)))
-    );
     assert_eq!(accepted.refusal_cause(), None);
     assert_eq!(refused.package_id(), package_id);
     assert_eq!(refused.outcome(), StructuralObservationOutcome::Refused);
-    assert_eq!(refused.result_digest(), None);
+    assert_eq!(refused.observer().owner(), "agent-ix/other-observer");
     assert_eq!(
         refused.refusal_cause().map(MappingCause::code),
         Some("observer-rights-unavailable")

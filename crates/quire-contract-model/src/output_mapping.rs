@@ -104,10 +104,6 @@ raw_digest_type!(
     TargetBytesDigest,
     "Raw SHA-256 digest of immutable generated target bytes."
 );
-raw_digest_type!(
-    ObserverResultDigest,
-    "Raw SHA-256 digest of exact structural observer result bytes."
-);
 
 fn hex_value(byte: u8) -> u8 {
     match byte {
@@ -530,53 +526,6 @@ impl OutputMappingProfile {
 
 fn valid_selection_member(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
-}
-
-fn valid_semantic_version(value: &str) -> bool {
-    let (core_and_pre, build) = match value.split_once('+') {
-        Some((core_and_pre, build)) => (core_and_pre, Some(build)),
-        None => (value, None),
-    };
-    if build
-        .is_some_and(|build| build.contains('+') || !build.split('.').all(valid_semver_identifier))
-    {
-        return false;
-    }
-    let (core, pre) = match core_and_pre.split_once('-') {
-        Some((core, pre)) => (core, Some(pre)),
-        None => (core_and_pre, None),
-    };
-    let mut numbers = core.split('.');
-    let numeric = |part: Option<&str>| {
-        part.is_some_and(|part| {
-            !part.is_empty()
-                && part.bytes().all(|byte| byte.is_ascii_digit())
-                && (part == "0" || !part.starts_with('0'))
-        })
-    };
-    if !numeric(numbers.next())
-        || !numeric(numbers.next())
-        || !numeric(numbers.next())
-        || numbers.next().is_some()
-    {
-        return false;
-    }
-    pre.is_none_or(|pre| {
-        !pre.is_empty()
-            && pre.split('.').all(|identifier| {
-                valid_semver_identifier(identifier)
-                    && (!identifier.bytes().all(|byte| byte.is_ascii_digit())
-                        || identifier == "0"
-                        || !identifier.starts_with('0'))
-            })
-    })
-}
-
-fn valid_semver_identifier(identifier: &str) -> bool {
-    !identifier.is_empty()
-        && identifier
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 macro_rules! source_selection_type {
@@ -1748,45 +1697,31 @@ impl CompletedMappings {
 }
 
 /// Rust generator identity retained by a generated-output package: the owner
-/// and the semantic version that produced it.
+/// that produced it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct OutputGeneratorIdentity {
     owner: Box<str>,
-    version: Box<str>,
 }
 
 impl OutputGeneratorIdentity {
     /// Construct a bounded generator identity.
-    pub fn new(
-        owner: impl Into<String>,
-        version: impl Into<String>,
-    ) -> Result<Self, MappingRequestError> {
+    pub fn new(owner: impl Into<String>) -> Result<Self, MappingRequestError> {
         let owner = owner.into();
-        let version = version.into();
-        if !valid_selection_member(&owner)
-            || !valid_selection_member(&version)
-            || !valid_semantic_version(&version)
-        {
+        if !valid_selection_member(&owner) {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::InvalidGenerator,
                 "generator",
-                "generator owner must be bounded visible ASCII and version must be SemVer",
+                "generator owner must be bounded visible ASCII",
             ));
         }
         Ok(Self {
             owner: owner.into_boxed_str(),
-            version: version.into_boxed_str(),
         })
     }
 
     /// Generator owner identity.
     pub fn owner(&self) -> &str {
         &self.owner
-    }
-
-    /// Generator release version.
-    pub fn version(&self) -> &str {
-        &self.version
     }
 }
 
@@ -2046,68 +1981,31 @@ pub fn assemble_output_package(
     })
 }
 
-/// Exact structural-observer identity retained only in downstream evidence.
+/// Structural-observer identity retained only in downstream evidence: the owner.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StructuralObserverIdentity {
     owner: Box<str>,
-    tool: Box<str>,
-    version: Box<str>,
-    license: Box<str>,
 }
 
 impl StructuralObserverIdentity {
-    /// Construct a complete bounded observer identity.
-    pub fn new(
-        owner: impl Into<String>,
-        tool: impl Into<String>,
-        version: impl Into<String>,
-        license: impl Into<String>,
-    ) -> Result<Self, MappingRequestError> {
+    /// Construct a bounded observer identity.
+    pub fn new(owner: impl Into<String>) -> Result<Self, MappingRequestError> {
         let owner = owner.into();
-        let tool = tool.into();
-        let version = version.into();
-        let license = license.into();
-        if ![
-            owner.as_str(),
-            tool.as_str(),
-            version.as_str(),
-            license.as_str(),
-        ]
-        .into_iter()
-        .all(valid_selection_member)
-        {
+        if !valid_selection_member(&owner) {
             return Err(MappingRequestError::new(
                 MappingRequestErrorCode::InvalidObserver,
                 "observer",
-                "observer identity members must be nonempty bounded visible ASCII",
+                "observer owner must be nonempty bounded visible ASCII",
             ));
         }
         Ok(Self {
             owner: owner.into_boxed_str(),
-            tool: tool.into_boxed_str(),
-            version: version.into_boxed_str(),
-            license: license.into_boxed_str(),
         })
     }
 
     /// Observer owner identity.
     pub fn owner(&self) -> &str {
         &self.owner
-    }
-
-    /// Observer tool identity.
-    pub fn tool(&self) -> &str {
-        &self.tool
-    }
-
-    /// Observer release version.
-    pub fn version(&self) -> &str {
-        &self.version
-    }
-
-    /// Exact observer license or rights declaration.
-    pub fn license(&self) -> &str {
-        &self.license
     }
 }
 
@@ -2128,8 +2026,6 @@ pub struct StructuralObservationRef {
     observer: StructuralObserverIdentity,
     outcome: StructuralObservationOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
-    result_digest: Option<ObserverResultDigest>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     refusal_cause: Option<MappingCause>,
 }
 
@@ -2138,13 +2034,11 @@ impl StructuralObservationRef {
     pub fn accepted(
         package: &GeneratedOutputPackage,
         observer: StructuralObserverIdentity,
-        result_digest: ObserverResultDigest,
     ) -> Self {
         Self {
             package_id: package.package_id(),
             observer,
             outcome: StructuralObservationOutcome::Accepted,
-            result_digest: Some(result_digest),
             refusal_cause: None,
         }
     }
@@ -2159,7 +2053,6 @@ impl StructuralObservationRef {
             package_id: package.package_id(),
             observer,
             outcome: StructuralObservationOutcome::Refused,
-            result_digest: None,
             refusal_cause: Some(refusal_cause),
         }
     }
@@ -2177,11 +2070,6 @@ impl StructuralObservationRef {
     /// Structural observation outcome.
     pub const fn outcome(&self) -> StructuralObservationOutcome {
         self.outcome
-    }
-
-    /// Raw observer-result digest for accepted evidence.
-    pub const fn result_digest(&self) -> Option<ObserverResultDigest> {
-        self.result_digest
     }
 
     /// Exact refusal cause for refused evidence.

@@ -40,7 +40,7 @@ make ci             # all local release gates
 crates/quire-contract-model/ # cycle-free semantic substrate and sole model source
 src/lib.rs             # compatibility bridge and model API re-export
 src/bin/               # compatibility-package conformance runner
-tests/fixtures/        # compile fixtures, including the dependency-key alias proof
+tests/fixtures/        # test data (Kani playback, native rule model)
 spec/                  # requirements artifacts
 scripts/               # local tooling
 ```

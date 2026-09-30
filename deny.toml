@@ -3,7 +3,6 @@ version = 2
 allow = [
     "MIT",
     "Apache-2.0",
-    "AGPL-3.0-only",
     "AGPL-3.0-or-later",
     "BSD-2-Clause",
     "Unicode-3.0",
@@ -26,17 +25,11 @@ version = 2
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/agent-ix/engineering-assurance",
     "https://github.com/agent-ix/filament-core-data",
     "https://github.com/agent-ix/ix-trace-rs",
     "https://github.com/agent-ix/quire-canonical",
     "https://github.com/agent-ix/quire-contract-ir",
-    "https://github.com/agent-ix/quire-mltl",
-    "https://github.com/agent-ix/quire-observation",
-    "https://github.com/agent-ix/quire-protocol",
     "https://github.com/agent-ix/quire-rs",
     "https://github.com/agent-ix/quire-spec-language",
     "https://github.com/agent-ix/quire-verification-contracts",
-    "https://github.com/agent-ix/tl-mltl",
-    "https://github.com/agent-ix/tl-syntax",
 ]

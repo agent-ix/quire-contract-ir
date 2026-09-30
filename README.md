@@ -15,11 +15,6 @@ This repository contains two Rust packages with one-way production dependencies:
   the complete model API. Native owner integrations are added only to this
   downstream bridge package.
 
-Cargo dependency aliases let existing `quire_contract_ir` source imports select
-the `quire-contract-model` package where an owner crate needs the cycle-free
-substrate. The package split changes no schema, canonical byte, identity,
-diagnostic, or conformance outcome.
-
 ## Build
 
 ```bash
