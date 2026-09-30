@@ -18,83 +18,8 @@ confidence-threshold = 0.9
 multiple-versions = "allow"
 wildcards = "warn"
 
-# One copy of every first-party crate. Cargo treats each distinct git source
-# spec (url + rev/tag/branch) and each path-vs-git split as a separate package
-# whose types do not unify, so a second copy is a build error waiting to happen.
-# Every first-party git dependency is `branch = "main"`; see `make use-local`.
-# `deny-multiple-versions` only sees copies with different versions; `make deny`
-# also counts each first-party crate's [[package]] entries in Cargo.lock.
-[[bans.deny]]
-name = "quire-contract-model"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "quire-contract-ir"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "quire-verification-contracts"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "ix-trace-rs"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "quire-canonical"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "quire-spec-language"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "quire-exact"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-attrs"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-bench"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-cst"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-eval"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-forms"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-foundation"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-package"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-replay"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-route"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-semantics"
-deny-multiple-versions = true
-
-[[bans.deny]]
-name = "qsl-source"
-deny-multiple-versions = true
+# One copy of every first-party crate is enforced by scripts/check_one_copy.awk
+# (run from `make deny`), which reads Cargo.lock.
 
 [advisories]
 version = 2

@@ -7,6 +7,8 @@
 # =============================================================================
 
 CARGO ?= cargo
+# --locked only when no local patch is active: a patch rewrites the resolution.
+LOCKED ?= $(if $(wildcard .cargo/config.toml),,--locked)
 QUIRE ?= quire
 
 .PHONY: help
@@ -42,15 +44,15 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
+	$(CARGO) clippy $(LOCKED) --workspace --all-targets -- -D warnings
 	# The workspace lane turns on the model's test-only fault-injection feature
 	# through the root dev-dependency; this lane checks the model as a consumer
 	# builds it, with the feature off.
-	$(CARGO) clippy --locked -p quire-contract-model -- -D warnings
+	$(CARGO) clippy $(LOCKED) -p quire-contract-model -- -D warnings
 
 .PHONY: corpus
 corpus:
-	$(CARGO) run --locked --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
+	$(CARGO) run $(LOCKED) --quiet --bin quire-contract-conformance -- run --corpus corpus/contract-v0.1 --schemas schemas
 
 .PHONY: check-corpus
 check-corpus: corpus
@@ -62,14 +64,14 @@ spec:
 
 .PHONY: test
 test:
-	$(CARGO) test --locked --workspace --all-targets -- --include-ignored
+	$(CARGO) test $(LOCKED) --workspace --all-targets -- --include-ignored
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
-	$(CARGO) test --locked -p quire-contract-model --doc
+	$(CARGO) test $(LOCKED) -p quire-contract-model --doc
 
 .PHONY: build
 build:
-	$(CARGO) build --locked --workspace --release
+	$(CARGO) build $(LOCKED) --workspace --release
 
 .PHONY: clean
 clean:
@@ -79,19 +81,12 @@ clean:
 # Supply chain & safety
 # =============================================================================
 
-# First-party crates that must appear once in Cargo.lock. cargo-deny's
-# `deny-multiple-versions` (deny.toml) only sees copies whose versions differ;
-# every first-party crate is 0.1.0-ish, so a second git spec of the same
-# version is invisible to it. The lockfile count below catches that case.
-FIRST_PARTY ?= quire-contract-model quire-contract-ir quire-verification-contracts ix-trace-rs quire-canonical quire-spec-language quire-exact qsl-attrs qsl-bench qsl-cst qsl-eval qsl-forms qsl-foundation qsl-package qsl-replay qsl-route qsl-semantics qsl-source
-
+# One copy of every agent-ix git crate in Cargo.lock; see the header of
+# scripts/check_one_copy.awk.
 .PHONY: deny
 deny:
 	$(CARGO) deny check
-	@set -e; for c in $(FIRST_PARTY); do \
-	  n=$$(grep -c "^name = \"$$c\"$$" Cargo.lock || true); \
-	  if [ "$$n" -gt 1 ]; then echo "deny: $$c appears $$n times in Cargo.lock" >&2; exit 1; fi; \
-	done
+	awk -F'"' -f scripts/check_one_copy.awk Cargo.lock
 
 .PHONY: cargo-audit
 cargo-audit:
@@ -118,17 +113,24 @@ LOCAL_PATCHES ?= quire-verification-contracts:.:quire-verification-contracts ix-
 use-local:
 	@set -e; mkdir -p .cargo; : > .cargo/config.toml; \
 	for spec in $(LOCAL_PATCHES); do \
+	  if [ "$$(printf '%s' "$$spec" | tr -cd ':' | wc -c)" != 2 ] || printf '%s' "$$spec" | grep -q '::\|^:\|:$$'; then \
+	    rm -f .cargo/config.toml; echo "use-local: malformed LOCAL_PATCHES entry '$$spec' (want repo:dir:crate)" >&2; exit 1; \
+	  fi; \
 	  repo=$${spec%%:*}; rest=$${spec#*:}; dir=$${rest%%:*}; crate=$${rest#*:}; \
 	  if [ ! -f "$(SIBLINGS)/$$repo/$$dir/Cargo.toml" ]; then \
 	    rm -f .cargo/config.toml; \
 	    echo "use-local: $(SIBLINGS)/$$repo is not cloned (no Cargo.toml at $(SIBLINGS)/$$repo/$$dir); clone agent-ix/$$repo next to this repo" >&2; exit 1; \
 	  fi; \
 	  printf '[patch."https://github.com/agent-ix/%s"]\n%s = { path = "%s/%s/%s" }\n\n' "$$repo" "$$crate" "$(SIBLINGS)" "$$repo" "$$dir" >> .cargo/config.toml; \
-	done; echo "wrote .cargo/config.toml"
+	done; echo "wrote .cargo/config.toml"; \
+	if $(CARGO) metadata --format-version 1 2>&1 >/dev/null | grep -q 'patch .* was not used'; then \
+	  rm -f .cargo/config.toml; echo "use-local: a patch was not used; the sibling's version does not satisfy the requirement" >&2; exit 1; \
+	fi
 
 .PHONY: use-remote
 use-remote:
 	rm -f .cargo/config.toml
+	git checkout -- Cargo.lock
 
 # =============================================================================
 # Composite

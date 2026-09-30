@@ -65,8 +65,8 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         assert_eq!(dependency["optional"], false);
     }
 
-    // The root package depends on the model and on no QSL crate, in any
-    // dependency kind: cross-repo composition is verified in quire-integration.
+    // The root package depends on the model and on no crate from the
+    // quire-spec-language repository, in any dependency kind, by name and by source.
     let root = package(&workspace, "quire-contract-ir");
     for dependency in root["dependencies"]
         .as_array()
@@ -78,6 +78,11 @@ fn tc_041_model_dependency_graph_is_cycle_free_and_owner_free() {
         assert!(
             name != "quire-spec-language" && !name.starts_with("qsl-"),
             "root package depends on QSL crate {name}"
+        );
+        let source = dependency["source"].as_str().unwrap_or("");
+        assert!(
+            !source.starts_with("git+https://github.com/agent-ix/quire-spec-language"),
+            "root package depends on {name} from the quire-spec-language repository: {source}"
         );
     }
     assert!(root["dependencies"]

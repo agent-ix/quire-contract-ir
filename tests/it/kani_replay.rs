@@ -544,14 +544,6 @@ fn tc_042_witness_parses_zero_argument_harness() {
     assert!(decoded.is_empty());
 }
 
-// F5: an `Input`-arm packet must not settle the same agreement type as one
-// reproduced together with its evaluated witness; `ReplayAgreement` and
-// `NativeReplayAgreement` are sums of the two distinct arm result types
-// (AD-016 "Replay result"), so the two can never be confused — the arm
-// itself is the fact, not a separate field. The only previously covered
-// `Witness`-arm case was the cover refusal, leaving the accepted assertion
-// witness path untested.
-//
 // Deliberately untraced: FR-031-AC-4 covers witness parsing, typing, and
 // arity/width/comment refusal only — it says nothing about replay arms,
 // `ReplaySource`, or which agreement type a replay settles. Arm separation
