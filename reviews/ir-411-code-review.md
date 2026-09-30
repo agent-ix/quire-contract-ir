@@ -47,3 +47,15 @@ Mutation results, run in a scratch copy:
 ## Verdict
 
 The test is sound and adds real coverage. It is the only test that asserts a state_clause node lowers, and mutation shows it is non-vacuous. Its trace tag points at the wrong requirement. `make spec` fails identically before and after, so the PR adds no unbacked row and changes none.
+
+## Dispositions
+
+Round 1, reviewed at 3edab7efea488e92b885c0af2c2ec053d1672c3d.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 3edab7e |
+| FND-002 | fixed | 3edab7e |
+
+- FND-001: the test is now `tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile`, tagged `#[trace("TC-050", "FR-038-AC-6")]`. `make spec` still reports the same 22 unbacked rows as origin/main, and 202 bound symbols.
+- FND-002: `operation_anchor` has been added to the lowered positions, so three of the five state forms are now lowered. Transition and postcondition would need new fixture nodes, and they stay optional. Mutation results at 3edab7e: a lower that refuses state_clause only fails this test alone (177 pass, 1 fails), and so does a lower that refuses operation_anchor only (177 pass, 1 fails).
