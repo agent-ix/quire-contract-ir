@@ -669,9 +669,10 @@ fn argument_family(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
+    catalog: &OperationCatalog,
 ) -> Option<&'static str> {
     match body_term(argument) {
-        Some(BodyTerm::Application) if is_clause_application(argument) => Some("clause"),
+        Some(BodyTerm::Application) if is_clause_application(argument, catalog) => Some("clause"),
         Some(BodyTerm::Reference | BodyTerm::Literal | BodyTerm::Application) => {
             let type_node = operand_type_node(argument, nodes, kinds, index)?;
             resolve_family(&type_node, nodes, kinds, index, 0)
@@ -686,12 +687,12 @@ fn argument_family(
 }
 
 /// Whether an `application` term's catalogued operation has result `clause`.
-fn is_clause_application(argument: &Value) -> bool {
+fn is_clause_application(argument: &Value, catalog: &OperationCatalog) -> bool {
     argument
         .get("operation")
         .and_then(|operation| operation.get("identity"))
         .and_then(Value::as_str)
-        .and_then(|identity| operation_catalog().entry(identity))
+        .and_then(|identity| catalog.entry(identity))
         .is_some_and(|entry| &*entry.result == "clause")
 }
 
@@ -1023,7 +1024,7 @@ fn check_operands(
         return ineligible(None);
     }
     for (position, expected) in entry.operands.iter().enumerate() {
-        if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index) {
+        if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index, catalog) {
             if !catalog.family_fits(actual, expected) {
                 return ineligible(Some(position));
             }
@@ -1031,7 +1032,7 @@ fn check_operands(
     }
     if let Some(rest_family) = &entry.rest {
         for (offset, argument) in arguments[required..].iter().enumerate() {
-            if let Some(actual) = argument_family(argument, nodes, kinds, index) {
+            if let Some(actual) = argument_family(argument, nodes, kinds, index, catalog) {
                 if !catalog.family_fits(actual, rest_family) {
                     return ineligible(Some(required.saturating_add(offset)));
                 }
@@ -1052,7 +1053,9 @@ fn check_operands(
             OperationConstraintKind::SameFamily => {
                 let families: Option<Vec<&str>> = indices
                     .iter()
-                    .map(|position| argument_family(&arguments[*position], nodes, kinds, index))
+                    .map(|position| {
+                        argument_family(&arguments[*position], nodes, kinds, index, catalog)
+                    })
                     .collect();
                 if let Some(families) = families {
                     if let Some(pair) = families.windows(2).position(|pair| pair[0] != pair[1]) {

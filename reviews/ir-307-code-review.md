@@ -52,6 +52,14 @@ Reviewed at agent-ix/quire-contract-ir@82bea50be15fe315027e93a59eef49d02a756517.
 | FND-005 | low | `argument_family` gives a clause application the family of its declared `result_type`, `boolean`. FR-322 says a clause application's family is `clause`, which only `any_term` admits. So a clause application at a `boolean`/`any_value` position, or compared by `same_family` with a boolean, is admitted. There is no false refusal, because no catalog position requires `clause` alone, and the outcome equals the old skip | crates/quire-contract-model/src/checked_package/v2/operations.rs:662-665 |
 | FND-006 | low | The `argument_family` doc comment still says that only `reference` and `binding` resolve and that "Every other term shape is not resolved". `literal` and `application` now resolve too | crates/quire-contract-model/src/checked_package/v2/operations.rs:643-654 |
 
+## New findings (disposition pass 2)
+
+Reviewed at agent-ix/quire-contract-ir@fd3850a703b78dbbc3f6097e939a9a1b347e0fdd.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | low | `is_clause_application` reads the global `operation_catalog()` instead of the `catalog: &OperationCatalog` that `check_operands` receives and uses for every other family decision. A caller that passes a different catalog gets clause classification from the production catalog. It is behaviour-neutral today, because every caller passes `operation_catalog()` | crates/quire-contract-model/src/checked_package/v2/operations.rs:679-687 |
+
 ## Dispositions
 
 | FND | outcome | sha/reason |
@@ -59,3 +67,6 @@ Reviewed at agent-ix/quire-contract-ir@82bea50be15fe315027e93a59eef49d02a756517.
 | FND-001 | fixed | 82bea50 |
 | FND-002 | fixed | 82bea50 |
 | FND-003 | fixed | 82bea50 |
+| FND-004 | fixed | fd3850a |
+| FND-005 | fixed | fd3850a |
+| FND-006 | fixed | fd3850a |
