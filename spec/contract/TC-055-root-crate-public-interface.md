@@ -29,17 +29,17 @@ entry, and for a public replay envelope, request, result, parity or
 minimization type. Confirm `src/kani/` has no `replay`, `witness`, `arithmetic`, `collections`
 or `objects` module. Compile one probe per item in FR-039's "Items QSL owns"
 and "Items codegen owns" sections through `quire_contract_ir` and expect each
-to fail; compile a probe that calls the `kani` outcome map on a `proved` outcome and
-on an `Unavailable` outcome and binds each result directly to a
-`qsl_replay::TerminalValue`, and expect it to build. Run the TC-041 and
+to fail, and search `src/` for any function from a `KaniOutcome` to a QSL
+`TerminalValue`: that map is owned by `agent-ix/quire-contract-codegen`
+(tracked there under Linear IR-358) and must be absent. Run the TC-041 and
 TC-042 negative corpora under `catch_unwind`.
 
 ## Expected Results
 
 The inventory equals the table with no extra or missing item and no model
 item; the search finds nothing; the model-item probe and every QSL-owned and
-codegen-owned item probe fail to compile and the outcome-map probe builds; no
-negative case panics.
+codegen-owned item probe fail to compile and no `TerminalValue` map is found
+under `src/`; no negative case panics.
 
 ## Status
 

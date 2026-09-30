@@ -51,8 +51,10 @@ Canonical round-trip, backend-result digest verification, exact value and
 IEEE width preservation, verdict parity and minimization lineage are
 properties of the QSL envelope and replay executor (QSL FR-070 through
 FR-073, FR-098) and of the codegen replay adapter, not of Contract IR.
-Contract IR's part in a counterexample ends at the typed `KaniOutcome` and its
-`TerminalValue` ([FR-031](./FR-031-bounded-kani-dispatch-and-terminal-map.md)).
+Contract IR's part in a counterexample ends at the typed `KaniOutcome`
+([FR-030](./FR-030-bounded-kani-domain-and-outcomes.md)); the map to a QSL
+`TerminalValue` is codegen's (tracked in agent-ix/quire-contract-codegen under
+Linear IR-358).
 The root crate has no `replay` or `witness` module: the witness and replay
 types are QSL's `qsl-replay` types, and the Kani transcript parser is the
 codegen backend adapter's.

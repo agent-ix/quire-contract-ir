@@ -48,8 +48,9 @@ A checked clause, a `kani-bounded/1` profile selection and a finite input.
 ## Outputs
 
 The `kani-bounded/1` profile selection, validated finite
-inputs, dispatch routes and typed `KaniOutcome`s; and, for each
-outcome, its one QSL `TerminalValue` (FR-031).
+inputs, dispatch routes and typed `KaniOutcome`s. Nothing is QSL-typed: the
+`KaniOutcome` to `TerminalValue` map is owned by
+`agent-ix/quire-contract-codegen`.
 
 ## Behavior
 
@@ -59,7 +60,7 @@ outcome, its one QSL `TerminalValue` (FR-031).
 | --- | --- | --- |
 | `kani` | constant `PROFILE`; types `KaniProfile`, `ProfileSelection`, `ProfileError`, `CapabilityDisposition`, `CapabilityEntry` | FR-029 |
 | `kani` | types `FiniteInput`, `FiniteObject`, `FiniteReference`, `PopulationCompleteness`, `ResourceBounds`, `ValidatedFiniteInput`, `KaniOutcome`, `KaniOutcomeKind`, `KaniOutcomeError` | FR-030, STD-001 |
-| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily`; and one public function, total over `KaniOutcome`, from a `KaniOutcome` to its `qsl_replay::TerminalValue` as FR-031's map gives it | FR-031 |
+| `kani` | types `DispatchIndex`, `DispatchError`, `ModuleDescriptor`, `SemanticFamily` | FR-031 |
 
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.
@@ -67,8 +68,10 @@ item and are not listed separately.
 The root crate depends on no QSL crate (FR-028), so it has no dependency on
 `quire_spec_language::runtime` or `qsl-replay`; the native-runtime replay
 entry point `replay_with_native_runtime` and its `Native*` agreement types are
-removed (IR#140, QSL ADR-011). The outcome map to `qsl_replay::TerminalValue`
-is planned, and the crate that hosts it must depend on both sides.
+removed (IR#140, QSL ADR-011). The map from a `KaniOutcome` to a
+`qsl_replay::TerminalValue` is not part of this interface: it is owned by
+`agent-ix/quire-contract-codegen`, which depends on both sides, and is tracked
+there under Linear IR-358. Contract IR exposes only its own Kani outcome types.
 
 ### Items codegen owns
 
@@ -102,7 +105,7 @@ panicking; `KaniOutcomeError` codes are registered in STD-001.
 | --- | --- | --- |
 | FR-039-AC-1 | The root crate's public items are exactly those the Public items table lists, checked by a public-signature inventory of `src/` that fails on an added or missing item; `src/lib.rs` re-exports no `quire_contract_model` item, and code naming a model item through `quire_contract_ir` fails to compile. | Test (TC-055) |
 | FR-039-AC-2 | No public item names a `quire_spec_language::runtime` type and no source file under `src/` names `quire_spec_language::runtime`. | Test (TC-055) |
-| FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and the `kani` outcome map returns a `qsl_replay::TerminalValue` for every `KaniOutcome`, with no optional or absent result in its signature. | Test (TC-055) |
+| FR-039-AC-3 | Code naming any item the "Items QSL owns" or "Items codegen owns" section lists through `quire_contract_ir` fails to compile, and no public item of the root crate names `qsl_replay::TerminalValue` or maps a `KaniOutcome` to one. | Test (TC-055) |
 | FR-039-AC-4 | Every public `kani` function over untrusted input returns a typed error with no public panic path under the negative corpora of TC-041 and TC-042. | Test (TC-055) |
 
 ## Dependencies

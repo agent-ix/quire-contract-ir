@@ -72,7 +72,7 @@ package.
 The root crate's `kani` module holds the parts of the bounded-Kani boundary
 every backend reads: the `kani-bounded/1` profile and capability matrix
 (FR-029), the finite input ABI and typed outcome (FR-030), and the dispatch
-index, module descriptors and outcome map (FR-031). The family
+index and module descriptors (FR-031). The family
 lowerings for checked arithmetic, collections and objects are
 Kani-specific and belong to the backend adapter in codegen, which emits the
 harness. The dispatch index names each family module and its declared
@@ -94,20 +94,18 @@ none of them. The root crate has no `replay` or `witness` module, and
 names each item that therefore has no place in its interface. Kani
 transcript parsing is the codegen backend adapter's.
 
-Contract IR's part is the map from a Kani outcome to a QSL `TerminalValue`
-(FR-031), and it is total over `KaniOutcome`. An `Unavailable` outcome
-carries one of two cause codes, solver absent or backend absent (FR-030), and
-maps to QSL's `Unsupported` value with the matching `UnavailabilityCause`.
-The only `Inconclusive` outcome is a vacuous proof, a run whose obligation
-completed with zero SUCCESS checks; it maps to `Proved { success_checks: 0 }`,
-which QSL reads as category `Inconclusive` with the vacuity cause
-`KaniVacuousProof` (QSpec FR-331-AC-8).
+Contract IR's part ends at its own typed `KaniOutcome`. The map from a Kani
+outcome to a QSL `TerminalValue` is owned by `agent-ix/quire-contract-codegen`,
+which depends on both sides, and is tracked there under Linear IR-358.
+Contract IR exposes only its own Kani outcome types. An `Unavailable` outcome
+carries one of two cause codes, solver absent or backend absent, and the only
+`Inconclusive` outcome is a vacuous proof, a run whose obligation completed
+with zero SUCCESS checks (FR-030).
 
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
-calls no executor. The root crate depends on no QSL crate (FR-028); the
-outcome map to `qsl_replay::TerminalValue` is hosted by a crate that depends
-on both.
+calls no executor. The root crate depends on no QSL crate (FR-028), so the
+outcome map to `qsl_replay::TerminalValue` is not here; codegen owns it.
 
 ## Views
 
@@ -118,7 +116,7 @@ validated package -> dependency walk -> canonical encoder -> SHA-256 identities
 validated package + artifact traces -> shallow/deep/uncovered/orphaned coverage
 checked-package/v2 bytes -> strict reader -> admitted package -> per-item lowering -> ContractPackage v1
 output-mapping request -> mapper seam -> per-obligation records -> atomic package
-checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome -> qsl_replay::TerminalValue
+checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome
 schema + corpus fixtures -> process runner -> JSON Lines results
 ```
 
@@ -169,13 +167,13 @@ the authored-contract interchange.
   backend can read one versioned profile and input firewall. The
   Kani-specific family lowerings for checked arithmetic, collections and
   objects belong to codegen's backend adapter, which emits the harness.
-- Map every Kani outcome kind to one existing QSL `TerminalValue`, with no
-  new terminal value: `Unavailable` splits by its cause code into solver
-  absence and backend absence, a vacuous proof maps to
-  `Proved { success_checks: 0 }`, which QSL reads as inconclusive with the
-  vacuity cause, and a construct the profile cannot interpret
-  settles `unsupported` at negotiation, before any run, and never becomes an
-  outcome.
+- Leave the map from a Kani outcome to a QSL `TerminalValue` to
+  `agent-ix/quire-contract-codegen` (Linear IR-358), so the root crate
+  depends on no QSL crate. Contract IR keeps the outcome's cause codes that map
+  reads: `Unavailable` splits by its cause code into solver absence and backend
+  absence, a vacuous proof is the only `Inconclusive` outcome, and a construct
+  the profile cannot interpret settles `unsupported` at negotiation, before
+  any run, and never becomes an outcome.
 - Construct and strict-read owner artifacts without parsing or evaluating an
   owner language inside Contract IR; preserve typed non-values at every join.
 - Use QSL's `qsl-replay` types for every replay, witness, envelope,

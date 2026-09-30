@@ -101,22 +101,22 @@ audit-unsafe:
 #
 # `use-local` writes a gitignored .cargo/config.toml that patches each
 # first-party git dependency to its working tree at $(SIBLINGS)/<repo>, uncommitted
-# edits included. `use-remote` deletes it. Format: <repo>:<crate-dir>:<crate>.
+# edits included. `use-remote` deletes it. Format: <repo>:<crate>:<crate-dir>.
 # SIBLINGS is the directory holding the sibling clones: the parent of the main
 # checkout, so it is also right from a linked worktree. Override to relocate.
 # =============================================================================
 
 SIBLINGS ?= $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir)/../..)
-LOCAL_PATCHES ?= quire-verification-contracts:.:quire-verification-contracts ix-trace-rs:.:ix-trace-rs
+LOCAL_PATCHES ?= quire-verification-contracts:quire-verification-contracts:. ix-trace-rs:ix-trace-rs:.
 
 .PHONY: use-local
 use-local:
 	@set -e; mkdir -p .cargo; : > .cargo/config.toml; \
 	for spec in $(LOCAL_PATCHES); do \
 	  if [ "$$(printf '%s' "$$spec" | tr -cd ':' | wc -c)" != 2 ] || printf '%s' "$$spec" | grep -q '::\|^:\|:$$'; then \
-	    rm -f .cargo/config.toml; echo "use-local: malformed LOCAL_PATCHES entry '$$spec' (want repo:dir:crate)" >&2; exit 1; \
+	    rm -f .cargo/config.toml; echo "use-local: malformed LOCAL_PATCHES entry '$$spec' (want repo:crate:dir)" >&2; exit 1; \
 	  fi; \
-	  repo=$${spec%%:*}; rest=$${spec#*:}; dir=$${rest%%:*}; crate=$${rest#*:}; \
+	  repo=$${spec%%:*}; rest=$${spec#*:}; crate=$${rest%%:*}; dir=$${rest#*:}; \
 	  if [ ! -f "$(SIBLINGS)/$$repo/$$dir/Cargo.toml" ]; then \
 	    rm -f .cargo/config.toml; \
 	    echo "use-local: $(SIBLINGS)/$$repo is not cloned (no Cargo.toml at $(SIBLINGS)/$$repo/$$dir); clone agent-ix/$$repo next to this repo" >&2; exit 1; \
