@@ -5,7 +5,6 @@ type: SpecReview
 analysis: ears-conformance
 scope: "QCI #106; FR-038 normative statements"
 review_set: subset
-evaluated_revision: "agent-e/106-checked-package-v2"
 review_date: "2026-09-16"
 ---
 # EARS review of CheckedPackage V2 consumption

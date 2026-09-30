@@ -5,7 +5,6 @@ type: SpecReview
 analysis: base
 scope: "QCI #106; FR-038; TC-048, TC-050; TM-002 FR-038/TC-048/TC-050 rows; PLAN-009 E01b"
 review_set: subset
-evaluated_revision: "agent-e/106-v2-model-domain-package"
 review_date: "2026-09-17"
 ---
 # Base review of CheckedPackage V2 consumption

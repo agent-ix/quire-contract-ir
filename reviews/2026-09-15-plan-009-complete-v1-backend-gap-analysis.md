@@ -38,7 +38,7 @@ symbols yet.
 
 ## Coverage
 
-- Reconciliation: `quire coverage --scope /home/peter/dev/worktrees/quire-contract-ir-v1-e00 --json` on Quire 0.32.0; the report measured 162 / 193 backed rows and 19 unbacked reference rows for the new planned FR/TC controls.
+- Reconciliation: `quire coverage --scope . --json` on Quire 0.32.0; the report measured 162 / 193 backed rows and 19 unbacked reference rows for the new planned FR/TC controls.
 - Tasks done: not applicable — PLAN-009 is an active cross-repository delivery plan with issue work packages, not completed typed Task artifacts.
 - Rows backed by a tagged test: 162 / 193; all 19 uncovered reference rows belong to FR-035 through FR-037 and TC-044 through TC-046, whose matrix statuses remain planned.
 - Untraced behaviors / stubs: zero new production behaviors or Rust source files in the reviewed planning diff. The `todo!`/`unimplemented!`/debug scan found no new matching source in the scope; two pre-existing diagnostic `eprintln!` calls in `tests/executable_binding.rs` are outside this specification-only change.

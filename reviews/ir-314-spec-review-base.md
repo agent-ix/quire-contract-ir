@@ -48,4 +48,4 @@ None.
 
 ## Verdict
 
-Clean. Measured on a detached worktree: no spec-artifact id (85 documents under spec/ outside spec/reviews/) is declared twice; no TC leads two Test Case Summary rows across TM-001 and TM-002 (45 rows). `make spec` exits 2, failing only on MP-001 and MP-002 MeasurementPlan frontmatter. `quire coverage --scope . --strict --json` exits 1 at both; unbacked rows go 37 -> 45, the eight added being FR-345, FR-345-AC-1..6 and TC-224, none removed; backed stays 224 (total 267 -> 274). `scripts/validate_matrix_status.py` exits 0.
+Clean. Measured on a detached worktree at the PR head: no spec-artifact id (85 documents under spec/ outside spec/reviews/) is declared twice; no TC leads two Test Case Summary rows across TM-001 and TM-002 (45 rows). `make spec` exits 2 at both origin/main and the PR head, failing only on MP-001 and MP-002 MeasurementPlan frontmatter. `quire coverage --scope . --strict --json` exits 1 at both; unbacked rows go 37 -> 45, the eight added being FR-345, FR-345-AC-1..6 and TC-224, none removed; backed stays 224 (total 267 -> 274). `scripts/validate_matrix_status.py` exits 0 at the PR head.

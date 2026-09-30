@@ -5,7 +5,6 @@ type: SpecReview
 analysis: base
 scope: "QCI #95; FR-032–FR-034; TC-043; TM-002 rows only"
 review_set: subset
-evaluated_revision: "task/95-output-mapping-foundation"
 review_date: "2026-09-15"
 ---
 # Base review of the output-mapping foundation contract

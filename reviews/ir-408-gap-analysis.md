@@ -10,7 +10,7 @@ review_set: subset
 
 ## Summary
 
-Ticket: IR-408. Plan completion: not assessed. This analysis checks that the deletions left every remaining requirement with its acceptance criteria and test backing. `quire coverage --scope . --strict` was run, and on an export of origin/main, where `make spec` stops at validate. It reports 155 backed rows on both. The unbacked set is the same 22 rows on both (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). Total rows drop from 185 to 178, all from deleted artifacts, and no backed row is removed. No requirement is left without acceptance criteria.
+Ticket: IR-408. Plan completion: not assessed. This analysis checks that the deletions left every remaining requirement with its acceptance criteria and test backing. `quire coverage --scope . --strict` was run at the PR head, and on an export of origin/main, where `make spec` stops at validate. It reports 155 backed rows on both. The unbacked set is the same 22 rows on both (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). Total rows drop from 185 to 178, all from deleted artifacts, and no backed row is removed. No requirement is left without acceptance criteria.
 
 ## Findings
 

@@ -3,14 +3,14 @@ id: SR-606
 title: "gap analysis of PR 223 (drop schema migration code)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@bbac25d64706d64ee0103cef8e9407d3b04e15a4; diff f21a194...bbac25d against spec on origin/main c658b2b: spec/contract/FR-016, FR-017, FR-018, STD-001, spec/interface/FR-019, FR-020, reviews/ir-362-gap-analysis.md (SR-602 change list)"
+scope: "agent-ix/quire-contract-ir; diff origin/main...HEAD against spec on origin/main: spec/contract/FR-016, FR-017, FR-018, STD-001, spec/interface/FR-019, FR-020, reviews/ir-362-gap-analysis.md (SR-602 change list)"
 review_set: base
 ---
 # SR-606: gap analysis of PR 223
 
 ## Summary
 
-Ticket: IR-362. Planless gap analysis. Plan completion: not assessed. This review checks the diff `f21a194...bbac25d` against the merged spec and the SR-602 follow-up inventory. Owner decision: schema 1.1 is the only supported version, with no legacy 1.0 reader and no compatibility layer.
+Ticket: IR-362. Planless gap analysis. Plan completion: not assessed. This review checks the diff `origin/main...HEAD` against the merged spec and the SR-602 follow-up inventory. Owner decision: schema 1.1 is the only supported version, with no legacy 1.0 reader and no compatibility layer.
 
 SR-602 inventory, item by item:
 
@@ -43,11 +43,11 @@ SR-602 inventory, item by item:
   - The FR-017-AC-1 test is rewritten.
   - The receipt mutation and the `migration_receipt` kind are removed.
   - identity.rs, integration.rs and cycle_free_model.rs move to V1_1.
-- tests/fixtures/{bridge-qsl-consumer,model-alias-consumer}: not applicable. Those fixtures do not exist at base f21a194 because PR 218 removed them.
+- tests/fixtures/{bridge-qsl-consumer,model-alias-consumer}: not applicable. Those fixtures do not exist at the base because PR 218 removed them.
 - spec/contract-test-matrix.md: the FR-016, FR-017, FR-018 and FR-020 "implemented" rows are now true against the code.
 - plan TASK-008/TASK-009: historical `status: done` records; SR-602 marked them optional; no change needed.
 
-Grep on bbac25d for `migrat|V1_0|1_0|unregistered|receipt` finds no code, schema, corpus or test hit.
+Grep at the PR head for `migrat|V1_0|1_0|unregistered|receipt` finds no code, schema, corpus or test hit.
 
 Gate exit codes, from the reviewer's own run:
 

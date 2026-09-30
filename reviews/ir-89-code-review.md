@@ -90,7 +90,7 @@ Round 1.
 | FND-002 | fixed | resolved |
 | FND-003 | fixed | resolved |
 | FND-004 | fixed | resolved |
-| FND-005 | fixed | resolved |
+| FND-005 | fixed | resolved (round 3) |
 
 ## New findings (disposition pass 2)
 

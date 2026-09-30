@@ -5,7 +5,6 @@ type: SpecReview
 analysis: base
 scope: "QCI #96; FR-029–FR-031; TM-002 TC-042 status only"
 review_set: subset
-evaluated_revision: "task/96-kani-tracking"
 review_date: "2026-09-15"
 ---
 # Base review of bounded-Kani implementation-status reconciliation

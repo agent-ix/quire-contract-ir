@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-The review evaluated implementation candidate against the temporal spec
+The review evaluated the implementation candidate against the temporal spec
 authority and the predicate bridge base. The candidate
 implements the complete FR-026 owner bridge: occurrence-preserving temporal
 formula construction, complete predicate valuations, independently constructed

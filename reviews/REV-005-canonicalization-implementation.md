@@ -26,15 +26,15 @@ a confirmed vulnerability.
 
 | ID | Severity | Finding | Disposition |
 |---|---|---|---|
-| FND-097 | critical (reported) | The reviewer alleged that `zmij` in the lockfile substituted for `serde_json`'s legitimate `ryu` dependency. | rejected as factually false: the official immutable `serde_json` v1.0.151 source manifest declares `zmij = "1.0"`; the checksummed local crate manifest and source agree, and offline `cargo tree -i zmij` resolves it directly beneath the pinned `serde_json`. Forcing `ryu` would contradict upstream. |
+| FND-097 | critical (reported) | The reviewer alleged that `zmij` in the lockfile substituted for `serde_json`'s legitimate `ryu` dependency. | rejected as factually false: the official `serde_json` v1.0.151 source manifest declares `zmij = "1.0"`; the checksummed local crate manifest and source agree, and offline `cargo tree -i zmij` resolves it directly beneath the pinned `serde_json`. Forcing `ryu` would contradict upstream. |
 | FND-098 | medium | The deterministic resource-failure harness was unavailable for requirement, clause, and declaration output and untested for expression output. | fixed: all five closed kinds expose `_with_limit` entry points and TC-017 forces limit-zero failure for each, returning only `canonicalization_resource_exhausted`. |
-| FND-099 | medium | FND-097's rejection cited local cache and command evidence that was not independently inspectable from the repository. | fixed: this review now retains an immutable official upstream source link resolving the v1.0.151 manifest at the commit above. |
+| FND-099 | medium | FND-097's rejection cited local cache and command evidence that was not independently inspectable from the repository. | fixed: this review now retains an official upstream source link resolving the v1.0.151 manifest. |
 | FND-100 | medium | Resource-exhaustion diagnostics omitted available requirement, clause, and expression spans. | fixed: canonical writers retain the object's optional span and attach it to allocation failures; TC-017 asserts all three spans while package/declaration aggregates remain spanless. |
 | FND-101 | medium | TC-017 did not pin normalized rational bytes/digests or authored expression-sequence ordering. | fixed: unreduced and reduced rational literals now compare byte/digest-identically with normalized fields asserted, and a reversed lexical collection item sequence is asserted to retain authored order. |
 | FND-102 | low | The closed resolver-diagnostic mapping used a wildcard that could silently relabel a future code as `missing_requirement`. | fixed without a panic: the mapping returns `None` for an unexpected code and `classify_coverage` returns that original diagnostic rather than emitting a false orphan reason. |
-| FND-103 | critical (repeated) | A closing reviewer could not access the network and therefore repeated FND-097 as unresolved despite locally consistent manifests and the immutable upstream link. | rejected after authoritative network verification: the crates.io API identifies `zmij ^1.0` as a normal `serde_json` 1.0.151 dependency, attributes both exact releases to verified publisher `dtolnay`, and returns checksums matching this lockfile. |
+| FND-103 | critical (repeated) | A closing reviewer could not access the network and therefore repeated FND-097 as unresolved despite locally consistent manifests and the upstream link. | rejected after authoritative network verification: the crates.io API identifies `zmij ^1.0` as a normal `serde_json` 1.0.151 dependency, attributes both exact releases to verified publisher `dtolnay`, and returns checksums matching this lockfile. |
 | FND-104 | critical (repeated) | The final reviewer again alleged that `zmij` replaced a supposed required `ryu` dependency because its sandbox could not fetch crates.io. | rejected: the retained real crates.io dependency response explicitly names `zmij ^1.0`; inability of a later sandbox to repeat a successful upstream request does not contradict that authoritative response. |
-| FND-105 | process (reported) | The final reviewer said REV-005 vouched for itself because its sandbox could not open the retained external sources. | rejected: REV-005 records externally sourced API fields, immutable URLs, publishers, and matching checksums; it does not identify its own prose as the authority. |
+| FND-105 | process (reported) | The final reviewer said REV-005 vouched for itself because its sandbox could not open the retained external sources. | rejected: REV-005 records externally sourced API fields, URLs, publishers, and matching checksums; it does not identify its own prose as the authority. |
 
 ## Authoritative dependency verification
 
@@ -47,16 +47,14 @@ evidence. Retrying with user agent
   returned normal dependency `crate_id: "zmij"`, requirement `^1.0`, dependency
   ID `31298629`, version ID `2825732`.
 - [`serde_json` 1.0.151 metadata](https://crates.io/api/v1/crates/serde_json/1.0.151)
-  returned verified publisher `dtolnay` / David Tolnay and checksum
-  `c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14`,
+  returned verified publisher `dtolnay` / David Tolnay and a checksum
   exactly matching `Cargo.lock`.
 - [`zmij` 1.0.23 metadata](https://crates.io/api/v1/crates/zmij/1.0.23)
   returned the same verified publisher, repository
-  `https://github.com/dtolnay/zmij`, `yanked: false`, and checksum
-  `29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b`,
+  `https://github.com/dtolnay/zmij`, `yanked: false`, and a checksum
   exactly matching `Cargo.lock`.
 
-This network evidence independently corroborates the official immutable source
+This network evidence independently corroborates the official source
 manifest and disproves the substitution allegation. It is dependency
 verification, not independent approval of the issue #9 implementation.
 
@@ -67,8 +65,7 @@ FND-098 through FND-102 were clean. Its only remaining items, retained as
 FND-104 and FND-105, repeated the disproved dependency allegation and a process
 variant caused by its own lack of network access. No actionable code finding is
 open. FND-097/FND-099/FND-103 through FND-105 remain independently checkable in
-the official immutable
-[v1.0.151 manifest](https://github.com/serde-rs/json/blob/v1.0.151/Cargo.toml#L15-L20)
+the official [v1.0.151 manifest](https://github.com/serde-rs/json/blob/v1.0.151/Cargo.toml#L15-L20)
 and crates.io API links above.
 
 The producer's full local `make ci` gate passed formatting, Clippy with warnings

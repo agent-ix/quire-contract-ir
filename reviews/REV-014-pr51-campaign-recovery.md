@@ -44,7 +44,7 @@ review on PR 51; this account does not replace them.
 ## Verification
 
 The following ran in the isolated recovery worktree with
-`CARGO_TARGET_DIR=/tmp/contract-core-ir-target`:
+a dedicated `CARGO_TARGET_DIR`:
 
 - Locked offline complete Rust suite with ignored tests included: 32 tests pass.
 - Conformance corpus: 99 matching rows; two process runs byte-identical.
@@ -95,7 +95,7 @@ as proof. Shared assurance acceptance/release gates remain open.
 ### Authored coverage-status bank
 
 At recovery, the same exact
-CLI/engine and three module roots above report seven undeclared statuses for
+the same CLI, engine and module roots as the checkpoint above report seven undeclared statuses for
 FR-011 through FR-017. Native coverage with `--strict --severity
 coverage:undeclared-status=error` exits 1; no finding is filtered. The existing
 process vocabulary owns `complete: ["✅"]`, and its functional table grammar

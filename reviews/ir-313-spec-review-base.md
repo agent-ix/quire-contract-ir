@@ -26,7 +26,7 @@ Ticket: IR-313.
 
 Measured, with logs in the reviewer scratchpad:
 
-- `make spec` exits 2. In both runs the only
+- `make spec` exits 2 at both origin/main and the PR head. In both runs the only
   failures are the MP-001 and MP-002 frontmatter errors from `quire validate`.
 - `quire coverage --scope . --strict` exits 1 at both commits. Unbacked rows
   go from 37 to 39, which is 224/267 to 224/270 rows. The two new unbacked

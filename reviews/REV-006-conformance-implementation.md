@@ -97,7 +97,7 @@ refinement of that issue-level shorthand.
 
 FND-125 through FND-175 have producer dispositions. Reviewer comment
 `5481162405` was written against an earlier revision, and comment `5481528618` reviewed
-another; their still-applicable findings were reproduced or checked against
+a later revision; their still-applicable findings were reproduced or checked against
 the current candidate rather than dismissed as stale. A fresh independent
 closing CLI review was attempted twice but was unavailable (`API Error:
 ENOTIMP`), so the closing gap audit remains a producer result and found

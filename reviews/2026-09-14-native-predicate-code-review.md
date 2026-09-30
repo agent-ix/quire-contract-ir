@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-The review evaluated implementation candidate
+The review evaluated the implementation candidate
 against the cycle-free Contract IR base. The candidate implements the
 complete FR-025 predicate subsystem over real constructor-private QSL, Quire
 Observation and Quire Protocol views and real tl-syntax signal-catalog and
