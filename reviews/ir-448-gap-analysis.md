@@ -73,3 +73,20 @@ FR-036 (negotiation) is implemented and owned in agent-ix/quire-contract-codegen
 The approach is correct. The 22 rows cannot be kept green under `quire --strict`, and each deleted AC is false today. FR-036 already lives in codegen.
 
 FND-001 is a requirement-loss risk, not a defect in the diff. It needs the owner's sign-off, and the deleted AC text should be carried into IR-347, before merge.
+
+## Dispositions
+
+Round 1, reviewed at 276749f984690d9aad26b28347369e32e5845508. Following the owner's ruling, the PR was reworked so that it removes no requirement. `git diff origin/main...HEAD -- spec` now touches only the matrix, FR-344 and TC-222.
+
+`make spec` on the head reports 17 unbacked rows. On origin/main 7c70041 it reports 22. The difference is exactly FR-344, FR-344-AC-1..3 and TC-222, measured by diffing the `quire coverage --strict --format tsv` output of both trees.
+
+The six `FR-322:`/`FR-038:` comments became `Implements:`. That is a comment-only change, and it now yields six informational `implements` records, no new unbacked row and no `tag-on-non-binding-symbol` warning.
+
+`worktrees/` is gitignored and quire honours it. A probe test tagged FR-036-AC-1 under `worktrees/` left the row unbacked. The same probe under a non-ignored directory backed it.
+
+The IR-347 Linear description is byte-identical to the text read in round 0, with no leftover carried text.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 276749f |
+| FND-002 | fixed | 276749f |

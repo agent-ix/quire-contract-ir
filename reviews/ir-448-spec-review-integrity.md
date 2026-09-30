@@ -51,3 +51,13 @@ Ticket: IR-448. This review checks internal consistency after the removals, and 
 ## Verdict
 
 Changes requested at medium. The removals are internally reachable-clean, but they leave inconsistent present-tense claims here and dangling upstream references in two repos.
+
+## Dispositions
+
+Round 1, reviewed at 276749f984690d9aad26b28347369e32e5845508. Every removal and cross-reference edit was reverted. AD-001, AD-003, FR-019, FR-028, FR-031, spec/index.md and the deleted FR/TC files are identical to origin/main. The findings below were caused by the removals, and they no longer apply.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 276749f |
+| FND-002 | fixed | 276749f |
+| FND-003 | fixed | 276749f |

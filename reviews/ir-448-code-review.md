@@ -42,3 +42,11 @@ The trace convention (doc lines plus `#[trace]`) matches the repo. The helpers r
 ## Verdict
 
 Changes requested, one medium. The AC-1 and AC-2 tests are real oracles. The AC-3 test does pass on real behaviour: the package is refused and never admitted. But it pins the wrong gate and cannot detect the loss of the node's closed decode. The fix is a few lines, and it was measured to work.
+
+## Dispositions
+
+Round 1, reviewed at 276749f984690d9aad26b28347369e32e5845508. The mutation was re-run: with `deny_unknown_fields` removed from `CheckedSemanticNodeV2`, the AC-3 test now fails (`MalformedWire` != `UnknownMember` at `/semantic_graph/nodes/14/subsets`). With the reader restored it passes, and `make ci` runs 183/183 integration tests green.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 276749f |
