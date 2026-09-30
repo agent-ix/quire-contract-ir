@@ -1656,11 +1656,10 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
     }
 }
 
-/// Tracing: TC-056
-/// ACs: FR-040-AC-8, FR-040-AC-9
-#[trace("TC-056", "FR-040-AC-8", "FR-040-AC-9")]
+/// Tracing: TC-050, FR-038-AC-6
+#[trace("TC-050", "FR-038-AC-6")]
 #[test]
-fn tc_056_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
+fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
     let package = StatePackage::new();
     let value = package.value.clone();
     let frame = package.at("state", "frame");
@@ -1681,7 +1680,8 @@ fn tc_056_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
         require_bounds: false,
         work_limit: u64::MAX,
     };
-    let positions = [frame, clauses[0], clauses[1]];
+    let anchor = package.at("state", "operation_anchor");
+    let positions = [frame, anchor, clauses[0], clauses[1]];
     let requested = positions
         .iter()
         .map(|&at| typed_node_id(&digest(&value, at)))
