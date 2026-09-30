@@ -2629,8 +2629,14 @@ fn tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_members_pass() {
     // Two hundred nested arrays: past serde_json's own nesting cap of 128 as
     // well as the depth limit. The measured depth is reported.
     let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
-    let expected =
-        crate::support::checked_package::incomplete(CheckedPackageLimit::Depth, 128, 200);
+    // The charge fails at the first value one level past the limit.
+    let past_limit = "/0".repeat(128);
+    let expected = crate::support::checked_package::incomplete(
+        CheckedPackageLimit::Depth,
+        128,
+        200,
+        Some(&past_limit),
+    );
     assert_eq!(incomplete_depth(deep.as_bytes(), limits), expected);
     // A limit above the reader's maximum reads as that maximum, so a caller
     // raising it cannot make the reader recurse past it: a document a
@@ -2648,18 +2654,23 @@ fn tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_members_pass() {
     };
     assert_eq!(
         incomplete_depth(very_deep.as_bytes(), unbounded),
-        crate::support::checked_package::incomplete(CheckedPackageLimit::Depth, 128, 100_000)
+        crate::support::checked_package::incomplete(
+            CheckedPackageLimit::Depth,
+            128,
+            100_000,
+            Some(&past_limit),
+        )
     );
     // Syntax and member validation run before depth is charged: a syntax
     // error or a duplicate member anywhere in an over-deep document refuses.
     let malformed = format!("{}x{}", "[".repeat(200), "]".repeat(200));
     assert_eq!(
         refused_bytes(malformed.as_bytes(), &evidence),
-        refusal(CheckedPackageRefusalCode::MalformedWire, "document")
+        refusal_bytes(CheckedPackageRefusalCode::MalformedWire)
     );
     let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
     assert_eq!(
         refused_bytes(duplicate.as_bytes(), &evidence),
-        refusal(CheckedPackageRefusalCode::DuplicateMember, "a")
+        refusal(CheckedPackageRefusalCode::DuplicateMember, "/a")
     );
 }
