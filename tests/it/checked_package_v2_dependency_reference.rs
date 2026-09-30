@@ -161,7 +161,7 @@ fn importing_with(entries: Vec<Value>, edit: impl FnOnce(&mut Vec<Value>)) -> Va
         .clone();
     edit(&mut arguments);
     call["body"]["arguments"] = Value::Array(arguments);
-    // FR-322: the term is no `reference`, so it contributes no dependency.
+    // Implements: FR-322. The term is no `reference`, so it contributes no dependency.
     call["dependencies"] = json!([]);
     rekey_application_node(&mut package, position);
     refresh_identity(&mut package);

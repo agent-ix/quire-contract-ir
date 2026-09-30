@@ -779,7 +779,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => None,
-        // FR-322 (STD-102): a model declaration node of an object type or a
+        // Implements: FR-322 (STD-102). a model declaration node of an object type or a
         // systems interface is the `object` family, the `inner:0` result of
         // `quire.op.model.deref`, which only a `field_owner` position admits.
         K::Model(ModelForm::ObjectType | ModelForm::SystemsInterface) => Some("object"),

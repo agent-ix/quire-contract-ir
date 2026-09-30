@@ -321,7 +321,7 @@ struct Closure {
     work: u64,
 }
 
-/// FR-322: no node in the transitive closure of the function's signature
+/// Implements: FR-322. No node in the transitive closure of the function's signature
 /// type nodes carries a `declaration` or a `ModelOwner`.
 fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Closure {
     let nodes = &supplied.package.graph().nodes;

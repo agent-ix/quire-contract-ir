@@ -680,7 +680,7 @@ pub(super) fn validate_term(
                 Err(invalid(at))
             }
         }
-        // FR-322: `{term, package, node}`. The target names a node of a
+        // Implements: FR-322. `{term, package, node}`. The target names a node of a
         // dependency package, so it is never a reference of this graph and
         // is not reported to `visit`. Which positions admit it is decided by
         // the operation stage (step 7), not by this shape check.
