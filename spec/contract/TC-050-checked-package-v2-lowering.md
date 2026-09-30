@@ -13,7 +13,7 @@ relationships:
 ## Description
 
 Verify FR-038-AC-6 (QSpec FR-195-AC-1 through FR-195-AC-5) and FR-038-AC-39
-through the admitted V2 package API.
+through FR-038-AC-41 through the admitted V2 package API.
 
 ## Test Procedure
 
@@ -41,3 +41,15 @@ parameter typed at an unbounded `integer`, and one typed at `rational`.
 The first request lowers, with the domain in `bounds` and the `text`
 annotation in `dependencies`. The other two return `requires_bound` naming the
 type the parameter is typed at, never an annotation.
+
+## Positions and recursion (FR-038-AC-40, FR-038-AC-41)
+
+Under a bounds-required profile, lower `{n: Integer, k: Int[0,9]}`,
+`Sequence<Integer>[0,3]` beside `Int[0,9]`, and `(x + 1) + n` with `x` typed at
+`Int[0,9]` and `n` typed at `integer`; lower `Sequence<Boolean>[0,3]` and a
+record of bounded collections and ranged fields. Lower a recursive record whose
+fields are all bounded and whose nodes share one `recursion_group`.
+
+The first three return `requires_bound` naming `integer`; the bounded ones
+lower. The recursive record returns `requires_bound` naming the least offending
+node key.

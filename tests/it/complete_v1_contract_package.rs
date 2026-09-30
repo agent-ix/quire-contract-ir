@@ -348,13 +348,20 @@ fn tc_047_package_bytes_are_rfc_8785_key_ordered() {
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn tc_047_a_refused_request_is_represented_only_as_reached_meaning() {
-    // `dddd` now also depends on `bbbb`: requested alone, `bbbb` reaches the
-    // unbounded `aaaa` with no bounding domain and is refused; `dddd` reaches
-    // both `bbbb` and the bound `cccc`, so it lowers and carries `bbbb` as
-    // exact reached meaning, never as a lowered node.
+    // `bbbb` is an unbounded sequence of booleans and `cccc` a bounding domain
+    // over it; `dddd` is typed at `bbbb` and depends on both. Requested alone,
+    // `bbbb` reaches no bounding domain and is refused; `dddd` reaches the
+    // bound `cccc`, so it lowers and carries `bbbb` as exact reached meaning,
+    // never as a lowered node.
     let mut value = mixed_fixture();
     let bbbb = value["semantic_graph"]["nodes"][1]["node_id"].clone();
     let cccc = value["semantic_graph"]["nodes"][2]["node_id"].clone();
+    value["semantic_graph"]["nodes"][0]["semantic_form"] = json!("boolean");
+    value["semantic_graph"]["nodes"][1]["semantic_form"] = json!("sequence");
+    value["semantic_graph"]["nodes"][2]["semantic_form"] = json!("collection_bounds");
+    value["semantic_graph"]["nodes"][2]["semantic_type"] = bbbb.clone();
+    value["semantic_graph"]["nodes"][2]["dependencies"] = json!([bbbb]);
+    value["semantic_graph"]["nodes"][3]["semantic_type"] = bbbb.clone();
     let mut dependencies = vec![bbbb, cccc];
     dependencies.sort_by_key(|key| key["digest"].as_str().map(str::to_owned));
     value["semantic_graph"]["nodes"][3]["dependencies"] = json!(dependencies);

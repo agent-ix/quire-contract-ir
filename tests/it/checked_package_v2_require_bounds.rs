@@ -72,18 +72,16 @@ fn parameter(name: &str, ty: &str) -> (String, Value) {
     node(name, "value", "parameter", ty, &[], "expression", body)
 }
 
-/// `x + 1`: an integer `add` over the reference to `x` and the literal 1.
-fn add_one(name: &str, x: &str) -> (String, Value) {
+/// An integer `add` application named `name` over `arguments`, whose
+/// `reference` targets (named here) are its dependencies.
+fn add(name: &str, targets: &[&str], arguments: Vec<Value>) -> (String, Value) {
     let body = json!({
         "term": "application",
         "operator": "binary",
         "operation": {"identity": "quire.op.integer.add", "laws": [], "mode": null,
             "member": null, "leaves": []},
         "result_type": node_id(&key("integer")),
-        "arguments": [
-            {"term": "reference", "target": node_id(&key(x))},
-            literal("integer", "integer", "1"),
-        ],
+        "arguments": arguments,
     });
     // FR-322 application key: the key is re-derived by the reader.
     let id = sha256_hex(&canonical(&json!({
@@ -100,12 +98,25 @@ fn add_one(name: &str, x: &str) -> (String, Value) {
         "expression",
         "binary",
         "integer",
-        &[x],
+        targets,
         "expression",
         body,
     );
     expression["node_id"] = node_id(&id);
     (id, expression)
+}
+
+fn reference(name: &str) -> Value {
+    json!({"term": "reference", "target": node_id(&key(name))})
+}
+
+/// `x + 1`: an integer `add` over the reference to `x` and the literal 1.
+fn add_one(name: &str, x: &str) -> (String, Value) {
+    add(
+        name,
+        &[x],
+        vec![reference(x), literal("integer", "integer", "1")],
+    )
 }
 
 /// A package holding `nodes`, ascending by key.
@@ -279,6 +290,177 @@ fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
         CompleteLoweringRecordV2::RequiresBound {
             node_id: id_of("v"),
             unbounded_type: id_of("rational"),
+        }
+    );
+}
+
+/// A composite type node named `name`, self-typed, naming each of `over` as
+/// an element or field type.
+fn composite(name: &str, form: &str, over: &[&str]) -> (String, Value) {
+    node(name, "composite_type", form, name, over, "type", empty())
+}
+
+/// `K<E>[0, 3]` over the composite `seq`: a `collection_bounds` domain whose
+/// min and max literals are annotated with the unbounded `integer` type.
+fn bounded_collection(name: &str, seq: &str) -> (String, Value) {
+    let body = json!({"term": "aggregate", "members": [
+        binding("min", literal("integer", "integer", "0")),
+        binding("max", literal("integer", "integer", "3")),
+    ]});
+    node(
+        name,
+        "bounded_domain",
+        "collection_bounds",
+        seq,
+        &[seq],
+        "type",
+        body,
+    )
+}
+
+fn in_recursion_group((id, mut node): (String, Value)) -> (String, Value) {
+    node["recursion_group"] = json!("g");
+    (id, node)
+}
+
+/// Tracing: TC-050, FR-038-AC-40
+#[trace("TC-050", "FR-038-AC-40")]
+#[test]
+fn tc_050_a_bound_over_the_shared_integer_does_not_cover_an_unbounded_field() {
+    // `{n: Integer, k: Int[0,9]}`: `int09` is a domain over the same `integer`
+    // node the field `n` names, and must not bound it.
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        int_0_9(),
+        composite("mixed", "record", &["integer", "int09"]),
+    ]);
+    assert_eq!(
+        only_record(&value, &id_of("mixed")),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: id_of("mixed"),
+            unbounded_type: id_of("integer"),
+        }
+    );
+}
+
+/// Tracing: TC-050, FR-038-AC-40
+#[trace("TC-050", "FR-038-AC-40")]
+#[test]
+fn tc_050_bounded_collections_and_ranged_fields_lower() {
+    // `{xs: Sequence<Boolean>[0,3], ys: Sequence<Int[0,9]>[0,3], k: Int[0,9]}`:
+    // every position is bounded, and the domains' own `integer` literals are
+    // annotations, not positions.
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        scalar("boolean", "boolean"),
+        int_0_9(),
+        composite("bools", "sequence", &["boolean"]),
+        bounded_collection("bools03", "bools"),
+        composite("ints", "sequence", &["int09"]),
+        bounded_collection("ints03", "ints"),
+        composite("box", "record", &["bools03", "ints03", "int09"]),
+    ]);
+    match only_record(&value, &id_of("box")) {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert_eq!(
+                node.bounds,
+                vec![id_of("int09"), id_of("bools03"), id_of("ints03")]
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
+        }
+        other => panic!("expected lowered, got {other:?}"),
+    }
+}
+
+/// Tracing: TC-050, FR-038-AC-40
+#[trace("TC-050", "FR-038-AC-40")]
+#[test]
+fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
+    // `Sequence<Integer>[0,3]` beside `Int[0,9]`: the count is bounded, the
+    // element is not.
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        int_0_9(),
+        composite("ints", "sequence", &["integer"]),
+        bounded_collection("ints03", "ints"),
+        composite("holder", "record", &["ints03", "int09"]),
+    ]);
+    assert_eq!(
+        only_record(&value, &id_of("holder")),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: id_of("holder"),
+            unbounded_type: id_of("integer"),
+        }
+    );
+}
+
+/// Tracing: TC-050, FR-038-AC-41
+#[trace("TC-050", "FR-038-AC-41")]
+#[test]
+fn tc_050_a_recursive_record_requires_a_bound() {
+    // `{kids: Sequence<Tree>[0,3], k: Int[0,9]}` where `Tree` is the record:
+    // the cycle shares one `recursion_group`, and depth has no domain.
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        int_0_9(),
+        in_recursion_group(composite("tree", "record", &["kids03", "int09"])),
+        in_recursion_group(composite("kids", "sequence", &["tree"])),
+        in_recursion_group(bounded_collection("kids03", "kids")),
+    ]);
+    let least = std::cmp::min(id_of("tree"), id_of("kids"));
+    assert_eq!(
+        only_record(&value, &id_of("tree")),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: id_of("tree"),
+            unbounded_type: least,
+        }
+    );
+}
+
+/// Tracing: TC-050, FR-038-AC-40
+#[trace("TC-050", "FR-038-AC-40")]
+#[test]
+fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
+    // `(x + 1) + n` over `x: Int[0,9]` and `n: Integer`: the range over
+    // `integer` bounds `x`, not `n`.
+    let (x, x_node) = parameter("x", "int09");
+    let (n, n_node) = parameter("n", "integer");
+    let (inner, inner_node) = add_one("x_plus_1", "x");
+    let (outer, outer_node) = add(
+        "outer",
+        &[],
+        vec![
+            json!({"term": "reference", "target": node_id(&inner)}),
+            reference("n"),
+        ],
+    );
+    // The outer application depends on the inner one by its re-derived key.
+    let mut outer_node = outer_node;
+    let mut targets = [inner.clone(), key("n")];
+    targets.sort_unstable();
+    outer_node["dependencies"] = json!(targets.map(|digest| node_id(&digest)));
+    let value = package(vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        int_0_9(),
+        (x, x_node),
+        (n, n_node),
+        (inner, inner_node),
+        (outer.clone(), outer_node),
+    ]);
+    let request: CheckedNodeId = typed_node_id(&outer);
+    assert_eq!(
+        only_record(&value, &request),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: request,
+            unbounded_type: id_of("integer"),
         }
     );
 }
