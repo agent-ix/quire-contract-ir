@@ -64,9 +64,11 @@ outcome, its one QSL `TerminalValue` (FR-031).
 An item's own public fields, variants and inherent methods are part of the
 item and are not listed separately.
 
-The root crate takes `qsl-replay` from the same QSL repository
-it already depends on, so taking `qsl-replay` adds no repository edge.
-It has no dependency on `quire_spec_language::runtime`.
+The root crate depends on no QSL crate (FR-028), so it has no dependency on
+`quire_spec_language::runtime` or `qsl-replay`; the native-runtime replay
+entry point `replay_with_native_runtime` and its `Native*` agreement types are
+removed (IR#140, QSL ADR-011). The outcome map to `qsl_replay::TerminalValue`
+is planned, and the crate that hosts it must depend on both sides.
 
 ### Items codegen owns
 
@@ -80,9 +82,8 @@ root crate has no `arithmetic`, `collections` or `objects` module.
 ### Items QSL owns
 
 `CounterexamplePacket`, `PacketIdentity`, `ReplaySource`, `ReplayAgreement`,
-`WitnessReplayAgreement`, `InputReplayAgreement`, `NativeReplayAgreement`,
-`WitnessNativeReplayAgreement`, `InputNativeReplayAgreement`,
-`replay_counterexample`, `replay_with_native_runtime`, `Witness`,
+`WitnessReplayAgreement`, `InputReplayAgreement`,
+`replay_counterexample`, `Witness`,
 `WitnessBinding`, `WitnessCheck`, `WitnessValue`, `WitnessValueType`,
 `KaniProviderResult` and `KaniProviderRecord` are not part of this interface.
 Their roles are QSL's `WitnessEnvelope`, `ReplaySource`, `Witness`,

@@ -1,11 +1,7 @@
-//! Concrete counterexample serialization and strict native-replay agreement.
+//! Concrete counterexample serialization and strict replay agreement.
 
 use std::collections::BTreeMap;
 
-use quire_spec_language::{
-    package::NativePackage,
-    runtime::{self, ExecutionLimits, ExecutionReport, ExecutionSelection, RuntimeInput},
-};
 use serde::{Deserialize, Serialize};
 
 use super::{FiniteInput, KaniOutcome, KaniOutcomeKind, Witness, WitnessValue};
@@ -32,8 +28,7 @@ pub enum ReplaySource {
     ///
     /// AD-016 "Replay source" specifies keying this by parameter
     /// `WireNodeId` (QSL ADR-013 C-11). `WireNodeId` does not exist in this
-    /// codebase or in the pinned `quire-spec-language` dependency at this
-    /// revision, so this keys by the declared parameter identifier instead.
+    /// codebase, so this keys by the declared parameter identifier instead.
     /// This is a deviation, not the intended design, recorded here so it is
     /// not later mistaken for intent.
     Input(BTreeMap<String, WitnessValue>),
@@ -182,103 +177,6 @@ pub enum ReplayAgreement {
     Input(InputReplayAgreement),
 }
 
-/// Agreement produced by replaying through QSL's independently implemented
-/// native reference runtime, settled by a packet's `Witness` arm.
-/// See [`WitnessReplayAgreement`] for why the private fields and constructor
-/// are the guard, and why `witness` (not a [`ReplaySource`]) is what makes
-/// the arm follow from the type.
-#[derive(Debug)]
-pub struct WitnessNativeReplayAgreement<'package, 'model> {
-    identity: PacketIdentity,
-    witness: Witness,
-    native: ExecutionReport<'package, 'model>,
-}
-
-impl<'package, 'model> WitnessNativeReplayAgreement<'package, 'model> {
-    /// Builds the settled `Witness`-arm agreement. See
-    /// [`WitnessReplayAgreement::new`].
-    fn new(
-        identity: PacketIdentity,
-        witness: Witness,
-        native: ExecutionReport<'package, 'model>,
-    ) -> Self {
-        Self {
-            identity,
-            witness,
-            native,
-        }
-    }
-
-    /// The exact profile revision and finite ABI input that were replayed.
-    pub fn identity(&self) -> &PacketIdentity {
-        &self.identity
-    }
-
-    /// The evaluated witness this agreement reproduced.
-    pub fn witness(&self) -> &Witness {
-        &self.witness
-    }
-
-    /// The retained native execution report, including its original request.
-    pub fn native(&self) -> &ExecutionReport<'package, 'model> {
-        &self.native
-    }
-}
-
-/// Agreement produced by replaying through QSL's independently implemented
-/// native reference runtime, settled by a packet's `Input` arm.
-/// See [`InputReplayAgreement`] for why the private fields and constructor
-/// are the guard, and why `input` (not a [`ReplaySource`]) is what makes the
-/// arm follow from the type.
-#[derive(Debug)]
-pub struct InputNativeReplayAgreement<'package, 'model> {
-    identity: PacketIdentity,
-    input: BTreeMap<String, WitnessValue>,
-    native: ExecutionReport<'package, 'model>,
-}
-
-impl<'package, 'model> InputNativeReplayAgreement<'package, 'model> {
-    /// Builds the settled `Input`-arm agreement. See
-    /// [`WitnessReplayAgreement::new`].
-    fn new(
-        identity: PacketIdentity,
-        input: BTreeMap<String, WitnessValue>,
-        native: ExecutionReport<'package, 'model>,
-    ) -> Self {
-        Self {
-            identity,
-            input,
-            native,
-        }
-    }
-
-    /// The exact profile revision and finite ABI input that were replayed.
-    pub fn identity(&self) -> &PacketIdentity {
-        &self.identity
-    }
-
-    /// The canonical assignments this agreement reproduced.
-    pub fn input(&self) -> &BTreeMap<String, WitnessValue> {
-        &self.input
-    }
-
-    /// The retained native execution report, including its original request.
-    pub fn native(&self) -> &ExecutionReport<'package, 'model> {
-        &self.native
-    }
-}
-
-/// Agreement produced by replaying through QSL's independently implemented
-/// native reference runtime: a sum of the two distinct arm result types,
-/// mirroring [`ReplayAgreement`].
-#[derive(Debug)]
-pub enum NativeReplayAgreement<'package, 'model> {
-    /// Reproduced together with an evaluated witness.
-    Witness(WitnessNativeReplayAgreement<'package, 'model>),
-    /// Reproduced with no witness at all.
-    Input(InputNativeReplayAgreement<'package, 'model>),
-}
-
 fn validate_packet(packet: &CounterexamplePacket) -> Result<(), KaniOutcome> {
     if packet.profile_revision.trim().is_empty()
         || packet.profile_revision != packet.input.profile.revision
@@ -369,40 +267,5 @@ pub fn replay_counterexample(
         ReplaySource::Input(assignments) => {
             ReplayAgreement::Input(InputReplayAgreement::new(identity, assignments, native))
         }
-    })
-}
-
-/// Reconstructs and executes a counterexample with the native QSL runtime.
-///
-/// The adapter is responsible for reconstructing the typed QSL request from
-/// the packet's retained ABI input. This boundary always invokes
-/// [`runtime::execute`] itself and accepts an agreement only for a completed
-/// native `false`; validation failures, incomplete native execution, and a
-/// native proof are all surfaced as a non-Boolean result.
-pub fn replay_with_native_runtime<'package, 'model>(
-    packet: CounterexamplePacket,
-    package: &'package NativePackage<'model>,
-    reconstruct: impl FnOnce(&CounterexamplePacket) -> (RuntimeInput, ExecutionSelection),
-    limits: ExecutionLimits,
-) -> Result<NativeReplayAgreement<'package, 'model>, KaniOutcome> {
-    validate_packet(&packet)?;
-    let identity = packet.identity();
-    let (input, selection) = reconstruct(&packet);
-    let native = runtime::execute(package, input, selection, limits, || false);
-    if native.truth() != Some(false) {
-        return Err(KaniOutcome::non_success(
-            KaniOutcomeKind::Inconclusive,
-            "kani_native_replay_disagreement",
-            packet.input.source_id,
-            packet.profile_revision,
-        ));
-    }
-    Ok(match packet.source {
-        ReplaySource::Witness(witness) => NativeReplayAgreement::Witness(
-            WitnessNativeReplayAgreement::new(identity, witness, native),
-        ),
-        ReplaySource::Input(assignments) => NativeReplayAgreement::Input(
-            InputNativeReplayAgreement::new(identity, assignments, native),
-        ),
     })
 }

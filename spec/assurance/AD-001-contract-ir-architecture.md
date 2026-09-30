@@ -105,8 +105,9 @@ which QSL reads as category `Inconclusive` with the vacuity cause
 
 Replay runs only through `qsl_replay::replay`, from the codegen replay
 adapter; Contract IR has no dependency on `quire_spec_language::runtime` and
-calls no executor. The root crate takes `qsl-replay` from the QSL repository
-it already depends on, so taking it adds no repository edge.
+calls no executor. The root crate depends on no QSL crate (FR-028); the
+outcome map to `qsl_replay::TerminalValue` is hosted by a crate that depends
+on both.
 
 ## Views
 

@@ -26,6 +26,8 @@ make clean          # cargo clean
 make deny           # all cargo-deny policy checks
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # all local release gates
+make use-local      # patch first-party git deps (ix-trace-rs, quire-verification-contracts) to ../<repo> via gitignored .cargo/config.toml
+make use-remote     # delete .cargo/config.toml; build from GitHub main
 ```
 
 ## Safety scaffolding

@@ -149,7 +149,7 @@ fn compound_unit_body(unit: &str, exponent: &str) -> Value {
     ]})
 }
 
-/// Positions of the QSL-shaped nodes in [`qsl_package`]'s graph.
+/// Positions of the QSL-shaped nodes in [`parameters_package`]'s graph.
 const DIMENSION: usize = 0;
 const METRE: usize = 1;
 const SECOND: usize = 3;
@@ -197,7 +197,7 @@ fn extra_units(dimension: &Value, metre: &Value, metre_key: &str) -> Vec<(Value,
 /// `Metre`, the [`extra_units`], the Boolean, Integer and text scalars, the parameters `a` and
 /// `b`, the expression `a and b`, the function `both` that takes them, and
 /// the compound unit `Metre^2`.
-fn qsl_package() -> Value {
+fn parameters_package() -> Value {
     let members = nominal_fixture_members();
     // [2] = unit `Metre`, [3] = dimension `Length`.
     let mut nominal = vec![members[3].clone(), members[2].clone()];
@@ -312,7 +312,7 @@ fn node_key(package: &Value, position: usize) -> String {
 /// Applies `mutate` to the node at `position`, then re-derives the source
 /// map and the package identity so only the mutated rule can refuse.
 fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
-    let mut package = qsl_package();
+    let mut package = parameters_package();
     mutate(&mut package["semantic_graph"]["nodes"][position]);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
@@ -333,8 +333,8 @@ fn invalid_at(package: &Value, position: usize, member: &str) -> CheckedPackageR
 /// Tracing: TC-048, FR-038-AC-22, FR-038-AC-23
 #[trace("TC-048", "FR-038-AC-22", "FR-038-AC-23")]
 #[test]
-fn tc_048_a_qsl_function_with_parameters_reads_and_lowers() {
-    let package = qsl_package();
+fn tc_048_a_function_with_parameters_reads_and_lowers() {
+    let package = parameters_package();
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
         panic!(
             "the QSL-shaped package must admit, got {:?}",
@@ -489,8 +489,8 @@ fn tc_048_a_malformed_parameter_node_refuses() {
 #[trace("TC-048", "FR-038-AC-22")]
 #[test]
 fn tc_048_a_malformed_compound_unit_node_refuses() {
-    let metre = node_key(&qsl_package(), METRE);
-    let dimension = node_key(&qsl_package(), DIMENSION);
+    let metre = node_key(&parameters_package(), METRE);
+    let dimension = node_key(&parameters_package(), DIMENSION);
 
     let zero_exponent = mutated(COMPOUND, |node| {
         node["body"] = compound_unit_body(&metre, "0");
@@ -537,7 +537,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     );
 
     // Terms naming distinct root units must still ascend by unit key.
-    let second = node_key(&qsl_package(), SECOND);
+    let second = node_key(&parameters_package(), SECOND);
     let (low, high) = if metre < second {
         (metre.clone(), second.clone())
     } else {
@@ -567,7 +567,7 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
     );
 
     // A term names a root unit, never a unit with a target.
-    let kilometre = node_key(&qsl_package(), KILOMETRE);
+    let kilometre = node_key(&parameters_package(), KILOMETRE);
     let names_non_root = mutated(COMPOUND, |node| {
         node["body"] = compound_unit_body(&kilometre, "2");
         node["dependencies"] = json!([node_id(&kilometre)]);
@@ -593,8 +593,8 @@ fn tc_048_a_malformed_compound_unit_node_refuses() {
 #[test]
 fn tc_048_an_application_node_dependency_list_is_its_exact_body_join() {
     let (a, b) = (
-        node_key(&qsl_package(), P1),
-        node_key(&qsl_package(), P1 + 1),
+        node_key(&parameters_package(), P1),
+        node_key(&parameters_package(), P1 + 1),
     );
     let cases: [(&str, Value); 4] = [
         ("missing target", json!([node_id(&a)])),

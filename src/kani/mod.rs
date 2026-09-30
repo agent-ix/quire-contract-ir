@@ -27,9 +27,8 @@ pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };
 pub use replay::{
-    replay_counterexample, replay_with_native_runtime, CounterexamplePacket,
-    InputNativeReplayAgreement, InputReplayAgreement, NativeReplayAgreement, PacketIdentity,
-    ReplayAgreement, ReplaySource, WitnessNativeReplayAgreement, WitnessReplayAgreement,
+    replay_counterexample, CounterexamplePacket, InputReplayAgreement, PacketIdentity,
+    ReplayAgreement, ReplaySource, WitnessReplayAgreement,
 };
 pub use witness::{Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType};
 
