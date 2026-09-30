@@ -866,7 +866,10 @@ fn strict_parse(input: &[u8], lift_nesting_cap: bool) -> Result<Value, Validatio
 
 /// What the first parse pass learns about a document.
 struct Shape {
-    /// The document's depth in [`json_depth`]'s unit.
+    /// The document's nesting depth: a container is one level and a scalar one
+    /// level below the container holding it, so `1`, `[]` and `{}` are depth
+    /// 1, and `[1]` and `{"a":1}` are depth 2.
+    /// [`CheckedPackageReadLimits::depth`] is charged in this unit.
     depth: u64,
     /// The position of the first value, in document order, nested deeper than
     /// the limit the pass was given.
@@ -952,7 +955,7 @@ impl StrictSink for Value {
     }
 }
 
-/// A strict value reduced to its depth in [`json_depth`]'s unit.
+/// A strict value reduced to its nesting depth, in the unit of [`Shape::depth`].
 struct Depth(u64);
 
 impl StrictSink for Depth {
@@ -1120,30 +1123,6 @@ impl<'de, S: StrictSink> Visitor<'de> for Strict<'_, S> {
     }
 }
 
-/// Nesting depth of a parsed value: a container is one level and a scalar
-/// one level below the container holding it, so `1` is depth 1, `[]` depth
-/// 1, `[1]` depth 2 and `{"a":1}` depth 2. [`CheckedPackageReadLimits::depth`]
-/// is charged in this unit. The reader measures it in its first parse pass;
-/// this form over a parsed value is the tests' independent statement of it.
-#[cfg(test)]
-pub(super) fn json_depth(value: &Value) -> u64 {
-    match value {
-        Value::Array(values) => values
-            .iter()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        Value::Object(values) => values
-            .values()
-            .map(json_depth)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1),
-        _ => 1,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1293,33 +1272,31 @@ mod tests {
 
 #[cfg(test)]
 mod depth_tests {
-    use super::{canonical_value, json_depth, strict_shape, ValidationFailure};
+    use super::{canonical_value, strict_shape, ValidationFailure};
     use crate::checked_package::shared::{
         CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCode, JsonPointer,
     };
-    use serde_json::Value;
 
     fn nested(depth: usize) -> String {
         format!("{}{}", "[".repeat(depth), "]".repeat(depth))
     }
 
-    /// The first pass measures depth in `json_depth`'s unit.
+    /// The first pass measures depth in the documented unit.
     #[test]
-    fn strict_shape_agrees_with_json_depth() {
-        for text in [
-            "1",
-            "\"x\"",
-            "[]",
-            "{}",
-            "[1]",
-            "{\"a\":1}",
-            "{\"a\":[{\"b\":\"x\"}]}",
-            "[[],[[1]],{\"k\":{}}]",
-            "{\"a\":\"[[[{{\\\"\",\"b\":[true,null,-1.5e3]}",
+    fn strict_shape_measures_depth_per_container_and_scalar() {
+        for (text, depth) in [
+            ("1", 1),
+            ("\"x\"", 1),
+            ("[]", 1),
+            ("{}", 1),
+            ("[1]", 2),
+            ("{\"a\":1}", 2),
+            ("{\"a\":[{\"b\":\"x\"}]}", 4),
+            ("[[],[[1]],{\"k\":{}}]", 4),
+            ("{\"a\":\"[[[{{\\\"\",\"b\":[true,null,-1.5e3]}", 3),
         ] {
-            let value: Value = serde_json::from_str(text).expect("valid JSON");
             let shape = strict_shape(text.as_bytes(), u64::MAX).expect("strict JSON");
-            assert_eq!(shape.depth, json_depth(&value), "{text}");
+            assert_eq!(shape.depth, depth, "{text}");
             assert_eq!(shape.first_past_limit, None, "{text}");
         }
     }
