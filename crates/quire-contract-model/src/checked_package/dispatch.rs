@@ -45,13 +45,14 @@ fn dispatch(
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
-    read_value(bytes, limits, |value| {
-        dispatch_value(value, limits, evidence)
+    read_value(bytes, limits, |value, depth| {
+        dispatch_value(value, depth, limits, evidence)
     })
 }
 
 fn dispatch_value(
     value: Value,
+    depth: u64,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
@@ -81,7 +82,7 @@ fn dispatch_value(
         }
     };
     match version.as_str() {
-        CHECKED_PACKAGE_V2 => CheckedPackageV2::admit_value(value, limits, evidence)
+        CHECKED_PACKAGE_V2 => CheckedPackageV2::admit_value(value, depth, limits, evidence)
             .map(|package| CheckedPackageDispatchResult::AdmittedV2(Box::new(package))),
         _ => Err(ValidationFailure::unknown_contract_version(&version)),
     }

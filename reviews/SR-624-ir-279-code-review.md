@@ -40,3 +40,35 @@ What was measured:
 ## Verdict
 
 Not mergeable at cfb1b71. The classification fix is correct and well tested: 7 of 7 mutants were killed, the refusal order matches FR-322, and the deleted helpers lose nothing. But lifting serde's cap turned an O(1) refusal of hostile deep input into O(n^2) CPU and about 190x memory, and FND-001 must be fixed before merge. The design decision on the 128 cap is covered in SR-625 and SR-626.
+
+## New findings (disposition pass 1)
+
+Reviewed at f9251e58be5d6e2980996e65aba5e1c7578b1c84 (fix round 7f1d923 and the Drop fix f9251e5, based on main 7c70041). The PR merges cleanly onto current origin/main d98c7cc. The merged tree passes every `make ci` target except `make spec`, which reports 17 unbacked rows, the same list as origin/main. Oracle strength: 12 of 13 mutants were killed, and the survivor is FND-008.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | high | Only drop was made safe for deep values. Every other public operation on an admitted deep package recurses on the caller's stack and aborts the process: `clone()`, `==`, `{:?}`, `graph().clone()` (whose drop has no `Drop` impl), `serde_json::to_vec(graph())` and `lower()`. `CheckedPackageV2ReadResult::Admitted` is documented "safe for lowering". Reproduced with the PR's own 10,000-deep aggregate fixture on a 2 MiB thread in debug: all six operations abort, and drop passes. In release on an 8 MiB stack, `lower` and `clone` pass at 10,000 levels and abort at 50,000 | crates/quire-contract-model/src/checked_package/v2/mod.rs:374 |
+| FND-007 | medium | The read reserves 256 KiB plus 4 KiB per measured level in a single up-front `stacker` mmap, sized from untrusted depth. A 4 MB, 2,000,000-deep document under `depth: u64::MAX` reserves 8 GiB while using 1.26 GB. Under `ulimit -v 6G` the reader panics ("allocating stack failed", stacker lib.rs:168) instead of returning a ReadResult. On 32-bit the size saturates to usize::MAX | crates/quire-contract-model/src/checked_package/common.rs:251-256 |
+| FND-008 | medium | The `Drop` impl's diagnostic-details branch is untested. With `entry.details.iter_mut().for_each(dismantle)` disabled, every test stays green (mutant M8c). The node-body and identity-projection branches are killed by `tc_048_a_deep_admitted_package_drops_on_a_small_stack`, because its fixture splices the deep body into both | crates/quire-contract-model/src/checked_package/v2/mod.rs:394 |
+| FND-009 | low | `tc_048_a_deep_syntax_error_is_refused_in_linear_time` asserts wall-clock time (`elapsed < 2 s`) in the default test lane. It measures 0.45 s in an idle debug build, 4.4x headroom, which can fail spuriously under parallel load. A structural oracle, or an `#[ignore]`d bench lane, would be sturdier | crates/quire-contract-model/src/checked_package/common.rs:1628-1647 |
+
+### New finding detail (disposition pass 1)
+
+- FND-006: `CheckedPackageV2` and `CheckedPackageV2ReadResult` derive `Clone, Debug, Eq, PartialEq`, and the pub accessors hand out `&CheckedSemanticGraphV2`, which is `Clone`/`Serialize`, holding `body: Value`. `lower` clones bodies into `CompleteLoweringResultV2`, which has no iterative drop. The Drop fix is sound as far as it goes: nothing moves fields out of the package, since that would not compile, and `dismantle` cannot panic. But honouring a large caller limit now admits packages that most of the public API cannot handle. Options: run `lower` (and document or wrap clone/eq/debug/serialize) under a stack sized from a depth recorded at admission; or document that a caller who raises `depth` must itself run consumers of the package on a stack that large; or test the limit the crate actually supports. A test should cover at least `lower` on a deep admitted package.
+- FND-007: Measured with the release lib test binary: `read_value` of `[`x2,000,000 `]`x2,000,000 under `bytes: u64::MAX, depth: u64::MAX` takes 3.2 s at 1.26 GB RSS. Under `ulimit -v 6291456` it panics. The 524,000-deep 1 MiB document peaks at 333 MB. Consider segment-wise growth instead of one reservation sized to the whole depth, or bound the reservation and turn allocation failure into an outcome rather than a panic.
+- FND-008: Add a deep diagnostic `details` term to the drop test, or state why details cannot be deep.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7f1d923 |
+| FND-002 | fixed | 7f1d923 |
+| FND-003 | fixed | 7f1d923 |
+| FND-004 | fixed | 7f1d923 |
+| FND-005 | deferred | IR-452 (pre-existing model_members.rs:874 serde cap, outside this diff) |
+
+- FND-001: `strict_shape` is now an iterative scanner with an explicit stack. The 524,000-deep syntax-error document is refused in 23 ms in release (was 6.1 s) and in about 0.45 s in debug. Mutants M5 and M10/M11 are killed; M11 is killed by the 44-text parity test.
+- FND-002: The shape pass peaks at 33 MB for the 524k malformed document (was 201 MB), and the false "bounded by the byte limit" claim is gone. The remaining memory for a valid deep read under a raised limit is caller-selected and is tracked as FND-007.
+- FND-003: The doc link now reads [`strict_shape`].
+- FND-004: Every new unit test carries `Tracing: TC-048, FR-038-AC-3`.

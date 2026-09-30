@@ -226,10 +226,13 @@ pub(super) trait ArtifactDigests {
 /// The value is parsed, re-encoded, admitted and dropped inside `admit`'s
 /// closure on a stack sized for the measured depth, so the recursion each of
 /// those stages makes over the value cannot exhaust the caller's stack.
+/// `admit` is given the value and that depth. The effective depth limit is the
+/// caller's, up to [`CheckedPackageReadLimits::MAXIMUM_DEPTH`], which bounds
+/// the stack reserved.
 pub(super) fn read_value<T>(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
-    admit: impl FnOnce(Value) -> Result<T, ValidationFailure>,
+    admit: impl FnOnce(Value, u64) -> Result<T, ValidationFailure>,
 ) -> Result<T, ValidationFailure> {
     if exceeds(bytes.len(), limits.bytes) {
         return Err(ValidationFailure::incomplete(
@@ -239,21 +242,17 @@ pub(super) fn read_value<T>(
             None,
         ));
     }
-    let shape = strict_shape(bytes, limits.depth)?;
-    if exceeds(shape.depth, limits.depth) {
+    let depth_limit = limits.depth.min(CheckedPackageReadLimits::MAXIMUM_DEPTH);
+    let shape = strict_shape(bytes, depth_limit)?;
+    if exceeds(shape.depth, depth_limit) {
         return Err(ValidationFailure::incomplete(
             CheckedPackageLimit::Depth,
-            limits.depth,
+            depth_limit,
             shape.depth,
             shape.first_past_limit,
         ));
     }
-    let stack = STACK_BASE.saturating_add(
-        usize::try_from(shape.depth)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(STACK_PER_LEVEL),
-    );
-    stacker::maybe_grow(stack, stack, || {
+    on_stack_for(shape.depth, || {
         let value = strict_parse(bytes)?;
         let canonical = serde_json::to_vec(&value).map_err(|_| {
             ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
@@ -263,8 +262,21 @@ pub(super) fn read_value<T>(
                 CheckedPackageRefusalCode::NoncanonicalWire,
             ));
         }
-        admit(value)
+        admit(value, shape.depth)
     })
+}
+
+/// Runs `operation` on a stack with room for the recursion it makes over a
+/// value `depth` levels deep, growing onto the heap when the current stack
+/// lacks it. `depth` is at most [`CheckedPackageReadLimits::MAXIMUM_DEPTH`]
+/// for any value the reader admitted, so the reservation is bounded.
+pub(super) fn on_stack_for<T>(depth: u64, operation: impl FnOnce() -> T) -> T {
+    let stack = STACK_BASE.saturating_add(
+        usize::try_from(depth.min(CheckedPackageReadLimits::MAXIMUM_DEPTH))
+            .unwrap_or(usize::MAX)
+            .saturating_mul(STACK_PER_LEVEL),
+    );
+    stacker::maybe_grow(stack, stack, operation)
 }
 
 /// [`read_value`] handing back the value itself, for tests whose documents are
@@ -274,7 +286,7 @@ pub(super) fn canonical_value(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
 ) -> Result<Value, ValidationFailure> {
-    read_value(bytes, limits, Ok)
+    read_value(bytes, limits, |value, _| Ok(value))
 }
 
 /// Empties `value`, dropping its descendants iteratively. A deep value's
@@ -1580,32 +1592,46 @@ mod depth_tests {
         }
     }
 
-    /// Nesting far past serde_json's own cap is measured, refused or
-    /// admitted by the caller's limit alone, without exhausting the stack, and
-    /// a duplicate member or syntax error anywhere is still found first.
+    /// Nesting far past serde_json's own cap is decided by the caller's limit
+    /// up to the reader's ceiling, without exhausting the stack or reserving
+    /// more than the ceiling's stack, and a duplicate member or syntax error
+    /// anywhere is still found first.
     ///
     /// Tracing: TC-048, FR-038-AC-3
     #[test]
-    fn tc_048_deep_nesting_is_decided_by_the_callers_limit_alone() {
-        let depth = 100_000;
-        let deep = nested(depth);
-        let over = strict_shape(deep.as_bytes(), 128).expect("strict");
-        assert_eq!(over.depth, 100_000);
-        assert_eq!(over.first_past_limit, JsonPointer::parse(&"/0".repeat(128)));
-        let unbounded = limits(u64::MAX);
-        assert!(read_value(deep.as_bytes(), unbounded, |_| Ok(())).is_ok());
+    fn tc_048_deep_nesting_is_decided_by_the_callers_limit_to_the_ceiling() {
+        let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
+        let ceiling_len = usize::try_from(ceiling).expect("small");
+        let at_ceiling = nested(ceiling_len);
+        assert!(read_value(at_ceiling.as_bytes(), limits(u64::MAX), |_, _| Ok(())).is_ok());
         assert_eq!(
-            read_value(deep.as_bytes(), limits(99_999), |_| Ok(())),
+            read_value(at_ceiling.as_bytes(), limits(ceiling - 1), |_, _| Ok(())),
             Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Depth,
-                99_999,
-                100_000_u64,
-                JsonPointer::parse(&"/0".repeat(99_999)),
+                ceiling - 1,
+                ceiling,
+                JsonPointer::parse(&"/0".repeat(ceiling_len - 1)),
+            ))
+        );
+        // Past the ceiling the ceiling is what is reported, for any caller
+        // limit, and the document is not parsed.
+        let depth = 2_000_000;
+        let deep = nested(depth);
+        let over = strict_shape(deep.as_bytes(), 128).expect("strict");
+        assert_eq!(over.depth, 2_000_000);
+        assert_eq!(over.first_past_limit, JsonPointer::parse(&"/0".repeat(128)));
+        assert_eq!(
+            read_value(deep.as_bytes(), limits(u64::MAX), |_, _| Ok(())),
+            Err(ValidationFailure::incomplete(
+                CheckedPackageLimit::Depth,
+                ceiling,
+                2_000_000_u64,
+                JsonPointer::parse(&"/0".repeat(ceiling_len)),
             ))
         );
         let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
         assert_eq!(
-            read_value(duplicate.as_bytes(), limits(128), |_| Ok(())),
+            read_value(duplicate.as_bytes(), limits(128), |_, _| Ok(())),
             Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::DuplicateMember,
                 JsonPointer::root().key("a"),
@@ -1613,37 +1639,39 @@ mod depth_tests {
         );
         let broken = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
         assert_eq!(
-            read_value(broken.as_bytes(), limits(128), |_| Ok(())),
+            read_value(broken.as_bytes(), limits(128), |_, _| Ok(())),
             Err(malformed())
         );
     }
 
     /// The first pass costs time linear in the input: a syntax error at the
     /// bottom of a document half a million levels deep, which a recursive
-    /// parser reports once per enclosing level, is refused in far less than
-    /// the seconds that took.
+    /// parser reports once per enclosing level, is refused in time that grows
+    /// with the depth, not with its square. Quadrupling the depth takes
+    /// about four times as long; the bound of eight separates that from
+    /// sixteen, on the fastest of three runs so a busy machine does not move it.
     ///
     /// Tracing: TC-048, FR-038-AC-3
     #[test]
     fn tc_048_a_deep_syntax_error_is_refused_in_linear_time() {
-        let depth = 524_000;
-        let broken = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
-        let unbounded = CheckedPackageReadLimits {
-            bytes: u64::MAX,
-            depth: u64::MAX,
-            ..CheckedPackageReadLimits::bounded()
+        let fastest = |depth: usize| {
+            let broken = format!("{}x{}", "[".repeat(depth), "]".repeat(depth));
+            (0..3)
+                .map(|_| {
+                    let started = Instant::now();
+                    let result = read_value(broken.as_bytes(), limits(u64::MAX), |_, _| Ok(()));
+                    let elapsed = started.elapsed();
+                    assert_eq!(result, Err(malformed()));
+                    elapsed
+                })
+                .min()
+                .expect("three runs")
         };
-        let started = Instant::now();
-        assert_eq!(
-            read_value(broken.as_bytes(), unbounded, |_| Ok(())),
-            Err(malformed())
-        );
-        let over = read_value(broken.as_bytes(), limits(128), |_| Ok(()));
-        assert_eq!(over, Err(malformed()));
+        let shallow = fastest(131_000);
+        let deep = fastest(524_000);
         assert!(
-            started.elapsed().as_secs() < 2,
-            "took {:?}",
-            started.elapsed()
+            deep.as_secs_f64() < shallow.as_secs_f64() * 8.0,
+            "131000 levels took {shallow:?}, 524000 took {deep:?}"
         );
     }
 }

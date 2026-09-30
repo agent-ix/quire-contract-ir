@@ -16,7 +16,7 @@ use super::{
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{
-    digest_bytes, digest_json, ReferenceMember, Step, Trail, ValidationFailure,
+    digest_bytes, digest_json, on_stack_for, ReferenceMember, Step, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
@@ -228,8 +228,19 @@ struct LoweredNodePreimage<'a> {
 }
 
 impl CheckedPackageV2 {
-    /// Lowers each requested key independently.
+    /// Lowers each requested key independently, on a stack sized for the depth
+    /// this package was admitted at. Dropping the result is safe at that depth;
+    /// its derived `Clone`, `Debug` and `PartialEq` recurse on the caller's
+    /// stack.
     pub fn lower(
+        &self,
+        requested: &[CheckedNodeId],
+        profile: &CompleteLoweringProfileV2,
+    ) -> CompleteLoweringResultV2 {
+        on_stack_for(self.depth, || self.lower_on_stack(requested, profile))
+    }
+
+    fn lower_on_stack(
         &self,
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,

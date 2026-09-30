@@ -27,3 +27,19 @@ Ticket: IR-279. This review covers the FR-038 "Reading" paragraph edited by PR 1
 ## Verdict
 
 The depth unit and the refusal order are clear improvements. FND-001 is a real contradiction and blocks merge until the owner picks between honouring the caller's limit and an upstream amendment.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | The fix round restored "parse strict JSON once", but the reader now makes two passes over the text: the iterative syntax, duplicate and depth scan, which re-reads each scalar and member name with serde_json, and then the value parse. As written, the requirement no longer describes the code | spec/contract/FR-038-consume-checked-package-v2.md:140-141 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7f1d923 |
+| FND-002 | fixed | 7f1d923 |
+
+- FND-001: The "reads as 128" sentence is gone. The paragraph now says a document within the caller's limit "is read whatever that limit is", which agrees with FR-038-AC-3 and FR-322-AC-6.
+- FND-002: The stack-mechanism and memory-bound clauses are removed. The paragraph states only observable behaviour.

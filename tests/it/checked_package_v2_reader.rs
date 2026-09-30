@@ -13,10 +13,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ExpressionForm, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -2657,29 +2657,44 @@ fn tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_
             "limit {limit}"
         );
     }
-    // A document a hundred thousand levels deep, under a limit that admits
-    // it, neither overflows the stack nor is refused for its depth.
+    // Nesting past the reader's ceiling is reported at the ceiling, whatever
+    // the caller's limit, without the stack reserved growing with it; the same
+    // holds when the nesting hides under an unknown member of a V2 document
+    // and through the version dispatch.
+    let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
+    let past_ceiling = "/0".repeat(usize::try_from(ceiling).expect("small"));
     let very_deep = nested(100_000);
     assert_eq!(
-        refused_with(very_deep.as_bytes(), with_depth(u64::MAX), &evidence),
-        refusal(CheckedPackageRefusalCode::MalformedWire, "")
+        incomplete_depth(very_deep.as_bytes(), with_depth(u64::MAX)),
+        crate::support::checked_package::incomplete(
+            CheckedPackageLimit::Depth,
+            ceiling,
+            100_000,
+            Some(&past_ceiling),
+        )
     );
-    // The same holds for a V2 document whose unknown member holds the nesting,
-    // which reaches the decoder's own error paths, and for the version
-    // dispatch.
-    let most = 200_000;
     let hidden = format!(
         "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(most)
+        nested(200_000)
+    );
+    assert!(matches!(
+        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageV2ReadResult::Incomplete(_)
+    ));
+    assert!(matches!(
+        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageDispatchResult::Incomplete(_)
+    ));
+    // Within the ceiling, a V2 document whose unknown member holds deep
+    // nesting is refused by the decoder, not stopped for its depth.
+    let hidden = format!(
+        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
+        nested(10_000)
     );
     assert!(matches!(
         CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
         CheckedPackageV2ReadResult::Refused(_)
     ));
-    let hidden = format!(
-        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(100_000)
-    );
     assert!(matches!(
         read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
         CheckedPackageDispatchResult::Refused(_)
@@ -2709,11 +2724,19 @@ fn refused_with(
     }
 }
 
-/// A canonical V2 package whose first empty-`aggregate` node body (and its
-/// identity-projection copy) is replaced by `depth` nested `aggregate`
-/// terms, with the package id re-derived. Built as text, so the test's own
+/// Where [`package_with_deep_aggregate`] puts its nesting.
+#[derive(Clone, Copy)]
+enum Nesting {
+    /// The first empty-`aggregate` node's body and its identity-projection copy.
+    NodeBody,
+    /// The one detail of a diagnostic entry.
+    DiagnosticDetail,
+}
+
+/// A canonical V2 package with `depth` nested `aggregate` terms at
+/// `nesting`, the package id re-derived. Built as text, so the test's own
 /// stack never recurses over the nesting.
-fn package_with_deep_aggregate(depth: usize) -> Vec<u8> {
+fn package_with_deep_aggregate(depth: usize, nesting: Nesting) -> Vec<u8> {
     use crate::support::checked_package::{canonical, refresh_identity, sha256_hex};
     let marker = "\u{1}deep";
     let quoted = serde_json::to_string(marker).expect("string");
@@ -2729,19 +2752,52 @@ fn package_with_deep_aggregate(depth: usize) -> Vec<u8> {
             .into_bytes()
     };
     let mut package = v2_all_families();
-    let empty = json!({"term": "aggregate", "members": []});
-    let nodes = package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes");
-    let node = nodes
-        .iter_mut()
-        .find(|node| node["body"] == empty)
-        .expect("an empty aggregate node");
-    node["body"] = json!(marker);
+    match nesting {
+        Nesting::NodeBody => {
+            let empty = json!({"term": "aggregate", "members": []});
+            let nodes = package["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes");
+            let node = nodes
+                .iter_mut()
+                .find(|node| node["body"] == empty)
+                .expect("an empty aggregate node");
+            node["body"] = json!(marker);
+        }
+        Nesting::DiagnosticDetail => {
+            package["diagnostics"]["entries"] = json!([{
+                "stage": "type_checking",
+                "code": "ill_typed",
+                "cause_tag": "invalid-value",
+                "details": [marker],
+                "loci": [{"source": package["lock"]["sources"][0], "start": 0, "end": 1}],
+            }]);
+        }
+    }
     refresh_identity(&mut package);
     let digest = sha256_hex(&splice(canonical(&package["identity_preimage"])));
     package["package_id"]["digest"] = json!(digest);
     splice(canonical(&package))
+}
+
+/// Runs `check` on a thread whose stack is 256 KiB, far fewer frames than a
+/// package this deep has levels, so any recursion over its `Value`s that is
+/// not run on a grown stack aborts the process.
+fn on_small_stack(check: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(check)
+        .expect("spawn")
+        .join()
+        .expect("the check ran to completion");
+}
+
+fn deep_limits() -> CheckedPackageReadLimits {
+    CheckedPackageReadLimits {
+        bytes: 1 << 26,
+        depth: u64::MAX,
+        ..CheckedPackageReadLimits::bounded()
+    }
 }
 
 /// Tracing: TC-048, FR-038-AC-3
@@ -2749,23 +2805,45 @@ fn package_with_deep_aggregate(depth: usize) -> Vec<u8> {
 #[test]
 fn tc_048_a_deep_admitted_package_drops_on_a_small_stack() {
     let evidence = evidence_for(&v2_all_families());
-    let bytes = package_with_deep_aggregate(10_000);
-    let limits = CheckedPackageReadLimits {
-        bytes: 1 << 26,
-        depth: u64::MAX,
-        ..CheckedPackageReadLimits::bounded()
-    };
-    // A 256 KiB stack holds far fewer frames than the package has levels, so
-    // a recursive drop of the admitted package aborts the process.
-    std::thread::Builder::new()
-        .stack_size(256 * 1024)
-        .spawn(
-            move || match CheckedPackageV2::read(&bytes, limits, &evidence) {
+    for nesting in [Nesting::NodeBody, Nesting::DiagnosticDetail] {
+        let bytes = package_with_deep_aggregate(6_000, nesting);
+        let evidence = evidence.clone();
+        on_small_stack(
+            move || match CheckedPackageV2::read(&bytes, deep_limits(), &evidence) {
                 CheckedPackageV2ReadResult::Admitted(package) => drop(package),
                 other => panic!("expected the deep package to be admitted: {other:?}"),
             },
-        )
-        .expect("spawn")
-        .join()
-        .expect("read and drop a deep admitted package");
+        );
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-3
+#[trace("TC-048", "FR-038-AC-3")]
+#[test]
+fn tc_048_a_deep_admitted_package_clones_compares_renders_and_lowers_on_a_small_stack() {
+    let evidence = evidence_for(&v2_all_families());
+    let bytes = package_with_deep_aggregate(6_000, Nesting::NodeBody);
+    let profile = CompleteLoweringProfileV2 {
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: 1_000_000,
+    };
+    on_small_stack(move || {
+        let CheckedPackageV2ReadResult::Admitted(package) =
+            CheckedPackageV2::read(&bytes, deep_limits(), &evidence)
+        else {
+            panic!("expected the deep package to be admitted");
+        };
+        let copy = (*package).clone();
+        assert!(copy == *package);
+        assert!(format!("{package:?}").len() > 10_000);
+        let requested = package
+            .graph()
+            .nodes
+            .iter()
+            .map(|node| node.node_id.clone())
+            .collect::<Vec<_>>();
+        let lowered = package.lower(&requested, &profile);
+        assert_eq!(lowered.records.len(), requested.len());
+    });
 }

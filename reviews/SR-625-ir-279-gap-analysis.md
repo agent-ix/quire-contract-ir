@@ -36,3 +36,11 @@ Bindings checked: `tc_048_nesting_past_the_limit_is_incomplete_after_syntax_and_
 ## Verdict
 
 At the default limit the PR delivers what the ACs ask: 200-deep input is `incomplete(Depth,128,200)` at the correct pointer, and syntax and duplicate defects refuse first however deep they sit. The tests are strong, killing 7 of 7 mutants. For caller limits above 128 the PR swaps one spec violation (malformed_wire) for another (the selected limit is not honoured). Not mergeable until FND-001 is resolved by (a) or (b) with an owner decision. A downstream note, not a defect here: quire-spec-language `qsl-package/src/checked_v2.rs` pins the old behaviour in `depth_far_past_the_default_limit_is_refused_as_malformed_wire`, so it needs a follow-up when QSL takes this IR revision.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7f1d923 |
+
+- FND-001: The owner chose option (a). `MAXIMUM_DEPTH` and the clamp are removed. The shape pass and the `incomplete` report use `limits.depth` (common.rs:242-249). `tc_048_a_document_at_the_callers_limit_is_admitted` admits the exact limit and reports the caller's limit one over, at limits 3, 128, 129, 200 and 1,000. The integration test reads a 200-deep document under 200, 300 and u64::MAX. Mutant M1, which restores the 128 clamp, is killed. The deep admitted package's lowering is a separate hazard, raised as SR-624 FND-006.

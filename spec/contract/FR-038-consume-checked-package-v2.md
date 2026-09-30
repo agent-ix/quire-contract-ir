@@ -137,16 +137,24 @@ value is parsed. The others are charged as follows:
 
 ### Reading
 
-The reader shall measure raw bytes against the byte limit, parse strict JSON
-once (duplicate members refuse, nesting charged against the depth limit, a
-document at the limit admitted), require canonical bytes, and read
+The reader shall measure raw bytes against the byte limit, read the document
+as strict JSON (duplicate members refuse, nesting charged against the depth
+limit, a document at the limit admitted), require canonical bytes, and read
 `contract_version` exactly once. Depth counts each container as one level and a
-scalar value as one level below its container, so `[]` is depth 1 and `[1]` and
-`{"a":1}` are depth 2. A syntax or duplicate-member defect anywhere in the
+scalar value as one level below its container, so `[]` is depth 1 and `[1]`
+and `{"a":1}` are depth 2. A syntax or duplicate-member defect anywhere in the
 document refuses before depth is charged, however deep the document is, and the
 JSON parser's own nesting cap never decides the outcome: a document deeper than
-the caller's depth limit returns `incomplete` for `depth` with that limit and
-the measured depth, and one within it is read whatever that limit is. It shall
+the depth limit returns `incomplete` for `depth` with that limit and the
+measured depth, and one within it is read. The limit is the caller's up to
+16,384, the most nesting the reader reads; a caller limit above that reads as
+16,384. An admitted package's own clone, comparison, `Debug` rendering and
+lowering, and dropping any of its nodes, projections or diagnostics, are safe
+at any depth the reader admits. The graph, lock and diagnostics its accessors
+return, and the records and package a lowering returns, are ordinary data whose
+derived traits recurse on the caller's stack, so
+a caller who raises the depth limit past the default of 128 owns the stack they
+need. It shall
 admit only `quire.checked-package/v2`; any other version, or a missing or
 malformed `contract_version`, refuses before any version-specific decoding
 begins. This is a refusal control, not a compatibility layer: it never
