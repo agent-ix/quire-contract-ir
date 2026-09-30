@@ -2,15 +2,15 @@
 
 Cycle-free semantic contract model and compatibility bridge for assurance tooling.
 
-## Hash / digest / pin antipattern: present, slated for removal
+## Hash / digest / pin antipattern: do not introduce
 
-This repository still contains hashes, digests, SHAs, pins, checksum catalogs and
-records that track files, versions or tools. That is an antipattern and it is slated
-for removal. Do not introduce any new use of it. When you touch code or specs that
-contain one, remove it as part of the change. The only hash that stays is a canonical
-identity digest that binds a proof to the exact content it proved. Package versions
-live in Cargo.toml / package.json and their lockfiles only; reports name the app
-version they ran.
+Hashes, digests, SHAs, pins, checksum catalogs and records that track files, versions or
+tools are an antipattern. They have been removed from this repository, except the
+SHA-pinned action references in `.github/workflows/ci.yml`, which are slated for
+removal. Do not introduce any new use of them. If you find one, remove it as part of the change. The only hash
+that stays is a canonical identity digest that binds a proof to the exact content it
+proved. Package versions live in Cargo.toml / package.json and their lockfiles only;
+reports name the app version they ran.
 
 ## Commands
 

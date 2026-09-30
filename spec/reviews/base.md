@@ -61,8 +61,7 @@ and remains subject to its implementation tests.
 - Applicable profile: `spec/assurance/AP-001-contract-ir-v01.md`; it requires a
   spec review operation but contains no `review_selection`, so the owner's base
   selection controls this run.
-- Draft base revision: `decc99a430a0894de489102dbab04e83d1fb804f` plus the
-  specification changes in this branch.
+- Evaluated the draft base plus the specification changes in this branch.
 - `quoin write . --types SpecReview` supplied the live SpecReview authoring
   contract for this rerun.
 - No new Filament adapter, formal projection, Rust implementation,

@@ -3,7 +3,7 @@ id: SR-592
 title: "PR #204 base checklist and coverage review"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@ade9c061fca4ae319f9019abc7d179453cdcafba; spec/ (15 files, git diff 69cd1cb...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (15 files, git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-028
@@ -26,7 +26,7 @@ Ticket: IR-313.
 
 Measured, with logs in the reviewer scratchpad:
 
-- `make spec` exits 2 at both 69cd1cb and ade9c06. In both runs the only
+- `make spec` exits 2 at both origin/main and the PR head. In both runs the only
   failures are the MP-001 and MP-002 frontmatter errors from `quire validate`.
 - `quire coverage --scope . --strict` exits 1 at both commits. Unbacked rows
   go from 37 to 39, which is 224/267 to 224/270 rows. The two new unbacked
@@ -58,10 +58,10 @@ statement.
 
 ## Dispositions
 
-Round 1, reviewed at `6d956434c36ab748c3a116aeb774b00312011792`.
+Round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 2c49e61 |
+| FND-001 | fixed | resolved |
 | FND-002 | accepted-no-change | The stale tag on tests/it/kani_shared.rs:250 is code, and this PR is spec-only. The FR-031 matrix row, the TC-223 row and status, and FR-031's Status now each state that the tag is stale and does not back FR-031-AC-5 or TC-223. `quire coverage` still counts the row as backed until the TC-223 implementation retags the test. |
-| FND-003 | fixed | 2c49e61, 6d95643 |
+| FND-003 | fixed | resolved |

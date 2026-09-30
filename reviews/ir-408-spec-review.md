@@ -3,7 +3,7 @@ id: SR-599
 title: "spec review of PR 219 (ceremony sweep, spec and docs)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@5e3e91c80409e3af90a09f0b77c2ba864c3b3025; spec/**, README.md, CONTRIBUTING.md, schemas/README.md, corpus/contract-v0.1/README.md (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/**, README.md, CONTRIBUTING.md, schemas/README.md, corpus/contract-v0.1/README.md (git diff origin/main...HEAD)"
 review_set: subset
 ---
 # SR-599: spec review of PR 219

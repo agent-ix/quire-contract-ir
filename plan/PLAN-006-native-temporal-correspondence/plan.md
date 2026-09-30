@@ -82,4 +82,4 @@ The shared owner boundaries made this a deliberately serial critical path; no in
 
 ## Coordination Rules
 
-Owner APIs and schema bytes remain pinned by merge revision. Contract IR never mirrors owner wire types or evaluates either language. Changes to shared correspondence identity, request axes, or result normalization stay single-writer until TASK-020 closes, and issue #71 is merged only after every review finding is fixed.
+Contract IR never mirrors owner wire types or evaluates either language. Changes to shared correspondence identity, request axes, or result normalization stay single-writer until TASK-020 closes, and issue #71 is merged only after every review finding is fixed.

@@ -3,7 +3,7 @@ id: SR-586
 title: "PR #202 EARS and wording review"
 type: SpecReview
 analysis: ears-conformance
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-039
@@ -66,9 +66,9 @@ Scope examined (all 29 changed files):
 
 ## Dispositions
 
-Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+Round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 24b0778 |
-| FND-002 | fixed | 24b0778 |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |

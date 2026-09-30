@@ -3,7 +3,7 @@ id: SR-594
 title: "failure-domain review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: failure-domain
-scope: "agent-ix/quire-contract-ir@11c6b013a0c94ddbf76040cbe81142858935eae3; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
+scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
 # SR-594: failure-domain review of PR 203
@@ -44,15 +44,15 @@ Embedded spec/ path consumers found by repo-wide search: tests/it/{governance_re
 | --- | --- | --- | --- |
 | FND-004 | low | Adoption site list misses tests/it/support/checked_package.rs and Makefile:109-112 foreign IDs and four spec-path doc comments. | spec/decisions/ADR-0056-spec-layout-convention.md:362-370 |
 
-**FND-004** (low, confidence high, coverage; spec/decisions/ADR-0056-spec-layout-convention.md:362-370): The 'as found at acceptance' site list is incomplete. git grep at 5a3d953 also finds unprefixed FR-322 in tests/it/support/checked_package.rs:321,556,577,581,1168 and FR-340 at :461, and TC-280/TC-281 plus FR-322-AC-36 in Makefile:109-112. The readers list also omits the spec-path doc comments in crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs:33, crates/quire-contract-model/src/output_mapping.rs:176, tests/it/checked_package_v2_frame_bodies.rs:107 and tests/it/checked_package_v2_qsl_parameters.rs:42. Rules 7 and 9 still require them, so the risk is a restructure author trusting the list; add the sites or say the list is not exhaustive.
+**FND-004** (low, confidence high, coverage; spec/decisions/ADR-0056-spec-layout-convention.md:362-370): The 'as found at acceptance' site list is incomplete. git grep also finds unprefixed FR-322 in tests/it/support/checked_package.rs:321,556,577,581,1168 and FR-340 at :461, and TC-280/TC-281 plus FR-322-AC-36 in Makefile:109-112. The readers list also omits the spec-path doc comments in crates/quire-contract-model/src/checked_package/v2/model_members/tests.rs:33, crates/quire-contract-model/src/output_mapping.rs:176, tests/it/checked_package_v2_frame_bodies.rs:107 and tests/it/checked_package_v2_qsl_parameters.rs:42. Rules 7 and 9 still require them, so the risk is a restructure author trusting the list; add the sites or say the list is not exhaustive.
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 5a3d953 |
-| FND-002 | fixed | 5a3d953 |
-| FND-003 | fixed | 5a3d953 |
-| FND-004 | fixed | 3f299ab |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
 
 Correction to the original row's wording: TC-221 is this repository's own withdrawn test case (spec/contract/FR-031...:109, spec/contract-test-matrix.md:115), not only a quire-specification ID; the ADR now handles it as a withdrawn-ID trace tag to remove.

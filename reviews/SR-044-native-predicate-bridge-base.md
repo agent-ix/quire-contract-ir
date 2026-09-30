@@ -3,7 +3,7 @@ id: SR-044
 title: "Base review of native predicate to TL projection"
 type: SpecReview
 analysis: base
-scope: "issue #63; FR-025; STD-001 issue-63 codes; TC-038; SUITE-005 through SUITE-008 at cf4beaf15e35dfe276749637dbfb16c230070514"
+scope: "issue #63; FR-025; STD-001 issue-63 codes; TC-038; SUITE-005 through SUITE-008"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63
@@ -31,8 +31,7 @@ result, or release.
 
 ## Reviewed Revision and Gate
 
-The reviewed specification revision is
-`cf4beaf15e35dfe276749637dbfb16c230070514`. Strict Quire validation reports
+Strict Quire validation reports
 47/47 documents grammar-clean. TC-038 and SUITE-005 through SUITE-008 are
 deliberately planned and unbacked; this review is not implementation evidence.
 

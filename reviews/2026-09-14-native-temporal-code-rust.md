@@ -16,8 +16,8 @@ relationships:
 
 ## Summary
 
-The review evaluated implementation candidate `321b283` against temporal spec
-authority `980fcc0` and predicate bridge base `202210c`. The candidate
+The review evaluated the implementation candidate against the temporal spec
+authority and the predicate bridge base. The candidate
 implements the complete FR-026 owner bridge: occurrence-preserving temporal
 formula construction, complete predicate valuations, independently constructed
 QSL-native and tl-mltl requests, structural result agreement, correction
@@ -34,7 +34,7 @@ finding found during review was repaired. No actionable scoped finding remains.
 
 `AP-001` (`spec/assurance/AP-001-contract-ir-v01.md`) applies because this v0.1
 candidate can affect semantic drift, false coverage and canonical identity. The
-review used exact base `202210c`, spec authority `980fcc0`, candidate `321b283`,
+review used the base, the spec authority, the candidate,
 the complete diff, resolved Cargo graph, AD-001, FR-026, TM-002 and TC-039.
 Available context also includes CAC-001, MP-001 and AA-001. Hosted
 cross-platform execution, a human source-release decision, pre-stable retained

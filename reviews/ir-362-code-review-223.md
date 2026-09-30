@@ -3,16 +3,16 @@ id: SR-605
 title: "code review of PR 223 (drop schema migration code)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@bbac25d64706d64ee0103cef8e9407d3b04e15a4; diff f21a194...bbac25d: crates/quire-contract-model/src/{canonical,conformance,identity}.rs, schemas/{conformance-trace-map-v1.json,contract-conformance-fixture-v1.schema.json,contract-package-reference-v1.schema.json}, scripts/generate_conformance_corpus.py, corpus/contract-v0.1/{inputs,expectations,canonical}, tests/it/{canonicalization,conformance,cycle_free_model,identity,integration}.rs"
+scope: "agent-ix/quire-contract-ir; diff origin/main...HEAD: crates/quire-contract-model/src/{canonical,conformance,identity}.rs, schemas/{conformance-trace-map-v1.json,contract-conformance-fixture-v1.schema.json,contract-package-reference-v1.schema.json}, scripts/generate_conformance_corpus.py, corpus/contract-v0.1/{inputs,expectations,canonical}, tests/it/{canonicalization,conformance,cycle_free_model,identity,integration}.rs"
 review_set: base
 ---
 # SR-605: code review of PR 223
 
 ## Summary
 
-Ticket: IR-362. Code review with the rust-review lane folded in, scoped to `git diff f21a194...HEAD` (PR 223 is stacked on PR 218). The diff removes `MigrationReceipt`, `migrate_reference_body`, `SchemaVersion::V1_0`, `DiagnosticCode::UnregisteredMigration`, `ConformanceOperation::Migration` and every schema, trace-map, generator and corpus entry for them. It narrows wire preflight and `ensure_supported` to schema 1.1 only.
+Ticket: IR-362. Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (PR 223 is stacked on PR 218). The diff removes `MigrationReceipt`, `migrate_reference_body`, `SchemaVersion::V1_0`, `DiagnosticCode::UnregisteredMigration`, `ConformanceOperation::Migration` and every schema, trace-map, generator and corpus entry for them. It narrows wire preflight and `ensure_supported` to schema 1.1 only.
 
-The reviewer ran every gate on bbac25d with `CARGO_TARGET_DIR=<worktree>/target`. `make lint` exited 0, `cargo test --locked --workspace --all-targets -- --include-ignored` exited 0 (178 + 48 tests passed, 0 failed), `make corpus` exited 0, `make audit-unsafe` exited 0 and `make fmt-check` exited 0. `make spec` exited 2: validate passed (208/208 docs) and `coverage --strict` reported 22 unbacked rows. Those are the same 22 rows SR-602 listed on origin/main, so none is new.
+The reviewer ran every gate at the PR head with `CARGO_TARGET_DIR=<worktree>/target`. `make lint` exited 0, `cargo test --locked --workspace --all-targets -- --include-ignored` exited 0 (178 + 48 tests passed, 0 failed), `make corpus` exited 0, `make audit-unsafe` exited 0 and `make fmt-check` exited 0. `make spec` exited 2: validate passed (208/208 docs) and `coverage --strict` reported 22 unbacked rows. Those are the same 22 rows SR-602 listed on origin/main, so none is new.
 
 `scripts/generate_conformance_corpus.py --output <scratch>` regenerated a corpus that is byte-identical (`diff -r`) to `corpus/contract-v0.1`. The golden bytes and digest in `tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform` pass against the real canonicalizer.
 
@@ -31,7 +31,7 @@ The reviewer ran every gate on bbac25d with `CARGO_TARGET_DIR=<worktree>/target`
 - `schemas/*.json` and `scripts/generate_conformance_corpus.py`, examined. The schemas no longer mention migration, and the generator's `copy` import is still used elsewhere.
 - `tests/it/canonicalization.rs:631-676` (tc_017_version_preflight_supports_only_schema_1_1), examined. See SR-606.
 - `tests/it/conformance.rs` (six mismatch kinds), examined. It matches the six `kinds.push` sites in `mismatch_kinds`.
-- Repository grep on bbac25d for `migrat|V1_0|1_0|unregistered|receipt` (reviews excluded), examined. Remaining hits are only the LICENSE text, the FR-016/FR-017 spec prose that says "no migration", ADR-0053 prose, and the historical `status: done` plan records TASK-008/TASK-009. No code, schema, corpus or test hit remains.
+- Repository grep at the PR head for `migrat|V1_0|1_0|unregistered|receipt` (reviews excluded), examined. Remaining hits are only the LICENSE text, the FR-016/FR-017 spec prose that says "no migration", ADR-0053 prose, and the historical `status: done` plan records TASK-008/TASK-009. No code, schema, corpus or test hit remains.
 
 ## Verdict
 

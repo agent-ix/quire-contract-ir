@@ -33,5 +33,5 @@ Construct and strict-read independent QSL-native and tl-mltl request families fr
 
 ## Notes
 
-- QSL `f1700a92` supplies the exact activation-guard checked-predicate owner API.
+- QSL supplies the exact activation-guard checked-predicate owner API.
 - Unblocks TASK-019.

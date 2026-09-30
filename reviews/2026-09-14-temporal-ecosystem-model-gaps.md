@@ -16,8 +16,7 @@ relationships:
 
 ## Summary
 
-PLAN-007 is implementation-complete at exact candidate
-`60cc38be060821ef64b150b5017d0cddf48978f3`. The manifest admits one complete
+PLAN-007 is implementation-complete. The manifest admits one complete
 externally selected nine-repository population; the graph validates every
 closed relation and ownership/topology invariant; export retains the complete
 selection and adds only deterministic projections; reading independently
@@ -39,8 +38,7 @@ public-behavior or code/test alignment gap remains after SR-538's repairs.
 
 ## Coverage
 
-- Reconciliation: Quire 0.32.0, engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: Quire 0.32.0.
 - Plan tasks implemented: 4/4; implementation layers: 3/3; closing integration
   and review gate: 1/1 when this review set validates.
 - FR-027 acceptance criteria backed: 6/6.

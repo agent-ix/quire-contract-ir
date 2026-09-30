@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-PLAN-006 is complete at candidate `321b283`: checked temporal subjects project
+PLAN-006 is complete: checked temporal subjects project
 into two independently owner-readable request families and formula-wide owner
 results join structurally under one immutable correspondence. Projection and
 join readers rederive the expected decision from full authority and reject
@@ -37,8 +37,7 @@ public-behavior or code/test alignment gap remains.
 
 ## Coverage
 
-- Reconciliation: `quire coverage` 0.32.0, engine
-  `a874fb641cb70da83c8c8b23f9fea0a44255b88a`.
+- Reconciliation: `quire coverage` 0.32.0.
 - Plan tasks complete: 4/4; implementation tasks complete: 3/3; closing review
   gate complete: 1/1.
 - FR-026 acceptance criteria backed: 8/8.

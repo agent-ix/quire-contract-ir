@@ -3,7 +3,7 @@ id: SR-585
 title: "PR #202 evidence review: TC-046, TC-054..057, TC-221..223 and coverage claims"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-038
@@ -21,7 +21,7 @@ Evidence and verification-method analysis of the PR #202 test cases and matrix r
 
 Ticket: IR-22.
 
-Coverage claims were re-measured with my own runs of quire 0.33.0 (engine 0.47.1). `quire coverage --scope . --strict` reports 21 unbacked rows and 0 contradicted statuses at origin/main `48ab5dc`, and 39 unbacked and 0 contradicted at `5c4a505`. Both runs exit 1, as `--strict` does with unbacked rows. `make spec` exits 2 at both revisions, and both runs report the same "2 document(s) failed structural validation" from the MP-001 and MP-002 frontmatter, so the PR introduces no new structural failure. The 18 added unbacked rows are the planned FR-037, FR-039, FR-040, FR-038-AC-40, TC-046 and TC-054 to TC-057 rows. The PR's claims match. The paths the PR adds or fixes under `tests/`, `src/` and `crates/` all exist at origin/main. TC-020's four AD-001 markers (`type: ArchitectureDescription`, `## System Boundary`, `## Risks`, `owner: kreneskyp`) are present at this head (AD-001:4, 6, 34, 212). I confirmed this by reading the file. I did not run `cargo test --test it foundation`: it needs a full git-dependency build, and the assertion is plain substring matching.
+Coverage claims were re-measured with my own runs of quire 0.33.0 (engine 0.47.1). `quire coverage --scope . --strict` reports 21 unbacked rows and 0 contradicted statuses at origin/main, and 39 unbacked and 0 contradicted at the PR head. Both runs exit 1, as `--strict` does with unbacked rows. `make spec` exits 2 at both revisions, and both runs report the same "2 document(s) failed structural validation" from the MP-001 and MP-002 frontmatter, so the PR introduces no new structural failure. The 18 added unbacked rows are the planned FR-037, FR-039, FR-040, FR-038-AC-40, TC-046 and TC-054 to TC-057 rows. The PR's claims match. The paths the PR adds or fixes under `tests/`, `src/` and `crates/` all exist at origin/main. TC-020's four AD-001 markers (`type: ArchitectureDescription`, `## System Boundary`, `## Risks`, `owner: kreneskyp`) are present at this head (AD-001:4, 6, 34, 212). I confirmed this by reading the file. I did not run `cargo test --test it foundation`: it needs a full git-dependency build, and the assertion is plain substring matching.
 
 Scope examined (all 29 changed files):
 
@@ -72,23 +72,23 @@ Scope examined (all 29 changed files):
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-005 | low | The strict coverage count shows false green for the rows behind the original HIGH. quire coverage --strict at 24b0778 reports 37 unbacked and 0 contradicted. Neither the TC-223 row nor FR-030-AC-4 appears in the unbacked list, because the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 backs the TC-223 row. That test verifies the superseded map onto KaniProviderResult. quire's own per-file line disagrees: FR-030 3/4. The matrix prose is honest (both rows are planned, and it names the legacy test). The aggregate gate number is not. Recommended fix: in the code PR that implements TC-223, retag or delete the legacy trace in the same commit. No change is needed in this PR. | spec/contract-test-matrix.md:90 |
+| FND-005 | low | The strict coverage count shows false green for the rows behind the original HIGH. quire coverage --strict at the PR head reports 37 unbacked and 0 contradicted. Neither the TC-223 row nor FR-030-AC-4 appears in the unbacked list, because the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 backs the TC-223 row. That test verifies the superseded map onto KaniProviderResult. quire's own per-file line disagrees: FR-030 3/4. The matrix prose is honest (both rows are planned, and it names the legacy test). The aggregate gate number is not. Recommended fix: in the code PR that implements TC-223, retag or delete the legacy trace in the same commit. No change is needed in this PR. | spec/contract-test-matrix.md:90 |
 | FND-006 | low | Withdrawn test cases are treated inconsistently. TC-054 and TC-046 moved to the new "Withdrawn Test Cases" section (matrix:105). TC-221 is also withdrawn, but it keeps its row in the Test Case Summary table (89) and its Coverage Design row (128). Keeping TC-221 in the table is defensible while 17 tests still trace it. The Withdrawn section should list it too, or say why it is absent. Nothing is hidden: TC-046 and TC-054 have status: withdrawn, and no test or source file traces either one. | spec/contract-test-matrix.md:89,105,128 |
 
 ## Dispositions
 
-Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+Round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 24b0778 |
-| FND-002 | fixed | 24b0778 |
-| FND-003 | fixed | 24b0778 |
-| FND-004 | fixed | 24b0778 |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
 
-Round 2, reviewed at `3277b2da2439244de4475b615f9fd591d9e4407b`.
+Round 2.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-005 | deferred | This belongs to the Contract IR code PR that implements TC-223. That PR must retag or delete the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 in the same commit, so that quire's strict count stops crediting TC-223 and FR-030-AC-4. The team leader recorded it on IR-22 (comment 05d2a160). The matrix prose already discloses the legacy test, and no spec text in this PR is wrong. |
-| FND-006 | fixed | 3277b2d |
+| FND-005 | deferred | This belongs to the Contract IR code PR that implements TC-223. That PR must retag or delete the legacy #[trace("TC-223", "FR-031-AC-5")] test in tests/it/kani_shared.rs:251 in the same commit, so that quire's strict count stops crediting TC-223 and FR-030-AC-4. The team leader recorded it on IR-22. The matrix prose already discloses the legacy test, and no spec text in this PR is wrong. |
+| FND-006 | fixed | resolved |

@@ -15,8 +15,8 @@ relationships:
 
 The scope review assigns deterministic projection and result joining to
 Contract IR while leaving authored syntax, semantic evaluation, observations,
-progress, evidence, and release authority with their owners. Snapshot
-`558c4dc` contains no alternate authored language or foreign runtime path.
+progress, evidence, and release authority with their owners. The snapshot
+contains no alternate authored language or foreign runtime path.
 
 ## Findings
 

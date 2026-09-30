@@ -3,14 +3,14 @@ id: SR-600
 title: "gap analysis of PR 219 (ceremony sweep, spec and docs)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@5e3e91c80409e3af90a09f0b77c2ba864c3b3025; spec/**, tests/it/kani_replay.rs (coverage join only)"
+scope: "agent-ix/quire-contract-ir; spec/**, tests/it/kani_replay.rs (coverage join only)"
 review_set: subset
 ---
 # SR-600: gap analysis of PR 219
 
 ## Summary
 
-Ticket: IR-408. Plan completion: not assessed. This analysis checks that the deletions left every remaining requirement with its acceptance criteria and test backing. `quire coverage --scope . --strict` was run at 5e3e91c, and on an export of origin/main, where `make spec` stops at validate. It reports 155 backed rows on both. The unbacked set is the same 22 rows on both (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). Total rows drop from 185 to 178, all from deleted artifacts, and no backed row is removed. No requirement is left without acceptance criteria.
+Ticket: IR-408. Plan completion: not assessed. This analysis checks that the deletions left every remaining requirement with its acceptance criteria and test backing. `quire coverage --scope . --strict` was run at the PR head, and on an export of origin/main, where `make spec` stops at validate. It reports 155 backed rows on both. The unbacked set is the same 22 rows on both (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). Total rows drop from 185 to 178, all from deleted artifacts, and no backed row is removed. No requirement is left without acceptance criteria.
 
 ## Findings
 

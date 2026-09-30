@@ -3,7 +3,7 @@ id: SR-591
 title: "base review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir@11c6b013a0c94ddbf76040cbe81142858935eae3; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
+scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
 # SR-591: base review of PR 203
@@ -48,4 +48,4 @@ None.
 
 ## Verdict
 
-Clean. Measured on a detached worktree at 11c6b01: no spec-artifact id (85 documents under spec/ outside spec/reviews/) is declared twice; no TC leads two Test Case Summary rows across TM-001 and TM-002 (45 rows). `make spec` exits 2 at both origin/main 69cd1cb and 11c6b01, failing only on MP-001 and MP-002 MeasurementPlan frontmatter. `quire coverage --scope . --strict --json` exits 1 at both; unbacked rows go 37 -> 45, the eight added being FR-345, FR-345-AC-1..6 and TC-224, none removed; backed stays 224 (total 267 -> 274). `scripts/validate_matrix_status.py` exits 0 at 11c6b01.
+Clean. Measured on a detached worktree at the PR head: no spec-artifact id (85 documents under spec/ outside spec/reviews/) is declared twice; no TC leads two Test Case Summary rows across TM-001 and TM-002 (45 rows). `make spec` exits 2 at both origin/main and the PR head, failing only on MP-001 and MP-002 MeasurementPlan frontmatter. `quire coverage --scope . --strict --json` exits 1 at both; unbacked rows go 37 -> 45, the eight added being FR-345, FR-345-AC-1..6 and TC-224, none removed; backed stays 224 (total 267 -> 274). `scripts/validate_matrix_status.py` exits 0 at the PR head.

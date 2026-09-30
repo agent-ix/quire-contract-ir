@@ -3,7 +3,7 @@ id: SR-588
 title: "PR #202 dependency review: relationship edges and the qsl-replay dependency"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 ---
 # SR-588: PR #202 dependency review: relationship edges and the qsl-replay dependency
@@ -14,7 +14,7 @@ Dependency analysis of the new `relationships:` edges and the dependency claims.
 
 Ticket: IR-22.
 
-FR-029 to FR-038 and FR-344 each gain `traces_to StR-001`. The StR-001 matrix row now spans FR-025 to FR-040 and FR-344, which is consistent. FR-039 and FR-040 each `depends_on` only same-repo requirements. Cross-repo edges are `references` only, so no cross-repo blocking edge is created. `qsl-replay` exists at the QSL revision the root crate already pins (`9395be4`) with every type the spec names, so AD-001's claim that this adds no repository edge holds. The dependency split between enablement and feature work is sound: FR-039 enables the code PR that deletes the copies, and FR-040 extends FR-038's reader without reopening it.
+FR-029 to FR-038 and FR-344 each gain `traces_to StR-001`. The StR-001 matrix row now spans FR-025 to FR-040 and FR-344, which is consistent. FR-039 and FR-040 each `depends_on` only same-repo requirements. Cross-repo edges are `references` only, so no cross-repo blocking edge is created. `qsl-replay` exists at the QSL revision the root crate already pins with every type the spec names, so AD-001's claim that this adds no repository edge holds. The dependency split between enablement and feature work is sound: FR-039 enables the code PR that deletes the copies, and FR-040 extends FR-038's reader without reopening it.
 
 Scope examined (all 29 changed files):
 

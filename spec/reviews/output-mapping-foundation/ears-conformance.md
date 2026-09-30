@@ -5,7 +5,6 @@ type: SpecReview
 analysis: ears-conformance
 scope: "QCI #95; FR-032–FR-034"
 review_set: subset
-evaluated_revision: "task/95-output-mapping-foundation based on 0a8c89a"
 review_date: "2026-09-15"
 ---
 # EARS review of the output-mapping foundation contract

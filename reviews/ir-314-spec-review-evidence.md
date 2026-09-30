@@ -3,7 +3,7 @@ id: SR-596
 title: "evidence review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: evidence
-scope: "agent-ix/quire-contract-ir@11c6b013a0c94ddbf76040cbe81142858935eae3; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
+scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
 # SR-596: evidence review of PR 203

@@ -3,14 +3,14 @@ id: SR-604
 title: "gap analysis of PR 218 (ceremony sweep, code half)"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@f21a1948936b1cdf5282ad5678bfac21748cdc8c; spec/contract/FR-028, FR-031, FR-034, FR-037, STD-003, spec/interface/FR-019, FR-039, spec/contract-test-matrix.md against Cargo.toml, crates/quire-contract-model/src/output_mapping.rs, tests/it/{cycle_free_model,kani_replay,output_mapping}.rs"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-028, FR-031, FR-034, FR-037, STD-003, spec/interface/FR-019, FR-039, spec/contract-test-matrix.md against Cargo.toml, crates/quire-contract-model/src/output_mapping.rs, tests/it/{cycle_free_model,kani_replay,output_mapping}.rs"
 review_set: subset
 ---
 # SR-604: gap analysis of PR 218
 
 ## Summary
 
-Ticket: IR-418. Planless gap analysis. Plan completion: not assessed. The PR changes no spec file. This analysis checks that the code still agrees with the merged spec after the deletions, and that each AC whose backing test was deleted or re-tagged is still honestly backed. `make spec` at f21a194: validate passes (208/208 grammar-clean). `coverage --strict` exits 2 with 22 unbacked rows and 0 contradicted, the same set as main (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). None of them is new.
+Ticket: IR-418. Planless gap analysis. Plan completion: not assessed. The PR changes no spec file. This analysis checks that the code still agrees with the merged spec after the deletions, and that each AC whose backing test was deleted or re-tagged is still honestly backed. `make spec`: validate passes (208/208 grammar-clean). `coverage --strict` exits 2 with 22 unbacked rows and 0 contradicted, the same set as main (FR-036, FR-037, FR-039, FR-344 and their ACs, FR-019-AC-5, TC-045, TC-055, TC-058, TC-222). None of them is new.
 
 ## Findings
 

@@ -3,7 +3,7 @@ id: SR-587
 title: "PR #202 scope-boundary review against the QSL-owned replay ruling"
 type: SpecReview
 analysis: scope-boundary
-scope: "agent-ix/quire-contract-ir@5c4a5059d0b8965687195b23534cbd90e4791442; spec/ (29 files, git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/ (29 files, git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-037
@@ -24,7 +24,7 @@ Ticket: IR-22.
 Ruling conformance at this head:
 
 - QSL owns Witness, ReplaySource, the counterexample envelope, the FR-331 terminal record and ObligationIdentity in `qsl-replay`. Stated in AD-001, FR-031, FR-037 and FR-039.
-- IR deletes its copies. FR-039 "Items QSL owns" lists all 18 current public names, and the list matches `src/kani/mod.rs` at `48ab5dc`.
+- IR deletes its copies. FR-039 "Items QSL owns" lists all 18 current public names, and the list matches `src/kani/mod.rs`.
 - CG keeps Kani transcript parsing in its backend adapter. Stated in AD-001, AD-002, AD-003 and FR-031.
 - Replay goes through `qsl_replay::replay` from the codegen replay adapter. Stated in FR-031, FR-037, AD-002 and AD-003.
 - `runtime::execute` is retired. No reference remains in `spec/`, and FR-039-AC-2 forbids `quire_spec_language::runtime`.
@@ -77,10 +77,10 @@ Scope examined (all 29 changed files):
 
 ## Dispositions
 
-Round 1, reviewed at `24b077801d0dfed89cae39372dbb14afddd5d832`.
+Round 1.
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 24b0778 |
+| FND-001 | fixed | resolved |
 | FND-002 | accepted-no-change | The finding concerns QSL's ADR-011 E9 text. That text is QSL's, and fixing it is QSL's work. Contract IR's citation is correct under the ruling, and QSL gates do not wait on downstream repos. |
-| FND-003 | fixed | 24b0778 |
+| FND-003 | fixed | resolved |

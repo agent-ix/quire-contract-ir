@@ -14,8 +14,8 @@ relationships:
 ## Summary
 
 FR-026 remains high technical risk because it claims exact semantic
-correspondence across independently versioned native and TL contracts. Snapshot
-`558c4dc` bounds that risk with immutable identities, authority-bound positions
+correspondence across independently versioned native and TL contracts. The snapshot
+bounds that risk with immutable identities, authority-bound positions
 and progress, closed support tables, explicit correction relations, and
 fail-closed admission.
 

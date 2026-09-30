@@ -35,7 +35,7 @@ before the superseding candidate evidence record was minted.
 |---|---|---|---|
 | FND-R01 | high | New foundation inputs made the prior PGM-01 evidence record stale and no issue #5 evidence was planned. | TASK-005 now requires candidate-scoped evidence; a new revision-scoped record covers the final technical candidate. |
 | FND-R02 | high | COR-001 was not consumed by the evidence verifier. | The verifier now schema-validates and authenticates corrections, requires resolvable affected records, rejects affected records, and reports enforced corrections. |
-| FND-R03 | medium | COR-001 asserted an intermediate record name unavailable from reachable `main` history. | The unavailable record claim was removed; the correction is limited to the merged, permalinked `pgm-01-568bd05` record. |
+| FND-R03 | medium | COR-001 asserted an intermediate record name unavailable from reachable `main` history. | The unavailable record claim was removed; the correction is limited to the merged, permalinked record. |
 | FND-R04 | medium | TC-022 claimed FR-009 without a requirement/matrix binding. | FR-009-AC-4 and both matrices now bind TC-022 to correction behavior. |
 | FND-R05 | medium | The correction schema had no owning requirement or negative corpus. | FR-009 owns the schema; a manifest-complete positive/negative correction corpus is executed by the Python gate. |
 | FND-R06 | low | NFR-004 verification omitted TC-022. | The verification section now includes TC-020 through TC-022. |

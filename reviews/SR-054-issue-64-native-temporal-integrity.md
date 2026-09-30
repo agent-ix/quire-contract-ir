@@ -14,7 +14,7 @@ relationships:
 ## Summary
 
 The integrity lens checked completeness, consistency, atomicity, and exact
-testability at snapshot `558c4dc`. The remediated requirement has one
+testability. The remediated requirement has one
 interpretation: authenticate every owning contract, derive exact TL artifacts,
 and compare authority-normalized result views without inventing semantics.
 

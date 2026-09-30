@@ -5,7 +5,6 @@ type: SpecReview
 analysis: base
 scope: "QCI #95; FR-032–FR-034; TC-043; TM-002 rows only"
 review_set: subset
-evaluated_revision: "task/95-output-mapping-foundation based on 0a8c89a"
 review_date: "2026-09-15"
 ---
 # Base review of the output-mapping foundation contract
@@ -40,7 +39,7 @@ specific correspondence, foreign runtime, or preservation fallback.
 
 ## Authority checked
 
-- QSpec AD-004 and FR-120/121/125/269/297/298/299 at FS06 merge `a343138`.
+- QSpec AD-004 and FR-120/121/125/269/297/298/299 at the FS06 merge.
 - QSpec NFR-060/061 and portable TC-150/154/155 at the same immutable revision.
 - Contract IR FR-023 strict `BoundPackage` and FR-028 cycle-free model boundary.
 - Contract IR #95 acceptance and dependency order under epic #52.

@@ -57,20 +57,13 @@ framework, attestation or tool-verdict synthesis is used.
 
 ### Integration checkpoint: 2026-09-06
 
-The independent final binder review and committed-head qualification of
-`93674480c572c237fe87c5d509b17206664bdd62` were completed, and the real public
-codegen consumer is published in codegen PR #27 at
-`cd345e1dc0199db9abeac9955fd1bfcc121cddc9`. Those bounded gates are no longer
+The independent final binder review and committed-head qualification were completed, and the real public
+codegen consumer is published in codegen PR #27. Those bounded gates are no longer
 pending; frontend, campaign provenance and shared release qualification remain.
 
 The historical FND-1504 header conflict is now resolved by the shared
-reference-specific status-column declaration: process
-`e6ea5151b59a55d7ce0d43f1581cbe276f750e04`, ISO
-`a60ee12d735976081849f60a38d603fb5494b015`, CLI
-`977a32af8737f8b0111cf2220528145c3dbfe318` and engine
-`11969b707382203fe8df1c92e8a2fb2fa7e0bbbc`. IR recovery commit
-`8d359e00e40f69500bbc97984f43e3cbdd214eb7` changes only the two functional
-coverage headers to Coverage Status; binder integration merge `c88d660`
+reference-specific status-column declaration. The IR recovery changes only the two functional
+coverage headers to Coverage Status, and binder integration
 preserves that exact delta. The global Status vocabulary is unchanged.
 Explicitly loading just the process and ISO module directories validates both
 matrices: 2/2 grammar-clean, zero grammar findings. Intrinsic module duplicate

@@ -5,7 +5,6 @@ type: SpecReview
 analysis: dependency
 scope: "ADR-0053, PLAN-006, #54–#58 and Quire Specification FS01"
 review_set: subset
-evaluated_revision: "5edfa1f65ad5188785eb2f3f7e6e6081b5248452"
 review_date: "2026-09-13"
 relationships:
   - { target: ix://agent-ix/quire-contract-ir/ADR-0053, type: reviews }

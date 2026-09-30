@@ -13,8 +13,7 @@ relationships:
 
 ## Summary
 
-The verification catalog was evaluated against all eight FR-026 obligations at
-snapshot `558c4dc`. Every authored `Test` method matches a catalog
+The verification catalog was evaluated against all eight FR-026 obligations. Every authored `Test` method matches a catalog
 recommendation; none is mismatched, uncatalogued, or inconclusive. TC-039 is
 still planned, so this review makes no executed-evidence claim.
 

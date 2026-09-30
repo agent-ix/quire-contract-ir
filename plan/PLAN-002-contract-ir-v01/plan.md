@@ -56,7 +56,7 @@ repository epics complete. They are therefore not asserted by this plan.
 ## Completion
 
 Issues #5, #6, #8, #9, and #10 are closed and their project items are Done.
-Post-merge `main` at `5c49ebfd1c87415f74420ad047392bd03b1bd202`
+Post-merge `main`
 passes the complete isolated local CI lane, Rust 1.75 check, specification and
 matrix-status gates, and retained-evidence verification. REV-007 records the
 epic gap analysis and the limitations carried into Wave 4. No hosted workflow,

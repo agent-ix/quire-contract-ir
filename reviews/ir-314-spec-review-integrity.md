@@ -3,7 +3,7 @@ id: SR-592
 title: "integrity review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@11c6b013a0c94ddbf76040cbe81142858935eae3; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
+scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
 # SR-592: integrity review of PR 203
@@ -52,7 +52,7 @@ Ticket: IR-314. Internal consistency and completeness of ADR-0056 against itself
 
 ## Verdict
 
-The layout, registry columns, TestMatrixIndex columns (checked against spec-artifacts-process mappings.yaml: Subsystem | Requirements | Local Matrix | Status), the flat-global identifier rule, the ix://agent-ix/<repo>/<ID> form (matches this repo's existing relationships), ID blocks and collision handling are coherent. The quire 0.33.0 (engine 92dbebc) claims reproduce on a scratch tree: `quire validate` exits 0 with two FR files declaring FR-001 and one matrix declaring TC-001 twice; `quire coverage --scope spec/core` is refused (no document root); a nested spec/core/matrix/tests.md mints its TC rows. Two rules contradict the restructure gate, and the context section reproduces private-repo internals.
+The layout, registry columns, TestMatrixIndex columns (checked against spec-artifacts-process mappings.yaml: Subsystem | Requirements | Local Matrix | Status), the flat-global identifier rule, the ix://agent-ix/<repo>/<ID> form (matches this repo's existing relationships), ID blocks and collision handling are coherent. The quire 0.33.0 claims reproduce on a scratch tree: `quire validate` exits 0 with two FR files declaring FR-001 and one matrix declaring TC-001 twice; `quire coverage --scope spec/core` is refused (no document root); a nested spec/core/matrix/tests.md mints its TC rows. Two rules contradict the restructure gate, and the context section reproduces private-repo internals.
 
 ## New findings (disposition pass 1)
 
@@ -64,11 +64,11 @@ The layout, registry columns, TestMatrixIndex columns (checked against spec-arti
 
 ## Dispositions
 
-| FND | outcome | sha/reason |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 5a3d953 |
-| FND-002 | fixed | 5a3d953 |
-| FND-003 | fixed | 5a3d953 |
-| FND-004 | fixed | 5a3d953 |
-| FND-005 | fixed | 5a3d953 |
-| FND-006 | fixed | 3f299ab |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
+| FND-005 | fixed | resolved |
+| FND-006 | fixed | resolved |

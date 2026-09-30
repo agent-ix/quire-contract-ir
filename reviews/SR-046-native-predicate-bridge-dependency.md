@@ -3,7 +3,7 @@ id: SR-046
 title: "Dependency review of native predicate to TL projection"
 type: SpecReview
 analysis: dependency
-scope: "FR-025 at cf4beaf15e35dfe276749637dbfb16c230070514; FR-012/014/015/016; native FR-019/048/095 candidate; tl-syntax FR-007; issues #52/#64/#57"
+scope: "FR-025; FR-012/014/015/016; native FR-019/048/095 candidate; tl-syntax FR-007; issues #52/#64/#57"
 review_set: all
 relationships:
   - target: ix://agent-ix/quire-contract-ir/issues/63

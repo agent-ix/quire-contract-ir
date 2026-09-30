@@ -16,7 +16,7 @@ relationships:
 
 ## Summary
 
-Exact candidate `60cc38be060821ef64b150b5017d0cddf48978f3` conforms to
+The candidate conforms to
 AD-001's cycle-free allocation. The root Contract-IR bridge describes exact
 owner artifacts through four cohesive modules; the cycle-free
 `quire-contract-model` crate remains free of QSL, QObs, QProtocol and TL owner

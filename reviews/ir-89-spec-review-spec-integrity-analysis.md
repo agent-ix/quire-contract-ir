@@ -3,7 +3,7 @@ id: SR-593
 title: "PR #205 spec text integrity review"
 type: SpecReview
 analysis: integrity
-scope: "agent-ix/quire-contract-ir@97bcea493dbc71b1785ba67d25ff632a2f8fd141; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md, spec/contract/FR-038-consume-checked-package-v2.md, spec/contract/TC-053-checked-package-v2-frame-bodies.md, spec/contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/contract/TC-057-qspec-node-identity-vectors.md, spec/contract-test-matrix.md (git diff origin/main...HEAD)"
+scope: "agent-ix/quire-contract-ir; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md, spec/contract/FR-038-consume-checked-package-v2.md, spec/contract/TC-053-checked-package-v2-frame-bodies.md, spec/contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md, spec/contract/TC-057-qspec-node-identity-vectors.md, spec/contract-test-matrix.md (git diff origin/main...HEAD)"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-040
@@ -17,7 +17,7 @@ relationships:
 
 Ticket: IR-89.
 
-The spec edits were checked against QSpec origin/main `e56756f`:
+The spec edits were checked against QSpec origin/main:
 
 - FR-340, FR-341, FR-342 and FR-322 "Model-owned members".
 - `proposals/checked-package-v2/schema.json`: `ModelNode`, `ModelOwner`,
@@ -25,7 +25,7 @@ The spec edits were checked against QSpec origin/main `e56756f`:
   `BodyBindingRules`.
 - The QSpec `README.md` reader order.
 
-They were also checked against the code at `97bcea4`.
+They were also checked against the code.
 
 ## Verdict
 
@@ -52,19 +52,19 @@ These edits are consistent with QSpec and the code:
 
 ## Dispositions
 
-Round 1, reviewed at `1d89455fc04ddfb60cd2ac932886f1b223cd3688` (rebased on origin/main `a38f3db`).
+Round 1.
 
-| FND | Outcome | sha/reason |
+| FND | Outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | 1d89455 |
-| FND-002 | fixed | 1d89455 |
-| FND-003 | fixed | 1d89455 |
-| FND-004 | fixed | 1d89455 |
-| FND-005 | fixed | 83670e7 (round 3, reviewed at c877c64) |
+| FND-001 | fixed | resolved |
+| FND-002 | fixed | resolved |
+| FND-003 | fixed | resolved |
+| FND-004 | fixed | resolved |
+| FND-005 | fixed | resolved (round 3) |
 
 ## New findings (disposition pass 2)
 
-Round 2, reviewed at `995bd4bec7fe526c7891f728044fec4c2e7d469e`. FND-001 to FND-004 stay fixed; FND-004's clauses were removed along with AC-13 and AC-40.
+Round 2. FND-001 to FND-004 stay fixed; FND-004's clauses were removed along with AC-13 and AC-40.
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |

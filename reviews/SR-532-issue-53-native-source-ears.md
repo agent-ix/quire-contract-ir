@@ -3,9 +3,8 @@ id: SR-532
 title: "EARS review of the accepted native source authority"
 type: SpecReview
 analysis: ears-conformance
-scope: "Requirement-bearing impact of ADR-0053 and PLAN-006 at 5edfa1f"
+scope: "Requirement-bearing impact of ADR-0053 and PLAN-006"
 review_set: subset
-evaluated_revision: "5edfa1f65ad5188785eb2f3f7e6e6081b5248452"
 review_date: "2026-09-13"
 relationships:
   - { target: ix://agent-ix/quire-contract-ir/ADR-0053, type: reviews }

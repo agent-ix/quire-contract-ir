@@ -34,10 +34,8 @@ they are not incomplete subtasks of this completed decision plan.
 
 ## Input provenance
 
-Read in full: `/home/peter/dev_bak/filament-research/sysml-v2-integration-options.md`
-(SHA-256 `a64565419dd69b5f40cb5ecf84e0491cd1d98f580f2fc64c6750f6b0e01965d0`)
-and `fret-vs-ears.md`
-(`556db39f726a45d53ab09b3e9e089235b8f0f41bec1cf75ae679fa5170e1d8af`).
+Read in full: the filament-research notes `sysml-v2-integration-options.md`
+and `fret-vs-ears.md`.
 The final TypeSpec addendum supersedes their earlier structural-authority
 recommendation. The owner's #52 comment 5532708641 says this research is not a
 language decision and makes compiled domain packages from filament-core-data
