@@ -42,11 +42,9 @@ dependencies cannot enter production code.
 The workspace Cargo graph SHALL have these directions:
 
 ```text
-quire-contract-model -> quire-spec-language -> quire-protocol
-quire-contract-model -> quire-contract-ir
-quire-observation + tl-mltl -> quire-mltl
-quire-spec-language + quire-observation + quire-protocol
-  + tl-syntax + tl-mltl + quire-mltl -> quire-contract-ir
+quire-verification-contracts -> quire-contract-model
+quire-canonical + quire-exact + quire-contract-model -> quire-spec-language
+quire-contract-model + quire-spec-language -> quire-contract-ir
 ```
 
 Arrows point from dependency to consumer. No package may depend, directly or
@@ -61,7 +59,7 @@ callback, trait-object validator, wire mirror, trust flag or local owner parser.
 |---|---|---|
 | FR-028-AC-1 | Cargo metadata for every production feature combination is acyclic and contains no owner or TL dependency reachable from `quire-contract-model`. | Test (TC-041) |
 | FR-028-AC-2 | Schemas, canonical bytes, identities, diagnostics and the conformance corpus are byte/result identical through `quire_contract_model` paths, and the root package's runner produces the same results from them. | Test (TC-041) |
-| FR-028-AC-3 | QSL builds against `quire-contract-model` with no `quire-contract-ir` package in its production graph, while a locked composition build imports both the root package and the real QSL owner API without a Cargo cycle. The bounded-Kani replay path is the production root-package consumer of that API. | Test (TC-041) |
+| FR-028-AC-3 | QSL builds against `quire-contract-model` with no `quire-contract-ir` package in its production graph, while a locked composition build imports both the root package and the real QSL owner API without a Cargo cycle. | Test (TC-041) |
 | FR-028-AC-4 | Default, all-feature and minimum-version builds prove that no optional, dev or historical dependency leaks into the production graph. | Test (TC-041) |
 | FR-028-AC-5 | The split introduces no copied owner wire type, public validation constructor, callback, trait object, trust flag or local QSL/observation/protocol/TL parser. | Test (TC-041) |
 
