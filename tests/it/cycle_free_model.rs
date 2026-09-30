@@ -9,7 +9,6 @@ fn metadata() -> Value {
         .args([
             "metadata",
             "--locked",
-            "--offline",
             "--format-version",
             "1",
             "--manifest-path",
