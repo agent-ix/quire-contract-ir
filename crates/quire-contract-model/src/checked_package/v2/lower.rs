@@ -344,6 +344,11 @@ impl CheckedPackageV2 {
         // `semantic_type`, `dependencies` or any body reference other than a
         // `literal.type` annotation; the requested node is always in it.
         let mut typed = BTreeSet::from([request.clone()]);
+        // FR-038: the types a `composite_type` node itself names as an element
+        // or field type. Such a position is covered only by a type that needs
+        // no bound, never by a `bounded_domain` over the same shared type
+        // node elsewhere in the closure.
+        let mut named_by_composite = BTreeSet::new();
         let mut queue = VecDeque::from([start]);
         while let Some(position) = queue.pop_front() {
             work = work.saturating_add(1);
@@ -408,6 +413,9 @@ impl CheckedPackageV2 {
             for (successor, role) in successors {
                 if let Some(&next) = index.get(&successor) {
                     if role == EdgeRole::Typing && next != position {
+                        if kind.tag() == CheckedNodeTag::CompositeType {
+                            named_by_composite.insert(successor.clone());
+                        }
                         typed.insert(successor);
                     }
                     if visited.insert(next) {
@@ -450,12 +458,14 @@ impl CheckedPackageV2 {
             .collect::<Vec<_>>();
         if profile.require_bounds {
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
-                requires_bound(*kind)
-                    && typed.contains(&node.node_id)
-                    && !ordered.iter().any(|(domain, domain_kind)| {
-                        domain_kind.tag() == CheckedNodeTag::BoundedDomain
-                            && domain.semantic_type == node.node_id
-                    })
+                is_recursive_type(node, *kind)
+                    || (requires_bound(*kind)
+                        && (named_by_composite.contains(&node.node_id)
+                            || (typed.contains(&node.node_id)
+                                && !ordered.iter().any(|(domain, domain_kind)| {
+                                    domain_kind.tag() == CheckedNodeTag::BoundedDomain
+                                        && domain.semantic_type == node.node_id
+                                }))))
             }) {
                 return CompleteLoweringRecordV2::RequiresBound {
                     node_id: request.clone(),
@@ -512,6 +522,16 @@ impl CheckedPackageV2 {
 
 fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(tag.as_wire())
+}
+
+/// Whether a node is a scalar or composite type declared as a member of a
+/// `recursion_group`. A recursive type has unbounded depth and no
+/// `bounded_domain` form bounds depth, so no domain in the closure covers it.
+fn is_recursive_type(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+    matches!(
+        kind.tag(),
+        CheckedNodeTag::ScalarType | CheckedNodeTag::CompositeType
+    ) && node.recursion_group.is_some()
 }
 
 /// Whether a node of this kind is an unbounded numeric, text or collection

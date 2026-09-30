@@ -571,9 +571,23 @@ A reachable type is unbounded exactly when its family and semantic form are a
 `composite_type` of form `sequence`, `set`, `bag` or `ordered_set`. No other
 family and no other form of those two families is unbounded, so `boolean`,
 `float32`, `float64`, `dimension`, `unit`, `enum`, `option`, `record`, `tuple`,
-`alias` and `reference` never raise `requires_bound`. A type is bounded when the
-closure holds a reachable `bounded_domain` node whose `semantic_type` is that
-type's key.
+`alias` and `reference` never raise `requires_bound`. A type that a value,
+expression or the requested node is typed at is bounded when the closure holds a
+reachable `bounded_domain` node whose `semantic_type` is that type's key.
+
+A type a `composite_type` node itself names as an element or field type is a
+type position, and a position is bounded only by its own type: a `bounded_domain`
+over the same shared type node elsewhere in the closure does not cover it, so
+`{n: Integer, k: Int[0,9]}` raises `requires_bound` naming `integer` although the
+`integer_range` for `k` is over the same `integer` node, and
+`Sequence<Integer>[0,3]` does too. A `bounded_domain`'s own base type and the
+literals of its bounds are not type positions, so `Sequence<Boolean>[0,3]`
+lowers.
+
+A `scalar_type` or `composite_type` node that declares a `recursion_group` is a
+recursive type. Its depth is unbounded and no `bounded_domain` form bounds depth,
+so it raises `requires_bound` naming the least such node key, whatever bounds its
+fields carry.
 
 `requires_bound` tests only a type that a reachable node is typed at: a node
 other than the type itself names it through `semantic_type`, `dependencies` or
