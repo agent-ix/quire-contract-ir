@@ -339,7 +339,7 @@ impl CheckedPackageV2 {
         let nodes = &self.graph().nodes;
         let kinds = self.node_kinds();
         let mut visited = BTreeSet::from([start]);
-        // FR-038: the types a value or expression is typed at. A node joins
+        // Implements: FR-038. The types a value or expression is typed at. A node joins
         // this set when another reachable node names it through
         // `semantic_type`, `dependencies` or any body reference other than a
         // `literal.type` annotation; the requested node is always in it.
@@ -437,7 +437,7 @@ impl CheckedPackageV2 {
                 node_id: request.clone(),
             };
         };
-        // FR-038: `bounds` and `claims` are filtered views of the same
+        // Implements: FR-038. `bounds` and `claims` are filtered views of the same
         // reachable-excluding-self set that `dependencies` is drawn from, so
         // every key in `bounds` and every key in `claims` also appears in
         // `dependencies` — the requested node is never its own bound or claim.

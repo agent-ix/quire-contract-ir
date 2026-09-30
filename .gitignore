@@ -12,3 +12,4 @@ target-*/
 .worktrees/
 .cargo/config.toml
 .cargo/Cargo.lock.pre-local
+worktrees/

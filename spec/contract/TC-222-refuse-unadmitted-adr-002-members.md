@@ -95,10 +95,9 @@ node and the pointer of the value at fault.
 
 ## Status
 
-Planned. FR-344-AC-1, FR-344-AC-2 and FR-344-AC-3 already hold as an emergent
+Implemented in `tests/it/checked_package_v2_adr002_members.rs`. FR-344-AC-1, FR-344-AC-2 and FR-344-AC-3 already hold as an emergent
 property of FR-038's
 existing closed grammars (`CheckedNodeTag::from_wire`, `CheckedNodeKind::decode`,
 `#[serde(deny_unknown_fields)]`, `exact_members`); this test case gives
 that property its own named regression rather than leave it implicit and
-untested. It requires no reader or lowerer change — only new fixtures and
-assertions alongside FR-038's existing `checked_package_v2_reader` suite.
+untested.

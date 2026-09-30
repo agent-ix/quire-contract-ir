@@ -207,13 +207,13 @@ citation rather than a rediscovery:
 
 ## Status
 
-Specified, not yet implemented. Operation frame and embedded meaning
+Implemented. Operation frame and embedded meaning
 vocabulary need no new implementation — two of the seven ADR-002 members
 are already discharged by FR-038 and are not restated as criteria of this
 FR. All three of this FR's criteria (FR-344-AC-1, FR-344-AC-2 and
 FR-344-AC-3) hold today as an emergent property of FR-038's existing closed
-grammars; TC-222 is planned to pin them explicitly as a named regression
-rather than leave them implicit, and requires no reader or lowerer change.
+grammars; TC-222 pins them as a named regression in
+`tests/it/checked_package_v2_adr002_members.rs`.
 
 Admission and lowering for the five members remains blocked, per
 Dependencies above, on a QSpec-published `quire.checked-package/v2`
