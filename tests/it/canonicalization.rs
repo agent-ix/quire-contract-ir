@@ -168,20 +168,35 @@ fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
         DiagnosticCode::MalformedReference
     );
 
-    let unsupported = ContractPackage::new(
-        package.id().clone(),
-        SchemaVersion::new(1, 9).unwrap(),
-        package.source().clone(),
-        package.requirements().to_vec(),
-    )
-    .unwrap();
-    assert_eq!(
-        unsupported
-            .canonical_package(CanonicalProfile::V1)
-            .unwrap_err()
-            .code,
-        DiagnosticCode::UnsupportedSchemaVersion
-    );
+    for (major, minor) in [(1, 0), (1, 9), (2, 0)] {
+        let unsupported = ContractPackage::new(
+            package.id().clone(),
+            SchemaVersion::new(major, minor).unwrap(),
+            package.source().clone(),
+            package.requirements().to_vec(),
+        )
+        .unwrap();
+        let requirement = &unsupported.requirements()[0];
+        let errors = [
+            unsupported
+                .canonical_package(CanonicalProfile::V1)
+                .unwrap_err(),
+            unsupported
+                .canonical_requirement(requirement, CanonicalProfile::V1)
+                .unwrap_err(),
+            unsupported
+                .canonical_clause(requirement, &requirement.clauses()[0], CanonicalProfile::V1)
+                .unwrap_err(),
+        ];
+        for error in errors {
+            assert_eq!(
+                error.code,
+                DiagnosticCode::UnsupportedSchemaVersion,
+                "{major}.{minor}"
+            );
+            assert_eq!(error.path, "schema_version", "{major}.{minor}");
+        }
+    }
 
     // FR-016-AC-4: the budget-free form is the budgeted form at u64::MAX, for
     // every one of the five closed object kinds, and a budget never changes
@@ -661,10 +676,14 @@ fn tc_017_version_preflight_supports_only_schema_1_1() {
     }
     for minor in [0, 1] {
         wire["schema_version"] = serde_json::json!({"major": 0, "minor": minor});
+        let diagnostics = decode(&wire).unwrap_err();
+        assert_eq!(diagnostics.len(), 1, "0.{minor}");
         assert_eq!(
-            decode(&wire).unwrap_err()[0].code,
-            DiagnosticCode::InvalidSchemaVersion
+            diagnostics[0].code,
+            DiagnosticCode::InvalidSchemaVersion,
+            "0.{minor}"
         );
+        assert_eq!(diagnostics[0].path, "schema_version.major", "0.{minor}");
     }
     wire.as_object_mut().unwrap().remove("schema_version");
     assert_eq!(
