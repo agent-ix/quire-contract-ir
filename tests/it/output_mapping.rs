@@ -1622,11 +1622,23 @@ fn tc_043_package_identity_binds_target_generator_source_profile_records_and_lim
     .expect("changed source package");
     assert_ne!(baseline.package_id(), changed_source.package_id());
 
+    for refused_owner in [
+        String::new(),
+        "x".repeat(257),
+        "agent ix".to_string(),
+        "agent-ix/\u{e9}".to_string(),
+    ] {
+        let error = OutputGeneratorIdentity::new(refused_owner.as_str())
+            .expect_err("invalid generator owner accepted");
+        assert_eq!(error.code(), MappingRequestErrorCode::InvalidGenerator);
+        assert_eq!(error.path(), "generator");
+    }
     assert_eq!(
-        OutputGeneratorIdentity::new("")
-            .expect_err("empty generator owner accepted")
-            .code(),
-        MappingRequestErrorCode::InvalidGenerator
+        OutputGeneratorIdentity::new("x".repeat(256))
+            .expect("256-byte generator owner is within the bound")
+            .owner()
+            .len(),
+        256
     );
 }
 
@@ -1744,11 +1756,23 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     let bytes = generated.target_bytes().to_vec();
     let records = generated.records().to_vec();
 
+    for refused_owner in [
+        String::new(),
+        "x".repeat(257),
+        "agent ix".to_string(),
+        "agent-ix/\u{e9}".to_string(),
+    ] {
+        let error = StructuralObserverIdentity::new(refused_owner.as_str())
+            .expect_err("invalid observer owner accepted");
+        assert_eq!(error.code(), MappingRequestErrorCode::InvalidObserver);
+        assert_eq!(error.path(), "observer");
+    }
     assert_eq!(
-        StructuralObserverIdentity::new("")
-            .expect_err("empty observer owner accepted")
-            .code(),
-        MappingRequestErrorCode::InvalidObserver
+        StructuralObserverIdentity::new("x".repeat(256))
+            .expect("256-byte observer owner is within the bound")
+            .owner()
+            .len(),
+        256
     );
     let accepted = StructuralObservationRef::accepted(&generated, observer());
     let refused = StructuralObservationRef::refused(
@@ -1763,6 +1787,7 @@ fn tc_043_structural_observations_are_downstream_and_package_immutable() {
     assert_eq!(accepted.refusal_cause(), None);
     assert_eq!(refused.package_id(), package_id);
     assert_eq!(refused.outcome(), StructuralObservationOutcome::Refused);
+    assert_eq!(refused.observer().owner(), "agent-ix/other-observer");
     assert_eq!(
         refused.refusal_cause().map(MappingCause::code),
         Some("observer-rights-unavailable")
