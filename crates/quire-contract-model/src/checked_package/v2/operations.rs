@@ -35,8 +35,8 @@
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind an upstream mutation exercises, so it alone is checked in full,
 //! including that the named field is actually declared); a `constraints`
-//! entry other than `same_family`/`same_type`/`conforming_reference` is not
-//! enforced, except `reference_edge`, which refuses the application; leaf-path
+//! entry other than `same_family`/`same_type`/`conforming_reference`/
+//! `reference_edge` is not enforced; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key only for a node whose own
@@ -57,7 +57,8 @@
 
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
-    Budget, MemberKind, MemberType, ModelFailure, ModelOwners, ModelRefusal, Resolved,
+    declaration_key, Budget, CollectionKind, DeclarationForm, MemberKind, MemberType, ModelFailure,
+    ModelOwners, ModelRefusal, Resolved,
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
 use super::{
@@ -566,6 +567,7 @@ fn operation_defect(
         .unwrap_or_default();
     if let Some(failure) = check_operands(
         application,
+        &operation,
         entry,
         &arguments,
         graph,
@@ -581,7 +583,14 @@ fn operation_defect(
     if let Some(failure) = check_state_clause_result(application, entry, graph) {
         return Ok(Some(failure));
     }
+    // A reference-edge operation's `field` member is resolved by
+    // `check_reference_edge`, over a `Reference` operand, not as a field read.
+    let edge_operation = entry
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == OperationConstraintKind::ReferenceEdge);
     let member_kind = match wire_member_kind.flatten() {
+        Some(OperationMemberKind::Field) if edge_operation => None,
         Some(OperationMemberKind::Field) => Some(MemberKind::Field),
         Some(OperationMemberKind::Operation) => Some(MemberKind::Operation),
         Some(
@@ -976,6 +985,7 @@ fn resolve_family(
 
 fn check_operands(
     application: Application<'_>,
+    operation: &OperationWire,
     entry: &OperationCatalogEntry,
     arguments: &[Value],
     graph: &Graph<'_>,
@@ -1084,15 +1094,169 @@ fn check_operands(
             | OperationConstraintKind::ScaleReduction
             | OperationConstraintKind::PromotesExact
             | OperationConstraintKind::UniformRest => {}
-            // The reference edge a `reaches_field` application requires is
-            // not decided by this reader, so an operation constrained by it
-            // is refused rather than admitted unchecked.
             OperationConstraintKind::ReferenceEdge => {
-                return ineligible(indices.first().copied());
+                if let [first, second] = indices[..] {
+                    if let Some(failure) = check_reference_edge(
+                        application,
+                        operation,
+                        [first, second],
+                        arguments,
+                        graph,
+                        owners,
+                        meter,
+                    )? {
+                        return Ok(Some(failure));
+                    }
+                }
             }
         }
     }
     Ok(None)
+}
+
+/// FR-322 "Reaches over a field": the `reference_edge` constraint of
+/// `quire.op.model.reaches_field` holds exactly when, in order, operand 0 is
+/// `Reference<D>` for the member's declaring node `D`; the member resolves
+/// on `D` to a field owned by object type `T`; the field's type is
+/// `Reference<T>`, `Option<Reference<T>>` or a bounded
+/// `Sequence<Reference<T>>`; and operand 1 is a `Reference<B>` whose object
+/// type `B` conforms to `T`. An operand whose type cannot be resolved cannot
+/// be shown to satisfy the edge and is refused.
+fn check_reference_edge(
+    application: Application<'_>,
+    operation: &OperationWire,
+    operands: [usize; 2],
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let [source, target] = operands;
+    let member_at = |member: &str| application.body(&["operation", "member", member]);
+    let argument_at = |position: usize| application.body(&["arguments"]).index(position);
+    let ineligible = |path: JsonPointer| {
+        Ok(Some(model_refusal(
+            application,
+            path,
+            ModelRefusal::ineligible(),
+        )))
+    };
+    let reference_operand = |position: usize| {
+        let type_id =
+            operand_type_node(&arguments[position], graph.nodes, graph.kinds, graph.index)?;
+        reference_target(&type_id, graph)
+    };
+    let declaring = member_declaration(operation)
+        .and_then(|declaration| graph.index.get(&declaration).copied())
+        .map(|position| (&graph.nodes[position], graph.kinds[position].tag()));
+    let Some((declaring, tag)) = declaring else {
+        return ineligible(member_at("declaration"));
+    };
+    if !owners.is_model_declaration_node(declaring, tag) {
+        return ineligible(member_at("declaration"));
+    }
+    if reference_operand(source).as_ref() != Some(&declaring.node_id) {
+        return ineligible(argument_at(source));
+    }
+    let owner = match owners.recover(declaring) {
+        Ok(owner) => owner,
+        Err(refusal) => {
+            return Ok(Some(model_refusal(
+                application,
+                member_at("declaration"),
+                refusal,
+            )))
+        }
+    };
+    if owner.object_type().is_none() {
+        return ineligible(member_at("name"));
+    }
+    let name = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let resolved = {
+        let mut budget = Budget::new(meter, owner.selection);
+        match owner
+            .package
+            .resolve(owner.node, MemberKind::Field, name, &mut budget)
+        {
+            Ok(resolved) => resolved,
+            Err(ModelFailure::Refused(refusal)) => {
+                return Ok(Some(model_refusal(application, member_at("name"), refusal)))
+            }
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+        }
+    };
+    let Resolved::Field(field) = resolved else {
+        return ineligible(member_at("name"));
+    };
+    // `T`: the object type that declares the resolved field.
+    let Some(edge_owner) = owner
+        .package
+        .object_types
+        .iter()
+        .find(|(_, declared)| declared.fields.iter().any(|f| f.identity == field.identity))
+        .map(|(node, _)| node.as_ref())
+    else {
+        return ineligible(member_at("name"));
+    };
+    let edge = MemberType::Reference(
+        declaration_key(
+            &owner.package.identity,
+            &owner.package.version,
+            DeclarationForm::ObjectType,
+            edge_owner,
+        )
+        .into(),
+    );
+    let is_edge = match owner.package.field_type(field) {
+        Some(MemberType::Option(inner)) => *inner == edge,
+        Some(MemberType::Collection {
+            kind: CollectionKind::Sequence,
+            element,
+            bounds: Some(_),
+        }) => *element == edge,
+        Some(reference) => reference == edge,
+        None => false,
+    };
+    if !is_edge {
+        return ineligible(member_at("name"));
+    }
+    let Some(end) = reference_operand(target) else {
+        return ineligible(argument_at(target));
+    };
+    let Some(end_position) = graph.index.get(&end).copied() else {
+        return ineligible(argument_at(target));
+    };
+    let end_node = &graph.nodes[end_position];
+    if !owners.is_model_declaration_node(end_node, graph.kinds[end_position].tag()) {
+        return ineligible(argument_at(target));
+    }
+    let end_owner = match owners.recover(end_node) {
+        Ok(end_owner) => end_owner,
+        Err(refusal) => {
+            return Ok(Some(model_refusal(
+                application,
+                argument_at(target),
+                refusal,
+            )))
+        }
+    };
+    if !std::ptr::eq(end_owner.package, owner.package) || end_owner.object_type().is_none() {
+        return ineligible(argument_at(target));
+    }
+    let mut budget = Budget::new(meter, owner.selection);
+    if owner
+        .package
+        .conforms(end_owner.node, edge_owner, &mut budget)?
+    {
+        Ok(None)
+    } else {
+        ineligible(argument_at(target))
+    }
 }
 
 /// The `operation.member.declaration` an application names.
@@ -2079,11 +2243,11 @@ mod tests {
         );
     }
 
-    /// `quire.op.model.reaches_field` carries the `reference_edge`
-    /// constraint this reader does not decide: it refuses as
-    /// `ill_typed`/`operator-ineligible` at its first operand, never admits.
+    /// `quire.op.model.reaches_field` whose member declaration names no node
+    /// of the graph cannot satisfy `reference_edge`: it refuses as
+    /// `ill_typed`/`operator-ineligible` at the member's declaration.
     #[test]
-    fn operation_defect_refuses_a_reference_edge_operation() {
+    fn operation_defect_refuses_a_reference_edge_with_no_declaring_node() {
         let node = custom_application_node(
             "reaches",
             json!({
@@ -2101,7 +2265,7 @@ mod tests {
             defect_for(&node),
             Ok(Some(refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                "/semantic_graph/nodes/0/body/arguments/0",
+                "/semantic_graph/nodes/0/body/operation/member/declaration",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node_id,
             )))

@@ -201,8 +201,15 @@ bindings in order: `name`, a `text` literal whose value is an identifier, and
 of any other shape refuses at the node's `body`.
 
 An operation whose catalog entry carries the `reference_edge` constraint
-(`quire.op.model.reaches_field`) is not admitted: its application refuses as
-`ill_typed`/`operator-ineligible` at its first argument.
+(`quire.op.model.reaches_field`) is admitted exactly when, in order: operand 0
+is `Reference<D>` for the `field` member's declaring model node `D`; the
+member's name resolves on `D` to a field declared by object type `T` (`D` or
+one of its supertypes); that field's type is `Reference<T>`,
+`Option<Reference<T>>` or a bounded `Sequence<Reference<T>>`; and operand 1 is
+`Reference<B>` for an object type `B` of the same selected document that
+conforms to `T`. Any other application refuses as `ill_typed`/
+`operator-ineligible` at the operand or member name at fault; an unselected
+declaration or an ambiguous name refuses with that step's own code.
 
 The operation catalog shall hold `quire.op.state.clause` with operator class
 `state_clause`, operands `aggregate`, `object` and `boolean`, result `clause`
