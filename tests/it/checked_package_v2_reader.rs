@@ -2708,3 +2708,64 @@ fn refused_with(
         other => panic!("expected V2 refusal, got {other:?}"),
     }
 }
+
+/// A canonical V2 package whose first empty-`aggregate` node body (and its
+/// identity-projection copy) is replaced by `depth` nested `aggregate`
+/// terms, with the package id re-derived. Built as text, so the test's own
+/// stack never recurses over the nesting.
+fn package_with_deep_aggregate(depth: usize) -> Vec<u8> {
+    use crate::support::checked_package::{canonical, refresh_identity, sha256_hex};
+    let marker = "\u{1}deep";
+    let quoted = serde_json::to_string(marker).expect("string");
+    let deep = format!(
+        "{}{{\"members\":[],\"term\":\"aggregate\"}}{}",
+        "{\"members\":[".repeat(depth),
+        "],\"term\":\"aggregate\"}".repeat(depth)
+    );
+    let splice = |bytes: Vec<u8>| {
+        String::from_utf8(bytes)
+            .expect("utf-8")
+            .replace(&quoted, &deep)
+            .into_bytes()
+    };
+    let mut package = v2_all_families();
+    let empty = json!({"term": "aggregate", "members": []});
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let node = nodes
+        .iter_mut()
+        .find(|node| node["body"] == empty)
+        .expect("an empty aggregate node");
+    node["body"] = json!(marker);
+    refresh_identity(&mut package);
+    let digest = sha256_hex(&splice(canonical(&package["identity_preimage"])));
+    package["package_id"]["digest"] = json!(digest);
+    splice(canonical(&package))
+}
+
+/// Tracing: TC-048, FR-038-AC-3
+#[trace("TC-048", "FR-038-AC-3")]
+#[test]
+fn tc_048_a_deep_admitted_package_drops_on_a_small_stack() {
+    let evidence = evidence_for(&v2_all_families());
+    let bytes = package_with_deep_aggregate(10_000);
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 26,
+        depth: u64::MAX,
+        ..CheckedPackageReadLimits::bounded()
+    };
+    // A 256 KiB stack holds far fewer frames than the package has levels, so
+    // a recursive drop of the admitted package aborts the process.
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(
+            move || match CheckedPackageV2::read(&bytes, limits, &evidence) {
+                CheckedPackageV2ReadResult::Admitted(package) => drop(package),
+                other => panic!("expected the deep package to be admitted: {other:?}"),
+            },
+        )
+        .expect("spawn")
+        .join()
+        .expect("read and drop a deep admitted package");
+}

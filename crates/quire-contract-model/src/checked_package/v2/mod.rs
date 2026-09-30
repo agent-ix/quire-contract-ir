@@ -28,10 +28,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    count, decode_closed, digest_json, exceeds, first_difference, is_digest, is_nonempty,
-    node_pointer, read_value, validate_locked_artifact, validate_source_map_entries, validate_term,
-    ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
-    NODE_DOMAIN,
+    count, decode_closed, digest_json, dismantle, exceeds, first_difference, is_digest,
+    is_nonempty, node_pointer, read_value, validate_locked_artifact, validate_source_map_entries,
+    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -375,6 +375,25 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+}
+
+/// The only `Value`s an admitted package holds are node bodies, their
+/// identity-projection copies and diagnostic details. A caller's depth limit
+/// can admit one nested far deeper than a stack recurses, so each is taken
+/// apart iteratively rather than by `Value`'s recursive drop.
+impl Drop for CheckedPackageV2 {
+    fn drop(&mut self) {
+        let wire = &mut self.wire;
+        for node in &mut wire.semantic_graph.nodes {
+            dismantle(&mut node.body);
+        }
+        for node in &mut wire.identity_preimage.identity_projection {
+            dismantle(&mut node.body);
+        }
+        for entry in &mut wire.diagnostics.entries {
+            entry.details.iter_mut().for_each(dismantle);
+        }
+    }
 }
 
 /// Cumulative validation work against one caller limit.

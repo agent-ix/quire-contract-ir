@@ -277,6 +277,26 @@ pub(super) fn canonical_value(
     read_value(bytes, limits, Ok)
 }
 
+/// Empties `value`, dropping its descendants iteratively. A deep value's
+/// default drop recurses once per level, so a package holding one must take
+/// it apart with this before it is dropped on an ordinary stack.
+pub(super) fn dismantle(value: &mut Value) {
+    let mut pending = vec![std::mem::take(value)];
+    while let Some(mut next) = pending.pop() {
+        match &mut next {
+            Value::Array(elements) => pending.append(elements),
+            Value::Object(members) => {
+                pending.extend(
+                    std::mem::take(members)
+                        .into_iter()
+                        .map(|(_, member)| member),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Stack reserved for any read, before its depth is counted.
 const STACK_BASE: usize = 256 * 1024;
 
