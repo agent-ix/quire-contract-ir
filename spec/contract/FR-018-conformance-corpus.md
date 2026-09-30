@@ -1,12 +1,12 @@
 ---
 id: FR-018
-title: "Publish the v0.1 schema and conformance corpus"
+title: "Publish the schema and conformance corpus"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-003
     type: traces_to
 ---
-# FR-018: Publish the v0.1 schema and conformance corpus
+# FR-018: Publish the schema and conformance corpus
 
 ## Description
 
@@ -29,14 +29,14 @@ status for any mismatch.
 The published package schema is JSON Schema Draft 7 with identity
 `https://agent-ix.github.io/quire-contract-ir/schemas/contract-package-reference-v1.schema.json`.
 It describes the complete `ContractPackage<ReferenceBody>` wire representation
-for supported schema versions 1.0 and 1.1, closes every object with
+for the supported schema version 1.1, closes every object with
 `additionalProperties: false`, uses fixed-width numeric bounds, and carries no
 implementation-language names. Schema success never substitutes for semantic validation.
 
 Fixture payloads are validated by Draft 7 schema identity
 `https://agent-ix.github.io/quire-contract-ir/schemas/contract-conformance-fixture-v1.schema.json`.
 The conformance schema exposes the named subschemas `packageInput`,
-`expressionInput`, `migrationInput`, `coverageInput`, and one corresponding
+`expressionInput`, `coverageInput`, and one corresponding
 `*Expectation` subschema for each operation. The runner selects the input and
 expectation subschemas from the fixture's operation before any semantic
 conversion; every object forbids unknown fields.
@@ -45,7 +45,7 @@ The corpus is a directory. Its name is the corpus identity and is a validated
 identifier. The runner reads the package and fixture schemas from the schema
 directory it is given. Each `inputs/<id>.json` is one fixture whose operation is the `<id>` prefix before
 the first `-`, and whose expectation is `expectations/<id>.json`. A fixture
-name that does not start with one of the four operations fails, as does any
+name that does not start with one of the three operations fails, as does any
 `inputs/` or `expectations/` entry that is not a UTF-8 `.json` file and any
 expectation with no input. Canonical-byte
 paths in an expectation are relative to the corpus directory, contain no empty,
@@ -56,13 +56,12 @@ fields, malformed inputs or expectations, or resource-limit breach fail before
 any fixture executes. Every file read shares a 67108864-byte aggregate preload
 budget.
 
-The four closed fixture operations are:
+The three closed fixture operations are:
 
 | Operation | Declarative input | Comparable result |
 |---|---|---|
 | `package` | package JSON, optionally wrapped with authored clause-resolution references and a canonical byte limit, or raw package JSON text for decoder-boundary probes | validity, ordered diagnostics, package/requirement/clause canonical bundle and package dependency union |
 | `expression` | declarations, expression, expected type, execution point, clause-root flag | validity, ordered diagnostics, separate declaration/expression canonical outputs and expression dependencies |
-| `migration` | reference-body package and explicit target version | validity, ordered diagnostics, migrated package digest, immutable receipt |
 | `coverage` | reference-body package and artifact traces | ordered diagnostics and sorted requirement/artifact rows |
 
 Expression fixture syntax covers every FR-013/FR-014 declaration, value type,
@@ -86,7 +85,7 @@ still owns criteria not exercised by this corpus. Coverage tokens are the closed
 `obligation:<DefinednessObligationKind>`, `boundary:<registered-boundary>`, and
 `operation:<operation>`. The Rust library
 exports the sorted fixed-width registries `PUBLIC_CONSTRUCT_TAGS` and
-`CONFORMANCE_BOUNDARIES`; operation tokens come from the four-operation enum,
+`CONFORMANCE_BOUNDARIES`; operation tokens come from the three-operation enum,
 diagnostic tokens from `DiagnosticCode::ALL`, and obligation tokens from all
 four `DefinednessObligationKind` values. Construct tags are qualified by
 wire namespace, for example `expression.boolean_literal`, `type.boolean`, and
@@ -96,7 +95,7 @@ absent required token is a corpus failure. Every STD-001 diagnostic has a
 failing fixture, every public wire construct has a successful fixture, and the
 four obligation values have distinct `potentially_undefined` fixtures. The
 inventory is derived exactly from `PUBLIC_CONSTRUCT_TAGS`,
-`CONFORMANCE_BOUNDARIES`, the four-operation enum, `DiagnosticCode::ALL`, and
+`CONFORMANCE_BOUNDARIES`, the three-operation enum, `DiagnosticCode::ALL`, and
 the four-obligation enum.
 
 Coverage tokens are observations, never fixture declarations.
@@ -113,8 +112,8 @@ a package reference diagnostic cannot claim an artifact-trace boundary.
 
 The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `revision.current`,
-`revision.stale`, `schema.1_0`, `schema.1_1`, `schema.zero_major`,
-`schema.unknown_major`, `schema.unregistered_minor`, `integer.minimum`,
+`revision.stale`, `schema.1_1`, `schema.zero_major`,
+`schema.unknown_major`, `schema.unsupported_minor`, `integer.minimum`,
 `integer.maximum`, `integer.out_of_range`, `rational.normalized`,
 `rational.zero_denominator`, `rational.maximum_denominator`, `text.maximum`,
 `text.over_maximum`, `collection.declared_maximum`,
@@ -158,7 +157,7 @@ determinism for this implementation, not independent semantic correctness.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-018-AC-1 | Running the corpus directory yields one matching row per input with non-empty trace targets, and the union of observed tokens equals the published inventory, so every registered public construct, STD-001 diagnostic, operation, and boundary token is covered; a corpus missing a token's only fixture, a fixture with an unknown operation prefix or a missing expectation, and oversize, over-count and over-budget corpora fail before any row is written. | Test (TC-018) |
-| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, migration receipt, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
+| FR-018-AC-2 | Mutation fixtures independently alter schema validity, diagnostic code/path/order/span/obligation, canonical byte, digest, dependency, and coverage row/reason; each produces the exact mismatch result without message parsing. | Test (TC-018) |
 | FR-018-AC-3 | Raw package probes pin exact and one-past wire depth, and quoted delimiters do not count toward depth. | Test (TC-018) |
 
 ## Dependencies

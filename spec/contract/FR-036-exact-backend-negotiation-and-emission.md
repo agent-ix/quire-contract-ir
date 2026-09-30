@@ -21,7 +21,7 @@ relationships:
 ## Description
 
 When a backend provider receives a ContractPackage request, the provider shall
-negotiate exact per-item capability, domains, bounds, options, and tool lock
+negotiate exact per-item capability, domains, and bounds
 before it emits an artifact or result.
 
 ## Inputs
@@ -49,7 +49,7 @@ that correspondence is absent, the provider shall return `requires_bound` or
 capability for a requested claim, the provider shall settle that claim
 `unsupported` and carry a warning naming the required capability. The
 provider shall generate Rust-only artifacts with `publish = false`. The provider shall identify package, claim,
-domain, bounds, options, toolchain, and dependencies.
+domain, and bounds in each emitted artifact.
 
 ## Acceptance Criteria
 

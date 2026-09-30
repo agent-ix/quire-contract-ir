@@ -1,23 +1,21 @@
 ---
 id: FR-017
-title: "Handle schema evolution and classify trace coverage"
+title: "Check schema version and classify trace coverage"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-016
     type: depends_on
 ---
-# FR-017: Handle schema evolution and classify trace coverage
+# FR-017: Check schema version and classify trace coverage
 
 ## Description
 
-The library shall reject unsupported schema versions, apply only registered
-explicit migrations, and classify artifact traces as shallow, deep, uncovered,
-or orphaned.
+The library shall reject unsupported schema versions and classify artifact
+traces as shallow, deep, uncovered, or orphaned.
 
 ## Inputs
 
-Schema identity, migration request, current package identities, and artifact
-trace references.
+Schema identity, current package identities, and artifact trace references.
 
 ## Outputs
 
@@ -26,20 +24,15 @@ every current requirement and referenced artifact.
 
 ## Behavior
 
-Schema 1.1 is current. Schema 1.0 remains a supported source version. The only
-registered migration is `reference_body_1_0_to_1_1`; it preserves package,
-requirement, clause, source, anchor, dependency, and reference semantics while
-changing the schema version. Its immutable receipt contains the migration ID,
-source and target versions, source package digest, and target package digest.
-The source digest is recomputed before migration and the target digest after
-validation. A migration whose actual source/target differs from its registered
-edge fails `unregistered_migration` and produces no package or receipt.
+Schema 1.1 is the only supported version. The library registers no schema
+migration; a later migration is introduced by its own requirement.
 
 Wire version preflight reads only the top-level `schema_version` object before
 semantic package decoding. A missing/malformed version retains the existing
-grammar/`invalid_wire_format` or `invalid_schema_version` precedence. An unknown
-major fails `unsupported_schema_version`. Major 1 minor 0 or 1 is supported;
-another minor fails `unregistered_migration`. No rejected version reaches
+grammar/`invalid_wire_format` or `invalid_schema_version` precedence. Any
+well-formed version other than 1.1 fails `unsupported_schema_version`: at
+`schema_version.major` when the major is not 1, otherwise at
+`schema_version.minor`. No rejected version reaches
 identifier, source, requirement, clause, dependency, or expression validation,
 and no best-effort field interpretation occurs.
 
@@ -93,14 +86,14 @@ artifact rows never use `uncovered`. Diagnostics use the trace span and follow
 authored trace order. Repeating or permuting unique trace inputs produces the
 same sorted rows; diagnostics remain authored-order evidence for invalid input.
 Package requirements, requirement clauses, and artifact-trace inputs are also
-subject to FR-019's semantic node/depth/collection preflight before migration,
-canonicalization, or coverage recursion begins.
+subject to FR-019's semantic node/depth/collection preflight before
+canonicalization or coverage recursion begins.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-017-AC-1 | Version preflight rejects unknown majors and unregistered minor/migration paths before semantic interpretation; the registered 1.0-to-1.1 migration alone succeeds and its receipt binds source/target versions and digests. | Test (TC-017) |
+| FR-017-AC-1 | Version preflight accepts schema 1.1; schemas 1.0, 1.2 and 2.0 each fail `unsupported_schema_version` at the specified path, and a zero major fails `invalid_schema_version`, all before semantic interpretation. | Test (TC-017) |
 | FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale, missing, cross-package, duplicate, digest-mismatched, and over-limit inputs retain distinct diagnostics and cannot make a current requirement appear covered. | Test (TC-017, TC-018) |
 
 ## Dependencies

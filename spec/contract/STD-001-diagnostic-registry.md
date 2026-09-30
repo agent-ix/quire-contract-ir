@@ -1,8 +1,8 @@
 ---
 id: STD-001
-title: "Contract IR v0.1 diagnostic code registry"
+title: "Contract IR diagnostic code registry"
 type: Standard
-code: contract-ir-diagnostics-v0.1
+code: contract-ir-diagnostics
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-011
     type: references
@@ -17,22 +17,21 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-030
     type: references
 ---
-# STD-001: Contract IR v0.1 diagnostic code registry
+# STD-001: Contract IR diagnostic code registry
 
 ## Description
 
-This registry owns the stable machine-readable diagnostic codes introduced by
-issues #6 through #10 and the bounded-Kani outcome error code
-FR-030 raises. Implementations may add human context but shall not parse
+This registry owns the stable machine-readable diagnostic codes of FR-011
+through FR-019 and the bounded-Kani outcome error code FR-030 raises. Implementations may add human context but shall not parse
 or synthesize codes from messages. Codes are lowercase ASCII snake case.
 
-## Issue 6 Codes
+## Identity and Reference Codes
 
 | Code | Condition | Required location |
 |---|---|---|
 | `invalid_package_namespace` | Empty or malformed package namespace | package identity path |
 | `invalid_wire_format` | JSON syntax or closed wire shape prevents decoding, or the 576-level wire-nesting limit is exceeded | document path; `document.nesting` identifies pre-decode depth refusal |
-| `invalid_schema_version` | Zero schema major; schema minor zero is valid | schema-version path |
+| `invalid_schema_version` | Zero schema major | schema-version path |
 | `invalid_identifier` | Empty or malformed source-document, requirement, clause, anchor, or dependency-path-segment identifier | offending identity path |
 | `invalid_requirement_revision` | Zero or non-increasing requirement revision | requirement revision path |
 | `invalid_source_revision` | Zero source-document revision | source revision path |
@@ -48,7 +47,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `orphaned_requirement_reference` | Referenced requirement ID is absent | reference span/path |
 | `orphaned_clause_reference` | Requirement revision resolves but its clause ID is absent | reference span/path |
 
-## Issue 8 Codes
+## Type and Expression Codes
 
 | Code | Condition | Required location |
 |---|---|---|
@@ -76,17 +75,16 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `potentially_undefined` | A partial-operation obligation is not statically discharged; diagnostic includes mandatory `obligation_kind` (`option_presence`, `non_zero_divisor`, `index_in_bounds`, or `checked_range`) | partial-operation span |
 | `expression_too_large` | Expression exceeds 10000 nodes or depth 256 | first node crossing the limit |
 
-## Issue 9 Codes
+## Version, Canonicalization and Coverage Codes
 
 | Code | Condition | Required location |
 |---|---|---|
-| `unsupported_schema_version` | Wire preflight reads a nonzero schema major other than 1 | `schema_version.major` path; no semantic span |
-| `unregistered_migration` | Major 1 minor is not 0/1, or a requested migration edge is not the registered 1.0-to-1.1 edge | `schema_version` or migration request path |
+| `unsupported_schema_version` | A well-formed schema version other than 1.1, read by wire preflight or presented to a canonical API | preflight: `schema_version.major` when the major is not 1, otherwise `schema_version.minor`; canonical API: `schema_version`; no semantic span |
 | `canonicalization_resource_exhausted` | Canonical byte allocation cannot be reserved without exceeding host resources | canonicalized object path; source span when the object has one |
 | `duplicate_artifact_trace` | A later artifact trace repeats an artifact ID in one classification input | later trace span |
 | `stale_trace_digest` | A deep trace's requirement digest differs from the resolved current requirement digest | digest-token span |
 
-## Issue 10 Codes
+## Semantic Limit Codes
 
 | Code | Condition | Required location |
 |---|---|---|
@@ -120,7 +118,7 @@ secondary diagnostics. Thus an empty clause ID is `invalid_identifier`, not
 `malformed_reference`, and an empty package namespace is
 `invalid_package_namespace`, not `cross_package_reference`.
 
-Issue #8 precedence is declaration/identifier grammar and numeric/collection
+Type and expression precedence is declaration/identifier grammar and numeric/collection
 bounds, then duplicates, named-type resolution, containment cycles, local/value/
 function name resolution, call arity, operand/access typing, expected-result
 typing, and definedness last. At an executable clause root,
@@ -133,13 +131,13 @@ partial node is `ill_typed_expression`, never `potentially_undefined`.
 Expression diagnostics are emitted in authored pre-order: one primary
 diagnostic per node, siblings in stored order. A failed child suppresses its
 parent's typing/definedness diagnostic, while independent siblings continue.
-Within one node the issue #8 precedence above selects the primary code. State
+Within one node the type and expression precedence above selects the primary code. State
 observation policy follows resolved-value lookup and precedes operand typing.
 Declaration-environment diagnostics precede expression diagnostics and follow
 stored declaration/field/variant/parameter order.
 
-Issue #9 wire precedence is JSON/top-level structure, schema-version numeric
-grammar, unsupported major, unregistered minor/migration edge, then semantic
+Wire precedence is JSON/top-level structure, schema-version numeric
+grammar, unsupported version, then semantic
 package interpretation. Canonicalization accepts validated values only and
 performs no diagnostic recovery; resource exhaustion produces no partial bytes
 or digest. Coverage precedence per trace is duplicate artifact ID,
@@ -149,8 +147,7 @@ rows sort structurally.
 
 ## Dependencies
 
-- **Upstream**: PGM-01 evidence and human-decision boundaries.
 - **Downstream**: FR-013 through FR-019, FR-023 and FR-030 extend or consume this
-  semantic registry without renaming issue #6 codes. FR-020 defines separate
+  semantic registry without renaming its codes. FR-020 defines separate
   runner operational codes that are neither `DiagnosticCode` values nor
   semantic diagnostic shapes.

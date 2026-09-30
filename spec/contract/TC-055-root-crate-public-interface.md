@@ -31,15 +31,14 @@ or `objects` module. Compile one probe per item in FR-039's "Items QSL owns"
 and "Items codegen owns" sections through `quire_contract_ir` and expect each
 to fail; compile a probe that calls the `kani` outcome map on a `proved` outcome and
 on an `Unavailable` outcome and binds each result directly to a
-`qsl_replay::TerminalValue`, and expect it to build. Read
-`BridgeErrorCode::all()` against the STD-001 registry, and run the TC-038
-through TC-042 negative corpora under `catch_unwind`.
+`qsl_replay::TerminalValue`, and expect it to build. Run the TC-041 and
+TC-042 negative corpora under `catch_unwind`.
 
 ## Expected Results
 
 The inventory equals the table with no extra or missing item and no model
 item; the search finds nothing; the model-item probe and every QSL-owned and
-codegen-owned item probe fail to compile and the outcome-map probe builds; every `BridgeErrorCode` appears once and is registered; no
+codegen-owned item probe fail to compile and the outcome-map probe builds; no
 negative case panics.
 
 ## Status

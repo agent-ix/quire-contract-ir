@@ -24,8 +24,8 @@ source-bound terminal refusal for each requested item.
 
 ## Inputs
 
-An immutable checked package, requested item set, lowering profile, resource
-limits, and exact upstream revision/profile identities.
+An immutable checked package, requested item set, lowering profile, and resource
+limits.
 
 ## Outputs
 

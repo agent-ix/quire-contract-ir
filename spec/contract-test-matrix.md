@@ -1,12 +1,9 @@
 ---
 id: TM-002
-title: "quire-contract-ir v0.1 semantic contract test matrix"
+title: "quire-contract-ir semantic contract test matrix"
 type: TestMatrix
-relationships:
-  - target: ix://agent-ix/quire-contract-ir/issues/11
-    type: covers
 ---
-# quire-contract-ir v0.1 semantic contract test matrix
+# quire-contract-ir semantic contract test matrix
 
 ## Stakeholder Requirement Coverage
 
@@ -32,15 +29,15 @@ relationships:
 | FR-020 | FR-020-AC-1, FR-020-AC-2 | TC-018 | ✅ implemented |
 | FR-023 | FR-023-AC-1 through FR-023-AC-5 | TC-035 | ✅ implemented |
 | FR-028 | FR-028-AC-1 through FR-028-AC-5 | TC-041 | 🚧 AC-1, AC-3, AC-4 and AC-5 implemented; AC-2, byte/result identity through `quire_contract_model` paths with no root re-export, is planned. `tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single` (`tests/it/cycle_free_model.rs:211`) is tagged FR-028-AC-2 but asserts that the root crate's glob re-export is present, the opposite of AC-2; the tag is stale and does not back AC-2 |
-| FR-029 | FR-029-AC-1 through FR-029-AC-3 | TC-042 | 🚧 AC-1 and AC-3 implemented through PRs #87/#88; AC-2 is planned: the matrix has a `CapabilityDisposition::Inconclusive` entry that becomes an `Inconclusive` run outcome, where the target is an `unsupported` entry that settles the item at negotiation with a warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290) and no artifact or outcome |
+| FR-029 | FR-029-AC-1 through FR-029-AC-3 | TC-042 | 🚧 AC-1 and AC-3 implemented; AC-2 is planned: the matrix has a `CapabilityDisposition::Inconclusive` entry that becomes an `Inconclusive` run outcome, where the target is an `unsupported` entry that settles the item at negotiation with a warning naming the item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290) and no artifact or outcome |
 | FR-030 | FR-030-AC-1 through FR-030-AC-5 | TC-042, TC-223 | 🚧 AC-1 through AC-3 implemented and verified by TC-042; AC-4, the SUCCESS check count a `proved` outcome carries, and AC-5, the two `Unavailable` cause codes, are planned (TC-223) |
-| FR-031 | FR-031-AC-1, FR-031-AC-5 | TC-042, TC-223 | 🚧 AC-1 implemented and verified by TC-042; AC-5, the total map from each outcome to QSL's `qsl_replay::TerminalValue`, including `Unavailable` by cause to `Unsupported(SolverAbsent)` or `Unsupported(BackendAbsent)` and a vacuous proof to `Proved { success_checks: 0 }`, which QSL reads as inconclusive with the vacuity cause, is planned (TC-223). `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result` (`tests/it/kani_shared.rs:250`) is tagged FR-031-AC-5 and TC-223 but verifies the retired `KaniProviderResult` map; the tag is stale and does not back AC-5. The family lowerings (`src/kani/arithmetic.rs`, `collections.rs`, `objects.rs`) are codegen's backend adapter's and still live here. AC-3 and AC-4 are retired: replay and the witness are QSL's and codegen's |
+| FR-031 | FR-031-AC-1, FR-031-AC-5 | TC-042, TC-223 | 🚧 AC-1 implemented and verified by TC-042; AC-5, the total map from each outcome to QSL's `qsl_replay::TerminalValue`, including `Unavailable` by cause to `Unsupported(SolverAbsent)` or `Unsupported(BackendAbsent)` and a vacuous proof to `Proved { success_checks: 0 }`, which QSL reads as inconclusive with the vacuity cause, is planned (TC-223). `tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result` (`tests/it/kani_shared.rs:250`) is tagged FR-031-AC-5 and TC-223 but verifies the retired `KaniProviderResult` map; the tag is stale and does not back AC-5. The family lowerings (`src/kani/arithmetic.rs`, `collections.rs`, `objects.rs`) are codegen's backend adapter's and still live here. |
 | FR-032 | FR-032-AC-1 through FR-032-AC-5 | TC-043, TC-051 | ✅ implemented target-neutral admission and the closed STD-003 refusal catalog with a total unresolved-obligation precedence; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
 | FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
 | FR-035 | FR-035-AC-1 through FR-035-AC-5 | TC-044, TC-047 | ✅ AC-1 through AC-4 implemented against the current `quire.checked-package/v2` reader/lowerer in `tests/it/complete_v1_checked_package.rs`: every public node family admits and lowers exactly, mixed requests keep independent sibling records, source/type/anchor/identity/bound/dependency/version mutations refuse before any backend artifact, and resource accounting is exact/one-over; AC-5 implemented in `tests/it/complete_v1_contract_package.rs`: one mixed call emits one canonical versioned `ContractPackage` holding each lowered node once plus its reached closure, whose RFC 8785 bytes carry every member of every represented node, are stable across identical calls and request order, and change when a represented node's source correspondence changes |
 | FR-036 | FR-036-AC-1 through FR-036-AC-5 | TC-045 | 🚧 planned; shared by Contract IR's `ContractPackage` and the codegen provider, neither implemented |
-| FR-037 | FR-037-AC-6 | TC-055 | 🚧 planned: TC-055's public-surface and source checks also show that Contract IR defines no replay envelope or witness, has no `replay` or `witness` module and calls no executor; `src/kani/replay.rs` and `witness.rs` still exist. AC-1 through AC-5 are retired to QSL `qsl-replay` and the codegen replay adapter |
+| FR-037 | FR-037-AC-6 | TC-055 | 🚧 planned: TC-055's public-surface and source checks also show that Contract IR defines no replay envelope or witness, has no `replay` or `witness` module and calls no executor; `src/kani/replay.rs` and `witness.rs` still exist. |
 | FR-039 | FR-039-AC-1 through FR-039-AC-4 | TC-055 | 🚧 planned; the root crate still re-exports the whole model with `pub use quire_contract_model::*`, exports the replay and witness items QSL owns, and exports the family lowerings codegen owns |
 | FR-040 | FR-040-AC-1 through FR-040-AC-12 | TC-056 | ✅ AC-1 through AC-12 implemented and verified by TC-056 against packages built in-repo; a field entry on a `record_value_type` declaring node, declared or not, admits with its name unresolved: QSpec FR-340 says the name matches the fields its record declaration declares, and this reader deviates from that pending a QSpec ruling, since QSpec's `ModelDeclarationNode` has no `record_value_type` form. Names resolve only on model declaration nodes, as FR-038 scopes it |
 | FR-344 | FR-344-AC-1, FR-344-AC-2, FR-344-AC-3 | TC-222 | 🚧 operation frame and embedded meaning vocabulary are already discharged by FR-038 (FR-038-AC-12 through AC-15/TC-053; FR-038-AC-2/AC-17/TC-048) and are not restated as criteria of this FR; the three criteria that remain are the three shapes a producer can encode one of the other five ADR-002 members in — a new `node_tag` or `semantic_form`, an extra member on an admitted node, and an unadmitted body — each already holding today as an emergent property of FR-038's closed grammars and pinned as its own regression by TC-222 (planned). Admission and lowering for those five members is not a criterion of this FR and carries no test case: each is blocked on a QSpec `quire.checked-package/v2` wire-carrier requirement (quire-specification:FR-340's counterpart) that is not yet published for that member, and is recorded in FR-344's Dependencies as blocked work |
@@ -67,7 +64,7 @@ relationships:
 |---|---|---|---|---|---|
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-016 | Types, expressions, short-circuiting, and definedness conform | Integration | P0 | FR-012..FR-015, NFR-002, STD-001 | ✅ implemented |
-| TC-017 | Canonical bytes, digests, migrations, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | ✅ implemented |
+| TC-017 | Canonical bytes, digests, version preflight, and orphan classes conform | Property | P0 | FR-016, FR-017, NFR-001, NFR-003 | ✅ implemented |
 | TC-018 | Schema, corpus, diagnostics, dependencies, and interfaces conform | Integration | P0 | FR-018..FR-020 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
 | TC-035 | Derived executable projections bind complete typed clause populations through the public IR boundary | Integration | P0 | FR-023 | ✅ implemented |
@@ -87,24 +84,6 @@ relationships:
 | TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | 🚧 planned |
 | TC-056 | CheckedPackage V2 frame entries, operation anchors and state clauses admit or refuse exactly | Property | P0 | FR-040-AC-1, FR-040-AC-2, FR-040-AC-3, FR-040-AC-4, FR-040-AC-5, FR-040-AC-6, FR-040-AC-7, FR-040-AC-8, FR-040-AC-9, FR-040-AC-10, FR-040-AC-11, FR-040-AC-12 | ✅ implemented in `tests/it/checked_package_v2_frame_entries.rs` and `v2/frame.rs`; a `record_value_type` field entry, declared or not, admits with its name unresolved, FR-040's deviation from QSpec FR-340 pending a QSpec ruling |
 | TC-058 | The model crate's public interface is exactly FR-019's list, re-exported by name | Integration | P0 | FR-019-AC-5 | 🚧 planned |
-
-## Withdrawn Test Cases
-
-These cases are withdrawn from Contract IR and carry no row above, because no
-Contract IR test can back them:
-
-- TC-054 verified the retired FR-031-AC-3, counterexample replay through the
-  QSL facade. That crossing runs from the codegen replay adapter through
-  `qsl_replay::replay`, and its tests are QSL's and codegen's.
-- TC-046 verified FR-037's retired replay criteria. The replay properties are
-  verified by quire-specification:TC-219 and QSL's replay executor tests, and
-  FR-037-AC-6 is verified by TC-055.
-- TC-221 verified the retired FR-031-AC-4, evaluated-witness extraction from
-  a Kani transcript. `Witness` is QSL's and the transcript parser is
-  codegen's. Until `src/kani/witness.rs` is deleted, the 17
-  `#[trace("TC-221", "FR-031-AC-4")]` tests in `tests/it/kani_replay.rs`
-  still run and still trace this withdrawn case and retired criterion; they
-  are deleted with that file.
 
 ## Coverage Design
 

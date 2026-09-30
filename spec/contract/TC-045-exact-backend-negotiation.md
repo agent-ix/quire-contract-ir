@@ -20,7 +20,7 @@ finite Kani domains exactly derive from admitted model domains and proof bounds.
 ## Test Procedure
 
 Negotiate positive boundary domains and mutate each bound, encoding,
-capability, tool lock, option, dependency, and requested claim. Exercise
+capability, and requested claim. Exercise
 missing bounds, unsupported graph/temporal/protocol encodings, and mixed item
 requests before inspecting any generated artifact. Exercise a requested claim
 for which the provider manifest advertises no matching FR-290 capability.

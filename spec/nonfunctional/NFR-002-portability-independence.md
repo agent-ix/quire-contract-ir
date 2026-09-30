@@ -11,7 +11,7 @@ relationships:
 
 ## Statement
 
-The v0.1 semantic and wire contracts shall avoid Rust layout, target pointer
+The semantic and wire contracts shall avoid Rust layout, target pointer
 width, operating-system paths, solver APIs, runtime APIs, and architecture-model
 vocabulary.
 
@@ -32,8 +32,8 @@ documentation.
 | ID | Criteria | Verification |
 |---|---|---|
 | NFR-002-AC-1 | Public schema and model names contain no Rust-layout, architecture-language, solver, runtime, pointer-width, or operating-system-path vocabulary. | Test (TC-019) |
-| NFR-002-AC-3 | Issue #6 public JSON field names, identity kinds, anchors, clause kinds, dependency kinds, and diagnostic codes contain no Rust, GUMBO, AADL, HAMR, solver, runtime, pointer-width, or operating-system-path vocabulary. | Test (TC-015) |
-| NFR-002-AC-4 | Issue #8 public type and expression schema/API vocabulary contains no Rust, GUMBO, AADL, HAMR, solver, runtime, pointer-width, or operating-system-path vocabulary. | Test (TC-016) |
+| NFR-002-AC-3 | Public JSON field names, identity kinds, anchors, clause kinds, dependency kinds, and diagnostic codes contain no Rust, GUMBO, AADL, HAMR, solver, runtime, pointer-width, or operating-system-path vocabulary. | Test (TC-015) |
+| NFR-002-AC-4 | Public type and expression schema/API vocabulary contains no Rust, GUMBO, AADL, HAMR, solver, runtime, pointer-width, or operating-system-path vocabulary. | Test (TC-016) |
 
 ## Verification
 

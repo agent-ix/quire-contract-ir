@@ -8,8 +8,6 @@ review_set: base
 relationships:
   - target: ix://agent-ix/quire-contract-ir/ADR-0054
     type: reviews
-  - target: ix://agent-ix/quire-contract-ir/NFR-005
-    type: reviews
 ---
 # SR-034: Base review of issue 54 boundary correction and Rust baseline
 

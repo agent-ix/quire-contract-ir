@@ -38,11 +38,11 @@ preconditions use pre anchors; postconditions use post anchors; invariants use
 initialization or handler anchors; assertions use any named anchor; and cases
 use handler anchors.
 
-Issue #6 defines a recursive dependency-source abstraction whose nodes expose
+The model defines a recursive dependency-source abstraction whose nodes expose
 zero or more referenced identities and child nodes. Dependency derivation walks
 that structure, deduplicates by structural identity, and returns a deterministic
-set. TC-015 verifies traversal and deduplication using the issue #6 reference
-body; TC-016 verifies that the issue #8 typed expression tree exposes every
+set. TC-015 verifies traversal and deduplication using the reference
+body; TC-016 verifies that the typed expression tree exposes every
 input, state value, field, enum variant, and called pure function. This ordering
 is not the canonical byte ordering owned by FR-016.
 
@@ -57,10 +57,10 @@ artifact trace-coverage classification.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-012-AC-1 | A floating executable clause is rejected at its source span with a stable diagnostic code. | Test (TC-015) |
-| FR-012-AC-2 | The issue #6 recursive reference body returns each exposed structural dependency identity exactly once in deterministic order. | Test (TC-015) |
+| FR-012-AC-2 | The recursive reference body returns each exposed structural dependency identity exactly once in deterministic order. | Test (TC-015) |
 | FR-012-AC-3 | Malformed, cross-package, stale-revision, orphaned-requirement, and orphaned-clause references produce distinct STD-001 diagnostic codes and the narrowest available source span. | Test (TC-015) |
 | FR-012-AC-4 | Every executable clause kind accepts only its declared anchor kinds using `floating_executable_clause` or `incompatible_clause_anchor`; informational clauses reject any anchor using `informational_clause_anchored`; malformed anchor identifiers use `invalid_identifier`. | Test (TC-015) |
-| FR-012-AC-5 | The issue #8 typed expression tree implements the dependency-source contract and exposes every input, state, field, enum variant, and pure-function reference. | Test (TC-016) |
+| FR-012-AC-5 | The typed expression tree implements the dependency-source contract and exposes every input, state, field, enum variant, and pure-function reference. | Test (TC-016) |
 | FR-012-AC-6 | Source spans reject zero line/column positions, decreasing byte offsets or positions, and endpoints from different source-document identities/revisions using `invalid_source_span`. | Test (TC-015) |
 
 ## Dependencies

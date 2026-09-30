@@ -92,21 +92,6 @@ backend adapter's.
 | FR-031-AC-1 | The shared dispatch index routes definedness/arithmetic, object/reference/graph, and collection/query work through distinct declared modules and rejects cross-family approximation. | Test (TC-042) |
 | FR-031-AC-5 | Each outcome in the map's table maps to exactly its listed `TerminalValue`: a proof with three SUCCESS checks to `Proved { success_checks: 3 }`, a `kani_vacuous_proof` outcome to `Proved { success_checks: 0 }`, whose QSL category is `Inconclusive`, `Counterexample` to `Refuted`, the three refusal kinds to `Declined` with three distinct `ProofRefusalCause`s, the three limit kinds to `Incomplete` with three distinct `IncompleteCause`s, and `Unavailable` with `kani_solver_absent` and with `kani_backend_absent` to `Unsupported` with `SolverAbsent` and `BackendAbsent`; the test's `match` over `KaniOutcomeKind` has no wildcard; no outcome maps to `Tested` or `Failed`. | Test (TC-223) |
 
-### Retired criteria
-
-`FR-031-AC-3` required every serialized counterexample to reproduce through a
-QSL executor entry with the same outcome and witness. Replay is not a Contract
-IR operation: the envelope and replay source are QSL's, and the crossing runs
-from the codegen replay adapter through `qsl_replay::replay` (QSL FR-098). Its
-test belongs to those owners, so TC-054 is withdrawn from this repository.
-
-`FR-031-AC-4` required an evaluated witness to be parsed from a backend
-transcript and typed against a generator-declared schema. `Witness` is QSL's
-`qsl_replay::Witness` (QSL FR-070) and the transcript parser is the codegen
-backend adapter's, so Contract IR carries neither. TC-221 is withdrawn; its
-tests remain in `tests/it/kani_replay.rs` until `src/kani/witness.rs` is
-deleted with them.
-
 ## Dependencies
 
 [FR-029](./FR-029-versioned-bounded-kani-profile.md) selects module and

@@ -12,7 +12,6 @@ relationships:
 
 ```yaml
 name: ContractIrJsonConformanceApi
-version: quire-contract-ir-v0.1
 ownership: quire-contract-ir
 inputs:
   - UTF-8 JSON bytes
@@ -27,8 +26,6 @@ invariants:
   - operational errors are written to standard error
 compatibility:
   schema: versioned and fail-closed
-  licensing: AGPL-3.0-or-later
-  publication: disabled pending a later human release decision
 ```
 
 ## Description
@@ -63,8 +60,7 @@ Each result contains protocol, corpus ID, fixture ID, operation, closed status
 `match` or `mismatch`, unique mismatch kinds in fixed registry order, the fixture's observed `covers`
 and sorted `trace_ids`, actual structured result, and tool identity: crate version, package-schema path, canonical profile,
 and runner protocol. Mismatch kinds are `validity`, `diagnostics`,
-`canonical_bytes`, `canonical_digest`, `dependencies`, `migration_receipt`, and
-`coverage`. A fixture with several drifts retains all applicable kinds once in
+`canonical_bytes`, `canonical_digest`, `dependencies`, and `coverage`. A fixture with several drifts retains all applicable kinds once in
 this fixed registry order, which is not lexical sorting. Diagnostic messages may be emitted for humans but never
 participate in comparison.
 
@@ -115,8 +111,8 @@ and exits 0 without reading a corpus.
 | ID | Criteria | Verification |
 |---|---|---|
 | FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with non-empty observed trace ids per fixture input, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
-| FR-020-AC-2 | Process fixtures pin exit 1 with all seven mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
+| FR-020-AC-2 | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
 
 ## Dependencies
 
-FR-018 defines corpus content; PGM-01 defines tool and evidence identity.
+FR-018 defines corpus content.
