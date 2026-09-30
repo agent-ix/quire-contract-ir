@@ -668,7 +668,7 @@ fn argument_family(
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
     match body_term(argument) {
-        Some(BodyTerm::Reference) => {
+        Some(BodyTerm::Reference | BodyTerm::Literal | BodyTerm::Application) => {
             let type_node = operand_type_node(argument, nodes, kinds, index)?;
             resolve_family(&type_node, nodes, kinds, index, 0)
         }
@@ -677,20 +677,12 @@ fn argument_family(
         // the dependency-reference walk (step 7), which runs before the
         // operand checks, has already refused it anywhere but a
         // `quire.op.function.call` callee, so no operand check reads it.
-        Some(
-            BodyTerm::Literal
-            | BodyTerm::Application
-            | BodyTerm::Aggregate
-            | BodyTerm::DependencyReference
-            | BodyTerm::Frame,
-        )
-        | None => None,
+        Some(BodyTerm::Aggregate | BodyTerm::DependencyReference | BodyTerm::Frame) | None => None,
     }
 }
 
-/// The direct (unreduced) type-node id an argument's target carries, used by
-/// [`check_mode_type`]/[`check_leaves`] to find a type-pinned mode.
-fn argument_type_id(argument: &Value) -> Option<CheckedNodeId> {
+/// The node a `reference` term names, unresolved; `None` for any other term.
+fn reference_term_target(argument: &Value) -> Option<CheckedNodeId> {
     if body_term(argument) != Some(BodyTerm::Reference) {
         return None;
     }
@@ -1543,21 +1535,32 @@ fn check_field_member(
     }
 }
 
-/// The type-node id an operand's own type-pinned mode (if any) is checked
-/// against: a `reference` argument whose direct target is itself
+/// The type-node id an operand resolves to: a `literal` names its declared
+/// `type` and an `application` its `result_type`; a `reference` argument whose direct target is itself
 /// type-shaped (a `scalar_type`, `composite_type` or `bounded_domain` node)
 /// names that type directly; otherwise (a `value` node — a literal, a
 /// `record_value`, ...) it is that node's own `semantic_type`. The same
-/// two-tier resolution [`argument_family`] uses, kept separate because a
-/// pin lookup needs the wrapper node itself (e.g. `float_rounding`), not
-/// the family name [`resolve_family`] reduces it to.
+/// resolution [`argument_family`] uses, kept separate because a pin lookup
+/// and `same_type` need the type node itself (e.g. `float_rounding`), not
+/// the family name [`resolve_family`] reduces it to. Every other term
+/// resolves to no type.
 fn operand_type_node(
     argument: &Value,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<CheckedNodeId> {
-    let target = argument_type_id(argument)?;
+    let typed = |member: &str| serde_json::from_value(argument.get(member)?.clone()).ok();
+    match body_term(argument)? {
+        BodyTerm::Literal => return typed("type"),
+        BodyTerm::Application => return typed("result_type"),
+        BodyTerm::Reference => {}
+        BodyTerm::Binding
+        | BodyTerm::Aggregate
+        | BodyTerm::DependencyReference
+        | BodyTerm::Frame => return None,
+    }
+    let target = reference_term_target(argument)?;
     let position = *index.get(&target)?;
     let target_node = &nodes[position];
     if is_type_shaped(*kinds.get(position)?) {
@@ -2822,6 +2825,73 @@ mod tests {
                 locus,
             ))),
             "parameters of different record types must be refused at the second operand"
+        );
+    }
+
+    /// `same_type` over terms that are not references: a `literal` resolves
+    /// to its declared `type` and a nested `application` to its
+    /// `result_type`, so two of either over one type node are admitted and
+    /// over two different type nodes are refused at the second operand; an
+    /// operand that resolves to no type leaves the constraint undecided, so
+    /// it is admitted rather than guessed at.
+    #[test]
+    fn operation_defect_same_type_resolves_literal_and_application_operands() {
+        let record_type = |id_byte: char| {
+            graph_node(
+                id_byte,
+                "composite_type",
+                "record",
+                &node_id(id_byte),
+                json!({ "term": "aggregate", "members": [] }),
+            )
+        };
+        let literal = |type_byte: char| {
+            json!({
+                "term": "literal",
+                "type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "value_kind": "record",
+                "value": "x",
+            })
+        };
+        let nested = |type_byte: char| {
+            json!({
+                "term": "application",
+                "operator": "binary",
+                "operation": plain_operation(CATALOGUED_IDENTITY),
+                "result_type": { "domain": NODE_DOMAIN, "digest": dummy_digest(type_byte) },
+                "arguments": [],
+            })
+        };
+        let mut operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
+        operation["leaves"] = json!([{ "path": ["field:name"], "laws": [] }]);
+        let defect = |first: Value, second: Value| {
+            let root = custom_application_node("binary", operation.clone(), vec![first, second]);
+            let locus = root.node_id.clone();
+            (
+                defect_for_graph(vec![root, record_type('p'), record_type('q')]),
+                locus,
+            )
+        };
+        let refusal = |locus| {
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                "/semantic_graph/nodes/0/body/arguments/1",
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                locus,
+            )))
+        };
+
+        assert_eq!(defect(literal('p'), literal('p')).0, Ok(None));
+        let (result, locus) = defect(literal('p'), literal('q'));
+        assert_eq!(result, refusal(locus), "literals of two types");
+        assert_eq!(defect(nested('p'), nested('p')).0, Ok(None));
+        let (result, locus) = defect(nested('p'), nested('q'));
+        assert_eq!(result, refusal(locus), "applications of two result types");
+        let untyped = json!({ "term": "literal", "value": 0 });
+        assert_eq!(
+            defect(literal('p'), untyped).0,
+            Ok(None),
+            "an operand that resolves to no type is not decided"
         );
     }
 
