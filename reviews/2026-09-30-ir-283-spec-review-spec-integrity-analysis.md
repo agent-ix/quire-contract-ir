@@ -48,3 +48,20 @@ FND-001 reports.
 | FND-002 | medium | The normative "shall" statement was not updated. It still defines `requires_bound` as a reachable unbounded numeric, text or collection type, typed at by some reachable node, with no reachable `bounded_domain` typed by it. That is the closure-wide masking rule. It does not cover the composite-position rule or the recursion rule, which the prose now adds. | spec/contract/FR-038-consume-checked-package-v2.md:541-546 |
 | FND-003 | medium | The new sentence "A type that a value, expression or the requested node is typed at is bounded when the closure holds a reachable `bounded_domain`..." makes normative the closure-wide masking for value positions. Under it, the outer `+` of `(x + 1) + n` over `x: Int[0,9], n: Integer` lowers. That contradicts QSL ADR-014 §4 and FR-097 (the record is `Unbounded` at `n`) and IR-283's own acceptance. | spec/contract/FR-038-consume-checked-package-v2.md:574-576 |
 | FND-004 | low | "raises `requires_bound` naming the least such node key" reads as the least recursive node. The general rule (line 565-567) and the code name the least node over every offending type in the closure, so when an unranged `integer` key sorts below the recursive type, the integer is named. The paragraph should defer to the general least-key rule. | spec/contract/FR-038-consume-checked-package-v2.md:588-589 |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | The fallback rule says a type "typed at by the requested node, a `literal` value or an `expression` but ... named at no position" is bounded by any reachable domain over it. The code applies that fallback to every non-position typed use: a function's result type, a `bounded_domain`'s base, a claim, other `value` forms, and a type named through `dependencies`. The sentence leaves those uses without a stated rule. Replacing the list with "any other reachable node" would match the code. | spec/contract/FR-038-consume-checked-package-v2.md:597-601 |
+
+## Dispositions
+
+Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | edb8628 |
+| FND-002 | fixed | edb8628 |
+| FND-003 | fixed | edb8628 |
+| FND-004 | fixed | edb8628 |

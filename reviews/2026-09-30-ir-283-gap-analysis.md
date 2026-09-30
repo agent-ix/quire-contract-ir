@@ -42,3 +42,19 @@ Bound evidence goes from 202 to 206 symbols. The PR adds no unbacked row.
 | FND-001 | high | IR-283's acceptance is that QSL's TC-440 agreement fixtures agree. It is not met. `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283` (QSL `qsl-package/src/emit/extent_agreement.rs`) still fails against this PR: IR lowers the outer `+` of `(x + 1) + n`, which QSL classifies `Unbounded` at `n`. See SR-627 FND-001. | crates/quire-contract-model/src/checked_package/v2/lower.rs:464-468 |
 | FND-002 | medium | The four new tests (position rule and recursion rule) are traced `#[trace("TC-050", "FR-038-AC-39")]`. AC-39 states only `x + 1` over an `integer_range` parameter and the literal-annotation exemption. No AC states that a composite element or field position is covered only by its own type, or that a recursive type always requires a bound. The matrix therefore claims AC-39 backing for behaviour AC-39 does not state, and the new rules have no criterion a reviewer can check. | tests/it/checked_package_v2_require_bounds.rs:316-409; spec/contract/FR-038-consume-checked-package-v2.md:651 |
 | FND-003 | low | The quantity/unit divergence is left with no ticket. QSL ADR-014 §4 classifies a quantity as unbounded and unboundable, while IR `requires_bound` returns `false` for `unit` and `compound_unit`. An IR-283 comment asked for it to be measured when the ticket was worked. It cannot be measured yet (QSL's emitter omits the record), and the PR is right to leave FR-038's rule alone. No IR ticket tracks the divergence (only IR-263, a Kani row). | crates/quire-contract-model/src/checked_package/v2/lower.rs:548-557 |
+
+## Dispositions
+
+Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd.
+
+- **`make spec`** at edb8628 and at origin/main 7c70041 (which includes #229):
+  both report 22 unbacked rows, the same rows (IR-448). The PR adds no
+  unbacked row. Bound evidence goes from 204 to 209 symbols, and docs from
+  223 to 226, all grammar-clean.
+- **QSL TC-440:** see SR-627 Dispositions.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | edb8628 |
+| FND-002 | fixed | edb8628 |
+| FND-003 | deferred | FR-038 now states the unit/quantity divergence explicitly (line 575-576). No IR ticket tracks it yet, and filing one is the lead's action, outside this PR's code. |

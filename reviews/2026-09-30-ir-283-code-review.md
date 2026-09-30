@@ -74,3 +74,40 @@ application fixture shows it.
 | FND-002 | low | `is_recursive_type` checks only `recursion_group.is_some()`. `validate_recursion` checks labels only on cyclic components, so the reader admits a label on an acyclic scalar or composite, and the lowerer then refuses it as recursive. The rule also fires for a labelled type that is reached only through a `literal.type` annotation, although FR-038 says `requires_bound` tests only a type some reachable node is typed at. QSL labels only real SCCs, so no current producer hits this. The assumption that a label means recursion is still undocumented and untested. | crates/quire-contract-model/src/checked_package/v2/lower.rs:461; crates/quire-contract-model/src/checked_package/v2/lower.rs:527-535; crates/quire-contract-model/src/checked_package/v2/mod.rs:1864-1869 |
 | FND-003 | low | The `require_bounds` predicate is now a four-level nested boolean inside a `find` closure, with the O(n) `any` domain scan inlined. Two named helpers (`uncovered_position`, `uncovered_value_type`) or a precomputed `BTreeSet` of domain `semantic_type`s would make each rule readable, and each could be mutated separately. | crates/quire-contract-model/src/checked_package/v2/lower.rs:460-469 |
 | FND-004 | low | The rewritten tc_047 fixture turns `bbbb` into a self-typed `sequence` with no element type and no dependencies. No producer emits that shape. The test's intent holds, but a realistic element type (for example a `boolean` scalar) would keep the fixture on a shape the reader and QSL both produce. | tests/it/complete_v1_contract_package.rs:358-364 |
+
+## Dispositions
+
+Round 1, reviewed at edb862819349fae5ba5bf2a19ea565ab1a3f96dd (c58e154 is
+a567ba9 rebased onto origin/main 7c70041; edb8628 is the fix round).
+
+What the reviewer measured at edb8628, on a clean tree:
+
+- **QSL TC-440** (quire-spec-language origin/main e4ac2e8d, IR patched to
+  edb8628, `--include-ignored`). These pass, including the ignored ones:
+  - `tc_440_an_unbounded_application_record_requires_a_bound_in_ir_pending_ir_283`,
+    so `(x + 1) + n` now refuses;
+  - `tc_440_operation_application_records_agree_with_ir_per_node`, so the
+    inner `x + 1` still lowers;
+  - `tc_440_qsl_extent_agrees_with_ir_requires_bound`.
+
+  `…_pending_ir_283_284` reports only "Measure: not compared: the emitter
+  omits it". That is pre-existing, and QSL-side.
+- **Mutations**, one per branch. Each turns a distinct test red:
+  - composite position off: two TC-050 position tests;
+  - parameter position off: only
+    `tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type`;
+  - recursion off: only `tc_050_a_recursive_record_requires_a_bound`;
+  - domain exemption off: 11 tests;
+  - typed-at rule off: 3 tests.
+- **Gates:** `make fmt-check lint test corpus` at edb8628 exits 0.
+- **Let-bound parameter probe (informational).** For `let t = x + 1 in t * 2`,
+  IR returns `RequiresBound` naming `integer`, while QSL says `Bounded`. IR
+  origin/main returns the same, so this is not a regression from this PR, and
+  QSL scopes let-rooted records out of the agreement.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | edb8628 |
+| FND-002 | fixed | edb8628 |
+| FND-003 | fixed | edb8628 |
+| FND-004 | fixed | edb8628 |

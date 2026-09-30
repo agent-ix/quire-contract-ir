@@ -595,9 +595,9 @@ does too; and `(x + 1) + n` over `x: Int[0,9]` and `n: Integer` raises it for
 `n`. A `bounded_domain`'s own base type, the literals of its bounds, an
 `application`'s `result_type` and its own `semantic_type` are not positions, so
 `Sequence<Boolean>[0,3]` and `x + 1` over `x: Int[0,9]` lower under a
-bounds-required profile. A type that is unbounded by form and is typed at by
-the requested node, a `literal` value or an `expression` but is named at no
-position is bounded when the closure holds a reachable `bounded_domain` node
+bounds-required profile. A type that is unbounded by form and is typed at by any
+other reachable node, or is the requested node, but is named at no position is
+bounded when the closure holds a reachable `bounded_domain` node
 whose `semantic_type` is that type's key.
 
 A `scalar_type` or `composite_type` node that declares a `recursion_group` is a
