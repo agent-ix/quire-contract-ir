@@ -6,7 +6,7 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, domain_package_digest, domain_package_document,
-    evidence_for, incomplete, json_depth, locator, nominal_fixture_members, nominal_package,
+    evidence_for, incomplete, json_depth, nominal_fixture_members, nominal_package,
     pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
     refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
     v2_nominal, COMPLETE_VALUE_FEATURE,
@@ -615,40 +615,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     refresh_identity(&mut grouped);
     admitted(&grouped);
 
-    // Evidence the caller must supply: every locked digest and the feature.
-    // With no evidence, the first locked source's locator is unattested.
-    assert_eq!(
-        refused(&base, &CheckedPackageEvidence::new()),
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/lock/sources/0"
-        )
-    );
-    let mut stale_catalog = evidence_for(&base);
-    stale_catalog.insert_artifact_digest(locator(&base["diagnostics"]["catalog"]), "4".repeat(64));
-    assert_eq!(
-        refused(&base, &stale_catalog),
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/diagnostics/catalog/digest"
-        )
-    );
-    let mut byte_evidence = evidence_for(&base);
-    byte_evidence.insert_artifact_bytes(locator(&base["lock"]["sources"][0]), b"not the source");
-    assert_eq!(
-        refused(&base, &byte_evidence),
-        refusal(
-            CheckedPackageRefusalCode::StaleDependency,
-            "/lock/sources/0/digest"
-        )
-    );
+    // Evidence the caller must supply: the required feature.
     let mut unsupported = CheckedPackageEvidence::new();
-    for artifact in checked_package::locked_artifacts(&base) {
-        unsupported.insert_artifact_digest(
-            locator(&artifact),
-            artifact["digest"].as_str().expect("digest"),
-        );
-    }
     assert_eq!(
         refused(&base, &unsupported),
         // Reported available, but the reader does not support it.
@@ -1364,24 +1332,6 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
             CheckedPackageRefusalCause::WrongModelSelection
         ),
         "the supplied document names version 1, not the selected 2"
-    );
-    let mut raw_only = evidence_for(&v2_nominal());
-    raw_only.insert_artifact_digest(
-        locator(&json!({
-            "authority": "agent-ix", "identity": "test/orders",
-            "revision": {"namespace": "git", "value": "1"},
-            "digest_domain": "sha256-jcs"
-        })),
-        DOMAIN_PACKAGE_DIGEST,
-    );
-    assert_eq!(
-        refused(&base, &raw_only),
-        refusal_cause(
-            CheckedPackageRefusalCode::MissingImport,
-            &model("digest"),
-            CheckedPackageRefusalCause::MissingSelection
-        ),
-        "equal digest bytes attested as a raw artifact never satisfy a domain package"
     );
 }
 

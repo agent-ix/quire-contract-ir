@@ -169,7 +169,7 @@ fn importing_with(entries: Vec<Value>, edit: impl FnOnce(&mut Vec<Value>)) -> Va
 }
 
 fn read(package: &Value, dependency: &Dependency) -> CheckedPackageV2ReadResult {
-    read_with_dependencies(package, &[(LIBRARY, VERSION, &dependency.package)])
+    read_with_dependencies(package, &[(LIBRARY, &dependency.package)])
 }
 
 fn refused(result: CheckedPackageV2ReadResult) -> CheckedPackageRefusal {
@@ -421,7 +421,7 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     // Supplied under another identity is no package for this entry.
     let refusal = refused(read_with_dependencies(
         &package,
-        &[("test/other", VERSION, &dependency.package)],
+        &[("test/other", &dependency.package)],
     ));
     expect_refusal(
         &refusal,
@@ -429,24 +429,10 @@ fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
         Some(CheckedPackageRefusalCause::MissingSelection),
         "/lock/dependency_selections/0",
     );
-    // A version that differs from the entry's.
-    let refusal = refused(read_with_dependencies(
-        &package,
-        &[(LIBRARY, "2", &dependency.package)],
-    ));
-    expect_refusal(
-        &refusal,
-        CheckedPackageRefusalCode::StaleDependency,
-        Some(CheckedPackageRefusalCause::RevisionMismatch),
-        "/lock/dependency_selections/0/version",
-    );
     // A package whose own package_id is not the entry's.
     let other = crate::support::checked_package::positive_operation_identities();
     let (_, other) = admitted_dependency(&other);
-    let refusal = refused(read_with_dependencies(
-        &package,
-        &[(LIBRARY, VERSION, &other)],
-    ));
+    let refusal = refused(read_with_dependencies(&package, &[(LIBRARY, &other)]));
     expect_refusal(
         &refusal,
         CheckedPackageRefusalCode::StaleDependency,

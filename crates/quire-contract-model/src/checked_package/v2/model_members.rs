@@ -847,8 +847,11 @@ impl From<ModelFailure> for SelectionFailure {
 /// document's own identity and version. Parsing is charged to the reader's
 /// `work` limit before it starts, one unit per [`DOCUMENT_BYTES_PER_WORK`]
 /// bytes, so a document too large for the limit is `incomplete` at its row
-/// (`/lock/model_selections/<i>`) and is never parsed. Returns the parsed
-/// document.
+/// (`/lock/model_selections/<i>`) and is never parsed. The reader recomputes
+/// the RFC 8785 digest from the supplied bytes and compares it with the
+/// digest the lock selected, so the model actually parsed is the one the
+/// package was compiled against: a content identity check, not a comparison
+/// of the lock with itself. Returns the parsed document.
 // Intake: checks the fixed digest domain of a selected domain package document.
 pub(super) fn admit_document(
     selection: &CheckedDomainPackageRef,

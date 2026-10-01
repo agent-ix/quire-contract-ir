@@ -17,7 +17,6 @@ use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -205,12 +204,6 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
         .key("semantic_graph")
         .key("nodes")
         .index(position)
-}
-
-/// Authoritative raw-artifact digests used to prove lock entries are current.
-pub(super) trait ArtifactDigests {
-    /// Returns the lowercase SHA-256 digest for the exact locator, if known.
-    fn artifact_digest(&self, locator: &CheckedArtifactLocator) -> Option<Cow<'_, str>>;
 }
 
 /// Measures, parses and canonicalizes untrusted bytes, then hands the value
@@ -437,14 +430,12 @@ pub(super) fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLoc
     }
 }
 
-/// Checks one locked artifact's domain, shape and digest against evidence.
-/// `at` names the artifact reference; each refusal points at the member it
-/// is about, or at the reference itself when its locator is unattested.
+/// Checks one locked artifact's digest domain and shape. `at` names the
+/// artifact reference; each refusal points at the member it is about.
 // Intake check of a locked artifact's digest domain and digest text.
 pub(super) fn validate_locked_artifact(
     artifact: &CheckedArtifactRef,
     expected_domain: &str,
-    context: &dyn ArtifactDigests,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     let refuse = |code, member: &[&str]| {
@@ -472,16 +463,6 @@ pub(super) fn validate_locked_artifact(
             &["digest"],
         ));
     }
-    let locator = artifact_locator(artifact);
-    let Some(digest) = context.artifact_digest(&locator) else {
-        return Err(refuse(CheckedPackageRefusalCode::StaleDependency, &[]));
-    };
-    if digest.as_ref() != artifact.digest.as_ref() {
-        return Err(refuse(
-            CheckedPackageRefusalCode::StaleDependency,
-            &["digest"],
-        ));
-    }
     Ok(())
 }
 
@@ -492,7 +473,6 @@ pub(super) fn validate_source_map_entries<'a>(
     source_map: &[CheckedSourceMapEntry],
     locked_sources: &[CheckedArtifactRef],
     limits: CheckedPackageReadLimits,
-    context: &dyn ArtifactDigests,
 ) -> Result<(), ValidationFailure> {
     let entry_pointer = |entry: usize| JsonPointer::root().key("source_map").index(entry);
     let region_pointer =
@@ -554,12 +534,7 @@ pub(super) fn validate_source_map_entries<'a>(
                     source_pointer(),
                 ));
             }
-            validate_locked_artifact(
-                &region.source,
-                "quire.source.bytes/v1",
-                context,
-                &source_pointer,
-            )?;
+            validate_locked_artifact(&region.source, "quire.source.bytes/v1", &source_pointer)?;
             if region.start >= region.end {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSourceMap,

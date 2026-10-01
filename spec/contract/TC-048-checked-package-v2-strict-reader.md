@@ -58,8 +58,8 @@ preimage digest matches its node key; every nominal mutation and contradictory c
 refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
 `authority`, `revision` or `export` as `unknown_member`, a foreign digest
-domain as `digest_domain_mismatch`, an absent or raw-only domain package
-digest as `stale_dependency`, and `model_export` as `invalid_semantic_graph`.
+domain as `digest_domain_mismatch`, a domain package digest with no supplied
+document as `missing_import`, and `model_export` as `invalid_semantic_graph`.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
