@@ -110,3 +110,11 @@ Reviewed at a29a37fe8e978206677a9be2314f25baa7c98944, up to date with origin/mai
 | FND-010 | fixed | 3f2ab85 |
 
 - FND-010: `tc_048_the_reader_ceiling_is_sixteen_thousand_three_hundred_eighty_four_levels` asserts `MAXIMUM_DEPTH == 16_384`, admits 16,384 levels under `u64::MAX` and reports `incomplete(Depth,16384,16385)` one level deeper. I ran the mutants: setting the constant to 16,383 or to 16,385 turns the test red.
+
+## Dispositions (disposition pass 4)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-011 | fixed | 6c2deac |
+
+- FND-011: Reviewed at 6c2deac98e2e74fbdcbdd4ac6a62415c0775077a, up to date with origin/main d98c7cc. The ceiling assertions moved word for word into two TC-048-only tests: `tc_048_nesting_past_the_ceiling_is_charged_at_the_ceiling` (lib) and `tc_048_nesting_past_the_reader_ceiling_is_charged_at_the_ceiling` (`#[trace("TC-048")]`). No test traced to FR-038-AC-3 now asserts the clamp. Their `u64::MAX` cases are documents within the ceiling, which are admitted or refused on their content. Mutants: reporting the caller's limit past the ceiling turns both new TC-048 tests red, and so do removing the ceiling, setting it to 16,383, refusing the exact limit, an off-by-one depth and charging depth before syntax. So no coverage dropped. Gate: fmt-check, lint, test (192 + 58 + 2 tests), corpus, deny, audit and audit-unsafe pass, and `make spec` reports 17 unbacked rows, identical to main (FR-038-AC-3 is not among them).
