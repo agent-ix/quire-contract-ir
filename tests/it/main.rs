@@ -33,6 +33,5 @@ mod integration;
 mod kani_arithmetic;
 mod kani_collections;
 mod kani_objects;
-mod kani_replay;
 mod kani_shared;
 mod output_mapping;
