@@ -1,0 +1,43 @@
+---
+id: SR-637
+title: "code review of PR 234 (merge and cap range sets in the expression checker)"
+type: SpecReview
+analysis: code-review
+scope: "agent-ix/quire-contract-ir@d8b1f16c424733c9e4d807e11ecc02ff52f6c6e0; crates/quire-contract-model/src/expression.rs, tests/it/expression.rs"
+review_set: base
+---
+# SR-637: code review of PR 234
+
+## Summary
+
+Ticket: IR-473. Code review with the rust-review lane folded in, scoped to `git diff origin/main...HEAD` (origin/main 8371caa is the merge base; main has not moved). The PR sorts and merges integer and rational-numerator range sets after every binary operator (`canonical_ranges`, `bounded_ranges`), refuses an operand or result of more than 64 disjoint intervals (`MAX_RANGE_SET_SIZE`) with `potentially_undefined` / `checked_range`, splits the failure cause into `RangeFailure::{Intermediates, SetTooLarge}`, and canonicalizes after the `!= 0` guard split.
+
+Measured by the reviewer, all memory experiments under `ulimit -v 3000000`:
+
+- Old behaviour reproduced: a scratch harness against origin/main 8371caa, `x>=-1 && x<=1 && x!=0 && (x*...*x)>0` with 32 leaves, printed `memory allocation of 2147483648 bytes failed` and aborted (exit 134). 20 leaves took 632 ms.
+- At head: 32 leaves pass in 1.3 ms, 120 leaves in 23 ms; 2000 leaves stop at preflight (`expression_too_large`).
+- Random expression trees (add, subtract, multiply, divide, remainder, negate over three guarded integer inputs and two guarded rational inputs, Reject and Saturate types, guard widths 1 to 3 and point guards `|x| = 1`): 3000 trees of up to 400 leaves and 3000 trees of up to 2500 leaves. No abort, worst check 209 ms, 276 refusals by the new limit.
+- Gates at head with CARGO_TARGET_DIR in the review worktree: `make fmt-check lint test corpus` exit 0 (235 tests passed, conformance corpus all match), `make deny` exit 0, `make spec` 17 unbacked rows, the same count as origin/main.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | Refusing a range set of more than 64 intervals rejects defined expressions where a sound widening loses nothing: a sum of 64 guarded `x` leaves (`x` in {-1, 1}, type range +/-1000000) compared `>= -1000` is reported `potentially_undefined` / `checked_range`. With `OverflowPolicy::Saturate` the operator carries no `checked_range` obligation, so the diagnostic names an obligation that does not exist | crates/quire-contract-model/src/expression.rs:2522-2528 |
+| FND-002 | low | `canonical_ranges` after the `!= 0` split in `refine_integer_ranges` and `refine_rational_ranges` never changes anything: `refine_range` is only ever passed `numeric_range(declared type)`, a single interval, so the split yields at most two disjoint intervals. Deleting both lines leaves every test green | crates/quire-contract-model/src/expression.rs:3332 |
+
+## Finding Detail
+
+- FND-001: reproduced with `K=1` sums of 63, 64 and 100 leaves under both Reject and Saturate: 63 passes, 64 and 100 fail with `integer range set exceeds the checked range-set limit`. Recommended fix, which needs no new diagnostic code: when a canonical set has more than 64 intervals, coalesce the narrowest gaps until 64 remain, rather than returning `SetTooLarge`. The result is a sound superset. Its minimum and maximum are unchanged, so the named-bounds check (`within`) and the static index-bound check give the same answer. The only proof that can be lost is a hole at zero, and that loss surfaces as the divisor's own `non_zero_divisor` obligation, which is truthful. `check_integer_operator` already widens a Saturate result to the full type range (expression.rs:2450-2457), so widening is not new to this function. Memory stays bounded at 64 x 64 pairs per operator. If refusal is kept, it should at least not run for Saturate types, and FR-014-AC-7 and STD-001 should say that the checker declines rather than that an obligation is undischarged.
+- FND-002: harmless. Either delete the two lines or keep them as defensive code; the PR body and FR-014 present them as load-bearing ("after every non-zero guard split").
+
+## Verdict
+
+Approve the safety fix. Medium FND-001 should be fixed in this PR; it is a small change. The checks below were made and found correct:
+
+- Merge semantics: `canonical_ranges` sorts by `(min, max)` and merges when `next.min <= last.max + 1` with a saturating add. Over integers, that produces exactly the same set, neither wider nor narrower. At `last.max == i128::MAX` every later interval is contained, so the saturating comparison is correct. Rational numerator ranges are integer numerator sets: `contains_zero`, the bound checks, the `exact` filter in `refine_range` and the `!= 0` split all treat them as integers. Adjacent-merging them therefore changes no represented value.
+- Operator coverage: Add, Subtract, Multiply, Divide and Remainder all go through `integer_pair_range` / `rational_worst_case`, and the result is merged once. Divide only runs after `contains_zero(right)` has refused a zero-spanning divisor. Negate maps intervals one to one, so the count never grows. Its output is not re-sorted, and Saturate clamping can produce duplicate intervals, but the next binary operator canonicalizes it. Comparisons produce no range. Lower and upper guards only trim.
+- Overflow: endpoints are `i128`, and every stored range is bounded by an `i64` type range: Reject refuses a range outside it, and Saturate widens to it. Products of two endpoints therefore fit in i128, and any deeper overflow uses checked operations and becomes `RangeFailure::Intermediates`. Remainder's `abs()` gets `i64`-bounded inputs.
+- Boundedness: every growth path goes through a binary operator, leaves carry at most 2 intervals and negate preserves the count. Each operator therefore allocates at most 64 x 64 = 4096 pairs plus a sort. Repeated operators cost at most about 4096 log 4096 steps per node within the 10000-node preflight, and the fuzz worst case was 209 ms. No other range-set representation exists in the file: `NumericRange` is the only one, and it never reaches `TypedExpression` output.
+- Oracle strength (mutations run in the throwaway worktree and reverted): merge only on overlap (`+0`) turns the unit test red; over-merge (`+2`) turns unit and integration tests red; cap 65 turns both red; integer guard split `min <= -1` to `< -1` turns the integration tests red. Survivors: the rational result merge and cap (SR-638 FND-001), the refine canonicalization (FND-002 above), the operand-size pre-check (redundant, because the result cap catches the same input and operands never exceed 64 through the public API), and the rational guard split (pre-existing, SR-638 FND-002).
+- Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!()` and `extrema` unwrap are unchanged.

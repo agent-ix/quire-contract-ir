@@ -2418,15 +2418,12 @@ fn check_integer_operator(
             right_proof,
         ));
     }
-    let ranges = match integer_ranges(operator, left_ranges, right_ranges) {
-        Ok(ranges) => ranges,
-        Err(failure) => {
-            return Err(undefined(
-                expression,
-                DefinednessObligationKind::CheckedRange,
-                failure.message(RangeFamily::Integer),
-            ));
-        }
+    let Some(ranges) = integer_ranges(operator, left_ranges, right_ranges) else {
+        return Err(undefined(
+            expression,
+            DefinednessObligationKind::CheckedRange,
+            "integer interval computation exceeded checked intermediates",
+        ));
     };
     let within = ranges.iter().all(|(min, max)| {
         *min >= i128::from(value_type.minimum) && *max <= i128::from(value_type.maximum)
@@ -2464,45 +2461,10 @@ fn check_integer_operator(
     Ok(checked)
 }
 
-/// Most disjoint intervals one numeric range may carry. Guards such as `x != 0` split a
-/// range in two and binary operators combine every pair of intervals, so an unbounded set
-/// grows exponentially in expression size; beyond this size the checker refuses instead.
+/// Most disjoint intervals one numeric range keeps. A `!= 0` guard splits a range in two and
+/// a binary operator combines every pair of operand intervals, so an unbounded set grows
+/// exponentially in expression size. Past this size the narrowest gaps are closed instead.
 const MAX_RANGE_SET_SIZE: usize = 64;
-
-/// Why an interval computation produced no range.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RangeFailure {
-    /// An intermediate bound left the checked `i128` arithmetic.
-    Intermediates,
-    /// An operand or result carried more than [`MAX_RANGE_SET_SIZE`] disjoint intervals.
-    SetTooLarge,
-}
-
-/// The numeric family a range failure is reported for.
-#[derive(Clone, Copy)]
-enum RangeFamily {
-    Integer,
-    Rational,
-}
-
-impl RangeFailure {
-    fn message(self, family: RangeFamily) -> &'static str {
-        match (self, family) {
-            (Self::Intermediates, RangeFamily::Integer) => {
-                "integer interval computation exceeded checked intermediates"
-            }
-            (Self::Intermediates, RangeFamily::Rational) => {
-                "rational interval computation exceeded checked intermediates"
-            }
-            (Self::SetTooLarge, RangeFamily::Integer) => {
-                "integer range set exceeds the checked range-set limit"
-            }
-            (Self::SetTooLarge, RangeFamily::Rational) => {
-                "rational range set exceeds the checked range-set limit"
-            }
-        }
-    }
-}
 
 /// Sorts intervals and merges every overlapping or adjacent pair, so the result is the
 /// smallest list of disjoint, non-touching intervals covering the same integers.
@@ -2518,77 +2480,85 @@ fn canonical_ranges(mut ranges: Vec<(i128, i128)>) -> Vec<(i128, i128)> {
     merged
 }
 
-/// Canonicalizes `ranges` and refuses a result larger than [`MAX_RANGE_SET_SIZE`].
-fn bounded_ranges(ranges: Vec<(i128, i128)>) -> Result<Vec<(i128, i128)>, RangeFailure> {
-    let ranges = canonical_ranges(ranges);
-    if ranges.len() > MAX_RANGE_SET_SIZE {
-        return Err(RangeFailure::SetTooLarge);
-    }
-    Ok(ranges)
+/// Canonicalizes `ranges` and, when more than [`MAX_RANGE_SET_SIZE`] intervals remain,
+/// closes the narrowest gaps (earliest first on a tie) until that many remain. The result
+/// is a superset of the input with the same minimum and maximum.
+fn bounded_ranges(ranges: Vec<(i128, i128)>) -> Vec<(i128, i128)> {
+    widen_ranges(ranges, MAX_RANGE_SET_SIZE)
 }
 
-fn operands_within_limit(
-    left: &[(i128, i128)],
-    right: &[(i128, i128)],
-) -> Result<(), RangeFailure> {
-    if left.len() > MAX_RANGE_SET_SIZE || right.len() > MAX_RANGE_SET_SIZE {
-        return Err(RangeFailure::SetTooLarge);
+/// [`bounded_ranges`] with an explicit interval limit of at least one.
+fn widen_ranges(ranges: Vec<(i128, i128)>, limit: usize) -> Vec<(i128, i128)> {
+    let ranges = canonical_ranges(ranges);
+    if ranges.len() <= limit {
+        return ranges;
     }
-    Ok(())
+    let mut gaps: Vec<(i128, usize)> = ranges
+        .windows(2)
+        .enumerate()
+        .map(|(index, pair)| (pair[1].0.saturating_sub(pair[0].1), index))
+        .collect();
+    gaps.sort_unstable();
+    let mut closed = vec![false; ranges.len() - 1];
+    for &(_, index) in &gaps[..ranges.len() - limit] {
+        closed[index] = true;
+    }
+    let mut widened: Vec<(i128, i128)> = Vec::with_capacity(limit);
+    for (index, &(minimum, maximum)) in ranges.iter().enumerate() {
+        match widened.last_mut() {
+            Some(last) if closed[index - 1] => last.1 = maximum,
+            _ => widened.push((minimum, maximum)),
+        }
+    }
+    widened
 }
 
 fn integer_ranges(
     operator: NumericOperator,
     left: &[(i128, i128)],
     right: &[(i128, i128)],
-) -> Result<Vec<(i128, i128)>, RangeFailure> {
-    operands_within_limit(left, right)?;
+) -> Option<Vec<(i128, i128)>> {
     let mut output = Vec::with_capacity(left.len() * right.len());
-    for &(left_min, left_max) in left {
-        for &(right_min, right_max) in right {
-            output.push(integer_pair_range(
-                operator,
-                (left_min, left_max),
-                (right_min, right_max),
-            )?);
+    for &left_range in left {
+        for &right_range in right {
+            output.push(integer_pair_range(operator, left_range, right_range)?);
         }
     }
-    bounded_ranges(output)
+    Some(bounded_ranges(output))
 }
 
 fn integer_pair_range(
     operator: NumericOperator,
     (left_min, left_max): (i128, i128),
     (right_min, right_max): (i128, i128),
-) -> Result<(i128, i128), RangeFailure> {
-    let overflow = RangeFailure::Intermediates;
+) -> Option<(i128, i128)> {
     let range = match operator {
         NumericOperator::Add => (
-            left_min.checked_add(right_min).ok_or(overflow)?,
-            left_max.checked_add(right_max).ok_or(overflow)?,
+            left_min.checked_add(right_min)?,
+            left_max.checked_add(right_max)?,
         ),
         NumericOperator::Subtract => (
-            left_min.checked_sub(right_max).ok_or(overflow)?,
-            left_max.checked_sub(right_min).ok_or(overflow)?,
+            left_min.checked_sub(right_max)?,
+            left_max.checked_sub(right_min)?,
         ),
         NumericOperator::Multiply => extrema([
-            left_min.checked_mul(right_min).ok_or(overflow)?,
-            left_min.checked_mul(right_max).ok_or(overflow)?,
-            left_max.checked_mul(right_min).ok_or(overflow)?,
-            left_max.checked_mul(right_max).ok_or(overflow)?,
+            left_min.checked_mul(right_min)?,
+            left_min.checked_mul(right_max)?,
+            left_max.checked_mul(right_min)?,
+            left_max.checked_mul(right_max)?,
         ]),
         NumericOperator::Divide => extrema([
-            left_min.checked_div(right_min).ok_or(overflow)?,
-            left_min.checked_div(right_max).ok_or(overflow)?,
-            left_max.checked_div(right_min).ok_or(overflow)?,
-            left_max.checked_div(right_max).ok_or(overflow)?,
+            left_min.checked_div(right_min)?,
+            left_min.checked_div(right_max)?,
+            left_max.checked_div(right_min)?,
+            left_max.checked_div(right_max)?,
         ]),
         NumericOperator::Remainder => {
             let magnitude = right_min.abs().max(right_max.abs()).saturating_sub(1);
             (-magnitude, magnitude)
         }
     };
-    Ok(range)
+    Some(range)
 }
 
 fn extrema(values: [i128; 4]) -> (i128, i128) {
@@ -2647,27 +2617,24 @@ fn check_rational_operator(
         ));
     }
     let computed = match (left_exact, right_exact) {
-        (Some(left), Some(right)) => rational_exact_result(operator, left, right)
-            .map(|(numerator, denominator)| {
+        (Some(left), Some(right)) => {
+            rational_exact_result(operator, left, right).map(|(numerator, denominator)| {
                 (
                     vec![(numerator, numerator)],
                     denominator,
                     Some((numerator, denominator)),
                 )
             })
-            .ok_or(RangeFailure::Intermediates),
+        }
         _ => rational_range_results(operator, &left_ranges, left_den, &right_ranges, right_den)
             .map(|(ranges, denominator)| (ranges, denominator, None)),
     };
-    let (numerator_ranges, denominator_max, exact) = match computed {
-        Ok(computed) => computed,
-        Err(failure) => {
-            return Err(undefined(
-                expression,
-                DefinednessObligationKind::CheckedRange,
-                failure.message(RangeFamily::Rational),
-            ));
-        }
+    let Some((numerator_ranges, denominator_max, exact)) = computed else {
+        return Err(undefined(
+            expression,
+            DefinednessObligationKind::CheckedRange,
+            "rational interval computation exceeded checked intermediates",
+        ));
     };
     if !numerator_ranges.iter().all(|(minimum, maximum)| {
         *minimum >= i128::from(value_type.numerator_minimum)
@@ -2705,8 +2672,7 @@ fn rational_range_results(
     left_denominator: i128,
     right_ranges: &[(i128, i128)],
     right_denominator: i128,
-) -> Result<(Vec<(i128, i128)>, i128), RangeFailure> {
-    operands_within_limit(left_ranges, right_ranges)?;
+) -> Option<(Vec<(i128, i128)>, i128)> {
     let mut output = Vec::with_capacity(left_ranges.len() * right_ranges.len());
     let mut denominator_maximum = 1_i128;
     for &left in left_ranges {
@@ -2715,13 +2681,12 @@ fn rational_range_results(
                 operator,
                 (left.0, left.1, left_denominator),
                 (right.0, right.1, right_denominator),
-            )
-            .ok_or(RangeFailure::Intermediates)?;
+            )?;
             output.push((minimum, maximum));
             denominator_maximum = denominator_maximum.max(denominator);
         }
     }
-    Ok((bounded_ranges(output)?, denominator_maximum))
+    Some((bounded_ranges(output), denominator_maximum))
 }
 
 fn rational_exact_result(
@@ -2896,10 +2861,14 @@ fn check_numeric_negate(
             if overflow == OverflowPolicy::Saturate && !within {
                 let minimum = i128::from(value.minimum);
                 let maximum = i128::from(value.maximum);
-                result = result
-                    .into_iter()
-                    .map(|(min, max)| (min.clamp(minimum, maximum), max.clamp(minimum, maximum)))
-                    .collect();
+                result = canonical_ranges(
+                    result
+                        .into_iter()
+                        .map(|(min, max)| {
+                            (min.clamp(minimum, maximum), max.clamp(minimum, maximum))
+                        })
+                        .collect(),
+                );
             }
             let ty = child.value_type.clone();
             let mut checked = with_children(ty, Some(NumericRange::Integer(result)), [child]);
@@ -3329,7 +3298,6 @@ fn refine_integer_ranges(
                         parts
                     })
                     .collect();
-                ranges = canonical_ranges(ranges);
             }
             FactKind::Lower(candidate, ScalarBound::Integer(value), inclusive)
                 if candidate == subject =>
@@ -3377,7 +3345,6 @@ fn refine_rational_ranges(
                         parts
                     })
                     .collect();
-                ranges = canonical_ranges(ranges);
             }
             FactKind::Lower(
                 candidate,
@@ -3993,7 +3960,7 @@ mod range_set_tests {
             .collect()
     }
 
-    /// Every set of one or two intervals over -2..=2, in any order and possibly overlapping.
+    /// Every ordered pair of intervals over -2..=2, as one- and two-interval sets.
     fn small_sets() -> Vec<Vec<(i128, i128)>> {
         let intervals: Vec<(i128, i128)> = (-2..=2)
             .flat_map(|minimum| (minimum..=2).map(move |maximum| (minimum, maximum)))
@@ -4013,13 +3980,12 @@ mod range_set_tests {
     /// FR-014-AC-7.
     #[test]
     fn tc_016_merged_integer_ranges_cover_exactly_the_unmerged_pairwise_results() {
-        let operators = [
+        let sets = small_sets();
+        for operator in [
             NumericOperator::Add,
             NumericOperator::Subtract,
             NumericOperator::Multiply,
-        ];
-        let sets = small_sets();
-        for operator in operators {
+        ] {
             for left in &sets {
                 for right in &sets {
                     let unmerged: Vec<_> = left
@@ -4055,29 +4021,79 @@ mod range_set_tests {
     /// TC-016.
     /// FR-014-AC-7.
     #[test]
-    fn tc_016_range_set_size_is_capped_with_a_typed_failure() {
+    fn tc_016_widened_ranges_are_a_superset_with_the_same_extremes_closing_the_narrowest_gaps() {
+        let points: Vec<(i128, i128)> = [0, 1, 3, 4, 8, 9, 10, 15, 16, 22]
+            .into_iter()
+            .map(|point| (point, point))
+            .collect();
+        for limit in 1..=points.len() {
+            for ranges in [
+                points.clone(),
+                points.iter().rev().copied().collect::<Vec<_>>(),
+            ] {
+                let widened = widen_ranges(ranges, limit);
+                assert!(widened.len() <= limit, "limit {limit}: {widened:?}");
+                assert!(covered(&points).is_subset(&covered(&widened)));
+                assert_eq!(widened.first().unwrap().0, 0);
+                assert_eq!(widened.last().unwrap().1, 22);
+                // Gaps that remain are no narrower than any gap that was closed.
+                let remaining = widened
+                    .windows(2)
+                    .map(|pair| pair[1].0 - pair[0].1)
+                    .min()
+                    .unwrap_or(i128::MAX);
+                let widest_closed = points
+                    .windows(2)
+                    .filter(|pair| {
+                        widened
+                            .iter()
+                            .any(|&(low, high)| low <= pair[0].1 && pair[1].0 <= high)
+                    })
+                    .map(|pair| pair[1].0 - pair[0].1)
+                    .max()
+                    .unwrap_or(0);
+                assert!(widest_closed <= remaining, "limit {limit}: {widened:?}");
+            }
+        }
+    }
+
+    /// Tracing: TC-016
+    /// TC-016.
+    /// FR-014-AC-7.
+    #[test]
+    fn tc_016_range_sets_at_and_past_the_size_limit() {
         let split = vec![(-1, -1), (1, 1)];
         let mut sum = split.clone();
-        // A sum of n copies is n + 1 non-adjacent points.
-        for terms in 2..=MAX_RANGE_SET_SIZE - 1 {
+        // A sum of n copies is the n + 1 points -n, -n + 2, .., n.
+        for terms in 2..=200_i128 {
             sum = integer_ranges(NumericOperator::Add, &sum, &split).unwrap();
-            assert_eq!(sum.len(), terms + 1);
+            assert_eq!(sum.len(), (terms as usize + 1).min(MAX_RANGE_SET_SIZE));
+            assert_eq!(sum.first().unwrap().0, -terms);
+            assert_eq!(sum.last().unwrap().1, terms);
+            let exact: BTreeSet<i128> = (0..=terms).map(|index| -terms + 2 * index).collect();
+            assert!(exact.is_subset(&covered(&sum)));
         }
-        assert_eq!(sum.len(), MAX_RANGE_SET_SIZE);
-        assert_eq!(
-            integer_ranges(NumericOperator::Add, &sum, &split),
-            Err(RangeFailure::SetTooLarge)
-        );
-        let oversized: Vec<_> = (0..=MAX_RANGE_SET_SIZE as i128)
-            .map(|point| (point * 2, point * 2))
-            .collect();
-        assert_eq!(
-            integer_ranges(NumericOperator::Add, &oversized, &[(0, 0)]),
-            Err(RangeFailure::SetTooLarge)
-        );
-        assert_eq!(
-            rational_range_results(NumericOperator::Add, &oversized, 1, &[(0, 0)], 1),
-            Err(RangeFailure::SetTooLarge)
-        );
+    }
+
+    /// Tracing: TC-016
+    /// TC-016.
+    /// FR-014-AC-7.
+    #[test]
+    fn tc_016_rational_ranges_merge_and_widen_like_integer_ranges() {
+        let split = vec![(-1, -1), (1, 1)];
+        let mut product = split.clone();
+        let mut sum = split.clone();
+        for terms in 2..=100_i128 {
+            let (next, denominator) =
+                rational_range_results(NumericOperator::Multiply, &product, 1, &split, 1).unwrap();
+            assert_eq!(denominator, 1);
+            product = next;
+            assert_eq!(product, split);
+            sum = rational_range_results(NumericOperator::Add, &sum, 1, &split, 1)
+                .unwrap()
+                .0;
+            assert_eq!(sum.len(), (terms as usize + 1).min(MAX_RANGE_SET_SIZE));
+            assert_eq!((sum[0].0, sum[sum.len() - 1].1), (-terms, terms));
+        }
     }
 }

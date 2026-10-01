@@ -100,11 +100,16 @@ More than 10000 nodes or depth greater than 256 emits `expression_too_large` at
 the first node crossing the limit; no recursive walk begins on rejected input.
 
 Integer and rational range tracking keeps each operand's possible values as a set of
-disjoint intervals, which a non-zero or bound guard can split. Every operator result is
-merged so overlapping or adjacent intervals become one. A set of more than 64 disjoint
-intervals, as an operand or as a result, is refused with `potentially_undefined` and
-obligation kind `checked_range`; checking never allocates in proportion to a product of
-interval counts.
+disjoint intervals. A `!= 0` guard splits a range into its negative and positive halves,
+and every operator combines each pair of operand intervals, so one operator does work and
+allocates in proportion to at most 64 x 64 interval pairs. Operator results are merged so
+overlapping or adjacent intervals become one. When more than 64 disjoint intervals
+remain, the narrowest gaps are closed (the earliest first on a tie) until 64 remain. The
+widened set contains every value of the exact set and has the same minimum and maximum, so
+named-bound and index-bound checks are unaffected and no defined expression is refused
+for the size of its range set. The only fact widening can lose is that zero is excluded;
+a divisor whose widened set contains zero reports the divisor's own `non_zero_divisor`
+obligation.
 
 The typed expression implements the FR-012 dependency-source contract. A state
 dependency contains its exact requirement/declaration identity and
@@ -127,7 +132,7 @@ scalar value; a shorter equal prefix sorts first.
 | FR-014-AC-4 | Rechecking identical declarations, context, expression, and expected type produces structurally equal typed output, ordered diagnostics, and dependency identities. | Test (TC-016) |
 | FR-014-AC-5 | Expression trees at the node/depth limits validate normally; the first node beyond either limit fails with `expression_too_large` before recursive typing. | Test (TC-016) |
 | FR-014-AC-6 | Typed expression fixtures derive exact input/state-observation, field-owner, enum-variant, and pure-function dependencies once in structural order, satisfying FR-012-AC-5. | Test (TC-016) |
-| FR-014-AC-7 | A guarded product of 120 leaves checks successfully because range intervals merge; a range set of more than 64 disjoint intervals is refused with `potentially_undefined` (`checked_range`) and never aborts the process. | Test (TC-016) |
+| FR-014-AC-7 | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened to a superset with the same minimum and maximum; a divisor whose widened set contains zero reports `non_zero_divisor`; and no input aborts the process. | Test (TC-016) |
 
 ## Dependencies
 
