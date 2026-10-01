@@ -11,8 +11,6 @@ mod dispatch;
 mod objects;
 mod outcome;
 mod profile;
-mod replay;
-mod witness;
 
 pub use abi::{
     FiniteInput, FiniteObject, FiniteReference, PopulationCompleteness, ResourceBounds,
@@ -26,11 +24,6 @@ pub use outcome::{KaniOutcome, KaniOutcomeKind, KaniProviderRecord, KaniProvider
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };
-pub use replay::{
-    replay_counterexample, CounterexamplePacket, InputReplayAgreement, PacketIdentity,
-    ReplayAgreement, ReplaySource, WitnessReplayAgreement,
-};
-pub use witness::{Witness, WitnessBinding, WitnessCheck, WitnessValue, WitnessValueType};
 
 /// First selected bounded Kani profile family.
 pub const PROFILE: &str = "kani-bounded/1";
