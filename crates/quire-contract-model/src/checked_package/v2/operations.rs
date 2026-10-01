@@ -2511,11 +2511,20 @@ mod tests {
         nodes: Vec<CheckedSemanticNodeV2>,
         lock: &CheckedPackageLockV2,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        defect_for_graph_metered(nodes, lock, 1_000)
+    }
+
+    /// [`defect_for_graph_locked`] under a work budget of `limit` units.
+    fn defect_for_graph_metered(
+        nodes: Vec<CheckedSemanticNodeV2>,
+        lock: &CheckedPackageLockV2,
+        limit: u64,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
         for (position, node) in nodes.iter().enumerate() {
             index.insert(&node.node_id, position);
         }
-        let mut meter = WorkMeter::new(1_000);
+        let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         operation_defect(
             Application {
@@ -3415,10 +3424,26 @@ mod tests {
     fn leaves_defect_locked(
         identity: &str,
         leaves: Value,
+        types: Vec<CheckedSemanticNodeV2>,
+        operands: impl IntoIterator<Item = char>,
+        result: Option<char>,
+        lock: &CheckedPackageLockV2,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        leaves_defect_metered(identity, leaves, types, operands, result, lock, 1_000)
+    }
+
+    /// [`leaves_defect_locked`] under a work budget of `limit` units.
+    fn leaves_defect_metered(
+        identity: &str,
+        leaves: Value,
         mut types: Vec<CheckedSemanticNodeV2>,
         operands: impl IntoIterator<Item = char>,
         result: Option<char>,
         lock: &CheckedPackageLockV2,
+        limit: u64,
     ) -> (
         Result<Option<ValidationFailure>, ValidationFailure>,
         CheckedNodeId,
@@ -3443,7 +3468,7 @@ mod tests {
         let locus = root.node_id.clone();
         let mut graph = vec![root];
         graph.append(&mut types);
-        (defect_for_graph_locked(graph, lock), locus)
+        (defect_for_graph_metered(graph, lock, limit), locus)
     }
 
     fn leaves_missing(
@@ -3912,8 +3937,27 @@ mod tests {
             ));
         }
         graph.extend(profiled_text());
-        let (result, locus) = leaves_defect("quire.op.structural.eq", json!([]), graph, ['a', 'b']);
+        let run = |limit: u64| {
+            leaves_defect_metered(
+                "quire.op.structural.eq",
+                json!([]),
+                graph.clone(),
+                ['a', 'b'],
+                None,
+                &text_selecting_lock(),
+                limit,
+            )
+        };
+        let (result, locus) = run(1_000);
         assert_eq!(result, leaves_missing(locus));
+        // The walk takes about 300 field visits plus 300 chain steps. A budget
+        // of 450 holds the visits alone, so only charging the chain steps
+        // exhausts it.
+        let (result, _) = run(450);
+        assert!(
+            matches!(&result, Err(failure) if format!("{failure:?}").contains("Work")),
+            "the chain steps must be charged to the work budget, got {result:?}"
+        );
     }
 
     /// An entry that names no leaf source admits no leaves: a supplied one is

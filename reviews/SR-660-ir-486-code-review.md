@@ -50,3 +50,18 @@ Reviewed at agent-ix/quire-contract-ir@b2ba6c53bfb89f7a7bff9be7890ad92662452764.
 | FND-001 | fixed | 489d6a8 |
 | FND-002 | accepted-no-change | FR-038 now states it as an open deviation: an operand the reader does not type (untyped literal, aggregate, binding, dependency_reference, frame, application without result_type) and a set-like result whose inner type does not resolve skip the leaf comparison. This over-admits only input the reference refuses, never QSL output, and is part of the reader-wide operand-typing gap (IR-484 covers part of it). A follow-up ticket should cover it together with the float leaf deviation |
 | FND-003 | fixed | 489d6a8 |
+
+## New findings (disposition pass 2)
+
+Reviewed at agent-ix/quire-contract-ir@ecfcb825b906e62b378ac04c43002d1ec9e7ff09, rebased on origin/main 457566c.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | No test pins that each new pin-chain step is charged to the meter. A mutation that removes the `walk.meter.charge` call in `text_profile_pin` leaves all 88 lib tests passing. `tc_048_text_profile_pin_of_an_alias_chain_is_memoised_and_charged` says the chain costs "about 600 work units", but it only fails when the memo is removed, because a 1000-unit meter is never reached either way. Fix: assert the refusal under a budget the uncharged walk would fit but the charged one exceeds (for example 450 units), or assert the units consumed | crates/quire-contract-model/src/checked_package/v2/operations.rs:1752-1754, 3891-3917 |
+
+## Dispositions (round 2)
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-004 | fixed | ecfcb82 |
+| FND-005 | fixed | ecfcb82 |
