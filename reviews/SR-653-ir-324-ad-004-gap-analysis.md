@@ -34,3 +34,9 @@ ticket's scope and the dispatching brief. Plan completion was not assessed.
 Changes needed on FND-001 only. All other acceptance items are met. Approve as a DRAFT AD once
 FND-001 is fixed and SR-651 and SR-652 are addressed. Merge stays gated on the planner's QSL
 and QSpec routing review.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | dbf1475: "`package_id` is the package's content identity". The other wire digests are listed as "QSpec-owned identities of the package's parts, and IR adds none" |

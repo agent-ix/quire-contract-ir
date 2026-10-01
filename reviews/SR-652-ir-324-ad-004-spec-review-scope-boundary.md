@@ -44,3 +44,12 @@ comment citing IR-480).
 Changes needed: FND-001 and FND-002. The boundary is otherwise drawn correctly. The AD does not
 decide anything that QSL or QSpec owns. It contains no roadmap, delivery order, cycle
 allocation, or quire-research content.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | dbf1475: the crossing table has a `quire.checked-operation-catalog/v1` row owned by `quire-verification-contracts`, and Dependency direction names that edge. Verified against `crates/quire-contract-model/Cargo.toml` and `v2/operation_catalog.rs` |
+| FND-002 | fixed | dbf1475: R-S2 and R-S3 are removed, with a pointer to CG's AD-003 for the replay and evidence seams |
+| FND-003 | fixed | dbf1475: R-Q6 cites QSL-353 (as relayed, untrusted), and F5 is noted as about the replay seam and not applicable here |
+| FND-004 | fixed | dbf1475: the two FR-341 documents are cited by title, with no private-repo paths |

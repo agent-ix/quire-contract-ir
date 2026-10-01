@@ -55,3 +55,24 @@ Changes needed. Every factual claim about the reader's refusal codes, the reader
 glob, the `KaniProvider*` exports, the depth cap and the FR-040 and FR-344 deviations matches
 `origin/main`. The defects are confined to the invariant list and a few imprecise sentences,
 and all are text fixes. No requirement id is minted and the AD adds no unbacked row.
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@dbf1475a5181be0257f293aeabaa70a472579560.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-009 | low | The fix inserted "matching the QSpec's reference reader", a doubled determiner, and left an unwrapped line of about 140 characters | spec/assurance/AD-004-checked-package-seam.md:174-175 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | dbf1475: Q-8 now says "Each of the five ADR-002 members FR-344 names as unadmitted (supertype list, abstractness flag, subsets edge, redefines edge, population node)" and says the other two are carried and admitted |
+| FND-002 | fixed | dbf1475: each of Q-1..Q-9 is now marked current, stated or gap. Q-1 and Q-6 are gaps with the measured reason. Q-2 and Q-3 are current (FR-038 Description, FR-038-AC-4). Q-4 and Q-5 are stated, with no test measured. Q-8 is current (TC-222 ✅) |
+| FND-003 | fixed | dbf1475: Q-7 now cites FR-037-AC-6 (planned) for replay and witness types and FR-028 for the model crate's QSL dependency, and says FR-037-AC-6 covers neither a terminal type nor a dependency rule |
+| FND-004 | fixed | dbf1475: the AD now says "before any version-specific decode" and that the strict parse, duplicate-member check and canonical-bytes check run first (`read_value`) |
+| FND-005 | fixed | dbf1475: the duplicate and unknown member row now gives the member's pointer. A `missing_import` row was added; verified at `dependency_references.rs:103` and `model_members.rs:866` |
+| FND-006 | fixed | dbf1475: the reference reader is now named as QSpec's checked-package test harness, and rule 2 is worded as IR's policy, "not a ruling on QSpec's authority" |
+| FND-007 | fixed | dbf1475: text admission is now recorded as a codegen term, verified at CG `spec/oracle/matrix/tests.md:14,22`. It is pending with the owner and not routed. R-S8 is removed from the QSpec table and Open questions is consistent |
+| FND-008 | fixed | dbf1475: R-I1..R-I3 are now defined in a table. R-I1 is verified at `src/kani/outcome.rs:42` and `src/kani/mod.rs:23`; R-I3 at `src/lib.rs:12` |

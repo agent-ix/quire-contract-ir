@@ -171,11 +171,11 @@ What is measured today, what is open and with whom, and what is routed.
   meaning vocabulary) and five (supertype list, abstractness flag, subsets edge, redefines edge,
   population node) have no QSpec wire carrier, so the reader refuses them. Blocked on QSpec.
 - IR-483 (merged): empty operation `leaves` is admitted for a compared type with no text leaf,
-  and a cyclic or unresolved compared type is refused as operator-ineligible, matching the
-  QSpec's reference reader (its checked-package test harness). That QSL emits `leaves: []` for a cyclic type with no text field and a
-  `recursion:<d>` leaf for a cyclic type that reaches text, which QSpec has not adopted and the
-  published leaf schema rejects, is STD-129's text (untrusted, not re-measured here); IR's
-  refusal was re-measured. Open at QSpec: STD-129.
+  and a cyclic or unresolved compared type is refused as operator-ineligible, matching
+  QSpec's reference reader (its checked-package test harness). That QSL emits `leaves: []` for
+  a cyclic type with no text field and a `recursion:<d>` leaf for a cyclic type that reaches
+  text, which QSpec has not adopted and the published leaf schema rejects, is STD-129's text
+  (untrusted, not re-measured here); IR's refusal was re-measured. Open at QSpec: STD-129.
 - Text admission is a codegen term: CG's oracle matrix records text admission as refused today
   (its FR-014 rows). Whether any catalogued `numeric.convert` admits text is an owner decision
   that is pending with the owner. It is recorded as open, not routed to QSpec and not decided
