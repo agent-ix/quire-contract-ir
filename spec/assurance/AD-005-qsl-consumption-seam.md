@@ -64,15 +64,15 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 ### Identity and versions on this seam
 
 - QSL depends on the model package by Cargo git source, `branch = "main"`, declared under the
-  dependency name `quire-contract-ir` with `package = "quire-contract-model"` (QSL
-  `Cargo.toml:75`, `qsl-package/Cargo.toml:36`). The alias should be the crate's real name,
+  dependency name `quire-contract-ir` with `package = "quire-contract-model"` (the
+  `quire-contract-ir` key in QSL's `Cargo.toml` and `qsl-package/Cargo.toml`, at the time of writing). The alias should be the crate's real name,
   `quire-contract-model` (R3-Q1, relayed; QSL-owned change, QSL's lane). The crate has no published semantic version
   (`publish = false`, version `0.1.0`). On the Rust types the assertion is the compiler plus
   one resolved copy in QSL's own lock; there is no version record to maintain and none is
   proposed.
 - On the wire the assertion is `contract_version`, read once by IR (AD-004). The one digest on
   this seam is `package_id`, the content identity of a checked package. QSL computes it through
-  `quire-canonical` (QSL `Cargo.toml:41`); IR recomputes it and
+  `quire-canonical` (a dependency of QSL's root `Cargo.toml`, at the time of writing); IR recomputes it and
   refuses a mismatch (`stale_dependency`). Two encoders therefore produce one identity today. IR
   recomputes it from the typed `identity_preimage` struct (`serde_json::to_value`, then
   `digest_json`, `checked_package/v2/mod.rs:759-760`), and `digest_json` is `serde_json::to_vec`
