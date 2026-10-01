@@ -21,3 +21,9 @@ Ticket: IR-320. The old TM-002 had 67 data rows across its StR, FR, NFR, registr
 ## Verdict
 
 Integrity holds: the rows, ids, counts and index agree. FND-001 is a summary-wording gap and needs no structural change.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 82d57ba |

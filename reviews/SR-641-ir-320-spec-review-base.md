@@ -34,3 +34,11 @@ Ticket: IR-320. This review covers the base checklist and a manual review of the
 ## Verdict
 
 The rename mechanics are sound. The id set is identical, the matrix rows are preserved (SR-642), links resolve and the gate is unchanged. Only low findings remain. On ADR-0056 rule 8 ("`spec/reviews/` does not exist"), moving the 30 reviews is justified, and the files are byte-identical.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 82d57ba |
+| FND-002 | deferred | IR-485 filed; the collisions already existed on main and do not block #236 |
+| FND-003 | accepted-no-change | The PR body says SR-633 is in commit 1 on purpose and that the commit 2 message is wrong. History is not rewritten, and the squash message can carry the correct text |

@@ -32,3 +32,10 @@ Ticket: IR-320. This review checks the seven subsystems against ADR-0056 rules 3
 ## Verdict
 
 The core, model, conformance, output_mapping and kani boundaries are sound. Two medium boundary calls need a decision. Fix both in this PR, or accept each with a stated reason before merging.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 82d57ba |
+| FND-002 | fixed | 82d57ba |
