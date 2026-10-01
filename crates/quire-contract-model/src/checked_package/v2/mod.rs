@@ -28,10 +28,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    canonical_value, count, decode_closed, digest_json, exceeds, first_difference, is_digest,
-    is_nonempty, node_pointer, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
-    ValidationFailure, NODE_DOMAIN,
+    count, decode_closed, digest_json, dismantle, exceeds, first_difference, is_digest,
+    is_nonempty, node_pointer, on_stack_for, read_value, validate_locked_artifact,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -44,6 +44,7 @@ use model_members::{admit_selection, Budget, DomainModel, ModelOwners, Selection
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::fmt;
 
 /// The I04 transport version admitted by the V2 reader.
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
@@ -371,10 +372,75 @@ pub enum CheckedPackageV2ReadResult {
 }
 
 /// Immutable, admitted `quire.checked-package/v2` data.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// A caller's depth limit past the default of 128 can admit a package nested
+/// far deeper than an ordinary stack recurses over. Cloning, comparing,
+/// rendering with `Debug` and lowering a package run on a stack sized for the
+/// depth it was admitted at, and dropping any node, projection or diagnostic
+/// takes its `Value`s apart iteratively. The graph, lock and diagnostics the
+/// accessors return are plain data whose derived traits recurse on the
+/// caller's own stack: a caller who raises the depth limit past the default
+/// owns that.
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+    /// The nesting depth this package was admitted at.
+    depth: u64,
+}
+
+impl Clone for CheckedPackageV2 {
+    fn clone(&self) -> Self {
+        on_stack_for(self.depth, || Self {
+            wire: self.wire.clone(),
+            kinds: self.kinds.clone(),
+            depth: self.depth,
+        })
+    }
+}
+
+impl PartialEq for CheckedPackageV2 {
+    fn eq(&self, other: &Self) -> bool {
+        on_stack_for(self.depth.max(other.depth), || {
+            self.wire == other.wire && self.kinds == other.kinds
+        })
+    }
+}
+
+impl Eq for CheckedPackageV2 {}
+
+impl fmt::Debug for CheckedPackageV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        on_stack_for(self.depth, || {
+            formatter
+                .debug_struct("CheckedPackageV2")
+                .field("wire", &self.wire)
+                .field("kinds", &self.kinds)
+                .finish()
+        })
+    }
+}
+
+/// A node's body is a `Value` nested as deep as a caller's depth limit
+/// admitted, so it is taken apart iteratively rather than by `Value`'s
+/// recursive drop.
+impl Drop for CheckedSemanticNodeV2 {
+    fn drop(&mut self) {
+        dismantle(&mut self.body);
+    }
+}
+
+/// See [`CheckedSemanticNodeV2`]'s `Drop`.
+impl Drop for CheckedNodeProjectionV2 {
+    fn drop(&mut self) {
+        dismantle(&mut self.body);
+    }
+}
+
+/// See [`CheckedSemanticNodeV2`]'s `Drop`.
+impl Drop for CheckedDiagnosticV2 {
+    fn drop(&mut self) {
+        self.details.iter_mut().for_each(dismantle);
+    }
 }
 
 /// Cumulative validation work against one caller limit.
@@ -539,9 +605,9 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        match canonical_value(bytes, limits)
-            .and_then(|value| Self::admit_value(value, limits, evidence))
-        {
+        match read_value(bytes, limits, |value, depth| {
+            Self::admit_value(value, depth, limits, evidence)
+        }) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(
                 CheckedPackageV2ReadResult::Refused,
@@ -554,6 +620,7 @@ impl CheckedPackageV2 {
     // Intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
         value: Value,
+        depth: u64,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> Result<Self, ValidationFailure> {
@@ -597,7 +664,7 @@ impl CheckedPackageV2 {
             }
         }
         let kinds = validate(&wire, limits, evidence)?;
-        Ok(Self { wire, kinds })
+        Ok(Self { wire, kinds, depth })
     }
 
     /// The versioned semantic package identity.
