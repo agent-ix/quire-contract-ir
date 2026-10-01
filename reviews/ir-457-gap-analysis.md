@@ -30,3 +30,9 @@ Kept checks were mutated one by one (see SR-634): seven of eight go red; the `ad
 ## Verdict
 
 Coverage is preserved row for row (17 unbacked before and after, identical). One low gap: AC-2's rewritten no-document clause lost its only reader-level test. Mergeable; fold FND-001 into the fix round for SR-634 FND-001.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 32e3371: new `tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_import` (FR-038-AC-2) asserts `missing_import`/`missing-selection` at `/lock/model_selections/0/digest` and that the same package admits with full evidence. The reviewer mutated `Code::MissingImport` to `StaleDependency` in `admit_document`: the new test and the AC-27 unit test both go red. Coverage at 5802f9d vs main: the same 17 unbacked rows, 0 status lies, every minted target still backed |

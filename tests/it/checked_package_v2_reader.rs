@@ -807,7 +807,7 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
     assert_eq!(*admitted(&disposition).package_id(), recorded);
 
     // A raw source digest is outside the preimage: every reference to the
-    // source moves with it, and the caller attests the new bytes digest.
+    // source moves with it, and the caller supplies the new bytes, whose digest the reader recomputes.
     let mut source_digest = base.clone();
     let old_source = base["lock"]["sources"][0].clone();
     let mut new_source = old_source.clone();

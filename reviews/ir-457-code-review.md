@@ -52,3 +52,19 @@ Mergeable after FND-001; FND-002 to FND-005 are low and may be folded into the s
 - Downstream list in the PR body is complete: QSL `qsl-package/src/emit.rs:967`, `qsl-package/src/checked_v2.rs:970`, `qsl-package/src/checked_v2/tests.rs:211,212,216,1326`, `qsl-package/src/emit/tests.rs:208`, `tests/it/config_version_spine.rs:820`; CG `tests/exact_scalar_support/package.rs:1069`, `tests/composite_equality_support/package.rs:516`. QSL `emit/extent_agreement.rs` uses `CheckedPackageEvidence` but none of the removed methods. No other repo under /home/peter/dev references the removed API or `CheckedPackageRefusalCause::RevisionMismatch`.
 - `stale_dependency` stays the code on kept checks (rename is upstream FR-322); only the doc text in FND-003/FND-004/FND-005 still says stale/attest in the removed sense.
 - No shim, no retained no-op, no compatibility layer.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | A test comment still says the caller attests source digests: "A raw source digest is outside the preimage: every reference to the source moves with it, and the caller attests the new bytes digest." After this PR the caller attests nothing; the edited package admits because no reader check reads the raw source digest. Several other test comments in the same file still use "attest" for supplying a domain package document (lines 856, 1427, 1436-1437, 1487, 1512, 1619, 1633, 1647, 1664, 1712); those are loose but not wrong. | tests/it/checked_package_v2_reader.rs:809-810 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 32e3371: `CheckedPackageRefusalCause::RevisionMismatch` and its doc deleted; the wire `CheckedDiagnosticCause::RevisionMismatch` stays |
+| FND-002 | fixed | 32e3371: the digest-domain check deleted from `admit_document`. Verified dead: `admit_document` is `pub(super)` with one caller, `admit_selection`, which is `pub(super)` with one production caller, `validate_domain_packages` (v2/mod.rs:1124). That function sweeps every selection's `digest_domain` at mod.rs:1085 and returns before its admit loop. The only path to it is read -> validate -> validate_lock (mod.rs:950), and the version dispatcher reaches V2 only through the same read. The dependency path (`admit_dependencies`) never calls it. Gate green after the deletion |
+| FND-003 | fixed | 32e3371: the `StaleDependency` doc now lists package_id, preimage, projection, domain package document, dependency package_id and self-contradictory lock |
+| FND-004 | fixed | 32e3371: doc rewritten to the source-map grouping role. `pub` is kept because CG test helpers still import the type until they drop `insert_artifact_digest`; that reason is accepted |
+| FND-005 | fixed | 32e3371: comment now reads "The lock selects two documents for one identity/version locator" |

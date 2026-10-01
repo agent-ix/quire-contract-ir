@@ -23,3 +23,15 @@ Checked consistent: Inputs, reader paragraph and AC-27 no longer mention raw-art
 ## Verdict
 
 The edits are consistent with the code and with each other, with no AC or row removed. One low wording leftover (FND-001). Mergeable.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | FR-038-AC-19 still says "an entry of empty `identity` or `version` beside an entry whose digest the evidence does not attest refuses as `malformed_wire`". The fix reworded the reader paragraph, AC-11 and AC-20 but missed this sibling, which uses the same removed attestation vocabulary. | spec/contract/FR-038-consume-checked-package-v2.md:660 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 32e3371: the reader paragraph (lines 194-205), AC-11 and AC-20 now speak of documents the evidence supplies rather than digests it attests |
