@@ -6,11 +6,10 @@
 //!
 //! 1. [`admit_dependencies`], in the lock stage: every entry, in lock order,
 //!    must have a package supplied under its identity (`missing_import` /
-//!    `missing-selection` at the entry), whose version equals the entry's
-//!    (`stale_dependency` / `revision-mismatch` at the entry's `version`) and
-//!    whose own `package_id` equals the entry's (`stale_dependency` /
-//!    `byte-digest-mismatch` at the entry's `package_id.digest`). This runs
-//!    before any node is read, so before any `dependency_reference` check.
+//!    `missing-selection` at the entry), whose own `package_id` equals the
+//!    entry's (`stale_dependency` / `byte-digest-mismatch` at the entry's
+//!    `package_id.digest`). This runs before any node is read, so before any
+//!    `dependency_reference` check.
 //! 2. [`DependencyReferences::walk_arguments`] and
 //!    [`DependencyReferences::walk_body`], in step 7 of the operation stage: a
 //!    term is checked at its place in its node's pre-order walk, wherever it
@@ -99,20 +98,13 @@ pub(super) fn admit_dependencies<'e>(
     };
     let mut packages = Vec::with_capacity(selections.len());
     for (index, entry) in selections.iter().enumerate() {
-        let Some((version, package)) = evidence.dependency_package(&entry.identity) else {
+        let Some(package) = evidence.dependency_package(&entry.identity) else {
             return Err(ValidationFailure::refused_because(
                 CheckedPackageRefusalCode::MissingImport,
                 at(index),
                 CheckedPackageRefusalCause::MissingSelection,
             ));
         };
-        if version != entry.version.as_ref() {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::StaleDependency,
-                at(index).key("version"),
-                CheckedPackageRefusalCause::RevisionMismatch,
-            ));
-        }
         // A `CheckedPackageV2` exists only as the reader's admitted result,
         // so its `package_id` is the digest the reader recomputed from its
         // identity preimage; the binding rests on that content digest.

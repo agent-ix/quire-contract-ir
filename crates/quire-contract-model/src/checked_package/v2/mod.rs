@@ -778,7 +778,6 @@ fn validate(
         &wire.source_map,
         &wire.lock.sources,
         limits,
-        evidence,
     )?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
@@ -869,18 +868,15 @@ fn validate_lock<'a>(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     for (index, source) in lock.sources.iter().enumerate() {
-        validate_unexported(source, SOURCE_BYTES, evidence, &|| {
+        validate_unexported(source, SOURCE_BYTES, &|| {
             member_pointer(&["lock", "sources"]).index(index)
         })?;
     }
-    validate_unexported(
-        &lock.edition.definition,
-        DEFINITION_BYTES,
-        evidence,
-        &|| member_pointer(&["lock", "edition", "definition"]),
-    )?;
+    validate_unexported(&lock.edition.definition, DEFINITION_BYTES, &|| {
+        member_pointer(&["lock", "edition", "definition"])
+    })?;
     for (index, selection) in lock.profile_selections.iter().enumerate() {
-        validate_unexported(&selection.definition, DEFINITION_BYTES, evidence, &|| {
+        validate_unexported(&selection.definition, DEFINITION_BYTES, &|| {
             member_pointer(&["lock", "profile_selections"])
                 .index(index)
                 .key("definition")
@@ -888,7 +884,7 @@ fn validate_lock<'a>(
     }
     validate_dependency_selections(&lock.dependency_selections)?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
-        validate_unexported(definition, DEFINITION_BYTES, evidence, &|| {
+        validate_unexported(definition, DEFINITION_BYTES, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
         })?;
     }
@@ -966,12 +962,9 @@ fn validate_lock<'a>(
             member_pointer(&["lock", "required_features"]).index(index),
         ));
     }
-    validate_unexported(
-        &wire.diagnostics.catalog,
-        DEFINITION_BYTES,
-        evidence,
-        &|| member_pointer(&["diagnostics", "catalog"]),
-    )?;
+    validate_unexported(&wire.diagnostics.catalog, DEFINITION_BYTES, &|| {
+        member_pointer(&["diagnostics", "catalog"])
+    })?;
     Ok(LockAdmission {
         models,
         dependencies,
@@ -1046,10 +1039,9 @@ fn validate_dependency_selections(
 fn validate_unexported(
     artifact: &CheckedArtifactRef,
     domain: &str,
-    evidence: &CheckedPackageEvidence,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    validate_locked_artifact(artifact, domain, evidence, at)?;
+    validate_locked_artifact(artifact, domain, at)?;
     if artifact.export.is_some() {
         return Err(refuse(
             CheckedPackageRefusalCode::MalformedWire,

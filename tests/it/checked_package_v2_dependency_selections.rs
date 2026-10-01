@@ -75,10 +75,7 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     // entries' identities and versions.
     let (geometry_id, geometry) = admitted_dependency(&base);
     let (units_id, units) = admitted_dependency(&positive_operation_identities());
-    let supplied = [
-        ("test/geometry", "1", &geometry),
-        ("test/units", "2", &units),
-    ];
+    let supplied = [("test/geometry", &geometry), ("test/units", &units)];
     let entries = vec![
         entry("test/geometry", "1", &geometry_id),
         entry("test/units", "2", &units_id),
@@ -99,10 +96,7 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     let mut changed = entries;
     changed[1] = entry("test/units", "2", &geometry_id);
     let other = with_selections(base, changed);
-    let supplied_again = [
-        ("test/geometry", "1", &geometry),
-        ("test/units", "2", &geometry),
-    ];
+    let supplied_again = [("test/geometry", &geometry), ("test/units", &geometry)];
     assert_ne!(package["package_id"], other["package_id"]);
     // The reader holds the old id to the changed entries, and admits the new.
     let mut stale = other.clone();
@@ -338,8 +332,8 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
             read_with(
                 &byte_order,
                 &[
-                    ("test/\u{ff61}", "1", &dependency),
-                    ("test/\u{1f600}", "1", &dependency),
+                    ("test/\u{ff61}", &dependency),
+                    ("test/\u{1f600}", &dependency),
                 ]
             ),
             CheckedPackageV2ReadResult::Admitted(_)

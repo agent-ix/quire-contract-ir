@@ -88,7 +88,10 @@ pub enum CheckedPackageRefusalCode {
     UnknownMember,
     /// The parsed value was not RFC-8785-style canonical JSON bytes.
     NoncanonicalWire,
-    /// A locked source, definition, or model did not match supplied bytes.
+    /// The package, or something it selects, does not match the content
+    /// identity it names: the `package_id`, identity preimage or projection,
+    /// a selected domain package document, a dependency's `package_id`, or a
+    /// lock that contradicts itself.
     StaleDependency,
     /// A digest appeared under an incompatible identity domain.
     DigestDomainMismatch,
@@ -192,9 +195,6 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
-    /// `revision-mismatch`: a supplied dependency package's version differs
-    /// from its `dependency_selections` entry's.
-    RevisionMismatch,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader
@@ -320,7 +320,8 @@ pub struct CheckedPackageIncomplete {
     pub path: Option<JsonPointer>,
 }
 
-/// Exact source material used to prove a lock entry is not stale.
+/// The identity of one locked artifact, used to group a source map's regions
+/// by the source they fall in.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct CheckedArtifactLocator {
     /// Artifact identity authority.

@@ -24,7 +24,7 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_ir::{
-    CheckedArtifactLocator, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
 };
@@ -98,28 +98,6 @@ pub fn typed_node_id(digest: &str) -> quire_contract_ir::CheckedNodeId {
     serde_json::from_value(node_id(digest)).expect("node id")
 }
 
-pub fn locator(artifact: &Value) -> CheckedArtifactLocator {
-    let text = |key: &str| -> Box<str> {
-        artifact[key]
-            .as_str()
-            .unwrap_or_else(|| panic!("artifact member {key}"))
-            .into()
-    };
-    CheckedArtifactLocator {
-        authority: text("authority"),
-        identity: text("identity"),
-        revision_namespace: artifact["revision"]["namespace"]
-            .as_str()
-            .expect("revision namespace")
-            .into(),
-        revision_value: artifact["revision"]["value"]
-            .as_str()
-            .expect("revision value")
-            .into(),
-        domain: text("digest_domain"),
-    }
-}
-
 /// A minimal Semantic IR 2.0.0 document for a domain package, declaring the
 /// given object types.
 pub fn domain_package_document(identity: &str, version: &str, types: Vec<Value>) -> Value {
@@ -136,33 +114,9 @@ pub fn domain_package_digest(document: &Value) -> String {
     sha256_hex(&canonical(document))
 }
 
-/// Every locked raw byte artifact in `package`, including the diagnostic
-/// catalog. Domain package selections are a separate digest domain.
-pub fn locked_artifacts(package: &Value) -> Vec<Value> {
-    let lock = &package["lock"];
-    let mut artifacts = Vec::new();
-    let list = |key: &str| lock[key].as_array().cloned().unwrap_or_default();
-    artifacts.extend(list("sources"));
-    artifacts.push(lock["edition"]["definition"].clone());
-    artifacts.extend(
-        list("profile_selections")
-            .into_iter()
-            .map(|selection| selection["definition"].clone()),
-    );
-    artifacts.extend(list("definition_selections"));
-    artifacts.push(package["diagnostics"]["catalog"].clone());
-    artifacts
-}
-
-/// Attested evidence for every locked artifact plus the complete-value feature.
+/// Evidence for a package: its domain package documents plus the complete-value feature.
 pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
-    for artifact in locked_artifacts(package) {
-        evidence.insert_artifact_digest(
-            locator(&artifact),
-            artifact["digest"].as_str().expect("artifact digest"),
-        );
-    }
     // A lock's compiled-model selections are `sha256-jcs` domain packages,
     // supplied as documents. A selection whose digest names no document this
     // helper builds is left unsupplied, so the reader refuses it.
@@ -185,7 +139,7 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     evidence
 }
 
-/// Reads `package` with only its own locked artifacts attested.
+/// Reads `package` with only its own evidence.
 fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(package),
@@ -209,14 +163,14 @@ pub fn admitted_dependency(package: &Value) -> (String, CheckedPackageV2) {
     }
 }
 
-/// `read`, with `dependencies` supplied as `(identity, version, package)`.
+/// `read`, with `dependencies` supplied as `(identity, package)`.
 pub fn read_with_dependencies(
     package: &Value,
-    dependencies: &[(&str, &str, &CheckedPackageV2)],
+    dependencies: &[(&str, &CheckedPackageV2)],
 ) -> CheckedPackageV2ReadResult {
     let mut evidence: CheckedPackageEvidence = evidence_for(package);
-    for (identity, version, dependency) in dependencies {
-        evidence.insert_dependency_package(*identity, *version, (*dependency).clone());
+    for (identity, dependency) in dependencies {
+        evidence.insert_dependency_package(*identity, (*dependency).clone());
     }
     CheckedPackageV2::read(
         &canonical(package),

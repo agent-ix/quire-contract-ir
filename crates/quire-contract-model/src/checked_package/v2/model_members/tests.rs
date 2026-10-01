@@ -3,6 +3,7 @@ use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
+use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 
 /// [`read_semantic_ir`] under a work limit nothing reaches.
 fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
