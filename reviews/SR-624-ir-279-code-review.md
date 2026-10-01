@@ -94,3 +94,19 @@ Reviewed at ae300d3b00e62b69fbf263718570c45138a12d11, rebased on origin/main d98
 - FND-007: The stack reservation is bounded at 256 KiB + 4 KiB x 16,384, about 64 MiB. A 2,000,000-deep document under `depth: u64::MAX` returns `incomplete(Depth, 16384, 2000000)` in 77 ms with 118 MB RSS (the scan) and reserves no stack. A 16,384-deep read takes 9 ms at 13 MB RSS and passes under `ulimit -v` of 1 GiB and of 256 MiB. Residual: under caps of 128 MiB and below, the bounded reservation still fails. At a 64 MiB cap stacker panics ("allocating stack failed"); at 96 and 128 MiB caps an ordinary allocation aborts the process. Both happen only under caps near the size of the reservation itself.
 - FND-008: The drop test now covers a deep diagnostic detail, and the mutant that disables the diagnostic `Drop` is killed.
 - FND-009: The wall-clock bound is replaced by a ratio: 4x depth must take less than 8x the time, fastest of three runs.
+
+## New findings (disposition pass 3)
+
+Reviewed at a29a37fe8e978206677a9be2314f25baa7c98944, up to date with origin/main d98c7cc.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-011 | medium | Two tests traced to FR-038-AC-3 assert the recorded deviation, so the trace over-claims AC-3 coverage. Each asserts that a caller limit of `u64::MAX` returns `incomplete(Depth, MAXIMUM_DEPTH, ...)`: `tc_048_deep_nesting_is_decided_by_the_callers_limit_to_the_ceiling` (`Tracing: TC-048, FR-038-AC-3`) and `tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_pass` (`#[trace("TC-048", "FR-038-AC-3")]`). That is behaviour AC-3 as written contradicts. An implementation that honoured AC-3 literally would turn these AC-3 evidence tests red, and `make spec` counts AC-3 as backed by them. The pinned-ceiling test is correctly traced to TC-048 only. Moving the ceiling assertions into that test, or another TC-048-only test, would leave the AC-3 tags covering only AC-3 behaviour | crates/quire-contract-model/src/checked_package/common.rs:1619-1650 |
+
+## Dispositions (disposition pass 3)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-010 | fixed | 3f2ab85 |
+
+- FND-010: `tc_048_the_reader_ceiling_is_sixteen_thousand_three_hundred_eighty_four_levels` asserts `MAXIMUM_DEPTH == 16_384`, admits 16,384 levels under `u64::MAX` and reports `incomplete(Depth,16384,16385)` one level deeper. I ran the mutants: setting the constant to 16,383 or to 16,385 turns the test red.

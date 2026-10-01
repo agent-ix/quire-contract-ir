@@ -64,3 +64,11 @@ The depth unit and the refusal order are clear improvements. FND-001 is a real c
 | FND-003 | fixed | ae300d3 |
 
 - FND-003: "parse strict JSON once" became "read the document as strict JSON", which no longer claims a pass count.
+
+## Dispositions (disposition pass 3)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-004 | deferred | AC contradiction recorded as a known deviation (FR-038 Reading prose, lines 151-153, and the PR body); upstream amendment STD-125 |
+
+- FND-004: The contradiction remains but is now explicit, not silent: "This ceiling is a known deviation from FR-322 and FR-038-AC-3, which charge the caller's limit as given, pending the upstream amendment tracked as STD-125; it is not a settled rule." That wording is accurate and not misleading. AC-3 stays as written, so the AC remains the authority and the code is the declared exception. Residual for whoever routes STD-125: once it lands, AC-3 needs re-qualifying. The trace tags that bind deviation-asserting tests to AC-3 are SR-624 FND-011.

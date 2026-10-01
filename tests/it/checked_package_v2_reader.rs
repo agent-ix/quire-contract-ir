@@ -2657,34 +2657,6 @@ fn tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_
             "limit {limit}"
         );
     }
-    // Nesting past the reader's ceiling is reported at the ceiling, whatever
-    // the caller's limit, without the stack reserved growing with it; the same
-    // holds when the nesting hides under an unknown member of a V2 document
-    // and through the version dispatch.
-    let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
-    let past_ceiling = "/0".repeat(usize::try_from(ceiling).expect("small"));
-    let very_deep = nested(100_000);
-    assert_eq!(
-        incomplete_depth(very_deep.as_bytes(), with_depth(u64::MAX)),
-        crate::support::checked_package::incomplete(
-            CheckedPackageLimit::Depth,
-            ceiling,
-            100_000,
-            Some(&past_ceiling),
-        )
-    );
-    let hidden = format!(
-        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(200_000)
-    );
-    assert!(matches!(
-        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageV2ReadResult::Incomplete(_)
-    ));
-    assert!(matches!(
-        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageDispatchResult::Incomplete(_)
-    ));
     // Within the ceiling, a V2 document whose unknown member holds deep
     // nesting is refused by the decoder, not stopped for its depth.
     let hidden = format!(
@@ -2722,6 +2694,52 @@ fn refused_with(
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("expected V2 refusal, got {other:?}"),
     }
+}
+
+/// Tracing: TC-048
+#[trace("TC-048")]
+#[test]
+fn tc_048_nesting_past_the_reader_ceiling_is_charged_at_the_ceiling() {
+    let evidence = evidence_for(&v2_all_families());
+    let with_depth = |depth: u64| CheckedPackageReadLimits {
+        bytes: 1 << 24,
+        depth,
+        ..CheckedPackageReadLimits::bounded()
+    };
+    let incomplete_depth =
+        |bytes: &[u8], limits| match CheckedPackageV2::read(bytes, limits, &evidence) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
+            other => panic!("expected depth incompleteness, got {other:?}"),
+        };
+    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    // Nesting past the reader's ceiling is reported at the ceiling, whatever
+    // the caller's limit, without the stack reserved growing with it; the same
+    // holds when the nesting hides under an unknown member of a V2 document
+    // and through the version dispatch.
+    let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
+    let past_ceiling = "/0".repeat(usize::try_from(ceiling).expect("small"));
+    let very_deep = nested(100_000);
+    assert_eq!(
+        incomplete_depth(very_deep.as_bytes(), with_depth(u64::MAX)),
+        crate::support::checked_package::incomplete(
+            CheckedPackageLimit::Depth,
+            ceiling,
+            100_000,
+            Some(&past_ceiling),
+        )
+    );
+    let hidden = format!(
+        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
+        nested(200_000)
+    );
+    assert!(matches!(
+        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageV2ReadResult::Incomplete(_)
+    ));
+    assert!(matches!(
+        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
+        CheckedPackageDispatchResult::Incomplete(_)
+    ));
 }
 
 /// Where [`package_with_deep_aggregate`] puts its nesting.

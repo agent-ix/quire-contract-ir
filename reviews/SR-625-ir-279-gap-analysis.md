@@ -50,3 +50,11 @@ At the default limit the PR delivers what the ACs ask: 200-deep input is `incomp
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-002 | medium | FR-038-AC-3 and FR-322-AC-6 are unmet again for any caller depth limit above the new `MAXIMUM_DEPTH = 16_384`. With `depth: 20_000`, a 20,000-deep document is not admitted, and a 16,385-deep one reports `limit: 16384`, not the caller's limit. The ceiling is a sound, documented resource bound: it is the only way to bound the reservation SR-624 FND-007 found unbounded, because serde's `Serialize` and `Value` comparison recurse with no growth hook. The remedy is in the spec (SR-626 FND-004), not the code | crates/quire-contract-model/src/checked_package/common.rs:245 |
+
+## Dispositions (disposition pass 3)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-002 | deferred | AC contradiction recorded as a known deviation in FR-038's Reading prose and the PR body; upstream amendment STD-125 (QSL follow-up QSL-340) |
+
+- FND-002: Code and AC are unchanged in substance: a caller depth limit above 16,384 is still charged at 16,384, and FR-038-AC-3 and AC-26 are back to their original text (net diff against origin/main: none). The deviation notice is accurate. It names both FR-322 and FR-038-AC-3, says the caller's limit is charged as given there, and labels the ceiling "not a settled rule". STD-125 and QSL-340 exist, both in Backlog and unassigned. Nothing in IR tracks the re-qualification of AC-3 once STD-125 lands, so the PR body is the only pointer to it.

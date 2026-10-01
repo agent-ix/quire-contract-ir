@@ -1612,13 +1612,12 @@ mod depth_tests {
     }
 
     /// Nesting far past serde_json's own cap is decided by the caller's limit
-    /// up to the reader's ceiling, without exhausting the stack or reserving
-    /// more than the ceiling's stack, and a duplicate member or syntax error
-    /// anywhere is still found first.
+    /// (at or below the reader's ceiling) without exhausting the stack, and a
+    /// duplicate member or syntax error anywhere is still found first.
     ///
     /// Tracing: TC-048, FR-038-AC-3
     #[test]
-    fn tc_048_deep_nesting_is_decided_by_the_callers_limit_to_the_ceiling() {
+    fn tc_048_deep_nesting_is_decided_by_the_callers_limit() {
         let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
         let ceiling_len = usize::try_from(ceiling).expect("small");
         let at_ceiling = nested(ceiling_len);
@@ -1632,22 +1631,11 @@ mod depth_tests {
                 JsonPointer::parse(&"/0".repeat(ceiling_len - 1)),
             ))
         );
-        // Past the ceiling the ceiling is what is reported, for any caller
-        // limit, and the document is not parsed.
         let depth = 2_000_000;
         let deep = nested(depth);
         let over = strict_shape(deep.as_bytes(), 128).expect("strict");
         assert_eq!(over.depth, 2_000_000);
         assert_eq!(over.first_past_limit, JsonPointer::parse(&"/0".repeat(128)));
-        assert_eq!(
-            read_value(deep.as_bytes(), limits(u64::MAX), |_, _| Ok(())),
-            Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Depth,
-                ceiling,
-                2_000_000_u64,
-                JsonPointer::parse(&"/0".repeat(ceiling_len)),
-            ))
-        );
         let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
         assert_eq!(
             read_value(duplicate.as_bytes(), limits(128), |_, _| Ok(())),
@@ -1660,6 +1648,26 @@ mod depth_tests {
         assert_eq!(
             read_value(broken.as_bytes(), limits(128), |_, _| Ok(())),
             Err(malformed())
+        );
+    }
+
+    /// Past the reader's ceiling the ceiling is what is charged and reported,
+    /// for any caller limit, and the document is not parsed or given a stack
+    /// of its own depth.
+    ///
+    /// Tracing: TC-048
+    #[test]
+    fn tc_048_nesting_past_the_ceiling_is_charged_at_the_ceiling() {
+        let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
+        let deep = nested(2_000_000);
+        assert_eq!(
+            read_value(deep.as_bytes(), limits(u64::MAX), |_, _| Ok(())),
+            Err(ValidationFailure::incomplete(
+                CheckedPackageLimit::Depth,
+                ceiling,
+                2_000_000_u64,
+                JsonPointer::parse(&"/0".repeat(usize::try_from(ceiling).expect("small"))),
+            ))
         );
     }
 
