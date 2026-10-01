@@ -77,7 +77,7 @@ use crate::checked_package::shared::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
@@ -450,12 +450,6 @@ fn operation_defect(
             CheckedPackageRefusalCause::OperationLawMissing,
         );
     }
-    if entry.leaves.is_some() && operation.leaves.is_empty() {
-        return refuse(
-            application.body(&["operation", "leaves"]),
-            CheckedPackageRefusalCause::OperationLawMissing,
-        );
-    }
     if operation.laws.len() > entry.laws.len() {
         // Too many, not too few: a law the catalogued entry admits no role
         // for is a mismatch against what it declares, not a shortfall. The
@@ -643,10 +637,19 @@ fn operation_defect(
     ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(application, &operation, &arguments, nodes, kinds, index) {
+    if let Some(failure) =
+        check_leaf_count(application, entry, &operation, &arguments, graph, meter)?
+    {
         return Ok(Some(failure));
     }
-    Ok(None)
+    Ok(check_leaves(
+        application,
+        &operation,
+        &arguments,
+        nodes,
+        kinds,
+        index,
+    ))
 }
 
 /// Resolves an argument term's family: `reference` resolves its target node
@@ -1675,6 +1678,278 @@ fn check_mode_type(
         }
     }
     None
+}
+
+/// The structural type node behind `type_id`: an alias or a non-population
+/// bounded domain continues through its own `semantic_type` (QSpec FR-322).
+/// `None` when the chain does not resolve or does not end within the graph.
+fn structural_type(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<(usize, CheckedNodeKind)> {
+    let mut position = *index.get(type_id)?;
+    for _ in 0..=nodes.len() {
+        let kind = *kinds.get(position)?;
+        let node = &nodes[position];
+        let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
+            || (kind.tag() == CheckedNodeTag::BoundedDomain
+                && node.semantic_form.as_ref() != "model_population");
+        if !forwards || node.semantic_type == node.node_id {
+            return Some((position, kind));
+        }
+        position = *index.get(&node.semantic_type)?;
+    }
+    None
+}
+
+/// The `reference` term's target in `term`, as a node id.
+fn referenced_type(term: &Value) -> Option<CheckedNodeId> {
+    if body_term(term) != Some(BodyTerm::Reference) {
+        return None;
+    }
+    serde_json::from_value(term.get("target")?.clone()).ok()
+}
+
+/// The inner type of an `option`, `sequence`, `set`, `bag` or `ordered_set`
+/// type node: its first member's reference target.
+fn inner_type(
+    type_id: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
+    let (position, kind) = structural_type(type_id, nodes, kinds, index)?;
+    let CheckedNodeKind::CompositeType(
+        CompositeTypeForm::Option
+        | CompositeTypeForm::Sequence
+        | CompositeTypeForm::Set
+        | CompositeTypeForm::Bag
+        | CompositeTypeForm::OrderedSet,
+    ) = kind
+    else {
+        return None;
+    };
+    referenced_type(nodes[position].body.get("members")?.as_array()?.first()?)
+}
+
+/// Why a text-leaf count could not be decided.
+enum LeafWalkEnd {
+    /// The type reaches itself through its fields or inner types.
+    Cycle,
+    /// A node on the walk does not resolve, or is not shaped as its form
+    /// requires.
+    Unresolved,
+    /// The work budget ran out.
+    Work(ValidationFailure),
+}
+
+/// One type node being summed: its child type ids, how many are done, and
+/// the running count.
+struct LeafFrame {
+    position: usize,
+    children: Vec<CheckedNodeId>,
+    next: usize,
+    total: usize,
+}
+
+/// A node's own contribution: a count, or children still to sum.
+enum LeafEntry {
+    Count(usize),
+    Pushed,
+}
+
+/// Counts the `text` leaves of a type (QSpec FR-322: `leaves` has one entry
+/// for each), walking `record` fields, `tuple` positions and the inner type
+/// of an `option`, `sequence`, `set`, `bag` or `ordered_set`. Each type node
+/// is counted once however many fields share it, and every node visit is
+/// charged to the work meter, so a shared-field chain is linear and nesting
+/// depth is bounded by the budget. The walk is iterative: depth costs heap,
+/// not stack.
+struct LeafWalk<'g, 'm> {
+    nodes: &'g [CheckedSemanticNodeV2],
+    kinds: &'g [CheckedNodeKind],
+    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    meter: &'m mut WorkMeter,
+    at: JsonPointer,
+    memo: BTreeMap<usize, usize>,
+    stack: Vec<LeafFrame>,
+    on_stack: BTreeSet<usize>,
+}
+
+impl LeafWalk<'_, '_> {
+    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<Vec<CheckedNodeId>> {
+        let members = || self.nodes[position].body.get("members")?.as_array();
+        match kind {
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => members()?
+                .iter()
+                .map(|member| {
+                    if body_term(member) != Some(BodyTerm::Binding) {
+                        return None;
+                    }
+                    referenced_type(member.get("value")?)
+                })
+                .collect(),
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
+                members()?.iter().map(referenced_type).collect()
+            }
+            CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Option
+                | CompositeTypeForm::Sequence
+                | CompositeTypeForm::Set
+                | CompositeTypeForm::Bag
+                | CompositeTypeForm::OrderedSet,
+            ) => Some(vec![referenced_type(members()?.first()?)?]),
+            _ => Some(Vec::new()),
+        }
+    }
+
+    fn enter(&mut self, type_id: &CheckedNodeId) -> Result<LeafEntry, LeafWalkEnd> {
+        let at = &self.at;
+        self.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)?;
+        let (position, kind) = structural_type(type_id, self.nodes, self.kinds, self.index)
+            .ok_or(LeafWalkEnd::Unresolved)?;
+        if let Some(count) = self.memo.get(&position) {
+            return Ok(LeafEntry::Count(*count));
+        }
+        if self.on_stack.contains(&position) {
+            return Err(LeafWalkEnd::Cycle);
+        }
+        if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
+            self.memo.insert(position, 1);
+            return Ok(LeafEntry::Count(1));
+        }
+        let children = self
+            .children(position, kind)
+            .ok_or(LeafWalkEnd::Unresolved)?;
+        if children.is_empty() {
+            self.memo.insert(position, 0);
+            return Ok(LeafEntry::Count(0));
+        }
+        self.on_stack.insert(position);
+        self.stack.push(LeafFrame {
+            position,
+            children,
+            next: 0,
+            total: 0,
+        });
+        Ok(LeafEntry::Pushed)
+    }
+
+    fn count(&mut self, root: &CheckedNodeId) -> Result<usize, LeafWalkEnd> {
+        let mut finished = match self.enter(root)? {
+            LeafEntry::Count(count) => Some(count),
+            LeafEntry::Pushed => None,
+        };
+        loop {
+            if let Some(count) = finished.take() {
+                let Some(frame) = self.stack.last_mut() else {
+                    return Ok(count);
+                };
+                frame.total = frame.total.saturating_add(count);
+            }
+            let Some(frame) = self.stack.last_mut() else {
+                return Err(LeafWalkEnd::Unresolved);
+            };
+            if let Some(child) = frame.children.get(frame.next).cloned() {
+                frame.next += 1;
+                finished = match self.enter(&child)? {
+                    LeafEntry::Count(count) => Some(count),
+                    LeafEntry::Pushed => None,
+                };
+            } else {
+                let total = frame.total;
+                let position = frame.position;
+                self.stack.pop();
+                self.on_stack.remove(&position);
+                self.memo.insert(position, total);
+                finished = Some(total);
+            }
+        }
+    }
+}
+
+/// QSpec FR-322: for an entry naming a leaf source, `operation.leaves` lists
+/// one entry for every `text` leaf of the compared type, so a type with none
+/// takes an empty list and fewer entries than text leaves is
+/// `operation-law-missing`. `result_inner` expects leaves only for a `set`,
+/// `bag` or `ordered_set` result; any other result expects none. A compared
+/// type that reaches itself, or has a node that does not resolve, is
+/// `ill_typed`/`operator-ineligible`; one too large for the work budget is
+/// the budget's refusal. Leaf paths and laws are checked only as
+/// [`check_leaves`] reads them, and a `float32` or `float64` leaf counts as
+/// no text leaf where the reference reader finds the type undecidable.
+fn check_leaf_count(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    operation: &OperationWire,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
+    let Some(source) = entry.leaves.as_deref() else {
+        return Ok(None);
+    };
+    let operand_type = || operand_type_node(arguments.first()?, nodes, kinds, index);
+    let compared = match source {
+        "operand:0" => operand_type(),
+        "inner:0" => operand_type().and_then(|ty| inner_type(&ty, nodes, kinds, index)),
+        "result_inner" => application
+            .node
+            .body
+            .get("result_type")
+            .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+            .and_then(|result| {
+                let (_, kind) = structural_type(&result, nodes, kinds, index)?;
+                matches!(
+                    kind,
+                    CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Set
+                            | CompositeTypeForm::Bag
+                            | CompositeTypeForm::OrderedSet
+                    )
+                )
+                .then(|| inner_type(&result, nodes, kinds, index))
+                .flatten()
+            }),
+        _ => None,
+    };
+    let Some(compared) = compared else {
+        return Ok(None);
+    };
+    let at = application.body(&["operation", "leaves"]);
+    let mut walk = LeafWalk {
+        nodes,
+        kinds,
+        index,
+        meter,
+        at: at.clone(),
+        memo: BTreeMap::new(),
+        stack: Vec::new(),
+        on_stack: BTreeSet::new(),
+    };
+    match walk.count(&compared) {
+        Ok(expected) if operation.leaves.len() >= expected => Ok(None),
+        Ok(_) => Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at,
+            CheckedPackageRefusalCause::OperationLawMissing,
+        ))),
+        Err(LeafWalkEnd::Cycle | LeafWalkEnd::Unresolved) => Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            at,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        ))),
+        Err(LeafWalkEnd::Work(failure)) => Err(failure),
+    }
 }
 
 /// The one leaf-path shape an upstream mutation exercises: `["field:<name>"]`
@@ -2762,7 +3037,12 @@ mod tests {
             ],
         );
 
-        let result = defect_for_graph(vec![root.clone(), record_node, field_type_node]);
+        let result = defect_for_graph(vec![
+            root.clone(),
+            record_node,
+            field_type_node,
+            scalar_type_node('t', "decimal"),
+        ]);
 
         assert_eq!(
             result,
@@ -2775,6 +3055,527 @@ mod tests {
             "a leaf mode value that disagrees with what the named field's own type pins must \
              be refused as operation-mode-type-mismatch, got {result:?}"
         );
+    }
+
+    /// A scalar type node of `form` keyed on `id_byte`.
+    fn scalar_type_node(id_byte: char, form: &str) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            "scalar_type",
+            form,
+            &node_id('t'),
+            json!({ "term": "aggregate", "members": [] }),
+        )
+    }
+
+    /// A `reference` term naming the node keyed on `id_byte`.
+    fn reference_to(id_byte: char) -> Value {
+        json!({
+            "term": "reference",
+            "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
+        })
+    }
+
+    /// A record type keyed on `id_byte` with one field per `(name, type)`.
+    fn record_type_node(id_byte: char, fields: &[(&str, char)]) -> CheckedSemanticNodeV2 {
+        let members: Vec<Value> = fields
+            .iter()
+            .map(|(name, type_byte)| {
+                json!({ "term": "binding", "name": name, "value": reference_to(*type_byte) })
+            })
+            .collect();
+        graph_node(
+            id_byte,
+            "composite_type",
+            "record",
+            &node_id(id_byte),
+            json!({ "term": "aggregate", "members": members }),
+        )
+    }
+
+    /// A one-member collection/option type keyed on `id_byte` over `inner`.
+    fn collection_type_node(id_byte: char, form: &str, inner: char) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            "composite_type",
+            form,
+            &node_id(id_byte),
+            json!({ "term": "aggregate", "members": [reference_to(inner)] }),
+        )
+    }
+
+    /// A `parameter` value keyed on `id_byte` whose type is `type_byte`.
+    fn parameter_of(id_byte: char, type_byte: char) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            "value",
+            "parameter",
+            &node_id(type_byte),
+            json!({ "term": "aggregate", "members": [] }),
+        )
+    }
+
+    /// `identity` over the two parameters keyed `a` and `b`, supplying
+    /// `leaves` as the operation's leaf list, against `types`.
+    fn leaves_defect(
+        identity: &str,
+        leaves: Value,
+        types: Vec<CheckedSemanticNodeV2>,
+        operands: impl IntoIterator<Item = char>,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        leaves_defect_result(identity, leaves, types, operands, None)
+    }
+
+    /// [`leaves_defect`] for an application whose `result_type` names the
+    /// node keyed `result`.
+    fn leaves_defect_result(
+        identity: &str,
+        leaves: Value,
+        mut types: Vec<CheckedSemanticNodeV2>,
+        operands: impl IntoIterator<Item = char>,
+        result: Option<char>,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        let mut operation = plain_operation(identity);
+        operation["leaves"] = leaves;
+        let mut root = custom_application_node(
+            if identity.contains("structural") {
+                "binary"
+            } else {
+                "collection"
+            },
+            operation,
+            operands.into_iter().map(reference_to).collect(),
+        );
+        if let Some(result) = result {
+            root.body["result_type"] = json!({
+                "domain": NODE_DOMAIN,
+                "digest": dummy_digest(result),
+            });
+        }
+        let locus = root.node_id.clone();
+        let mut graph = vec![root];
+        graph.append(&mut types);
+        (defect_for_graph(graph), locus)
+    }
+
+    fn leaves_missing(
+        locus: CheckedNodeId,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        Ok(Some(refused_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            "/semantic_graph/nodes/0/body/operation/leaves",
+            Some(CheckedPackageRefusalCause::OperationLawMissing),
+            locus,
+        )))
+    }
+
+    /// QSpec FR-322: `leaves` lists one entry per text leaf of the compared
+    /// type, so an all-integer record has none and `[]` is admitted for
+    /// `structural.eq` and `structural.ne`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_source_admits_empty_leaves_over_a_type_without_text() {
+        for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
+            let types = vec![
+                record_type_node('r', &[("x", 'i'), ("y", 'i')]),
+                scalar_type_node('i', "integer"),
+                parameter_of('a', 'r'),
+                parameter_of('b', 'r'),
+            ];
+            let (result, _) = leaves_defect(identity, json!([]), types, ['a', 'b']);
+            assert_eq!(
+                result,
+                Ok(None),
+                "{identity} over an all-integer record has no text leaf, so `leaves: []` \
+                 must be admitted, got {result:?}"
+            );
+        }
+    }
+
+    /// The `inner:0` leaf source (`collection.contains`) over a set of
+    /// integers has no text leaf either.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_inner_leaf_source_admits_empty_leaves_over_a_type_without_text() {
+        let types = vec![
+            collection_type_node('s', "set", 'i'),
+            scalar_type_node('i', "integer"),
+            parameter_of('a', 's'),
+            parameter_of('b', 'i'),
+        ];
+        let (result, _) =
+            leaves_defect("quire.op.collection.contains", json!([]), types, ['a', 'b']);
+        assert_eq!(
+            result,
+            Ok(None),
+            "collection.contains over a set of integers has no text leaf, so `leaves: []` \
+             must be admitted, got {result:?}"
+        );
+    }
+
+    /// A text leaf anywhere in the compared type still demands its leaf: a
+    /// record with a text field, nested one level down, with no leaves is
+    /// `operation-law-missing`; so is a set of text.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_source_refuses_empty_leaves_over_a_type_with_text() {
+        let nested = vec![
+            record_type_node('r', &[("x", 'i'), ("o", 'q')]),
+            record_type_node('q', &[("name", 'x')]),
+            scalar_type_node('i', "integer"),
+            scalar_type_node('x', "text"),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        let (result, locus) =
+            leaves_defect("quire.op.structural.eq", json!([]), nested, ['a', 'b']);
+        assert_eq!(
+            result,
+            leaves_missing(locus),
+            "nested text field, no leaves"
+        );
+
+        let texts = vec![
+            collection_type_node('s', "set", 'x'),
+            scalar_type_node('x', "text"),
+            parameter_of('a', 's'),
+            parameter_of('b', 'x'),
+        ];
+        let (result, locus) =
+            leaves_defect("quire.op.collection.contains", json!([]), texts, ['a', 'b']);
+        assert_eq!(result, leaves_missing(locus), "set of text, no leaves");
+    }
+
+    /// Fewer leaves than text leaves is still law-missing: two text fields,
+    /// one leaf supplied.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_source_refuses_too_few_leaves() {
+        let types = vec![
+            record_type_node('r', &[("a", 'x'), ("b", 'x')]),
+            scalar_type_node('x', "text"),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        let (result, locus) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([{ "path": ["field:a"], "laws": [] }]),
+            types,
+            ['a', 'b'],
+        );
+        assert_eq!(result, leaves_missing(locus));
+    }
+
+    /// A tuple type keyed on `id_byte` over `members`.
+    fn tuple_type_node(id_byte: char, members: &[char]) -> CheckedSemanticNodeV2 {
+        let members: Vec<Value> = members.iter().map(|byte| reference_to(*byte)).collect();
+        graph_node(
+            id_byte,
+            "composite_type",
+            "tuple",
+            &node_id(id_byte),
+            json!({ "term": "aggregate", "members": members }),
+        )
+    }
+
+    /// An alias or bounded-domain node keyed on `id_byte` that continues
+    /// through its semantic type `target`.
+    fn forwarding_node(
+        id_byte: char,
+        tag: &str,
+        form: &str,
+        target: char,
+    ) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            tag,
+            form,
+            &node_id(target),
+            json!({ "term": "aggregate", "members": [] }),
+        )
+    }
+
+    fn leaves_ineligible(
+        locus: CheckedNodeId,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        Ok(Some(refused_at(
+            CheckedPackageRefusalCode::IllTyped,
+            "/semantic_graph/nodes/0/body/operation/leaves",
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+            locus,
+        )))
+    }
+
+    /// `structural.eq` over parameters `a` and `b` of the type keyed `r`.
+    fn eq_over(
+        r: char,
+        types: Vec<CheckedSemanticNodeV2>,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        let mut graph = types;
+        graph.push(parameter_of('a', r));
+        graph.push(parameter_of('b', r));
+        leaves_defect("quire.op.structural.eq", json!([]), graph, ['a', 'b']).0
+    }
+
+    /// The text leaf is found through an alias, a bounded domain, a tuple
+    /// position, an option and a collection inside a record, each with
+    /// `leaves` empty; the same shapes over integers are admitted.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_walk_reaches_text_through_every_type_form() {
+        let probe = |text_tag: &str, text_form: &str| {
+            let leaf = |id_byte: char| {
+                graph_node(
+                    id_byte,
+                    text_tag,
+                    text_form,
+                    &node_id('t'),
+                    json!({ "term": "aggregate", "members": [] }),
+                )
+            };
+            let cases: [(&str, Vec<CheckedSemanticNodeV2>); 5] = [
+                (
+                    "alias",
+                    vec![
+                        record_type_node('r', &[("f", 'l')]),
+                        forwarding_node('l', "composite_type", "alias", 'x'),
+                    ],
+                ),
+                (
+                    "bounded domain",
+                    vec![
+                        record_type_node('r', &[("f", 'd')]),
+                        forwarding_node('d', "bounded_domain", "text_bounds", 'x'),
+                    ],
+                ),
+                ("tuple", vec![tuple_type_node('r', &['i', 'x'])]),
+                (
+                    "option in a record",
+                    vec![
+                        record_type_node('r', &[("f", 'o')]),
+                        collection_type_node('o', "option", 'x'),
+                    ],
+                ),
+                (
+                    "set in a record",
+                    vec![
+                        record_type_node('r', &[("f", 's')]),
+                        collection_type_node('s', "set", 'x'),
+                    ],
+                ),
+            ];
+            cases.map(|(name, mut types)| {
+                types.push(scalar_type_node('i', "integer"));
+                types.push(leaf('x'));
+                (name, types)
+            })
+        };
+        for (name, types) in probe("scalar_type", "text") {
+            let locus = {
+                let (_, locus) =
+                    leaves_defect("quire.op.structural.eq", json!([]), vec![], ['r', 'r']);
+                locus
+            };
+            assert_eq!(
+                eq_over('r', types),
+                leaves_missing(locus),
+                "{name} over text"
+            );
+        }
+        for (name, types) in probe("scalar_type", "integer") {
+            assert_eq!(eq_over('r', types), Ok(None), "{name} over integer");
+        }
+    }
+
+    /// `result_inner` expects leaves only for a `set`, `bag` or
+    /// `ordered_set` result: `collection.flatten` from a sequence of
+    /// sequences of text to a sequence of text admits `[]`, as the
+    /// reference reader does, while `collection.set` of text and a flatten
+    /// whose result is a set of text are law-missing.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_result_inner_counts_leaves_only_for_set_like_results() {
+        let nested = |result_form: &str| {
+            vec![
+                collection_type_node('q', "sequence", 'x'),
+                collection_type_node('n', "sequence", 'q'),
+                collection_type_node('R', result_form, 'x'),
+                scalar_type_node('x', "text"),
+                parameter_of('a', 'n'),
+            ]
+        };
+        let (result, _) = leaves_defect_result(
+            "quire.op.collection.flatten",
+            json!([]),
+            nested("sequence"),
+            ['a'],
+            Some('R'),
+        );
+        assert_eq!(result, Ok(None), "sequence result expects no leaves");
+        for identity in ["quire.op.collection.flatten", "quire.op.collection.set"] {
+            let operands: &[char] = if identity.ends_with("set") {
+                &[]
+            } else {
+                &['a']
+            };
+            for form in ["set", "bag", "ordered_set"] {
+                let (result, locus) = leaves_defect_result(
+                    identity,
+                    json!([]),
+                    nested(form),
+                    operands.iter().copied(),
+                    Some('R'),
+                );
+                assert_eq!(
+                    result,
+                    leaves_missing(locus),
+                    "{identity} to a {form} of text"
+                );
+            }
+        }
+    }
+
+    /// A type that reaches itself is `ill_typed`/`operator-ineligible`, and a
+    /// field whose type is not in the graph is the same refusal.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_walk_refuses_a_cycle_and_an_unresolved_node() {
+        let cyclic = vec![
+            record_type_node('r', &[("name", 'x'), ("next", 'o')]),
+            collection_type_node('o', "option", 'r'),
+            scalar_type_node('x', "text"),
+        ];
+        let (_, locus) = leaves_defect("quire.op.structural.eq", json!([]), vec![], ['r', 'r']);
+        assert_eq!(
+            eq_over('r', cyclic),
+            leaves_ineligible(locus.clone()),
+            "cycle"
+        );
+        let dangling = vec![record_type_node('r', &[("f", 'm')])];
+        assert_eq!(
+            eq_over('r', dangling),
+            leaves_ineligible(locus),
+            "unresolved"
+        );
+    }
+
+    /// Nesting is bounded by the work budget, not a depth cutoff: text under
+    /// 40 options is still found, and 2000 options of integer exhaust the
+    /// budget instead of being admitted or overflowing the stack.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_walk_depth_is_bounded_by_the_work_budget() {
+        let chain = |depth: u32, leaf: &str| {
+            let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+            let mut types = vec![scalar_type_node('x', leaf)];
+            types.extend((0..depth).map(|level| {
+                let inner = if level + 1 == depth {
+                    'x'
+                } else {
+                    id(level + 1)
+                };
+                collection_type_node(id(level), "option", inner)
+            }));
+            let outer = if depth == 0 { 'x' } else { id(0) };
+            let mut graph = types;
+            graph.push(parameter_of('a', outer));
+            graph.push(parameter_of('b', outer));
+            leaves_defect("quire.op.structural.eq", json!([]), graph, ['a', 'b'])
+        };
+        let (result, locus) = chain(40, "text");
+        assert_eq!(result, leaves_missing(locus), "text under 40 options");
+        let (result, _) = chain(40, "integer");
+        assert_eq!(result, Ok(None), "integer under 40 options");
+        let (result, _) = chain(2000, "integer");
+        assert!(
+            matches!(&result, Err(failure) if format!("{failure:?}").contains("Work")),
+            "2000 nested options must exhaust the work budget, got {result:?}"
+        );
+    }
+
+    /// The leaf count settles before any leaf's mode: with a leaf whose mode
+    /// disagrees with its field's pinned rounding, too few leaves are
+    /// `operation-law-missing` and a cyclic type is
+    /// `ill_typed`/`operator-ineligible`, not `operation-mode-type-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_count_is_settled_before_leaf_modes() {
+        let rounded = || {
+            graph_node(
+                'f',
+                "bounded_domain",
+                "decimal_range",
+                &node_id('d'),
+                json!({
+                    "term": "aggregate",
+                    "members": [{
+                        "term": "binding",
+                        "name": "rounding",
+                        "value": { "term": "literal", "value": "nearest-even" },
+                    }],
+                }),
+            )
+        };
+        let bad_leaf = json!([{
+            "path": ["field:f"],
+            "mode": { "kind": "rounding", "value": "toward-zero" },
+            "laws": [],
+        }]);
+        let run = |fields: &[(&str, char)], mut types: Vec<CheckedSemanticNodeV2>| {
+            types.push(record_type_node('r', fields));
+            types.push(rounded());
+            types.push(scalar_type_node('d', "decimal"));
+            types.push(scalar_type_node('x', "text"));
+            types.push(parameter_of('a', 'r'));
+            types.push(parameter_of('b', 'r'));
+            leaves_defect(
+                "quire.op.structural.eq",
+                bad_leaf.clone(),
+                types,
+                ['a', 'b'],
+            )
+        };
+        let (result, locus) = run(&[("f", 'f'), ("a", 'x'), ("b", 'x')], vec![]);
+        assert_eq!(result, leaves_missing(locus), "too few leaves");
+        let (result, locus) = run(
+            &[("f", 'f'), ("next", 'o')],
+            vec![collection_type_node('o', "option", 'r')],
+        );
+        assert_eq!(result, leaves_ineligible(locus), "cyclic type");
+    }
+
+    /// Records sharing field types are counted once per type node: 12 levels
+    /// of 4 fields all naming the next level (4^12 paths) finish inside the
+    /// work budget instead of hanging.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_walk_counts_each_shared_type_once() {
+        let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+        let mut graph = vec![scalar_type_node('i', "integer")];
+        for level in 0..12 {
+            let below = if level == 11 { 'i' } else { id(level + 1) };
+            graph.push(record_type_node(
+                id(level),
+                &[("a", below), ("b", below), ("c", below), ("d", below)],
+            ));
+        }
+        assert_eq!(eq_over(id(0), graph), Ok(None));
     }
 
     /// `same_type` compares the type node each operand resolves to, not the
@@ -2829,6 +3630,7 @@ mod tests {
                 root,
                 record('r', "name"),
                 record('s', "label"),
+                scalar_type_node('i', "integer"),
                 parameter('a', 'r'),
                 parameter('b', 'r'),
                 parameter('c', 's'),
