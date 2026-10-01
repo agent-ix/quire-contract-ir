@@ -112,7 +112,20 @@ record, and `collection.contains` to a set of integers and an integer, each
 with `leaves` empty, and check each admits. Repeat over a record with a nested
 `text` field and over a set of `text` with `leaves` empty, and over two `text`
 fields with one leaf supplied, and check each refuses `invalid_package` with
-cause `operation-law-missing` at `operation.leaves`.
+cause `operation-law-missing` at `operation.leaves`. Apply `collection.flatten`
+from a sequence of sequences of `text` to a sequence of `text` with `leaves`
+empty and check it admits, then to a `set`, `bag` and `ordered_set` of `text`
+and check each refuses `operation-law-missing`; do the same for
+`collection.set` over `text`. Give a record a field that reaches the record
+again through an option, and another naming a node that is not in the graph,
+and check each refuses `ill_typed` with cause `operator-ineligible` at
+`operation.leaves`. Nest `text` under 40 options and check it refuses
+`operation-law-missing`, and nest integers 2000 deep and check the work budget
+refuses. Chain 12 record levels of 4 fields each naming the next level and
+check it admits within the budget. Put a leaf whose mode disagrees with its
+field's pinned rounding beside too few leaves and beside a cyclic type, and
+check the refusals are `operation-law-missing` and `operator-ineligible`, the
+leaf count settling before any leaf mode.
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 

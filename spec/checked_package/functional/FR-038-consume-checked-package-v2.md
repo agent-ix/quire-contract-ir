@@ -495,7 +495,9 @@ requires, refuses `ill_typed` with cause `operator-ineligible` at
 and each visit is charged to the work budget, so nesting depth is bounded by
 that budget and a type too large for it is refused as the budget is. The leaf
 paths and laws of the supplied entries are not yet compared with the expected
-ones, and a `float32` or `float64` leaf counts as no text leaf, where the
+ones, and neither is their number against an excess: extra leaves, such as two
+over an all-integer record or three unrelated entries over three text leaves,
+are admitted where the reference reader refuses `operation-law-mismatch`. A `float32` or `float64` leaf counts as no text leaf, where the
 reference reader finds the type undecidable.
 
 ### Frame bodies

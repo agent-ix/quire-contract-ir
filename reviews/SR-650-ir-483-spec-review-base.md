@@ -23,3 +23,20 @@ Ticket: IR-483. Examined: the new FR-038 "Operation leaves" section, FR-038-AC-4
 ## Verdict
 
 Changes needed: FND-001 and FND-002 should be corrected together with the code fix. The limit the PR admits to (leaf paths and laws not compared) is stated honestly.
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | The TC-048 "Operation leaves" procedure still lists only the round-0 cases. AC-43 now also covers flatten to a sequence versus a set result, the cycle and missing-node refusal, and the 12-level shared-field chain | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:108-115 |
+| FND-005 | low | The "Operation leaves" prose says only that fewer leaves refuse. It does not disclose that surplus leaves are admitted: a probe admitted 2 leaves over an all-integer record, where the reference refuses `operation-law-mismatch` | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:480-500 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7e10a1e: the prose now says "for a `set`, `bag` or `ordered_set` result only ... any other result, a `sequence` included, expects none" |
+| FND-002 | fixed | 7e10a1e: the prose now states the cycle/unresolved `operator-ineligible` refusal, the work budget, and the float and leaf-path limits |
+| FND-003 | fixed | 7e10a1e: the TC-048 matrix row now says AC-43 is verified by unit tests in `operations.rs` |

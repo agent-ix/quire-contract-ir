@@ -39,3 +39,19 @@ Suggested fixes:
 - FND-001: gate `result_inner` on a set, bag or ordered_set result, as upstream does.
 - FND-002: memoize per type node, or charge the meter per visit.
 - FND-003: refuse when the count is undecided, as upstream does with `operator-ineligible`, or at least keep refusing `[]`. Drop the arbitrary depth bound once memoized with a visiting set.
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@7e10a1e3ec0d89d1d02bdf1e14f4b94dd99770b8.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | `check_leaf_count` now runs after `check_leaves`, so a package with two defects gets a different first refusal than the reference reader. With too few leaves plus a leaf mode-type mismatch, the head reader reports `operation-mode-type-mismatch`; the reference reports `operation-law-missing`. With a cyclic compared type plus a leaf mode-type mismatch, the head reports `invalid_package`/`operation-mode-type-mismatch`; the reference reports `ill_typed`/`operator-ineligible`. FR-322 lines 183-191 and the reference (upstream 1811-1883) decide the expected leaves in the `operator-ineligible` stage and check law-missing before any leaf mode check. The order was moved to keep a fixture whose decimal-range field names a missing node; the fixture should get the node instead | crates/quire-contract-model/src/checked_package/v2/operations.rs:640-643 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7e10a1e: `result_inner` counts only for a set, bag or ordered_set result. Flatten to a sequence of text with `[]` is admitted; a set/bag/ordered_set result is law-missing for flatten and set. Mutation set-only to sequence is killed. map, flat_map and convert take the same branch, keyed on the entry's leaf source, so no extra fixtures are needed |
+| FND-002 | fixed | 7e10a1e: iterative `LeafWalk` with a memo per type node and one meter unit per visit. Probe 10 fields x 16 levels (10^16 paths) decided in 2.1 ms. Mutation memo-off is killed |
+| FND-003 | fixed | 7e10a1e: no depth cutoff. A cycle or unresolved node refuses `ill_typed`/`operator-ineligible`. Probe: text under 18 options with `[]` refuses law-missing; a recursive int record refuses `operator-ineligible`, as upstream does. Budget exhaustion returns the meter's `incomplete` outcome, which FR-038 lines 123-133 define for the work limit |

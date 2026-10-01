@@ -35,3 +35,9 @@ AC-43 is honestly backed for what it states. Its scope is narrower than the code
 - tuple arm dropped: SURVIVED
 - wrapper walk dropped: SURVIVED
 - `result_inner` dropped: SURVIVED
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 7e10a1e: `tc_048_leaf_walk_reaches_text_through_every_type_form` and `tc_048_result_inner_counts_leaves_only_for_set_like_results` added. Mutants are all killed: bounded-domain-only, option-only, set-only, text-0, result-inner-to-sequence, memo-off, cycle-off and `>=` to `>` |

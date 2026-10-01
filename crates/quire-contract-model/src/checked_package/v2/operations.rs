@@ -637,10 +637,19 @@ fn operation_defect(
     ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_leaves(application, &operation, &arguments, nodes, kinds, index) {
+    if let Some(failure) =
+        check_leaf_count(application, entry, &operation, &arguments, graph, meter)?
+    {
         return Ok(Some(failure));
     }
-    check_leaf_count(application, entry, &operation, &arguments, graph, meter)
+    Ok(check_leaves(
+        application,
+        &operation,
+        &arguments,
+        nodes,
+        kinds,
+        index,
+    ))
 }
 
 /// Resolves an argument term's family: `reference` resolves its target node
@@ -3028,7 +3037,12 @@ mod tests {
             ],
         );
 
-        let result = defect_for_graph(vec![root.clone(), record_node, field_type_node]);
+        let result = defect_for_graph(vec![
+            root.clone(),
+            record_node,
+            field_type_node,
+            scalar_type_node('t', "decimal"),
+        ]);
 
         assert_eq!(
             result,
@@ -3491,6 +3505,58 @@ mod tests {
             matches!(&result, Err(failure) if format!("{failure:?}").contains("Work")),
             "2000 nested options must exhaust the work budget, got {result:?}"
         );
+    }
+
+    /// The leaf count settles before any leaf's mode: with a leaf whose mode
+    /// disagrees with its field's pinned rounding, too few leaves are
+    /// `operation-law-missing` and a cyclic type is
+    /// `ill_typed`/`operator-ineligible`, not `operation-mode-type-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-43
+    #[test]
+    fn tc_048_leaf_count_is_settled_before_leaf_modes() {
+        let rounded = || {
+            graph_node(
+                'f',
+                "bounded_domain",
+                "decimal_range",
+                &node_id('d'),
+                json!({
+                    "term": "aggregate",
+                    "members": [{
+                        "term": "binding",
+                        "name": "rounding",
+                        "value": { "term": "literal", "value": "nearest-even" },
+                    }],
+                }),
+            )
+        };
+        let bad_leaf = json!([{
+            "path": ["field:f"],
+            "mode": { "kind": "rounding", "value": "toward-zero" },
+            "laws": [],
+        }]);
+        let run = |fields: &[(&str, char)], mut types: Vec<CheckedSemanticNodeV2>| {
+            types.push(record_type_node('r', fields));
+            types.push(rounded());
+            types.push(scalar_type_node('d', "decimal"));
+            types.push(scalar_type_node('x', "text"));
+            types.push(parameter_of('a', 'r'));
+            types.push(parameter_of('b', 'r'));
+            leaves_defect(
+                "quire.op.structural.eq",
+                bad_leaf.clone(),
+                types,
+                ['a', 'b'],
+            )
+        };
+        let (result, locus) = run(&[("f", 'f'), ("a", 'x'), ("b", 'x')], vec![]);
+        assert_eq!(result, leaves_missing(locus), "too few leaves");
+        let (result, locus) = run(
+            &[("f", 'f'), ("next", 'o')],
+            vec![collection_type_node('o', "option", 'r')],
+        );
+        assert_eq!(result, leaves_ineligible(locus), "cyclic type");
     }
 
     /// Records sharing field types are counted once per type node: 12 levels
