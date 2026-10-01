@@ -112,7 +112,7 @@ Cargo cycle.
 | Core | `spec/core/` | Stakeholder needs, package, anchor, clause and dependency identity, resource limits, the diagnostic code registry, and the determinism, portability and diagnostic-integrity properties every subsystem shares | `quire-contract-model::identity`, `quire-contract-model::limits` | AD-001, ADR-0056 | Contract IR lane |
 | Model | `spec/model/` | The type system, expression semantics, definedness, canonical encoding and digests, version and orphan handling, executable-projection binding, the model crate's public interface and the cycle-free model/root package split | `quire-contract-model::expression`, `quire-contract-model::canonical`, `quire-contract-model::wire`, `quire-contract-model::coverage`, `quire-contract-model::binding` | AD-001, ADR-0053, ADR-0054 | Contract IR lane |
 | Conformance | `spec/conformance/` | The conformance corpus and the JSON conformance interface | `quire-contract-model::conformance`, `quire-contract-ir` binary `quire-contract-conformance` | AD-001 | Contract IR lane |
-| Checked package | `spec/checked_package/` | The strict `quire.checked-package/v2` reader, its frame, anchor and state-clause admission, the refusal of unadmitted ADR-002 members, and complete-V1 ContractPackage lowering from that input | `quire-contract-model::checked_package` | AD-001, AD-003 | Contract IR lane |
+| Checked package | `spec/checked_package/` | The strict `quire.checked-package/v2` reader, its frame, anchor and state-clause admission, the refusal of unadmitted ADR-002 members, and complete-V1 ContractPackage lowering from that input | `quire-contract-model::checked_package` | AD-001, AD-003, AD-004 | Contract IR lane |
 | Output mapping | `spec/output_mapping/` | The target-neutral output-mapping request, per-obligation record, mapper seam, atomic package assembly and the refusal code registry | `quire-contract-model::output_mapping` | AD-001 | Contract IR lane |
 | Kani | `spec/kani/` | The versioned bounded-Kani profile, finite input and outcome firewall, dispatch index and typed outcomes, provider-side exact backend negotiation, the root crate's public interface and the rule that Contract IR defines no replay type | `quire-contract-ir` root crate (`lib.rs` and `kani`) excluding the conformance binary | AD-001, AD-002, AD-003 | Contract IR lane |
 
@@ -122,5 +122,6 @@ Cargo cycle.
 - [Complete-V1 backend delivery architecture](assurance/AD-003-complete-v1-backend-delivery.md).
 - [Repository architecture and versioning](assurance/AD-001-contract-ir-architecture.md).
 - [Bounded Kani backend architecture](assurance/AD-002-bounded-kani-architecture.md).
+- [QSpec to IR checked-package seam](assurance/AD-004-checked-package-seam.md).
 - [Formal clause source profiles](decisions/ADR-0053-formal-clause-source-profiles.md).
 - [Subsystem spec layout and registry format](decisions/ADR-0056-spec-layout-convention.md).
