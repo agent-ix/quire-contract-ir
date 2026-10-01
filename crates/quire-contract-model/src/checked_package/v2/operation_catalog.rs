@@ -96,7 +96,6 @@ struct OperationCatalogWire {
     law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
     #[allow(dead_code)]
     profile_law_roles: Vec<Box<str>>,
-    #[allow(dead_code)]
     modes: BTreeMap<Box<str>, Vec<Box<str>>>,
     type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
     #[allow(dead_code)]
@@ -115,10 +114,18 @@ pub(super) struct OperationCatalog {
     operations: BTreeMap<Box<str>, OperationCatalogEntry>,
     groups: BTreeMap<Box<str>, Vec<Box<str>>>,
     law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
+    modes: BTreeMap<Box<str>, Vec<Box<str>>>,
     type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
 }
 
 impl OperationCatalog {
+    /// Whether `value` is one of the catalog's closed values for mode `kind`.
+    pub(super) fn mode_value_admitted(&self, kind: OperationModeKind, value: &str) -> bool {
+        self.modes
+            .get(kind.as_wire())
+            .is_some_and(|values| values.iter().any(|candidate| &**candidate == value))
+    }
+
     /// The catalogued entry for an `operation.identity`, if it names one.
     pub(super) fn entry(&self, identity: &str) -> Option<&OperationCatalogEntry> {
         self.operations.get(identity)
@@ -171,6 +178,7 @@ pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
         operations,
         groups: wire.groups,
         law_roles: wire.law_roles,
+        modes: wire.modes,
         type_pinned_modes: wire.type_pinned_modes,
     }
 }

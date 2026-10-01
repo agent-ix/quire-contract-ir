@@ -129,9 +129,10 @@ leaf count settling before any leaf mode.
 
 ## Exact operation leaves (FR-038-AC-44)
 
-Over a record of two text fields and an option of text, supply the three
-derived leaves, each with one catalogued `text_profile` law the lock selects,
-and check it admits; do the same over a tuple, and over a set of text with the
+Over a record of two text fields and an option of text, the text type a
+`text_bounds` domain binding `nfc`, supply the three derived leaves, each with
+one catalogued `text_profile` law the lock selects and the `nfc` mode, and
+check it admits; do the same over a tuple, and over a set of text with the
 one empty path. Supply two leaves over an all-integer record, one leaf more than
 the text leaves, and a leaf to an operation that names no leaf source, and
 check each refuses `operation-law-mismatch` at the first extra leaf. Supply
@@ -140,7 +141,15 @@ and a `position` segment for a `field` one, and check each refuses
 `operation-law-mismatch` at that leaf's `path`. Give a leaf no law, two laws, a
 law of another role and an uncatalogued definition, and check each refuses at
 that leaf's `laws`. Run the lock without the selection and check
-`operation-law-unselected` at the `definition`. Chain 16 levels of 10 fields all
+`operation-law-unselected` at the `definition`. Leave a leaf's mode out, give
+it another kind, an uncatalogued value, and a catalogued value other than the
+pin, and check `operation-mode-mismatch` at `mode`, `mode/kind` and
+`mode/value`, then `operation-mode-type-mismatch` at `mode/value`. Make one
+text type bind no profile and check `operator-ineligible`, with and without
+leaves supplied. Apply `collection.flatten` to a `sequence` of text with one
+leaf and with none, and `integer.div` with an unselected law and a leaf, and
+check `operation-law-mismatch`, admission, and `operation-law-mismatch` ahead
+of the unselected law. Chain 16 levels of 10 fields all
 naming the next over text and supply one leaf, and check
 `operation-law-missing` comes back at once; make nine of the ten fields
 integers and check the one 16-segment path admits and one wrong segment refuses.

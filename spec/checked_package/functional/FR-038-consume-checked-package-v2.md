@@ -504,18 +504,35 @@ entry that names no leaf source takes no leaves, and a supplied one refuses
 `operation-law-mismatch` at `operation.leaves/0`. The expected paths are
 derived one at a time, never listed ahead, and only after the leaf count is
 settled; the number of text leaves is memoised per type node. Deriving them
-costs the supplied leaves times the nesting depth, each visit charged to the
-work budget. A compared type that reaches
+costs the supplied leaves times the nesting depth times the width of a node's
+fields, since a sibling holding no text is entered and skipped; each visit is
+charged to the work budget. A compared type that reaches
 itself, or names a node that is not in the graph or is not shaped as its form
 requires, refuses `ill_typed` with cause `operator-ineligible` at
-`operation.leaves`. Each type node is counted once however many fields name it
+`operation.leaves`; so does a text leaf whose type, through its aliases and
+bounded domains, binds no `text_profile`. Each type node is counted once
+however many fields name it
 and each visit is charged to the work budget, so nesting depth is bounded by
-that budget and a type too large for it is refused as the budget is. A leaf's
-`mode` is checked only for the `value` its own field type pins (a `rounding` or
-`text_profile` of a record field named by a `["field:<name>"]` path); the mode
-kind vocabulary and a deeper path's pin are not checked. A `float32` or
-`float64` leaf counts as no text leaf, where the reference reader finds the
-type undecidable.
+that budget and a type too large for it is refused as the budget is.
+
+Once the shape and laws hold, each leaf's `mode` must be of kind `text_profile`
+with a value the catalog lists, else `operation-mode-mismatch` at the leaf's
+`mode` (absent), `mode/kind` or `mode/value`; a listed value other than the
+profile the leaf's type pins refuses `operation-mode-type-mismatch` at
+`mode/value`. An entry whose result is not a `set`, `bag` or `ordered_set`
+expects no leaves under `result_inner`, so a supplied leaf refuses as the
+extra leaf it is.
+
+This reader does not match the reference reader in two respects, which
+remain open. A `float32` or `float64` leaf counts as no text leaf, where the
+reference reader finds the type undecidable. A compared type this reader cannot
+resolve from the first operand (an operand it does not type, such as an untyped
+literal, an aggregate or a nested application with no `result_type`), and a
+`set`, `bag` or `ordered_set` result whose inner type does not resolve, are not
+decided and their leaves are not checked, where the reference reader refuses
+`operator-ineligible`. Refusing them would refuse every operand this reader
+does not yet type, which is a wider set than the reference reader's
+undecidable types, so that is left until operand typing is complete.
 
 ### Frame bodies
 
@@ -721,7 +738,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-41 | Under a bounds-required profile a `scalar_type` or `composite_type` node declaring a `recursion_group` returns `requires_bound` naming the least offending node key, although every field of the recursive record is bounded. | Test (TC-050) |
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
-| FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over text admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
+| FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
 
 ## Dependencies
 
