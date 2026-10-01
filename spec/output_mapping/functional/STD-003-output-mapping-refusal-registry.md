@@ -81,14 +81,14 @@ dispatched mapper's candidates against the admitted limits.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `request_limit_exceeded` | The admitted request exceeds its declared request-byte limit | `request` |
+| `request_limit_exceeded` | The admitted request, or the canonical identity material of one of its records or of its package, exceeds the request-byte limit | `request`; `record.identity`; `package.identity` |
 | `obligation_limit_exceeded` | The obligation count exceeds its declared limit | `request.obligations` |
 | `expression_node_limit_exceeded` | The accounted expression-node count exceeds its declared limit | `request.expression_nodes` |
 | `nesting_depth_limit_exceeded` | The accounted nesting depth exceeds its declared limit | `request.nesting_depth` |
 | `mapping_work_limit_exceeded` | Aggregate mapping work exceeds its declared limit | `mapping.work`; `request.obligations` when the charge is per obligation |
 | `record_limit_exceeded` | The record count exceeds its declared limit | `request.obligations` |
 | `emitted_bytes_limit_exceeded` | Accounted emitted bytes exceed the declared limit | `mapping.emitted_bytes` |
-| `arithmetic_overflow` | An accounting counter or region endpoint overflows its width | `record.output_regions.start`; `record.output_regions.end`; `candidate.fragment`; `candidate.output_regions.start`; `candidate.output_regions.end`; `package.target_bytes`; `package.records.output_regions.start`; `package.records.output_regions.end`; `request.obligations`; `request.expression_nodes`; `request`; `mapping.work`; `mapping.emitted_bytes` |
+| `arithmetic_overflow` | An accounting counter or region endpoint overflows its width, or identity material holds an integer past 2^53 that RFC 8785 cannot spell exactly | `record.output_regions.start`; `record.output_regions.end`; `candidate.fragment`; `candidate.output_regions.start`; `candidate.output_regions.end`; `package.target_bytes`; `package.records.output_regions.start`; `package.records.output_regions.end`; `request.obligations`; `request.expression_nodes`; `request`; `record.identity`; `package.identity`; `mapping.work`; `mapping.emitted_bytes` |
 | `allocation_failed` | A deterministic allocation, serialization, or canonicalization step for an accounted structure failed | `package.target_bytes`; `package.records`; `package.identity.record_ids`; `package.identity`; `request.obligations`; `request`; `request.identity`; `mapping.records`; `mapping.fragments`; `record.output_regions`; `record.identity` |
 | `cancelled` | The caller cancelled the mapping before it completed | `package`; `package.target_bytes`; `package.identity`; `package.complete`; `request`; `request.obligations`; `request.identity`; `mapping`; `mapping.dispatch`; `mapping.result`; `mapping.complete` |
 | `zero_mapping_work` | A mapper candidate accounts for zero work | `candidate.work` |

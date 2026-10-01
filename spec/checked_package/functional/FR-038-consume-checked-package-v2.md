@@ -146,10 +146,14 @@ document refuses before depth is charged, however deep the document is, and the
 JSON parser's own nesting cap never decides the outcome: a document deeper than
 the depth limit returns `incomplete` for `depth` with that limit and the
 measured depth, and one within it is read. The limit is the caller's up to
-16,384, the most nesting the reader reads; a caller limit above that reads as
-16,384. This ceiling is a known deviation from FR-322 and FR-038-AC-3, which
-charge the caller's limit as given, pending the upstream amendment tracked as
-STD-125; it is not a settled rule. An admitted package's own clone,
+576, the most nesting the reader reads; a caller limit above that reads as
+576. That is the deepest document the one RFC 8785 encoder, `quire-canonical`,
+canonicalizes (its `Limits::MAX_DEPTH`), so every document the reader admits is
+one whose canonical form and `package_id` can be computed; the ceiling was
+16,384 before the reader adopted that encoder. This ceiling is a known
+deviation from FR-322 and FR-038-AC-3, which charge the caller's limit as
+given, pending the upstream amendment tracked as STD-125; it is not a settled
+rule. An admitted package's own clone,
 comparison, `Debug` rendering and lowering, and dropping any of its nodes,
 projections or diagnostics, are safe at any depth the reader admits. The graph,
 lock and diagnostics its accessors return, and the records and package a
@@ -177,6 +181,16 @@ means. The semantic term grammar inside a node's `body` (the `term` tag, an
 operation member's `kind`, a mode's `kind`) is not one of these enums: the
 body validators read it from the JSON at the wire edge, including when
 lowering re-walks an admitted body through the same validator.
+
+Every canonical encode the reader makes, whether the document's own canonical
+form, `package_id`, a nominal or application node key, a selected document's
+digest or the order of a dimension's terms, is made by `quire-canonical`, the one
+RFC 8785 encoder, and by no encoder of this repository's own. A document is
+canonical when its bytes equal that encoder's bytes for the value read. A
+number is therefore canonical only in ECMAScript's spelling: a whole float
+(`2.0`) and an integer whose magnitude exceeds 2^53 (`9007199254740993`) are
+`noncanonical_wire`, as is any document the encoder refuses; exact integers
+past 2^53 travel as decimal strings.
 
 The reader shall recompute `package_id` as the SHA-256 of the RFC 8785
 canonical bytes of `identity_preimage` under `quire.package.semantic/v2`,

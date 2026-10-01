@@ -161,7 +161,8 @@ What is measured today, what is open and with whom, and what is routed.
 - Reader: `dispatch.rs` (version dispatch), `v2/` (identity, operations, frame, state,
   structural, lowering), `evidence.rs`. FR-038 declares ACs 1 to 15, 17 to 33 and 35 to 43; it
   has no AC-16 or AC-34, a numbering hole and not a gap in behaviour.
-- FR-038 states a known deviation: the depth ceiling is capped at 16,384
+- FR-038 states a known deviation: the depth ceiling is capped at 576, the deepest document
+  `quire-canonical` encodes (it was 16,384 before the reader adopted that encoder, IR-274)
   (`CheckedPackageReadLimits::MAXIMUM_DEPTH`) although FR-322 and FR-038-AC-3 charge the caller's
   limit as given, pending STD-125.
 - FR-040 states a known deviation: a field entry on a `model`/`record_value_type` node is joined

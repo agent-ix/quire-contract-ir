@@ -11,7 +11,7 @@ type: TestMatrix
 |---|---|---|---|
 | FR-032 | FR-032-AC-1 through FR-032-AC-5 | TC-043, TC-051 | ✅ implemented target-neutral admission and the closed STD-003 refusal catalog with a total unresolved-obligation precedence; no target mapper credited |
 | FR-033 | FR-033-AC-1 through FR-033-AC-5 | TC-043 | ✅ implemented bounded mapper/record accounting; no preservation default or partial record claim |
-| FR-034 | FR-034-AC-1 through FR-034-AC-5 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
+| FR-034 | FR-034-AC-1 through FR-034-AC-6 | TC-043 | ✅ implemented atomic generated package and downstream observer evidence |
 
 ## Diagnostic Registry Coverage
 

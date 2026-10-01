@@ -55,6 +55,14 @@ and the complete `sha256-jcs` package identity preimage have been verified.
   target profile, generator owner, target raw digest,
   ordered record identities, and
   limits in the package identity preimage.
+- Every canonical identity this pipeline computes (the request's, each
+  record's and the package's) shall be encoded by `quire-canonical` under the
+  request's own byte limit, `maximum_request_bytes`, so no identity material
+  is encoded without a ceiling. Material that reaches the ceiling refuses
+  `request_limit_exceeded` at `request`, `record.identity` or `package.identity`
+  and yields no record, identity or package. An integer in the material above
+  2^53, which RFC 8785 cannot spell exactly, refuses `arithmetic_overflow` at
+  the same path rather than rounding.
 - The assembler shall exclude paths, timestamps, locale, display diagnostics,
   allocation layout, and structural-observer output from target bytes and
   semantic identity.
@@ -74,6 +82,7 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 | FR-034-AC-3 | Every zero, exact, just-over, and overflowing aggregate limit is classified without partial output or a smaller successful package. | Test (TC-043) |
 | FR-034-AC-4 | Mutating source/profile/generator owner/record/limit/target-byte identity inputs changes or invalidates package identity, while path/time/locale/display/observer changes do not. | Test (TC-043) |
 | FR-034-AC-5 | Structural observer acceptance, refusal, absence, and observer owner remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
+| FR-034-AC-6 | Identity material is canonicalized under the request byte limit and never without one: a record whose identity material exceeds the request's `maximum_request_bytes` refuses `request_limit_exceeded` at `record.identity` and the same record maps under a larger limit; identity material of exactly the ceiling encodes and one byte over refuses `request_limit_exceeded` at the step's path; material holding an integer above 2^53 refuses `arithmetic_overflow`. | Test (TC-043) |
 
 ## Dependencies
 

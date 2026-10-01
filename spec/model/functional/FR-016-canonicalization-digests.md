@@ -35,7 +35,15 @@ strings emit `\"`, `\\`, `\b`, `\t`, `\n`, `\f`, and `\r`; other U+0000 through
 U+001F controls use lowercase four-digit `\u00xx`; every other Unicode scalar
 is emitted directly as UTF-8. `/` and non-ASCII scalars are not escaped.
 Integers use minimal base-ten spelling, Boolean values are lowercase, and no
-floating-point or null value exists in the canonical model.
+floating-point or null value exists in the canonical model. The bytes are
+produced by `quire-canonical`, the one RFC 8785 encoder, and this crate carries
+no canonical writer of its own: member names therefore sort by UTF-16 code unit
+(RFC 8785 section 3.2.3), which differs from Unicode-scalar order only where a
+member name holds a scalar above U+FFFF beside one in U+E000 to U+FFFF. RFC 8785 has no exact number past 2^53, so an integer whose
+magnitude exceeds 2^53 (a numeric type's bound, for instance `i64::MAX`) is
+spelled as its decimal string and every other integer stays a minimal number.
+A value nested more than 576 levels deep, the encoder's `Limits::MAX_DEPTH`,
+returns `canonicalization_resource_exhausted` like a reached byte budget.
 
 The closed object kinds are `package`, `requirement`, `clause`, `declaration`,
 and `expression`. Every kind has a source-free semantic projection. Package
@@ -92,7 +100,7 @@ output size and never changes the bytes a successful call produces.
 
 | ID | Criteria | Verification |
 |---|---|---|
-| FR-016-AC-1 | Exact golden fixtures pin the profile envelope, escaping, minimal integers, normalized rationals, semantic-set ordering, sequence preservation, source exclusion, and SHA-256 digest for every closed object kind; equivalent supported permutations are byte/digest identical. | Test (TC-017) |
+| FR-016-AC-1 | Exact golden fixtures pin the profile envelope, escaping, minimal integers (integers past 2^53 as decimal strings), normalized rationals, semantic-set ordering, sequence preservation, source exclusion, and SHA-256 digest for every closed object kind; equivalent supported permutations are byte/digest identical. | Test (TC-017) |
 | FR-016-AC-2 | A semantic change to a clause changes that clause, requirement, and package digest while unrelated clause digests remain stable; repeated runs and reversed insertion order reproduce identical bytes without host-width or map-order fields. | Test (TC-017) |
 | FR-016-AC-3 | A deterministic reservation-failure harness forces canonical byte allocation failure and verifies `canonicalization_resource_exhausted`, no partial public bytes, and no digest. | Test (TC-017) |
 | FR-016-AC-4 | Each of the five object kinds exposes a budgeted and a budget-free canonical operation; the budget-free result equals the budgeted result at `u64::MAX`; and a zero budget returns `canonicalization_resource_exhausted` with no bytes and no digest for every kind. | Test (TC-017) |
