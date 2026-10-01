@@ -38,7 +38,7 @@
 
 use super::{
     member_pointer, CheckedDomainPackageRef, CheckedNodeTag, CheckedSemanticNodeV2,
-    ValidationFailure, WorkMeter, DOMAIN_PACKAGE_DIGEST,
+    ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{digest_json, strict_json_value, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -861,14 +861,6 @@ pub(super) fn admit_document(
 ) -> Result<Value, SelectionFailure> {
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
-    if selection.digest_domain.as_ref() != DOMAIN_PACKAGE_DIGEST {
-        return Err(SelectionRefusal::at(
-            Code::StaleDependency,
-            Cause::DigestDomainMismatch,
-            Some("digest_domain"),
-        )
-        .into());
-    }
     let Some(bytes) = supplied else {
         return Err(SelectionRefusal::at(
             Code::MissingImport,

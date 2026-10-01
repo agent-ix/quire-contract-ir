@@ -1335,6 +1335,25 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
     );
 }
 
+/// Tracing: TC-048, FR-038-AC-2
+#[trace("TC-048", "FR-038-AC-2")]
+#[test]
+fn tc_048_domain_package_selection_with_no_supplied_document_refuses_as_missing_import() {
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let base = model_owned_package(owner, json!([domain_package("test/orders")]));
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence.support_feature(COMPLETE_VALUE_FEATURE);
+    assert_eq!(
+        refused(&base, &evidence),
+        refusal_cause(
+            CheckedPackageRefusalCode::MissingImport,
+            "/lock/model_selections/0/digest",
+            CheckedPackageRefusalCause::MissingSelection
+        )
+    );
+    admitted(&base);
+}
+
 /// Tracing: TC-048, FR-038-AC-10
 #[trace("TC-048", "FR-038-AC-10")]
 #[test]
@@ -1384,9 +1403,9 @@ fn tc_048_duplicate_model_selection_refuses_as_malformed_wire() {
 
     // Two selections sharing identity and version but differing in digest
     // are distinct JSON items under whole-value `uniqueItems` equality, so
-    // this criterion never refuses them. The package evidence can attest
-    // only one digest per identity/version locator, so the input is still
-    // refused, but by the pre-existing per-item digest check as
+    // this criterion never refuses them. The lock selects two documents for
+    // one identity/version locator, so the input is still refused, but by
+    // the pre-existing per-item digest check as
     // `stale_dependency`, not by this uniqueness check as `malformed_wire`.
     let mut other_digest = domain_package("test/orders");
     other_digest["digest"] = json!("9".repeat(64));

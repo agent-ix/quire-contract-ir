@@ -1,5 +1,6 @@
 use super::*;
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
