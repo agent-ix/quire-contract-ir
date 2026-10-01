@@ -23,3 +23,11 @@ All ten new tests carry `Tracing: TC-048, FR-038-AC-44`: `tc_048_leaf_source_adm
 ## Verdict
 
 Mergeable on the gap-analysis axis once FND-001 is fixed. The trace is complete and every binding is correct. The fix: build the admit fixtures over a `text_bounds` that pins `text_profile`, give each leaf `mode: {kind: text_profile, value: <pin>}`, and add "and the mode its type pins" to AC-44. Then the admitted packages are ones the reference admits too, and the reader's own remaining mode gaps stay as stated limits (SR-662) rather than being encoded into an AC.
+
+## Dispositions
+
+Reviewed at agent-ix/quire-contract-ir@b2ba6c53bfb89f7a7bff9be7890ad92662452764.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 489d6a8 |

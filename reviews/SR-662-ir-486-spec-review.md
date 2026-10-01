@@ -22,3 +22,12 @@ Ticket: IR-486. The PR rewrites the "Operation leaves" prose of FR-038. The know
 ## Verdict
 
 The spec change is sound and honest about the float and deep-mode limits, but incomplete about the rest. FND-001: either close (3), which is SR-660 FND-001 and FND-002, or list it, and list (1) and (2) as stated limits next to the float32/float64 note, so that the FR states every place this reader admits what the reference refuses. FND-002 is a one-line wording fix. The matrix rows and TC-048 section are correct.
+
+## Dispositions
+
+Reviewed at agent-ix/quire-contract-ir@b2ba6c53bfb89f7a7bff9be7890ad92662452764.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 489d6a8 |
+| FND-002 | fixed | 489d6a8 |

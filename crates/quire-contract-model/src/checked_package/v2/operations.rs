@@ -1730,29 +1730,53 @@ enum LeafWalkEnd {
 }
 
 /// The `text_profile` a text type pins: the first node of its alias and
-/// bounded-domain chain that binds one (QSpec FR-322).
+/// bounded-domain chain that binds one (QSpec FR-322). Every node of a chain
+/// walked has the same answer as the node it forwards to, so each is memoised
+/// in `memo`, and each step not already known is charged to `meter`: a long
+/// alias chain named by many fields costs its length once, not once per field.
 fn text_profile_pin(
     type_id: &CheckedNodeId,
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<Box<str>> {
-    let mut position = *index.get(type_id)?;
-    for _ in 0..=nodes.len() {
-        let node = &nodes[position];
-        if let Some(pin) = type_pin(&node.node_id, OperationModeKind::TextProfile, nodes, index) {
-            return Some(pin);
+    walk: &mut LeafWalk<'_, '_>,
+) -> Result<Option<Box<str>>, LeafWalkEnd> {
+    let (nodes, kinds, index) = (walk.nodes, walk.kinds, walk.index);
+    let Some(mut position) = index.get(type_id).copied() else {
+        return Ok(None);
+    };
+    let mut walked = Vec::new();
+    let mut seen = BTreeSet::new();
+    let found = loop {
+        if let Some(known) = walk.pins.get(&position) {
+            break known.clone();
         }
-        let kind = *kinds.get(position)?;
+        let at = &walk.at;
+        walk.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)?;
+        let node = &nodes[position];
+        walked.push(position);
+        seen.insert(position);
+        if let Some(pin) = type_pin(&node.node_id, OperationModeKind::TextProfile, nodes, index) {
+            break Some(pin);
+        }
+        let Some(kind) = kinds.get(position).copied() else {
+            break None;
+        };
         let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
             || (kind.tag() == CheckedNodeTag::BoundedDomain
                 && node.semantic_form.as_ref() != "model_population");
         if !forwards || node.semantic_type == node.node_id {
-            return None;
+            break None;
         }
-        position = *index.get(&node.semantic_type)?;
+        match index.get(&node.semantic_type) {
+            // A chain that revisits a node is a cycle: no pin.
+            Some(next) if !seen.contains(next) => position = *next,
+            _ => break None,
+        }
+    };
+    for position in walked {
+        walk.pins.insert(position, found.clone());
     }
-    None
+    Ok(found)
 }
 
 /// The outcome of comparing the supplied leaves with the derived ones: the
@@ -1800,6 +1824,8 @@ struct LeafWalk<'g, 'm> {
     meter: &'m mut WorkMeter,
     at: JsonPointer,
     memo: BTreeMap<usize, usize>,
+    /// The profile each alias or domain node of a text type's chain pins.
+    pins: BTreeMap<usize, Option<Box<str>>>,
     /// Each summed non-leaf type node's children, in declaration order.
     kids: BTreeMap<usize, Vec<LeafChild>>,
     stack: Vec<LeafFrame>,
@@ -1855,8 +1881,7 @@ impl LeafWalk<'_, '_> {
         // (QSpec FR-322: the type is ineligible). The pin lives in a wrapper
         // above the shared `text` scalar, so it is read at every visit.
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
-            text_profile_pin(type_id, self.nodes, self.kinds, self.index)
-                .ok_or(LeafWalkEnd::Unresolved)?;
+            text_profile_pin(type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?;
             self.memo.insert(position, 1);
             return Ok(LeafEntry::Count(1));
         }
@@ -1970,8 +1995,7 @@ impl LeafWalk<'_, '_> {
                             return Ok(Err((emitted, "laws")));
                         }
                         pins.push(
-                            text_profile_pin(&type_id, self.nodes, self.kinds, self.index)
-                                .ok_or(LeafWalkEnd::Unresolved)?,
+                            text_profile_pin(&type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?,
                         );
                         emitted += 1;
                     }
@@ -2095,6 +2119,7 @@ fn check_leaf_count(
         meter,
         at: at.clone(),
         memo: BTreeMap::new(),
+        pins: BTreeMap::new(),
         kids: BTreeMap::new(),
         stack: Vec::new(),
         on_stack: BTreeSet::new(),
@@ -3822,6 +3847,73 @@ mod tests {
                 CheckedPackageRefusalCause::OperationLawUnselected,
             )
         );
+    }
+
+    /// Leaf law selection settles before any leaf mode, as the reference
+    /// orders it: a leaf with an unselected law and no mode is
+    /// `operation-law-unselected`, not `operation-mode-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_law_selection_is_settled_before_leaf_modes() {
+        let mut bare = text_leaf(&["field:a"]);
+        bare.as_object_mut().expect("leaf").remove("mode");
+        let (result, locus) = leaves_defect_locked(
+            "quire.op.structural.eq",
+            json!([
+                bare,
+                text_leaf(&["field:b"]),
+                text_leaf(&["field:c", "inner"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+            None,
+            &empty_lock(),
+        );
+        assert_eq!(
+            result,
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/0/laws/0/definition",
+                CheckedPackageRefusalCause::OperationLawUnselected,
+            )
+        );
+    }
+
+    /// The `text_profile` pin of an alias chain is memoised and charged, so a
+    /// record whose 300 fields each name a different alias of one 300-link
+    /// chain costs the chain once (about 600 work units, inside the 1 000 the
+    /// test meter allows) rather than once per field, which would exhaust it.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_text_profile_pin_of_an_alias_chain_is_memoised_and_charged() {
+        let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+        let alias = |level: u32| id(1000 + level);
+        let names: Vec<String> = (0..300).map(|level| format!("f{level}")).collect();
+        let fields: Vec<(&str, char)> = names
+            .iter()
+            .enumerate()
+            .map(|(level, name)| (name.as_str(), alias(u32::try_from(level).expect("level"))))
+            .collect();
+        let mut graph = vec![
+            record_type_node('r', &fields),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        for level in 0..300 {
+            let target = if level == 299 { 'x' } else { alias(level + 1) };
+            graph.push(forwarding_node(
+                alias(level),
+                "composite_type",
+                "alias",
+                target,
+            ));
+        }
+        graph.extend(profiled_text());
+        let (result, locus) = leaves_defect("quire.op.structural.eq", json!([]), graph, ['a', 'b']);
+        assert_eq!(result, leaves_missing(locus));
     }
 
     /// An entry that names no leaf source admits no leaves: a supplied one is

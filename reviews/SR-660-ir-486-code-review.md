@@ -33,3 +33,20 @@ Gates at head, run by the reviewer: `make fmt-check lint test corpus` exit 0 (17
 ## Verdict
 
 Not mergeable as is. FND-001 is an over-admission of the exact class this PR exists to close ("more supplied leaves than text leaves refuse"), and FND-001 of SR-648 left it open by turning the non-set `result_inner` case into a skip rather than an expected count of zero. Fix: for `result_inner` with a non-set result, treat the expected count as 0 and run the same comparison. FND-002: refuse an undecidable compared type as the reference does, or list the deviation in FR-038 (see SR-662). FND-003: add a law-bearing no-source case (for example `integer.div` with its law unselected plus one leaf, which must refuse mismatch at `leaves/0`).
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@b2ba6c53bfb89f7a7bff9be7890ad92662452764. The fix commit is 489d6a8; b2ba6c5 only names the `LeafShape` type alias.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | No test pins `operation-law-unselected` ahead of the leaf mode checks (the reference runs `selected` before `mode_value_admitted`). A mutation that moves the unselected check after both mode loops leaves all 86 lib tests passing. The current order is correct: a probe with leaf 0 missing its mode under an empty lock refuses unselected at `leaves/0/laws/0/definition` | crates/quire-contract-model/src/checked_package/v2/operations.rs:2134-2168 |
+| FND-005 | low | `text_profile_pin` runs on every text visit in `LeafWalk::enter` and again for every emitted leaf. It walks the alias and bounded-domain chain without charging the meter, on top of the uncharged `structural_type` walk that was already there. A probe with a 3000-alias chain under a record of 3000 fields took 7.5 s (debug) to use 1000 work units, against 2.4 s with the pin walk removed and 26 ms with a shallow chain. The uncharged chain walk is pre-existing (needs its own ticket); this PR roughly triples its cost. Fix: memoise the pin per type id, or charge the chain steps | crates/quire-contract-model/src/checked_package/v2/operations.rs:1734-1752, 1858-1859, 1973-1974 |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 489d6a8 |
+| FND-002 | accepted-no-change | FR-038 now states it as an open deviation: an operand the reader does not type (untyped literal, aggregate, binding, dependency_reference, frame, application without result_type) and a set-like result whose inner type does not resolve skip the leaf comparison. This over-admits only input the reference refuses, never QSL output, and is part of the reader-wide operand-typing gap (IR-484 covers part of it). A follow-up ticket should cover it together with the float leaf deviation |
+| FND-003 | fixed | 489d6a8 |
