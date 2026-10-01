@@ -27,6 +27,9 @@ thiserror = "=2.0.20"
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model", features = ["fault-injection"] }
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
 jsonschema = { version = "=0.17.1", default-features = false }
+# The tests' RFC 8785 bytes come from the same encoder the crate under test
+# uses, never from a second one.
+quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 sha2 = "=0.10.9"
 
 [profile.release]

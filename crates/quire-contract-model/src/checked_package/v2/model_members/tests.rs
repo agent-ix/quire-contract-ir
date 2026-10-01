@@ -206,7 +206,7 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
     let bytes = serde_json::to_vec(&document).expect("bytes");
-    let digest = digest_json(&document).expect("digest");
+    let digest = digest_canonical(&document).expect("digest");
     let selection = |version: &str, digest: &str| CheckedDomainPackageRef {
         identity: "acme/orders".into(),
         version: version.into(),

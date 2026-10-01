@@ -13,8 +13,10 @@ use super::shared::{
     CheckedSourceMapEntry, JsonPointer,
 };
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use crate::canonical::encoder_limits;
+use quire_canonical::Limits;
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
@@ -247,8 +249,11 @@ pub(super) fn read_value<T>(
     }
     on_stack_for(shape.depth, || {
         let value = strict_parse(bytes)?;
-        let canonical = serde_json::to_vec(&value).map_err(|_| {
-            ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
+        // A document `quire-canonical` cannot encode (an integer past 2^53, a
+        // member past its own buffer) has no RFC 8785 form, so its bytes are
+        // not that form.
+        let canonical = canonical_bytes(&value).map_err(|_| {
+            ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
         })?;
         if canonical.as_slice() != bytes {
             return Err(ValidationFailure::refused_bytes(
@@ -416,8 +421,27 @@ pub(super) fn digest_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(super) fn digest_json(value: &Value) -> Result<String, serde_json::Error> {
-    serde_json::to_vec(value).map(|bytes| digest_bytes(&bytes))
+/// The limits every checked-package canonical encode runs under: the deepest
+/// document `quire-canonical` accepts, and no byte ceiling of its own. The
+/// values encoded here are an admitted document, or a preimage built from one,
+/// so the reader's byte limit and its depth ceiling
+/// ([`CheckedPackageReadLimits::MAXIMUM_DEPTH`], the same number) have already
+/// bounded them; the encoder still refuses an object past its own `u32` buffer.
+const CANONICAL_LIMITS: Limits = encoder_limits(u64::MAX);
+
+/// The RFC 8785 canonical bytes of `value`, through `quire-canonical`.
+pub(super) fn canonical_bytes<T: Serialize + ?Sized>(
+    value: &T,
+) -> Result<Vec<u8>, quire_canonical::Error> {
+    quire_canonical::to_vec(value, CANONICAL_LIMITS)
+}
+
+/// The lowercase SHA-256 of the RFC 8785 canonical bytes of `value`, hashed as
+/// they are encoded by `quire-canonical`.
+pub(super) fn digest_canonical<T: Serialize + ?Sized>(
+    value: &T,
+) -> Result<String, quire_canonical::Error> {
+    quire_canonical::sha256(value, CANONICAL_LIMITS).map(|digest| digest.to_string())
 }
 
 pub(super) fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLocator {
@@ -1382,9 +1406,8 @@ mod tests {
         let limits = CheckedPackageReadLimits::bounded();
         for (bytes, integer) in [
             (&br#"{"v":1.5}"#[..], false),
-            (br#"{"v":2.0}"#, false),
             (br#"{"v":-7}"#, true),
-            (br#"{"v":18446744073709551615}"#, true),
+            (br#"{"v":9007199254740992}"#, true),
         ] {
             let value = canonical_value(bytes, limits).expect("canonical number admits");
             let number = &value["v"];
@@ -1392,6 +1415,23 @@ mod tests {
             assert_eq!(
                 is_literal_value(number, TermGrammar::V2),
                 integer,
+                "{}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        // RFC 8785 spells a whole double as an integer and has no number past
+        // 2^53 for an integer to be: a document that says `2.0` or the largest
+        // `u64` is not that form.
+        for bytes in [
+            &br#"{"v":2.0}"#[..],
+            br#"{"v":9007199254740993}"#,
+            br#"{"v":18446744073709551615}"#,
+        ] {
+            assert_eq!(
+                canonical_value(bytes, limits),
+                Err(ValidationFailure::refused_bytes(
+                    CheckedPackageRefusalCode::NoncanonicalWire
+                )),
                 "{}",
                 String::from_utf8_lossy(bytes)
             );
@@ -1548,7 +1588,7 @@ mod depth_tests {
     /// Tracing: TC-048, FR-038-AC-3
     #[test]
     fn tc_048_a_document_at_the_callers_limit_is_admitted() {
-        for limit in [3_u64, 128, 129, 200, 1_000] {
+        for limit in [3_u64, 128, 129, 200, 576] {
             let depth = usize::try_from(limit).expect("small");
             assert!(
                 canonical_value(nested(depth).as_bytes(), limits(limit)).is_ok(),
@@ -1567,21 +1607,26 @@ mod depth_tests {
         }
     }
 
-    /// The reader's ceiling is exactly 16,384 levels: that many is admitted
-    /// under any caller limit, one more is incomplete at 16,384.
+    /// The reader's ceiling is exactly 576 levels, the deepest document
+    /// `quire-canonical` encodes: that many is admitted under any caller
+    /// limit, one more is incomplete at 576.
     ///
     /// Tracing: TC-048
     #[test]
-    fn tc_048_the_reader_ceiling_is_sixteen_thousand_three_hundred_eighty_four_levels() {
-        assert_eq!(CheckedPackageReadLimits::MAXIMUM_DEPTH, 16_384);
-        assert!(read_value(nested(16_384).as_bytes(), limits(u64::MAX), |_, _| Ok(())).is_ok());
+    fn tc_048_the_reader_ceiling_is_the_encoders_five_hundred_seventy_six_levels() {
+        assert_eq!(CheckedPackageReadLimits::MAXIMUM_DEPTH, 576);
         assert_eq!(
-            read_value(nested(16_385).as_bytes(), limits(u64::MAX), |_, _| Ok(())),
+            CheckedPackageReadLimits::MAXIMUM_DEPTH,
+            u64::from(quire_canonical::Limits::MAX_DEPTH)
+        );
+        assert!(read_value(nested(576).as_bytes(), limits(u64::MAX), |_, _| Ok(())).is_ok());
+        assert_eq!(
+            read_value(nested(577).as_bytes(), limits(u64::MAX), |_, _| Ok(())),
             Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Depth,
-                16_384,
-                16_385_u64,
-                JsonPointer::parse(&"/0".repeat(16_384)),
+                576,
+                577_u64,
+                JsonPointer::parse(&"/0".repeat(576)),
             ))
         );
     }

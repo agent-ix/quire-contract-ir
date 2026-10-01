@@ -12,7 +12,6 @@ use std::{
 };
 
 use serde::{Serialize, Serializer};
-use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -1949,23 +1948,11 @@ pub fn assemble_output_package(
         record_ids: &record_ids,
         limits: request.limits(),
     };
-    let value = serde_json::to_value(material).map_err(|_| {
-        MappingRequestError::new(
-            MappingRequestErrorCode::AllocationFailed,
-            "package.identity",
-            "package identity material allocation failed",
-        )
-    })?;
-    let canonical =
-        crate::canonical::canonical_envelope_bytes(&value, u64::MAX, "package.identity").map_err(
-            |_| {
-                MappingRequestError::new(
-                    MappingRequestErrorCode::AllocationFailed,
-                    "package.identity",
-                    "package identity canonicalization failed",
-                )
-            },
-        )?;
+    let canonical = identity_bytes(
+        &material,
+        request.limits().maximum_request_bytes,
+        "package.identity",
+    )?;
     control.check_cancelled("package.complete")?;
 
     Ok(GeneratedOutputPackage {
@@ -2076,6 +2063,70 @@ impl StructuralObservationRef {
     pub fn refusal_cause(&self) -> Option<&MappingCause> {
         self.refusal_cause.as_ref()
     }
+}
+
+/// The preimage of a request's identity: every admitted input, and every
+/// limit that shapes the resources the request may use.
+#[derive(Serialize)]
+struct MappingRequestIdentityMaterial<'a> {
+    identity_version: &'static str,
+    source_package: &'a MappingSourcePackageRef,
+    obligations: &'a [RequestedMappingObligation],
+    native_selection: &'a NativeSourceSelection,
+    model_selection: &'a ModelSourceSelection,
+    semantic_selection: &'a SemanticSourceSelection,
+    target_profile: &'a OutputMappingProfile,
+    resource_shape: MappingResourceShape,
+}
+
+/// The limits a request's identity covers. The canonical request byte limit is
+/// not among them: it bounds this preimage, so it cannot be one of its members.
+#[derive(Serialize)]
+struct MappingResourceShape {
+    maximum_obligations: u64,
+    maximum_expression_nodes: u64,
+    maximum_nesting_depth: u64,
+    maximum_mapping_work: u64,
+    maximum_records: u64,
+    maximum_emitted_bytes: u64,
+}
+
+/// The canonical identity bytes of `material`, refused rather than truncated
+/// once they pass `maximum_bytes`.
+///
+/// Every identity step of the pipeline runs under the request's own canonical
+/// byte limit (`MappingLimits::maximum_request_bytes`), so no identity
+/// material is encoded without a ceiling. Reaching a limit of the encoder
+/// (bytes, or the nesting depth it accepts) is
+/// `request_limit_exceeded` at the step's `path`; a value `quire-canonical` has
+/// no RFC 8785 spelling for (an integer past 2^53) is `arithmetic_overflow`;
+/// any other refusal keeps the step's `allocation_failed`.
+fn identity_bytes<T: Serialize + ?Sized>(
+    material: &T,
+    maximum_bytes: u64,
+    path: &'static str,
+) -> Result<Vec<u8>, MappingRequestError> {
+    use quire_canonical::Error;
+    quire_canonical::to_vec(material, crate::canonical::encoder_limits(maximum_bytes)).map_err(
+        |error| match error {
+            Error::Limit(_) => MappingRequestError::new(
+                MappingRequestErrorCode::RequestLimitExceeded,
+                path,
+                "canonical identity material exceeds the admitted request byte limit",
+            ),
+            Error::IntegerMagnitudeAboveMaximum(_)
+            | Error::UnsignedIntegerMagnitudeAboveMaximum(_) => MappingRequestError::new(
+                MappingRequestErrorCode::ArithmeticOverflow,
+                path,
+                "canonical identity material holds an integer past 2^53",
+            ),
+            _ => MappingRequestError::new(
+                MappingRequestErrorCode::AllocationFailed,
+                path,
+                "canonical identity material could not be encoded",
+            ),
+        },
+    )
 }
 
 /// Fully validated target-neutral request; construction is atomic.
@@ -2249,32 +2300,24 @@ impl AdmittedMappingRequest {
         };
         control.check_cancelled("request.identity")?;
         control.allocate(MappingAllocationPoint::RequestIdentity)?;
-        let request_material = json!({
-            "identity_version": OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
-            "source_package": &source_package,
-            "obligations": requested,
-            "native_selection": &native,
-            "model_selection": &model,
-            "semantic_selection": &semantic,
-            "target_profile": &profile,
-            "resource_shape": {
-                "maximum_obligations": limits.maximum_obligations,
-                "maximum_expression_nodes": limits.maximum_expression_nodes,
-                "maximum_nesting_depth": limits.maximum_nesting_depth,
-                "maximum_mapping_work": limits.maximum_mapping_work,
-                "maximum_records": limits.maximum_records,
-                "maximum_emitted_bytes": limits.maximum_emitted_bytes,
-            }
-        });
-        let canonical =
-            crate::canonical::canonical_envelope_bytes(&request_material, u64::MAX, "request")
-                .map_err(|_| {
-                    MappingRequestError::new(
-                        MappingRequestErrorCode::AllocationFailed,
-                        "request",
-                        "canonical request allocation failed",
-                    )
-                })?;
+        let request_material = MappingRequestIdentityMaterial {
+            identity_version: OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
+            source_package: &source_package,
+            obligations: &requested,
+            native_selection: &native,
+            model_selection: &model,
+            semantic_selection: &semantic,
+            target_profile: &profile,
+            resource_shape: MappingResourceShape {
+                maximum_obligations: limits.maximum_obligations,
+                maximum_expression_nodes: limits.maximum_expression_nodes,
+                maximum_nesting_depth: limits.maximum_nesting_depth,
+                maximum_mapping_work: limits.maximum_mapping_work,
+                maximum_records: limits.maximum_records,
+                maximum_emitted_bytes: limits.maximum_emitted_bytes,
+            },
+        };
+        let canonical = identity_bytes(&request_material, limits.maximum_request_bytes, "request")?;
         let request_bytes = u64::try_from(canonical.len()).map_err(|_| {
             MappingRequestError::new(
                 MappingRequestErrorCode::ArithmeticOverflow,
@@ -2282,12 +2325,6 @@ impl AdmittedMappingRequest {
                 "canonical request byte count exceeds the supported integer range",
             )
         })?;
-        check_limit(
-            request_bytes,
-            limits.maximum_request_bytes,
-            MappingRequestErrorCode::RequestLimitExceeded,
-            "request",
-        )?;
 
         Ok(Self {
             package: package.clone(),
@@ -2568,21 +2605,11 @@ fn build_mapping_record(
         observation_adequacy: candidate.observation_adequacy.as_ref(),
         protocol_adequacy: candidate.protocol_adequacy.as_ref(),
     };
-    let value = serde_json::to_value(material).map_err(|_| {
-        MappingRequestError::new(
-            MappingRequestErrorCode::AllocationFailed,
-            "record.identity",
-            "mapping record identity material allocation failed",
-        )
-    })?;
-    let canonical = crate::canonical::canonical_envelope_bytes(&value, u64::MAX, "record.identity")
-        .map_err(|_| {
-            MappingRequestError::new(
-                MappingRequestErrorCode::AllocationFailed,
-                "record.identity",
-                "mapping record canonicalization failed",
-            )
-        })?;
+    let canonical = identity_bytes(
+        &material,
+        request.limits().maximum_request_bytes,
+        "record.identity",
+    )?;
     Ok(OutputMappingRecord {
         record_id: MappingRecordId::digest(&canonical),
         source,
@@ -2655,7 +2682,40 @@ fn classify_unknown(package: &BoundPackage, identity: &ClauseRef) -> MappingRequ
 
 #[cfg(test)]
 mod tests {
-    use super::{MappingRequestErrorCode, OutputByteRegion};
+    use super::{identity_bytes, MappingRequestErrorCode, OutputByteRegion};
+    use serde_json::json;
+
+    /// Every identity step runs under a byte ceiling: material of exactly the
+    /// ceiling encodes, one byte more is `request_limit_exceeded` at the step's
+    /// path, and no bytes are returned. This is the helper behind the
+    /// request, record and package identity steps (IR-74).
+    ///
+    /// Tracing: TC-043, FR-034-AC-6.
+    #[test]
+    fn tc_043_identity_material_is_refused_at_its_byte_ceiling_with_a_limit_cause() {
+        let material = json!({"a": "xyz"});
+        let exact = identity_bytes(&material, 11, "package.identity").expect("exact ceiling");
+        assert_eq!(exact, br#"{"a":"xyz"}"#);
+        let refusal = identity_bytes(&material, 10, "package.identity")
+            .expect_err("one byte over the ceiling accepted");
+        assert_eq!(
+            refusal.code(),
+            MappingRequestErrorCode::RequestLimitExceeded
+        );
+        assert_eq!(refusal.path(), "package.identity");
+    }
+
+    /// An integer past 2^53 has no exact RFC 8785 number, so identity material
+    /// holding one is refused rather than silently rounded.
+    ///
+    /// Tracing: TC-043, FR-034-AC-6.
+    #[test]
+    fn tc_043_identity_material_with_an_integer_past_two_to_the_fifty_third_is_refused() {
+        let refusal = identity_bytes(&json!({"limit": u64::MAX}), u64::MAX, "request")
+            .expect_err("rounded integer accepted");
+        assert_eq!(refusal.code(), MappingRequestErrorCode::ArithmeticOverflow);
+        assert!(identity_bytes(&json!({"limit": 1_u64 << 53}), u64::MAX, "request").is_ok());
+    }
 
     /// Tracing: TC-043, FR-034-AC-3, NFR-060.
     #[test]

@@ -2,12 +2,12 @@ use quire_contract_ir::{
     classify_coverage, AnchorName, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalKind,
     CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType, ContractPackage, CoverageClass,
     DeclarationEnvironment, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration,
-    ExecutionPoint, Expression, ExpressionKind, FunctionParameter, OrphanReason, PackageId,
-    PureFunctionDeclaration, RationalType, RecordDeclaration, RecordFieldDeclaration,
-    RecordLiteralField, ReferenceBody, Requirement, RequirementId, RequirementRef,
-    RequirementRevision, SchemaVersion, SourceDocumentId, SourceIdentity, SourceLocation,
-    SourceRevision, SourceSpan, SymbolName, TypeDeclaration, ValidationOptions, ValueDeclaration,
-    ValueDeclarationKind, ValueType,
+    ExecutionPoint, Expression, ExpressionKind, FunctionParameter, IntegerDomain, IntegerType,
+    OrphanReason, OverflowPolicy, PackageId, PureFunctionDeclaration, RationalType,
+    RecordDeclaration, RecordFieldDeclaration, RecordLiteralField, ReferenceBody, Requirement,
+    RequirementId, RequirementRef, RequirementRevision, SchemaVersion, SourceDocumentId,
+    SourceIdentity, SourceLocation, SourceRevision, SourceSpan, SymbolName, TypeDeclaration,
+    ValidationOptions, ValueDeclaration, ValueDeclarationKind, ValueType,
 };
 
 fn source(document: &str) -> SourceIdentity {
@@ -640,6 +640,68 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
     )
     .unwrap();
     assert!(collection_text.find("z_item").unwrap() < collection_text.find("a_item").unwrap());
+}
+
+/// RFC 8785 has no exact number past 2^53, so the profile spells an integer
+/// whose magnitude exceeds it as a decimal string and every other integer as a
+/// number: the largest exact one stays a number, the next one up is a string.
+///
+/// Tracing: TC-017.
+/// FR-016-AC-1.
+#[test]
+fn tc_017_integers_past_two_to_the_fifty_third_are_decimal_strings() {
+    let wide = IntegerType::new(
+        IntegerDomain::Signed,
+        i64::MIN,
+        i64::MAX,
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let source = source("wide");
+    let canonical = |value: i64| {
+        let expression = Expression::new(
+            ExpressionKind::IntegerLiteral {
+                value,
+                value_type: wide.clone(),
+            },
+            span(&source, 0, 1),
+        );
+        let typed = DeclarationEnvironment::new(
+            RequirementRef::parse("agent-ix/pkg", "REQ_wide", 1).unwrap(),
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap()
+        .check_expression(
+            &expression,
+            &ValueType::integer(wide.clone()),
+            &ExecutionPoint::Pre {
+                operation: AnchorName::new("check").unwrap(),
+            },
+            false,
+        )
+        .unwrap();
+        let output = typed.canonical_expression(CanonicalProfile::V1).unwrap();
+        String::from_utf8(output.bytes().as_slice().to_vec()).unwrap()
+    };
+    let exact = canonical(1 << 53);
+    assert!(exact.contains("\"value\":9007199254740992"), "{exact}");
+    assert!(
+        exact.contains("\"maximum\":\"9223372036854775807\""),
+        "{exact}"
+    );
+    assert!(
+        exact.contains("\"minimum\":\"-9223372036854775808\""),
+        "{exact}"
+    );
+    let past = canonical((1 << 53) + 1);
+    assert!(past.contains("\"value\":\"9007199254740993\""), "{past}");
+    let negative = canonical(-(1 << 53) - 1);
+    assert!(
+        negative.contains("\"value\":\"-9007199254740993\""),
+        "{negative}"
+    );
 }
 
 /// Tracing: TC-017.

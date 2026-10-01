@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, fmt};
 
+use quire_canonical::Limits;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
@@ -573,32 +574,22 @@ fn canonicalize(
     path: &str,
     span: Option<&SourceSpan>,
 ) -> Result<CanonicalOutput, Diagnostic> {
-    let envelope = object([
+    let mut envelope = object([
         ("kind", Value::String(kind.as_str().to_owned())),
         ("profile", Value::String(CANONICAL_PROFILE.to_owned())),
         ("value", value),
     ]);
-    let mut writer = CanonicalWriter::new(maximum_bytes, path, span);
-    writer.write_value(&envelope)?;
-    let bytes = CanonicalBytes(writer.finish());
+    project_profile_values(&mut envelope, path, span)?;
+    let bytes = CanonicalBytes(
+        quire_canonical::to_vec(&envelope, encoder_limits(maximum_bytes))
+            .map_err(|error| refusal(&error, path, span))?,
+    );
     let digest = digest(kind, bytes.as_slice());
     Ok(CanonicalOutput {
         kind,
         bytes,
         digest,
     })
-}
-
-/// Serialize a separately versioned envelope without assigning an existing
-/// canonical kind. Key order must not depend on downstream serde_json features.
-pub(crate) fn canonical_envelope_bytes(
-    value: &Value,
-    maximum_bytes: u64,
-    path: &str,
-) -> Result<Vec<u8>, Diagnostic> {
-    let mut writer = CanonicalWriter::new(maximum_bytes, path, None);
-    writer.write_value(value)?;
-    Ok(writer.finish())
 }
 
 fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
@@ -613,117 +604,96 @@ fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
     CanonicalDigest(hasher.finalize().into())
 }
 
-struct CanonicalWriter<'a> {
-    bytes: Vec<u8>,
-    maximum_bytes: u64,
-    path: &'a str,
-    span: Option<SourceSpan>,
+/// The `quire-canonical` limits for one encode: the caller's byte budget and
+/// the deepest nesting that encoder accepts. Every identity step in this crate
+/// takes its limits from here, so the depth bound is named once.
+pub(crate) const fn encoder_limits(maximum_bytes: u64) -> Limits {
+    match Limits::new(maximum_bytes, Limits::MAX_DEPTH) {
+        Ok(limits) => limits,
+        Err(_) => panic!("MAX_DEPTH is within MAX_DEPTH"),
+    }
 }
 
-impl<'a> CanonicalWriter<'a> {
-    fn new(maximum_bytes: u64, path: &'a str, span: Option<&SourceSpan>) -> Self {
-        Self {
-            bytes: Vec::new(),
-            maximum_bytes,
-            path,
-            span: span.cloned(),
-        }
-    }
+/// The largest integer magnitude `quire-canonical` encodes as a JSON number:
+/// 2^53, the largest integer every smaller one, and it, holds exactly as an
+/// IEEE 754 double (RFC 8785 spells every number as one).
+const LARGEST_EXACT_INTEGER: u64 = 1 << 53;
 
-    fn finish(self) -> Vec<u8> {
-        self.bytes
-    }
-
-    fn write_value(&mut self, value: &Value) -> Result<(), Diagnostic> {
+/// Brings `value` to the `quire.contract.canonical-json/v1` profile's
+/// spelling before it is encoded: an integer whose magnitude exceeds 2^53 has
+/// no exact RFC 8785 number, so it is spelled as its decimal string (the
+/// bound of a numeric type, for instance). Refuses the two kinds of value the
+/// profile has no spelling for and `quire-canonical` would otherwise encode:
+/// `null` and a non-integer number. Iterative, so the walk's own depth is not
+/// bounded by the stack.
+fn project_profile_values(
+    value: &mut Value,
+    path: &str,
+    span: Option<&SourceSpan>,
+) -> Result<(), Diagnostic> {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
         match value {
-            Value::Null => Err(self.invalid_value("null is not canonical semantic content")),
-            Value::Bool(value) => self.write_raw(if *value { b"true" } else { b"false" }),
-            Value::Number(value) if value.is_i64() || value.is_u64() => {
-                self.write_raw(value.to_string().as_bytes())
+            Value::Null => {
+                return Err(invalid_content(
+                    "null is not canonical semantic content",
+                    path,
+                    span,
+                ))
             }
-            Value::Number(_) => Err(self.invalid_value("floating-point values are not canonical")),
-            Value::String(value) => self.write_string(value),
-            Value::Array(values) => {
-                self.write_raw(b"[")?;
-                for (index, value) in values.iter().enumerate() {
-                    if index != 0 {
-                        self.write_raw(b",")?;
+            Value::Number(number) => {
+                let magnitude = match (number.as_u64(), number.as_i64()) {
+                    (Some(unsigned), _) => unsigned,
+                    (None, Some(signed)) => signed.unsigned_abs(),
+                    (None, None) => {
+                        return Err(invalid_content(
+                            "floating-point values are not canonical",
+                            path,
+                            span,
+                        ))
                     }
-                    self.write_value(value)?;
-                }
-                self.write_raw(b"]")
-            }
-            Value::Object(members) => {
-                self.write_raw(b"{")?;
-                let mut members = members.iter().collect::<Vec<_>>();
-                members.sort_by(|(left, _), (right, _)| unicode_cmp(left, right));
-                for (index, (key, value)) in members.into_iter().enumerate() {
-                    if index != 0 {
-                        self.write_raw(b",")?;
-                    }
-                    self.write_string(key)?;
-                    self.write_raw(b":")?;
-                    self.write_value(value)?;
-                }
-                self.write_raw(b"}")
-            }
-        }
-    }
-
-    fn write_string(&mut self, value: &str) -> Result<(), Diagnostic> {
-        self.write_raw(b"\"")?;
-        for character in value.chars() {
-            match character {
-                '"' => self.write_raw(b"\\\"")?,
-                '\\' => self.write_raw(b"\\\\")?,
-                '\u{08}' => self.write_raw(b"\\b")?,
-                '\t' => self.write_raw(b"\\t")?,
-                '\n' => self.write_raw(b"\\n")?,
-                '\u{0c}' => self.write_raw(b"\\f")?,
-                '\r' => self.write_raw(b"\\r")?,
-                character if character <= '\u{1f}' => {
-                    const HEX: &[u8; 16] = b"0123456789abcdef";
-                    let code = character as usize;
-                    self.write_raw(&[b'\\', b'u', b'0', b'0', HEX[code >> 4], HEX[code & 0x0f]])?;
-                }
-                character => {
-                    let mut encoded = [0_u8; 4];
-                    self.write_raw(character.encode_utf8(&mut encoded).as_bytes())?;
+                };
+                if magnitude > LARGEST_EXACT_INTEGER {
+                    *value = Value::String(number.to_string());
                 }
             }
-        }
-        self.write_raw(b"\"")
-    }
-
-    fn write_raw(&mut self, value: &[u8]) -> Result<(), Diagnostic> {
-        let current = u64::try_from(self.bytes.len()).map_err(|_| self.resource_error())?;
-        let additional = u64::try_from(value.len()).map_err(|_| self.resource_error())?;
-        let required = current
-            .checked_add(additional)
-            .ok_or_else(|| self.resource_error())?;
-        if required > self.maximum_bytes {
-            return Err(self.resource_error());
-        }
-        self.bytes
-            .try_reserve(value.len())
-            .map_err(|_| self.resource_error())?;
-        self.bytes.extend_from_slice(value);
-        Ok(())
-    }
-
-    fn resource_error(&self) -> Diagnostic {
-        let diagnostic = Diagnostic::error(
-            DiagnosticCode::CanonicalizationResourceExhausted,
-            "canonical byte allocation exceeded available resources",
-            self.path,
-        );
-        match &self.span {
-            Some(span) => diagnostic.at_span(span),
-            None => diagnostic,
+            Value::Bool(_) | Value::String(_) => {}
+            Value::Array(values) => pending.extend(values.iter_mut()),
+            Value::Object(members) => pending.extend(members.values_mut()),
         }
     }
+    Ok(())
+}
 
-    fn invalid_value(&self, message: &str) -> Diagnostic {
-        Diagnostic::error(DiagnosticCode::InvalidWireFormat, message, self.path)
+fn invalid_content(message: &str, path: &str, span: Option<&SourceSpan>) -> Diagnostic {
+    let diagnostic = Diagnostic::error(DiagnosticCode::InvalidWireFormat, message, path);
+    match span {
+        Some(span) => diagnostic.at_span(span),
+        None => diagnostic,
+    }
+}
+
+/// The diagnostic for an encode `quire-canonical` refused: a reached limit or a
+/// failed reservation is `canonicalization_resource_exhausted`; a value it has
+/// no RFC 8785 spelling for (an integer past 2^53, a non-finite number) is
+/// `invalid_wire_format`.
+pub(crate) fn refusal(
+    error: &quire_canonical::Error,
+    path: &str,
+    span: Option<&SourceSpan>,
+) -> Diagnostic {
+    let diagnostic = match error {
+        quire_canonical::Error::Limit(_) | quire_canonical::Error::Allocation { .. } => {
+            Diagnostic::error(
+                DiagnosticCode::CanonicalizationResourceExhausted,
+                "canonical byte allocation exceeded available resources",
+                path,
+            )
+        }
+        other => Diagnostic::error(DiagnosticCode::InvalidWireFormat, other.to_string(), path),
+    };
+    match span {
+        Some(span) => diagnostic.at_span(span),
+        None => diagnostic,
     }
 }

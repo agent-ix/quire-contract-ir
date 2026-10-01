@@ -6,10 +6,9 @@ use std::fmt;
 
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize,
 };
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use serde_json::Value;
 
 use crate::{
     CanonicalDigest, CanonicalProfile, ClauseKind, ClauseRef, ContractPackage,
@@ -23,6 +22,23 @@ pub const EXECUTABLE_PROJECTION_SCHEMA: &str =
     include_str!("../../../schemas/contract-executable-projection-v1.schema.json");
 /// Domain-separated canonical identity profile; not a producer attestation.
 pub const BOUND_IDENTITY_PROFILE: &str = "quire.contract.bound-identity/v1";
+
+/// The preimage of a bound projection's identity digest.
+#[derive(Serialize)]
+struct BoundIdentityEnvelope<'a> {
+    profile: &'static str,
+    canonical_profile: &'static str,
+    package: CanonicalDigest,
+    bindings: Vec<BoundIdentityBinding<'a>>,
+}
+
+/// One clause's contribution to [`BoundIdentityEnvelope`].
+#[derive(Serialize)]
+struct BoundIdentityBinding<'a> {
+    clause: &'a ClauseRef,
+    declaration: CanonicalDigest,
+    expression: CanonicalDigest,
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BoundClause {
@@ -368,25 +384,32 @@ impl BoundPackage {
             .canonical_package(CanonicalProfile::V1)
             .map_err(|diagnostic| vec![diagnostic])?
             .digest();
-        let identities: Vec<_> = clauses
-            .iter()
-            .map(|clause| {
-                json!({
-                    "clause": clause.identity(), "declaration": clause.declaration_digest(),
-                    "expression": clause.expression_digest(),
+        let envelope = BoundIdentityEnvelope {
+            profile: BOUND_IDENTITY_PROFILE,
+            canonical_profile: CanonicalProfile::V1.as_str(),
+            package: package_digest,
+            bindings: clauses
+                .iter()
+                .map(|clause| BoundIdentityBinding {
+                    clause: clause.identity(),
+                    declaration: clause.declaration_digest(),
+                    expression: clause.expression_digest(),
                 })
-            })
-            .collect();
-        let envelope = json!({"profile": BOUND_IDENTITY_PROFILE,
-            "canonical_profile": CanonicalProfile::V1.as_str(), "package": package_digest, "bindings": identities});
-        let bytes = crate::canonical::canonical_envelope_bytes(
+                .collect(),
+        };
+        let digest = quire_canonical::sha256(
             &envelope,
-            MAX_CONFORMANCE_FILE_BYTES,
-            "projection.identity",
+            crate::canonical::encoder_limits(MAX_CONFORMANCE_FILE_BYTES),
         )
-        .map_err(|diagnostic| vec![diagnostic])?;
-        let digest = CanonicalDigest::parse(&format!("{:x}", Sha256::digest(bytes)))
-            .map_err(|diagnostic| vec![diagnostic])?;
+        .map_err(|error| {
+            vec![crate::canonical::refusal(
+                &error,
+                "projection.identity",
+                None,
+            )]
+        })?;
+        let digest =
+            CanonicalDigest::parse(&digest.to_string()).map_err(|diagnostic| vec![diagnostic])?;
         Ok(Self {
             package,
             clauses,

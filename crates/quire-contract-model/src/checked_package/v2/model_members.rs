@@ -40,7 +40,7 @@ use super::{
     member_pointer, CheckedDomainPackageRef, CheckedNodeTag, CheckedSemanticNodeV2,
     ValidationFailure, WorkMeter,
 };
-use crate::checked_package::common::{digest_json, strict_json_value, NODE_DOMAIN};
+use crate::checked_package::common::{digest_canonical, strict_json_value, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -256,7 +256,7 @@ pub(super) fn declaration_key(
 
 fn structural_key(preimage: &Value) -> String {
     // A `json!` value always serializes.
-    digest_json(preimage).unwrap_or_default()
+    digest_canonical(preimage).unwrap_or_default()
 }
 
 fn node_ref(digest: &str) -> Value {
@@ -878,7 +878,7 @@ pub(super) fn admit_document(
     // Bytes that are not strict JSON have no RFC 8785 form, so no digest of
     // theirs equals the selected one.
     let document = strict_json_value(bytes).map_err(|_| mismatch)?;
-    if digest_json(&document).ok().as_deref() != Some(selection.digest.as_ref()) {
+    if digest_canonical(&document).ok().as_deref() != Some(selection.digest.as_ref()) {
         return Err(mismatch.into());
     }
     let wrong = |member| {

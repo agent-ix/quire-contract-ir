@@ -1,7 +1,7 @@
 {
   "canonical": [
     {
-      "digest": "d7f5798878c018e250487bf4fecd43d13286663ca3dcc66a6c09e53d2959af87",
+      "digest": "334b0288a2da5177820dc660104f8201346ebc1bf62b222a73a013f52e52b025",
       "identity": "declaration",
       "kind": "declaration",
       "bytes_path": "canonical/expression-numeric-edges-0.json"

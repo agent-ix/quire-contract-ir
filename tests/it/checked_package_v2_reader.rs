@@ -599,9 +599,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             CheckedPackageV2ReadResult::Admitted(_)
         ));
         let fractional = build(json!(1.5));
-        for candidate in [fractional, build(json!(2.0))] {
-            assert_eq!(refused(&candidate, &evidence), integer_refusal);
-        }
+        assert_eq!(refused(&fractional, &evidence), integer_refusal);
+        // RFC 8785 spells the double 2.0 as `2`, so a whole float is the
+        // integer in canonical bytes; the wire cannot tell them apart.
+        assert_eq!(canonical(&build(json!(2.0))), canonical(&build(json!(2))));
     }
 
     // A cycle is admitted once every member shares one explicit group.
@@ -2630,7 +2631,7 @@ fn tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_
     // nesting is refused by the decoder, not stopped for its depth.
     let hidden = format!(
         "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(10_000)
+        nested(500)
     );
     assert!(matches!(
         CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
@@ -2720,6 +2721,12 @@ enum Nesting {
     DiagnosticDetail,
 }
 
+/// The most nested `aggregate` terms a package can hold and still be read:
+/// each is an object and an array, the empty one at the bottom adds two more,
+/// and the deepest place [`Nesting`] puts them is five levels down, so
+/// `5 + 2 * (280 + 1)` is 567 of the reader's 576 levels.
+const DEEPEST_AGGREGATES: usize = 280;
+
 /// A canonical V2 package with `depth` nested `aggregate` terms at
 /// `nesting`, the package id re-derived. Built as text, so the test's own
 /// stack never recurses over the nesting.
@@ -2793,7 +2800,7 @@ fn deep_limits() -> CheckedPackageReadLimits {
 fn tc_048_a_deep_admitted_package_drops_on_a_small_stack() {
     let evidence = evidence_for(&v2_all_families());
     for nesting in [Nesting::NodeBody, Nesting::DiagnosticDetail] {
-        let bytes = package_with_deep_aggregate(6_000, nesting);
+        let bytes = package_with_deep_aggregate(DEEPEST_AGGREGATES, nesting);
         let evidence = evidence.clone();
         on_small_stack(
             move || match CheckedPackageV2::read(&bytes, deep_limits(), &evidence) {
@@ -2809,7 +2816,7 @@ fn tc_048_a_deep_admitted_package_drops_on_a_small_stack() {
 #[test]
 fn tc_048_a_deep_admitted_package_clones_compares_renders_and_lowers_on_a_small_stack() {
     let evidence = evidence_for(&v2_all_families());
-    let bytes = package_with_deep_aggregate(6_000, Nesting::NodeBody);
+    let bytes = package_with_deep_aggregate(DEEPEST_AGGREGATES, Nesting::NodeBody);
     let profile = CompleteLoweringProfileV2 {
         supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
         require_bounds: false,

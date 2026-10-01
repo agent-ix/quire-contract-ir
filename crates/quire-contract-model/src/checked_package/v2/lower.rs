@@ -16,7 +16,8 @@ use super::{
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{
-    digest_bytes, digest_json, on_stack_for, ReferenceMember, Step, Trail, ValidationFailure,
+    canonical_bytes, digest_bytes, digest_canonical, on_stack_for, ReferenceMember, Step, Trail,
+    ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
@@ -300,22 +301,22 @@ impl CheckedPackageV2 {
             lowered: &lowered,
             dependencies: &dependencies,
         };
-        // Every map in the preimage is string-keyed, so neither step can
-        // fail. Encoding through `Value` sorts every object's keys, which is
-        // the RFC 8785 form `CheckedPackageV2::read` requires of its input.
-        let canonical_bytes = serde_json::to_value(&preimage)
-            .and_then(|value| serde_json::to_vec(&value))
-            .expect("the package preimage has only string-keyed maps");
+        // The RFC 8785 form `CheckedPackageV2::read` requires of its input.
+        // Every map in the preimage is string-keyed and no container is nested
+        // deeper than the admitted document's own (`MAXIMUM_DEPTH` is the
+        // encoder's depth bound), so the encoder has nothing to refuse.
+        let encoded = canonical_bytes(&preimage)
+            .expect("the package preimage has only string-keyed maps within the depth bound");
         CompleteContractPackageV2 {
             source_package_id: self.package_id().clone(),
             package_id: CheckedSemanticId {
                 domain: CONTRACT_PACKAGE_VERSION.into(),
                 algorithm: "sha256".into(),
-                digest: digest_bytes(&canonical_bytes).into_boxed_str(),
+                digest: digest_bytes(&encoded).into_boxed_str(),
             },
             lowered,
             dependencies,
-            canonical_bytes: canonical_bytes.into_boxed_slice(),
+            canonical_bytes: encoded.into_boxed_slice(),
         }
     }
 
@@ -506,10 +507,7 @@ impl CheckedPackageV2 {
         // The preimage holds only string-keyed maps and strings, so encoding
         // cannot fail; the arm keeps the path panic-free and still terminal
         // for this request alone rather than emitting an unidentified node.
-        let Some(digest) = serde_json::to_value(&preimage)
-            .ok()
-            .and_then(|value| digest_json(&value).ok())
-        else {
+        let Ok(digest) = digest_canonical(&preimage) else {
             return failed(work);
         };
         CompleteLoweringRecordV2::Lowered {

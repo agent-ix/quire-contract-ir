@@ -1427,6 +1427,95 @@ fn tc_043_mapping_aggregates_accept_exact_and_refuse_just_over_bounds() {
     );
 }
 
+/// A mapper whose every record carries `dependencies` distinct dependencies,
+/// so the record's canonical identity material grows with it.
+struct DependencyHeavyMapper {
+    profile: OutputMappingProfile,
+    dependencies: usize,
+}
+
+impl OutputMapper for DependencyHeavyMapper {
+    fn profile(&self) -> &OutputMappingProfile {
+        &self.profile
+    }
+
+    fn map_obligation(
+        &mut self,
+        obligation: &AdmittedMappingObligation,
+        _budget: MappingWorkBudget,
+    ) -> Result<MappingCandidate, MappingRequestError> {
+        let fragment = format!("{}\n", obligation.identity().clause()).into_bytes();
+        MappingCandidate::new(
+            obligation.identity().clone(),
+            obligation.source_state(),
+            fragment.clone(),
+            region_for(&fragment),
+            (0..self.dependencies)
+                .map(|index| dependency(MappingDependencyKind::Semantic, &format!("dep-{index}")))
+                .collect(),
+            MappingDisposition::Preserved,
+            vec![],
+            vec![],
+            None,
+            None,
+            1,
+        )
+    }
+}
+
+/// The request-byte limit that admits `requested(package)` exactly.
+fn exact_request_limits(package: &BoundPackage) -> MappingLimits {
+    let measured = admit(package, requested(package), ocl_profile(), limits())
+        .expect("measure baseline request")
+        .request_bytes();
+    MappingLimits::new(measured, 32, 1_024, 128, 4_096, 32, 64 * 1024).expect("exact limits")
+}
+
+/// IR-74: the record identity step had no byte ceiling.
+///
+/// Tracing: TC-043, FR-034-AC-6.
+#[trace("TC-043", "FR-034-AC-6")]
+#[test]
+fn tc_043_record_identity_material_past_the_request_byte_limit_is_refused_with_a_limit_cause() {
+    let package = bound_package();
+    let exact = exact_request_limits(&package);
+    let request = admit(&package, requested(&package), ocl_profile(), exact.clone())
+        .expect("request at its exact byte limit");
+
+    // A record with one dependency has identity material inside the limit.
+    let mut small = DependencyHeavyMapper {
+        profile: ocl_profile(),
+        dependencies: 1,
+    };
+    map_admitted_request(&request, &mut small, MappingCancellation::Active)
+        .expect("identity material inside the limit");
+
+    // The same request, with a record whose material is larger than the whole
+    // request, is refused at the record identity step with the limit cause,
+    // not hashed over an unbounded encoding.
+    let mut heavy = DependencyHeavyMapper {
+        profile: ocl_profile(),
+        dependencies: 256,
+    };
+    let refusal = map_admitted_request(&request, &mut heavy, MappingCancellation::Active)
+        .expect_err("record identity material past the limit accepted");
+    assert_eq!(
+        refusal.code(),
+        MappingRequestErrorCode::RequestLimitExceeded
+    );
+    assert_eq!(refusal.path(), "record.identity");
+
+    // The limit is the cause: the same record maps under a larger limit.
+    let roomy = admit(&package, requested(&package), ocl_profile(), limits())
+        .expect("request under the roomy limit");
+    let mut heavy = DependencyHeavyMapper {
+        profile: ocl_profile(),
+        dependencies: 256,
+    };
+    map_admitted_request(&roomy, &mut heavy, MappingCancellation::Active)
+        .expect("the same record under a larger limit");
+}
+
 fn generator() -> OutputGeneratorIdentity {
     OutputGeneratorIdentity::new("agent-ix/quire-contract-ir").expect("Rust generator identity")
 }

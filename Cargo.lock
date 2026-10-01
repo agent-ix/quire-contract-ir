@@ -808,11 +808,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "quire-canonical"
+version = "0.3.0"
+source = "git+https://github.com/agent-ix/quire-canonical?branch=main#9572a21687058279bc1b729a4830a28f26ef7173"
+dependencies = [
+ "ryu-js",
+ "serde",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "quire-contract-ir"
 version = "0.1.0"
 dependencies = [
  "ix-trace-rs",
  "jsonschema 0.17.1",
+ "quire-canonical",
  "quire-contract-model",
  "serde",
  "serde_json",
@@ -825,6 +837,7 @@ name = "quire-contract-model"
 version = "0.1.0"
 dependencies = [
  "jsonschema 0.17.1",
+ "quire-canonical",
  "quire-verification-contracts",
  "serde",
  "serde_json",

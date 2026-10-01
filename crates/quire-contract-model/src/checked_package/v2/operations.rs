@@ -70,7 +70,7 @@ use super::{
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
-    application_operator, body_term, decoder_pointer, digest_json, node_pointer,
+    application_operator, body_term, decoder_pointer, digest_canonical, node_pointer,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -142,7 +142,7 @@ pub(super) fn validate_application_keys(
             .and_then(|label| groups.get(label))
             .map_or(&[][..], Vec::as_slice);
         let preimage = application_preimage(application, group)?;
-        let computed = digest_json(&preimage).map_err(|_| {
+        let computed = digest_canonical(&preimage).map_err(|_| {
             ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 application.node_id(),
@@ -2221,7 +2221,7 @@ mod tests {
         CheckedSemanticNodeV2, DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners,
         SuppliedDependencies, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
-    use crate::checked_package::common::{digest_json, NODE_DOMAIN};
+    use crate::checked_package::common::{digest_canonical, NODE_DOMAIN};
     use crate::checked_package::shared::{
         CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
     };
@@ -2354,7 +2354,7 @@ mod tests {
             "recursion": node.recursion_group.as_deref(),
             "body": node.body.clone(),
         });
-        let digest = digest_json(&preimage).expect("preimage digests");
+        let digest = digest_canonical(&preimage).expect("preimage digests");
         node.node_id.digest = Box::from(digest.as_str());
         node
     }

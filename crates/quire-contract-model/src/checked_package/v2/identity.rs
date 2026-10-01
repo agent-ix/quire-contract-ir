@@ -13,7 +13,7 @@ use super::{
     ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    decoder_pointer, digest_json, node_pointer, ValidationFailure,
+    canonical_bytes, decoder_pointer, digest_canonical, node_pointer, ValidationFailure,
 };
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -402,9 +402,7 @@ impl NominalIdentityPreimage {
 
     /// Lowercase SHA-256 of the canonical preimage bytes.
     pub fn digest(&self) -> Option<String> {
-        serde_json::to_value(self)
-            .ok()
-            .and_then(|value| digest_json(&value).ok())
+        digest_canonical(self).ok()
     }
 }
 
@@ -712,7 +710,7 @@ fn validate_dimension(
             return Err(invalid(base_at()));
         };
         require(base.terms.is_empty(), base_at)?;
-        keys.push(serde_json::to_vec(term).map_err(|_| invalid(term_at(index)))?);
+        keys.push(canonical_bytes(term).map_err(|_| invalid(term_at(index)))?);
     }
     // The later term of the first out-of-order pair is at fault.
     if let Some(pair) = keys

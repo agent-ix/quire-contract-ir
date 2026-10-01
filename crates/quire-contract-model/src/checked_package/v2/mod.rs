@@ -28,7 +28,7 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    count, decode_closed, digest_json, dismantle, exceeds, first_difference, is_digest,
+    count, decode_closed, digest_canonical, dismantle, exceeds, first_difference, is_digest,
     is_nonempty, node_pointer, on_stack_for, read_value, validate_locked_artifact,
     validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
     Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
@@ -756,8 +756,7 @@ fn validate(
             member_pointer(&["identity_preimage"]),
         )
     };
-    let preimage = serde_json::to_value(&wire.identity_preimage).map_err(unserializable)?;
-    let computed = digest_json(&preimage).map_err(unserializable)?;
+    let computed = digest_canonical(&wire.identity_preimage).map_err(unserializable)?;
     if computed != wire.package_id.digest.as_ref() {
         return Err(refuse(
             CheckedPackageRefusalCode::StaleDependency,

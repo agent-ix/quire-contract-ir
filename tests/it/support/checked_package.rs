@@ -81,9 +81,11 @@ pub fn positive_operation_identities() -> Value {
     build_operation_identities()
 }
 
-/// RFC 8785 bytes for the ASCII, integer-only fixtures (sorted members).
+/// RFC 8785 bytes of a fixture, from `quire-canonical`.
 pub fn canonical(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).expect("canonical test JSON")
+    let limits = quire_canonical::Limits::new(u64::MAX, quire_canonical::Limits::MAX_DEPTH)
+        .expect("MAX_DEPTH is within MAX_DEPTH");
+    quire_canonical::to_vec(value, limits).expect("canonical test JSON")
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {

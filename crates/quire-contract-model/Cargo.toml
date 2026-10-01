@@ -25,6 +25,9 @@ jsonschema = { version = "=0.17.1", default-features = false }
 # The home of `quire.checked-operation-catalog/v1`. This crate reads the catalog
 # from there rather than carrying its own copy of the bytes; see
 # `checked_package/v2/operation_catalog.rs`.
+# The one RFC 8785 encoder and SHA-256 identity for every canonical byte this
+# crate emits or checks; the crate carries no canonical writer of its own.
+quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 quire-verification-contracts = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }

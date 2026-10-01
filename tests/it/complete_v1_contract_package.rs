@@ -170,7 +170,7 @@ fn tc_047_package_bytes_are_canonical_and_stable_across_identical_calls() {
     // order or duplication does not reach the package.
     let decoded: Value = serde_json::from_slice(first.canonical_bytes()).expect("json");
     assert_eq!(
-        serde_json::to_vec(&decoded).expect("encode"),
+        crate::support::checked_package::canonical(&decoded),
         first.canonical_bytes()
     );
     assert_eq!(decoded["version"], json!(CONTRACT_PACKAGE_VERSION));

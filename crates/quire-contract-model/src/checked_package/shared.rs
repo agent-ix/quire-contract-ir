@@ -39,8 +39,11 @@ pub struct CheckedPackageReadLimits {
 impl CheckedPackageReadLimits {
     /// The deepest nesting the reader reads whatever `depth` a caller
     /// supplies. Reading and lowering a document run on a stack sized from its
-    /// depth, and this ceiling keeps that one allocation bounded.
-    pub const MAXIMUM_DEPTH: u64 = 16_384;
+    /// depth, and this ceiling keeps that one allocation bounded. It is
+    /// `quire_canonical::Limits::MAX_DEPTH`, the deepest document the one
+    /// RFC 8785 encoder will canonicalize, so a document the reader admits is a
+    /// document whose canonical form and `package_id` can be computed.
+    pub const MAXIMUM_DEPTH: u64 = quire_canonical::Limits::MAX_DEPTH as u64;
 
     /// A finite default appropriate for one local request.
     pub const fn bounded() -> Self {
