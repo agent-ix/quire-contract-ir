@@ -1755,6 +1755,11 @@ fn text_profile_pin(
     None
 }
 
+/// The outcome of comparing the supplied leaves with the derived ones: the
+/// `text_profile` each leaf's type pins, or the first leaf at fault and the
+/// member of it (`path` or `laws`).
+type LeafShape = Result<Vec<Box<str>>, (usize, &'static str)>;
+
 /// One path segment (`field:<name>`, `position:<n>`, `inner`) and the type
 /// node it leads to.
 type LeafChild = (Box<str>, CheckedNodeId);
@@ -1927,7 +1932,7 @@ impl LeafWalk<'_, '_> {
         root: &CheckedNodeId,
         supplied: &[OperationLeafWire],
         text_laws: &[CheckedArtifactRef],
-    ) -> Result<Result<Vec<Box<str>>, (usize, &'static str)>, LeafWalkEnd> {
+    ) -> Result<LeafShape, LeafWalkEnd> {
         let mut pins: Vec<Box<str>> = Vec::new();
         let mut path: Vec<Box<str>> = Vec::new();
         let mut frames: Vec<(usize, usize)> = Vec::new();
