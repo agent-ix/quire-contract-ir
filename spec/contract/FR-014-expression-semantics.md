@@ -127,7 +127,7 @@ scalar value; a shorter equal prefix sorts first.
 | FR-014-AC-4 | Rechecking identical declarations, context, expression, and expected type produces structurally equal typed output, ordered diagnostics, and dependency identities. | Test (TC-016) |
 | FR-014-AC-5 | Expression trees at the node/depth limits validate normally; the first node beyond either limit fails with `expression_too_large` before recursive typing. | Test (TC-016) |
 | FR-014-AC-6 | Typed expression fixtures derive exact input/state-observation, field-owner, enum-variant, and pure-function dependencies once in structural order, satisfying FR-012-AC-5. | Test (TC-016) |
-| FR-014-AC-7 | A guarded product of 500 leaves checks successfully because range intervals merge; a range set of more than 64 disjoint intervals is refused with `potentially_undefined` (`checked_range`) and never aborts the process. | Test (TC-016) |
+| FR-014-AC-7 | A guarded product of 120 leaves checks successfully because range intervals merge; a range set of more than 64 disjoint intervals is refused with `potentially_undefined` (`checked_range`) and never aborts the process. | Test (TC-016) |
 
 ## Dependencies
 

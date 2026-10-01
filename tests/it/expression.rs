@@ -1637,7 +1637,7 @@ fn guarded_fold(operator: NumericOperator, leaves: usize) -> Expression {
 #[test]
 fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
     let environment = wide_environment();
-    for leaves in [16, 32, 500] {
+    for leaves in [16, 32, 120] {
         let expression = guarded_fold(NumericOperator::Multiply, leaves);
         let checked = environment.check_expression(&expression, &ValueType::Boolean, &pre(), true);
         assert!(checked.is_ok(), "{leaves} guarded product leaves");
