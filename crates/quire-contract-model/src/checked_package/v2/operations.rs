@@ -53,7 +53,7 @@
 //! resolves only `reference` and `binding` argument terms, so a `literal`,
 //! `aggregate` or nested `application` argument resolves to no family and
 //! silently bypasses every operand-family check ([`check_operands`],
-//! [`check_mode_type`], [`check_leaves`]) that consults it.
+//! [`check_mode_type`], [`check_leaf_count`]) that consults it.
 
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
@@ -311,10 +311,8 @@ impl OperationModeWire {
 #[serde(deny_unknown_fields)]
 struct OperationLeafWire {
     path: Vec<Box<str>>,
-    /// Parsed for `deny_unknown_fields` fidelity with the wire shape; not
-    /// read by `check_leaves`, which resolves a leaf's pinned value from its
-    /// own record-field type rather than from any law this member declares.
-    #[allow(dead_code)]
+    /// Read by `check_leaf_count`, which requires exactly one `text_profile`
+    /// law per leaf.
     laws: Vec<OperationLawWire>,
     mode: Option<OperationModeWire>,
 }
@@ -458,6 +456,15 @@ fn operation_defect(
             application
                 .body(&["operation", "laws"])
                 .index(entry.laws.len()),
+            CheckedPackageRefusalCause::OperationLawMismatch,
+        );
+    }
+    // QSpec FR-322: an entry that names no leaf source lists no leaves; the
+    // reference reader refuses a supplied one as a law mismatch, ahead of any
+    // selection check.
+    if entry.leaves.is_none() && !operation.leaves.is_empty() {
+        return refuse(
+            application.body(&["operation", "leaves"]).index(0),
             CheckedPackageRefusalCause::OperationLawMismatch,
         );
     }
@@ -637,19 +644,16 @@ fn operation_defect(
     ) {
         return Ok(Some(failure));
     }
-    if let Some(failure) =
-        check_leaf_count(application, entry, &operation, &arguments, graph, meter)?
-    {
-        return Ok(Some(failure));
-    }
-    Ok(check_leaves(
+    check_leaf_count(
         application,
+        entry,
         &operation,
         &arguments,
-        nodes,
-        kinds,
-        index,
-    ))
+        graph,
+        lock,
+        catalog,
+        meter,
+    )
 }
 
 /// Resolves an argument term's family: `reference` resolves its target node
@@ -1601,26 +1605,6 @@ fn operand_type_node(
     }
 }
 
-/// A record type's declared field's own type-node id, by field name.
-fn record_field_type(
-    record_type: &CheckedNodeId,
-    field: &str,
-    nodes: &[CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<CheckedNodeId> {
-    let declaring = &nodes[*index.get(record_type)?];
-    let members = declaring.body.get("members")?.as_array()?;
-    let binding = members.iter().find(|entry| {
-        body_term(entry) == Some(BodyTerm::Binding)
-            && entry.get("name").and_then(Value::as_str) == Some(field)
-    })?;
-    let value = binding.get("value")?;
-    if body_term(value) != Some(BodyTerm::Reference) {
-        return None;
-    }
-    serde_json::from_value(value.get("target")?.clone()).ok()
-}
-
 /// The value a type node's own declaration pins for a type-pinned mode kind
 /// (`rounding`, `text_profile`): a `bounded_domain` wrapper's `aggregate`
 /// body carries exactly one `binding` named for the kind, e.g.
@@ -1745,11 +1729,69 @@ enum LeafWalkEnd {
     Work(ValidationFailure),
 }
 
-/// One type node being summed: its child type ids, how many are done, and
-/// the running count.
+/// The `text_profile` a text type pins: the first node of its alias and
+/// bounded-domain chain that binds one (QSpec FR-322). Every node of a chain
+/// walked has the same answer as the node it forwards to, so each is memoised
+/// in `memo`, and each step not already known is charged to `meter`: a long
+/// alias chain named by many fields costs its length once, not once per field.
+fn text_profile_pin(
+    type_id: &CheckedNodeId,
+    walk: &mut LeafWalk<'_, '_>,
+) -> Result<Option<Box<str>>, LeafWalkEnd> {
+    let (nodes, kinds, index) = (walk.nodes, walk.kinds, walk.index);
+    let Some(mut position) = index.get(type_id).copied() else {
+        return Ok(None);
+    };
+    let mut walked = Vec::new();
+    let mut seen = BTreeSet::new();
+    let found = loop {
+        if let Some(known) = walk.pins.get(&position) {
+            break known.clone();
+        }
+        let at = &walk.at;
+        walk.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)?;
+        let node = &nodes[position];
+        walked.push(position);
+        seen.insert(position);
+        if let Some(pin) = type_pin(&node.node_id, OperationModeKind::TextProfile, nodes, index) {
+            break Some(pin);
+        }
+        let Some(kind) = kinds.get(position).copied() else {
+            break None;
+        };
+        let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
+            || (kind.tag() == CheckedNodeTag::BoundedDomain
+                && node.semantic_form.as_ref() != "model_population");
+        if !forwards || node.semantic_type == node.node_id {
+            break None;
+        }
+        match index.get(&node.semantic_type) {
+            // A chain that revisits a node is a cycle: no pin.
+            Some(next) if !seen.contains(next) => position = *next,
+            _ => break None,
+        }
+    };
+    for position in walked {
+        walk.pins.insert(position, found.clone());
+    }
+    Ok(found)
+}
+
+/// The outcome of comparing the supplied leaves with the derived ones: the
+/// `text_profile` each leaf's type pins, or the first leaf at fault and the
+/// member of it (`path` or `laws`).
+type LeafShape = Result<Vec<Box<str>>, (usize, &'static str)>;
+
+/// One path segment (`field:<name>`, `position:<n>`, `inner`) and the type
+/// node it leads to.
+type LeafChild = (Box<str>, CheckedNodeId);
+
+/// One type node being summed: how many of its children are done, and the
+/// running count. Its children are `LeafWalk::kids[position]`.
 struct LeafFrame {
     position: usize,
-    children: Vec<CheckedNodeId>,
     next: usize,
     total: usize,
 }
@@ -1767,6 +1809,14 @@ enum LeafEntry {
 /// charged to the work meter, so a shared-field chain is linear and nesting
 /// depth is bounded by the budget. The walk is iterative: depth costs heap,
 /// not stack.
+///
+/// The expected paths are never listed up front, since a shared-field type
+/// has exponentially many. Once [`LeafWalk::count`] has settled the count and
+/// it equals the number of supplied leaves, [`LeafWalk::first_leaf_fault`]
+/// derives them one at a time in declaration order, skipping every subtree
+/// the memo says holds no text leaf, so its cost is bounded by the supplied
+/// leaves times the depth times the width of a node's fields (a sibling
+/// holding no text is entered and skipped), and is charged to the meter.
 struct LeafWalk<'g, 'm> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
@@ -1774,12 +1824,16 @@ struct LeafWalk<'g, 'm> {
     meter: &'m mut WorkMeter,
     at: JsonPointer,
     memo: BTreeMap<usize, usize>,
+    /// The profile each alias or domain node of a text type's chain pins.
+    pins: BTreeMap<usize, Option<Box<str>>>,
+    /// Each summed non-leaf type node's children, in declaration order.
+    kids: BTreeMap<usize, Vec<LeafChild>>,
     stack: Vec<LeafFrame>,
     on_stack: BTreeSet<usize>,
 }
 
 impl LeafWalk<'_, '_> {
-    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<Vec<CheckedNodeId>> {
+    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<Vec<LeafChild>> {
         let members = || self.nodes[position].body.get("members")?.as_array();
         match kind {
             CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => members()?
@@ -1788,19 +1842,30 @@ impl LeafWalk<'_, '_> {
                     if body_term(member) != Some(BodyTerm::Binding) {
                         return None;
                     }
-                    referenced_type(member.get("value")?)
+                    let name = member.get("name")?.as_str()?;
+                    Some((
+                        format!("field:{name}").into(),
+                        referenced_type(member.get("value")?)?,
+                    ))
                 })
                 .collect(),
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
-                members()?.iter().map(referenced_type).collect()
-            }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => members()?
+                .iter()
+                .enumerate()
+                .map(|(at, member)| {
+                    Some((format!("position:{at}").into(), referenced_type(member)?))
+                })
+                .collect(),
             CheckedNodeKind::CompositeType(
                 CompositeTypeForm::Option
                 | CompositeTypeForm::Sequence
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::OrderedSet,
-            ) => Some(vec![referenced_type(members()?.first()?)?]),
+            ) => Some(vec![(
+                "inner".into(),
+                referenced_type(members()?.first()?)?,
+            )]),
             _ => Some(Vec::new()),
         }
     }
@@ -1812,15 +1877,19 @@ impl LeafWalk<'_, '_> {
             .map_err(LeafWalkEnd::Work)?;
         let (position, kind) = structural_type(type_id, self.nodes, self.kinds, self.index)
             .ok_or(LeafWalkEnd::Unresolved)?;
+        // A text leaf whose type chain pins no profile cannot be decided
+        // (QSpec FR-322: the type is ineligible). The pin lives in a wrapper
+        // above the shared `text` scalar, so it is read at every visit.
+        if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
+            text_profile_pin(type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?;
+            self.memo.insert(position, 1);
+            return Ok(LeafEntry::Count(1));
+        }
         if let Some(count) = self.memo.get(&position) {
             return Ok(LeafEntry::Count(*count));
         }
         if self.on_stack.contains(&position) {
             return Err(LeafWalkEnd::Cycle);
-        }
-        if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
-            self.memo.insert(position, 1);
-            return Ok(LeafEntry::Count(1));
         }
         let children = self
             .children(position, kind)
@@ -1830,9 +1899,9 @@ impl LeafWalk<'_, '_> {
             return Ok(LeafEntry::Count(0));
         }
         self.on_stack.insert(position);
+        self.kids.insert(position, children);
         self.stack.push(LeafFrame {
             position,
-            children,
             next: 0,
             total: 0,
         });
@@ -1854,7 +1923,12 @@ impl LeafWalk<'_, '_> {
             let Some(frame) = self.stack.last_mut() else {
                 return Err(LeafWalkEnd::Unresolved);
             };
-            if let Some(child) = frame.children.get(frame.next).cloned() {
+            let child = self
+                .kids
+                .get(&frame.position)
+                .and_then(|kids| kids.get(frame.next))
+                .map(|(_, child)| child.clone());
+            if let Some(child) = child {
                 frame.next += 1;
                 finished = match self.enter(&child)? {
                     LeafEntry::Count(count) => Some(count),
@@ -1870,24 +1944,116 @@ impl LeafWalk<'_, '_> {
             }
         }
     }
+
+    /// The first supplied leaf, by index, that is not the one the type
+    /// derives for its place, and the member of it at fault (`path` or
+    /// `laws`): the leaves are compared in declaration order against the
+    /// expected path and the one `text_profile` law each carries. Must run
+    /// after [`LeafWalk::count`] of `root`, with `supplied.len()` equal to
+    /// that count. When every leaf fits, returns the `text_profile` each
+    /// leaf's type pins, in order.
+    fn first_leaf_fault(
+        &mut self,
+        root: &CheckedNodeId,
+        supplied: &[OperationLeafWire],
+        text_laws: &[CheckedArtifactRef],
+    ) -> Result<LeafShape, LeafWalkEnd> {
+        let mut pins: Vec<Box<str>> = Vec::new();
+        let mut path: Vec<Box<str>> = Vec::new();
+        let mut frames: Vec<(usize, usize)> = Vec::new();
+        let mut emitted = 0;
+        let mut entering = Some(root.clone());
+        loop {
+            if let Some(type_id) = entering.take() {
+                let at = &self.at;
+                self.meter
+                    .charge(1, || at.clone())
+                    .map_err(LeafWalkEnd::Work)?;
+                let (position, kind) =
+                    structural_type(&type_id, self.nodes, self.kinds, self.index)
+                        .ok_or(LeafWalkEnd::Unresolved)?;
+                let count = *self.memo.get(&position).ok_or(LeafWalkEnd::Unresolved)?;
+                if count > 0 && kind != CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
+                    frames.push((position, 0));
+                } else {
+                    if count > 0 {
+                        let leaf = supplied.get(emitted).ok_or(LeafWalkEnd::Unresolved)?;
+                        if !leaf
+                            .path
+                            .iter()
+                            .map(AsRef::as_ref)
+                            .eq(path.iter().map(AsRef::as_ref))
+                        {
+                            return Ok(Err((emitted, "path")));
+                        }
+                        let lawful = matches!(
+                            leaf.laws.as_slice(),
+                            [law] if law.role_class() == Some(LawRole::TextProfile)
+                                && text_laws.contains(&law.definition)
+                        );
+                        if !lawful {
+                            return Ok(Err((emitted, "laws")));
+                        }
+                        pins.push(
+                            text_profile_pin(&type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?,
+                        );
+                        emitted += 1;
+                    }
+                    if frames.is_empty() {
+                        return Ok(Ok(pins));
+                    }
+                    path.pop();
+                }
+            }
+            let Some(top) = frames.last_mut() else {
+                return Ok(Ok(pins));
+            };
+            let child = self
+                .kids
+                .get(&top.0)
+                .ok_or(LeafWalkEnd::Unresolved)?
+                .get(top.1);
+            if let Some((segment, child)) = child {
+                top.1 += 1;
+                path.push(segment.clone());
+                entering = Some(child.clone());
+            } else {
+                frames.pop();
+                if !frames.is_empty() {
+                    path.pop();
+                }
+            }
+        }
+    }
 }
 
-/// QSpec FR-322: for an entry naming a leaf source, `operation.leaves` lists
-/// one entry for every `text` leaf of the compared type, so a type with none
-/// takes an empty list and fewer entries than text leaves is
-/// `operation-law-missing`. `result_inner` expects leaves only for a `set`,
-/// `bag` or `ordered_set` result; any other result expects none. A compared
-/// type that reaches itself, or has a node that does not resolve, is
-/// `ill_typed`/`operator-ineligible`; one too large for the work budget is
-/// the budget's refusal. Leaf paths and laws are checked only as
-/// [`check_leaves`] reads them, and a `float32` or `float64` leaf counts as
-/// no text leaf where the reference reader finds the type undecidable.
+/// QSpec FR-322: for an entry naming a leaf source, `operation.leaves` lists,
+/// in declaration order, one entry for every `text` leaf of the compared
+/// type, each with that leaf's path (`field:<name>`, `position:<n>`, `inner`)
+/// and one `text_profile` law. A type with none takes an empty list; fewer
+/// entries than text leaves is `operation-law-missing`, and more entries, a
+/// wrong or misordered path, or a leaf whose laws are not exactly one
+/// catalogued `text_profile` definition is `operation-law-mismatch`; a leaf
+/// law the lock does not select is `operation-law-unselected`. Each leaf's
+/// `mode` must be a catalogued `text_profile` mode (`operation-mode-mismatch`
+/// when absent, of another kind or of an uncatalogued value) and equal the
+/// profile its text type pins (`operation-mode-type-mismatch`).
+/// `result_inner` expects leaves only for a `set`, `bag` or `ordered_set`
+/// result; any other result expects none, so a supplied leaf is a mismatch. A
+/// compared type that reaches itself, has a node that does not resolve, or
+/// has a text leaf pinning no profile is `ill_typed`/`operator-ineligible`;
+/// one too large for the work budget is the budget's refusal. A `float32` or
+/// `float64` leaf counts as no text leaf where the reference reader finds the
+/// type undecidable. A compared type this reader cannot resolve from the first
+/// operand is not decided, and its leaves are not checked.
 fn check_leaf_count(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
     operation: &OperationWire,
     arguments: &[Value],
     graph: &Graph<'_>,
+    lock: &CheckedPackageLockV2,
+    catalog: &OperationCatalog,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
@@ -1899,16 +2065,21 @@ fn check_leaf_count(
         return Ok(None);
     };
     let operand_type = || operand_type_node(arguments.first()?, nodes, kinds, index);
-    let compared = match source {
-        "operand:0" => operand_type(),
-        "inner:0" => operand_type().and_then(|ty| inner_type(&ty, nodes, kinds, index)),
-        "result_inner" => application
-            .node
-            .body
-            .get("result_type")
-            .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
-            .and_then(|result| {
-                let (_, kind) = structural_type(&result, nodes, kinds, index)?;
+    // Outer `None`: the compared type is not decided. Inner `None`: the entry
+    // expects no leaves.
+    let compared: Option<Option<CheckedNodeId>> = match source {
+        "operand:0" => operand_type().map(Some),
+        "inner:0" => operand_type()
+            .and_then(|ty| inner_type(&ty, nodes, kinds, index))
+            .map(Some),
+        "result_inner" => {
+            let result = application
+                .node
+                .body
+                .get("result_type")
+                .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok());
+            let set_like = result.as_ref().and_then(|result| {
+                let (_, kind) = structural_type(result, nodes, kinds, index)?;
                 matches!(
                     kind,
                     CheckedNodeKind::CompositeType(
@@ -1917,15 +2088,30 @@ fn check_leaf_count(
                             | CompositeTypeForm::OrderedSet
                     )
                 )
-                .then(|| inner_type(&result, nodes, kinds, index))
-                .flatten()
-            }),
+                .then_some(result)
+            });
+            match set_like {
+                Some(result) => inner_type(result, nodes, kinds, index).map(Some),
+                None => Some(None),
+            }
+        }
         _ => None,
     };
     let Some(compared) = compared else {
         return Ok(None);
     };
     let at = application.body(&["operation", "leaves"]);
+    let Some(compared) = compared else {
+        return if operation.leaves.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(application.refuse(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at.index(0),
+                CheckedPackageRefusalCause::OperationLawMismatch,
+            )))
+        };
+    };
     let mut walk = LeafWalk {
         nodes,
         kinds,
@@ -1933,73 +2119,96 @@ fn check_leaf_count(
         meter,
         at: at.clone(),
         memo: BTreeMap::new(),
+        pins: BTreeMap::new(),
+        kids: BTreeMap::new(),
         stack: Vec::new(),
         on_stack: BTreeSet::new(),
     };
-    match walk.count(&compared) {
-        Ok(expected) if operation.leaves.len() >= expected => Ok(None),
-        Ok(_) => Ok(Some(application.refuse(
+    let refuse = |code, path: JsonPointer, cause| Ok(Some(application.refuse(code, path, cause)));
+    let supplied = operation.leaves.len();
+    let walked = walk.count(&compared).and_then(|expected| {
+        if supplied != expected {
+            return Ok(Err(expected));
+        }
+        let text_laws = catalog
+            .law_role_definitions(LawRole::TextProfile)
+            .unwrap_or_default();
+        walk.first_leaf_fault(&compared, &operation.leaves, text_laws)
+            .map(Ok)
+    });
+    match walked {
+        Ok(Err(expected)) if supplied < expected => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
             at,
             CheckedPackageRefusalCause::OperationLawMissing,
-        ))),
-        Err(LeafWalkEnd::Cycle | LeafWalkEnd::Unresolved) => Ok(Some(application.refuse(
+        ),
+        Ok(Err(expected)) => refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at.index(expected),
+            CheckedPackageRefusalCause::OperationLawMismatch,
+        ),
+        Ok(Ok(Err((leaf, member)))) => refuse(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at.index(leaf).key(member),
+            CheckedPackageRefusalCause::OperationLawMismatch,
+        ),
+        Ok(Ok(Ok(pins))) => {
+            // Every leaf now carries its one catalogued law; the lock must
+            // select it, then each mode must be a catalogued `text_profile`
+            // and the profile its leaf's type pins.
+            let unselected = operation.leaves.iter().position(|leaf| {
+                leaf.laws
+                    .first()
+                    .is_some_and(|law| !lock.definition_selections.contains(&law.definition))
+            });
+            if let Some(leaf) = unselected {
+                return refuse(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at.index(leaf).key("laws").index(0).key("definition"),
+                    CheckedPackageRefusalCause::OperationLawUnselected,
+                );
+            }
+            for (at_leaf, leaf) in operation.leaves.iter().enumerate() {
+                let leaf_at = at.clone().index(at_leaf);
+                let admitted = match &leaf.mode {
+                    None => Err(leaf_at.clone().key("mode")),
+                    Some(mode) if mode.kind_class() != Some(OperationModeKind::TextProfile) => {
+                        Err(leaf_at.clone().key("mode").key("kind"))
+                    }
+                    Some(mode)
+                        if !catalog
+                            .mode_value_admitted(OperationModeKind::TextProfile, &mode.value) =>
+                    {
+                        Err(leaf_at.clone().key("mode").key("value"))
+                    }
+                    Some(_) => Ok(()),
+                };
+                if let Err(path) = admitted {
+                    return refuse(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        path,
+                        CheckedPackageRefusalCause::OperationModeMismatch,
+                    );
+                }
+            }
+            for (at_leaf, (leaf, pin)) in operation.leaves.iter().zip(&pins).enumerate() {
+                if leaf.mode.as_ref().is_some_and(|mode| mode.value != *pin) {
+                    return refuse(
+                        CheckedPackageRefusalCode::InvalidPackage,
+                        at.clone().index(at_leaf).key("mode").key("value"),
+                        CheckedPackageRefusalCause::OperationModeTypeMismatch,
+                    );
+                }
+            }
+            Ok(None)
+        }
+        Err(LeafWalkEnd::Cycle | LeafWalkEnd::Unresolved) => refuse(
             CheckedPackageRefusalCode::IllTyped,
             at,
             CheckedPackageRefusalCause::OperatorIneligible,
-        ))),
+        ),
         Err(LeafWalkEnd::Work(failure)) => Err(failure),
     }
-}
-
-/// The one leaf-path shape an upstream mutation exercises: `["field:<name>"]`
-/// against the first operand's record type. Any other path is not resolved.
-fn check_leaves(
-    application: Application<'_>,
-    operation: &OperationWire,
-    arguments: &[Value],
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<ValidationFailure> {
-    for (leaf_index, leaf) in operation.leaves.iter().enumerate() {
-        let Some(mode) = &leaf.mode else { continue };
-        // A kind outside the catalog's vocabulary pins nothing.
-        let Some(mode_kind) = mode.kind_class() else {
-            continue;
-        };
-        let [segment] = leaf.path.as_slice() else {
-            continue;
-        };
-        let Some(field) = segment.strip_prefix("field:") else {
-            continue;
-        };
-        let Some(record_type) = arguments
-            .first()
-            .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
-        else {
-            continue;
-        };
-        let Some(field_type) = record_field_type(&record_type, field, nodes, index) else {
-            continue;
-        };
-        if let Some(pinned) = type_pin(&field_type, mode_kind, nodes, index) {
-            if pinned.as_ref() != mode.value.as_ref() {
-                return Some(
-                    application.refuse(
-                        CheckedPackageRefusalCode::InvalidPackage,
-                        application
-                            .body(&["operation", "leaves"])
-                            .index(leaf_index)
-                            .key("mode")
-                            .key("value"),
-                        CheckedPackageRefusalCause::OperationModeTypeMismatch,
-                    ),
-                );
-            }
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -2009,7 +2218,7 @@ mod tests {
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
         CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSemanticNodeV2, DependencyReferences, ExpressionForm, Graph, ModelOwners,
+        CheckedSemanticNodeV2, DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners,
         SuppliedDependencies, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
@@ -2278,12 +2487,44 @@ mod tests {
     fn defect_for_graph(
         nodes: Vec<CheckedSemanticNodeV2>,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        defect_for_graph_locked(nodes, &empty_lock())
+    }
+
+    /// The first catalogued `text_profile` law definition, as the wire
+    /// carries it.
+    fn text_law_definition() -> Value {
+        let definitions = operation_catalog()
+            .law_role_definitions(LawRole::TextProfile)
+            .expect("the catalog lists text_profile definitions");
+        serde_json::to_value(&definitions[0]).expect("definition serializes")
+    }
+
+    /// A lock selecting the catalogued `text_profile` definition.
+    fn text_selecting_lock() -> CheckedPackageLockV2 {
+        let mut lock = empty_lock();
+        lock.definition_selections =
+            vec![serde_json::from_value(text_law_definition()).expect("definition deserializes")];
+        lock
+    }
+
+    fn defect_for_graph_locked(
+        nodes: Vec<CheckedSemanticNodeV2>,
+        lock: &CheckedPackageLockV2,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        defect_for_graph_metered(nodes, lock, 1_000)
+    }
+
+    /// [`defect_for_graph_locked`] under a work budget of `limit` units.
+    fn defect_for_graph_metered(
+        nodes: Vec<CheckedSemanticNodeV2>,
+        lock: &CheckedPackageLockV2,
+        limit: u64,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
         for (position, node) in nodes.iter().enumerate() {
             index.insert(&node.node_id, position);
         }
-        let lock = empty_lock();
-        let mut meter = WorkMeter::new(1_000);
+        let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         operation_defect(
             Application {
@@ -2295,7 +2536,7 @@ mod tests {
                 kinds: &kinds,
                 index: &index,
             },
-            &lock,
+            lock,
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
@@ -2977,8 +3218,10 @@ mod tests {
     /// [`STRUCTURAL_EQ_IDENTITY`]'s first operand is a `record` whose
     /// `name` field's own type pins `rounding` to `"nearest-even"`; a
     /// `["field:name"]` leaf whose mode value disagrees must be refused by
-    /// `check_leaves`, independent of the operation's own top-level mode
-    /// (left absent here, so `check_mode_type` never fires first).
+    /// `check_leaf_count`, independent of the operation's own top-level mode
+    /// (left absent here, so `check_mode_type` never fires first). The field
+    /// is text and the leaf carries its `text_profile` law, so the leaf shape
+    /// settles first.
     #[test]
     fn operation_defect_refuses_mode_type_mismatch_on_leaf() {
         let record_node = graph_node(
@@ -3003,15 +3246,15 @@ mod tests {
         let field_type_node = graph_node(
             'f',
             "bounded_domain",
-            "decimal_range",
+            "text_bounds",
             &node_id('t'),
             json!({
                 "term": "aggregate",
                 "members": [
                     {
                         "term": "binding",
-                        "name": "rounding",
-                        "value": { "term": "literal", "value": "nearest-even" },
+                        "name": "text_profile",
+                        "value": { "term": "literal", "value": "nfc" },
                     },
                 ],
             }),
@@ -3021,8 +3264,8 @@ mod tests {
         operation["leaves"] = json!([
             {
                 "path": ["field:name"],
-                "mode": { "kind": "rounding", "value": "toward-zero" },
-                "laws": [],
+                "mode": { "kind": "text_profile", "value": "nfd" },
+                "laws": [law_json("text_profile", text_law_definition())],
             }
         ]);
         let root = custom_application_node(
@@ -3037,12 +3280,15 @@ mod tests {
             ],
         );
 
-        let result = defect_for_graph(vec![
-            root.clone(),
-            record_node,
-            field_type_node,
-            scalar_type_node('t', "decimal"),
-        ]);
+        let result = defect_for_graph_locked(
+            vec![
+                root.clone(),
+                record_node,
+                field_type_node,
+                scalar_type_node('t', "text"),
+            ],
+            &text_selecting_lock(),
+        );
 
         assert_eq!(
             result,
@@ -3057,12 +3303,35 @@ mod tests {
         );
     }
 
-    /// A scalar type node of `form` keyed on `id_byte`.
+    /// A scalar type node of `form` keyed on `id_byte`. A `text` node binds
+    /// the `nfc` profile on itself, so a text type found through it pins one
+    /// as the reference requires of every text leaf; [`unpinned_text_node`]
+    /// is the one that pins none.
     fn scalar_type_node(id_byte: char, form: &str) -> CheckedSemanticNodeV2 {
+        let members = if form == "text" {
+            json!([{
+                "term": "binding",
+                "name": "text_profile",
+                "value": { "term": "literal", "value": "nfc" },
+            }])
+        } else {
+            json!([])
+        };
         graph_node(
             id_byte,
             "scalar_type",
             form,
+            &node_id('t'),
+            json!({ "term": "aggregate", "members": members }),
+        )
+    }
+
+    /// A `text` scalar that pins no profile.
+    fn unpinned_text_node(id_byte: char) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            "scalar_type",
+            "text",
             &node_id('t'),
             json!({ "term": "aggregate", "members": [] }),
         )
@@ -3134,9 +3403,47 @@ mod tests {
     fn leaves_defect_result(
         identity: &str,
         leaves: Value,
+        types: Vec<CheckedSemanticNodeV2>,
+        operands: impl IntoIterator<Item = char>,
+        result: Option<char>,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        leaves_defect_locked(
+            identity,
+            leaves,
+            types,
+            operands,
+            result,
+            &text_selecting_lock(),
+        )
+    }
+
+    /// [`leaves_defect_result`] against `lock`.
+    fn leaves_defect_locked(
+        identity: &str,
+        leaves: Value,
+        types: Vec<CheckedSemanticNodeV2>,
+        operands: impl IntoIterator<Item = char>,
+        result: Option<char>,
+        lock: &CheckedPackageLockV2,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        leaves_defect_metered(identity, leaves, types, operands, result, lock, 1_000)
+    }
+
+    /// [`leaves_defect_locked`] under a work budget of `limit` units.
+    fn leaves_defect_metered(
+        identity: &str,
+        leaves: Value,
         mut types: Vec<CheckedSemanticNodeV2>,
         operands: impl IntoIterator<Item = char>,
         result: Option<char>,
+        lock: &CheckedPackageLockV2,
+        limit: u64,
     ) -> (
         Result<Option<ValidationFailure>, ValidationFailure>,
         CheckedNodeId,
@@ -3161,7 +3468,7 @@ mod tests {
         let locus = root.node_id.clone();
         let mut graph = vec![root];
         graph.append(&mut types);
-        (defect_for_graph(graph), locus)
+        (defect_for_graph_metered(graph, lock, limit), locus)
     }
 
     fn leaves_missing(
@@ -3276,6 +3583,549 @@ mod tests {
         assert_eq!(result, leaves_missing(locus));
     }
 
+    /// One supplied leaf: `path` with one catalogued `text_profile` law and
+    /// the `nfc` profile mode the test text types pin.
+    fn text_leaf(path: &[&str]) -> Value {
+        json!({
+            "path": path,
+            "laws": [law_json("text_profile", text_law_definition())],
+            "mode": { "kind": "text_profile", "value": "nfc" },
+        })
+    }
+
+    /// The refusal `check_leaf_count` raises at `operation.leaves` extended by
+    /// `suffix`.
+    fn leaves_refused(
+        locus: CheckedNodeId,
+        code: CheckedPackageRefusalCode,
+        suffix: &str,
+        cause: CheckedPackageRefusalCause,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        Ok(Some(refused_at(
+            code,
+            &format!("/semantic_graph/nodes/0/body/operation/leaves{suffix}"),
+            Some(cause),
+            locus,
+        )))
+    }
+
+    fn leaves_mismatch(
+        locus: CheckedNodeId,
+        suffix: &str,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        leaves_refused(
+            locus,
+            CheckedPackageRefusalCode::InvalidPackage,
+            suffix,
+            CheckedPackageRefusalCause::OperationLawMismatch,
+        )
+    }
+
+    /// `structural.eq` over a record of `a` and `b` text fields and `c`, an
+    /// option of text, plus `i`, an integer: three text leaves.
+    fn text_record_types() -> Vec<CheckedSemanticNodeV2> {
+        let mut types = vec![
+            record_type_node('r', &[("a", 'x'), ("n", 'i'), ("b", 'x'), ("c", 'o')]),
+            collection_type_node('o', "option", 'x'),
+            scalar_type_node('i', "integer"),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        types.extend(profiled_text());
+        types
+    }
+
+    /// The text type keyed `x` as QSL emits it: a `text_bounds` domain that
+    /// binds the `nfc` profile over a `text` scalar (keyed `T`) that pins none.
+    fn profiled_text() -> [CheckedSemanticNodeV2; 2] {
+        [
+            graph_node(
+                'x',
+                "bounded_domain",
+                "text_bounds",
+                &node_id('T'),
+                json!({
+                    "term": "aggregate",
+                    "members": [{
+                        "term": "binding",
+                        "name": "text_profile",
+                        "value": { "term": "literal", "value": "nfc" },
+                    }],
+                }),
+            ),
+            unpinned_text_node('T'),
+        ]
+    }
+
+    /// QSpec FR-322: the leaves are exactly the text leaves of the compared
+    /// type in declaration order, each at its derived path with one
+    /// `text_profile` law, and nothing else, whatever the leaf source.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_source_admits_exactly_the_derived_leaves() {
+        let (result, _) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([
+                text_leaf(&["field:a"]),
+                text_leaf(&["field:b"]),
+                text_leaf(&["field:c", "inner"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+        );
+        assert_eq!(result, Ok(None), "record, option");
+
+        let mut tuple = vec![
+            tuple_type_node('r', &['x', 'i', 's']),
+            collection_type_node('s', "sequence", 'x'),
+            scalar_type_node('i', "integer"),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        tuple.extend(profiled_text());
+        let (result, _) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([
+                text_leaf(&["position:0"]),
+                text_leaf(&["position:2", "inner"])
+            ]),
+            tuple,
+            ['a', 'b'],
+        );
+        assert_eq!(result, Ok(None), "tuple, sequence");
+
+        let mut texts = vec![
+            collection_type_node('s', "set", 'x'),
+            parameter_of('a', 's'),
+            parameter_of('b', 'x'),
+        ];
+        texts.extend(profiled_text());
+        let (result, _) = leaves_defect(
+            "quire.op.collection.contains",
+            json!([text_leaf(&[])]),
+            texts,
+            ['a', 'b'],
+        );
+        assert_eq!(
+            result,
+            Ok(None),
+            "inner:0 over a set of text is the empty path"
+        );
+    }
+
+    /// More leaves than text leaves is `operation-law-mismatch`, never
+    /// admitted: two extra leaves over an all-integer record, one extra over
+    /// the text record, and three unrelated entries over three text leaves.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_source_refuses_extra_and_unrelated_leaves() {
+        let integers = vec![
+            record_type_node('r', &[("x", 'i'), ("y", 'i')]),
+            scalar_type_node('i', "integer"),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        let (result, locus) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([text_leaf(&["field:x"]), text_leaf(&["field:y"])]),
+            integers,
+            ['a', 'b'],
+        );
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/0"),
+            "two leaves over an all-integer record"
+        );
+
+        let (result, locus) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([
+                text_leaf(&["field:a"]),
+                text_leaf(&["field:b"]),
+                text_leaf(&["field:c", "inner"]),
+                text_leaf(&["field:a"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+        );
+        assert_eq!(result, leaves_mismatch(locus, "/3"), "one extra leaf");
+
+        let (result, locus) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([
+                text_leaf(&["field:p"]),
+                text_leaf(&["field:q"]),
+                text_leaf(&["field:z"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+        );
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/0/path"),
+            "three unrelated leaves over three text leaves"
+        );
+    }
+
+    /// A leaf at the wrong path, or the right leaves in the wrong order, is
+    /// `operation-law-mismatch` at the first leaf that differs.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_source_refuses_a_wrong_path_and_a_wrong_order() {
+        let run = |leaves: Value| {
+            leaves_defect(
+                "quire.op.structural.eq",
+                leaves,
+                text_record_types(),
+                ['a', 'b'],
+            )
+        };
+        let (result, locus) = run(json!([
+            text_leaf(&["field:a"]),
+            text_leaf(&["field:b"]),
+            text_leaf(&["field:c"]),
+        ]));
+        assert_eq!(result, leaves_mismatch(locus, "/2/path"), "missing `inner`");
+
+        let (result, locus) = run(json!([
+            text_leaf(&["field:b"]),
+            text_leaf(&["field:a"]),
+            text_leaf(&["field:c", "inner"]),
+        ]));
+        assert_eq!(result, leaves_mismatch(locus, "/0/path"), "wrong order");
+
+        let (result, locus) = run(json!([
+            text_leaf(&["field:a"]),
+            text_leaf(&["position:1"]),
+            text_leaf(&["field:c", "inner"]),
+        ]));
+        assert_eq!(result, leaves_mismatch(locus, "/1/path"), "wrong segment");
+    }
+
+    /// Each leaf carries exactly one catalogued `text_profile` law: none, two,
+    /// another role and an uncatalogued definition are all
+    /// `operation-law-mismatch` at that leaf's `laws`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_source_refuses_a_wrong_or_missing_leaf_law() {
+        let with_laws = |laws: Value| {
+            let mut leaf = text_leaf(&["field:b"]);
+            leaf["laws"] = laws;
+            leaves_defect(
+                "quire.op.structural.eq",
+                json!([
+                    text_leaf(&["field:a"]),
+                    leaf,
+                    text_leaf(&["field:c", "inner"]),
+                ]),
+                text_record_types(),
+                ['a', 'b'],
+            )
+        };
+        let good = || law_json("text_profile", text_law_definition());
+        let cases = [
+            ("no law", json!([])),
+            ("two laws", json!([good(), good()])),
+            (
+                "another role",
+                json!([law_json("integer_division", text_law_definition())]),
+            ),
+            (
+                "an uncatalogued definition",
+                json!([law_json("text_profile", dummy_law_definition('9'))]),
+            ),
+        ];
+        for (name, laws) in cases {
+            let (result, locus) = with_laws(laws);
+            assert_eq!(result, leaves_mismatch(locus, "/1/laws"), "{name}");
+        }
+    }
+
+    /// A leaf law the lock does not select is `operation-law-unselected`, after
+    /// the leaf shape is settled.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_source_refuses_an_unselected_leaf_law() {
+        let (result, locus) = leaves_defect_locked(
+            "quire.op.structural.eq",
+            json!([
+                text_leaf(&["field:a"]),
+                text_leaf(&["field:b"]),
+                text_leaf(&["field:c", "inner"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+            None,
+            &empty_lock(),
+        );
+        assert_eq!(
+            result,
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/0/laws/0/definition",
+                CheckedPackageRefusalCause::OperationLawUnselected,
+            )
+        );
+    }
+
+    /// Leaf law selection settles before any leaf mode, as the reference
+    /// orders it: a leaf with an unselected law and no mode is
+    /// `operation-law-unselected`, not `operation-mode-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_law_selection_is_settled_before_leaf_modes() {
+        let mut bare = text_leaf(&["field:a"]);
+        bare.as_object_mut().expect("leaf").remove("mode");
+        let (result, locus) = leaves_defect_locked(
+            "quire.op.structural.eq",
+            json!([
+                bare,
+                text_leaf(&["field:b"]),
+                text_leaf(&["field:c", "inner"]),
+            ]),
+            text_record_types(),
+            ['a', 'b'],
+            None,
+            &empty_lock(),
+        );
+        assert_eq!(
+            result,
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/0/laws/0/definition",
+                CheckedPackageRefusalCause::OperationLawUnselected,
+            )
+        );
+    }
+
+    /// The `text_profile` pin of an alias chain is memoised and charged, so a
+    /// record whose 300 fields each name a different alias of one 300-link
+    /// chain costs the chain once (about 600 work units, inside the 1 000 the
+    /// test meter allows) rather than once per field, which would exhaust it.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_text_profile_pin_of_an_alias_chain_is_memoised_and_charged() {
+        let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+        let alias = |level: u32| id(1000 + level);
+        let names: Vec<String> = (0..300).map(|level| format!("f{level}")).collect();
+        let fields: Vec<(&str, char)> = names
+            .iter()
+            .enumerate()
+            .map(|(level, name)| (name.as_str(), alias(u32::try_from(level).expect("level"))))
+            .collect();
+        let mut graph = vec![
+            record_type_node('r', &fields),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ];
+        for level in 0..300 {
+            let target = if level == 299 { 'x' } else { alias(level + 1) };
+            graph.push(forwarding_node(
+                alias(level),
+                "composite_type",
+                "alias",
+                target,
+            ));
+        }
+        graph.extend(profiled_text());
+        let run = |limit: u64| {
+            leaves_defect_metered(
+                "quire.op.structural.eq",
+                json!([]),
+                graph.clone(),
+                ['a', 'b'],
+                None,
+                &text_selecting_lock(),
+                limit,
+            )
+        };
+        let (result, locus) = run(1_000);
+        assert_eq!(result, leaves_missing(locus));
+        // The walk takes about 300 field visits plus 300 chain steps. A budget
+        // of 450 holds the visits alone, so only charging the chain steps
+        // exhausts it.
+        let (result, _) = run(450);
+        assert!(
+            matches!(&result, Err(failure) if format!("{failure:?}").contains("Work")),
+            "the chain steps must be charged to the work budget, got {result:?}"
+        );
+    }
+
+    /// An entry that names no leaf source admits no leaves: a supplied one is
+    /// `operation-law-mismatch`, as the reference reader refuses it.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_entry_without_a_leaf_source_refuses_a_supplied_leaf() {
+        let mut operation = plain_operation(CATALOGUED_IDENTITY);
+        operation["leaves"] = json!([text_leaf(&["field:a"])]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        assert_eq!(
+            defect_for(&node),
+            leaves_mismatch(node.node_id.clone(), "/0")
+        );
+    }
+
+    /// The no-source check runs ahead of the per-law selection loop, as the
+    /// reference orders it: `integer.div` carries a law the empty lock does not
+    /// select, and a supplied leaf is still `operation-law-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_entry_without_a_leaf_source_refuses_a_leaf_before_law_selection() {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json(
+            "integer_division",
+            real_integer_division_truncating_definition()
+        )]);
+        operation["leaves"] = json!([text_leaf(&["field:a"])]);
+        let node = custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        assert_eq!(
+            defect_for(&node),
+            leaves_mismatch(node.node_id.clone(), "/0")
+        );
+    }
+
+    /// `result_inner` over a result that is not a set, bag or ordered set
+    /// expects no leaves: `collection.flatten` to a `sequence` of text refuses
+    /// one supplied leaf and admits none.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_result_inner_over_a_sequence_result_refuses_a_supplied_leaf() {
+        let mut nested = vec![
+            collection_type_node('q', "sequence", 'x'),
+            collection_type_node('n', "sequence", 'q'),
+            collection_type_node('R', "sequence", 'x'),
+            parameter_of('a', 'n'),
+        ];
+        nested.extend(profiled_text());
+        let run = |leaves: Value| {
+            leaves_defect_result(
+                "quire.op.collection.flatten",
+                leaves,
+                nested.clone(),
+                ['a'],
+                Some('R'),
+            )
+        };
+        let (result, locus) = run(json!([text_leaf(&["inner"])]));
+        assert_eq!(result, leaves_mismatch(locus, "/0"), "one leaf");
+        let (result, _) = run(json!([]));
+        assert_eq!(result, Ok(None), "no leaf");
+    }
+
+    /// A text leaf whose type pins no `text_profile` is undecidable, as in the
+    /// reference: `ill_typed`/`operator-ineligible` at `operation.leaves`,
+    /// even when the same `text` scalar is also reached through a pinning
+    /// wrapper.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_text_leaf_pinning_no_profile_is_ineligible() {
+        let types = vec![
+            record_type_node('r', &[("a", 'x'), ("b", 'T')]),
+            parameter_of('a', 'r'),
+            parameter_of('b', 'r'),
+        ]
+        .into_iter()
+        .chain(profiled_text())
+        .collect::<Vec<_>>();
+        for leaves in [
+            json!([text_leaf(&["field:a"]), text_leaf(&["field:b"])]),
+            json!([]),
+        ] {
+            let (result, locus) =
+                leaves_defect("quire.op.structural.eq", leaves, types.clone(), ['a', 'b']);
+            assert_eq!(result, leaves_ineligible(locus));
+        }
+    }
+
+    /// Each leaf's mode must be a catalogued `text_profile` mode: absent,
+    /// another kind and an uncatalogued value are `operation-mode-mismatch`
+    /// at the member at fault; a catalogued value other than the type's pin is
+    /// `operation-mode-type-mismatch`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_mode_must_be_the_pinned_text_profile() {
+        let with_mode = |mode: Option<Value>| {
+            let mut leaf = text_leaf(&["field:b"]);
+            match mode {
+                Some(mode) => leaf["mode"] = mode,
+                None => {
+                    leaf.as_object_mut().expect("leaf").remove("mode");
+                }
+            }
+            leaves_defect(
+                "quire.op.structural.eq",
+                json!([
+                    text_leaf(&["field:a"]),
+                    leaf,
+                    text_leaf(&["field:c", "inner"]),
+                ]),
+                text_record_types(),
+                ['a', 'b'],
+            )
+        };
+        let refused = |locus, suffix: &str, cause| {
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                suffix,
+                cause,
+            )
+        };
+        let mismatch = CheckedPackageRefusalCause::OperationModeMismatch;
+        let (result, locus) = with_mode(None);
+        assert_eq!(result, refused(locus, "/1/mode", mismatch), "no mode");
+        let (result, locus) = with_mode(Some(json!({ "kind": "rounding", "value": "exact" })));
+        assert_eq!(
+            result,
+            refused(locus, "/1/mode/kind", mismatch),
+            "another kind"
+        );
+        let (result, locus) = with_mode(Some(json!({ "kind": "text_profile", "value": "x" })));
+        assert_eq!(
+            result,
+            refused(locus, "/1/mode/value", mismatch),
+            "uncatalogued value"
+        );
+        let (result, locus) = with_mode(Some(json!({ "kind": "text_profile", "value": "nfd" })));
+        assert_eq!(
+            result,
+            refused(
+                locus,
+                "/1/mode/value",
+                CheckedPackageRefusalCause::OperationModeTypeMismatch
+            ),
+            "catalogued but not the pin"
+        );
+    }
+
     /// A tuple type keyed on `id_byte` over `members`.
     fn tuple_type_node(id_byte: char, members: &[char]) -> CheckedSemanticNodeV2 {
         let members: Vec<Value> = members.iter().map(|byte| reference_to(*byte)).collect();
@@ -3335,15 +4185,8 @@ mod tests {
     #[test]
     fn tc_048_leaf_walk_reaches_text_through_every_type_form() {
         let probe = |text_tag: &str, text_form: &str| {
-            let leaf = |id_byte: char| {
-                graph_node(
-                    id_byte,
-                    text_tag,
-                    text_form,
-                    &node_id('t'),
-                    json!({ "term": "aggregate", "members": [] }),
-                )
-            };
+            assert_eq!(text_tag, "scalar_type");
+            let leaf = |id_byte: char| scalar_type_node(id_byte, text_form);
             let cases: [(&str, Vec<CheckedSemanticNodeV2>); 5] = [
                 (
                     "alias",
@@ -3578,6 +4421,85 @@ mod tests {
         assert_eq!(eq_over(id(0), graph), Ok(None));
     }
 
+    /// The expected paths are derived lazily, never listed: 16 levels of 10
+    /// fields. When every field names the next level over text there are
+    /// 10^16 leaves, so any supplied list is refused by count at once; when
+    /// only the first field does and the others are integers there is one
+    /// leaf at a 16-segment path, which is compared exactly, and a wrong
+    /// segment deep in it is refused.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_paths_are_derived_lazily_over_a_shared_field_chain() {
+        let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+        let chain = |shared: bool| {
+            let mut graph = vec![
+                scalar_type_node('i', "integer"),
+                scalar_type_node('x', "text"),
+            ];
+            let names = ["a", "b", "c", "d", "e", "f", "g", "h", "j", "k"];
+            for level in 0..16 {
+                let below = if level == 15 { 'x' } else { id(level + 1) };
+                let fields: Vec<(&str, char)> = names
+                    .iter()
+                    .enumerate()
+                    .map(|(at, name)| (*name, if shared || at == 0 { below } else { 'i' }))
+                    .collect();
+                graph.push(record_type_node(id(level), &fields));
+            }
+            graph.push(parameter_of('a', id(0)));
+            graph.push(parameter_of('b', id(0)));
+            graph
+        };
+        let run = |graph, leaves: Value| {
+            leaves_defect("quire.op.structural.eq", leaves, graph, ['a', 'b'])
+        };
+
+        let (result, locus) = run(chain(true), json!([text_leaf(&["field:a"; 16])]));
+        assert_eq!(result, leaves_missing(locus), "10^16 leaves, one supplied");
+
+        let (result, _) = run(chain(false), json!([text_leaf(&["field:a"; 16])]));
+        assert_eq!(result, Ok(None), "one leaf at the exact path");
+
+        let mut path = vec!["field:a"; 16];
+        path[9] = "field:b";
+        let (result, locus) = run(chain(false), json!([text_leaf(&path)]));
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/0/path"),
+            "wrong deep segment"
+        );
+    }
+
+    /// Text under 40 options is one leaf at a 40-segment `inner` path.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[test]
+    fn tc_048_leaf_path_under_nested_options_is_exact() {
+        let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
+        let mut graph = vec![scalar_type_node('x', "text")];
+        for level in 0..40 {
+            let inner = if level == 39 { 'x' } else { id(level + 1) };
+            graph.push(collection_type_node(id(level), "option", inner));
+        }
+        graph.push(parameter_of('a', id(0)));
+        graph.push(parameter_of('b', id(0)));
+        let (result, _) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([text_leaf(&["inner"; 40])]),
+            graph.clone(),
+            ['a', 'b'],
+        );
+        assert_eq!(result, Ok(None), "40 `inner` segments");
+        let (result, locus) = leaves_defect(
+            "quire.op.structural.eq",
+            json!([text_leaf(&["inner"; 39])]),
+            graph,
+            ['a', 'b'],
+        );
+        assert_eq!(result, leaves_mismatch(locus, "/0/path"), "39 segments");
+    }
+
     /// `same_type` compares the type node each operand resolves to, not the
     /// operands' own nodes: [`STRUCTURAL_EQ_IDENTITY`] over two distinct
     /// parameters of one record type is admitted, and over parameters of two
@@ -3618,8 +4540,7 @@ mod tests {
                 "target": { "domain": NODE_DOMAIN, "digest": dummy_digest(id_byte) },
             })
         };
-        let mut operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
-        operation["leaves"] = json!([{ "path": ["field:name"], "laws": [] }]);
+        let operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
         let defect = |second: char| {
             let root = custom_application_node(
                 "binary",
@@ -3692,8 +4613,7 @@ mod tests {
                 "arguments": [],
             })
         };
-        let mut operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
-        operation["leaves"] = json!([{ "path": ["field:name"], "laws": [] }]);
+        let operation = plain_operation(STRUCTURAL_EQ_IDENTITY);
         let defect = |first: Value, second: Value| {
             let root = custom_application_node("binary", operation.clone(), vec![first, second]);
             let locus = root.node_id.clone();
