@@ -24,9 +24,9 @@ The public Rust library, JSON interface, corpus runner, and golden fixtures.
 
 | Metric | Target | Threshold | Method |
 |---|---|---|---|
-| Cross-run byte equality | 100% | Any mismatch fails | golden-approval-testing |
-| Cross-platform golden digest equality (planned: no executable test and no macOS or Windows CI yet; TC-019 is planned) | 100% | Any mismatch fails | golden-approval-testing |
-| Diagnostic order equality | 100% | Any reorder fails | integration-testing |
+| Cross-run byte equality | 100% | Any mismatch fails: repeat the complete corpus twice and compare the two outputs byte for byte | metamorphic-testing |
+| Cross-platform golden digest equality | 100% | Any mismatch fails: compare Linux, macOS, and Windows corpus outputs against the checked-in golden digests when CI is enabled | golden-approval-testing |
+| Diagnostic order equality | 100% | Any reorder fails: compare the ordered diagnostic code/path tuples against the checked-in golden outputs | golden-approval-testing |
 
 ## Acceptance Criteria
 

@@ -222,8 +222,8 @@ fn every_kind() -> [KaniOutcomeKind; 10] {
     ]
 }
 
-/// Tracing: TC-223
-#[trace("TC-223")]
+// Not a TC-223 test: it verifies the retired `KaniProviderResult` map, and the
+// TC-223 matrix row stays planned until the SUCCESS count and cause codes land.
 #[test]
 fn tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result() {
     for kind in every_kind() {

@@ -131,8 +131,9 @@ fn input_count(corpus: &Path) -> usize {
     fs::read_dir(corpus.join("inputs")).unwrap().count()
 }
 
-/// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1.
-/// TC-019.
+/// Tracing: TC-018, FR-018-AC-1, FR-019-AC-1, FR-019-AC-3, FR-020-AC-1,
+/// NFR-001-AC-1.
+/// NFR-001-AC-1.
 /// FR-018-AC-1.
 /// FR-019-AC-1.
 /// FR-019-AC-3.
