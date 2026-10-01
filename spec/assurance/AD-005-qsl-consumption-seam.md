@@ -113,7 +113,7 @@ Four decisions govern the seam. None adds a layer between the repositories.
 - A. QSL consumes IR through the model crate's items only. It never names the IR root crate. QSL
   reads only its layer-4 set (the reader, evidence, limits and identity-preimage types); the
   authored-contract items are not frozen by name here because they retire under QSL ADR-011 M-6c.
-- B. A seam item is changed in IR first; QSL follows. IR does not widen a type to fit an emission
+- B. A seam item changes in the order of AD-006 decision D: the consumer first gains what it needs, then IR removes the old item. IR does not widen a type to fit an emission
   (AD-004 precedence) and does not keep a second shape for QSL's convenience.
 - C. One encoder for one identity, and the one-encoder rule binds IR: IR computes digests with
   `quire_canonical::to_vec(v, Limits)` and `quire_canonical::sha256`, not with `serde_json`. IR-274
@@ -125,8 +125,8 @@ Four decisions govern the seam. None adds a layer between the repositories.
   layout design, IR-343. IR does not rely on QSL's lint for its half (D-2); there is no CI option
   for running that lint (owner ruling, as relayed), so IR guards its own edges.
 
-No compatibility layer is proposed: a type moved or removed in IR is moved in QSL in the same
-step.
+No compatibility layer is proposed: a type moved or removed in IR follows the same order, with no shim
+between the two steps.
 
 ### Invariants a test can check
 
@@ -199,7 +199,7 @@ What is measured today, what is open and with whom, and what is routed.
 ### Routed gaps
 
 Needs stated to owners, not decisions. Ids are routing ids of IR-323; they are not requirement
-ids. Rows R-Q6 and R-S1 to R-S8 of IR-324 (codegen PR 214, IR PR 239) are not repeated.
+ids. Rows R-Q6 and R-S1 to R-S8 of IR-324 (codegen PR 214, IR AD-004) are not repeated.
 
 To QSL (QSL reviews these rows):
 

@@ -59,3 +59,13 @@ Changes needed. Almost every measured claim holds, including the hard ones: the 
 globs, the lowerings, the `KaniOutcome` gaps, the missing deny guard and the encoder pair.
 FND-001 is the one high finding: AD-005 shows the owner-ruled FR-331 terminal record as already
 absent from IR. FND-002 gives a false reason for a routed need.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d22e222: AD-005:59-62 and D-3 (:140-144), and AD-006:61-64, now say that the root crate currently exports KaniProviderResult and KaniProviderRecord (outcome.rs:56-89, mod.rs:23) and that the target is removal under IR-347 |
+| FND-002 | fixed | d22e222: R3-Q1 is dropped. AD-005:94 now reads "none: the manifests resolve the model package" |
+| FND-003 | fixed | d22e222: AD-006:102 reads "tc_041 today; target: cargo-deny bans entries as well", with gap "no deny entry exists yet". AD-005 D says "Target ... No such entry exists today". deny.toml is unchanged |
+| FND-004 | fixed | d22e222: AD-005:93 reads "an external edge of layer 4 beside quire-canonical" |
+| FND-005 | fixed | d22e222: AD-005:76-77 cites v2/mod.rs:759-760 and serde_json::to_value of the typed preimage. :104 cites V2ReadIncomplete as "documented at checked_v2.rs:53" |

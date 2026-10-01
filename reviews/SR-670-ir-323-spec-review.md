@@ -48,3 +48,28 @@ Changes needed. The structure is sound: boundary, views, decisions, testable inv
 open questions and routed needs with owners. Routed gaps are needs, not decisions. IR depends on
 QSL nowhere. Nothing confidential from quire-research appears. FND-001 to FND-006 should be fixed
 before merge. FND-006 at least makes PR 239 a merge predecessor.
+
+## New findings (disposition pass 1)
+
+Reviewed at agent-ix/quire-contract-ir@d22e222b3e97f19c61171d3bab4e81f7116db0b0.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-011 | medium | AD-005 still orders IR first. Decision B says "A seam item is changed in IR first; QSL follows", and the no-compatibility-layer line says a type moved or removed in IR "is moved in QSL in the same step". AD-006 Decision D now says the consumer first gains what it needs and IR removes the old item afterwards. The two sibling ADs give opposite orders for a removal, and "same step" across two repos is the wording FND-001 flagged | spec/assurance/AD-005-qsl-consumption-seam.md:116-117,128-129 |
+| FND-012 | low | AD-006 "Open questions" is now a table with a header and no rows. Write "None." or drop the section | spec/assurance/AD-006-codegen-consumption-seam.md:183-186 |
+| FND-013 | low | AD-006 quotes codegen AD-004 (PR 215) as saying the corpus files "forward to IR lowerings" and says codegen's ADs "are being updated". At PR 215's current head (83d8d97) that phrase is gone: codegen AD-004:244 now says the lowerings move into codegen under IR-347. The quote is stale | spec/assurance/AD-006-codegen-consumption-seam.md:124-126,197 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d22e222: AD-006 A, B and D now give one order (consumer first, then IR removes, no shim), and "same change/step" is gone from AD-006. The same wording remains in AD-005: see FND-011 |
+| FND-002 | fixed | d22e222: AD-006 B and R3-C1 name codegen AD-004 (PR 215) and AD-003 (PR 214) and say this AD is the final form. Verified at the codegen PRs' current heads: AD-004:244 moves the lowerings into codegen, and AD-003:309-315 describes the glob as the current state, to be removed |
+| FND-003 | fixed | d22e222: AD-006:174-178 records the IR-311 ruling from codegen AD-004. The open question and R3-C3 are removed |
+| FND-004 | fixed | d22e222: the date and the R1 and Remediation labels are gone from AD-005 (grep finds none) |
+| FND-005 | fixed | d22e222: AD-005:50 and AD-006:51 and :80 no longer carry commit ids. They say "the commits ... this AD was written against" |
+| FND-006 | accepted-no-change | The references to AD-004 remain and resolve once PR 239 merges first (merge-tree clean against 239 head f3bacff). Codegen AD-002/003 (PR 214) and runtime AD-003 (PR 92) are proposed sibling ADs in open PRs. R-I3 is no longer cited |
+| FND-007 | fixed | d22e222: D-2 keeps the by-source check in tc_041, and the bans row notes that a name ban goes stale |
+| FND-008 | fixed | d22e222: divergence 2 cites FR-039 "Items QSL owns" and AD-001's internal contradiction |
+| FND-009 | fixed | d22e222: Decision C cites FR-030-AC-5 for constructors only and decides a typed cause. The open question is removed |
+| FND-010 | fixed | d22e222: the move is cited as the IR planner's relayed decision, and the "used by codegen" parenthesis is gone |

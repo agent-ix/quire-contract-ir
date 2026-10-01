@@ -121,9 +121,7 @@ including the globs the model crate itself uses (AD-005, Current state).
 - B. Every Kani family lowering lives in codegen. IR keeps the profile, finite input, dispatch
   index and outcome, which any backend can read. Order: codegen takes the lowerings over first,
   then IR deletes them, with no copy left in IR and no re-export. The move is IR-347 scope (the
-  IR planner's relayed decision). CG AD-004 (PR 215) and CG AD-003 (PR 214) still describe the
-  lowerings and the root crate as the current seam; the intended final form is this one, and CG's
-  ADs are being updated to match (as relayed).
+  IR planner's relayed decision). The final form is this one, and CG's ADs agree.
 - C. IR's `KaniOutcome` is built only through its constructors (FR-030-AC-5), and the cause codes
   codegen matches are a typed cause exported by IR, not literals on both sides; IR-347 (reopened)
   carries the free-string cause codes. Neither is built today.
@@ -182,8 +180,8 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Open questions
 
-| Question | Owner | Recommendation | Cost of the alternative |
-| --- | --- | --- | --- |
+None open: the first draft's questions (the lowering move, the authored-contract path, the cause
+codes) are decided above.
 
 ### Routed gaps
 
@@ -194,7 +192,7 @@ To codegen:
 
 | Id | Stated need |
 | --- | --- |
-| R3-C1 | Take over the three Kani family lowerings (their request and result types and the three one-line wrappers) so IR can delete them. CG AD-004 (PR 215) says the corpus files "forward to IR lowerings" and CG AD-003 (PR 214) says the seam to IR is IR's root crate API; both describe the current state, the intended final form is this AD's (lowerings in codegen, model items through the model crate, per IR-347 as relayed), and CG's ADs are being updated to say so (as relayed). |
+| R3-C1 | Take over the three Kani family lowerings (their request and result types and the three one-line wrappers) so IR can delete them. The final form is this AD's (lowerings in codegen, model items through the model crate, per IR-347 as relayed), and CG's ADs agree. |
 | R3-C2 | Declare `quire-contract-model` directly and import model items from it, before IR removes the root glob. |
 | R3-C4 | Remove the stale comment in `deny.toml` that places `quire-spec-language` behind `quire-contract-ir`. |
 
