@@ -65,8 +65,8 @@ use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
     CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm,
-    OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm, RelationForm,
-    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+    NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind, OperationModeKind,
+    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
@@ -706,7 +706,9 @@ fn reference_term_target(argument: &Value) -> Option<CheckedNodeId> {
 
 /// The operation catalog's operand family a node of this kind denotes
 /// directly, or `None` when it has none of its own (a `bounded_domain` then
-/// resolves through its semantic type). Exhaustive over every form.
+/// resolves through its semantic type). Exhaustive over every form. An enum
+/// is reported as `enum` here; [`resolve_family`] refines it to
+/// `ordered_enum` from the node's nominal preimage.
 fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
     use CheckedNodeKind as K;
     match kind {
@@ -980,6 +982,15 @@ fn resolve_family(
     let position = *index.get(type_id)?;
     let node = &nodes[position];
     let kind = *kinds.get(position)?;
+    // An enum is `ordered_enum` when its nominal preimage is ordered and
+    // `enum` otherwise (QSpec FR-322), which the node's kind alone cannot say.
+    if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
+        let ordered = matches!(
+            &node.nominal_identity_preimage,
+            Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
+        );
+        return Some(if ordered { "ordered_enum" } else { "enum" });
+    }
     let direct = operand_family(kind);
     if direct.is_some() {
         return direct;
