@@ -97,8 +97,8 @@ including the globs the model crate itself uses (AD-005, Current state).
 | Edge | Allowed | Held by | Gap |
 | --- | --- | --- | --- |
 | codegen to IR | yes, root crate only today | codegen `Cargo.toml`; codegen `make deny` runs `scripts/check_one_copy.awk` over codegen's lock (one `quire-contract-ir`, one `quire-contract-model`) | the root crate is the wrong path for model items (above) |
-| IR to codegen | no | nothing in IR (AD-005 D-2) | the forbidden list in `tests/it/cycle_free_model.rs` does not name `quire-contract-codegen` |
-| IR to QSL | no | `tc_041` (AD-005) | none |
+| IR to codegen | no | nothing in IR yet; AD-005 decision D makes it a cargo-deny `bans` failure (IR-343) | the forbidden list in `tests/it/cycle_free_model.rs` does not name `quire-contract-codegen` |
+| IR to QSL | no | `tc_041` and the cargo-deny `bans` entries (AD-005 decision D) | none |
 | codegen to QSL | only `qsl-replay` | codegen `deny.toml` exceptions and QSL's `arch-lint api-surface` T12-A | not an IR concern |
 | IR and codegen both to runtime | IR no, codegen yes | AD-001 for IR (runtime: no edge in either direction with IR) | no IR test (AD-005 D-2) |
 
@@ -119,8 +119,8 @@ including the globs the model crate itself uses (AD-005, Current state).
   change (IR-347 reopened scope; sibling PR 239 routes it as R-I3).
 - B. Every Kani family lowering lives in codegen. IR keeps the profile, finite input, dispatch
   index and outcome, which any backend can read. The move is codegen first, then IR deletion,
-  with no copy left in IR and no re-export from IR (this is the order IR-347's text states; the
-  text is untrusted ticket text and the order was not re-measured).
+  with no copy left in IR and no re-export from IR. This move is inside IR-347's reopened scope
+  (the lowerings and `KaniProvider*` still exported from the root and used by codegen).
 - C. IR's `KaniOutcome` is built only through its constructors, and the cause strings codegen
   matches are exported constants or a typed cause, not literals on both sides (FR-030-AC-5; not
   built).
@@ -140,7 +140,7 @@ Local labels; the repository assigns requirement ids when one is authored.
 - G-4. `Proved` carries a check count and a request with count zero returns `KaniOutcomeError`
   (FR-030-AC-4; not built: `proved` takes no count and `non_success` turns `Proved` into a
   `Refused` outcome with code `kani_outcome_kind_invalid`).
-- G-5. Neither IR package depends on the codegen or runtime packages (AD-005 D-2).
+- G-5. Neither IR package depends on the codegen or runtime packages, enforced as a cargo-deny `bans` build failure in `make deny` (AD-005 D-2; IR-343).
 - G-6. Codegen's lock holds one `quire-contract-model` and one `quire-contract-ir` (existing
   gate).
 - G-7. Every lowering request codegen sends yields exactly one record (AD-004; FR-035).
@@ -159,9 +159,8 @@ What is measured today, what is open and with whom, and what is routed.
      the one total map (C-09), against AD-001, which gives the map to codegen. Codegen's source
      does not use them (measured above), so deleting them needs no codegen change.
   3. The three family lowerings are in IR (`src/kani/arithmetic.rs`, `collections.rs`,
-     `objects.rs`, 392 lines) and codegen calls them. IR-347's title and text, as read, name the
-     glob, the bridge, witness and replay and the duplicate model, and not this move; the owner
-     should confirm it is in scope.
+     `objects.rs`, 392 lines) and codegen calls them. Moving them out of IR is inside IR-347's
+     reopened scope, as is the root glob.
   4. FR-030-AC-4 and AC-5, FR-039 and FR-037-AC-6 are listed as planned in `spec/tests.md`; the
      `KaniOutcomeError` type does not exist.
   5. `proved_from_checks`' doc cites codegen's `classify_run` by file name
@@ -178,10 +177,8 @@ What is measured today, what is open and with whom, and what is routed.
 
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
-| Is the move of the three lowerings to codegen inside IR-347? | IR lane | yes, state it there and sequence it before the glob removal | IR keeps exporting items its own AD says it does not own |
 | Is the authored-contract projection path (`BoundPackage` and friends) kept? | IR lane and codegen | state which generators stay on it; then IR lists its items in FR-019 as codegen-consumed | two intake families to maintain for one backend |
 | Export cause-code constants or a typed cause from IR | IR | typed cause, with codegen matching it | a literal on each side drifts silently |
-| Add the codegen and runtime names to IR's direction test | IR | yes (AD-005 D-2) | a reverse edge goes unnoticed |
 
 ### Routed gaps
 
