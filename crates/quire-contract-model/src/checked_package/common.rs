@@ -1595,7 +1595,7 @@ mod depth_tests {
     /// The reader's ceiling is exactly 16,384 levels: that many is admitted
     /// under any caller limit, one more is incomplete at 16,384.
     ///
-    /// Tracing: TC-048, FR-038-AC-3
+    /// Tracing: TC-048
     #[test]
     fn tc_048_the_reader_ceiling_is_sixteen_thousand_three_hundred_eighty_four_levels() {
         assert_eq!(CheckedPackageReadLimits::MAXIMUM_DEPTH, 16_384);
