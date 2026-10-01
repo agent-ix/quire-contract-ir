@@ -21,10 +21,10 @@ This registry owns the stable machine-readable refusal codes the output-mapping
 surface emits: the complete closed `MappingRequestErrorCode` catalog reached
 through `MappingRequestError`. These codes are a separate catalog from the
 semantic `DiagnosticCode` values registered by
-[STD-001](./STD-001-diagnostic-registry.md); no spelling is shared between the
+[STD-001](../../core/functional/STD-001-diagnostic-registry.md); no spelling is shared between the
 two and neither is convertible into the other.
 
-[FR-019](../interface/FR-019-rust-library-interface.md) forbids a caller
+[FR-019](../../model/functional/FR-019-rust-library-interface.md) forbids a caller
 recovering an outcome from display, debug, or panic text, so the code spelling
 registered here — not the message — is the refusal contract. Implementations may
 add human context but shall not parse or synthesize codes from messages, and
@@ -124,7 +124,7 @@ assembling the single atomic output package.
 
 ## Dependencies
 
-- **Upstream**: [FR-019](../interface/FR-019-rust-library-interface.md) forbids
+- **Upstream**: [FR-019](../../model/functional/FR-019-rust-library-interface.md) forbids
   message parsing and makes the code spelling the contract.
 - **Downstream**: [FR-032](./FR-032-admit-output-mapping-request.md),
   [FR-033](./FR-033-account-for-output-obligations.md) and

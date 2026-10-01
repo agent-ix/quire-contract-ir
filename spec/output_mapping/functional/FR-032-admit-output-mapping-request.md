@@ -85,9 +85,9 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 
 ## Dependencies
 
-- [FR-023](FR-023-executable-projection-binding.md) supplies the strict bound-package
+- [FR-023](../../model/functional/FR-023-executable-projection-binding.md) supplies the strict bound-package
   and bound-clause boundary.
-- [FR-028](FR-028-separate-cycle-free-contract-model.md) requires this target-neutral
+- [FR-028](../../model/functional/FR-028-separate-cycle-free-contract-model.md) requires this target-neutral
   contract to remain in the cycle-free model crate.
 - [STD-003](STD-003-output-mapping-refusal-registry.md) owns the closed refusal
   code catalog this requirement, FR-033 and FR-034 emit from.

@@ -36,7 +36,7 @@ invariants:
 The `quire-contract-ir` root crate shall expose exactly the public items
 listed below and shall re-export no `quire_contract_model` item: the model's
 public items have one import path, `quire_contract_model`, which
-[FR-019](./FR-019-rust-library-interface.md) governs. It shall expose no
+[FR-019](../../model/functional/FR-019-rust-library-interface.md) governs. It shall expose no
 counterexample packet, witness, replay source, replay agreement, terminal
 record or obligation identity of its own: those are QSL `qsl-replay` types,
 and where the root crate names one it names QSL's.
@@ -110,10 +110,10 @@ panicking; `KaniOutcomeError` codes are registered in STD-001.
 
 ## Dependencies
 
-[FR-019](./FR-019-rust-library-interface.md) governs the model crate's
+[FR-019](../../model/functional/FR-019-rust-library-interface.md) governs the model crate's
 surface, which this crate does not re-export.
-[FR-028](../contract/FR-028-separate-cycle-free-contract-model.md) fixes the
-model/root package split. [AD-001](../assurance/AD-001-contract-ir-architecture.md)
+[FR-028](../../model/functional/FR-028-separate-cycle-free-contract-model.md) fixes the
+model/root package split. [AD-001](../../assurance/AD-001-contract-ir-architecture.md)
 records the module boundaries, the one-path rule for public items, the
 QSL replay-type ownership and the placement of the Kani family lowerings in
 codegen's backend adapter.

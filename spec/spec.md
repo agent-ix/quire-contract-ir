@@ -97,38 +97,30 @@ profiles. ADR-0054 separates archetype
 datatype generation from optional formal type projection. ADR-0056
 fixes the subsystem specification layout and registry format that this
 repository, Contract Codegen and Contract Runtime follow.
-TM-002 maps the substrate to staged verification.
+The subsystem matrices, indexed by [tests.md](tests.md), map the substrate to
+staged verification.
 
 FR-028 makes the model/owner/root dependency graph implementable without a
 Cargo cycle.
 
+## Subsystems
+
+### Subsystem Registry
+
+| Subsystem | Path | Role | Owning crates/modules | ADs | Owner |
+| --- | --- | --- | --- | --- | --- |
+| Core | `spec/core/` | Stakeholder needs, package, anchor, clause and dependency identity, resource limits, the diagnostic code registry, and the determinism, portability and diagnostic-integrity properties every subsystem shares | `quire-contract-model::identity`, `quire-contract-model::limits` | AD-001, ADR-0056 | Contract IR lane |
+| Model | `spec/model/` | The type system, expression semantics, definedness, canonical encoding and digests, version and orphan handling, executable-projection binding, the model crate's public interface and the cycle-free model/root package split | `quire-contract-model::expression`, `quire-contract-model::canonical`, `quire-contract-model::wire`, `quire-contract-model::coverage`, `quire-contract-model::binding` | AD-001, ADR-0053, ADR-0054 | Contract IR lane |
+| Conformance | `spec/conformance/` | The conformance corpus and the JSON conformance interface | `quire-contract-model::conformance`, `quire-contract-ir` binary `quire-contract-conformance` | AD-001 | Contract IR lane |
+| Checked package | `spec/checked_package/` | The strict `quire.checked-package/v2` reader, its frame, anchor and state-clause admission, the refusal of unadmitted ADR-002 members, and complete-V1 ContractPackage lowering from that input | `quire-contract-model::checked_package` | AD-001, AD-003 | Contract IR lane |
+| Output mapping | `spec/output_mapping/` | The target-neutral output-mapping request, per-obligation record, mapper seam, atomic package assembly and the refusal code registry | `quire-contract-model::output_mapping` | AD-001 | Contract IR lane |
+| Kani | `spec/kani/` | The versioned bounded-Kani profile, finite input and outcome firewall, dispatch index and typed outcomes, provider-side exact backend negotiation, the root crate's public interface and the rule that Contract IR defines no replay type | `quire-contract-ir` root crate (`lib.rs` and `kani`) excluding the conformance binary | AD-001, AD-002, AD-003 | Contract IR lane |
+
 ## References
 
-- [Contract IR test matrix](contract-test-matrix.md).
-- [Contract IR diagnostic registry](contract/STD-001-diagnostic-registry.md).
-- [Versioned bounded Kani profile](contract/FR-029-versioned-bounded-kani-profile.md).
-- [Bounded Kani domains and outcomes](contract/FR-030-bounded-kani-domain-and-outcomes.md).
-- [Bounded Kani dispatch and terminal-value map](contract/FR-031-bounded-kani-dispatch-and-terminal-map.md).
-- [Output-mapping request admission](contract/FR-032-admit-output-mapping-request.md).
-- [Per-obligation output accounting](contract/FR-033-account-for-output-obligations.md).
-- [Atomic output package assembly](contract/FR-034-assemble-output-package-atomically.md).
-- [Output-mapping foundation test case](contract/TC-043-output-mapping-foundation.md).
+- [Contract IR test matrix index](tests.md).
 - [Complete-V1 backend delivery architecture](assurance/AD-003-complete-v1-backend-delivery.md).
-- [Complete-V1 ContractPackage lowering](contract/FR-035-complete-v1-contract-package-lowering.md).
-- [CheckedPackage V2 consumption](contract/FR-038-consume-checked-package-v2.md).
-- [Exact backend negotiation](contract/FR-036-exact-backend-negotiation-and-emission.md).
-- [Canonical backend replay](contract/FR-037-canonical-backend-replay-and-qualification.md).
-- [Cycle-free Contract IR model package](contract/FR-028-separate-cycle-free-contract-model.md).
 - [Repository architecture and versioning](assurance/AD-001-contract-ir-architecture.md).
 - [Bounded Kani backend architecture](assurance/AD-002-bounded-kani-architecture.md).
-- [Root crate public interface](interface/FR-039-root-crate-public-interface.md).
-- [Frame entries, operation anchors and state clauses](contract/FR-040-admit-frame-entries-and-state-clauses.md).
-- [Unadmitted ADR-002 2.0.0 members](contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md).
-- [Output-mapping refusal registry](contract/STD-003-output-mapping-refusal-registry.md).
 - [Formal clause source profiles](decisions/ADR-0053-formal-clause-source-profiles.md).
 - [Subsystem spec layout and registry format](decisions/ADR-0056-spec-layout-convention.md).
-- [Unadmitted ADR-002 member refusal test case](contract/TC-222-refuse-unadmitted-adr-002-members.md).
-- [Kani outcome constructor test case](contract/TC-223-kani-outcome-fr331-result-map.md).
-- [Root crate interface test case](contract/TC-055-root-crate-public-interface.md).
-- [Frame entry and state clause test case](contract/TC-056-checked-package-v2-frame-entries-and-state-clauses.md).
-- [Model crate interface test case](contract/TC-058-model-crate-public-interface.md).
