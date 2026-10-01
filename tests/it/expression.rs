@@ -1569,3 +1569,283 @@ fn tc_016_rational_literal_guards_refine_nonzero_and_ordered_ranges() {
         )
         .is_ok());
 }
+
+/// The numeric family and type a range-set test runs over: values span +/-1000 with
+/// denominator 1, so `x >= -1 && x <= 1 && x != 0` leaves exactly the points {-1, 1}.
+#[derive(Clone)]
+enum Numeric {
+    Integer(IntegerType),
+    Rational(RationalType),
+}
+
+impl Numeric {
+    fn integer(overflow: OverflowPolicy) -> Self {
+        Self::Integer(integer(-1000, 1000, overflow))
+    }
+
+    fn rational() -> Self {
+        Self::Rational(RationalType::new(-1000, 1000, 1).unwrap())
+    }
+
+    fn value_type(&self) -> ValueType {
+        match self {
+            Self::Integer(value) => ValueType::integer(value.clone()),
+            Self::Rational(value) => ValueType::rational(value.clone()),
+        }
+    }
+
+    fn literal(&self, value: i64, at: u64) -> Expression {
+        let kind = match self {
+            Self::Integer(value_type) => ExpressionKind::IntegerLiteral {
+                value,
+                value_type: value_type.clone(),
+            },
+            Self::Rational(value_type) => ExpressionKind::RationalLiteral {
+                numerator: value,
+                denominator: 1,
+                value_type: value_type.clone(),
+            },
+        };
+        Expression::new(kind, span(at, at + 1))
+    }
+
+    fn environment(&self) -> DeclarationEnvironment {
+        DeclarationEnvironment::new(
+            RequirementRef::new(
+                PackageId::new("agent-ix/contract").unwrap(),
+                quire_contract_ir::RequirementId::new("REQ_range_sets").unwrap(),
+                quire_contract_ir::RequirementRevision::new(1).unwrap(),
+            ),
+            Vec::new(),
+            vec![ValueDeclaration::new(
+                name("x"),
+                ValueDeclarationKind::Input,
+                self.value_type(),
+                span(10, 11),
+            )],
+            Vec::new(),
+        )
+        .unwrap()
+    }
+
+    fn x(&self) -> Expression {
+        value("x", StateObservation::Current, 20)
+    }
+
+    fn numeric(
+        &self,
+        operator: NumericOperator,
+        left: Expression,
+        right: Expression,
+    ) -> Expression {
+        Expression::new(
+            ExpressionKind::Numeric {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            span(30, 33),
+        )
+    }
+
+    /// `x op x op ... op x` with `leaves` copies of `x`, left-associated.
+    fn fold(&self, operator: NumericOperator, leaves: usize) -> Expression {
+        (1..leaves).fold(self.x(), |folded, _| {
+            self.numeric(operator, folded, self.x())
+        })
+    }
+
+    /// `x >= -1 && x <= 1 && x != 0 && body`.
+    fn guarded(&self, body: Expression) -> Expression {
+        [
+            compare(
+                ComparisonOperator::GreaterEqual,
+                self.x(),
+                self.literal(-1, 50),
+                50,
+            ),
+            compare(
+                ComparisonOperator::LessEqual,
+                self.x(),
+                self.literal(1, 52),
+                52,
+            ),
+            compare(
+                ComparisonOperator::NotEqual,
+                self.x(),
+                self.literal(0, 54),
+                54,
+            ),
+        ]
+        .into_iter()
+        .rev()
+        .fold(body, |right, guard| {
+            bool_op(BooleanOperator::ShortCircuitAnd, guard, right, 60)
+        })
+    }
+
+    fn check(&self, expression: &Expression) -> Result<(), Vec<quire_contract_ir::Diagnostic>> {
+        self.environment()
+            .check_expression(expression, &ValueType::Boolean, &pre(), true)
+            .map(|_| ())
+    }
+
+    /// `guard(fold(operator, leaves) >= -1000)`.
+    fn guarded_fold_bounded_below(&self, operator: NumericOperator, leaves: usize) -> Expression {
+        self.guarded(compare(
+            ComparisonOperator::GreaterEqual,
+            self.fold(operator, leaves),
+            self.literal(-1000, 40),
+            40,
+        ))
+    }
+
+    /// `guard(10 / fold(Add, leaves) > 0)`.
+    fn guarded_division_by_sum(&self, leaves: usize) -> Expression {
+        self.guarded(compare(
+            ComparisonOperator::Greater,
+            self.numeric(
+                NumericOperator::Divide,
+                self.literal(10, 41),
+                self.fold(NumericOperator::Add, leaves),
+            ),
+            self.literal(-1000, 40),
+            40,
+        ))
+    }
+}
+
+fn all_numerics() -> [Numeric; 3] {
+    [
+        Numeric::integer(OverflowPolicy::Reject),
+        Numeric::integer(OverflowPolicy::Saturate),
+        Numeric::rational(),
+    ]
+}
+
+#[cfg(target_os = "linux")]
+const RANGE_SET_CHILD: &str = "IR_RANGE_SET_CHILD";
+#[cfg(target_os = "linux")]
+const PRODUCT_TEST: &str =
+    "expression::tc_016_guard_split_products_merge_instead_of_multiplying_out";
+
+fn assert_guarded_products_check(leaf_counts: &[usize]) {
+    for numeric in all_numerics() {
+        for &leaves in leaf_counts {
+            let expression = numeric.guarded_fold_bounded_below(NumericOperator::Multiply, leaves);
+            assert!(
+                numeric.check(&expression).is_ok(),
+                "{leaves} product leaves"
+            );
+        }
+    }
+}
+
+/// Product leaves of a guard-split range merge instead of multiplying out. A merge
+/// regression would allocate without bound, so on Linux the 16, 32 and 120 leaf checks run
+/// in a child process whose address space is capped; the parent fails unless the child
+/// reports exactly that test passed, so a renamed test cannot pass silently. Elsewhere only
+/// 16 leaves run in-process, a size whose unmerged growth is bounded, and the unit tests
+/// cover repeated products.
+///
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
+    #[cfg(not(target_os = "linux"))]
+    assert_guarded_products_check(&[16]);
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os(RANGE_SET_CHILD).is_some() {
+            assert_guarded_products_check(&[16, 32, 120]);
+            return;
+        }
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "ulimit -v 3000000 && exec \"$0\" --exact {PRODUCT_TEST} --test-threads=1"
+            ))
+            .arg(std::env::current_exe().unwrap())
+            .env(RANGE_SET_CHILD, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("test result: ok. 1 passed"),
+            "capped child failed ({:?}): {stdout}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+/// A range set past 64 intervals is widened, not refused: sums of 64, 100 and 200 guarded
+/// leaves check under every overflow policy and numeric family.
+///
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
+    for numeric in all_numerics() {
+        for leaves in [63, 64, 65, 100, 200] {
+            let expression = numeric.guarded_fold_bounded_below(NumericOperator::Add, leaves);
+            assert!(numeric.check(&expression).is_ok(), "{leaves} sum leaves");
+        }
+    }
+}
+
+/// Widening is sound but can lose precision: a sum of 65 leaves keeps the hole at zero,
+/// while 131 leaves carry an interval widened earlier in the chain across zero, so the
+/// divisor's own obligation is reported. Integer only: a rational quotient by a wide sum
+/// exceeds the one-denominator type for its own reasons.
+///
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() {
+    for numeric in &all_numerics()[..2] {
+        assert!(
+            numeric.check(&numeric.guarded_division_by_sum(65)).is_ok(),
+            "65 leaves keep the hole at zero"
+        );
+        let diagnostics = numeric
+            .check(&numeric.guarded_division_by_sum(131))
+            .unwrap_err();
+        assert_eq!(diagnostics[0].code, DiagnosticCode::PotentiallyUndefined);
+        assert_eq!(
+            diagnostics[0].obligation_kind,
+            Some(DefinednessObligationKind::NonZeroDivisor)
+        );
+    }
+}
+
+/// The `!= 0` split keeps both halves: the product of the split range excludes zero, a
+/// sum with a literal reaches zero, and without the guard the divisor may be zero.
+///
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_nonzero_split_keeps_both_halves_for_every_numeric_family() {
+    for numeric in all_numerics() {
+        let divide_by = |divisor: Expression| {
+            numeric.guarded(compare(
+                ComparisonOperator::Greater,
+                numeric.numeric(NumericOperator::Divide, numeric.literal(10, 41), divisor),
+                numeric.literal(-1000, 40),
+                40,
+            ))
+        };
+        let square = numeric.numeric(NumericOperator::Multiply, numeric.x(), numeric.x());
+        assert!(numeric.check(&divide_by(square)).is_ok());
+        let shifted = numeric.numeric(NumericOperator::Add, numeric.x(), numeric.literal(1, 42));
+        let diagnostics = numeric.check(&divide_by(shifted)).unwrap_err();
+        assert_eq!(
+            diagnostics[0].obligation_kind,
+            Some(DefinednessObligationKind::NonZeroDivisor)
+        );
+    }
+}
