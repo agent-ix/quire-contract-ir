@@ -40,3 +40,4 @@ Approve with one medium test gap. Integer coverage is strong. The exhaustive sma
 | --- | --- | --- |
 | FND-001 | fixed | 4b79f5f |
 | FND-002 | fixed | 4b79f5f |
+| FND-003 | fixed | 53c8d06 |

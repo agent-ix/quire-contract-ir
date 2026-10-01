@@ -28,6 +28,12 @@ Ticket: IR-473. Integrity review of the new FR-014 Behavior paragraph (lines 102
 
 Approve with one medium wording fix. On reusing `potentially_undefined` / `checked_range` rather than adding a new code: STD-001 defines the code as "a partial-operation obligation is not statically discharged". For a Reject-policy operator, declining to compute a too-large set does leave the `checked_range` obligation undischarged, so reuse is defensible there. For a Saturate-policy operator no such obligation exists (SR-637 FND-001). Widening, as SR-637 recommends, would avoid both the misreport and the STD-001, schema, corpus and trace churn of a new `range_set_too_large` code. No relationships edge changes, so dependency and object sub-analyses do not apply; FR-014's statement is unchanged, so EARS analysis does not apply.
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | FR-014 says "no defined expression is refused for the size of its range set", but the PR's own 131-leaf test refuses the defined `10 / (sum of 131 x)`, an odd sum that is never zero, with `non_zero_divisor` because widening covered zero. The next sentences explain the effect, but the claim is literally false | spec/contract/FR-014-expression-semantics.md:109-110 |
+
 ## Dispositions
 
 | FND | Outcome | sha/reason |

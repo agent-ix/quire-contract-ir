@@ -71,9 +71,22 @@ Every endpoint of a widened interval is an endpoint of an original interval. The
 
 Probe: exact-range build (MAX_RANGE_SET_SIZE set to 1000000 in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | medium | The FND-003 fix leaves the module-level constants `RANGE_SET_CHILD` and `PRODUCT_TEST` used only inside the `#[cfg(target_os = "linux")]` block. On macOS they are dead code, so `make lint` (`clippy --all-targets -- -D warnings`) fails with "constant ... is never used" | tests/it/expression.rs:1726-1728 |
+
+### Detail (disposition pass 2)
+
+- FND-005: reproduced with a minimal crate of the same shape, run with `cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings`: `error: constant RANGE_SET_CHILD is never used` and the same for `PRODUCT_TEST`. A full-workspace macOS clippy could not run here, because `psm` needs a C cross-compiler. Fix: put `#[cfg(target_os = "linux")]` on both constants, or move them inside the Linux block. The non-Linux runtime path itself is correct: it runs 16 leaves in-process with no `sh` or `ulimit`.
+- Round-2 soundness: zero ranking only changes which gaps close. Closing any set of gaps adds values between existing intervals and leaves the first and last endpoints unchanged, so the result is still a superset with the same min and max. The exact-vs-widened differential at 53c8d06 (12000 targeted trees, `ulimit -v 3000000`) again showed only exact ok -> widened `non_zero_divisor`, 332 trees, and never the reverse. The count is the same as round 1: a later `+-1` operator re-covers zero, as the coder noted. The ranking helps the direct case only.
+
 ## Dispositions
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | fixed | 4b79f5f |
 | FND-002 | fixed | 4b79f5f |
+| FND-003 | fixed | 53c8d06 |
+| FND-004 | fixed | 53c8d06 |

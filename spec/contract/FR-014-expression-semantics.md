@@ -106,10 +106,11 @@ allocates in proportion to at most 64 x 64 interval pairs. Operator results are 
 overlapping or adjacent intervals become one. When more than 64 disjoint intervals
 remain, the narrowest gaps are closed (the earliest first on a tie, a gap holding zero last)
 until 64 remain. The widened set contains every value of the exact set and has the same
-minimum and maximum, so named-bound and index-bound checks are unaffected and no defined
-expression is refused for the size of its range set. A gap holding zero is closed only
-when no other gap remains. A later operator applied to a widened set can still produce a
-set that contains zero; a divisor whose set contains zero reports the divisor's own
+minimum and maximum, so named-bound and index-bound checks are unaffected and no
+expression is refused merely for the size of its range set. Widening is a sound
+over-approximation: a gap holding zero is closed only when no other gap remains, but a
+later operator applied to a widened set can produce a set that contains zero even though
+the exact set does not, so a defined divisor can report the divisor's own
 `non_zero_divisor` obligation.
 
 The typed expression implements the FR-012 dependency-source contract. A state

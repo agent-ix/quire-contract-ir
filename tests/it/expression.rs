@@ -1723,7 +1723,9 @@ fn all_numerics() -> [Numeric; 3] {
     ]
 }
 
+#[cfg(target_os = "linux")]
 const RANGE_SET_CHILD: &str = "IR_RANGE_SET_CHILD";
+#[cfg(target_os = "linux")]
 const PRODUCT_TEST: &str =
     "expression::tc_016_guard_split_products_merge_instead_of_multiplying_out";
 
