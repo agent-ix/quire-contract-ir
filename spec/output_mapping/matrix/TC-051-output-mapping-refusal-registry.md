@@ -18,7 +18,7 @@ semantic diagnostic catalog.
 
 ## Test Procedure
 
-Read `spec/contract/STD-003-output-mapping-refusal-registry.md` at compile time.
+Read `spec/output_mapping/functional/STD-003-output-mapping-refusal-registry.md` at compile time.
 For every member of the complete `MappingRequestErrorCode` catalog, locate its
 registry row, serialize it, and resolve the spelling back to the same member.
 Count the registry's code rows. Compare both catalogs against each other in both

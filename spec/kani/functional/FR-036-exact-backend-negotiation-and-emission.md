@@ -63,7 +63,7 @@ domain, and bounds in each emitted artifact.
 
 ## Dependencies
 
-[FR-035](./FR-035-complete-v1-contract-package-lowering.md) owns the input
+[FR-035](../../checked_package/functional/FR-035-complete-v1-contract-package-lowering.md) owns the input
 package. QSpec FR-196 and I13 own the normative provider contract. FR-029
 through FR-031 remain credited only for their closed `kani-bounded/1`
 profile: Contract IR supplies that profile, its finite input ABI, dispatch
@@ -76,7 +76,7 @@ by an `unsupported` warning. A negotiated item's later Kani outcome is typed by
 [FR-030](../../kani/functional/FR-030-bounded-kani-domain-and-outcomes.md); its QSL `TerminalValue`
 is codegen's (tracked in agent-ix/quire-contract-codegen under Linear IR-358),
 and replay of a
-counterexample is QSL's ([FR-037](../../bridge/functional/FR-037-canonical-backend-replay-and-qualification.md)).
+counterexample is QSL's ([FR-037](./FR-037-canonical-backend-replay-and-qualification.md)).
 
 ## Status
 

@@ -67,6 +67,6 @@ codegen backend adapter's.
 
 ## Dependencies
 
-[FR-036](../../checked_package/functional/FR-036-exact-backend-negotiation-and-emission.md) owns backend
+[FR-036](./FR-036-exact-backend-negotiation-and-emission.md) owns backend
 inputs. QSpec FR-197 owns the normative replay and corpus contract; QSL
 `qsl-replay` implements it.

@@ -88,7 +88,7 @@ artifact ABI versions. [FR-030](./FR-030-bounded-kani-domain-and-outcomes.md)
 defines validated inputs and typed non-Boolean outcomes. QSL `qsl-replay`
 owns `TerminalValue`, `TerminalRecord`, `Witness`, `ReplaySource`,
 `WitnessEnvelope`, `ObligationIdentity` and `replay` (QSL FR-069, FR-070,
-FR-098). [FR-039](../../bridge/functional/FR-039-root-crate-public-interface.md) states
+FR-098). [FR-039](./FR-039-root-crate-public-interface.md) states
 the root crate's public surface after those types leave it.
 
 ## Status
