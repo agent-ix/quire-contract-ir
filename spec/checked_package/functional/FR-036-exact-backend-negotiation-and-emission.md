@@ -73,10 +73,10 @@ codegen. A construct the `kani-bounded/1` capability matrix records
 `unsupported` settles its item `unsupported` here, with a warning naming the
 item's capability kind from the closed `quire.capability-kind/v1` vocabulary (QSpec FR-290) (FR-029). QSpec FR-290 owns the closed ten-label `quire.capability-kind/v1` capability vocabulary named
 by an `unsupported` warning. A negotiated item's later Kani outcome is typed by
-[FR-030](./FR-030-bounded-kani-domain-and-outcomes.md); its QSL `TerminalValue`
+[FR-030](../../kani/functional/FR-030-bounded-kani-domain-and-outcomes.md); its QSL `TerminalValue`
 is codegen's (tracked in agent-ix/quire-contract-codegen under Linear IR-358),
 and replay of a
-counterexample is QSL's ([FR-037](./FR-037-canonical-backend-replay-and-qualification.md)).
+counterexample is QSL's ([FR-037](../../bridge/functional/FR-037-canonical-backend-replay-and-qualification.md)).
 
 ## Status
 

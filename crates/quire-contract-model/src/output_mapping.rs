@@ -153,7 +153,7 @@ macro_rules! mapping_error_codes {
 
 // Declaration order here is not incidental: STD-003 requires
 // `MappingRequestErrorCode::ALL` and the registry's rows to be the same set
-// in the same order (`spec/contract/STD-003-output-mapping-refusal-registry.md`),
+// in the same order (`spec/output_mapping/functional/STD-003-output-mapping-refusal-registry.md`),
 // and the "Unresolved-obligation precedence" section states the
 // foreign/stale/unknown order explicitly. This declaration mirrors the
 // registry's three groups — Request Admission (FR-032), Accounting and

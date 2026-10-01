@@ -92,7 +92,7 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
     admitted(&package);
 }
 
-/// FR-340's headline precedence rule (`spec/contract/FR-038-consume-checked-package-v2.md`:
+/// FR-340's headline precedence rule (`spec/checked_package/functional/FR-038-consume-checked-package-v2.md`:
 /// "A frame node carrying more than one defect refuses for exactly one of
 /// them ... any meaning-join defect ... outranks a canonical-order defect
 /// outright") has no vendored vector that puts both defect classes in one

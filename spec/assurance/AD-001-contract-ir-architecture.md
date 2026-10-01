@@ -90,7 +90,7 @@ an absent solver or backend are run outcomes only (FR-030).
 The counterexample envelope, witness, replay source, FR-331 terminal record
 and obligation identity are QSL's `qsl-replay` types, and Contract IR defines
 none of them. The root crate has no `replay` or `witness` module, and
-[FR-039](../interface/FR-039-root-crate-public-interface.md) "Items QSL owns"
+[FR-039](../bridge/functional/FR-039-root-crate-public-interface.md) "Items QSL owns"
 names each item that therefore has no place in its interface. Kani
 transcript parsing is the codegen backend adapter's.
 

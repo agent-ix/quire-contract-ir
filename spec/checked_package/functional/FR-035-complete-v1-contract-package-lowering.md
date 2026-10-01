@@ -77,6 +77,6 @@ change a source/type/anchor/bound, or affect a sibling disposition.
 
 ## Dependencies
 
-[FR-028](./FR-028-separate-cycle-free-contract-model.md) owns the cycle-free
+[FR-028](../../model/functional/FR-028-separate-cycle-free-contract-model.md) owns the cycle-free
 model boundary. QSpec FR-195 and I12 own the normative complete-V1 lowering and
 ContractPackage semantics; this requirement implements them in Contract IR.
