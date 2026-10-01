@@ -25,3 +25,15 @@ Ticket: IR-347. Integrity review of the two edited Test Matrix status cells (FR-
 ## Verdict
 
 Approve with one low status-prose fix. Requirement statements and ACs are unchanged, so EARS, dependency and object sub-analyses do not apply.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | The FND-001 fix dropped the "and" between the two clauses without adding a comma, so the FR-039 status cell reads "re-exports the whole model with `pub use quire_contract_model::*` exports the family lowerings codegen owns, and exports ..."; insert a comma after the backticked glob | spec/contract-test-matrix.md:41 |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 8501552 |
