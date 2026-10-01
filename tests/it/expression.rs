@@ -1724,46 +1724,58 @@ fn all_numerics() -> [Numeric; 3] {
 }
 
 const RANGE_SET_CHILD: &str = "IR_RANGE_SET_CHILD";
+const PRODUCT_TEST: &str =
+    "expression::tc_016_guard_split_products_merge_instead_of_multiplying_out";
+
+fn assert_guarded_products_check(leaf_counts: &[usize]) {
+    for numeric in all_numerics() {
+        for &leaves in leaf_counts {
+            let expression = numeric.guarded_fold_bounded_below(NumericOperator::Multiply, leaves);
+            assert!(
+                numeric.check(&expression).is_ok(),
+                "{leaves} product leaves"
+            );
+        }
+    }
+}
 
 /// Product leaves of a guard-split range merge instead of multiplying out. A merge
-/// regression would allocate without bound, so the check runs in a child process whose
-/// address space is capped and the parent asserts the child passed.
+/// regression would allocate without bound, so on Linux the 16, 32 and 120 leaf checks run
+/// in a child process whose address space is capped; the parent fails unless the child
+/// reports exactly that test passed, so a renamed test cannot pass silently. Elsewhere only
+/// 16 leaves run in-process, a size whose unmerged growth is bounded, and the unit tests
+/// cover repeated products.
 ///
 /// Tracing: TC-016
 /// TC-016.
 /// FR-014-AC-7.
 #[test]
 fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
-    const TEST: &str = "expression::tc_016_guard_split_products_merge_instead_of_multiplying_out";
-    if std::env::var_os(RANGE_SET_CHILD).is_some() {
-        for numeric in all_numerics() {
-            for leaves in [16, 32, 120] {
-                let expression =
-                    numeric.guarded_fold_bounded_below(NumericOperator::Multiply, leaves);
-                assert!(
-                    numeric.check(&expression).is_ok(),
-                    "{leaves} product leaves"
-                );
-            }
+    #[cfg(not(target_os = "linux"))]
+    assert_guarded_products_check(&[16]);
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os(RANGE_SET_CHILD).is_some() {
+            assert_guarded_products_check(&[16, 32, 120]);
+            return;
         }
-        return;
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "ulimit -v 3000000 && exec \"$0\" --exact {PRODUCT_TEST} --test-threads=1"
+            ))
+            .arg(std::env::current_exe().unwrap())
+            .env(RANGE_SET_CHILD, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("test result: ok. 1 passed"),
+            "capped child failed ({:?}): {stdout}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!(
-            "ulimit -v 3000000 && exec \"$0\" --exact {TEST} --test-threads=1"
-        ))
-        .arg(std::env::current_exe().unwrap())
-        .env(RANGE_SET_CHILD, "1")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success() && stdout.contains("1 passed"),
-        "capped child failed ({:?}): {stdout}{}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 /// A range set past 64 intervals is widened, not refused: sums of 64, 100 and 200 guarded
@@ -1782,17 +1794,16 @@ fn tc_016_range_sets_beyond_the_limit_widen_and_still_check() {
     }
 }
 
-/// Widening only ever loses a hole at zero, and then the divisor's own obligation is
-/// reported. A sum of 131 leaves has the 132 points -131, -129, .., 131; closing the 68
-/// leftmost gaps covers zero, whereas a sum of 65 leaves closes only gaps near -65. Integer
-/// only: a rational quotient by a wide sum exceeds the one-denominator type for its own
-/// reasons.
+/// Widening is sound but can lose precision: a sum of 65 leaves keeps the hole at zero,
+/// while 131 leaves carry an interval widened earlier in the chain across zero, so the
+/// divisor's own obligation is reported. Integer only: a rational quotient by a wide sum
+/// exceeds the one-denominator type for its own reasons.
 ///
 /// Tracing: TC-016
 /// TC-016.
 /// FR-014-AC-7.
 #[test]
-fn tc_016_widening_that_covers_zero_reports_the_divisor_obligation() {
+fn tc_016_divisors_reaching_zero_through_widening_report_their_own_obligation() {
     for numeric in &all_numerics()[..2] {
         assert!(
             numeric.check(&numeric.guarded_division_by_sum(65)).is_ok(),

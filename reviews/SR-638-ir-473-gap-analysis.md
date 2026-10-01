@@ -27,3 +27,16 @@ Ticket: IR-473. Planless gap analysis of FR-014-AC-7 against the tagged tests an
 ## Verdict
 
 Approve with one medium test gap. Integer coverage is strong. The exhaustive small-domain test checks covered-set equality and canonical form for Add, Subtract and Multiply. The repeated-product test pins 2 intervals over 40 products. The cap boundary is tested at 64 and 65 for unit and integration. The 120-leaf product test is a true regression test: on origin/main it would need 2^120 intervals.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | FR-014 specifies a limit of 64, but no test pins it: the range-set tests compute expected sizes from `MAX_RANGE_SET_SIZE` itself, so changing the constant to 65 leaves every test green. Assert the literal 64 in at least one test | crates/quire-contract-model/src/expression.rs:4070 |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 4b79f5f |
+| FND-002 | fixed | 4b79f5f |

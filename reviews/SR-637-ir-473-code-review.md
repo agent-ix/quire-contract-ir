@@ -41,3 +41,39 @@ Approve the safety fix. Medium FND-001 should be fixed in this PR; it is a small
 - Boundedness: every growth path goes through a binary operator, leaves carry at most 2 intervals and negate preserves the count. Each operator therefore allocates at most 64 x 64 = 4096 pairs plus a sort. Repeated operators cost at most about 4096 log 4096 steps per node within the 10000-node preflight, and the fuzz worst case was 209 ms. No other range-set representation exists in the file: `NumericRange` is the only one, and it never reaches `TypedExpression` output.
 - Oracle strength (mutations run in the throwaway worktree and reverted): merge only on overlap (`+0`) turns the unit test red; over-merge (`+2`) turns unit and integration tests red; cap 65 turns both red; integer guard split `min <= -1` to `< -1` turns the integration tests red. Survivors: the rational result merge and cap (SR-638 FND-001), the refine canonicalization (FND-002 above), the operand-size pre-check (redundant, because the result cap catches the same input and operands never exceed 64 through the public API), and the rational guard split (pre-existing, SR-638 FND-002).
 - Rust idioms: `RangeFailure` is a small typed `Copy` enum with static messages, and no new panic, unsafe or blocking surface is added. Messages are distinct per family. The existing `unreachable!()` and `extrema` unwrap are unchanged.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The capped child-process test is not portable. It runs `sh -c "ulimit -v 3000000 && exec ..."` with no platform gate. On macOS, `ulimit -v` either fails, which turns `make test` red, or is accepted but not enforced, so a merge regression would run uncapped and exhaust host memory. On Windows there is no `sh`, so `.output().unwrap()` panics | tests/it/expression.rs:1751-1765 |
+| FND-004 | low | The widening tie-break closes the leftmost gaps first, so a symmetric set loses its hole at zero even when 64 other gaps could close instead. In the targeted differential, 323 of 4000 trees with point guards checked under exact ranges and reported `non_zero_divisor` after widening. This is sound but avoidably imprecise | crates/quire-contract-model/src/expression.rs:2496-2505 |
+
+### Detail (disposition pass 1)
+
+- FND-003: on Linux the guard works. The mutations that drop the merge or the widening turn this test red, and the child stays within its cap. Not run on macOS here, so confidence is medium. Fix: put the capped child behind `#[cfg(target_os = "linux")]`. Elsewhere, run the check in-process only at leaf counts whose unmerged growth is bounded, such as 16 leaves (2^16 intervals). The repeated-product unit test already pins the merge itself. A failed `ulimit` exits non-zero and so fails loudly. A renamed test path makes the child report "0 passed", which also fails loudly.
+- FND-004: when choosing which gaps to close, treat a gap that straddles zero as the widest, so it closes last. This keeps divisor proofs wherever 64 other gaps can be closed.
+
+### Over-approximation check per consumer (disposition pass 1)
+
+Every endpoint of a widened interval is an endpoint of an original interval. The widened set is a superset with the same minimum and maximum.
+
+| Consumer | Direction under widening | Why it is sound | Probe |
+| --- | --- | --- | --- |
+| `contains_zero` on an integer divisor (expression.rs:2407) and a rational divisor (2604) | can refuse more, never less | a superset contains zero whenever the exact set does | differential: only exact ok -> widened `non_zero_divisor` |
+| Named-bound `within` checks on integer and rational operators and on negation | unchanged | the checks read every interval's endpoints, the hull is unchanged, and pairwise extrema use original endpoints. A divisor interval cannot get closer to zero unless a closed gap spans zero, which `contains_zero` refuses first | differential: no change in `checked_range` outcomes |
+| Saturate collapse to the type range (2447-2454) | unchanged | it is driven by `within` | differential covers the Saturate policy |
+| Saturated negation clamp plus `canonical_ranges` (2864) | count does not grow | clamping a superset gives a superset | mutation removing the canonicalization survives, which is harmless |
+| Static index bound on a collection literal (2207) | can refuse more, never less | every interval must lie in 0..len, which is stricter for a superset. Index-type sets are a single interval anyway: `!= 0` on an unsigned type leaves [1, N] | inspection |
+| Guards `!= 0`, `>=`, `<=` (`refine_range`) | never see a widened set | refinement only applies to leaf declared ranges, a single interval, never to operator results. A `!= c` guard with c not zero produces no range fact at all | inspection |
+| Comparisons, "always true/false" folding | not a consumer | `check_compare` and `guard_facts` are syntactic and read no range set | grep: no `NumericRange` use outside the rows above |
+| Rational `exact` filter (`refine_range`) | not affected | `exact` is `None` on every range-computed result, and the filter runs only on refined leaf ranges | inspection |
+
+Probe: exact-range build (MAX_RANGE_SET_SIZE set to 1000000 in a scratch copy) against the head build. Both ran under `ulimit -v 3000000` with types of +/-300, over 12000 targeted trees: wide guarded sums used as divisor, dividend, remainder divisor and multiplicand, under Reject and Saturate, guard widths 1, 2 and random. The only difference was 332 trees that checked under exact ranges and reported `non_zero_divisor` after widening. No tree that the exact build refused was admitted by the widened build. No consumer admits or proves more. No HIGH.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 4b79f5f |
+| FND-002 | fixed | 4b79f5f |

@@ -2481,8 +2481,8 @@ fn canonical_ranges(mut ranges: Vec<(i128, i128)>) -> Vec<(i128, i128)> {
 }
 
 /// Canonicalizes `ranges` and, when more than [`MAX_RANGE_SET_SIZE`] intervals remain,
-/// closes the narrowest gaps (earliest first on a tie) until that many remain. The result
-/// is a superset of the input with the same minimum and maximum.
+/// closes the narrowest gaps (earliest first on a tie, a gap holding zero last) until that
+/// many remain. The result is a superset of the input with the same minimum and maximum.
 fn bounded_ranges(ranges: Vec<(i128, i128)>) -> Vec<(i128, i128)> {
     widen_ranges(ranges, MAX_RANGE_SET_SIZE)
 }
@@ -2493,14 +2493,19 @@ fn widen_ranges(ranges: Vec<(i128, i128)>, limit: usize) -> Vec<(i128, i128)> {
     if ranges.len() <= limit {
         return ranges;
     }
-    let mut gaps: Vec<(i128, usize)> = ranges
+    // A gap holding zero ranks widest so it closes last: it is the one hole that decides
+    // whether a divisor may be zero.
+    let mut gaps: Vec<(bool, i128, usize)> = ranges
         .windows(2)
         .enumerate()
-        .map(|(index, pair)| (pair[1].0.saturating_sub(pair[0].1), index))
+        .map(|(index, pair)| {
+            let holds_zero = pair[0].1 < 0 && pair[1].0 > 0;
+            (holds_zero, pair[1].0.saturating_sub(pair[0].1), index)
+        })
         .collect();
     gaps.sort_unstable();
     let mut closed = vec![false; ranges.len() - 1];
-    for &(_, index) in &gaps[..ranges.len() - limit] {
+    for &(_, _, index) in &gaps[..ranges.len() - limit] {
         closed[index] = true;
     }
     let mut widened: Vec<(i128, i128)> = Vec::with_capacity(limit);
@@ -4067,7 +4072,7 @@ mod range_set_tests {
         // A sum of n copies is the n + 1 points -n, -n + 2, .., n.
         for terms in 2..=200_i128 {
             sum = integer_ranges(NumericOperator::Add, &sum, &split).unwrap();
-            assert_eq!(sum.len(), (terms as usize + 1).min(MAX_RANGE_SET_SIZE));
+            assert_eq!(sum.len(), (terms as usize + 1).min(64));
             assert_eq!(sum.first().unwrap().0, -terms);
             assert_eq!(sum.last().unwrap().1, terms);
             let exact: BTreeSet<i128> = (0..=terms).map(|index| -terms + 2 * index).collect();
@@ -4092,8 +4097,28 @@ mod range_set_tests {
             sum = rational_range_results(NumericOperator::Add, &sum, 1, &split, 1)
                 .unwrap()
                 .0;
-            assert_eq!(sum.len(), (terms as usize + 1).min(MAX_RANGE_SET_SIZE));
+            assert_eq!(sum.len(), (terms as usize + 1).min(64));
             assert_eq!((sum[0].0, sum[sum.len() - 1].1), (-terms, terms));
         }
+    }
+
+    /// Tracing: TC-016
+    /// TC-016.
+    /// FR-014-AC-7.
+    #[test]
+    fn tc_016_the_limit_is_64_and_widening_keeps_a_hole_at_zero() {
+        assert_eq!(MAX_RANGE_SET_SIZE, 64);
+        // The odd points -199..=199: 200 intervals, every gap equally narrow, one holding
+        // zero. Closing the earliest ties alone would reach the middle and close it.
+        let points: Vec<(i128, i128)> = (-100..100).map(|k| (2 * k + 1, 2 * k + 1)).collect();
+        let widened = bounded_ranges(points.clone());
+        assert_eq!(widened.len(), 64);
+        assert!(!contains_zero(&widened));
+        assert!(covered(&points).is_subset(&covered(&widened)));
+        // The hole at zero closes only when no other gap is left to close.
+        let four = vec![(-5, -5), (5, 5), (9, 9), (-9, -9)];
+        assert!(!contains_zero(&widen_ranges(four.clone(), 3)));
+        assert!(!contains_zero(&widen_ranges(four.clone(), 2)));
+        assert!(contains_zero(&widen_ranges(four, 1)));
     }
 }

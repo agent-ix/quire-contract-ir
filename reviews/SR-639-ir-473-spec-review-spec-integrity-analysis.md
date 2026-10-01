@@ -27,3 +27,10 @@ Ticket: IR-473. Integrity review of the new FR-014 Behavior paragraph (lines 102
 ## Verdict
 
 Approve with one medium wording fix. On reusing `potentially_undefined` / `checked_range` rather than adding a new code: STD-001 defines the code as "a partial-operation obligation is not statically discharged". For a Reject-policy operator, declining to compute a too-large set does leave the `checked_range` obligation undischarged, so reuse is defensible there. For a Saturate-policy operator no such obligation exists (SR-637 FND-001). Widening, as SR-637 recommends, would avoid both the misreport and the STD-001, schema, corpus and trace churn of a new `range_set_too_large` code. No relationships edge changes, so dependency and object sub-analyses do not apply; FR-014's statement is unchanged, so EARS analysis does not apply.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 4b79f5f |
+| FND-002 | fixed | 4b79f5f |
