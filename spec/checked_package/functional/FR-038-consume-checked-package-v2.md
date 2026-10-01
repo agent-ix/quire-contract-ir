@@ -477,6 +477,27 @@ above does. These are graph-shape refusals: they precede the stale-key
 stage. The reader re-derives neither form's node key: QSL keys both by its
 proposed `quire.structural-node/v1` preimage, which QSpec does not publish.
 
+### Operation leaves
+
+For a catalog entry that names a leaf source, QSpec FR-322 has `operation.leaves`
+list one entry for every `text` leaf of the compared type: the first operand's
+type, the inner type of the first operand, or, for a `set`, `bag` or
+`ordered_set` result only, that result's inner type; any other result, a
+`sequence` included, expects none. The reader walks that type through aliases
+and bounded domains, the fields of a `record`, the positions of a `tuple` and
+the inner type of an `option`, `sequence`, `set`, `bag` or `ordered_set`, and
+counts its `text` leaves. A type with none expects none, so an empty `leaves`
+is admitted; fewer supplied leaves than text leaves refuse as
+`operation-law-missing` at `operation.leaves`. A compared type that reaches
+itself, or names a node that is not in the graph or is not shaped as its form
+requires, refuses `ill_typed` with cause `operator-ineligible` at
+`operation.leaves`. Each type node is counted once however many fields name it
+and each visit is charged to the work budget, so nesting depth is bounded by
+that budget and a type too large for it is refused as the budget is. The leaf
+paths and laws of the supplied entries are not yet compared with the expected
+ones, and a `float32` or `float64` leaf counts as no text leaf, where the
+reference reader finds the type undecidable.
+
 ### Frame bodies
 
 A `state` node of `semantic_form` `frame` carries a frame body, and only a
@@ -680,6 +701,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-40 | Under a bounds-required profile a `bounded_domain` over a shared unbounded type does not bound another position naming it: `{n: Integer, k: Int[0,9]}`, `Sequence<Integer>[0,3]` beside `Int[0,9]`, and `(x + 1) + n` over `x: Int[0,9]` and an `n` typed at `integer` each return `requires_bound` naming `integer`, while `Sequence<Boolean>[0,3]`, a record of bounded collections and ranged fields, and `x + 1` over `x: Int[0,9]` lower. | Test (TC-050) |
 | FR-038-AC-41 | Under a bounds-required profile a `scalar_type` or `composite_type` node declaring a `recursion_group` returns `requires_bound` naming the least offending node key, although every field of the recursive record is bounded. | Test (TC-050) |
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
+| FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 
 ## Dependencies
 

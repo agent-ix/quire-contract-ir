@@ -105,6 +105,15 @@ adjacent and not, and reverse two entries, and read. Order two identities
 whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one.
 
+## Operation leaves (FR-038-AC-43)
+
+Apply `structural.eq` and `structural.ne` to two parameters of an all-integer
+record, and `collection.contains` to a set of integers and an integer, each
+with `leaves` empty, and check each admits. Repeat over a record with a nested
+`text` field and over a set of `text` with `leaves` empty, and over two `text`
+fields with one leaf supplied, and check each refuses `invalid_package` with
+cause `operation-law-missing` at `operation.leaves`.
+
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 
 Declare the fixture's `function` node as a dependency function over a
