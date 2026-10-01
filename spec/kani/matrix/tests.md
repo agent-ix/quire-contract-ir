@@ -21,7 +21,7 @@ type: TestMatrix
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall and module dispatch conform | Integration | P0 | FR-029, FR-030-AC-1, FR-030-AC-2, FR-030-AC-3, FR-031-AC-1 | 🚧 FR-029-AC-2's `unsupported` negotiation disposition is planned; profile, firewall and dispatch implemented across the shared, arithmetic, graph and collection suites; the arithmetic, graph and collection lowering suites belong with the family lowerings in codegen's backend adapter |
-| TC-223 | Kani outcomes are built only by validated constructors, with their check count and cause codes | Integration | P0 | FR-030-AC-4, FR-030-AC-5 | 🚧 planned; the TC-223-tagged test at `tests/it/kani_shared.rs:250` verifies the retired `KaniProviderResult` map and does not back this case |
+| TC-223 | Kani outcomes are built only by validated constructors, with their check count and cause codes | Integration | P0 | FR-030-AC-4, FR-030-AC-5 | 🚧 planned; no test is tagged for it; `kani_outcome_kinds_map_to_their_one_fr331_result` in `tests/it/kani_shared.rs` verifies the retired `KaniProviderResult` map and does not back this case |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors quire-specification:TC-218; binds the no-advertised-capability absence path (quire-specification:FR-290 vocabulary) |
 | TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | 🚧 planned |
 

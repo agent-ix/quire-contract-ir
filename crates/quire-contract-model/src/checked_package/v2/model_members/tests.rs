@@ -255,7 +255,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
 const ZETA: &str = "ix://acme/orders/Zeta";
 const BAD_ID: &str = "ix://acme/orders/bad-id";
 
-/// FR-154: a reference to a node refused for its own object id is not
+/// QSpec FR-154: a reference to a node refused for its own object id is not
 /// reported again as `missing-name`; the refused node's own refusal stands,
 /// whether the referencing node is read before or after it.
 ///
@@ -291,7 +291,7 @@ fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
     );
 }
 
-/// FR-154: within one node the failures report in the declaration-refusal
+/// QSpec FR-154: within one node the failures report in the declaration-refusal
 /// table's order, so a dangling `typeRef` (`missing-name`) reports before a
 /// multiplicity with `lower > upper` (`unpreserved-model-meaning`), and a
 /// malformed member before either, wherever each sits in the node.
@@ -371,8 +371,8 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
     }
 }
 
-/// FR-154: two nodes that carry no identity share none; each is malformed,
-/// not a `conflicting-binding`.
+/// QSpec FR-154: two nodes that carry no identity share none; each is
+/// malformed, not a `conflicting-binding`.
 ///
 /// Tracing: TC-048, FR-038-AC-28
 #[test]
