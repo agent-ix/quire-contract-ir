@@ -42,13 +42,18 @@ fn key(preimage: &Value) -> String {
 
 /// `(preimage, key)` of an enum declaration.
 fn declaration(name: &str, ordered: bool) -> (Value, String) {
-    // An unordered enum lists its members sorted; an ordered one in
-    // declaration order.
+    // The reader requires an unordered enum's members sorted, so the
+    // `ordered` flag alone separates the two when the members are sorted.
     let members = if ordered {
         ["READY", "DONE"]
     } else {
         ["DONE", "READY"]
     };
+    declaration_with(name, ordered, members)
+}
+
+/// An enum declaration with its members in the given order.
+fn declaration_with(name: &str, ordered: bool, members: [&str; 2]) -> (Value, String) {
     let preimage = json!({
         "version": "quire.enum-declaration-node/v1",
         "owner": owner(),
@@ -278,11 +283,18 @@ const FORMS: [Operands; 2] = [Operands::Members, Operands::Parameters];
 #[trace("TC-048", "FR-038-AC-42")]
 #[test]
 fn tc_048_ordering_over_an_ordered_enum_admits() {
-    let ordered = declaration("Status", true);
-    for form in FORMS {
-        for operation in ORDERING {
-            let package = package(operation, &ordered, &ordered, form);
-            assert!(admits(&package), "{operation}: {:?}", read(&package));
+    // The second declaration is ordered although its members are sorted, so
+    // ordering cannot be inferred from member order.
+    let declarations = [
+        declaration("Status", true),
+        declaration_with("Status", true, ["DONE", "READY"]),
+    ];
+    for ordered in &declarations {
+        for form in FORMS {
+            for operation in ORDERING {
+                let package = package(operation, ordered, ordered, form);
+                assert!(admits(&package), "{operation}: {:?}", read(&package));
+            }
         }
     }
 }

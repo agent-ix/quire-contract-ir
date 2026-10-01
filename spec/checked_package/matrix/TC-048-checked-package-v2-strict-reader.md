@@ -127,6 +127,25 @@ declared record, a tuple holding one and a `Reference` to a `model` node, and a
 `Set` of a bounded integer. Compare the whole refusal code, cause and pointer
 with the expected one.
 
+## Enum operand family (FR-038-AC-42)
+
+Verify QSpec FR-322's rule that an enum is `ordered_enum` when its nominal
+preimage is ordered and `enum` otherwise, and FR-141-AC-5, in
+`tests/it/checked_package_v2_enum_order.rs`. Build a package holding an enum
+declaration, its member nodes and a `binary` application of one enum
+operation over two operands of that enum, as member literals and as
+`value`/`parameter` nodes. Apply `quire.op.enum.lt`, `le`, `gt` and `ge` to an
+ordered enum, one listing its members in declaration order and one whose
+declaration order is also sorted, and to an unordered enum, one listing its
+members sorted. Apply `quire.op.enum.eq` and `ne` to each. Apply `lt` to
+operands of two different ordered enums.
+
+Expected: the four ordering operations admit over an ordered enum however its
+members are listed; they refuse `ill_typed`/`operator-ineligible` at the first
+argument of the application over an unordered enum; `eq` and `ne` admit over
+either; `lt` over two different enums refuses `ill_typed`/`operator-ineligible`
+at the second argument.
+
 ## Refusal and limit locations (FR-038-AC-24 through FR-038-AC-26)
 
 For every refusal above, compare the whole refusal, including its pointer,
