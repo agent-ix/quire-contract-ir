@@ -80,7 +80,6 @@ fn reference(package: &ContractPackage<ReferenceBody>, id: &str, revision: u64) 
 /// FR-016-AC-2.
 /// FR-016-AC-3.
 /// FR-016-AC-4.
-/// NFR-001-AC-1.
 #[test]
 fn tc_017_canonical_bytes_digests_ordering_and_resource_failure_conform() {
     let package = package_fixture("canonical_a", false, false);

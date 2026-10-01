@@ -225,7 +225,7 @@ fn every_kind() -> [KaniOutcomeKind; 10] {
 // Not a TC-223 test: it verifies the retired `KaniProviderResult` map, and the
 // TC-223 matrix row stays planned until the SUCCESS count and cause codes land.
 #[test]
-fn tc_223_every_kani_outcome_kind_maps_to_its_one_fr331_result() {
+fn kani_outcome_kinds_map_to_their_one_fr331_result() {
     for kind in every_kind() {
         let (result, wire) = o16_row(&kind);
         assert_eq!(kind.provider_result(), result, "{kind:?}");
