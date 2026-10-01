@@ -48,6 +48,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | --- | --- | --- | --- |
 | `quire.checked-package/v2` bytes: `contract_version`, `package_id`, `identity_preimage`, `lock`, `semantic_graph`, `source_map`, `diagnostics` | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
 | `CheckedPackageEvidence`: selected domain package documents (supplied under their `sha256-jcs` digest), dependency packages (already admitted), supported features | caller to IR | IR defines the type | the lock's raw-artifact digests are not checked against evidence; `package_id` is the content identity (`evidence.rs` doc) |
+| `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 128 depth, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
 | `CheckedPackageV2` and its accessors | IR to codegen and QSL | IR | only the reader can build one |
@@ -55,8 +56,9 @@ The seam is described as what crosses it, how identity is asserted, which way de
 
 ### Versioned contracts and identity assertion
 
-- `contract_version` is read exactly once, before any other decode (`dispatch.rs`:
-  `read_checked_package` and `dispatch_value`). It admits `quire.checked-package/v2` only; every
+- `contract_version` is read exactly once, before any version-specific decode (`dispatch.rs`:
+  `read_checked_package` and `dispatch_value`). The strict parse, the duplicate-member check and
+  the canonical-bytes check run first, over the whole document (`common.rs`, `read_value`). It admits `quire.checked-package/v2` only; every
   other version refuses `unknown_contract_version` carrying the version read, and a missing or
   non-string `contract_version` refuses `malformed_wire`. This is a refusal control: IR never
   relabels or widens the input to fit.
@@ -64,10 +66,13 @@ The seam is described as what crosses it, how identity is asserted, which way de
   `identity_preimage` under `quire.package.semantic/v2`, requires the preimage's lock members
   to equal the lock and its projection to equal the graph's occurrence-free projection (each
   mismatch refuses `stale_dependency`), and re-derives every nominal node identity (a violation
-  refuses `invalid_semantic_graph`). `package_id` is the one canonical content-identity digest on
-  this seam: it binds a package to its content and is the value QSL's replay recomputes later.
-  A domain package document is checked the same way, by recomputing its `sha256-jcs` digest
-  from the supplied bytes, never by trusting the digest it is supplied under.
+  refuses `invalid_semantic_graph`). `package_id` is the package's content identity: it binds a
+  package to its content and is the value QSL's replay recomputes later. The wire carries other
+  digests (application node keys, nominal identity digests, dependency `package_id`s, the lock's
+  raw-artifact digests) and domain package documents carry `sha256-jcs` digests; these are
+  QSpec-owned identities of the package's parts, and IR adds none. A domain package document is
+  checked by recomputing its `sha256-jcs` digest from the supplied bytes, never by trusting the
+  digest it is supplied under.
 - There is no commit id, tool pin or version-tracking record on this seam, and IR checks none.
 
 ### Dependency direction
@@ -76,7 +81,9 @@ IR depends on nothing of QSpec's code or QSL. QSL depends on the `quire-contract
 (under the dependency name `quire-contract-ir`) and calls `read_checked_package` through it. CG
 reaches the reader through IR's root crate, which re-exports the model (see Current state); the
 driver reads through the model crate. The direction is QSpec (text) to IR (reader) to QSL, CG,
-driver (consumers); no arrow points back to IR.
+driver (consumers); no arrow points back to IR. IR's one other inbound edge is the operation
+catalog: the reader depends on `quire-verification-contracts` for `quire.checked-operation-catalog/v1`
+and does not copy it.
 
 ### Failure outcomes and who reports them
 
@@ -84,14 +91,16 @@ driver (consumers); no arrow points back to IR.
 | --- | --- | --- |
 | Another version | IR | `unknown_contract_version`, pointer `/contract_version` |
 | Missing or non-string `contract_version`, or a document that is not an object | IR | `malformed_wire`, pointer at the member or the root |
-| Malformed JSON, non-canonical bytes, duplicate member, unknown member | IR | `malformed_wire`, `noncanonical_wire`, `duplicate_member`, `unknown_member`; no pointer for the byte stream |
+| Malformed JSON or non-canonical bytes | IR | `malformed_wire`, `noncanonical_wire`; no pointer (a refusal about the byte stream) |
+| Duplicate member, unknown member | IR | `duplicate_member`, `unknown_member`, each at the pointer of the member |
+| A selected domain package document or dependency package not supplied | IR | `missing_import` |
 | `package_id`, identity preimage, projection, lock or a selected document not matching the content identity it names | IR | `stale_dependency`, at the pointer of the value at fault |
 | Bad nominal node identity, unresolved reference, cycle outside one recursion group, other graph-form defects | IR | `invalid_semantic_graph` and the other codes FR-322 fixes, at the pointer of the value at fault |
 | Frame, anchor or state-clause body defect | IR | the cause tag FR-322's pairing fixes, with the node key |
 | A limit reached | IR | `Incomplete` with the limit, the consumed amount and, except for the byte budget, the pointer of the value whose charge failed |
 | Item cannot lower | IR | one of seven record kinds (`lowered`, `unsupported`, `requires_bound`, `invalid_input`, `failed`, `invalid_body`, `body_incomplete`); the last two are never produced for an admitted package |
 | QSL emits something IR refuses | IR reports; QSL or QSpec fixes the producer or the text | see precedence below |
-| QSpec text and its reference reader disagree | QSpec | IR follows the reference reader and records a known deviation until QSpec rules |
+| QSpec text and QSpec's reference reader (its checked-package test harness) disagree | QSpec | IR follows the reference reader as its own policy and records a known deviation until QSpec rules |
 
 IR never reports a producer's defect as its own and never admits a package to make a producer
 pass.
@@ -103,8 +112,9 @@ Two decisions govern the seam: who wins when the producer, the text and the read
 ### Precedence when producer, text and reader disagree
 
 1. QSpec's published text and schema decide what the wire is.
-2. QSpec's reference reader decides where the text is silent. IR matches it (IR-483 matches
-   it for cyclic compared types).
+2. Where the text is silent, IR's policy is to match QSpec's reference reader, QSpec's own
+   checked-package test harness. This is IR's choice, not a ruling on QSpec's authority; QSpec
+   rules and IR follows (IR-483 matches it for cyclic compared types).
 3. QSL's emission is evidence of a defect in 1 or 2, or in QSL. IR does not widen the reader to
    fit an emission. The disagreement is filed with QSpec to rule (as STD-129 does for recursive
    compared types).
@@ -115,25 +125,32 @@ not the emission.
 
 ### Invariants a test can check
 
-Candidate statements (local labels; the repo assigns requirement ids when one is authored).
+Candidate statements (local labels; the repo assigns requirement ids when one is authored). Each
+is marked current (the repo already states and backs it), stated (a requirement states it but
+no backing test was measured here) or gap (not true today).
 
 - Q-1. Every byte string yields exactly one of admitted, refused or incomplete; never a panic
-  (property test over mutated packages).
+  (property test over mutated packages). Gap: IR has no property-test or fuzz dependency, so no
+  such test exists.
 - Q-2. A byte string whose `contract_version` is not `quire.checked-package/v2` refuses
-  `unknown_contract_version` before any version-specific decode.
+  `unknown_contract_version` before any version-specific decode. Current: FR-038 Description.
 - Q-3. The recomputed `package_id` equals the wire's for every admitted package; changing any
-  byte of the preimage changes it or refuses.
-- Q-4. A domain package document supplied under another document's digest is refused.
+  byte of the preimage changes it or refuses. Current: FR-038-AC-4.
+- Q-4. A domain package document supplied under another document's digest is refused. Stated:
+  `CheckedPackageEvidence` doc; backing test not measured.
 - Q-5. Every refusal carries a pointer that resolves in the given document, except a refusal of
-  the byte stream.
+  the byte stream. Stated: FR-038 pointer rules; backing test not measured.
 - Q-6. Every closed wire vocabulary is decoded into an enum once at intake and every later
-  decision matches it exhaustively with no catch-all arm (compile-time).
-- Q-7. IR defines no replay, witness or terminal type and depends on no QSL crate (existing:
-  FR-037-AC-6).
-- Q-8. Each of the seven ADR-002 members FR-344 names as unadmitted refuses with a typed code
-  (existing: FR-344, TC-222).
+  decision matches it exhaustively with no catch-all arm (compile-time). Gap, unmeasured: bodies
+  are matched over `serde_json::Value` with `_ =>` arms (for example `v2/frame.rs`), so the
+  statement does not hold as worded.
+- Q-7. IR defines no replay or witness type (FR-037-AC-6, planned) and the model crate depends on
+  no QSL crate (FR-028). FR-037-AC-6 covers neither a terminal type nor a dependency rule.
+- Q-8. Each of the five ADR-002 members FR-344 names as unadmitted (supertype list, abstractness
+  flag, subsets edge, redefines edge, population node) refuses with a typed code. Current:
+  FR-344, TC-222. The other two members are carried and admitted.
 - Q-9. A package QSL emits for each node family and semantic form QSL can produce is admitted
-  by the reader at the emitted `package_id` (cross-repo, runs in QSL; see Routed gaps).
+  by the reader at the emitted `package_id` (cross-repo, runs in QSL; see Routed gaps). Gap.
 
 ## Risks
 
@@ -155,23 +172,25 @@ What is measured today, what is open and with whom, and what is routed.
   population node) have no QSpec wire carrier, so the reader refuses them. Blocked on QSpec.
 - IR-483 (merged): empty operation `leaves` is admitted for a compared type with no text leaf,
   and a cyclic or unresolved compared type is refused as operator-ineligible, matching the
-  QSpec reference reader. That QSL emits `leaves: []` for a cyclic type with no text field and a
+  QSpec's reference reader (its checked-package test harness). That QSL emits `leaves: []` for a cyclic type with no text field and a
   `recursion:<d>` leaf for a cyclic type that reaches text, which QSpec has not adopted and the
   published leaf schema rejects, is STD-129's text (untrusted, not re-measured here); IR's
   refusal was re-measured. Open at QSpec: STD-129.
-- Text admission: IR refuses every text-admission node. Any consumer path that needs a
-  text-admitted `numeric.convert` is therefore reachable from no admitted package. The owner
-  decision on whether any catalogued `convert` admits text is pending; recorded as open and not
-  decided here.
+- Text admission is a codegen term: CG's oracle matrix records text admission as refused today
+  (its FR-014 rows). Whether any catalogued `numeric.convert` admits text is an owner decision
+  that is pending with the owner. It is recorded as open, not routed to QSpec and not decided
+  here; the operation catalog it would touch is owned by `quire-verification-contracts`.
 - IR's own tests build packages in-repo from IR's own vocabulary
   (`tests/it/support/checked_package.rs`; FR-038 matrix row). That cannot see a shape QSL emits
   and IR's builder does not. The IR-reader test over a real QSL emission lives in QSL
   (`tests/it/config_version_spine.rs`, `tc_469_step_6_the_emitted_package_admits_via_i04`), for
   one spine fixture. IR cannot hold a QSL-emitted fixture without copying QSL's output into IR,
-  so the cross-repo corpus belongs in QSL, which already depends on the model crate.
-- QSpec ids: on QSpec `origin/main` two documents carry `id: FR-341` (the checked-package state
-  clause body under `spec/objects/interfaces/` and the infinite-trace result disposition under
-  `spec/objects/temporal/`). IR FR-040 disambiguates by spelling the file path.
+  so the cross-repo corpus belongs in QSL, which already depends on the model crate. That
+  corpus is tracked as QSL-353 (as relayed, untrusted). The cross-repo test in quire-integration
+  that the relayed review text mentions concerns the replay seam, not this one, and does not
+  apply here.
+- QSpec ids: two QSpec documents carry `id: FR-341`: "checked-package state clause body" and
+  "infinite-trace result disposition". IR FR-040 disambiguates by title.
 - IR's root crate has `pub use quire_contract_model::*` (`src/lib.rs:12`) while AD-001 says the
   root re-exports nothing from the model; CG imports `CheckedNodeId` and `CheckedPackageV2`
   through that glob. The root crate also still exports `KaniProviderResult` and
@@ -184,10 +203,10 @@ What is measured today, what is open and with whom, and what is routed.
 
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
-| Recursive compared type: refuse (matches the reference reader and IR) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
+| Recursive compared type: refuse (matches the reference reader, which IR follows) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
 | Depth ceiling: caller's limit as given, or capped | QSpec (STD-125) | whichever QSpec rules; remove the deviation note then | a stated deviation stays in an FR |
 | `record_value_type` field names | QSpec | rule that a field entry on that form names no declared field, or add the form to `ModelDeclarationNode` | IR keeps a documented deviation |
-| Text admission for `numeric.convert` | owner decision | state it in FR-322 or the operation catalog | consumer paths with no admitted input |
+| Text admission for `numeric.convert` | the owner (decision pending; not routed) | decide, then state it where the operation catalog and FR-322 can carry it | consumer paths with no admitted input |
 | Five ADR-002 members have no wire carrier | QSpec | publish carriers or state they are out of v2 | reader refuses forever |
 | Duplicate `FR-341` ids in QSpec | QSpec | renumber one | citations by id are ambiguous |
 
@@ -202,20 +221,28 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit, reading through the model crate. IR cannot hold QSL output without copying it. |
+| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit, reading through the model crate. IR cannot hold QSL output without copying it. As relayed (untrusted), tracked as QSL-353. |
 
 To QSpec:
 
 | Id | Stated need |
 | --- | --- |
 | R-S1 | Rule on recursive compared types and `recursion:<d>` leaves (STD-129). |
-| R-S2 | FR-331-AC-8 wording of "SUCCESS check": the count is the backend adapter's. |
-| R-S3 | Whether the obligation identity needs a digest domain name. |
 | R-S4 | Renumber one of the two `FR-341` documents. |
 | R-S5 | Rule on `record_value_type` field entries (FR-340). |
 | R-S6 | Rule on the depth ceiling (STD-125). |
 | R-S7 | Publish wire carriers for the five ADR-002 members or state them out of v2. |
-| R-S8 | State which catalogued `numeric.convert` admits text, if any. |
 
-IR-owned items R-I1 and R-I3 are in IR-347's reopened scope and R-I2 overlaps IR-347's
-free-string cause codes; no new ticket is filed for them.
+The routing ids R-S2 and R-S3 (the FR-331 provider envelope and the obligation-identity digest
+domain) belong to the replay and evidence seams and are carried in CG's AD-003, not here. R-S8
+is the owner decision on text admission above, not a QSpec routing.
+
+IR-owned items, defined here because other seam ADs cite them:
+
+| Id | Stated need | Where it is tracked |
+| --- | --- | --- |
+| R-I1 | Delete `KaniProviderResult` and `KaniProviderRecord` and the `provider_result` map from the root crate (`src/kani/outcome.rs`, `src/kani/mod.rs:23`); they duplicate the terminal map CG owns. | IR-347 reopened scope |
+| R-I2 | Export cause-code constants or a typed cause enum: the kani cause codes cross as bare strings that consumers re-spell. | Overlaps IR-347's free-string cause codes |
+| R-I3 | Remove `pub use quire_contract_model::*` (`src/lib.rs:12`) together with CG adding a direct `quire-contract-model` dependency; CG imports model types through the glob. | IR-347 reopened scope |
+
+No new ticket is filed for them.
