@@ -1592,6 +1592,25 @@ mod depth_tests {
         }
     }
 
+    /// The reader's ceiling is exactly 16,384 levels: that many is admitted
+    /// under any caller limit, one more is incomplete at 16,384.
+    ///
+    /// Tracing: TC-048, FR-038-AC-3
+    #[test]
+    fn tc_048_the_reader_ceiling_is_sixteen_thousand_three_hundred_eighty_four_levels() {
+        assert_eq!(CheckedPackageReadLimits::MAXIMUM_DEPTH, 16_384);
+        assert!(read_value(nested(16_384).as_bytes(), limits(u64::MAX), |_, _| Ok(())).is_ok());
+        assert_eq!(
+            read_value(nested(16_385).as_bytes(), limits(u64::MAX), |_, _| Ok(())),
+            Err(ValidationFailure::incomplete(
+                CheckedPackageLimit::Depth,
+                16_384,
+                16_385_u64,
+                JsonPointer::parse(&"/0".repeat(16_384)),
+            ))
+        );
+    }
+
     /// Nesting far past serde_json's own cap is decided by the caller's limit
     /// up to the reader's ceiling, without exhausting the stack or reserving
     /// more than the ceiling's stack, and a duplicate member or syntax error

@@ -43,3 +43,24 @@ The depth unit and the refusal order are clear improvements. FND-001 is a real c
 
 - FND-001: The "reads as 128" sentence is gone. The paragraph now says a document within the caller's limit "is read whatever that limit is", which agrees with FR-038-AC-3 and FR-322-AC-6.
 - FND-002: The stack-mechanism and memory-bound clauses are removed. The paragraph states only observable behaviour.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | high | The Reading paragraph now states "a caller limit above that reads as 16,384". FR-038-AC-3 in the same file still says, unqualified, "Exact ... depth ... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter", and that is false for any caller limit above 16,384. Upstream FR-322 on agent-ix/quire-specification origin/main 4634f5f also says "`read` receives limits from its caller" (line 319), "Exact selected resource limits are admitted" (line 652) and AC-6 "Exact selected limits admit the boundary vector", with no reader maximum | spec/contract/FR-038-consume-checked-package-v2.md:149-151 |
+
+### New finding detail (disposition pass 2)
+
+- FND-004: The prose describes the code accurately. AC-3 and FR-322 do not allow it. Required changes:
+  - In this PR, qualify FR-038-AC-3: "Exact byte, depth (up to 16,384), node, ... limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit charged and the consumed counter".
+  - Upstream FR-322 (quire-specification): at line 319, permit a reader-declared maximum for `depth`, so that a caller limit above it is charged at that maximum and `incomplete.limit` reports the limit charged. At line 652 and in AC-6, change "Exact selected (resource) limits" to "... up to any reader-declared maximum". An alternative is to refuse an over-maximum limit as a configuration error instead of reading it silently as the maximum.
+  - QSL `qsl-package/src/checked_v2.rs`: replace `SERDE_JSON_RECURSION_LIMIT = 128` with a reference to `quire_contract_ir::CheckedPackageReadLimits::MAXIMUM_DEPTH`. Update the `V2ReadLimits.depth`, `enforced()` and `effective_limits` docs, and the module doc's "refused, not Incomplete" bullet. Replace the test `depth_far_past_the_default_limit_is_refused_as_malformed_wire`, which now gets `incomplete(Depth, ...)`.
+
+## Dispositions (disposition pass 2)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-003 | fixed | ae300d3 |
+
+- FND-003: "parse strict JSON once" became "read the document as strict JSON", which no longer claims a pass count.

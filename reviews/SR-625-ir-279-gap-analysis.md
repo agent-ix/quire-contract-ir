@@ -44,3 +44,9 @@ At the default limit the PR delivers what the ACs ask: 200-deep input is `incomp
 | FND-001 | fixed | 7f1d923 |
 
 - FND-001: The owner chose option (a). `MAXIMUM_DEPTH` and the clamp are removed. The shape pass and the `incomplete` report use `limits.depth` (common.rs:242-249). `tc_048_a_document_at_the_callers_limit_is_admitted` admits the exact limit and reports the caller's limit one over, at limits 3, 128, 129, 200 and 1,000. The integration test reads a 200-deep document under 200, 300 and u64::MAX. Mutant M1, which restores the 128 clamp, is killed. The deep admitted package's lowering is a separate hazard, raised as SR-624 FND-006.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | FR-038-AC-3 and FR-322-AC-6 are unmet again for any caller depth limit above the new `MAXIMUM_DEPTH = 16_384`. With `depth: 20_000`, a 20,000-deep document is not admitted, and a 16,385-deep one reports `limit: 16384`, not the caller's limit. The ceiling is a sound, documented resource bound: it is the only way to bound the reservation SR-624 FND-007 found unbounded, because serde's `Serialize` and `Value` comparison recurse with no growth hook. The remedy is in the spec (SR-626 FND-004), not the code | crates/quire-contract-model/src/checked_package/common.rs:245 |

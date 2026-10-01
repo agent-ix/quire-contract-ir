@@ -72,3 +72,25 @@ Reviewed at f9251e58be5d6e2980996e65aba5e1c7578b1c84 (fix round 7f1d923 and the 
 - FND-002: The shape pass peaks at 33 MB for the 524k malformed document (was 201 MB), and the false "bounded by the byte limit" claim is gone. The remaining memory for a valid deep read under a raised limit is caller-selected and is tracked as FND-007.
 - FND-003: The doc link now reads [`strict_shape`].
 - FND-004: Every new unit test carries `Tracing: TC-048, FR-038-AC-3`.
+
+## New findings (disposition pass 2)
+
+Reviewed at ae300d3b00e62b69fbf263718570c45138a12d11, rebased on origin/main d98c7cc. `make -k ci` fails only at `make spec`: 17 unbacked rows, the same list as main. deny, audit, both clippy lanes and the full test suite are green. Oracle strength: 18 mutants, 17 killed. The killed mutants include Debug, Clone, `==` and `lower` each run with a stack sized for depth 0, each of the three `Drop` impls disabled, the ceiling removed, and the per-level stack set to zero. The survivor is FND-010.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-010 | low | No test pins the value of `MAXIMUM_DEPTH`. Every test refers to the constant symbolically, so changing it to 16,383 leaves every test green. FR-038 states the number 16,384 literally | crates/quire-contract-model/src/checked_package/shared.rs:43 |
+
+## Dispositions (disposition pass 2)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-006 | fixed | ae300d3 |
+| FND-007 | fixed | ae300d3 |
+| FND-008 | fixed | ae300d3 |
+| FND-009 | fixed | ae300d3 |
+
+- FND-006: `CheckedPackageV2` now implements `Clone`, `PartialEq` and `Debug` by hand, and `lower` runs on `on_stack_for(self.depth)`. Node bodies, projections and diagnostic details drop iteratively. I verified at the ceiling, with an 8,189-term aggregate that sits exactly at 16,384 levels, on a 256 KiB thread in debug and in release: read, clone, `==`, `Debug` (of the package and of the ReadResult) and `lower` all pass. `graph().clone()` still aborts. That is documented as caller-owned in shared.rs:17-25, on the type, on `lower` and in FR-038.
+- FND-007: The stack reservation is bounded at 256 KiB + 4 KiB x 16,384, about 64 MiB. A 2,000,000-deep document under `depth: u64::MAX` returns `incomplete(Depth, 16384, 2000000)` in 77 ms with 118 MB RSS (the scan) and reserves no stack. A 16,384-deep read takes 9 ms at 13 MB RSS and passes under `ulimit -v` of 1 GiB and of 256 MiB. Residual: under caps of 128 MiB and below, the bounded reservation still fails. At a 64 MiB cap stacker panics ("allocating stack failed"); at 96 and 128 MiB caps an ordinary allocation aborts the process. Both happen only under caps near the size of the reservation itself.
+- FND-008: The drop test now covers a deep diagnostic detail, and the mutant that disables the diagnostic `Drop` is killed.
+- FND-009: The wall-clock bound is replaced by a ratio: 4x depth must take less than 8x the time, fastest of three runs.
