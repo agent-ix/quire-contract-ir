@@ -1569,3 +1569,107 @@ fn tc_016_rational_literal_guards_refine_nonzero_and_ordered_ranges() {
         )
         .is_ok());
 }
+
+fn wide_type() -> IntegerType {
+    integer(-1000, 1000, OverflowPolicy::Reject)
+}
+
+fn wide(value: i64, at: u64) -> Expression {
+    Expression::new(
+        ExpressionKind::IntegerLiteral {
+            value,
+            value_type: wide_type(),
+        },
+        span(at, at + 1),
+    )
+}
+
+fn wide_environment() -> DeclarationEnvironment {
+    DeclarationEnvironment::new(
+        RequirementRef::new(
+            PackageId::new("agent-ix/contract").unwrap(),
+            quire_contract_ir::RequirementId::new("REQ_range_sets").unwrap(),
+            quire_contract_ir::RequirementRevision::new(1).unwrap(),
+        ),
+        Vec::new(),
+        vec![ValueDeclaration::new(
+            name("x"),
+            ValueDeclarationKind::Input,
+            ValueType::integer(wide_type()),
+            span(10, 11),
+        )],
+        Vec::new(),
+    )
+    .unwrap()
+}
+
+/// `x >= -1 && x <= 1 && x != 0 && fold(leaves) > 0`: every `x` leaf in the folded
+/// expression is the two-point set {-1, 1}.
+fn guarded_fold(operator: NumericOperator, leaves: usize) -> Expression {
+    let x = || value("x", StateObservation::Current, 20);
+    let mut folded = x();
+    for _ in 1..leaves {
+        folded = Expression::new(
+            ExpressionKind::Numeric {
+                operator,
+                left: Box::new(folded),
+                right: Box::new(x()),
+            },
+            span(30, 33),
+        );
+    }
+    let body = compare(ComparisonOperator::Greater, folded, wide(0, 40), 40);
+    [
+        compare(ComparisonOperator::GreaterEqual, x(), wide(-1, 50), 50),
+        compare(ComparisonOperator::LessEqual, x(), wide(1, 52), 52),
+        compare(ComparisonOperator::NotEqual, x(), wide(0, 54), 54),
+    ]
+    .into_iter()
+    .rev()
+    .fold(body, |right, guard| {
+        bool_op(BooleanOperator::ShortCircuitAnd, guard, right, 60)
+    })
+}
+
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_guard_split_products_merge_instead_of_multiplying_out() {
+    let environment = wide_environment();
+    for leaves in [16, 32, 500] {
+        let expression = guarded_fold(NumericOperator::Multiply, leaves);
+        let checked = environment.check_expression(&expression, &ValueType::Boolean, &pre(), true);
+        assert!(checked.is_ok(), "{leaves} guarded product leaves");
+    }
+}
+
+/// Tracing: TC-016
+/// TC-016.
+/// FR-014-AC-7.
+#[test]
+fn tc_016_range_sets_beyond_the_limit_are_refused_not_aborted() {
+    let environment = wide_environment();
+    // A sum of n copies of {-1, 1} is the n + 1 points -n, -n+2, .., n: disjoint and
+    // never adjacent, so merging cannot shrink it.
+    let at_limit = guarded_fold(NumericOperator::Add, 63);
+    assert!(environment
+        .check_expression(&at_limit, &ValueType::Boolean, &pre(), true)
+        .is_ok());
+
+    for leaves in [64, 200] {
+        let expression = guarded_fold(NumericOperator::Add, leaves);
+        let diagnostics = environment
+            .check_expression(&expression, &ValueType::Boolean, &pre(), true)
+            .unwrap_err();
+        assert_eq!(diagnostics[0].code, DiagnosticCode::PotentiallyUndefined);
+        assert_eq!(
+            diagnostics[0].obligation_kind,
+            Some(DefinednessObligationKind::CheckedRange)
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            "integer range set exceeds the checked range-set limit"
+        );
+    }
+}

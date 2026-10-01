@@ -72,7 +72,7 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 | `ill_typed_expression` | Operand, access, argument, field, variant, or quantifier-domain type is invalid | narrowest expression span |
 | `result_type_mismatch` | Checked expression type differs from the expected type | root expression span |
 | `non_boolean_clause_root` | Executable clause body does not have Boolean type | clause-root span |
-| `potentially_undefined` | A partial-operation obligation is not statically discharged; diagnostic includes mandatory `obligation_kind` (`option_presence`, `non_zero_divisor`, `index_in_bounds`, or `checked_range`) | partial-operation span |
+| `potentially_undefined` | A partial-operation obligation is not statically discharged; diagnostic includes mandatory `obligation_kind` (`option_presence`, `non_zero_divisor`, `index_in_bounds`, or `checked_range`); `checked_range` also covers a numeric range set of more than 64 disjoint intervals (FR-014) | partial-operation span |
 | `expression_too_large` | Expression exceeds 10000 nodes or depth 256 | first node crossing the limit |
 
 ## Version, Canonicalization and Coverage Codes
