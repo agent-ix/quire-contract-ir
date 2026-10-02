@@ -44,7 +44,7 @@ pub fn lower_query(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_unowned",
                     &query.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 )
             })?;
             if descriptor.family != SemanticFamily::CollectionsQueries
@@ -54,7 +54,7 @@ pub fn lower_query(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_profile_mismatch",
                     &query.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 ));
             }
         }
@@ -63,7 +63,7 @@ pub fn lower_query(
                 KaniOutcomeKind::Refused,
                 code.clone(),
                 &query.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
@@ -71,7 +71,7 @@ pub fn lower_query(
                 KaniOutcomeKind::Inconclusive,
                 code.clone(),
                 &query.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
     }
@@ -80,7 +80,7 @@ pub fn lower_query(
             KaniOutcomeKind::ResourceExhausted,
             "kani_collection_bound_exhausted",
             &query.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     }
     let (value, examined) = match query.kind {

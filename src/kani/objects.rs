@@ -48,7 +48,7 @@ pub fn lower_reaches(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_unowned",
                     &request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 )
             })?;
             if descriptor.family != SemanticFamily::ObjectsReferencesGraphs
@@ -58,7 +58,7 @@ pub fn lower_reaches(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_profile_mismatch",
                     &request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 ));
             }
         }
@@ -67,7 +67,7 @@ pub fn lower_reaches(
                 KaniOutcomeKind::Refused,
                 code.clone(),
                 &request.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
@@ -75,7 +75,7 @@ pub fn lower_reaches(
                 KaniOutcomeKind::Inconclusive,
                 code.clone(),
                 &request.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
     }
@@ -84,7 +84,7 @@ pub fn lower_reaches(
             KaniOutcomeKind::InvalidInput,
             "kani_graph_bound_invalid",
             &request.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     }
     let objects: BTreeSet<&str> = input
@@ -99,7 +99,7 @@ pub fn lower_reaches(
             KaniOutcomeKind::InvalidInput,
             "kani_graph_identity_invalid",
             &request.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     }
     let mut edges: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -126,7 +126,7 @@ pub fn lower_reaches(
                 KaniOutcomeKind::ResourceExhausted,
                 "kani_graph_expansion_exhausted",
                 &request.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ));
         }
         expanded.push(current.to_owned());

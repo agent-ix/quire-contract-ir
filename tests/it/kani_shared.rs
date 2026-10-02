@@ -86,6 +86,47 @@ fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
     assert_eq!(refusal.boolean_claim(), None);
 }
 
+#[trace("TC-042", "FR-029-AC-1", "FR-029-AC-2")]
+#[test]
+fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
+    let entry = |construct: &str| CapabilityEntry {
+        construct: construct.into(),
+        disposition: CapabilityDisposition::Refused { code: "c".into() },
+    };
+    let wrong_family = ProfileSelection {
+        profile: "kani-bounded/2".into(),
+        ..selection()
+    };
+    let blank_revision = ProfileSelection {
+        revision: "  ".into(),
+        ..selection()
+    };
+    let cases = [
+        (wrong_family, vec![entry("a")]),
+        (blank_revision, vec![entry("a")]),
+        (selection(), vec![entry("a"), entry("a")]),
+        (selection(), vec![entry(" ")]),
+    ];
+    for (selection, capabilities) in cases {
+        let wire = serde_json::json!({ "selection": selection, "capabilities": capabilities });
+        let constructed =
+            KaniProfile::new(selection, capabilities).expect_err(&format!("new refuses {wire}"));
+        let deserialized = serde_json::from_value::<KaniProfile>(wire.clone())
+            .expect_err(&format!("deserialize refuses {wire}"));
+        // Deserialize routes through `new`, so the refusal is the same one.
+        assert_eq!(deserialized.to_string(), constructed.to_string(), "{wire}");
+    }
+    // The fields are private, so these two are the only construction paths. Both admit a
+    // valid profile and agree on it.
+    let valid = profile();
+    let round_trip: KaniProfile =
+        serde_json::from_value(serde_json::to_value(&valid).expect("profile serializes"))
+            .expect("a valid profile deserializes");
+    assert_eq!(round_trip, valid);
+    assert_eq!(round_trip.selection(), &selection());
+    assert_eq!(round_trip.capabilities().len(), 2);
+}
+
 #[trace("TC-042", "FR-030-AC-1", "FR-030-AC-2")]
 #[test]
 fn tc_042_invalid_and_incomplete_populations_are_not_assumed_away() {
