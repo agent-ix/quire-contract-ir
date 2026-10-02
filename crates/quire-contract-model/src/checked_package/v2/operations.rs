@@ -2214,6 +2214,7 @@ fn check_leaf_count(
 #[cfg(test)]
 mod tests {
     use super::super::CheckedSelectionRole;
+    use ix_trace_rs::trace;
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
@@ -2590,10 +2591,8 @@ mod tests {
     /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
     /// of 2, its reference to member 0 becomes a `group_reference`, and its
     /// reference outside the group stays a reference.
-    ///
-    /// Tracing: TC-048
     #[test]
-    fn application_preimage_matches_the_qsl_pinned_group_vector() {
+    fn tc_048_application_preimage_matches_the_qsl_pinned_group_vector() {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
         let one = typed(&key(1));
         let group = [&one, &node.node_id];
@@ -2637,10 +2636,8 @@ mod tests {
 
     /// Group references are rewritten in every nested term position, as in
     /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
-    ///
-    /// Tracing: TC-048
     #[test]
-    fn group_references_are_rewritten_in_every_nested_term() {
+    fn tc_048_group_references_are_rewritten_in_every_nested_term() {
         let body = json!({
             "term": "aggregate",
             "members": [
@@ -3491,6 +3488,7 @@ mod tests {
     /// `structural.eq` and `structural.ne`.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_admits_empty_leaves_over_a_type_without_text() {
         for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
@@ -3514,6 +3512,7 @@ mod tests {
     /// integers has no text leaf either.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_inner_leaf_source_admits_empty_leaves_over_a_type_without_text() {
         let types = vec![
@@ -3537,6 +3536,7 @@ mod tests {
     /// `operation-law-missing`; so is a set of text.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_refuses_empty_leaves_over_a_type_with_text() {
         let nested = vec![
@@ -3570,6 +3570,7 @@ mod tests {
     /// one leaf supplied.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_source_refuses_too_few_leaves() {
         let types = vec![
@@ -3666,6 +3667,7 @@ mod tests {
     /// `text_profile` law, and nothing else, whatever the leaf source.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_admits_exactly_the_derived_leaves() {
         let (result, _) = leaves_defect(
@@ -3723,6 +3725,7 @@ mod tests {
     /// the text record, and three unrelated entries over three text leaves.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_extra_and_unrelated_leaves() {
         let integers = vec![
@@ -3777,6 +3780,7 @@ mod tests {
     /// `operation-law-mismatch` at the first leaf that differs.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_a_wrong_path_and_a_wrong_order() {
         let run = |leaves: Value| {
@@ -3814,6 +3818,7 @@ mod tests {
     /// `operation-law-mismatch` at that leaf's `laws`.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_a_wrong_or_missing_leaf_law() {
         let with_laws = |laws: Value| {
@@ -3853,6 +3858,7 @@ mod tests {
     /// the leaf shape is settled.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_source_refuses_an_unselected_leaf_law() {
         let (result, locus) = leaves_defect_locked(
@@ -3883,6 +3889,7 @@ mod tests {
     /// `operation-law-unselected`, not `operation-mode-mismatch`.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_law_selection_is_settled_before_leaf_modes() {
         let mut bare = text_leaf(&["field:a"]);
@@ -3916,6 +3923,7 @@ mod tests {
     /// test meter allows) rather than once per field, which would exhaust it.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_text_profile_pin_of_an_alias_chain_is_memoised_and_charged() {
         let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
@@ -3968,6 +3976,7 @@ mod tests {
     /// `operation-law-mismatch`, as the reference reader refuses it.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_entry_without_a_leaf_source_refuses_a_supplied_leaf() {
         let mut operation = plain_operation(CATALOGUED_IDENTITY);
@@ -3991,6 +4000,7 @@ mod tests {
     /// select, and a supplied leaf is still `operation-law-mismatch`.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_entry_without_a_leaf_source_refuses_a_leaf_before_law_selection() {
         let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
@@ -4018,6 +4028,7 @@ mod tests {
     /// one supplied leaf and admits none.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_result_inner_over_a_sequence_result_refuses_a_supplied_leaf() {
         let mut nested = vec![
@@ -4048,6 +4059,7 @@ mod tests {
     /// wrapper.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_text_leaf_pinning_no_profile_is_ineligible() {
         let types = vec![
@@ -4074,6 +4086,7 @@ mod tests {
     /// `operation-mode-type-mismatch`.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_mode_must_be_the_pinned_text_profile() {
         let with_mode = |mode: Option<Value>| {
@@ -4186,6 +4199,7 @@ mod tests {
     /// `leaves` empty; the same shapes over integers are admitted.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_reaches_text_through_every_type_form() {
         let probe = |text_tag: &str, text_form: &str| {
@@ -4252,6 +4266,7 @@ mod tests {
     /// whose result is a set of text are law-missing.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_result_inner_counts_leaves_only_for_set_like_results() {
         let nested = |result_form: &str| {
@@ -4298,6 +4313,7 @@ mod tests {
     /// field whose type is not in the graph is the same refusal.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_refuses_a_cycle_and_an_unresolved_node() {
         let cyclic = vec![
@@ -4324,6 +4340,7 @@ mod tests {
     /// budget instead of being admitted or overflowing the stack.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_depth_is_bounded_by_the_work_budget() {
         let chain = |depth: u32, leaf: &str| {
@@ -4360,6 +4377,7 @@ mod tests {
     /// `ill_typed`/`operator-ineligible`, not `operation-mode-type-mismatch`.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_count_is_settled_before_leaf_modes() {
         let rounded = || {
@@ -4411,6 +4429,7 @@ mod tests {
     /// work budget instead of hanging.
     ///
     /// Tracing: TC-048, FR-038-AC-43
+    #[trace("TC-048", "FR-038-AC-43")]
     #[test]
     fn tc_048_leaf_walk_counts_each_shared_type_once() {
         let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
@@ -4433,6 +4452,7 @@ mod tests {
     /// segment deep in it is refused.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_paths_are_derived_lazily_over_a_shared_field_chain() {
         let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
@@ -4478,6 +4498,7 @@ mod tests {
     /// Text under 40 options is one leaf at a 40-segment `inner` path.
     ///
     /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn tc_048_leaf_path_under_nested_options_is_exact() {
         let id = |level: u32| char::from_u32(0x4e00 + level).expect("test id");
@@ -4772,10 +4793,8 @@ mod tests {
     /// `validate_application_keys` directly rather than `operation_defect`:
     /// the two are separate stages (see the module doc), and nothing above
     /// reaches this one.
-    ///
-    /// Tracing: TC-048
     #[test]
-    fn validate_application_keys_refuses_a_stale_node_key() {
+    fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
         let node = application_node(CATALOGUED_IDENTITY, "binary");
         let nodes = std::slice::from_ref(&node);
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
@@ -4802,10 +4821,8 @@ mod tests {
     /// refused. Without this control, a `validate_application_keys` that
     /// refused every node would satisfy the assertion above just as well as
     /// the real re-derivation does.
-    ///
-    /// Tracing: TC-048
     #[test]
-    fn validate_application_keys_admits_a_correctly_keyed_node() {
+    fn tc_048_validate_application_keys_admits_a_correctly_keyed_node() {
         let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
         let nodes = std::slice::from_ref(&node);
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
