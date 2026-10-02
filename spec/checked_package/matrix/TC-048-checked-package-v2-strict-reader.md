@@ -45,6 +45,12 @@ empty the node, restore a compiled-model owner or lock shape carrying
 `authority`, `revision` or `export`, change the selection's digest domain,
 version or evidence domain, and set a model node to `model_export`.
 
+For FR-038-AC-45, build the model-owned nominal declaration with the owner
+`{kind: model, identity, node}` and no `version`, derive its node key from
+those members alone, and read it: it admits. Change only the selected domain
+package's version and re-read: the node key is unchanged. Add a `version`
+member to the owner and re-read: it refuses `unknown_member` at that member.
+
 ## Expected Results
 
 An unknown, empty or absent `contract_version` refuses as

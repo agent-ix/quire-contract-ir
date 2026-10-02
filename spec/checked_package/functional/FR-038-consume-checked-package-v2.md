@@ -217,14 +217,14 @@ outcome rather than a position-dependent one:
    owner (below) joins `lock.model_selections` by identity alone, not by the
    full `(identity, version)` locator, so the lock must guarantee at most one
    selection per model identity for that join to be sound; two selections of
-   one identity at different versions would make which version an owner of
-   that identity names ambiguous. This guarantee is scoped to one lock: the
-   nominal `Model`-owned node key is derived from identity alone, not from
+   one identity at different versions would make which selection an owner of
+   that identity joins ambiguous. This guarantee is scoped to one lock: the
+   nominal `Model`-owned node key is derived from content alone and carries no
    version, so it is version-independent across packages as well as within
-   one, and this class does not — and is not claimed to — prevent two
-   different packages that each select one version of the same identity from
-   deriving the same node key; that cross-package concern is tracked
-   separately as Linear IR-243. Two entries sharing both `identity` and
+   one. Two different packages that each select one version of the same
+   identity therefore derive the same node key for the same content. That is
+   the intended content-only identity (QSpec STD-145), not a defect this class
+   is meant to prevent. Two entries sharing both `identity` and
    `version`, differing only in `digest`, are not this class: they share one
    locator, so the lock contradicts itself about which document that locator
    names — class 5 below already refuses such a pair deterministically as one
@@ -261,12 +261,26 @@ reader shall reconstruct the closed nominal preimage, require
 `node_id.digest` to equal the SHA-256 of its canonical bytes, require the owner
 to join an exact lock selection (source and definition owners by authority and
 identity, model owners by domain package identity with a nonempty IR node
-identity and a nonempty `version`, QSpec's `ModelOwner`), and enforce identifier, canonical-integer,
+identity), and enforce identifier, canonical-integer,
 reduced-rational, member/term order, duplicate/zero-exponent, root/non-root
 unit, base-dimension and cross-field (`semantic_type`, dependencies, enum
 literal body) rules. Any violation refuses as `invalid_semantic_graph`; a
 nominal form without its preimage, or a non-nominal form carrying one, refuses
 the same way.
+
+A model owner is QSpec's `ModelOwner` (FR-322, FR-322-AC-28; STD-145 made
+its identity content-only). Its preimage is the closed object `{kind, identity,
+node}`: `kind` is `model`, `identity` the selected domain package's identity
+and `node` the IR node identity inside that package, each a nonempty string,
+and it has no `version` member. The reader re-derives the node key from those
+three members alone, so a node key depends only on content, never on the
+version of the domain package that declares it. The lock's `model_selections`
+entry still carries a `version`, which the selection evidence checks (step 1
+of "Model-owned members"); that version is not part of any node identity. An
+owner of kind `model` that carries a `version` member, or any member outside
+`kind`, `identity` and `node`, refuses as `unknown_member` at that member, as
+every closed shape does; this is the closed shape QSpec publishes, not a
+reader for an earlier one.
 
 A `model` node carries one of the fifteen business and systems meanings
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) names as its
@@ -739,10 +753,11 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 | FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
+| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected domain package's `version` changes. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
 
 ## Dependencies
 
-QSpec FR-322 (AC-4, AC-8, AC-10, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
+QSpec FR-322 (AC-4, AC-8, AC-10, AC-28, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 quire-specification:TC-217 names this repository as their consumer evidence
 owner. [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
