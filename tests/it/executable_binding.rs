@@ -1,5 +1,6 @@
 //! Synthetic derived projections assembled from shared corpus wire forms.
 //! These tests qualify the public binder, not a source-language frontend.
+use ix_trace_rs::trace;
 use quire_contract_ir::{BoundPackage, DiagnosticCode, EXECUTABLE_PROJECTION_FORMAT};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -38,9 +39,8 @@ fn decode(value: &Value) -> Result<BoundPackage, Vec<quire_contract_ir::Diagnost
     BoundPackage::from_json_bytes(&serde_json::to_vec(value).unwrap())
 }
 
-/// TC-035
-/// FR-023-AC-1
-/// FR-023-AC-5
+/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-5
+#[trace("TC-035", "FR-023-AC-1", "FR-023-AC-5")]
 #[test]
 fn tc_035_public_consumer_preserves_complete_population() {
     let value = projection();
@@ -85,8 +85,8 @@ fn tc_035_public_consumer_preserves_complete_population() {
     }
 }
 
-/// TC-035
-/// FR-023-AC-2
+/// Tracing: TC-035, FR-023-AC-2
+#[trace("TC-035", "FR-023-AC-2")]
 #[test]
 fn tc_035_refuses_invalid_binding_population_and_context() {
     let original = projection();
@@ -135,8 +135,8 @@ fn tc_035_refuses_invalid_binding_population_and_context() {
     }
 }
 
-/// TC-035
-/// FR-023-AC-3
+/// Tracing: TC-035, FR-023-AC-3
+#[trace("TC-035", "FR-023-AC-3")]
 #[test]
 fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
     let original = projection();
@@ -148,9 +148,8 @@ fn tc_035_identity_is_order_independent_and_semantically_sensitive() {
     assert_ne!(digest, decode(&reordered).unwrap().digest());
 }
 
-/// TC-035
-/// FR-023-AC-4
-/// FR-023-AC-5
+/// Tracing: TC-035, FR-023-AC-4, FR-023-AC-5
+#[trace("TC-035", "FR-023-AC-4", "FR-023-AC-5")]
 #[test]
 fn tc_035_strict_wire_boundary() {
     let original = projection();
@@ -246,9 +245,8 @@ fn duplicate_member_json(value: &Value, path: &[&str], member: &str) -> String {
     }
 }
 
-/// TC-035
-/// FR-023-AC-4
-/// FR-023-AC-5
+/// Tracing: TC-035, FR-023-AC-4, FR-023-AC-5
+#[trace("TC-035", "FR-023-AC-4", "FR-023-AC-5")]
 #[test]
 fn tc_035_recursive_duplicate_members_cannot_be_erased_by_value_decoding() {
     let original = minimal_projection(1);
@@ -336,9 +334,8 @@ fn declarations(value: &mut Value, count: usize, option_layers: usize) {
     }
 }
 
-/// TC-035
-/// FR-023-AC-2
-/// FR-023-AC-3
+/// Tracing: TC-035, FR-023-AC-2, FR-023-AC-3
+#[trace("TC-035", "FR-023-AC-2", "FR-023-AC-3")]
 #[test]
 fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
     let mut valid = minimal_projection(1);
@@ -381,9 +378,8 @@ fn tc_035_dependency_agreement_has_a_real_positive_and_independent_negatives() {
     }
 }
 
-/// TC-035
-/// FR-023-AC-1
-/// FR-023-AC-3
+/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-3
+#[trace("TC-035", "FR-023-AC-1", "FR-023-AC-3")]
 #[test]
 fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
     let mut original = minimal_projection(1);
@@ -403,8 +399,8 @@ fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
     assert_eq!(before.package(), after.package());
 }
 
-/// TC-035
-/// FR-023-AC-3
+/// Tracing: TC-035, FR-023-AC-3
+#[trace("TC-035", "FR-023-AC-3")]
 #[test]
 fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
     use quire_contract_ir::CanonicalProfile;
@@ -466,9 +462,8 @@ fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
     );
 }
 
-/// TC-035
-/// FR-023-AC-1
-/// FR-023-AC-2
+/// Tracing: TC-035, FR-023-AC-1, FR-023-AC-2
+#[trace("TC-035", "FR-023-AC-1", "FR-023-AC-2")]
 #[test]
 fn tc_035_informational_and_empty_packages_do_not_invent_executable_clauses() {
     let mut information = projection();
@@ -494,8 +489,8 @@ fn tc_035_informational_and_empty_packages_do_not_invent_executable_clauses() {
         .any(|error| error.code == DiagnosticCode::OrphanedClauseReference));
 }
 
-/// TC-035
-/// FR-023-AC-4
+/// Tracing: TC-035, FR-023-AC-4
+#[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
     // Each declaration contributes a declaration and its Boolean type; each
@@ -527,8 +522,8 @@ fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
         .any(|error| error.code == DiagnosticCode::SemanticInputTooLarge));
 }
 
-/// TC-035
-/// FR-023-AC-4
+/// Tracing: TC-035, FR-023-AC-4
+#[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() {
     for (leaves, accepted) in [(5000, true), (5001, false)] {
@@ -566,8 +561,8 @@ fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() 
     }
 }
 
-/// TC-035
-/// FR-023-AC-5
+/// Tracing: TC-035, FR-023-AC-5
+#[trace("TC-035", "FR-023-AC-5")]
 #[test]
 fn tc_035_normative_schema_is_checked_independently_of_binder() {
     let schema: Value = serde_json::from_str(include_str!(
@@ -620,8 +615,8 @@ fn tc_035_normative_schema_is_checked_independently_of_binder() {
     }
 }
 
-/// TC-035
-/// FR-023-AC-4
+/// Tracing: TC-035, FR-023-AC-4
+#[trace("TC-035", "FR-023-AC-4")]
 #[test]
 fn tc_035_depth_limits_do_not_abort_the_process() {
     const CHILD: &str = "QUIRE_BINDING_DEPTH_CONTROL";
