@@ -2590,6 +2590,8 @@ mod tests {
     /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
     /// of 2, its reference to member 0 becomes a `group_reference`, and its
     /// reference outside the group stays a reference.
+    ///
+    /// Tracing: TC-048
     #[test]
     fn application_preimage_matches_the_qsl_pinned_group_vector() {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
@@ -2635,6 +2637,8 @@ mod tests {
 
     /// Group references are rewritten in every nested term position, as in
     /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
+    ///
+    /// Tracing: TC-048
     #[test]
     fn group_references_are_rewritten_in_every_nested_term() {
         let body = json!({
@@ -4768,6 +4772,8 @@ mod tests {
     /// `validate_application_keys` directly rather than `operation_defect`:
     /// the two are separate stages (see the module doc), and nothing above
     /// reaches this one.
+    ///
+    /// Tracing: TC-048
     #[test]
     fn validate_application_keys_refuses_a_stale_node_key() {
         let node = application_node(CATALOGUED_IDENTITY, "binary");
@@ -4796,6 +4802,8 @@ mod tests {
     /// refused. Without this control, a `validate_application_keys` that
     /// refused every node would satisfy the assertion above just as well as
     /// the real re-derivation does.
+    ///
+    /// Tracing: TC-048
     #[test]
     fn validate_application_keys_admits_a_correctly_keyed_node() {
         let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
