@@ -1,5 +1,5 @@
 ---
-id: SR-062
+id: SR-974
 title: "Failure-domain review of complete-V1 Contract IR backend delivery"
 type: SpecReview
 analysis: failure-domain
@@ -13,7 +13,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-037
     type: reviews
 ---
-# SR-062: Failure-domain review of complete-V1 Contract IR backend delivery
+# SR-974: Failure-domain review of complete-V1 Contract IR backend delivery
 
 ## Summary
 

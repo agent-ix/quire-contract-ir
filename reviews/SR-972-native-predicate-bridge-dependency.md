@@ -1,5 +1,5 @@
 ---
-id: SR-046
+id: SR-972
 title: "Dependency review of native predicate to TL projection"
 type: SpecReview
 analysis: dependency
@@ -11,7 +11,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-025
     type: reviews
 ---
-# SR-046: Dependency review of native predicate to TL projection
+# SR-972: Dependency review of native predicate to TL projection
 
 ## Summary
 

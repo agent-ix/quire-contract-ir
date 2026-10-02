@@ -1,5 +1,5 @@
 ---
-id: SR-044
+id: SR-970
 title: "Base review of native predicate to TL projection"
 type: SpecReview
 analysis: base
@@ -11,7 +11,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-025
     type: reviews
 ---
-# SR-044: Base review of native predicate to TL projection
+# SR-970: Base review of native predicate to TL projection
 
 ## Summary
 
