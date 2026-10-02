@@ -1,5 +1,5 @@
 ---
-id: SR-547
+id: SR-975
 title: "Base review of replay-result integrity remediation"
 type: SpecReview
 analysis: base

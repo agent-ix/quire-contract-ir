@@ -1,5 +1,5 @@
 ---
-id: SR-061
+id: SR-973
 title: "Base review of complete-V1 Contract IR backend delivery"
 type: SpecReview
 analysis: base
@@ -15,7 +15,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-037
     type: reviews
 ---
-# SR-061: Base review of complete-V1 Contract IR backend delivery
+# SR-973: Base review of complete-V1 Contract IR backend delivery
 
 ## Summary
 

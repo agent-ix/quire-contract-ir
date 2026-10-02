@@ -1,5 +1,5 @@
 ---
-id: SR-045
+id: SR-971
 title: "EARS review of native predicate to TL projection"
 type: SpecReview
 analysis: ears-conformance
@@ -11,7 +11,7 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-025
     type: reviews
 ---
-# SR-045: EARS review of native predicate to TL projection
+# SR-971: EARS review of native predicate to TL projection
 
 ## Summary
 
