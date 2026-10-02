@@ -28,7 +28,8 @@ FR-038-AC-46 through FR-038-AC-61 (QSpec FR-322 `lock`, `DefinitionRef` and
 operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
 (QSpec FR-322 `ModelRef` and `DependencySelection`) against the
 `model_selections` rows and `dependency_selections` entries of a self-built
-package.
+package, and FR-038-AC-65 through FR-038-AC-68 against the operation catalog's
+words and the applications of a self-built package that name them.
 
 ## Test Procedure
 
@@ -128,6 +129,45 @@ with its `package_id` admits, under another identity `missing_import`/
 `missing-selection`, and with another `package_id`
 `stale_dependency`/`byte-digest-mismatch`; the same-identity pair refuses as
 stated. Compare the whole refusal code, cause and pointer.
+
+## Catalog words (FR-038-AC-65 through FR-038-AC-68)
+
+Read the production catalog and convert each of `case`, `temporal_formula`,
+`temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` from its
+wire string to its enum member and back. Compare every operator class, member
+kind and constraint kind the catalog declares with the enum's member set. Read
+catalog bytes that name an operator class, a member kind and a constraint kind
+outside the vocabulary, one at a time. Put an operator outside the closed
+operator vocabulary on a package application and read the package.
+
+Build a package whose root-bodied application names `quire.op.control.case`
+with operator `case`, and one for each of the fifteen `temporal_formula`
+identities and `quire.op.temporal.fair` with their own operator class, with
+agreeing laws, mode, member, leaves and arguments in one set of cases and
+contradicting ones in another, and read each. Name `quire.op.control.case`
+under operator `unary`, and an identity the catalog lacks, and read each. Build
+two defective nodes, one `unsupported_construct` and one other operation
+defect, in both digest orders. Put a `temporal_interval` member on an entry
+that carries none and a `fairness` member on `quire.op.temporal.holds`.
+
+Build a `quire.op.temporal.clause` application with its law selected, no member
+and the six arguments, with five and seven arguments, with a `boolean`
+reference sixth and a `text` reference first, with a `reference` to a
+`temporal`/`formula` node sixth and in a `boolean` operand position, and with a
+`profile_operator` member and a `fairness` member.
+
+Expected: every word converts both ways and the catalog's sets equal the
+enums'; each unreadable catalog returns an error naming the word and does not
+panic; the foreign operator refuses `invalid_semantic_graph` at the term; each
+case or temporal application refuses `unsupported_construct` with no cause at
+its `operator`, agreeing or not; the `unary` case refuses
+`operation-class-mismatch`, the unknown identity `unknown-operation`; the lower
+digest is reported in both orders; the two stray members refuse
+`operation-member-mismatch`; the clause passes the entry's checks, the wrong
+counts refuse `operator-ineligible` at `arguments`, the two wrong families at
+their arguments, the formula reference fits only the sixth operand, and the two
+members refuse `operation-member-mismatch`. Compare the whole refusal code,
+cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
