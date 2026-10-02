@@ -48,3 +48,16 @@ existed and were already cited, so nothing was invented.
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | still-open | The misstatement is corrected in the PR body, but the body still cites the short SHA "4233b56" in "Main (4233b56)". Replace it with the full 4233b569a4723f1cf60c0103a3dc1f3e5fd9e798 or drop it. |
+
+Round 2, reviewed agent-ix/quire-contract-ir@28855114846601a48962fbe4f52eb690dae7d34e. The delta
+from f6cc2e9a7f9a387a073211e653fddfac5f4dd54c only adds the three SR files under `reviews/`
+(byte-identical to the round-1 reviewer files, and `quire validate` on `reviews/**` passes).
+The merge base is still origin/main 4233b569a4723f1cf60c0103a3dc1f3e5fd9e798. All three
+fixes are edits to the PR body, which has no commit, so the sha recorded is the head at
+which the body was verified.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 28855114846601a48962fbe4f52eb690dae7d34e (PR body edit: "Main:" with no SHA; no short hex SHA remains in the body) |
+| FND-002 | fixed | 28855114846601a48962fbe4f52eb690dae7d34e (PR body edit: Gate section describes only the clean re-run at the full f6cc2e9 SHA, exit=2, only spec failing) |
+| FND-003 | fixed | 28855114846601a48962fbe4f52eb690dae7d34e (PR body edit: the body names the coverage list, 23 -> 21 of 184, and the separate strict list, unchanged) |
