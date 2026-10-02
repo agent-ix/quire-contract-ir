@@ -454,20 +454,26 @@ pub fn incomplete(
 
 const FIXTURE_SOURCE_AUTHORITY: &str = "agent-ix";
 const FIXTURE_SOURCE_IDENTITY: &str = "quire.fixture.source/v1";
-const FIXTURE_DEFINITION_DOMAIN: &str = "quire.definition.bytes/v1";
 const FIXTURE_SOURCE_DOMAIN: &str = "quire.source.bytes/v1";
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
-/// A `CheckedArtifactRef`-shaped locked artifact. `digest` need not be a real
-/// content hash: [`evidence_for`] attests whatever digest an artifact records
-/// here directly (it never re-hashes real bytes), so any syntactically valid
-/// 64-hex-digit string proves the lock current against the evidence this
-/// generator's own callers build.
-fn artifact(authority: &str, identity: &str, domain: &str, digest: &str) -> Value {
+/// A `CheckedArtifactRef`-shaped definition reference: exactly `{authority,
+/// identity}` (QSpec `DefinitionRef`).
+pub fn definition_ref(authority: &str, identity: &str) -> Value {
     json!({
         "authority": authority,
         "identity": identity,
-        "revision": {"namespace": "quire-draft", "value": "1"},
+    })
+}
+
+/// A `CheckedSourceRef`-shaped locked source: exactly `{authority, identity,
+/// digest_domain, digest}` (QSpec `RawSourceRef`). `digest` need not be a real
+/// content hash: no evidence is attested for a source's bytes, so any
+/// syntactically valid 64-hex-digit string is a current lock row.
+pub fn source_ref(authority: &str, identity: &str, domain: &str, digest: &str) -> Value {
+    json!({
+        "authority": authority,
+        "identity": identity,
         "digest_domain": domain,
         "digest": digest,
     })
@@ -618,11 +624,9 @@ fn function_call_body() -> Value {
 fn temporal_profile_law() -> Value {
     json!({
         "role": "temporal_profile",
-        "definition": artifact(
+        "definition": definition_ref(
             FIXTURE_SOURCE_AUTHORITY,
             "quire.fixture.temporal-profile/v1",
-            FIXTURE_DEFINITION_DOMAIN,
-            &"2".repeat(64),
         ),
     })
 }
@@ -631,11 +635,9 @@ fn temporal_profile_law() -> Value {
 fn protocol_profile_law() -> Value {
     json!({
         "role": "protocol_profile",
-        "definition": artifact(
+        "definition": definition_ref(
             FIXTURE_SOURCE_AUTHORITY,
             "quire.fixture.protocol-profile/v1",
-            FIXTURE_DEFINITION_DOMAIN,
-            &"3".repeat(64),
         ),
     })
 }
@@ -768,7 +770,7 @@ fn application_node(
 }
 
 fn fixture_source() -> Value {
-    artifact(
+    source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         FIXTURE_SOURCE_IDENTITY,
         FIXTURE_SOURCE_DOMAIN,
@@ -784,7 +786,7 @@ fn fixture_source() -> Value {
 /// locked source could never distinguish that from citing the same source
 /// again.
 fn fixture_secondary_source() -> Value {
-    artifact(
+    source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.source.secondary/v1",
         FIXTURE_SOURCE_DOMAIN,
@@ -805,29 +807,20 @@ fn fixture_secondary_source() -> Value {
 /// — has a real join to break; without this second role that mutation would
 /// have nothing in the fixture to affect.
 fn fixture_definition_selection() -> Value {
-    artifact(
+    definition_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.definition.selection/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"a".repeat(64),
     )
 }
 
 fn fixture_edition_definition() -> Value {
-    artifact(
-        FIXTURE_SOURCE_AUTHORITY,
-        "quire.fixture.edition/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"6".repeat(64),
-    )
+    definition_ref(FIXTURE_SOURCE_AUTHORITY, "quire.fixture.edition/v1")
 }
 
 fn fixture_diagnostics_catalog() -> Value {
-    artifact(
+    definition_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.diagnostics-catalog/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"7".repeat(64),
     )
 }
 

@@ -2631,9 +2631,7 @@ mod tests {
         SuppliedDependencies, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
-    use crate::checked_package::shared::{
-        CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
-    };
+    use crate::checked_package::shared::{CheckedArtifactRef, CheckedSelection, JsonPointer};
     use ix_trace_rs::trace;
 
     fn pointer(text: &str) -> JsonPointer {
@@ -2806,25 +2804,19 @@ mod tests {
     fn dummy_law_definition(marker: char) -> Value {
         json!({
             "authority": "test",
-            "identity": "test",
-            "revision": { "namespace": "test", "value": "test" },
-            "digest_domain": "sha256-jcs",
-            "digest": dummy_digest(marker),
+            "identity": format!("test-{marker}"),
         })
     }
 
-    /// The exact bytes of the catalog's own first `integer_division`
-    /// law-role definition (`quire.value.integer-division.truncating/v1`),
-    /// copied from `checked-operation-catalog-v1.json` so `catalog.entry(...)`
-    /// recognizes it as catalogued while the empty lock leaves it
-    /// unselected.
+    /// The `{authority, identity}` of the catalog's own first
+    /// `integer_division` law-role definition
+    /// (`quire.value.integer-division.truncating/v1`), so
+    /// `catalog.entry(...)` recognizes it as catalogued while the empty lock
+    /// leaves it unselected.
     fn real_integer_division_truncating_definition() -> Value {
         json!({
             "authority": "agent-ix",
             "identity": "quire.value.integer-division.truncating/v1",
-            "revision": { "namespace": "quire-draft", "value": "1-draft.1" },
-            "digest_domain": "quire.definition.bytes/v1",
-            "digest": "9998507608e4885b314d5dcc59a88bb3d04ef3c263d2d8ae5810f92ae1893364",
         })
     }
 
@@ -2834,13 +2826,6 @@ mod tests {
         let placeholder = CheckedArtifactRef {
             authority: Box::from("test"),
             identity: Box::from("test"),
-            revision: CheckedRevision {
-                namespace: Box::from("test"),
-                value: Box::from("test"),
-            },
-            digest_domain: Box::from("sha256-jcs"),
-            digest: Box::from(dummy_digest('a').as_str()),
-            export: None,
         };
         CheckedPackageLockV2 {
             sources: Vec::new(),
@@ -3421,6 +3406,79 @@ mod tests {
             ))),
             "a catalogued law definition absent from the lock's own selections must be \
              refused as operation-law-unselected, got {result:?}"
+        );
+    }
+
+    /// An `integer.div` application whose one law is `definition`.
+    fn integer_division_node(definition: Value) -> CheckedSemanticNodeV2 {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json("integer_division", definition)]);
+        custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        )
+    }
+
+    /// FR-038-AC-56: a value-role law admits only when its `{authority,
+    /// identity}` pair is catalogued for the role and is a
+    /// `lock.definition_selections` row, compared by those two members alone.
+    ///
+    /// Tracing: TC-048, FR-038-AC-56
+    #[trace("TC-048", "FR-038-AC-56")]
+    #[test]
+    fn tc_048_a_value_role_law_joins_the_catalog_and_the_lock_by_authority_and_identity() {
+        let catalogued = real_integer_division_truncating_definition();
+        let mut lock = empty_lock();
+        lock.definition_selections =
+            vec![serde_json::from_value(catalogued.clone()).expect("a definition reference")];
+        let at = "/semantic_graph/nodes/0/body/operation/laws/0/definition";
+
+        // The selected, catalogued pair admits.
+        let node = integer_division_node(catalogued.clone());
+        assert_eq!(defect_for_graph_locked(vec![node], &lock), Ok(None));
+
+        // A pair the role does not catalogue refuses `operation-law-mismatch`,
+        // an empty pair included, and so does the catalogued identity under
+        // another authority: the pair is the whole comparison.
+        for (name, definition) in [
+            ("another pair", dummy_law_definition('c')),
+            ("empty pair", json!({ "authority": "", "identity": "" })),
+            (
+                "another authority",
+                json!({
+                    "authority": "other",
+                    "identity": catalogued["identity"],
+                }),
+            ),
+        ] {
+            let node = integer_division_node(definition);
+            assert_eq!(
+                defect_for_graph_locked(vec![node.clone()], &lock),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at,
+                    Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{name}"
+            );
+        }
+
+        // A catalogued pair the lock does not select refuses
+        // `operation-law-unselected`.
+        let node = integer_division_node(catalogued);
+        assert_eq!(
+            defect_for_graph_locked(vec![node.clone()], &empty_lock()),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at,
+                Some(CheckedPackageRefusalCause::OperationLawUnselected),
+                node.node_id.clone(),
+            )))
         );
     }
 

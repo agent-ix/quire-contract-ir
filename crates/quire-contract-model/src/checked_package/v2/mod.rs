@@ -30,16 +30,16 @@ use structural::validate_structural_nodes;
 
 use super::common::{
     count, decode_closed, dismantle, exceeds, first_difference, is_digest, is_nonempty,
-    node_pointer, on_stack_for, read_value, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
-    ValidationFailure, NODE_DOMAIN,
+    node_pointer, on_stack_for, read_value, validate_definition_ref, validate_locked_artifact,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use quire_canonical::FixedShape;
@@ -55,7 +55,6 @@ pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
 const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 const SOURCE_BYTES: &str = "quire.source.bytes/v1";
-const DEFINITION_BYTES: &str = "quire.definition.bytes/v1";
 /// The digest domain of a selected domain package.
 pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
 /// A node's declared qualified name (FR-208). Present exactly where the
@@ -178,7 +177,7 @@ pub struct CheckedDependencySelection {
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageLockV2 {
     /// Locked raw source documents.
-    pub sources: Vec<CheckedArtifactRef>,
+    pub sources: Vec<CheckedSourceRef>,
     /// Selected edition.
     pub edition: CheckedSelection,
     /// Selected profiles.
@@ -876,15 +875,15 @@ fn validate_lock<'a>(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     for (index, source) in lock.sources.iter().enumerate() {
-        validate_unexported(source, SOURCE_BYTES, &|| {
+        validate_locked_artifact(source, SOURCE_BYTES, &|| {
             member_pointer(&["lock", "sources"]).index(index)
         })?;
     }
-    validate_unexported(&lock.edition.definition, DEFINITION_BYTES, &|| {
+    validate_definition_ref(&lock.edition.definition, &|| {
         member_pointer(&["lock", "edition", "definition"])
     })?;
     for (index, selection) in lock.profile_selections.iter().enumerate() {
-        validate_unexported(&selection.definition, DEFINITION_BYTES, &|| {
+        validate_definition_ref(&selection.definition, &|| {
             member_pointer(&["lock", "profile_selections"])
                 .index(index)
                 .key("definition")
@@ -892,7 +891,7 @@ fn validate_lock<'a>(
     }
     validate_dependency_selections(&lock.dependency_selections)?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
-        validate_unexported(definition, DEFINITION_BYTES, &|| {
+        validate_definition_ref(definition, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
         })?;
     }
@@ -970,7 +969,7 @@ fn validate_lock<'a>(
             member_pointer(&["lock", "required_features"]).index(index),
         ));
     }
-    validate_unexported(&wire.diagnostics.catalog, DEFINITION_BYTES, &|| {
+    validate_definition_ref(&wire.diagnostics.catalog, &|| {
         member_pointer(&["diagnostics", "catalog"])
     })?;
     Ok(LockAdmission {
@@ -1038,22 +1037,6 @@ fn validate_dependency_selections(
             CheckedPackageRefusalCode::InvalidPackage,
             at(index + 1),
             CheckedPackageRefusalCause::InvalidValue,
-        ));
-    }
-    Ok(())
-}
-
-/// Checks one locked raw artifact at `at` and that it carries no `export`.
-fn validate_unexported(
-    artifact: &CheckedArtifactRef,
-    domain: &str,
-    at: &dyn Fn() -> JsonPointer,
-) -> Result<(), ValidationFailure> {
-    validate_locked_artifact(artifact, domain, at)?;
-    if artifact.export.is_some() {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            at().key("export"),
         ));
     }
     Ok(())

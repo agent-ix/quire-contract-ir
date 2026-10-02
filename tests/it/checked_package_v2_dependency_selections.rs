@@ -186,11 +186,7 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
 #[trace("TC-048", "FR-038-AC-32")]
 #[test]
 fn tc_048_selection_and_definition_ref_shapes_are_malformed_at_the_entry() {
-    let definition = json!({
-        "authority": "test", "identity": "test/geometry",
-        "revision": {"namespace": "semver", "value": "1"},
-        "digest_domain": "quire.definition.bytes/v1", "digest": DIGEST_A,
-    });
+    let definition = json!({"authority": "test", "identity": "test/geometry"});
     for shape in [
         json!({"role": "profile", "definition": definition}),
         definition.clone(),

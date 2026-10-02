@@ -10,7 +10,7 @@ use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    CheckedSourceMapEntry, JsonPointer,
+    CheckedSourceMapEntry, CheckedSourceRef, JsonPointer,
 };
 use super::v2::{encode, ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -466,50 +466,62 @@ pub(super) fn digest_json(value: &Value) -> Result<String, serde_json::Error> {
     serde_json::to_vec(value).map(|bytes| digest_bytes(&bytes))
 }
 
-pub(super) fn artifact_locator(value: &CheckedArtifactRef) -> CheckedArtifactLocator {
+pub(super) fn artifact_locator(value: &CheckedSourceRef) -> CheckedArtifactLocator {
     CheckedArtifactLocator {
         authority: value.authority.clone(),
         identity: value.identity.clone(),
-        revision_namespace: value.revision.namespace.clone(),
-        revision_value: value.revision.value.clone(),
         domain: value.digest_domain.clone(),
     }
 }
 
-/// Checks one locked artifact's digest domain and shape. `at` names the
-/// artifact reference; each refusal points at the member it is about.
-// Intake check of a locked artifact's digest domain and digest text.
+/// Checks one locked source row's digest domain and shape. `at` names the
+/// source reference; each refusal points at the member it is about. The digest
+/// domain is checked first, so a row with another domain and also an empty
+/// member or a non-hex digest refuses for the domain.
+// Intake check of a locked source's digest domain and digest text.
 pub(super) fn validate_locked_artifact(
-    artifact: &CheckedArtifactRef,
+    artifact: &CheckedSourceRef,
     expected_domain: &str,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
-    let refuse = |code, member: &[&str]| {
-        let path = member.iter().fold(at(), |path, key| path.key(key));
-        ValidationFailure::refused(code, path)
-    };
+    let refuse = |code, member: &str| ValidationFailure::refused(code, at().key(member));
     if artifact.digest_domain.as_ref() != expected_domain {
         return Err(refuse(
             CheckedPackageRefusalCode::DigestDomainMismatch,
-            &["digest_domain"],
+            "digest_domain",
         ));
     }
-    let members: [(&str, &[&str]); 4] = [
-        (&artifact.authority, &["authority"]),
-        (&artifact.identity, &["identity"]),
-        (&artifact.revision.namespace, &["revision", "namespace"]),
-        (&artifact.revision.value, &["revision", "value"]),
+    let members: [(&str, &str); 2] = [
+        (&artifact.authority, "authority"),
+        (&artifact.identity, "identity"),
     ];
     if let Some((_, member)) = members.iter().find(|(value, _)| !is_nonempty(value)) {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, member));
     }
     if !is_digest(&artifact.digest) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            &["digest"],
-        ));
+        return Err(refuse(CheckedPackageRefusalCode::MalformedWire, "digest"));
     }
     Ok(())
+}
+
+/// Checks one definition reference's `authority` and `identity` are nonempty,
+/// the only check a definition reference takes: it carries no digest domain or
+/// digest. `at` names the reference; each refusal points at the empty member.
+pub(super) fn validate_definition_ref(
+    definition: &CheckedArtifactRef,
+    at: &dyn Fn() -> JsonPointer,
+) -> Result<(), ValidationFailure> {
+    let members: [(&str, &str); 2] = [
+        (&definition.authority, "authority"),
+        (&definition.identity, "identity"),
+    ];
+    match members.iter().find(|(value, _)| !is_nonempty(value)) {
+        Some((_, member)) => Err(ValidationFailure::refused(
+            CheckedPackageRefusalCode::MalformedWire,
+            at().key(member),
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Requires the source map to be exactly the graph's occurrence set, with
@@ -517,7 +529,7 @@ pub(super) fn validate_locked_artifact(
 pub(super) fn validate_source_map_entries<'a>(
     nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a [CheckedOccurrence])>,
     source_map: &[CheckedSourceMapEntry],
-    locked_sources: &[CheckedArtifactRef],
+    locked_sources: &[CheckedSourceRef],
     limits: CheckedPackageReadLimits,
 ) -> Result<(), ValidationFailure> {
     let entry_pointer = |entry: usize| JsonPointer::root().key("source_map").index(entry);
@@ -580,7 +592,6 @@ pub(super) fn validate_source_map_entries<'a>(
                     source_pointer(),
                 ));
             }
-            validate_locked_artifact(&region.source, "quire.source.bytes/v1", &source_pointer)?;
             if region.start >= region.end {
                 return Err(ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSourceMap,

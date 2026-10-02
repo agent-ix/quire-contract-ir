@@ -44,4 +44,10 @@ probe fails to compile.
 
 ## Status
 
-Planned.
+Partially implemented. The member-set probes and the `CheckedRevision` probe
+are implemented: `tc_058_the_artifact_reference_member_sets_are_exact` in
+`tests/it/checked_package_v2_artifact_refs.rs` builds each reference with
+exactly its members, and the `compile_fail` doctests on the
+`quire_contract_model` crate root (`crates/quire-contract-model/src/lib.rs`)
+fail with a further member and with `CheckedRevision`. The no-glob check, the
+public-item inventory and the `quire_contract_ir` path probe are planned.

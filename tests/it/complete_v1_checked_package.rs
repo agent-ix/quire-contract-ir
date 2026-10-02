@@ -367,7 +367,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Depth,
         exact.depth,
-        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/revision/namespace"),
+        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/authority"),
     );
     exact.depth += 1;
 

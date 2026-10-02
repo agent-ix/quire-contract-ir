@@ -329,10 +329,6 @@ pub struct CheckedArtifactLocator {
     pub authority: Box<str>,
     /// Artifact identity.
     pub identity: Box<str>,
-    /// Revision namespace.
-    pub revision_namespace: Box<str>,
-    /// Revision value.
-    pub revision_value: Box<str>,
     /// Identity domain of the bytes.
     pub domain: Box<str>,
 }
@@ -387,33 +383,32 @@ pub struct CheckedOccurrence {
     pub ordinal: u64,
 }
 
-/// A revision in a stable namespace.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedRevision {
-    /// Revision namespace.
-    pub namespace: Box<str>,
-    /// Revision value.
-    pub value: Box<str>,
-}
-
-/// One raw source, definition, or model identity from the package lock.
+/// A definition named by its identity alone: QSpec's `DefinitionRef`, the closed
+/// shape `{authority, identity}`. Two references are equal when both members
+/// are equal; the reader compares nothing else about a definition.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedArtifactRef {
-    /// Artifact authority.
+    /// Definition authority.
     pub authority: Box<str>,
-    /// Artifact identity.
+    /// Definition identity.
     pub identity: Box<str>,
-    /// Artifact revision.
-    pub revision: CheckedRevision,
-    /// Typed byte-digest domain.
+}
+
+/// A raw source document bound to the exact bytes the producer read: QSpec's
+/// `RawSourceRef`, the closed shape `{authority, identity, digest_domain,
+/// digest}`.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedSourceRef {
+    /// Source authority.
+    pub authority: Box<str>,
+    /// Source identity.
+    pub identity: Box<str>,
+    /// Typed byte-digest domain, `quire.source.bytes/v1`.
     pub digest_domain: Box<str>,
-    /// Lowercase SHA-256 digest.
+    /// Lowercase SHA-256 digest of the source bytes.
     pub digest: Box<str>,
-    /// Model export name, present only for compiled-model references.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub export: Option<Box<str>>,
 }
 
 /// A selected definition-role identity.
@@ -431,7 +426,7 @@ pub struct CheckedSelection {
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceRegion {
     /// Raw source document identity.
-    pub source: CheckedArtifactRef,
+    pub source: CheckedSourceRef,
     /// Inclusive byte start.
     pub start: u64,
     /// Exclusive byte end.

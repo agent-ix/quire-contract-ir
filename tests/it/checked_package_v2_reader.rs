@@ -234,7 +234,7 @@ fn tc_048_refusal_pointers_escape_member_names_and_resolve() {
 /// node-identity vectors, this is not an independent conformance oracle —
 /// each entry asserts the reader's own documented structural rule
 /// (`contract_version`/`lock.sources`/`semantic_graph.graph_version`/
-/// `diagnostics.catalog.digest_domain`/`capability_report`, all checked
+/// `lock.sources[0].digest_domain`/`capability_report`, all checked
 /// directly by `v2::mod::validate`) against itself, so authoring it in this
 /// repository makes no assertion tautological.
 const STRUCTURAL_MUTATIONS: [(&str, &str, CheckedPackageRefusalCode); 5] = [
@@ -254,7 +254,7 @@ const STRUCTURAL_MUTATIONS: [(&str, &str, CheckedPackageRefusalCode); 5] = [
         CheckedPackageRefusalCode::InvalidSemanticGraph,
     ),
     (
-        "/diagnostics/catalog/digest_domain",
+        "/lock/sources/0/digest_domain",
         "digest_domain_mismatch",
         CheckedPackageRefusalCode::DigestDomainMismatch,
     ),
@@ -270,7 +270,7 @@ fn structural_mutation_replacement(pointer: &str) -> Value {
         "/contract_version" => json!("quire.checked-package/v3"),
         "/lock/sources" => json!([]),
         "/semantic_graph/graph_version" => json!("quire.checked-semantic-graph/v3"),
-        "/diagnostics/catalog/digest_domain" => json!("quire.fixture.wrong-domain/v1"),
+        "/lock/sources/0/digest_domain" => json!("quire.fixture.wrong-domain/v1"),
         "/capability_report" => json!([]),
         other => panic!("no replacement authored for structural mutation pointer {other}"),
     }
@@ -695,7 +695,7 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
                 l.depth -= 1;
                 l.depth
             },
-            Some("/diagnostics/entries/0/loci/0/source/revision/namespace"),
+            Some("/diagnostics/entries/0/details/0/target/digest"),
         ),
         (
             CheckedPackageLimit::Nodes,
@@ -843,7 +843,8 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
         (
             "edition",
             Box::new(|v| {
-                v["lock"]["edition"]["definition"]["digest"] = json!("8".repeat(64));
+                v["lock"]["edition"]["definition"]["identity"] =
+                    json!("quire.fixture.edition.next/v1");
             }),
         ),
         (

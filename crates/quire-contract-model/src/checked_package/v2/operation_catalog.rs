@@ -93,6 +93,7 @@ struct OperationCatalogWire {
     #[allow(dead_code)]
     families: Vec<Box<str>>,
     groups: BTreeMap<Box<str>, Vec<Box<str>>>,
+    /// Each entry is exactly `{authority, identity}` (QSpec `DefinitionRef`).
     law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
     #[allow(dead_code)]
     profile_law_roles: Vec<Box<str>>,
@@ -156,19 +157,54 @@ impl OperationCatalog {
 
 static CATALOG: OnceLock<OperationCatalog> = OnceLock::new();
 
-/// The parsed, cached production catalog. Panics on first use if the
-/// embedded catalog bytes are not valid — a build-time defect, never a
-/// caller input, so this asserts rather than threading a refusal for it.
+/// The parsed, cached production catalog, read once through [`read_catalog`].
+/// Panics on first use if the build's own catalog bytes are unreadable: that
+/// is a build-time defect, never a caller input, so this one read asserts
+/// rather than threading a package refusal for it (FR-038-AC-58).
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    CATALOG.get_or_init(|| parse_catalog(CATALOG_BYTES))
+    CATALOG.get_or_init(|| {
+        read_catalog(CATALOG_BYTES).unwrap_or_else(|error| {
+            panic!("the checked-operation catalog this build depends on is unreadable: {error}")
+        })
+    })
 }
 
-/// Parses and indexes catalog bytes.
-/// Panics on invalid bytes: the production catalog is a build-time input,
-/// and a test passes a catalog it read itself.
-pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
+/// A catalog read failure: the member the bytes failed at and why. It names
+/// the unreadable entry, for example `law_roles.integer_division[0]`.
+#[derive(Debug)]
+pub(super) struct CatalogReadError {
+    path: String,
+    message: String,
+}
+
+impl std::fmt::Display for CatalogReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "at `{}`: {}", self.path, self.message)
+    }
+}
+
+impl CatalogReadError {
+    /// The path of the entry the read failed at.
+    #[cfg(test)]
+    pub(super) fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+/// Reads and indexes catalog bytes. Bytes the reader cannot read, such as a
+/// `law_roles` entry that is not exactly `{authority, identity}`, return an
+/// error naming the entry; nothing here panics on supplied bytes.
+pub(super) fn read_catalog(bytes: &str) -> Result<OperationCatalog, CatalogReadError> {
+    let mut decoder = serde_json::Deserializer::from_str(bytes);
     let wire: OperationCatalogWire =
-        serde_json::from_str(bytes).expect("checked-operation-catalog-v1.json is valid");
+        serde_path_to_error::deserialize(&mut decoder).map_err(|error| CatalogReadError {
+            path: error.path().to_string(),
+            message: error.inner().to_string(),
+        })?;
+    Ok(index_catalog(wire))
+}
+
+fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
     let operations = wire
         .operations
         .into_iter()
@@ -186,6 +222,52 @@ pub(super) fn parse_catalog(bytes: &str) -> OperationCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ix_trace_rs::trace;
+
+    /// FR-038-AC-58: the catalog read over supplied bytes whose `law_roles`
+    /// entries are exactly `{authority, identity}` returns the catalog, and
+    /// over bytes in which an entry carries `revision`, `digest_domain` or
+    /// `digest` returns an error naming the entry, without a panic. The
+    /// supplied bytes are the production catalog's own, with one entry edited.
+    ///
+    /// Tracing: TC-048, FR-038-AC-58
+    #[trace("TC-048", "FR-038-AC-58")]
+    #[test]
+    fn tc_048_the_catalog_read_names_a_law_role_entry_that_is_not_authority_and_identity() {
+        let supplied: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        assert!(read_catalog(&supplied.to_string()).is_ok());
+        let entries = supplied["law_roles"]["integer_division"]
+            .as_array()
+            .expect("integer_division is catalogued");
+        assert!(entries.iter().all(|entry| entry
+            .as_object()
+            .is_some_and(|members| members.len() == 2
+                && members.contains_key("authority")
+                && members.contains_key("identity"))));
+        for (member, value) in [
+            (
+                "revision",
+                serde_json::json!({"namespace": "n", "value": "v"}),
+            ),
+            (
+                "digest_domain",
+                serde_json::json!("quire.definition.bytes/v1"),
+            ),
+            ("digest", serde_json::json!("0".repeat(64))),
+        ] {
+            let mut edited = supplied.clone();
+            edited["law_roles"]["integer_division"][1][member] = value;
+            let error = match read_catalog(&edited.to_string()) {
+                Ok(_) => panic!("an entry carrying `{member}` must not read"),
+                Err(error) => error,
+            };
+            assert!(
+                error.path().starts_with("law_roles.integer_division[1]"),
+                "{member}: {error}"
+            );
+        }
+    }
 
     /// Every catalog vocabulary the reader decodes into an enum is exactly
     /// the enum's member set, and `LawRole::selection_role` is `Some` for
