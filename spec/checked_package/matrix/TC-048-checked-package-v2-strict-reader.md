@@ -25,7 +25,10 @@ FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
 a model declaration node keyed under the content-only `ModelOwner`, and
 FR-038-AC-46 through FR-038-AC-61 (QSpec FR-322 `lock`, `DefinitionRef` and
 `RawSourceRef`) against the artifact references of a self-built package and the
-operation catalog's `law_roles` entries.
+operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
+(QSpec FR-322 `ModelRef` and `DependencySelection`) against the
+`model_selections` rows and `dependency_selections` entries of a self-built
+package.
 
 ## Test Procedure
 
@@ -47,19 +50,21 @@ mirroring the identity projection and package id. Re-own the nominal enum
 declaration by a model owner (`identity`, `node`) over a locked `sha256-jcs`
 domain package and re-read it; then name an unselected package, select none,
 empty the node, restore a compiled-model owner or lock shape carrying
-`authority`, `revision` or `export`, change the selection's digest domain,
-version or evidence domain, and set a model node to `model_export`.
+`authority`, `revision`, `export` or `version`, change the selection's digest
+domain or evidence domain, and set a model node to `model_export`.
 
 For FR-038-AC-45, build the model-owned nominal declaration with the owner
 `{kind: model, identity, node}` and no `version`, derive its node key from
-those members alone, and read it: it admits. Change only the selected domain
-package's version and re-read: the node key is unchanged. Add a `version`
+those members alone, and read it: it admits. Select another document of the
+same identity under its own digest, in another package, and re-read: the node
+key is unchanged. Add a `version`
 member to the owner and re-read: it refuses `unknown_member` at that member.
 Empty the owner's `identity` and, separately, its `node`, and re-read each: it
 refuses `invalid_semantic_graph`. Select a domain package, key a model
 declaration node of it under the version-free `ModelOwner`, add a `field`
-member on that node and read it: it admits; change only the selected version
-and re-read: the declaration node's key is unchanged and it admits; key the
+member on that node and read it: it admits; select another document of the
+same identity under its own digest, in another package, and re-read: the
+declaration node's key is unchanged and it admits; key the
 node under another domain package's identity and re-read: it refuses
 `missing_declaration`/`missing-selection` at the member's `declaration`.
 
@@ -75,15 +80,54 @@ package. Excluded edits keep the id and included edits change it. Every nominal
 preimage digest matches its node key; every nominal mutation and contradictory cross-field join
 refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
-`authority`, `revision` or `export` as `unknown_member`, a foreign digest
+`authority`, `revision`, `export` or `version` as `unknown_member`, a foreign digest
 domain as `digest_domain_mismatch`, a domain package digest with no supplied
 document as `missing_import`, and `model_export` as `invalid_semantic_graph`.
 A model owner of `{kind, identity, node}` with no `version` admits and its node
-keys, nominal and declaration, are unchanged by a version-only change of the
-selection; an owner carrying `version` refuses `unknown_member`, an owner with an
+keys, nominal and declaration, are unchanged when another document of the same
+identity is selected; an owner carrying `version` refuses `unknown_member`, an owner with an
 empty `identity` or `node` refuses `invalid_semantic_graph`, and a declaration
 node keyed under an unselected domain package refuses
 `missing_declaration`/`missing-selection` (FR-038-AC-45).
+
+## Selections bind by identity (FR-038-AC-62 through FR-038-AC-64)
+
+Build a package whose lock and identity preimage carry the same
+`model_selections` rows `{identity, digest_domain, digest}` and the same
+`dependency_selections` entries `{identity, package_id}`, re-derive its
+`package_id` and read it: it admits. Add a `version` member to a model row in
+the lock, then only in the identity preimage, then to a dependency entry in the
+lock and then only in the preimage, and to a row beside an otherwise well-formed
+row, and read each: each refuses `unknown_member` at that `version` member, the
+first in document order, and no package is returned. Give a dependency entry
+`{identity, version}` with no `package_id` and read: it refuses `malformed_wire`
+at the entry. Remove `identity`,
+`digest_domain` and `digest` in turn from a model row and give each a non-string,
+and read. Select the same domain package as two documents at different
+versions, each in its own package under its own `sha256-jcs` digest, and read
+both: each admits and they yield the same model-owned node keys. Read a
+matching document that has no `package.version`, and one whose `package.version`
+is not a string: each admits. Give a model
+owner an identity no row names and read it. Supply a dependency package under
+its entry's `identity` and read it, supply it under another identity, and supply
+a package of another `package_id`. Put two rows of one identity and different
+digests in the lock, each document supplied, in both orders, and read: each
+refuses `stale_dependency` at the later row's `digest`; repeat it with no
+document supplied for one of the pair, with a forged one, with one naming
+another identity, and with an earlier row whose document is missing: each
+refuses the same way, before any document is read; give one of the two a digest domain other than
+`sha256-jcs` and read: it refuses `digest_domain_mismatch`.
+
+Expected: the package admits; a `version` member at any of the four places
+refuses `unknown_member` at that member; a dependency entry lacking `package_id`
+and a model row or entry with a missing or wrong-kind member refuse
+`malformed_wire`; both documents admit with equal node keys, and so do the
+documents with no or a non-string `package.version`; the unnamed owner
+refuses `invalid_semantic_graph`; the dependency supplied under its identity
+with its `package_id` admits, under another identity `missing_import`/
+`missing-selection`, and with another `package_id`
+`stale_dependency`/`byte-digest-mismatch`; the same-identity pair refuses as
+stated. Compare the whole refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
@@ -107,7 +151,7 @@ and read it: it refuses `ill_typed`/`operator-ineligible` at the member's
 `name`. Give `Order` a supertype the document does not declare and read it:
 the refusal is the document's, `missing_declaration`/`missing-name`, at
 `/lock/model_selections/0`. Read the document directly: supply none, one
-under another digest, forged bytes, another version, and the matching one;
+under another digest, forged bytes, another identity, and the matching one;
 give a node an invalid object id and refer to it as a supertype and a
 `typeRef` from nodes on both sides of it; give one field a dangling `typeRef`
 and a multiplicity of `lower > upper` in both member orders; name a
@@ -178,8 +222,8 @@ Set the lock's and identity preimage's `dependency_selections` to two
 `DependencySelection` entries in ascending identity order, re-derive the
 package id and read: it admits, and both members read back as supplied.
 Change one entry's `package_id` and check the package id changes. Mutate one
-entry at a time to a wrong-domain, empty-identity, short-digest, bare-digest,
-`version`-less or `Selection`-shaped entry and read. Repeat an identity,
+entry at a time to a wrong-domain, empty-identity, short-digest, bare-digest or
+`Selection`-shaped entry and read. Repeat an identity,
 adjacent and not, and reverse two entries, and read. Order two identities
 whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one.
@@ -248,8 +292,8 @@ stale key; re-derive each and check the three ids differ. Mutate the term to a
 bare-digest, other-domain and short-digest `package`, another-domain `node`,
 a missing `node` and an extra member. Place the well-formed term as a second
 argument, as the argument of another operation, as an aggregate member and as a
-node body root. Supply no package, another identity, another version and a
-package of another `package_id`. Name a `package` no entry carries, a `node`
+node body root. Supply no package, another identity and a package of another
+`package_id`. Name a `package` no entry carries, a `node`
 that is absent, one with no `declaration` and a declared record. Give the
 dependency function a declared-record parameter and result, a `Set` of a
 declared record, a tuple holding one and a `Reference` to a `model` node, and a
