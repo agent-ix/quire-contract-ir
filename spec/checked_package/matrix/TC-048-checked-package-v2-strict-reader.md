@@ -55,14 +55,16 @@ domain or evidence domain, and set a model node to `model_export`.
 
 For FR-038-AC-45, build the model-owned nominal declaration with the owner
 `{kind: model, identity, node}` and no `version`, derive its node key from
-those members alone, and read it: it admits. Change only the selected domain
-package's version and re-read: the node key is unchanged. Add a `version`
+those members alone, and read it: it admits. Select another document of the
+same identity under its own digest, in another package, and re-read: the node
+key is unchanged. Add a `version`
 member to the owner and re-read: it refuses `unknown_member` at that member.
 Empty the owner's `identity` and, separately, its `node`, and re-read each: it
 refuses `invalid_semantic_graph`. Select a domain package, key a model
 declaration node of it under the version-free `ModelOwner`, add a `field`
-member on that node and read it: it admits; change only the selected version
-and re-read: the declaration node's key is unchanged and it admits; key the
+member on that node and read it: it admits; select another document of the
+same identity under its own digest, in another package, and re-read: the
+declaration node's key is unchanged and it admits; key the
 node under another domain package's identity and re-read: it refuses
 `missing_declaration`/`missing-selection` at the member's `declaration`.
 
@@ -78,12 +80,12 @@ package. Excluded edits keep the id and included edits change it. Every nominal
 preimage digest matches its node key; every nominal mutation and contradictory cross-field join
 refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
-`authority`, `revision` or `export` as `unknown_member`, a foreign digest
+`authority`, `revision`, `export` or `version` as `unknown_member`, a foreign digest
 domain as `digest_domain_mismatch`, a domain package digest with no supplied
 document as `missing_import`, and `model_export` as `invalid_semantic_graph`.
 A model owner of `{kind, identity, node}` with no `version` admits and its node
-keys, nominal and declaration, are unchanged by a version-only change of the
-selection; an owner carrying `version` refuses `unknown_member`, an owner with an
+keys, nominal and declaration, are unchanged when another document of the same
+identity is selected; an owner carrying `version` refuses `unknown_member`, an owner with an
 empty `identity` or `node` refuses `invalid_semantic_graph`, and a declaration
 node keyed under an unselected domain package refuses
 `missing_declaration`/`missing-selection` (FR-038-AC-45).
@@ -97,21 +99,30 @@ Build a package whose lock and identity preimage carry the same
 the lock, then only in the identity preimage, then to a dependency entry in the
 lock and then only in the preimage, and to a row beside an otherwise well-formed
 row, and read each: each refuses `unknown_member` at that `version` member, the
-first in document order, and no package is returned. Remove `identity`,
+first in document order, and no package is returned. Give a dependency entry
+`{identity, version}` with no `package_id` and read: it refuses `malformed_wire`
+at the entry. Remove `identity`,
 `digest_domain` and `digest` in turn from a model row and give each a non-string,
 and read. Select the same domain package as two documents at different
 versions, each in its own package under its own `sha256-jcs` digest, and read
-both: each admits and they yield the same model-owned node keys. Give a model
+both: each admits and they yield the same model-owned node keys. Read a
+matching document that has no `package.version`, and one whose `package.version`
+is not a string: each admits. Give a model
 owner an identity no row names and read it. Supply a dependency package under
 its entry's `identity` and read it, supply it under another identity, and supply
 a package of another `package_id`. Put two rows of one identity and different
 digests in the lock, each document supplied, in both orders, and read: each
-refuses `stale_dependency`; give one of the two a digest domain other than
+refuses `stale_dependency` at the later row's `digest`; repeat it with no
+document supplied for one of the pair, with a forged one, with one naming
+another identity, and with an earlier row whose document is missing: each
+refuses the same way, before any document is read; give one of the two a digest domain other than
 `sha256-jcs` and read: it refuses `digest_domain_mismatch`.
 
 Expected: the package admits; a `version` member at any of the four places
-refuses `unknown_member` at that member; a missing or wrong-kind member refuses
-`malformed_wire`; both documents admit with equal node keys; the unnamed owner
+refuses `unknown_member` at that member; a dependency entry lacking `package_id`
+and a model row or entry with a missing or wrong-kind member refuse
+`malformed_wire`; both documents admit with equal node keys, and so do the
+documents with no or a non-string `package.version`; the unnamed owner
 refuses `invalid_semantic_graph`; the dependency supplied under its identity
 with its `package_id` admits, under another identity `missing_import`/
 `missing-selection`, and with another `package_id`
