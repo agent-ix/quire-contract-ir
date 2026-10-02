@@ -2376,6 +2376,9 @@ fn check_numeric(
                     (left_checked, left_ranges),
                     (right_checked, right_ranges),
                 ),
+                // Guards an internal invariant break, not user input: every Integer `Checked`
+                // is built with an integer range. `range` is still `Option<NumericRange>`, so
+                // the compiler does not enforce this pairing (no structural CheckedNumeric).
                 _ => Err(operands_not_numeric(expression)),
             }
         }
@@ -2391,9 +2394,13 @@ fn check_numeric(
                     (left_checked, left_operand),
                     (right_checked, right_operand),
                 ),
+                // Guards an internal invariant break, not user input: every Rational `Checked`
+                // is built with a rational range. `range` is still `Option<NumericRange>`, so
+                // the compiler does not enforce this pairing (no structural CheckedNumeric).
                 _ => Err(operands_not_numeric(expression)),
             }
         }
+        // Non-numeric value types (and Rational remainder) are ill-typed user input.
         _ => Err(operands_not_numeric(expression)),
     }
 }
