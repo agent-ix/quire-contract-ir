@@ -317,9 +317,9 @@ and not in the references it holds. The reader reads a definition reference at
 each place the wire has one:
 
 - `lock.edition.definition` and each `lock.profile_selections[].definition`,
-  the `definition` of a `Selection`;
+  the `definition` of a `Selection`, and the same two in `identity_preimage`;
 - each entry of `lock.definition_selections`, and the same rows mirrored in
-  `identity_preimage`;
+  `identity_preimage.definition_selections`;
 - `diagnostics.catalog`;
 - each `operation.laws[].definition` of an `application` term;
 - each `law_roles` entry of the operation catalog (the catalog's owner,
@@ -331,26 +331,46 @@ binds a source document to the exact bytes the producer read. QSpec's
 `RawSourceRef` is the closed shape `{authority, identity, digest_domain,
 digest}`: `digest_domain` is exactly `quire.source.bytes/v1` and `digest` a
 SHA-256 hex digest of the source bytes, and there is no `revision`. This
-reader's source row type is `CheckedSourceRef`. It is the member type of
-`lock.sources` and the `source` of every source-map region. A source row's
-digest is not part of `identity_preimage`, so it never enters `package_id`
-(FR-038-AC-4).
+reader's source reference type is `CheckedSourceRef`. It is the member type of
+`lock.sources` and the `source` of every `source_map` region and every
+`diagnostics.entries[].loci[]` region. A source row's digest is not part of
+`identity_preimage`, so it never enters `package_id` (FR-038-AC-4). Dropping
+`revision` from a source reference also changes the canonical bytes of a
+lowered `ContractPackage` (FR-035-AC-5), whose source-map entries embed the
+region `source`; the amendment changes that output, and FR-035's rows are
+re-verified when IR-530 lands.
 
 Both shapes are closed under `deny_unknown_fields`, so there is one refusal
-for a reference of the earlier shape and no reader for it: a definition
-reference carrying `revision`, `digest_domain`, `digest` or `export`, and a
-source row carrying `revision` or `export`, refuses as `unknown_member` at the
-first such member in document order. This is a refusal control, not a
-compatibility layer: the reader never relabels, drops or ignores the extra
-member to fit the current contract. The other refusals are the reader's
-existing taxonomy. A reference that lacks `authority` or `identity` (a source
-row also `digest_domain` or `digest`), or holds one of the wrong kind, refuses
-as `malformed_wire` at the object that lacks it or at the value. An empty
-`authority` or `identity`, or a source `digest` that is not a SHA-256 hex
-digest, refuses as `malformed_wire` at that member. A source row whose
-`digest_domain` is not `quire.source.bytes/v1` refuses as
-`digest_domain_mismatch` at `digest_domain`, and the domain is checked before
-the row's other members.
+for a reference of the earlier shape and no reader for it. This is a refusal
+control, not a compatibility layer: the reader never relabels, drops or
+ignores the extra member to fit the current contract. The refusal code depends
+on where the reference sits, because the reader decodes two places differently:
+
+- The `lock`, `identity_preimage`, `diagnostics` and `source_map` members are
+  decoded with the typed wire decode. A definition reference carrying
+  `revision`, `digest_domain`, `digest` or `export`, or a source reference
+  carrying `revision` or `export`, refuses as `unknown_member` at the first such
+  member in document order. A member that is absent or of the wrong kind
+  refuses as `malformed_wire`, at the reference when absent and at the value
+  otherwise. All of this precedes every check below.
+- An `operation.laws[].definition` is inside an application node's `operation`,
+  which the reader decodes as its own closed shape, so an extra, absent or
+  wrong-kind member there refuses as `invalid_semantic_graph`, as FR-038-AC-36
+  fixes for the other closed shapes in a node body, and not as `unknown_member`
+  or `malformed_wire`.
+
+After the decode, the checks run in this order. A definition reference at a
+`lock` or `diagnostics.catalog` site with an empty `authority` or `identity`
+refuses as `malformed_wire` at that member. A `lock.sources` row is checked on
+its own: a `digest_domain` other than `quire.source.bytes/v1` refuses as
+`digest_domain_mismatch` at `digest_domain` first, so a row with another domain
+and also an empty member or non-hex digest refuses for the domain; then an empty
+`authority` or `identity`, or a `digest` that is not 64 lowercase hex digits,
+refuses as `malformed_wire` at that member. A `source_map` region or
+`diagnostics.entries[].loci[]` `source` is not checked as a row: it must equal a
+`lock.sources` row, and one that does not refuses as `invalid_source_map`
+whatever member differs. The row checks apply to `lock.sources` only, because a
+region that equals a lock row is already a checked row.
 
 Two references are equal when `authority` and `identity` are equal, and the
 reader compares nothing else about a definition. The joins read that way:
@@ -367,16 +387,21 @@ reader compares nothing else about a definition. The joins read that way:
   `protocol_profile`) is admitted only when its pair is the pair of the lock's
   `profile_selections` row of that role; any other pair refuses
   `operation-law-unselected` at that law's `definition`.
-- A `region.source` is admitted only when it equals a `lock.sources` row in all
-  four members; any other refuses `invalid_source_map` at that `source`.
+- A `source_map` region or `diagnostics.entries[].loci[]` `source` is admitted
+  only when it equals a `lock.sources` row in all four members; any other
+  refuses `invalid_source_map` at that `source`.
 - `lock` and `identity_preimage` carry equal definition rows, and a pair that
   differs refuses `stale_dependency` at the first differing value, as every
   lock mirror does.
 
 The reader reads the catalog's `law_roles` entries as `{authority, identity}`
-and matches by those two members. The catalog is a build-time input and not a
-caller's bytes, so an entry of another shape does not produce a package
-refusal: the catalog read fails.
+and matches by those two members. The production catalog is a build-time input
+and not a caller's bytes, so an entry of another shape is never a package
+refusal. The catalog read is a function over supplied bytes that returns an
+error naming the unreadable entry, so that a test can supply bytes in which an
+entry carries `revision`; the production catalog is read through it once, and
+only that one-time read of the build's own bytes may stop the process
+(FR-038-AC-58).
 
 ### Model-owned members
 
@@ -795,7 +820,7 @@ the three as disjoint disagrees byte for byte.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-038-AC-1 | Each positive V2 package fixture this repository builds from its own public vocabulary admits; an unknown, empty, absent or malformed `contract_version` refuses as `unknown_contract_version` or `malformed_wire` before any version-specific decoding; and the strict parse (duplicate-member, noncanonical) refusals occur before a version is selected. | Test (TC-048) |
-| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a lock reference or owner carrying `authority`, `revision` or `export` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a domain package selection or model owner carrying `authority`, `revision` or `export` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
 | FR-038-AC-4 | The recomputed package id equals each positive fixture's declared id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by and round-trips its own wire form; every authored invalid nominal mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
@@ -837,25 +862,22 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 | FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
 | FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected domain package's `version` changes. A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected version changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
-| FR-038-AC-46 | When each definition reference of a package is exactly `{authority, identity}` with nonempty strings, at `lock.edition.definition`, each `lock.profile_selections[].definition`, each `lock.definition_selections` entry, `diagnostics.catalog` and each `operation.laws[].definition`, the reader shall admit the package, each other check passing. | Test (TC-048) |
-| FR-038-AC-47 | When every `lock.sources` row and region `source` is exactly `{authority, identity, digest_domain, digest}`, the reader shall admit the package, each other check passing. | Test (TC-048) |
-| FR-038-AC-48 | If a definition reference carries `revision`, `digest_domain`, `digest` or `export` at any place FR-038-AC-46 names, then the reader shall refuse as `unknown_member` at the first such member in document order and shall return no package; a reference of the earlier five-member shape (`authority`, `identity`, `revision`, `digest_domain`, `digest`) is refused at its first extra member and is never read, relabeled or admitted. | Test (TC-048) |
-| FR-038-AC-49 | If a `lock.sources` row or a region `source` carries `revision` or `export`, then the reader shall refuse as `unknown_member` at that member and shall return no package. | Test (TC-048) |
-| FR-038-AC-50 | If a definition reference's `authority` or `identity` is absent, not a string or the empty string, then the reader shall refuse as `malformed_wire` at the offending member, or at the reference when the member is absent. | Test (TC-048) |
-| FR-038-AC-51 | If a source row's `authority`, `identity`, `digest_domain` or `digest` is absent, empty or not a string, or its `digest` is not 64 lowercase hex digits, then the reader shall refuse as `malformed_wire` at that member, or at the row when the member is absent. | Test (TC-048) |
-| FR-038-AC-52 | If a source row's `digest_domain` is not `quire.source.bytes/v1`, then the reader shall refuse as `digest_domain_mismatch` at `digest_domain`, including when another member of the same row is also malformed. | Test (TC-048) |
-| FR-038-AC-53 | When an `operation.laws[].definition` names a value-role law, the reader shall admit it only when its `{authority, identity}` pair is catalogued for the role and is a `lock.definition_selections` row, compared by those two members alone; a pair the role does not catalogue refuses `invalid_package` with cause `operation-law-mismatch` and a catalogued pair the lock does not select refuses `operation-law-unselected`, each at that law's `definition`. | Test (TC-048) |
-| FR-038-AC-54 | When an `operation.laws[].definition` names a profile-role law (`temporal_profile` or `protocol_profile`), the reader shall admit it only when its `{authority, identity}` pair equals the pair of the lock's `profile_selections` row of that role, and any other pair shall refuse `operation-law-unselected` at that law's `definition`; a law `definition` carrying `revision`, `digest_domain` or `digest` refuses `unknown_member` (FR-038-AC-48), never `operation-law-mismatch`. | Test (TC-048) |
-| FR-038-AC-55 | The reader shall read each `law_roles` entry of the operation catalog as exactly `{authority, identity}`, so that the catalog its owner publishes parses and a law is matched against a catalogued definition by those two members. | Test (TC-048) |
-| FR-038-AC-56 | If `lock.definition_selections` and its `identity_preimage` mirror differ in one row's `authority` or `identity`, then the reader shall refuse as `stale_dependency` at the first differing value. | Test (TC-048) |
-| FR-038-AC-57 | When one definition row's `identity` is edited and the preimage and `package_id` are re-derived, the `package_id` shall change; when only a `lock.sources` row's `digest` is edited, the `package_id` shall not change. | Test (TC-048) |
-| FR-038-AC-58 | If a `region.source` equals no `lock.sources` row in all four members, then the reader shall refuse as `invalid_source_map` at that `source`. | Test (TC-048) |
-| FR-038-AC-59 | If a `source` or `definition` nominal owner's `{authority, identity}` pair is the pair of no `lock.sources` or `lock.definition_selections` row respectively, then the reader shall refuse as `invalid_semantic_graph`. | Test (TC-048) |
-| FR-038-AC-60 | The public `checked_package` surface shall export `CheckedArtifactRef` with exactly the members `authority` and `identity`, and `CheckedSourceRef` with exactly `authority`, `identity`, `digest_domain` and `digest`. | Test (TC-048) |
-| FR-038-AC-61 | The public `checked_package` surface shall export no `CheckedRevision`. | Test (TC-048) |
-| FR-038-AC-62 | The public `CheckedArtifactLocator` shall name an artifact by `authority`, `identity` and `domain` only. | Test (TC-048) |
-| FR-038-AC-63 | The reader shall emit each definition row of `identity_preimage` with exactly the members `authority` and `identity`. | Test (TC-048) |
-| FR-038-AC-64 | If a catalog `law_roles` entry carries a member other than `authority` and `identity`, then the catalog read shall fail, and that failure shall not be a package refusal. | Test (TC-048) |
+| FR-038-AC-46 | A package whose definition references are exactly `{authority, identity}` with nonempty strings, at `lock.edition.definition`, each `lock.profile_selections[].definition`, each `lock.definition_selections` entry, the same three in `identity_preimage`, `diagnostics.catalog` and each `operation.laws[].definition`, admits, each other check passing. | Test (TC-048) |
+| FR-038-AC-47 | A package whose source references are exactly `{authority, identity, digest_domain, digest}`, at each `lock.sources` row, each `source_map` region `source` and each `diagnostics.entries[].loci[].source`, admits, each other check passing. | Test (TC-048) |
+| FR-038-AC-48 | A definition reference at a lock, `identity_preimage` or `diagnostics.catalog` site that carries `revision`, `digest_domain`, `digest` or `export` refuses as `unknown_member` at the first such member in document order and returns no package; a reference of the earlier five-member shape (`authority`, `identity`, `revision`, `digest_domain`, `digest`) refuses at its first extra member and is never read, relabeled or admitted. | Test (TC-048) |
+| FR-038-AC-49 | An `operation.laws[].definition` that carries a member beyond `authority` and `identity`, lacks one or holds one of the wrong kind refuses as `invalid_semantic_graph` at that member, or at the `definition` when a member is absent, as every closed shape inside an `operation` does (FR-038-AC-36), never as `unknown_member` or `malformed_wire`. | Test (TC-048) |
+| FR-038-AC-50 | A `lock.sources` row, `source_map` region `source` or `diagnostics.entries[].loci[].source` that carries `revision` or `export` refuses as `unknown_member` at that member and returns no package. | Test (TC-048) |
+| FR-038-AC-51 | A definition reference at a lock, `identity_preimage` or `diagnostics.catalog` site whose `authority` or `identity` is absent or not a string refuses as `malformed_wire` at the value, or at the reference when the member is absent; at a `lock` or `diagnostics.catalog` site an empty `authority` or `identity` refuses as `malformed_wire` at that member. | Test (TC-048) |
+| FR-038-AC-52 | A source reference at a `lock.sources` row, `source_map` region or `diagnostics.entries[].loci[]` whose `authority`, `identity`, `digest_domain` or `digest` is absent or not a string refuses as `malformed_wire` at the value, or at the reference when the member is absent, before any domain or equality check. | Test (TC-048) |
+| FR-038-AC-53 | A `lock.sources` row whose `digest_domain` is another string refuses as `digest_domain_mismatch` at `digest_domain`, ahead of the row's empty-member and digest-form checks, so a row with another domain and an empty `authority` or a non-hex `digest` refuses `digest_domain_mismatch`. | Test (TC-048) |
+| FR-038-AC-54 | A `lock.sources` row, whose `digest_domain` is `quire.source.bytes/v1`, with an empty `authority` or `identity` or a `digest` that is not 64 lowercase hex digits refuses as `malformed_wire` at that member. | Test (TC-048) |
+| FR-038-AC-55 | A `source_map` region `source` or `diagnostics.entries[].loci[].source` that is well formed but equals no `lock.sources` row in all four members refuses as `invalid_source_map` at that `source`, whatever member differs (including a wrong `digest_domain`, an empty member or a non-hex `digest`); the row-level refusals of FR-038-AC-53 and FR-038-AC-54 apply to `lock.sources` only. | Test (TC-048) |
+| FR-038-AC-56 | An `operation.laws[].definition` of a value role admits only when its `{authority, identity}` pair is catalogued for the role and is a `lock.definition_selections` row, compared by those two members alone: a pair the role does not catalogue, including an empty one, refuses `invalid_package` with cause `operation-law-mismatch`, and a catalogued pair the lock does not select refuses `operation-law-unselected`, each at that law's `definition`. | Test (TC-048) |
+| FR-038-AC-57 | An `operation.laws[].definition` of a profile role (`temporal_profile` or `protocol_profile`) admits only when its `{authority, identity}` pair equals the pair of the lock's `profile_selections` row of that role; any other pair refuses `operation-law-unselected` at that law's `definition`. | Test (TC-048) |
+| FR-038-AC-58 | The operation catalog read over supplied bytes whose `law_roles` entries are exactly `{authority, identity}` returns the catalog, and over bytes in which an entry carries `revision`, `digest_domain` or `digest` returns an error naming the unreadable entry instead of a catalog and without a panic; this is a catalog read failure and not a package refusal. | Test (TC-048) |
+| FR-038-AC-59 | A `lock.definition_selections` row that differs from its `identity_preimage` mirror in `authority` or `identity` refuses as `stale_dependency` at the first differing value. | Test (TC-048) |
+| FR-038-AC-60 | A package whose one definition row's `identity` is edited in the lock and the preimage and whose `package_id` is re-derived admits under the new `package_id`, and the same edit under the old `package_id` refuses as `stale_dependency`. | Test (TC-048) |
+| FR-038-AC-61 | A `source` or `definition` nominal owner whose `{authority, identity}` pair is the pair of no `lock.sources` or `lock.definition_selections` row respectively refuses as `invalid_semantic_graph`. | Test (TC-048) |
 
 ## Dependencies
 
