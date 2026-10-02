@@ -40,12 +40,30 @@ pub struct ProfileSelection {
 }
 
 /// Complete selected profile and its exact construct matrix.
+///
+/// The fields are private and deserialization goes through [`KaniProfile::new`], so a value
+/// of this type is always a validated profile: [`KaniProfile::new`] and `Deserialize` are the
+/// only ways to obtain one.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "KaniProfileWire")]
 pub struct KaniProfile {
-    /// Exact profile/tool/ABI selection.
-    pub selection: ProfileSelection,
-    /// Complete unique disposition matrix.
-    pub capabilities: Vec<CapabilityEntry>,
+    selection: ProfileSelection,
+    capabilities: Vec<CapabilityEntry>,
+}
+
+/// Unvalidated wire shape of [`KaniProfile`]; checked by [`KaniProfile::new`] on read.
+#[derive(Deserialize)]
+struct KaniProfileWire {
+    selection: ProfileSelection,
+    capabilities: Vec<CapabilityEntry>,
+}
+
+impl TryFrom<KaniProfileWire> for KaniProfile {
+    type Error = ProfileError;
+
+    fn try_from(wire: KaniProfileWire) -> Result<Self, Self::Error> {
+        Self::new(wire.selection, wire.capabilities)
+    }
 }
 
 /// Profile-selection or matrix refusal.
@@ -93,6 +111,18 @@ impl KaniProfile {
             selection,
             capabilities,
         })
+    }
+
+    /// Exact profile/tool/ABI selection.
+    #[must_use]
+    pub const fn selection(&self) -> &ProfileSelection {
+        &self.selection
+    }
+
+    /// Complete unique disposition matrix.
+    #[must_use]
+    pub fn capabilities(&self) -> &[CapabilityEntry] {
+        &self.capabilities
     }
 
     /// Returns a complete pre-lowering disposition for each encountered construct.

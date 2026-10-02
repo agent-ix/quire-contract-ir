@@ -51,7 +51,7 @@ pub fn lower_checked_arithmetic(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_unowned",
                     request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 )
             })?;
             if descriptor.family != SemanticFamily::DefinednessArithmetic
@@ -61,7 +61,7 @@ pub fn lower_checked_arithmetic(
                     KaniOutcomeKind::Refused,
                     "kani_dispatch_profile_mismatch",
                     request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 ));
             }
         }
@@ -70,7 +70,7 @@ pub fn lower_checked_arithmetic(
                 KaniOutcomeKind::Refused,
                 code.clone(),
                 request.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
@@ -78,7 +78,7 @@ pub fn lower_checked_arithmetic(
                 KaniOutcomeKind::Inconclusive,
                 code.clone(),
                 request.source_id,
-                profile.selection.revision.clone(),
+                profile.selection().revision.clone(),
             ))
         }
     }
@@ -87,7 +87,7 @@ pub fn lower_checked_arithmetic(
             KaniOutcomeKind::InvalidInput,
             "kani_arithmetic_range_invalid",
             request.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     }
     let value = match request.operator {
@@ -100,7 +100,7 @@ pub fn lower_checked_arithmetic(
                     KaniOutcomeKind::Refused,
                     "kani_definedness_nonzero_divisor",
                     request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 ));
             }
             request.left.checked_div(request.right)
@@ -111,7 +111,7 @@ pub fn lower_checked_arithmetic(
                     KaniOutcomeKind::Refused,
                     "kani_definedness_nonzero_divisor",
                     request.source_id,
-                    profile.selection.revision.clone(),
+                    profile.selection().revision.clone(),
                 ));
             }
             request.left.checked_rem(request.right)
@@ -122,7 +122,7 @@ pub fn lower_checked_arithmetic(
             KaniOutcomeKind::Refused,
             "kani_definedness_checked_range",
             request.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     };
     if value < request.minimum || value > request.maximum {
@@ -130,7 +130,7 @@ pub fn lower_checked_arithmetic(
             KaniOutcomeKind::Refused,
             "kani_definedness_checked_range",
             request.source_id,
-            profile.selection.revision.clone(),
+            profile.selection().revision.clone(),
         ));
     }
     Ok(ArithmeticLowering { request, value })
