@@ -1234,7 +1234,6 @@ fn check_reference_edge(
     let edge = MemberType::Reference(
         declaration_key(
             &owner.package.identity,
-            &owner.package.version,
             DeclarationForm::ObjectType,
             edge_owner,
         )

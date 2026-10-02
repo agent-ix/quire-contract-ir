@@ -1199,7 +1199,58 @@ fn model_owned_package(owner: Value, models: Value) -> Value {
 }
 
 fn model_owner(identity: &str, node: &str) -> Value {
-    json!({"kind": "model", "identity": identity, "version": "1.0.0", "node": node})
+    json!({"kind": "model", "identity": identity, "node": node})
+}
+
+/// Tracing: TC-048, FR-038-AC-45
+#[trace("TC-048", "FR-038-AC-45")]
+#[test]
+fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_version() {
+    // A content-only package (owner `{kind, identity, node}`, no `version`)
+    // admits against the selected domain package.
+    let owner = model_owner("test/orders", "ix://test/orders/Status");
+    let at_one = model_owned_package(owner.clone(), json!([domain_package("test/orders")]));
+    admitted(&at_one);
+
+    // The owner is the whole preimage input: a version-only change of the
+    // selection leaves every node key unchanged, so the same keyed graph is
+    // still joined by identity alone.
+    let mut other_selection = domain_package("test/orders");
+    other_selection["version"] = json!("2");
+    other_selection["digest"] = json!(domain_package_digest(&domain_package_document(
+        "test/orders",
+        "2",
+        Vec::new()
+    )));
+    let at_two = model_owned_package(owner.clone(), json!([other_selection]));
+    admitted(&at_two);
+    assert_eq!(at_one["semantic_graph"], at_two["semantic_graph"]);
+
+    // A `version` member on a model owner is an unknown member at that
+    // member, never read as evidence.
+    let mut versioned = owner.clone();
+    versioned["version"] = json!("1.0.0");
+    let versioned = model_owned_package(versioned, json!([domain_package("test/orders")]));
+    assert_eq!(
+        refused(&versioned, &evidence_for(&versioned)),
+        refusal(
+            CheckedPackageRefusalCode::UnknownMember,
+            "/identity_preimage/identity_projection/0/nominal_identity_preimage/owner/version"
+        )
+    );
+
+    // An empty identity or node is not a valid owner.
+    for (name, empty) in [
+        ("identity", model_owner("", "ix://test/orders/Status")),
+        ("node", model_owner("test/orders", "")),
+    ] {
+        let package = model_owned_package(empty, json!([domain_package("test/orders")]));
+        assert_eq!(
+            refused(&package, &evidence_for(&package)),
+            nominal("/semantic_graph/nodes/0/nominal_identity_preimage/owner"),
+            "empty {name}"
+        );
+    }
 }
 
 /// Tracing: TC-048, FR-038-AC-2, FR-038-AC-5
@@ -1271,7 +1322,7 @@ fn tc_048_model_owners_join_sha256_jcs_domain_package_selections() {
         (
             "domain package owner with export",
             model_owned_package(
-                json!({"kind": "model", "identity": "test/orders", "version": "1.0.0",
+                json!({"kind": "model", "identity": "test/orders",
                        "node": "ix://test/orders/Status", "export": "Status"}),
                 json!([domain_package("test/orders")]),
             ),
