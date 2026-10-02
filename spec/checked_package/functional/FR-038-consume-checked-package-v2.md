@@ -197,7 +197,7 @@ carrying both a repeated entry and an entry whose document is missing or does
 not match has one determined outcome
 rather than a position-dependent one: the reader shall first refuse, as
 `malformed_wire` at `lock.model_selections`, an array that repeats an entry
-anywhere in it (identity, version, digest domain and digest all equal), and
+anywhere in it (identity, digest domain and digest all equal), and
 only once no
 entry repeats shall it check any entry's digest against the domain package
 evidence. An array carrying both a repeated entry and an entry whose digest
@@ -212,49 +212,44 @@ outcome rather than a position-dependent one:
 
 1. A repeated entry anywhere in the array refuses as `malformed_wire` at
    `lock.model_selections`.
-2. Two entries naming the same `identity` with different `version` values
-   refuse as `malformed_wire` at `lock.model_selections`. The nominal `model`
-   owner (below) joins `lock.model_selections` by identity alone, not by the
-   full `(identity, version)` locator, so the lock must guarantee at most one
-   selection per model identity for that join to be sound; two selections of
-   one identity at different versions would make which selection an owner of
-   that identity joins ambiguous. This guarantee is scoped to one lock: the
-   nominal `Model`-owned node key is derived from content alone and carries no
-   version, so it is version-independent across packages as well as within
-   one. Two different packages that each select one version of the same
-   identity therefore derive the same node key for the same content. That is
-   the intended content-only identity (QSpec STD-145), not a defect this class
-   is meant to prevent. Two entries sharing both `identity` and
-   `version`, differing only in `digest`, are not this class: they share one
-   locator, so the lock contradicts itself about which document that locator
-   names — class 5 below already refuses such a pair deterministically as one
-   locator selected twice, and this class is not widened to reach them.
-3. An entry whose `digest_domain` is not `sha256-jcs` refuses as
+2. An entry whose `digest_domain` is not `sha256-jcs` refuses as
    `digest_domain_mismatch` at `lock.model_selections`.
-4. An entry with an empty `identity`, an empty `version` or a `digest` that is
-   not a SHA-256 hex digest refuses as `malformed_wire` at
-   `lock.model_selections`.
-5. An entry whose selection evidence FR-322 step 1 does not admit (see
+3. An entry with an empty `identity` or a `digest` that is not a SHA-256 hex
+   digest refuses as `malformed_wire` at `lock.model_selections`.
+4. An entry whose selection evidence FR-322 step 1 does not admit (see
    "Model-owned members" below) refuses with that step's code and cause:
    `missing_import`/`missing-selection` at the entry's `digest` when the
    evidence supplies no document under it, `stale_dependency`/`byte-digest-mismatch`
    at its `digest` when the document's RFC 8785 SHA-256 is another digest,
-   `invalid_model_binding`/`wrong-model-selection` at its `identity` or
-   `version` when the document names another, and the first FR-154
-   declaration refusal of the document at the entry. Two entries sharing one
-   `identity` and `version` but naming different digests are one locator
-   selected twice: the later entry refuses `stale_dependency` at its `digest`.
+   `invalid_model_binding`/`wrong-model-selection` at its `identity` when the
+   document names another identity, and the first FR-154 declaration refusal
+   of the document at the entry. Two entries naming one `identity` but
+   different digests are one identity selected twice: the later entry refuses
+   `stale_dependency` at its `digest`, whatever documents the evidence
+   supplies, before any document is read.
+
+A selection is bound by `identity` alone (see "Selections bind by identity"
+below), and the nominal `model` owner joins `lock.model_selections` by
+identity, so the lock must hold at most one row per model identity for that
+join to be sound. The classes guarantee it: two rows of one identity are
+either a repeat (class 1) or differ in `digest` (class 4), and both refuse.
+The guarantee is scoped to one lock: the nominal `Model`-owned node key is
+derived from content alone, so two different packages that each select one
+document of the same identity derive the same node key for the same content.
+That is the intended content-only identity (QSpec STD-145), not a defect.
+QSpec's `ModelRef` has no `version` member, so there is no second selection of
+one identity "at another version" for the lock to contain: a row that carries
+`version` is refused by its shape (FR-038-AC-62), before any class above.
 
 Each class is evaluated over the whole array before the next class is
 evaluated over any of it. The refusal an array draws is therefore the code of
 the least class it carries a defect of, whatever order the defective entries
 appear in. Within one class the reader draws no distinction: every entry of a
 class refuses with that class's own code at the one array path, so which entry
-of a class is named is not an observable of the contract. Classes 1 and 2
-both refuse as `malformed_wire` at the same path, and an exact repeated entry
-is also a same-identity pair, so an array carrying only that overlap is not
-attributable to one class over the other; nothing observable depends on which
-of the two is credited.
+of a class is named is not an observable of the contract. An exact repeated
+entry is also a same-identity pair; class 1 is evaluated first, so it refuses
+as `malformed_wire` and never as the class 4 `stale_dependency` of a pair that
+differs in `digest`.
 
 When a node is an enum declaration, enum member, dimension or declared unit, the
 reader shall reconstruct the closed nominal preimage, require
@@ -281,9 +276,9 @@ model-owned node key, in both places, from the owner's three members alone,
 so a node key depends only on content, never on the version of the domain
 package that declares it, and shall recover a declaring node's owner (step 2
 of "Model-owned members") and compare a reference's member type against those
-version-free keys. The lock's `model_selections` entry still carries a
-`version`, which the selection evidence checks (step 1 of "Model-owned
-members"); that version is not part of any node identity. The reader shall
+version-free keys. The lock's `model_selections` row carries no `version`
+either (QSpec `ModelRef`, "Selections bind by identity"), so the owner's
+`identity` joins the row by identity and nothing else. The reader shall
 refuse an owner of kind `model` that carries a `version` member, or any member
 outside `kind`, `identity` and `node`, as `unknown_member` at that member, as
 every closed shape does; this is the closed shape QSpec publishes, not a
@@ -403,6 +398,45 @@ entry carries `revision`; the production catalog is read through it once, and
 only that one-time read of the build's own bytes may stop the process
 (FR-038-AC-58).
 
+### Selections bind by identity
+
+QSpec's `ModelRef` is the closed shape `{identity, digest_domain, digest}` and
+its `DependencySelection` the closed shape `{identity, package_id}` (FR-322
+`lock` and `identity_preimage`; QSpec `schema.json`), and this reader's
+`CheckedDomainPackageRef` and `CheckedDependencySelection` are exactly those
+shapes. Neither carries a `version`: the content identity of what a selection
+names lives in its `digest` or `package_id`, which the reader checks against
+the supplied evidence, and not in a version label the reader could compare with
+nothing authoritative. The same rows are mirrored in `identity_preimage`, so
+the version member is absent from the bytes that enter `package_id` as well.
+QSpec's `ModelOwner`, `DefinitionRef` and `RawSourceRef` already carry none
+(FR-038-AC-45, "Artifact references").
+
+A selection binds to its evidence, to the owner that names it and to the rest
+of the lock by `identity`, with the content digest as the only other
+comparison:
+
+- A `model_selections` row binds the document the evidence supplies under its
+  `digest` when that document's own `package` identity equals the row's
+  `identity`. The document's own version is compared with nothing. A model
+  owner, and the owner of a model declaration node, joins the row whose
+  `identity` equals the owner's `identity`.
+- A `dependency_selections` entry binds the package the evidence supplies under
+  its `identity` when that package's recomputed `package_id` equals the
+  entry's. No version is compared.
+- Two selections of one kind are the same selection when their `identity` is
+  equal, so the lock holds at most one row per identity (classes 1 and 4 above;
+  the identity-uniqueness refusals of "Dependency selections").
+
+No version evidence remains in the lock row: the reader holds no member that
+records, mirrors or checks the version of a selected domain package or library.
+A package whose `model_selections` row or `dependency_selections` entry carries
+a `version` member, in the lock or in the identity preimage, is refused by the
+closed shape as `unknown_member` at that member (FR-038-AC-62, FR-038-AC-63).
+This is a refusal control, not a compatibility layer: the reader never drops,
+ignores, relabels or compares the extra member, and keeps no reader for the
+earlier shape.
+
 ### Model-owned members
 
 A `field` or `operation` member whose declaring node is a model declaration
@@ -413,8 +447,8 @@ reader runs FR-322's four steps:
 
 1. **Selection evidence**, before graph admission, for each `model_selections`
    row in lock order: the digest domain, the document supplied under the
-   digest, the recomputed RFC 8785 SHA-256 and the document's own identity and
-   version, in that order (class 5 above). The reader then reads the
+   digest, the recomputed RFC 8785 SHA-256 and the document's own identity, in
+   that order (class 4 above). The reader then reads the
    document's object types, systems interfaces, integer value types and
    relationships, node by node in ascending IR node identity, and refuses with
    the first declaration refusal at the row (`/lock/model_selections/<i>`).
@@ -448,7 +482,7 @@ they belong to, so an exhausted limit is `incomplete` with the pointer
 ### Dependency selections
 
 `lock.dependency_selections` and `identity_preimage.dependency_selections` are
-the same array of closed `DependencySelection` entries, `{identity, version,
+the same array of closed `DependencySelection` entries, `{identity,
 package_id}`, one per library identity, in strictly ascending UTF-8 byte order
 of `identity` (QSpec FR-322, STD-105). `package_id` is the dependency's own
 `quire.package.semantic/v2` `{domain, algorithm, digest}`. Every entry's
@@ -457,9 +491,8 @@ lock's array, in this order, each check over the whole array before the next:
 
 1. A `package_id` whose `domain` is not `quire.package.semantic/v2` refuses
    `digest_domain_mismatch` at that entry's `package_id.domain`.
-2. An empty `identity` or `version`, an `algorithm` other than `sha256` or a
-   `digest` that is not a SHA-256 hex digest refuses `malformed_wire` at that
-   member.
+2. An empty `identity`, an `algorithm` other than `sha256` or a `digest` that
+   is not a SHA-256 hex digest refuses `malformed_wire` at that member.
 3. An entry repeating an earlier entry's `identity` refuses `invalid_package`
    with cause `conflicting-definition` at the repeating entry.
 4. An entry whose `identity` is not strictly after its predecessor's in UTF-8
@@ -469,7 +502,8 @@ lock's array, in this order, each check over the whole array before the next:
 An entry that lacks a required member and carries a member outside the closed
 shape (a `Selection` or `DefinitionRef` where a `DependencySelection` belongs)
 refuses `malformed_wire` at the entry; an entry carrying every required member
-and one more refuses `unknown_member` at the extra member.
+and one more, `version` included, refuses `unknown_member` at the extra member
+(FR-038-AC-63).
 
 Every entry is also bound to the admitted `CheckedPackageV2` the package
 evidence supplies for its `identity` (QSpec FR-322 `dependency_selections`).
@@ -478,9 +512,9 @@ takes the entries in lock order and refuses the first that fails: no package
 supplied for the `identity` refuses `missing_import` with cause
 `missing-selection` at the entry; a package whose own `package_id` is not the
 entry's refuses `stale_dependency` with cause `byte-digest-mismatch` at the
-entry's `package_id.digest`. The `package_id` content digest is the only
-binding: the version the entry names is not compared with anything the
-consumer supplies. This binding runs before any node is read, so before any
+entry's `package_id.digest`. The entry's `identity` and `package_id` are the
+only binding: the entry names no version, and none is compared with anything
+the consumer supplies. This binding runs before any node is read, so before any
 `dependency_reference` check. A consumer therefore supplies every
 `dependency_selections` entry's package, under its library identity, with
 `insert_dependency_package`.
@@ -820,7 +854,7 @@ the three as disjoint disagrees byte for byte.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-038-AC-1 | Each positive V2 package fixture this repository builds from its own public vocabulary admits; an unknown, empty, absent or malformed `contract_version` refuses as `unknown_contract_version` or `malformed_wire` before any version-specific decoding; and the strict parse (duplicate-member, noncanonical) refusals occur before a version is selected. | Test (TC-048) |
-| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a domain package selection or model owner carrying `authority`, `revision` or `export` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a domain package selection or model owner carrying `authority`, `revision`, `export` or `version` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
 | FR-038-AC-4 | The recomputed package id equals each positive fixture's declared id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by and round-trips its own wire form; every authored invalid nominal mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
@@ -828,7 +862,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
-| FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, version, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing identity and version but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
+| FR-038-AC-10 | A `lock.model_selections` entry that repeats an earlier entry's identity, digest domain and digest verbatim, mirrored identically into `identity_preimage.model_selections`, refuses as `malformed_wire` at `lock.model_selections`; the same lock-side repeat left unmirrored in the identity preimage refuses earlier, as `stale_dependency` at `lock`, because the preimage/lock equality check runs first; two entries sharing an identity but differing in digest refuse as `stale_dependency` at `lock.model_selections`, never as `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-11 | A `lock.model_selections` array carrying both a repeated entry and an entry whose digest no document the package evidence supplies satisfies refuses as `malformed_wire` at `lock.model_selections`, never as `stale_dependency`, regardless of whether the repeated entry or the stale entry appears first in the array — the uniqueness check runs over the whole array before any entry's digest is checked against the supplied documents, so the outcome does not depend on array position. | Test (TC-048) |
 | FR-038-AC-12 | A `creates` or `deletes` entry's eligibility is exactly `model`/`object_type` and `model`/`process`, and this eligibility predicate is checked against every `(member, tag, form)` triple the closed node taxonomy can produce, not sampled; the `modifies` entry shape and its eligibility are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. The refusal an ineligible triple drives — `invalid_model_binding` with cause `malformed-declaration`, located at the offending entry — is verified end-to-end through the reader for a representative ineligible triple in each of `creates` and `deletes` and every node family; the reader's mapping from an ineligible predicate result to that refusal depends only on which member the entry sits in, never on its tag or form, so this sample together with the exhaustive predicate check covers the full triple space without driving every one of it through the reader. Each of the two eligible triples the published all-families fixture's own frame body does not already exercise (`process` in `creates`, `object_type` in `deletes`) is independently shown admitted. | Test (TC-053) |
 | FR-038-AC-13 | An entry naming a digest that is not among the frame node's own `dependencies` refuses as `missing_declaration` with cause `missing-name`, located at that entry, whether the digest resolves to no node the frame declared as a dependency (a real node elsewhere in the graph) or to no node anywhere in the graph at all — both conditions are the same refusal, never `invalid_model_binding` and never the graph's generic unresolved-reference `invalid_semantic_graph`. | Test (TC-053) |
@@ -836,20 +870,20 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-15 | A package carrying two defective `state`/`frame` nodes refuses at the one with the lower `node_id` digest, reporting only that frame's own defect, even when the other frame's defect would otherwise outrank it under FR-038-AC-14's precedence — the visit order is ascending node-id digest across frames, and the reader reports the first defective frame it reaches rather than comparing every frame's defect. | Test (TC-053) |
 | FR-038-AC-17 | Each declared wire member the V2 contract carries is read and enters the identity projection: a declaring node's `declaration.qualified_name`, a `literal` term's `type`, and an `application` term's `operation` and `result_type`. Deleting any one of them from a single node of an otherwise unmodified `positive-operation-identities` package refuses as `invalid_semantic_graph`, whether or not the deletion is mirrored into `identity_preimage.identity_projection`: a missing `declaration` refuses at `semantic_graph.nodes.declaration` and a missing `literal.type`, `application.operation` or `application.result_type` refuses at `semantic_graph.nodes.body`, because each check applies to the graph node's own closed member set unconditionally, before the projection comparison is reached — mirroring the deletion into the preimage changes nothing, since the graph node's own defect refuses first either way; and the fifteen `expression` forms the contract declares are each admitted as a node form while a sixteenth `expression` form refuses as `invalid_semantic_graph`; the admitted `model` forms are [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md)'s. | Test (TC-048) |
 | FR-038-AC-18 | A self-typed node's own body-root `literal.type` — the literal that is the node's body — naming itself is exempt from the reference-cycle check and admits with no declared `recursion_group`. The same `literal.type` self-reference nested one level deeper, inside that node's own `aggregate` member, `binding` value or `application` argument, is not exempt, and refuses as `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group` for want of a declared `recursion_group`, exactly like a self-typed node's `reference` body or `application.result_type` naming itself. | Test (TC-048) |
-| FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` or `version` refuses as `digest_domain_mismatch`, and an entry of empty `identity` or `version` beside an entry whose digest no supplied document satisfies refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
-| FR-038-AC-20 | A `lock.model_selections` array holding two entries that name the same `identity` with different `version` values refuses as `malformed_wire` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and each names a document the package evidence supplies; an array whose two entries name different identities still admits (each other check passing). Two entries naming the same `identity` and the same `version`, differing only in `digest`, are unaffected by this criterion and continue to refuse as `stale_dependency` at `lock.model_selections` under FR-038-AC-10, never as `malformed_wire`. This criterion is class 2 of the total order below and outranks class 3 (`digest_domain_mismatch`) and class 5 (the selection evidence): a same-identity, different-version pair refuses `malformed_wire` even when one of its entries also carries a declared-domain mismatch or a digest no supplied document satisfies, whichever of the two entries carries that second defect. | Test (TC-048) |
+| FR-038-AC-19 | A `lock.model_selections` array carrying two entries of different defect classes refuses for the earlier class under the stated total order, at `lock.model_selections`, regardless of which of the two entries appears first in the array: an entry outside `sha256-jcs` beside an entry of empty `identity` refuses as `digest_domain_mismatch`, and an entry of empty `identity` beside an entry whose digest no supplied document satisfies refuses as `malformed_wire`. Both orderings of each pairing are pinned and refuse with the same code, so a refusal decided by array position rather than by defect class fails this criterion rather than passing it as "some refusal occurred". | Test (TC-048) |
+| FR-038-AC-20 | A selection binds by `identity`, so a `lock.model_selections` array holds at most one entry per identity: two entries naming the same `identity` and differing in `digest` refuse as `stale_dependency` at `lock.model_selections`, whichever of the two entries appears first in the array, even when both entries are independently well-formed and each names a document the package evidence supplies, and never as `malformed_wire`; an array whose two entries name different identities still admits (each other check passing). An entry carries no `version`, so the identity is the whole locator (FR-038-AC-62). A same-identity, different-digest pair is decided by the total order above, so it refuses `digest_domain_mismatch` when one of its entries is outside `sha256-jcs`, whichever of the two carries that second defect. | Test (TC-048) |
 | FR-038-AC-21 | A node whose declared `qualified_name` differs from its nominal preimage's `qualified_declaration` refuses as `invalid_package` with cause `declaration-nominal-mismatch` at that node; two nodes declaring one name refuse as `ambiguous_declaration` with cause `ambiguous-name` at the lower-digest of the two; a package carrying both defects refuses for the nominal mismatch; and a package also carrying a frame or an operation defect still refuses for its declaration defect. | Test (TC-048) |
 | FR-038-AC-22 | A QSL-shaped package holding a function whose body applies an operation to its parameters, each a `value`/`parameter` node, and a `scalar_type`/`compound_unit` node, admits and lowers; a parameter with a negative, non-canonical or missing level, an empty, non-identifier or wrongly typed name, or an extra binding refuses as `invalid_semantic_graph` at the node's `body`; a parameter with a dependency, itself as its type or a `declaration`, and a compound unit with a zero exponent, a term naming a non-unit, a repeated unit, a dependency list other than its unit keys or a type other than itself, each refuses as `invalid_semantic_graph` at the member it breaks; the empty compound unit admits. | Test (TC-048) |
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
 | FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: depth at the first value nested one level past it, nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
-| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another version or identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `version` or `identity`; and a matching document admits. | Test (TC-048) |
+| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `identity`; and a matching document admits. The document's own version is compared with nothing: the same package supplied as two documents at different versions admits under each one's own digest (FR-038-AC-64). | Test (TC-048) |
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. | Test (TC-048) |
 | FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
-| FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries, one per identity in ascending identity order, admits when each selected dependency's admitted package is supplied, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. | Test (TC-048) |
-| FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `version`, `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry. | Test (TC-048) |
+| FR-038-AC-31 | A package whose lock and identity preimage carry the same `dependency_selections` of two `DependencySelection` entries `{identity, package_id}`, one per identity in ascending identity order, admits when each selected dependency's admitted package is supplied, and both members read back as the supplied entries; changing one entry's `package_id` changes the package's `package_id`. | Test (TC-048) |
+| FR-038-AC-32 | A `dependency_selections` entry whose `package_id.domain` is another digest domain refuses `digest_domain_mismatch` at that `domain`; one with an empty `identity`, a short `digest` or a bare-digest `package_id` refuses `malformed_wire` at that member; one that lacks `package_id` or `identity` while carrying a `Selection` or `DefinitionRef` member refuses `malformed_wire` at the entry. | Test (TC-048) |
 | FR-038-AC-33 | A `dependency_selections` entry repeating an earlier entry's `identity`, adjacent or not, refuses `invalid_package`/`conflicting-definition` at the repeating entry; an entry not strictly after its predecessor in UTF-8 byte order refuses `invalid_package`/`invalid-value` at that entry; entries in UTF-8 byte order where UTF-16 code-unit order differs admit. | Test (TC-048) |
 | FR-038-AC-35 | A package whose `function` call has a `dependency_reference` callee to a declared function of the supplied dependency admits, carries the term verbatim in the node body and lists no `dependencies` entry for it; listing the target refuses `invalid_semantic_graph` at the node's `dependencies`; changing only the term's `package`, or only its `node`, without re-deriving the key refuses `invalid_package`/`stale-node-key`, and re-derived they give distinct node ids. | Test (TC-048) |
 | FR-038-AC-36 | A `dependency_reference` with a bare-digest, other-domain or short-digest `package` refuses `invalid_semantic_graph` at the `package`, one in another node domain at the `node`, and one with a missing or extra member at the term; a well-formed term that is not argument 0 of a `quire.op.function.call` (a second argument, an argument of another operation, an aggregate member or a node body root) refuses `ill_typed`/`operator-ineligible` at the term. | Test (TC-048) |
@@ -861,7 +895,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 | FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
-| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected domain package's `version` changes. A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected version changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected row's `digest` changes (the lock row carries no `version` to change, FR-038-AC-62). A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected row's `digest` changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-46 | A package whose definition references are exactly `{authority, identity}` with nonempty strings, at `lock.edition.definition`, each `lock.profile_selections[].definition`, each `lock.definition_selections` entry, the same three in `identity_preimage`, `diagnostics.catalog` and each `operation.laws[].definition`, admits, each other check passing. | Test (TC-048) |
 | FR-038-AC-47 | A package whose source references are exactly `{authority, identity, digest_domain, digest}`, at each `lock.sources` row, each `source_map` region `source` and each `diagnostics.entries[].loci[].source`, admits, each other check passing. | Test (TC-048) |
 | FR-038-AC-48 | A definition reference at a lock, `identity_preimage` or `diagnostics.catalog` site that carries `revision`, `digest_domain`, `digest` or `export` refuses as `unknown_member` at the first such member in document order and returns no package; a reference of the earlier five-member shape (`authority`, `identity`, `revision`, `digest_domain`, `digest`) refuses at its first extra member and is never read, relabeled or admitted. | Test (TC-048) |
@@ -878,6 +912,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-59 | A `lock.definition_selections` row that differs from its `identity_preimage` mirror in `authority` or `identity` refuses as `stale_dependency` at the first differing value. | Test (TC-048) |
 | FR-038-AC-60 | A package whose one definition row's `identity` is edited in the lock and the preimage and whose `package_id` is re-derived admits under the new `package_id`, and the same edit under the old `package_id` refuses as `stale_dependency`. | Test (TC-048) |
 | FR-038-AC-61 | A `source` or `definition` nominal owner whose `{authority, identity}` pair is the pair of no `lock.sources` or `lock.definition_selections` row respectively refuses as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-62 | A package whose `lock.model_selections` rows are exactly `{identity, digest_domain, digest}`, mirrored identically in `identity_preimage.model_selections`, admits, each other check passing; a row carrying `version` in the lock or in the identity preimage refuses as `unknown_member` at that `version` member, the first in document order, and returns no package; a row lacking `identity`, `digest_domain` or `digest`, or holding one of the wrong kind, refuses as `malformed_wire` at the row or the value; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
+| FR-038-AC-63 | A package whose `lock.dependency_selections` entries are exactly `{identity, package_id}`, mirrored identically in `identity_preimage.dependency_selections`, admits, each other check passing; an entry carrying `version` in the lock or in the identity preimage, alone or beside an otherwise well-formed entry, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
+| FR-038-AC-64 | Selections bind by identity and content digest alone: a `model_selections` row admits when the document supplied under its `digest` names the row's `identity`, so two documents of one package at different versions, each selected in its own package under its own digest, both admit and yield the same model-owned node keys; a model owner joins the row whose `identity` equals its own, and an owner naming another identity refuses as `invalid_semantic_graph`; and a `dependency_selections` entry admits when the package supplied under its `identity` has the entry's `package_id`, with no version supplied or compared, and refuses `missing_import`/`missing-selection` for a package supplied under another identity and `stale_dependency`/`byte-digest-mismatch` for another `package_id`. | Test (TC-048) |
 
 ## Dependencies
 
