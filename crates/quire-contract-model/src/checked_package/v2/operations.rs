@@ -2214,7 +2214,6 @@ fn check_leaf_count(
 #[cfg(test)]
 mod tests {
     use super::super::CheckedSelectionRole;
-    use ix_trace_rs::trace;
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
@@ -2226,6 +2225,7 @@ mod tests {
     use crate::checked_package::shared::{
         CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
     };
+    use ix_trace_rs::trace;
 
     fn pointer(text: &str) -> JsonPointer {
         JsonPointer::parse(text).expect("test pointer")
