@@ -109,10 +109,12 @@ fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
     ];
     for (selection, capabilities) in cases {
         let wire = serde_json::json!({ "selection": selection, "capabilities": capabilities });
-        let constructed = KaniProfile::new(selection, capabilities);
-        assert!(constructed.is_err(), "new refuses {wire}");
-        let deserialized = serde_json::from_value::<KaniProfile>(wire.clone());
-        assert!(deserialized.is_err(), "deserialize refuses {wire}");
+        let constructed =
+            KaniProfile::new(selection, capabilities).expect_err(&format!("new refuses {wire}"));
+        let deserialized = serde_json::from_value::<KaniProfile>(wire.clone())
+            .expect_err(&format!("deserialize refuses {wire}"));
+        // Deserialize routes through `new`, so the refusal is the same one.
+        assert_eq!(deserialized.to_string(), constructed.to_string(), "{wire}");
     }
     // The fields are private, so these two are the only construction paths. Both admit a
     // valid profile and agree on it.
