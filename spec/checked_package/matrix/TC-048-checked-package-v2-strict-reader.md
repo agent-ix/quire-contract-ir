@@ -22,7 +22,10 @@ FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it, and
 FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
-a model declaration node keyed under the content-only `ModelOwner`.
+a model declaration node keyed under the content-only `ModelOwner`, and
+FR-038-AC-46 through FR-038-AC-64 (QSpec FR-322 `lock`, `DefinitionRef` and
+`RawSourceRef`) against the artifact references of a self-built package and the
+operation catalog's `law_roles` entries.
 
 ## Test Procedure
 
@@ -113,6 +116,50 @@ owner; give two nodes no identity. Compare the whole refusal and its pointer
 with the expected one. Read with the `work` limit at zero, and with each work
 limit one below what the direct read and a member resolution used, and check
 the pointer of the `incomplete` outcome resolves in the lock.
+
+## Artifact references (FR-038-AC-46 through FR-038-AC-64)
+
+Build a package whose `lock.edition.definition`, a `lock.profile_selections`
+definition, `lock.definition_selections` entries, `diagnostics.catalog` and an
+operation law `definition` are each `{authority, identity}`, whose
+`lock.sources` rows and region `source` are `{authority, identity,
+digest_domain, digest}`, and whose `identity_preimage` mirrors the definition
+rows. Read it: it admits. Then, one at a time and at each of those five
+definition places, add `revision`, `digest_domain`, `digest` and `export` to
+the reference and read: each refuses `unknown_member` at that member, and a
+reference of the earlier five-member shape at its first extra member. Add
+`revision` and `export` to a source row and to a region `source`, and read.
+Remove `authority`, then `identity`, from a definition reference, give each a
+non-string and the empty string, and read. Remove `digest_domain` and `digest`
+from a source row, give `digest` uppercase and short forms, empty its
+`authority` and `identity`, set `digest_domain` to `quire.definition.bytes/v1`
+beside a malformed `digest`, and read.
+
+Over an `application` node carrying an `integer_division` law, apply a law
+`definition` the catalog does not list, one it lists that the lock does not
+select, and the selected one; and, over a `temporal_profile` law, the lock's
+profile pair and another pair. Add `revision` to a law `definition`. Read the
+operation catalog's `law_roles` with its own catalogued entries and with one
+entry carrying `revision`, and match a law by `authority` and `identity` only.
+Differ one `definition_selections` row between the lock and the preimage by
+`authority`, then by `identity`; edit one definition row's `identity` and
+re-derive the `package_id`; edit one source row's `digest` and compare the
+`package_id`. Point a region `source` at a row differing in each of the four
+members, and a `source` and a `definition` nominal owner at pairs no lock row
+carries. Check the public `checked_package` surface for `CheckedArtifactRef`
+members, `CheckedSourceRef` members and the absence of `CheckedRevision`.
+
+Expected: the package admits and its preimage rows carry exactly two members;
+each extra member refuses `unknown_member` at that member; a missing, wrong-kind
+or empty member refuses `malformed_wire` and a wrong source domain
+`digest_domain_mismatch` ahead of the row's other members; a law the role does
+not catalogue refuses `operation-law-mismatch`, an unselected one
+`operation-law-unselected`, each at the law's `definition`; the catalog entry
+with `revision` fails the catalog read; the lock/preimage difference refuses
+`stale_dependency` at the first differing value; the definition identity edit
+changes the `package_id` and the source digest edit does not; a region source
+of another row refuses `invalid_source_map`; and the owner pairs refuse
+`invalid_semantic_graph`. Compare each whole refusal code, cause and pointer.
 
 ## Dependency selections (FR-038-AC-31 through FR-038-AC-33)
 
