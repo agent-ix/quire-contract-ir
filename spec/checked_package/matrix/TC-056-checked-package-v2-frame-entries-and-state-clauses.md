@@ -42,7 +42,7 @@ selecting a domain package document built here (`Order` with a field and
 from two supertypes) and its model declaration nodes, read field entries,
 anchor operations and clause parameter lists that resolve, name nothing,
 name the other member kind, are ambiguous, are only inherited, are keyed
-under an unselected version, or bind the wrong parameters.
+under an unselected domain package, or bind the wrong parameters.
 
 ## Expected Results
 

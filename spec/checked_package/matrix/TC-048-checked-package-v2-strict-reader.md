@@ -20,7 +20,9 @@ FR-038-AC-27 through FR-038-AC-30 (QSpec FR-322-AC-29 through FR-322-AC-34
 FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 `DependencySelection` entries of a self-built package, and
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
-against a self-built dependency package and a package that calls it.
+against a self-built dependency package and a package that calls it, and
+FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
+a model declaration node keyed under the content-only `ModelOwner`.
 
 ## Test Procedure
 
@@ -50,6 +52,13 @@ For FR-038-AC-45, build the model-owned nominal declaration with the owner
 those members alone, and read it: it admits. Change only the selected domain
 package's version and re-read: the node key is unchanged. Add a `version`
 member to the owner and re-read: it refuses `unknown_member` at that member.
+Empty the owner's `identity` and, separately, its `node`, and re-read each: it
+refuses `invalid_semantic_graph`. Select a domain package, key a model
+declaration node of it under the version-free `ModelOwner`, add a `field`
+member on that node and read it: it admits; change only the selected version
+and re-read: the declaration node's key is unchanged and it admits; key the
+node under another domain package's identity and re-read: it refuses
+`missing_declaration`/`missing-selection` at the member's `declaration`.
 
 ## Expected Results
 
@@ -66,6 +75,12 @@ refuses as `invalid_semantic_graph`. The model-owned package admits; each model 
 `authority`, `revision` or `export` as `unknown_member`, a foreign digest
 domain as `digest_domain_mismatch`, a domain package digest with no supplied
 document as `missing_import`, and `model_export` as `invalid_semantic_graph`.
+A model owner of `{kind, identity, node}` with no `version` admits and its node
+keys, nominal and declaration, are unchanged by a version-only change of the
+selection; an owner carrying `version` refuses `unknown_member`, an owner with an
+empty `identity` or `node` refuses `invalid_semantic_graph`, and a declaration
+node keyed under an unselected domain package refuses
+`missing_declaration`/`missing-selection` (FR-038-AC-45).
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 

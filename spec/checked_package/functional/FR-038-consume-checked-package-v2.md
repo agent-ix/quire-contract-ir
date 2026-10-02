@@ -269,16 +269,23 @@ nominal form without its preimage, or a non-nominal form carrying one, refuses
 the same way.
 
 A model owner is QSpec's `ModelOwner` (FR-322, FR-322-AC-28; STD-145 made
-its identity content-only). Its preimage is the closed object `{kind, identity,
-node}`: `kind` is `model`, `identity` the selected domain package's identity
-and `node` the IR node identity inside that package, each a nonempty string,
-and it has no `version` member. The reader re-derives the node key from those
-three members alone, so a node key depends only on content, never on the
-version of the domain package that declares it. The lock's `model_selections`
-entry still carries a `version`, which the selection evidence checks (step 1
-of "Model-owned members"); that version is not part of any node identity. An
-owner of kind `model` that carries a `version` member, or any member outside
-`kind`, `identity` and `node`, refuses as `unknown_member` at that member, as
+its identity content-only). Its closed shape is `{kind, identity, node}`:
+`kind` is `model`, `identity` the selected domain package's identity and
+`node` the IR node identity inside that package, each a nonempty string, with
+no `version` member. This one owner shape keys both places QSpec uses it: the
+owner of a model-owned nominal preimage (enum declaration, dimension, unit),
+and the owner of a `ModelDeclarationNode`, the structural node preimage by
+which a model declaration node of a selected domain package is keyed (QSpec
+`node-identity-preimage.schema.json`). The reader shall derive every
+model-owned node key, in both places, from the owner's three members alone,
+so a node key depends only on content, never on the version of the domain
+package that declares it, and shall recover a declaring node's owner (step 2
+of "Model-owned members") and compare a reference's member type against those
+version-free keys. The lock's `model_selections` entry still carries a
+`version`, which the selection evidence checks (step 1 of "Model-owned
+members"); that version is not part of any node identity. The reader shall
+refuse an owner of kind `model` that carries a `version` member, or any member
+outside `kind`, `identity` and `node`, as `unknown_member` at that member, as
 every closed shape does; this is the closed shape QSpec publishes, not a
 reader for an earlier one.
 
@@ -322,7 +329,9 @@ reader runs FR-322's four steps:
    `malformed-declaration`, never a `conflicting-binding` with another such
    node.
 2. **Owner recovery**, at the application: the declaring node's key is matched
-   to one selected declaration's model declaration node key; no match refuses
+   to one selected declaration's model declaration node key, which the reader
+   shall derive under the content-only `ModelOwner` (the
+   `ModelOwner` paragraph above), with no domain package version; no match refuses
    `missing_declaration`/`missing-selection` at the member's `declaration`.
 3. **Resolution** among the declaring type's exposed effective members, own
    and inherited; none refuses `ill_typed`/`operator-ineligible` at the
@@ -753,7 +762,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
 | FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
 | FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
-| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected domain package's `version` changes. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
+| FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected domain package's `version` changes. A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected version changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
 
 ## Dependencies
 
