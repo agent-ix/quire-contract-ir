@@ -2359,18 +2359,88 @@ fn check_numeric(
             "numeric operand types differ",
         ));
     }
+    // Type and range are read together here, so the operator bodies receive the operand ranges
+    // already in their typed shape and have no "impossible" case of their own.
+    let left_range = left_checked.range.clone();
+    let right_range = right_checked.range.clone();
     match left_checked.value_type.clone() {
         ValueType::Integer { value } => {
-            check_integer_operator(expression, operator, &value, left_checked, right_checked)
+            match (
+                left_range.and_then(NumericRange::into_integer),
+                right_range.and_then(NumericRange::into_integer),
+            ) {
+                (Some(left_ranges), Some(right_ranges)) => check_integer_operator(
+                    expression,
+                    operator,
+                    &value,
+                    (left_checked, left_ranges),
+                    (right_checked, right_ranges),
+                ),
+                // Guards an internal invariant break, not user input: every Integer `Checked`
+                // is built with an integer range. `range` is still `Option<NumericRange>`, so
+                // the compiler does not enforce this pairing (no structural CheckedNumeric).
+                _ => Err(operands_not_numeric(expression)),
+            }
         }
         ValueType::Rational { value } if operator != NumericOperator::Remainder => {
-            check_rational_operator(expression, operator, &value, left_checked, right_checked)
+            match (
+                left_range.and_then(NumericRange::into_rational),
+                right_range.and_then(NumericRange::into_rational),
+            ) {
+                (Some(left_operand), Some(right_operand)) => check_rational_operator(
+                    expression,
+                    operator,
+                    &value,
+                    (left_checked, left_operand),
+                    (right_checked, right_operand),
+                ),
+                // Guards an internal invariant break, not user input: every Rational `Checked`
+                // is built with a rational range. `range` is still `Option<NumericRange>`, so
+                // the compiler does not enforce this pairing (no structural CheckedNumeric).
+                _ => Err(operands_not_numeric(expression)),
+            }
         }
-        _ => Err(single(
-            expression,
-            DiagnosticCode::IllTypedExpression,
-            "operator requires compatible numeric operands",
-        )),
+        // Non-numeric value types (and Rational remainder) are ill-typed user input.
+        _ => Err(operands_not_numeric(expression)),
+    }
+}
+
+fn operands_not_numeric(expression: &Expression) -> Vec<Diagnostic> {
+    single(
+        expression,
+        DiagnosticCode::IllTypedExpression,
+        "operator requires compatible numeric operands",
+    )
+}
+
+/// A rational operand's interval set, taken out of its [`NumericRange`].
+struct RationalOperand {
+    ranges: Vec<(i128, i128)>,
+    denominator_max: i128,
+    exact: Option<(i128, i128)>,
+}
+
+impl NumericRange {
+    fn into_integer(self) -> Option<Vec<(i128, i128)>> {
+        match self {
+            Self::Integer(ranges) => Some(ranges),
+            Self::Rational { .. } => None,
+        }
+    }
+
+    fn into_rational(self) -> Option<RationalOperand> {
+        match self {
+            Self::Rational {
+                numerator_ranges,
+                denominator_max,
+                exact,
+            } => Some(RationalOperand {
+                ranges: numerator_ranges,
+                denominator_max,
+                exact,
+            }),
+            Self::Integer(_) => None,
+        }
     }
 }
 
@@ -2378,15 +2448,9 @@ fn check_integer_operator(
     expression: &Expression,
     operator: NumericOperator,
     value_type: &IntegerType,
-    left: Checked,
-    right: Checked,
+    (left, left_ranges): (Checked, Vec<(i128, i128)>),
+    (right, right_ranges): (Checked, Vec<(i128, i128)>),
 ) -> Result<Checked, Vec<Diagnostic>> {
-    let Some(NumericRange::Integer(left_ranges)) = &left.range else {
-        unreachable!()
-    };
-    let Some(NumericRange::Integer(right_ranges)) = &right.range else {
-        unreachable!()
-    };
     let right_proof = right
         .range_proof
         .as_ref()
@@ -2404,7 +2468,7 @@ fn check_integer_operator(
         operator,
         NumericOperator::Divide | NumericOperator::Remainder
     ) {
-        if contains_zero(right_ranges) {
+        if contains_zero(&right_ranges) {
             return Err(undefined(
                 expression,
                 DefinednessObligationKind::NonZeroDivisor,
@@ -2418,7 +2482,7 @@ fn check_integer_operator(
             right_proof,
         ));
     }
-    let Some(ranges) = integer_ranges(operator, left_ranges, right_ranges) else {
+    let Some(ranges) = integer_ranges(operator, &left_ranges, &right_ranges) else {
         return Err(undefined(
             expression,
             DefinednessObligationKind::CheckedRange,
@@ -2574,17 +2638,14 @@ fn check_rational_operator(
     expression: &Expression,
     operator: NumericOperator,
     value_type: &RationalType,
-    left: Checked,
-    right: Checked,
+    (left, left_operand): (Checked, RationalOperand),
+    (right, right_operand): (Checked, RationalOperand),
 ) -> Result<Checked, Vec<Diagnostic>> {
-    let Some(NumericRange::Rational {
-        numerator_ranges: left_ranges,
+    let RationalOperand {
+        ranges: left_ranges,
         denominator_max: left_den,
         exact: left_exact,
-    }) = left.range.clone()
-    else {
-        unreachable!()
-    };
+    } = left_operand;
     let right_proof = right
         .range_proof
         .as_ref()
@@ -2597,14 +2658,11 @@ fn check_rational_operator(
         .max_by(compare_range_proof)
         .map(|proof| proof.span)
         .unwrap_or_else(|| expression.source.clone());
-    let Some(NumericRange::Rational {
-        numerator_ranges: right_ranges,
+    let RationalOperand {
+        ranges: right_ranges,
         denominator_max: right_den,
         exact: right_exact,
-    }) = right.range.clone()
-    else {
-        unreachable!()
-    };
+    } = right_operand;
     let mut obligations = Vec::new();
     if operator == NumericOperator::Divide && contains_zero(&right_ranges) {
         return Err(undefined(
