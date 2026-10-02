@@ -22,7 +22,10 @@ FR-038-AC-31 through FR-038-AC-33 (QSpec FR-322-AC-35) against the
 FR-038-AC-35 through FR-038-AC-38 (QSpec FR-322-AC-36 and FR-322-AC-37)
 against a self-built dependency package and a package that calls it, and
 FR-038-AC-45 (QSpec FR-322-AC-28) against a model-owned nominal declaration and
-a model declaration node keyed under the content-only `ModelOwner`.
+a model declaration node keyed under the content-only `ModelOwner`, and
+FR-038-AC-46 through FR-038-AC-61 (QSpec FR-322 `lock`, `DefinitionRef` and
+`RawSourceRef`) against the artifact references of a self-built package and the
+operation catalog's `law_roles` entries.
 
 ## Test Procedure
 
@@ -113,6 +116,61 @@ owner; give two nodes no identity. Compare the whole refusal and its pointer
 with the expected one. Read with the `work` limit at zero, and with each work
 limit one below what the direct read and a member resolution used, and check
 the pointer of the `incomplete` outcome resolves in the lock.
+
+## Artifact references (FR-038-AC-46 through FR-038-AC-61)
+
+Build a package whose `lock.edition.definition`, a `lock.profile_selections`
+definition, `lock.definition_selections` entries, their `identity_preimage`
+mirrors, `diagnostics.catalog` and an operation law `definition` are each
+`{authority, identity}`, and whose `lock.sources` rows, `source_map` region
+`source` and a `diagnostics.entries[].loci[].source` are `{authority, identity,
+digest_domain, digest}`. Read it: it admits. Then, one at a time and at each
+lock, preimage and catalog definition place, add `revision`, `digest_domain`,
+`digest` and `export` to the reference and read: each refuses `unknown_member`
+at that member, and a reference of the earlier five-member shape at its first
+extra member. Add `revision` and `export` to each of the three source places and
+read. Add an extra member, remove `authority`, and give `identity` a non-string
+in an operation law `definition` and read. Remove `authority`, then `identity`,
+from a definition reference at a lock, preimage and catalog place, give each a
+non-string, and at the lock and catalog places the empty string. Remove each
+member of a source reference at the three source places and give each a
+non-string. In a `lock.sources` row set `digest_domain` to
+`quire.definition.bytes/v1` beside an empty `authority`, then beside a non-hex
+`digest`; then with the right domain empty `authority` and `identity` and give
+`digest` uppercase and short forms. Over a region `source` and a locus `source`
+that equal no lock row, differ each of the four members in turn, once with an
+empty member, a non-hex digest and a wrong domain.
+
+Over an `application` node carrying an `integer_division` law, apply a law
+`definition` the catalog does not list (and an empty one), one it lists that the
+lock does not select, and the selected one; and, over a `temporal_profile` law,
+the lock's profile pair and another pair. Differ one `definition_selections`
+row between the lock and the preimage by `authority`, then by `identity`; edit
+one definition row's `identity` in both and re-derive the `package_id`, then
+read the same edit under the old `package_id`. Point a `source` and a
+`definition` nominal owner at pairs no lock row carries.
+
+Test the operation catalog read as a unit test of the parser in
+`crates/quire-contract-model/src/checked_package/v2/operation_catalog.rs` over
+supplied bytes, not through a package: bytes whose `law_roles` entries are
+`{authority, identity}` return the catalog, and bytes in which one entry
+carries `revision`, `digest_domain` or `digest` return an error naming the
+entry and do not panic.
+
+Expected: the package admits; each extra member at a lock, preimage, catalog or
+source place refuses `unknown_member` at that member; a missing or wrong-kind
+member there refuses `malformed_wire` before any other check, and an empty
+member at a lock or catalog definition place `malformed_wire`; the same
+defects in an operation law `definition` refuse `invalid_semantic_graph`; a
+`lock.sources` row of another domain refuses `digest_domain_mismatch` ahead of
+its empty-member and digest-form checks, and with the right domain
+`malformed_wire`; a region or locus `source` equal to no lock row refuses
+`invalid_source_map` whatever differs; a law the role does not catalogue refuses
+`operation-law-mismatch`, an unselected one `operation-law-unselected`, each at
+the law's `definition`; the lock/preimage difference refuses `stale_dependency`
+at the first differing value; the re-derived edit admits and the old
+`package_id` refuses `stale_dependency`; the owner pairs refuse
+`invalid_semantic_graph`. Compare each whole refusal code, cause and pointer.
 
 ## Dependency selections (FR-038-AC-31 through FR-038-AC-33)
 
