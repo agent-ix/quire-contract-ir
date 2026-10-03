@@ -227,8 +227,9 @@ resolution, profile fit, bounds, with the two defects' positions swapped; then t
 clauses, the lower-digest one holding a profile-fit defect and the higher-digest
 one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
 "0"}` and a wrong-kind member under a bounded and the infinite-trace profile;
-`{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile and under
-infinite-trace (AC-102). Give a clause's
+`{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile, under
+infinite-trace and beside a placement defect at a lower-digest node, each
+refused at the negative bound at schema validation (AC-102). Give a clause's
 `over` a `value`/`parameter` dependency, one that is no dependency and a
 `scalar_type` dependency, and a fairness member an existing operation, a missing
 name, an absent declaration, a non-`model` declaration, a name matching two
@@ -277,10 +278,10 @@ decision. Selecting `quire.fixture.temporal-profile/v1`, an empty identity and a
 differently spelled infinite-trace identity refuses `unknown_profile`/
 `unsupported-selection`, and selecting `quire.package.composed/v1` and
 `quire.native.diagnostics/v1` as the clause profile refuses `unknown_profile`/
-`wrong-selection-role`; the other AD-003 hierarchy identities, as an IR reading
-pending a QSpec owner ruling, refuse `wrong-selection-role`,
-`quire.protocol.finite-global/v1` refuses `unsupported-selection`, and
-`quire.temporal.bounded-facet/v1` has no outcome asserted; each at the law's
+`wrong-selection-role`, as do `quire.temporal.bounded-facet/v1` and
+`quire.protocol.finite-global/v1` (catalogued in QSpec's definition catalog; a
+relayed ruling pending QSpec merge), while `quire.protocol.complete/v1` has no
+outcome asserted (not in the merged catalog; flagged); each at the law's
 `definition`, first among the clause's checks, and each of the five known
 identities admits (AC-108). Compare the whole
 refusal code, cause and pointer.
