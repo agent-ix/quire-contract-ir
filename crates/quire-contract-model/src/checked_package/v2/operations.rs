@@ -78,6 +78,7 @@ use crate::checked_package::shared::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
@@ -1718,12 +1719,13 @@ fn inner_type(
     referenced_type(nodes[position].body.get("members")?.as_array()?.first()?)
 }
 
-/// Why a text-leaf count could not be decided.
+/// Why the leaves of a compared type could not be derived.
 enum LeafWalkEnd {
-    /// The type reaches itself through its fields or inner types.
-    Cycle,
-    /// A node on the walk does not resolve, or is not shaped as its form
-    /// requires.
+    /// A node on the walk does not resolve or is not shaped as its form
+    /// requires, a text leaf pins no profile, or an option or collection
+    /// leads back to itself with no record or tuple between the two visits
+    /// (a record-free cycle, which has no composite to anchor a recursion
+    /// leaf).
     Unresolved,
     /// The work budget ran out.
     Work(ValidationFailure),
@@ -1780,60 +1782,238 @@ fn text_profile_pin(
 }
 
 /// The outcome of comparing the supplied leaves with the derived ones: the
-/// `text_profile` each leaf's type pins, or the first leaf at fault and the
-/// member of it (`path` or `laws`).
-type LeafShape = Result<Vec<Box<str>>, (usize, &'static str)>;
+/// `text_profile` each text leaf's type pins (`None` for a recursion leaf),
+/// or the fault.
+type LeafShape = Result<Vec<Option<Box<str>>>, LeafFault>;
 
-/// One path segment (`field:<name>`, `position:<n>`, `inner`) and the type
-/// node it leads to.
-type LeafChild = (Box<str>, CheckedNodeId);
-
-/// One type node being summed: how many of its children are done, and the
-/// running count. Its children are `LeafWalk::kids[position]`.
-struct LeafFrame {
-    position: usize,
-    next: usize,
-    total: usize,
+/// Where the supplied leaves depart from the derived ones.
+enum LeafFault {
+    /// Fewer leaves supplied than derived: `operation-law-missing` at
+    /// `operation.leaves`.
+    Missing,
+    /// A text leaf with no place left, at `operation.leaves/<i>`.
+    Unplaced(usize),
+    /// Entry `i` is not the leaf derived for its place, or carries the wrong
+    /// laws: `operation-law-mismatch` at its `path` or `laws`.
+    Member(usize, &'static str),
 }
 
-/// A node's own contribution: a count, or children still to sum.
+/// What a type node anchors on the walk.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Anchor {
+    /// A `record` or `tuple`: open between entering its fields or positions
+    /// and leaving them. An edge to an open composite is a reentry.
+    Composite,
+    /// An option or collection: noted per path, so that reaching it again
+    /// with no composite entered between the two visits is refused.
+    Wrapper,
+    /// Any other node, which has no children.
+    Leaf,
+}
+
+/// One edge of the type (`field:<name>`, `position:<n>` or `inner`) and the
+/// structural node it leads to.
+struct LeafChild {
+    segment: Box<str>,
+    /// The edge's target as the type names it. A text type's profile is read
+    /// through it, since the pin lives in a wrapper above the shared `text`
+    /// scalar.
+    target: CheckedNodeId,
+    /// The node `target` resolves to through aliases and bounded domains.
+    position: usize,
+    kind: CheckedNodeKind,
+}
+
+/// A type node's edges as its body names them: the segment and the target
+/// node key, in declaration order.
+type RawEdges = Vec<(Box<str>, CheckedNodeId)>;
+
+/// A type node's anchor and its outgoing edges, in declaration order.
+struct Expansion {
+    anchor: Anchor,
+    children: Vec<LeafChild>,
+}
+
+/// One type node being walked: how many of its edges are done and, when
+/// counting, the running count.
+struct LeafFrame {
+    position: usize,
+    component: usize,
+    expansion: Rc<Expansion>,
+    next: usize,
+    total: usize,
+    /// No composite reachable from the node was open where it was entered, so
+    /// its count is its own and is memoised when the frame completes.
+    closed: bool,
+}
+
+/// A node's own contribution: a count, or edges still to walk.
 enum LeafEntry {
     Count(usize),
     Pushed,
 }
 
-/// Counts the `text` leaves of a type (QSpec FR-322: `leaves` has one entry
-/// for each), walking `record` fields, `tuple` positions and the inner type
-/// of an `option`, `sequence`, `set`, `bag` or `ordered_set`. Each type node
-/// is counted once however many fields share it, and every node visit is
-/// charged to the work meter, so a shared-field chain is linear and nesting
-/// depth is bounded by the budget. The walk is iterative: depth costs heap,
-/// not stack.
+/// What visiting one edge of the derivation left to do.
+enum Visited {
+    /// Nothing below the edge to walk: a leaf was placed, a reentry was
+    /// placed or skipped, or the subtree holds no leaf.
+    Done,
+    /// A frame was pushed for the edge's node.
+    Descended,
+    Fault(LeafFault),
+}
+
+/// The composites on the current path: the `record` and `tuple` nodes the
+/// walk is inside, between entering their fields or positions and leaving
+/// them. The set is the path only, never every composite visited.
+#[derive(Default)]
+struct OpenComposites {
+    /// Each open composite and the number of path segments the path held when
+    /// it was entered (the `d` of a recursion leaf).
+    entered_at: BTreeMap<usize, usize>,
+    /// How many composites of each strongly connected component are open.
+    per_component: BTreeMap<usize, usize>,
+}
+
+impl OpenComposites {
+    fn open(&mut self, position: usize, component: usize, depth: usize) {
+        self.entered_at.insert(position, depth);
+        *self.per_component.entry(component).or_default() += 1;
+    }
+
+    fn close(&mut self, position: usize, component: usize) {
+        self.entered_at.remove(&position);
+        if let Some(open) = self.per_component.get_mut(&component) {
+            *open = open.saturating_sub(1);
+        }
+    }
+
+    fn depth_of(&self, position: usize) -> Option<usize> {
+        self.entered_at.get(&position).copied()
+    }
+
+    /// Whether a composite of `component` is open. An open composite is an
+    /// ancestor of the node being entered, so one reachable from that node
+    /// shares its component, and a memoised count applies only when none is
+    /// open.
+    fn touches(&self, component: usize) -> bool {
+        self.per_component
+            .get(&component)
+            .is_some_and(|open| *open > 0)
+    }
+
+    fn len(&self) -> usize {
+        self.entered_at.len()
+    }
+}
+
+/// Whether `leaf` is a recursion leaf, `recursion:<d>` as its last segment.
+fn is_recursion_leaf(leaf: &OperationLeafWire) -> bool {
+    leaf.path
+        .last()
+        .and_then(|segment| segment.strip_prefix("recursion:"))
+        .is_some_and(|depth| !depth.is_empty() && depth.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Whether `leaf`'s path is `prefix` followed, when `last` is given, by that
+/// one segment.
+fn path_is(leaf: &OperationLeafWire, prefix: &[Box<str>], last: Option<&str>) -> bool {
+    let (head, tail) = match leaf.path.split_last() {
+        Some((tail, head)) if last.is_some() => (head, Some(tail.as_ref())),
+        _ => (leaf.path.as_slice(), None),
+    };
+    tail == last && head == prefix
+}
+
+/// Derives the leaves of a compared type (QSpec FR-322: one entry for each
+/// `text` leaf, plus, for a type that reaches itself, one recursion leaf at
+/// each reentry into a composite from which text is reachable), walking
+/// `record` fields, `tuple` positions and the inner type of an `option`,
+/// `sequence`, `set`, `bag` or `ordered_set`. [`LeafWalk::count`] counts the
+/// derived leaves; [`LeafWalk::first_leaf_fault`] derives them one at a time
+/// in declaration order and compares each with the supplied one.
+///
+/// The open composites are the `record` and `tuple` nodes on the current
+/// path. An edge to one is a reentry: it is not followed, it contributes no
+/// text leaf, and it derives one recursion leaf where text is reachable from
+/// that composite. A node's memoised count is its count with no composite
+/// reachable from it open, so it applies at a use only when none is open
+/// there (see [`OpenComposites::touches`]). An option or collection is noted
+/// while it is on the path; reaching it again with no composite entered
+/// between the two visits is a record-free cycle, which is refused. Every
+/// edge entered, a reentry included, is charged to the work meter. The walks
+/// are iterative over an explicit heap stack, so nesting and cycles cost
+/// heap, never call stack, and the work budget alone bounds them.
 ///
 /// The expected paths are never listed up front, since a shared-field type
-/// has exponentially many. Once [`LeafWalk::count`] has settled the count and
-/// it equals the number of supplied leaves, [`LeafWalk::first_leaf_fault`]
-/// derives them one at a time in declaration order, skipping every subtree
-/// the memo says holds no text leaf, so its cost is bounded by the supplied
-/// leaves times the depth times the width of a node's fields (a sibling
-/// holding no text is entered and skipped), and is charged to the meter.
+/// has exponentially many. Once the count has settled, and the supplied list
+/// is not shorter, the pass skips every subtree the memo says derives no
+/// leaf, so its cost is bounded by the supplied leaves times the depth times
+/// the width of a node's fields (a sibling holding no text is entered and
+/// skipped) for a type that reaches no open composite, and by the work
+/// budget for one that does.
 struct LeafWalk<'g, 'm> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
     meter: &'m mut WorkMeter,
     at: JsonPointer,
+    /// Each node's derived-leaf count where no composite reachable from it
+    /// was open.
     memo: BTreeMap<usize, usize>,
     /// The profile each alias or domain node of a text type's chain pins.
     pins: BTreeMap<usize, Option<Box<str>>>,
-    /// Each summed non-leaf type node's children, in declaration order.
-    kids: BTreeMap<usize, Vec<LeafChild>>,
+    /// Each node below the compared type, expanded once.
+    expanded: BTreeMap<usize, Rc<Expansion>>,
+    /// The strongly connected component of each node.
+    component_of: BTreeMap<usize, usize>,
+    /// Whether a `text` type is reachable from each component.
+    component_text: Vec<bool>,
+    open: OpenComposites,
+    /// The open-composite count at each held visit of an option or
+    /// collection, dropped when the walk leaves the node.
+    noted: BTreeMap<usize, Vec<usize>>,
     stack: Vec<LeafFrame>,
-    on_stack: BTreeSet<usize>,
 }
 
-impl LeafWalk<'_, '_> {
-    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<Vec<LeafChild>> {
+/// One node of the component search and how many of its edges are done.
+struct ComponentVisit {
+    position: usize,
+    expansion: Rc<Expansion>,
+    next: usize,
+}
+
+impl<'g, 'm> LeafWalk<'g, 'm> {
+    fn new(graph: Graph<'g>, meter: &'m mut WorkMeter, at: JsonPointer) -> LeafWalk<'g, 'm> {
+        LeafWalk {
+            nodes: graph.nodes,
+            kinds: graph.kinds,
+            index: graph.index,
+            meter,
+            at,
+            memo: BTreeMap::new(),
+            pins: BTreeMap::new(),
+            expanded: BTreeMap::new(),
+            component_of: BTreeMap::new(),
+            component_text: Vec::new(),
+            open: OpenComposites::default(),
+            noted: BTreeMap::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    /// One unit to the work budget, at `operation.leaves`.
+    fn charge(&mut self) -> Result<(), LeafWalkEnd> {
+        let at = &self.at;
+        self.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)
+    }
+
+    /// The anchor and the raw edges of the node at `position`: a `record`'s
+    /// fields, a `tuple`'s positions, the inner type of an option or
+    /// collection.
+    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<(Anchor, RawEdges)> {
         let members = || self.nodes[position].body.get("members")?.as_array();
         match kind {
             CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => members()?
@@ -1848,68 +2028,258 @@ impl LeafWalk<'_, '_> {
                         referenced_type(member.get("value")?)?,
                     ))
                 })
-                .collect(),
+                .collect::<Option<Vec<_>>>()
+                .map(|edges| (Anchor::Composite, edges)),
             CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => members()?
                 .iter()
                 .enumerate()
                 .map(|(at, member)| {
                     Some((format!("position:{at}").into(), referenced_type(member)?))
                 })
-                .collect(),
+                .collect::<Option<Vec<_>>>()
+                .map(|edges| (Anchor::Composite, edges)),
             CheckedNodeKind::CompositeType(
                 CompositeTypeForm::Option
                 | CompositeTypeForm::Sequence
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::OrderedSet,
-            ) => Some(vec![(
-                "inner".into(),
-                referenced_type(members()?.first()?)?,
-            )]),
-            _ => Some(Vec::new()),
+            ) => Some((
+                Anchor::Wrapper,
+                vec![("inner".into(), referenced_type(members()?.first()?)?)],
+            )),
+            _ => Some((Anchor::Leaf, Vec::new())),
         }
     }
 
-    fn enter(&mut self, type_id: &CheckedNodeId) -> Result<LeafEntry, LeafWalkEnd> {
-        let at = &self.at;
-        self.meter
-            .charge(1, || at.clone())
-            .map_err(LeafWalkEnd::Work)?;
-        let (position, kind) = structural_type(type_id, self.nodes, self.kinds, self.index)
+    /// The edge named `segment` to `target`, resolved to its structural node.
+    fn edge(&self, segment: Box<str>, target: CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
+        let (position, kind) = structural_type(&target, self.nodes, self.kinds, self.index)
             .ok_or(LeafWalkEnd::Unresolved)?;
+        Ok(LeafChild {
+            segment,
+            target,
+            position,
+            kind,
+        })
+    }
+
+    fn expansion(&self, position: usize) -> Result<Rc<Expansion>, LeafWalkEnd> {
+        self.expanded
+            .get(&position)
+            .cloned()
+            .ok_or(LeafWalkEnd::Unresolved)
+    }
+
+    fn component(&self, position: usize) -> Result<usize, LeafWalkEnd> {
+        self.component_of
+            .get(&position)
+            .copied()
+            .ok_or(LeafWalkEnd::Unresolved)
+    }
+
+    /// Whether a `text` type is reachable from the composite at `component`.
+    fn reaches_text(&self, component: usize) -> Result<bool, LeafWalkEnd> {
+        self.component_text
+            .get(component)
+            .copied()
+            .ok_or(LeafWalkEnd::Unresolved)
+    }
+
+    /// Finds the strongly connected components of the type graph below
+    /// `root`, and for each whether a `text` type is reachable from it, one
+    /// unit of work per node. The walks need both: an open composite that
+    /// is reachable from a node shares the node's component (it is an
+    /// ancestor on the path), and a reentry derives a recursion leaf only
+    /// where text is reachable. Iterative (Tarjan), on a heap stack.
+    fn analyse(&mut self, root: &LeafChild) -> Result<(), LeafWalkEnd> {
+        // Each node's discovery number and lowest reachable number.
+        let mut numbers: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+        let mut members: Vec<usize> = Vec::new();
+        let mut calls: Vec<ComponentVisit> = Vec::new();
+        self.discover(root, &mut numbers, &mut members, &mut calls)?;
+        while let Some(call) = calls.last_mut() {
+            let expansion = Rc::clone(&call.expansion);
+            let position = call.position;
+            if let Some(child) = expansion.children.get(call.next) {
+                call.next += 1;
+                match numbers.get(&child.position).copied() {
+                    Some((number, _)) if !self.component_of.contains_key(&child.position) => {
+                        // An edge to a node still on the member stack.
+                        let (_, low) = numbers.get_mut(&position).ok_or(LeafWalkEnd::Unresolved)?;
+                        *low = (*low).min(number);
+                    }
+                    Some(_) => {}
+                    None => self.discover(child, &mut numbers, &mut members, &mut calls)?,
+                }
+                continue;
+            }
+            calls.pop();
+            let (number, low) = numbers
+                .get(&position)
+                .copied()
+                .ok_or(LeafWalkEnd::Unresolved)?;
+            if let Some(parent) = calls.last() {
+                let (_, parent_low) = numbers
+                    .get_mut(&parent.position)
+                    .ok_or(LeafWalkEnd::Unresolved)?;
+                *parent_low = (*parent_low).min(low);
+            }
+            if low == number {
+                self.close_component(position, &mut members)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Expands the node `edge` leads to and starts its component search.
+    fn discover(
+        &mut self,
+        edge: &LeafChild,
+        numbers: &mut BTreeMap<usize, (usize, usize)>,
+        members: &mut Vec<usize>,
+        calls: &mut Vec<ComponentVisit>,
+    ) -> Result<(), LeafWalkEnd> {
+        self.charge()?;
+        let (anchor, raw) = self
+            .children(edge.position, edge.kind)
+            .ok_or(LeafWalkEnd::Unresolved)?;
+        let children = raw
+            .into_iter()
+            .map(|(segment, target)| self.edge(segment, target))
+            .collect::<Result<Vec<_>, _>>()?;
+        let expansion = Rc::new(Expansion { anchor, children });
+        self.expanded.insert(edge.position, Rc::clone(&expansion));
+        let number = numbers.len();
+        numbers.insert(edge.position, (number, number));
+        members.push(edge.position);
+        calls.push(ComponentVisit {
+            position: edge.position,
+            expansion,
+            next: 0,
+        });
+        Ok(())
+    }
+
+    /// Pops the component rooted at `root` off the member stack and records
+    /// whether a `text` type is reachable from it: one of its members is
+    /// text, or an edge leaves it for a component that reaches text (every
+    /// such component is already closed).
+    fn close_component(
+        &mut self,
+        root: usize,
+        members: &mut Vec<usize>,
+    ) -> Result<(), LeafWalkEnd> {
+        let component = self.component_text.len();
+        let mut closed = Vec::new();
+        while let Some(member) = members.pop() {
+            self.component_of.insert(member, component);
+            closed.push(member);
+            if member == root {
+                break;
+            }
+        }
+        let mut text = false;
+        for member in &closed {
+            let kind = self.kinds.get(*member).copied();
+            text |= kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
+            for child in &self.expansion(*member)?.children {
+                let other = self.component(child.position)?;
+                if other != component {
+                    text |= self.reaches_text(other)?;
+                }
+            }
+        }
+        self.component_text.push(text);
+        Ok(())
+    }
+
+    /// The edge from the root of the compared type, which names no segment.
+    fn root_edge(&self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
+        self.edge(Box::from(""), root.clone())
+    }
+
+    /// One edge entered while counting: its own contribution, or the frame
+    /// of its edges still to sum. Every entry, a reentry included, is one
+    /// unit of work.
+    fn enter(&mut self, edge: &LeafChild) -> Result<LeafEntry, LeafWalkEnd> {
+        self.charge()?;
         // A text leaf whose type chain pins no profile cannot be decided
         // (QSpec FR-322: the type is ineligible). The pin lives in a wrapper
         // above the shared `text` scalar, so it is read at every visit.
-        if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
-            text_profile_pin(type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?;
-            self.memo.insert(position, 1);
+        if edge.kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
+            text_profile_pin(&edge.target, self)?.ok_or(LeafWalkEnd::Unresolved)?;
             return Ok(LeafEntry::Count(1));
         }
-        if let Some(count) = self.memo.get(&position) {
-            return Ok(LeafEntry::Count(*count));
+        let component = self.component(edge.position)?;
+        if self.open.depth_of(edge.position).is_some() {
+            // A reentry: no text leaf, and the recursion leaf where text is
+            // reachable.
+            return Ok(LeafEntry::Count(usize::from(self.reaches_text(component)?)));
         }
-        if self.on_stack.contains(&position) {
-            return Err(LeafWalkEnd::Cycle);
+        let closed = !self.open.touches(component);
+        if closed {
+            if let Some(count) = self.memo.get(&edge.position) {
+                return Ok(LeafEntry::Count(*count));
+            }
         }
-        let children = self
-            .children(position, kind)
-            .ok_or(LeafWalkEnd::Unresolved)?;
-        if children.is_empty() {
-            self.memo.insert(position, 0);
+        let expansion = self.expansion(edge.position)?;
+        if expansion.children.is_empty() {
+            self.memo.insert(edge.position, 0);
             return Ok(LeafEntry::Count(0));
         }
-        self.on_stack.insert(position);
-        self.kids.insert(position, children);
+        match expansion.anchor {
+            Anchor::Composite => self.open.open(edge.position, component, 0),
+            Anchor::Wrapper => {
+                let composites = self.open.len();
+                let held = self.noted.entry(edge.position).or_default();
+                if held.last() == Some(&composites) {
+                    // Reached again with no composite entered between the two
+                    // visits: a record-free cycle.
+                    return Err(LeafWalkEnd::Unresolved);
+                }
+                held.push(composites);
+            }
+            Anchor::Leaf => {}
+        }
         self.stack.push(LeafFrame {
-            position,
+            position: edge.position,
+            component,
+            expansion,
             next: 0,
             total: 0,
+            closed,
         });
         Ok(LeafEntry::Pushed)
     }
 
+    /// Leaves the node of a finished counting frame: it is no longer open or
+    /// noted, and its count is memoised where it did not depend on an open
+    /// composite.
+    fn leave(&mut self, frame: &LeafFrame) {
+        match frame.expansion.anchor {
+            Anchor::Composite => self.open.close(frame.position, frame.component),
+            Anchor::Wrapper => {
+                if let Some(held) = self.noted.get_mut(&frame.position) {
+                    held.pop();
+                    if held.is_empty() {
+                        self.noted.remove(&frame.position);
+                    }
+                }
+            }
+            Anchor::Leaf => {}
+        }
+        if frame.closed {
+            self.memo.insert(frame.position, frame.total);
+        }
+    }
+
+    /// The number of leaves the compared type derives: its text leaves and
+    /// its recursion leaves.
     fn count(&mut self, root: &CheckedNodeId) -> Result<usize, LeafWalkEnd> {
-        let mut finished = match self.enter(root)? {
+        let root = self.root_edge(root)?;
+        self.analyse(&root)?;
+        let mut finished = match self.enter(&root)? {
             LeafEntry::Count(count) => Some(count),
             LeafEntry::Pushed => None,
         };
@@ -1923,125 +2293,174 @@ impl LeafWalk<'_, '_> {
             let Some(frame) = self.stack.last_mut() else {
                 return Err(LeafWalkEnd::Unresolved);
             };
-            let child = self
-                .kids
-                .get(&frame.position)
-                .and_then(|kids| kids.get(frame.next))
-                .map(|(_, child)| child.clone());
-            if let Some(child) = child {
+            let expansion = Rc::clone(&frame.expansion);
+            let at = frame.next;
+            if let Some(child) = expansion.children.get(at) {
                 frame.next += 1;
-                finished = match self.enter(&child)? {
+                finished = match self.enter(child)? {
                     LeafEntry::Count(count) => Some(count),
                     LeafEntry::Pushed => None,
                 };
-            } else {
-                let total = frame.total;
-                let position = frame.position;
-                self.stack.pop();
-                self.on_stack.remove(&position);
-                self.memo.insert(position, total);
-                finished = Some(total);
+            } else if let Some(frame) = self.stack.pop() {
+                self.leave(&frame);
+                finished = Some(frame.total);
             }
         }
     }
 
     /// The first supplied leaf, by index, that is not the one the type
-    /// derives for its place, and the member of it at fault (`path` or
-    /// `laws`): the leaves are compared in declaration order against the
-    /// expected path and the one `text_profile` law each carries. Must run
-    /// after [`LeafWalk::count`] of `root`, with `supplied.len()` equal to
-    /// that count. When every leaf fits, returns the `text_profile` each
-    /// leaf's type pins, in order.
+    /// derives for its place, and how: the pass follows the derivation in
+    /// order, and at each place the next supplied entry must be the leaf
+    /// derived there. A text leaf must carry its expected path and exactly
+    /// one catalogued `text_profile` law; a recursion leaf must sit at its
+    /// reentry with the `d` the reentered composite was entered at, and carry
+    /// no law. An entry left over once every derived leaf is placed is
+    /// unplaced. Must run after [`LeafWalk::count`] of `root`, with at least
+    /// as many leaves supplied as that count. When every leaf fits, returns
+    /// the `text_profile` each text leaf's type pins, in order.
     fn first_leaf_fault(
         &mut self,
         root: &CheckedNodeId,
         supplied: &[OperationLeafWire],
         text_laws: &[CheckedArtifactRef],
     ) -> Result<LeafShape, LeafWalkEnd> {
-        let mut pins: Vec<Box<str>> = Vec::new();
+        let root = self.root_edge(root)?;
+        let mut pins: Vec<Option<Box<str>>> = Vec::new();
         let mut path: Vec<Box<str>> = Vec::new();
-        let mut frames: Vec<(usize, usize)> = Vec::new();
-        let mut emitted = 0;
-        let mut entering = Some(root.clone());
-        loop {
-            if let Some(type_id) = entering.take() {
-                let at = &self.at;
-                self.meter
-                    .charge(1, || at.clone())
-                    .map_err(LeafWalkEnd::Work)?;
-                let (position, kind) =
-                    structural_type(&type_id, self.nodes, self.kinds, self.index)
-                        .ok_or(LeafWalkEnd::Unresolved)?;
-                let count = *self.memo.get(&position).ok_or(LeafWalkEnd::Unresolved)?;
-                if count > 0 && kind != CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
-                    frames.push((position, 0));
-                } else {
-                    if count > 0 {
-                        let leaf = supplied.get(emitted).ok_or(LeafWalkEnd::Unresolved)?;
-                        if !leaf
-                            .path
-                            .iter()
-                            .map(AsRef::as_ref)
-                            .eq(path.iter().map(AsRef::as_ref))
-                        {
-                            return Ok(Err((emitted, "path")));
-                        }
-                        let lawful = matches!(
-                            leaf.laws.as_slice(),
-                            [law] if law.role_class() == Some(LawRole::TextProfile)
-                                && text_laws.contains(&law.definition)
-                        );
-                        if !lawful {
-                            return Ok(Err((emitted, "laws")));
-                        }
-                        pins.push(
-                            text_profile_pin(&type_id, self)?.ok_or(LeafWalkEnd::Unresolved)?,
-                        );
-                        emitted += 1;
-                    }
-                    if frames.is_empty() {
-                        return Ok(Ok(pins));
+        self.open = OpenComposites::default();
+        let mut visited = self.visit(&root, &path, supplied, text_laws, &mut pins)?;
+        'walk: loop {
+            match visited {
+                Visited::Fault(fault) => return Ok(Err(fault)),
+                Visited::Done => {
+                    if self.stack.is_empty() {
+                        break 'walk;
                     }
                     path.pop();
                 }
+                Visited::Descended => {}
             }
-            let Some(top) = frames.last_mut() else {
-                return Ok(Ok(pins));
+            visited = loop {
+                let Some(frame) = self.stack.last_mut() else {
+                    break 'walk;
+                };
+                let expansion = Rc::clone(&frame.expansion);
+                if let Some(child) = expansion.children.get(frame.next) {
+                    frame.next += 1;
+                    path.push(child.segment.clone());
+                    break self.visit(child, &path, supplied, text_laws, &mut pins)?;
+                }
+                if let Some(frame) = self.stack.pop() {
+                    if frame.expansion.anchor == Anchor::Composite {
+                        self.open.close(frame.position, frame.component);
+                    }
+                }
+                if !self.stack.is_empty() {
+                    path.pop();
+                }
             };
-            let child = self
-                .kids
-                .get(&top.0)
-                .ok_or(LeafWalkEnd::Unresolved)?
-                .get(top.1);
-            if let Some((segment, child)) = child {
-                top.1 += 1;
-                path.push(segment.clone());
-                entering = Some(child.clone());
-            } else {
-                frames.pop();
-                if !frames.is_empty() {
-                    path.pop();
-                }
-            }
         }
+        Ok(match supplied.get(pins.len()) {
+            None => Ok(pins),
+            Some(leaf) if is_recursion_leaf(leaf) => Err(LeafFault::Member(pins.len(), "path")),
+            Some(_) => Err(LeafFault::Unplaced(pins.len())),
+        })
+    }
+
+    /// One edge of the derivation, entered with `path` ending in its segment:
+    /// a text leaf or a reentry that derives a recursion leaf is compared
+    /// with the next supplied entry; a node that derives nothing is skipped
+    /// when its memoised count says so; any other is descended into. Every
+    /// edge is one unit of work.
+    fn visit(
+        &mut self,
+        edge: &LeafChild,
+        path: &[Box<str>],
+        supplied: &[OperationLeafWire],
+        text_laws: &[CheckedArtifactRef],
+        pins: &mut Vec<Option<Box<str>>>,
+    ) -> Result<Visited, LeafWalkEnd> {
+        self.charge()?;
+        let placed = pins.len();
+        if edge.kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Text) {
+            let pin = text_profile_pin(&edge.target, self)?.ok_or(LeafWalkEnd::Unresolved)?;
+            let Some(leaf) = supplied.get(placed) else {
+                return Ok(Visited::Fault(LeafFault::Missing));
+            };
+            let lawful = matches!(
+                leaf.laws.as_slice(),
+                [law] if law.role_class() == Some(LawRole::TextProfile)
+                    && text_laws.contains(&law.definition)
+            );
+            if is_recursion_leaf(leaf) || !path_is(leaf, path, None) {
+                return Ok(Visited::Fault(LeafFault::Member(placed, "path")));
+            }
+            if !lawful {
+                return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
+            }
+            pins.push(Some(pin));
+            return Ok(Visited::Done);
+        }
+        let component = self.component(edge.position)?;
+        if let Some(depth) = self.open.depth_of(edge.position) {
+            if self.reaches_text(component)? {
+                let Some(leaf) = supplied.get(placed) else {
+                    return Ok(Visited::Fault(LeafFault::Missing));
+                };
+                let segment = format!("recursion:{depth}");
+                if !is_recursion_leaf(leaf) || !path_is(leaf, path, Some(&segment)) {
+                    return Ok(Visited::Fault(LeafFault::Member(placed, "path")));
+                }
+                if !leaf.laws.is_empty() {
+                    return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
+                }
+                pins.push(None);
+            }
+            return Ok(Visited::Done);
+        }
+        let expansion = self.expansion(edge.position)?;
+        let closed = !self.open.touches(component);
+        if expansion.children.is_empty() || (closed && self.memo.get(&edge.position) == Some(&0)) {
+            return Ok(Visited::Done);
+        }
+        if expansion.anchor == Anchor::Composite {
+            self.open.open(edge.position, component, path.len());
+        }
+        self.stack.push(LeafFrame {
+            position: edge.position,
+            component,
+            expansion,
+            next: 0,
+            total: 0,
+            closed,
+        });
+        Ok(Visited::Descended)
     }
 }
 
 /// QSpec FR-322: for an entry naming a leaf source, `operation.leaves` lists,
 /// in declaration order, one entry for every `text` leaf of the compared
 /// type, each with that leaf's path (`field:<name>`, `position:<n>`, `inner`)
-/// and one `text_profile` law. A type with none takes an empty list; fewer
-/// entries than text leaves is `operation-law-missing`, and more entries, a
-/// wrong or misordered path, or a leaf whose laws are not exactly one
-/// catalogued `text_profile` definition is `operation-law-mismatch`; a leaf
-/// law the lock does not select is `operation-law-unselected`. Each leaf's
-/// `mode` must be a catalogued `text_profile` mode (`operation-mode-mismatch`
-/// when absent, of another kind or of an uncatalogued value) and equal the
-/// profile its text type pins (`operation-mode-type-mismatch`).
+/// and one `text_profile` law. A type that reaches itself through a record or
+/// tuple is admitted (FR-038, "Recursive compared types"): its text leaves are
+/// followed by, at each reentry into a composite from which text is
+/// reachable, a recursion leaf `{path: p + "recursion:<d>", laws: [], mode:
+/// null}`, a stated deviation from QSpec's schema. A type with no leaf takes
+/// an empty list; fewer entries than derived leaves is `operation-law-missing`,
+/// and then one in-order pass places each supplied entry: a leaf that is not
+/// the one derived for its place (a wrong or misordered path, a recursion leaf
+/// anywhere it is not derived), an extra one, or a text leaf whose laws are not
+/// exactly one catalogued `text_profile` definition is
+/// `operation-law-mismatch`; a leaf law the lock does not select is
+/// `operation-law-unselected`. Each text leaf's `mode` must be a catalogued
+/// `text_profile` mode (`operation-mode-mismatch` when absent, of another kind
+/// or of an uncatalogued value) and equal the profile its text type pins
+/// (`operation-mode-type-mismatch`); a recursion leaf carries no mode.
 /// `result_inner` expects leaves only for a `set`, `bag` or `ordered_set`
 /// result; any other result expects none, so a supplied leaf is a mismatch. A
-/// compared type that reaches itself, has a node that does not resolve, or
-/// has a text leaf pinning no profile is `ill_typed`/`operator-ineligible`;
+/// compared type that has a node that does not resolve, a text leaf pinning no
+/// profile, or an option or collection that leads back to itself with no
+/// record or tuple between the two visits is `ill_typed`/`operator-ineligible`;
 /// one too large for the work budget is the budget's refusal. A `float32` or
 /// `float64` leaf counts as no text leaf where the reference reader finds the
 /// type undecidable. A compared type this reader cannot resolve from the first
@@ -2112,47 +2531,34 @@ fn check_leaf_count(
             )))
         };
     };
-    let mut walk = LeafWalk {
-        nodes,
-        kinds,
-        index,
-        meter,
-        at: at.clone(),
-        memo: BTreeMap::new(),
-        pins: BTreeMap::new(),
-        kids: BTreeMap::new(),
-        stack: Vec::new(),
-        on_stack: BTreeSet::new(),
-    };
+    let mut walk = LeafWalk::new(*graph, meter, at.clone());
     let refuse = |code, path: JsonPointer, cause| Ok(Some(application.refuse(code, path, cause)));
-    let supplied = operation.leaves.len();
-    let walked = walk.count(&compared).and_then(|expected| {
-        if supplied != expected {
-            return Ok(Err(expected));
+    let walked = walk.count(&compared).and_then(|derived| {
+        if operation.leaves.len() < derived {
+            return Ok(Err(LeafFault::Missing));
         }
         let text_laws = catalog
             .law_role_definitions(LawRole::TextProfile)
             .unwrap_or_default();
         walk.first_leaf_fault(&compared, &operation.leaves, text_laws)
-            .map(Ok)
     });
     match walked {
-        Ok(Err(expected)) if supplied < expected => refuse(
+        Ok(Err(LeafFault::Missing)) => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
             at,
             CheckedPackageRefusalCause::OperationLawMissing,
         ),
-        Ok(Err(expected)) => refuse(
+        Ok(Err(LeafFault::Unplaced(leaf))) => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
-            at.index(expected),
+            at.index(leaf),
             CheckedPackageRefusalCause::OperationLawMismatch,
         ),
-        Ok(Ok(Err((leaf, member)))) => refuse(
+        Ok(Err(LeafFault::Member(leaf, member))) => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
             at.index(leaf).key(member),
             CheckedPackageRefusalCause::OperationLawMismatch,
         ),
-        Ok(Ok(Ok(pins))) => {
+        Ok(Ok(pins)) => {
             // Every leaf now carries its one catalogued law; the lock must
             // select it, then each mode must be a catalogued `text_profile`
             // and the profile its leaf's type pins.
@@ -2168,9 +2574,12 @@ fn check_leaf_count(
                     CheckedPackageRefusalCause::OperationLawUnselected,
                 );
             }
-            for (at_leaf, leaf) in operation.leaves.iter().enumerate() {
+            for (at_leaf, (leaf, pin)) in operation.leaves.iter().zip(&pins).enumerate() {
                 let leaf_at = at.clone().index(at_leaf);
                 let admitted = match &leaf.mode {
+                    // A recursion leaf carries no mode.
+                    Some(_) if pin.is_none() => Err(leaf_at.clone().key("mode")),
+                    None if pin.is_none() => Ok(()),
                     None => Err(leaf_at.clone().key("mode")),
                     Some(mode) if mode.kind_class() != Some(OperationModeKind::TextProfile) => {
                         Err(leaf_at.clone().key("mode").key("kind"))
@@ -2192,6 +2601,7 @@ fn check_leaf_count(
                 }
             }
             for (at_leaf, (leaf, pin)) in operation.leaves.iter().zip(&pins).enumerate() {
+                let Some(pin) = pin else { continue };
                 if leaf.mode.as_ref().is_some_and(|mode| mode.value != *pin) {
                     return refuse(
                         CheckedPackageRefusalCode::InvalidPackage,
@@ -2202,7 +2612,7 @@ fn check_leaf_count(
             }
             Ok(None)
         }
-        Err(LeafWalkEnd::Cycle | LeafWalkEnd::Unresolved) => refuse(
+        Err(LeafWalkEnd::Unresolved) => refuse(
             CheckedPackageRefusalCode::IllTyped,
             at,
             CheckedPackageRefusalCause::OperatorIneligible,
@@ -4309,29 +4719,51 @@ mod tests {
         }
     }
 
-    /// A type that reaches itself is `ill_typed`/`operator-ineligible`, and a
-    /// field whose type is not in the graph is the same refusal.
+    /// A cycle through an option or collection alone, with no record or
+    /// tuple between the two visits, is `ill_typed`/`operator-ineligible`
+    /// (also under a work limit that would be exhausted by following it), a
+    /// field whose type is not in the graph is the same refusal, and a type
+    /// that reaches itself through a record is admitted (FR-038-AC-70).
     ///
     /// Tracing: TC-048, FR-038-AC-43
     #[trace("TC-048", "FR-038-AC-43")]
     #[test]
-    fn tc_048_leaf_walk_refuses_a_cycle_and_an_unresolved_node() {
-        let cyclic = vec![
-            record_type_node('r', &[("name", 'x'), ("next", 'o')]),
-            collection_type_node('o', "option", 'r'),
+    fn tc_048_leaf_walk_refuses_a_record_free_cycle_and_an_unresolved_node() {
+        let (_, locus) = leaves_defect("quire.op.structural.eq", json!([]), vec![], ['r', 'r']);
+        let option_of_itself = vec![
+            collection_type_node('o', "option", 'o'),
             scalar_type_node('x', "text"),
         ];
-        let (_, locus) = leaves_defect("quire.op.structural.eq", json!([]), vec![], ['r', 'r']);
         assert_eq!(
-            eq_over('r', cyclic),
+            eq_over('o', option_of_itself),
             leaves_ineligible(locus.clone()),
-            "cycle"
+            "option of itself"
+        );
+        let through_a_record = vec![
+            record_type_node('r', &[("name", 'x'), ("next", 'o')]),
+            collection_type_node('o', "option", 's'),
+            collection_type_node('s', "sequence", 'o'),
+            scalar_type_node('x', "text"),
+        ];
+        assert_eq!(
+            eq_over('r', through_a_record),
+            leaves_ineligible(locus.clone()),
+            "a record holding a field of a record-free cycle"
         );
         let dangling = vec![record_type_node('r', &[("f", 'm')])];
         assert_eq!(
             eq_over('r', dangling),
             leaves_ineligible(locus),
             "unresolved"
+        );
+        let record_cycle = vec![
+            record_type_node('r', &[("next", 'o')]),
+            collection_type_node('o', "option", 'r'),
+        ];
+        assert_eq!(
+            eq_over('r', record_cycle),
+            Ok(None),
+            "a record that reaches itself and no text admits with `leaves` empty"
         );
     }
 
@@ -4373,7 +4805,7 @@ mod tests {
 
     /// The leaf count settles before any leaf's mode: with a leaf whose mode
     /// disagrees with its field's pinned rounding, too few leaves are
-    /// `operation-law-missing` and a cyclic type is
+    /// `operation-law-missing` and a record-free cycle is
     /// `ill_typed`/`operator-ineligible`, not `operation-mode-type-mismatch`.
     ///
     /// Tracing: TC-048, FR-038-AC-43
@@ -4419,9 +4851,9 @@ mod tests {
         assert_eq!(result, leaves_missing(locus), "too few leaves");
         let (result, locus) = run(
             &[("f", 'f'), ("next", 'o')],
-            vec![collection_type_node('o', "option", 'r')],
+            vec![collection_type_node('o', "option", 'o')],
         );
-        assert_eq!(result, leaves_ineligible(locus), "cyclic type");
+        assert_eq!(result, leaves_ineligible(locus), "record-free cycle");
     }
 
     /// Records sharing field types are counted once per type node: 12 levels
@@ -4523,6 +4955,649 @@ mod tests {
             ['a', 'b'],
         );
         assert_eq!(result, leaves_mismatch(locus, "/0/path"), "39 segments");
+    }
+
+    /// A text leaf at `path` whose type pins `profile`.
+    fn text_leaf_pinning(path: &[&str], profile: &str) -> Value {
+        let mut leaf = text_leaf(path);
+        leaf["mode"]["value"] = json!(profile);
+        leaf
+    }
+
+    /// A recursion leaf at `path`: no laws and no mode.
+    fn recursion_leaf(path: &[&str]) -> Value {
+        json!({ "path": path, "laws": [], "mode": null })
+    }
+
+    /// A text type keyed `id_byte` binding `profile` over the `text` scalar
+    /// keyed `T` ([`unpinned_text_node`]).
+    fn profiled_text_node(id_byte: char, profile: &str) -> CheckedSemanticNodeV2 {
+        graph_node(
+            id_byte,
+            "bounded_domain",
+            "text_bounds",
+            &node_id('T'),
+            json!({
+                "term": "aggregate",
+                "members": [{
+                    "term": "binding",
+                    "name": "text_profile",
+                    "value": { "term": "literal", "value": profile },
+                }],
+            }),
+        )
+    }
+
+    /// `structural.eq` over two parameters of the type keyed `root`, with
+    /// `leaves` supplied, against `types`.
+    fn eq_leaves(
+        root: char,
+        mut types: Vec<CheckedSemanticNodeV2>,
+        leaves: Value,
+    ) -> (
+        Result<Option<ValidationFailure>, ValidationFailure>,
+        CheckedNodeId,
+    ) {
+        types.push(parameter_of('a', root));
+        types.push(parameter_of('b', root));
+        leaves_defect("quire.op.structural.eq", leaves, types, ['a', 'b'])
+    }
+
+    /// `record Node { label: Text[nfc]; next?: Node; }`, keyed `N`, its
+    /// option `o`, its text `x` and the unpinned scalar `T`.
+    fn node_types() -> Vec<CheckedSemanticNodeV2> {
+        vec![
+            record_type_node('N', &[("label", 'x'), ("next", 'o')]),
+            collection_type_node('o', "option", 'N'),
+            profiled_text_node('x', "nfc"),
+            unpinned_text_node('T'),
+        ]
+    }
+
+    /// The leaves `Node` derives: its text leaf, then the recursion leaf at
+    /// the reentry `next`, `inner`, the composite entered at depth 0.
+    fn node_leaves() -> [Value; 2] {
+        [
+            text_leaf(&["field:label"]),
+            recursion_leaf(&["field:next", "inner", "recursion:0"]),
+        ]
+    }
+
+    /// Equality over a record that reaches itself is admitted with its text
+    /// leaf followed by the recursion leaf at the reentry; the text leaf
+    /// alone, the recursion leaf alone, and a second text leaf after both are
+    /// each refused where the spec places them.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_equality_over_a_recursive_record_requires_its_recursion_leaf() {
+        let [label, recursion] = node_leaves();
+        let (result, _) = eq_leaves('N', node_types(), json!([label, recursion]));
+        assert_eq!(result, Ok(None), "text leaf and recursion leaf");
+
+        let (result, locus) = eq_leaves('N', node_types(), json!([label]));
+        assert_eq!(result, leaves_missing(locus), "text leaf alone");
+        let (result, locus) = eq_leaves('N', node_types(), json!([recursion]));
+        assert_eq!(result, leaves_missing(locus), "recursion leaf alone");
+        let (result, locus) = eq_leaves('N', node_types(), json!([]));
+        assert_eq!(result, leaves_missing(locus), "no leaves");
+
+        let (result, locus) = eq_leaves(
+            'N',
+            node_types(),
+            json!([label, recursion, text_leaf(&["field:label"])]),
+        );
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/2"),
+            "a second text leaf has no place left"
+        );
+    }
+
+    /// The recursion leaf's `d` is the number of path segments the reentered
+    /// composite was entered at: `Option<Node>` enters `Node` one segment in.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_recursion_leaf_depth_counts_the_segments_the_composite_was_entered_at() {
+        let mut types = node_types();
+        types.push(collection_type_node('p', "option", 'N'));
+        let (result, _) = eq_leaves(
+            'p',
+            types.clone(),
+            json!([
+                text_leaf(&["inner", "field:label"]),
+                recursion_leaf(&["inner", "field:next", "inner", "recursion:1"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None), "Option<Node>");
+        let (result, locus) = eq_leaves(
+            'p',
+            types,
+            json!([
+                text_leaf(&["inner", "field:label"]),
+                recursion_leaf(&["inner", "field:next", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/1/path"),
+            "d is 1 here, not 0"
+        );
+    }
+
+    /// Two records that reach each other in one package: compared at either,
+    /// each leaf carries the mode its own text type pins, and the recursion
+    /// leaf is at the reentry into the composite compared.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_mutually_recursive_records_derive_a_recursion_leaf_at_either_end() {
+        // A { name: Text[binary-utf8]; b?: B }, B { tag: Text[nfc]; a?: A }.
+        let types = || {
+            vec![
+                record_type_node('P', &[("name", 'y'), ("b", 'u')]),
+                collection_type_node('u', "option", 'Q'),
+                record_type_node('Q', &[("tag", 'x'), ("a", 'v')]),
+                collection_type_node('v', "option", 'P'),
+                profiled_text_node('x', "nfc"),
+                profiled_text_node('y', "binary-utf8"),
+                unpinned_text_node('T'),
+            ]
+        };
+        let (result, _) = eq_leaves(
+            'P',
+            types(),
+            json!([
+                text_leaf_pinning(&["field:name"], "binary-utf8"),
+                text_leaf_pinning(&["field:b", "inner", "field:tag"], "nfc"),
+                recursion_leaf(&["field:b", "inner", "field:a", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None), "compared at A");
+        let (result, _) = eq_leaves(
+            'Q',
+            types(),
+            json!([
+                text_leaf_pinning(&["field:tag"], "nfc"),
+                text_leaf_pinning(&["field:a", "inner", "field:name"], "binary-utf8"),
+                recursion_leaf(&["field:a", "inner", "field:b", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None), "compared at B");
+    }
+
+    /// A record that two sibling fields both name is not a cycle: its leaves,
+    /// recursion leaf included, are derived under each path, and a list
+    /// lacking either recursion leaf is `operation-law-missing`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_a_record_named_by_two_fields_derives_its_leaves_under_each() {
+        let mut types = node_types();
+        types.push(record_type_node('W', &[("x", 'N'), ("y", 'N')]));
+        let leaves = [
+            text_leaf(&["field:x", "field:label"]),
+            recursion_leaf(&["field:x", "field:next", "inner", "recursion:1"]),
+            text_leaf(&["field:y", "field:label"]),
+            recursion_leaf(&["field:y", "field:next", "inner", "recursion:1"]),
+        ];
+        let (result, _) = eq_leaves('W', types.clone(), json!(leaves));
+        assert_eq!(result, Ok(None), "Two");
+        for lacking in [1, 3] {
+            let mut without = leaves.to_vec();
+            without.remove(lacking);
+            let (result, locus) = eq_leaves('W', types.clone(), json!(without));
+            assert_eq!(
+                result,
+                leaves_missing(locus),
+                "lacking the recursion leaf at {lacking}"
+            );
+        }
+    }
+
+    /// Recursion through a collection and through a tuple.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_recursion_through_a_sequence_and_a_tuple_is_admitted() {
+        let tree = vec![
+            record_type_node('E', &[("label", 'y'), ("kids", 'k')]),
+            collection_type_node('k', "sequence", 'E'),
+            profiled_text_node('y', "binary-utf8"),
+            unpinned_text_node('T'),
+        ];
+        let (result, _) = eq_leaves(
+            'E',
+            tree,
+            json!([
+                text_leaf_pinning(&["field:label"], "binary-utf8"),
+                recursion_leaf(&["field:kids", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None), "Tree2");
+
+        // Pair = (Text[nfc], Option<Pair>).
+        let pair = vec![
+            tuple_type_node('Z', &['x', 'o']),
+            collection_type_node('o', "option", 'Z'),
+            profiled_text_node('x', "nfc"),
+            unpinned_text_node('T'),
+        ];
+        let (result, _) = eq_leaves(
+            'Z',
+            pair,
+            json!([
+                text_leaf(&["position:0"]),
+                recursion_leaf(&["position:1", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None), "Pair");
+    }
+
+    /// `Wrap { y: Y; x: X }` over `X { t: Text; n?: Y }` and
+    /// `Y { u: Text; x?: X }`: `Y` counts 2 text leaves under `field:y` and 1
+    /// under `field:x`, where `X` is open and reachable from it, so a count
+    /// memoised for `Y` once is not reused there. Four text leaves and two
+    /// recursion leaves.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_a_memoised_count_is_not_reused_where_a_reachable_composite_is_open() {
+        let types = || {
+            vec![
+                record_type_node('X', &[("t", 'x'), ("n", 'm')]),
+                collection_type_node('m', "option", 'Y'),
+                record_type_node('Y', &[("u", 'x'), ("x", 'n')]),
+                collection_type_node('n', "option", 'X'),
+                record_type_node('W', &[("y", 'Y'), ("x", 'X')]),
+                profiled_text_node('x', "nfc"),
+                unpinned_text_node('T'),
+            ]
+        };
+        let derived = [
+            text_leaf(&["field:y", "field:u"]),
+            text_leaf(&["field:y", "field:x", "inner", "field:t"]),
+            recursion_leaf(&[
+                "field:y",
+                "field:x",
+                "inner",
+                "field:n",
+                "inner",
+                "recursion:1",
+            ]),
+            text_leaf(&["field:x", "field:t"]),
+            text_leaf(&["field:x", "field:n", "inner", "field:u"]),
+            recursion_leaf(&[
+                "field:x",
+                "field:n",
+                "inner",
+                "field:x",
+                "inner",
+                "recursion:1",
+            ]),
+        ];
+        let (result, _) = eq_leaves('W', types(), json!(derived));
+        assert_eq!(result, Ok(None), "all six");
+
+        let texts: Vec<Value> = [0, 1, 3, 4].iter().map(|at| derived[*at].clone()).collect();
+        let (result, locus) = eq_leaves('W', types(), json!(texts));
+        assert_eq!(result, leaves_missing(locus), "the four text leaves alone");
+
+        // The derived count settles before any entry is placed: five entries,
+        // one of them at a wrong path, are missing a leaf, not mismatched. A
+        // count of five (one memo for `Y` regardless of the open set) would
+        // place them and refuse the wrong path instead.
+        let mut five = derived[..5].to_vec();
+        five[1] = text_leaf(&["field:y", "field:x", "inner", "field:q"]);
+        let (result, locus) = eq_leaves('W', types(), json!(five));
+        assert_eq!(result, leaves_missing(locus), "five of six, one misplaced");
+
+        let mut seven = derived.to_vec();
+        seven.push(text_leaf(&["field:x", "field:t"]));
+        let (result, locus) = eq_leaves('W', types(), json!(seven));
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/6"),
+            "a further text leaf after all six"
+        );
+    }
+
+    /// Two optional text fields name one option node, which is no revisit:
+    /// the note on it is dropped when the walk leaves it.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_one_option_node_serving_two_fields_is_not_a_cycle() {
+        let types = vec![
+            record_type_node('R', &[("a", 'o'), ("b", 'o')]),
+            collection_type_node('o', "option", 'x'),
+            profiled_text_node('x', "nfc"),
+            unpinned_text_node('T'),
+        ];
+        let (result, _) = eq_leaves(
+            'R',
+            types,
+            json!([
+                text_leaf(&["field:a", "inner"]),
+                text_leaf(&["field:b", "inner"]),
+            ]),
+        );
+        assert_eq!(result, Ok(None));
+
+        // The same where no memoised count applies, since the option leads
+        // back to the open record: `R { t: Text; a?: R; b?: R }`, one option
+        // node for both fields, entered twice in turn.
+        let types = vec![
+            record_type_node('R', &[("t", 'x'), ("a", 'o'), ("b", 'o')]),
+            collection_type_node('o', "option", 'R'),
+            profiled_text_node('x', "nfc"),
+            unpinned_text_node('T'),
+        ];
+        let (result, _) = eq_leaves(
+            'R',
+            types,
+            json!([
+                text_leaf(&["field:t"]),
+                recursion_leaf(&["field:a", "inner", "recursion:0"]),
+                recursion_leaf(&["field:b", "inner", "recursion:0"]),
+            ]),
+        );
+        assert_eq!(
+            result,
+            Ok(None),
+            "an option in the cycle serving two fields"
+        );
+    }
+
+    /// A recursive record that reaches no `text` type expects nothing, not
+    /// even a recursion leaf: `structural.eq` and `collection.contains`
+    /// admit with `leaves` empty.
+    ///
+    /// Tracing: TC-048, FR-038-AC-70
+    #[trace("TC-048", "FR-038-AC-70")]
+    #[test]
+    fn tc_048_a_recursive_record_without_text_expects_no_leaves() {
+        let list = || {
+            vec![
+                record_type_node('L', &[("head", 'i'), ("tail", 'o')]),
+                collection_type_node('o', "option", 'L'),
+                scalar_type_node('i', "integer"),
+            ]
+        };
+        let (result, _) = eq_leaves('L', list(), json!([]));
+        assert_eq!(result, Ok(None), "structural.eq");
+
+        let mut set = list();
+        set.push(collection_type_node('s', "set", 'L'));
+        set.push(parameter_of('a', 's'));
+        set.push(parameter_of('b', 'L'));
+        let (result, _) = leaves_defect("quire.op.collection.contains", json!([]), set, ['a', 'b']);
+        assert_eq!(result, Ok(None), "collection.contains");
+    }
+
+    /// A recursion leaf is a leaf of its own place: before the text leaf, at
+    /// a wrong path, with a wrong `d`, a second one, one at a reentry of a
+    /// type with no text, one carrying a law and one carrying a mode are each
+    /// refused where the spec places them.
+    ///
+    /// Tracing: TC-048, FR-038-AC-71
+    #[trace("TC-048", "FR-038-AC-71")]
+    #[test]
+    fn tc_048_a_recursion_leaf_is_refused_wherever_it_is_not_derived() {
+        let [label, recursion] = node_leaves();
+        let run = |leaves: Value| eq_leaves('N', node_types(), leaves);
+        let refused = |leaves: Value, suffix: &str| {
+            let (result, locus) = run(leaves);
+            (result, leaves_mismatch(locus, suffix))
+        };
+
+        let (result, expected) = refused(json!([recursion, label]), "/0/path");
+        assert_eq!(result, expected, "before the text leaf");
+        let (result, expected) = refused(
+            json!([label, recursion_leaf(&["field:next", "recursion:0"])]),
+            "/1/path",
+        );
+        assert_eq!(result, expected, "a wrong prefix");
+        let (result, expected) = refused(
+            json!([
+                label,
+                recursion_leaf(&["field:next", "inner", "recursion:1"])
+            ]),
+            "/1/path",
+        );
+        assert_eq!(result, expected, "a wrong d");
+        let (result, expected) = refused(json!([label, recursion, recursion]), "/2/path");
+        assert_eq!(result, expected, "a second recursion leaf");
+
+        let mut lawful = recursion.clone();
+        lawful["laws"] = json!([law_json("text_profile", text_law_definition())]);
+        let (result, expected) = refused(json!([label, lawful]), "/1/laws");
+        assert_eq!(result, expected, "a recursion leaf with a law");
+
+        let mut moded = recursion.clone();
+        moded["mode"] = json!({ "kind": "text_profile", "value": "nfc" });
+        let (result, locus) = run(json!([label, moded]));
+        assert_eq!(
+            result,
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/1/mode",
+                CheckedPackageRefusalCause::OperationModeMismatch,
+            ),
+            "a recursion leaf with a mode"
+        );
+
+        let list = vec![
+            record_type_node('L', &[("head", 'i'), ("tail", 'o')]),
+            collection_type_node('o', "option", 'L'),
+            scalar_type_node('i', "integer"),
+        ];
+        let (result, locus) = eq_leaves(
+            'L',
+            list,
+            json!([recursion_leaf(&["field:tail", "inner", "recursion:0"])]),
+        );
+        assert_eq!(
+            result,
+            leaves_mismatch(locus, "/0/path"),
+            "a reentry into a composite that reaches no text"
+        );
+    }
+
+    /// A text leaf inside a recursive record whose type binds no profile is
+    /// still ineligible, with the leaves supplied or not; a leaf law the lock
+    /// does not select is still `operation-law-unselected`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-71
+    #[trace("TC-048", "FR-038-AC-71")]
+    #[test]
+    fn tc_048_a_recursive_record_keeps_the_text_leaf_refusals() {
+        let unpinned = || {
+            vec![
+                record_type_node('N', &[("label", 'T'), ("next", 'o')]),
+                collection_type_node('o', "option", 'N'),
+                unpinned_text_node('T'),
+            ]
+        };
+        for leaves in [json!([]), json!(node_leaves())] {
+            let (result, locus) = eq_leaves('N', unpinned(), leaves);
+            assert_eq!(result, leaves_ineligible(locus));
+        }
+
+        let mut types = node_types();
+        types.push(parameter_of('a', 'N'));
+        types.push(parameter_of('b', 'N'));
+        let (result, locus) = leaves_defect_locked(
+            "quire.op.structural.eq",
+            json!(node_leaves()),
+            types,
+            ['a', 'b'],
+            None,
+            &empty_lock(),
+        );
+        assert_eq!(
+            result,
+            leaves_refused(
+                locus,
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/0/laws/0/definition",
+                CheckedPackageRefusalCause::OperationLawUnselected,
+            )
+        );
+    }
+
+    /// The work `operation_defect` consumed to admit `structural.eq` over
+    /// parameters of the type keyed `root`, with `leaves` supplied.
+    fn eq_work(root: char, mut types: Vec<CheckedSemanticNodeV2>, leaves: Value) -> u64 {
+        types.push(parameter_of('a', root));
+        types.push(parameter_of('b', root));
+        let mut operation = plain_operation("quire.op.structural.eq");
+        operation["leaves"] = leaves;
+        let application = custom_application_node(
+            "binary",
+            operation,
+            ['a', 'b'].into_iter().map(reference_to).collect(),
+        );
+        let mut nodes = vec![application];
+        nodes.append(&mut types);
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        for (position, node) in nodes.iter().enumerate() {
+            index.insert(&node.node_id, position);
+        }
+        let mut meter = WorkMeter::new(1_000_000);
+        let kinds = kinds_of(&nodes);
+        let result = operation_defect(
+            Application {
+                node: &nodes[0],
+                position: 0,
+            },
+            &Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+            },
+            &text_selecting_lock(),
+            &ModelOwners::default(),
+            DependencyReferences::new(&SuppliedDependencies::default()),
+            operation_catalog(),
+            &mut meter,
+        );
+        assert_eq!(result, Ok(None), "the comparison admits");
+        meter.consumed()
+    }
+
+    /// Every edge entered is one unit of work, a reentry edge included: a
+    /// record that holds one more optional field of itself costs the edge
+    /// into the option and the edge from it back to the record, once in the
+    /// count and once in the pass, and the budget is what bounds a cycle.
+    ///
+    /// Tracing: TC-048, FR-038-AC-72
+    #[trace("TC-048", "FR-038-AC-72")]
+    #[test]
+    fn tc_048_each_reentry_edge_is_one_unit_of_work() {
+        let work = |optionals: usize| {
+            let names: Vec<String> = (0..optionals).map(|at| format!("f{at}")).collect();
+            let mut fields = vec![("t", 'x')];
+            fields.extend(names.iter().map(|name| (name.as_str(), 'o')));
+            let types = vec![
+                record_type_node('R', &fields),
+                collection_type_node('o', "option", 'R'),
+                profiled_text_node('x', "nfc"),
+                unpinned_text_node('T'),
+            ];
+            let mut leaves = vec![text_leaf(&["field:t"])];
+            leaves.extend(names.iter().map(|name| {
+                let field = format!("field:{name}");
+                recursion_leaf(&[field.as_str(), "inner", "recursion:0"])
+            }));
+            eq_work('R', types, json!(leaves))
+        };
+        // Each added field is four units in the walks (two edges, in the
+        // count and again in the pass) and one for the recursion leaf it
+        // adds to the operation's own charge per supplied leaf.
+        let (one, two, three) = (work(1), work(2), work(3));
+        assert_eq!(two - one, 5, "one more optional field of the record");
+        assert_eq!(three - two, 5, "and one more");
+    }
+
+    /// The component search that decides where a memoised count applies is
+    /// charged one unit per reachable type node: an integer field added to a
+    /// record costs the node in the search, the edge in the count and the
+    /// edge in the pass, three units, where two would mean the search is free.
+    ///
+    /// Tracing: TC-048, FR-038-AC-72
+    #[trace("TC-048", "FR-038-AC-72")]
+    #[test]
+    fn tc_048_the_component_search_costs_one_unit_per_reachable_type_node() {
+        let work = |with_integer: bool| {
+            let mut fields = vec![("t", 'x')];
+            let mut types = vec![
+                profiled_text_node('x', "nfc"),
+                unpinned_text_node('T'),
+                scalar_type_node('i', "integer"),
+            ];
+            if with_integer {
+                fields.push(("n", 'i'));
+            }
+            types.push(record_type_node('R', &fields));
+            eq_work('R', types, json!([text_leaf(&["field:t"])]))
+        };
+        assert_eq!(work(true) - work(false), 3);
+    }
+
+    /// Only a cycle through a record or tuple is admitted: `T` as an
+    /// `Option` of itself, a `Sequence` of itself and a record holding a
+    /// field of such a type are `ill_typed`/`operator-ineligible` at a work
+    /// limit of 1000, never `incomplete` for `work`, while `R { x: Option<R> }`
+    /// admits.
+    ///
+    /// Tracing: TC-048, FR-038-AC-71
+    #[trace("TC-048", "FR-038-AC-71")]
+    #[test]
+    fn tc_048_a_cycle_through_no_record_or_tuple_is_refused_not_exhausted() {
+        let run = |root: char, types: Vec<CheckedSemanticNodeV2>| {
+            let mut graph = types;
+            graph.push(parameter_of('a', root));
+            graph.push(parameter_of('b', root));
+            leaves_defect_metered(
+                "quire.op.structural.eq",
+                json!([]),
+                graph,
+                ['a', 'b'],
+                None,
+                &text_selecting_lock(),
+                1000,
+            )
+        };
+        let (result, locus) = run('T', vec![collection_type_node('T', "option", 'T')]);
+        assert_eq!(result, leaves_ineligible(locus), "Option of itself");
+        let (result, locus) = run('T', vec![collection_type_node('T', "sequence", 'T')]);
+        assert_eq!(result, leaves_ineligible(locus), "Sequence of itself");
+        let (result, locus) = run(
+            'R',
+            vec![
+                record_type_node('R', &[("x", 'T')]),
+                collection_type_node('T', "option", 'T'),
+            ],
+        );
+        assert_eq!(result, leaves_ineligible(locus), "a record holding one");
+        let (result, _) = run(
+            'R',
+            vec![
+                record_type_node('R', &[("x", 'o')]),
+                collection_type_node('o', "option", 'R'),
+            ],
+        );
+        assert_eq!(result, Ok(None), "R {{ x: Option<R> }}");
     }
 
     /// `same_type` compares the type node each operand resolves to, not the

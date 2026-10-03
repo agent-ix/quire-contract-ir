@@ -797,7 +797,9 @@ itself). For a type none of whose nodes reaches an open composite, deriving them
 costs the supplied leaves times the nesting depth times the width of a node's
 fields, since a sibling holding no text is entered and skipped; for a type that
 reaches itself the work budget alone bounds the cost. Each visit is
-charged to the work budget. A compared type that names a node that is not in
+charged to the work budget. The component search that decides where a
+memoised count applies costs one work unit per reachable type node, charged to
+the same meter. A compared type that names a node that is not in
 the graph or is not shaped as its form requires refuses `ill_typed` with cause
 `operator-ineligible` at `operation.leaves`; so does a text leaf whose type,
 through its aliases and bounded domains, binds no `text_profile`. A compared
