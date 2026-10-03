@@ -1247,8 +1247,8 @@ fn first_inexact_number(
     }
 }
 
-/// The cause of a model-document number's refusal (FR-038-AC-109 and
-/// FR-038-AC-110), or `None` when the number is admitted. `text` is the
+/// The cause of a model-document number's refusal, or `None` when the number
+/// is admitted. `text` is the
 /// number as spelled in the document and `value` the double `quire-canonical`
 /// read from it. The decision is made on the text, never on a double:
 ///
