@@ -13,7 +13,7 @@ relationships:
 ## Description
 
 Verify FR-038-AC-6 (QSpec FR-195-AC-1 through FR-195-AC-5) and FR-038-AC-39
-through FR-038-AC-41 through the admitted V2 package API.
+through FR-038-AC-41 and FR-038-AC-73 through the admitted V2 package API.
 
 ## Test Procedure
 
@@ -53,3 +53,16 @@ fields are all bounded and whose nodes share one `recursion_group`.
 The first three return `requires_bound` naming `integer`; the bounded ones
 lower. The recursive record returns `requires_bound` naming the least offending
 node key.
+
+## Quantity positions (FR-038-AC-73)
+
+Under a bounds-required profile, lower a record whose field is typed at a
+`unit` node, a parameter typed at a `compound_unit` node, and
+`Sequence<Quantity>[0,3]` over a `unit` node, each with and without a
+`bounded_domain` whose `semantic_type` is the quantity node. Lower a `unit`
+declaration and a `compound_unit` node as the requested node, and a record with
+no quantity position whose closure reaches a unit only as a `literal.type`
+annotation.
+
+The first three return `requires_bound` naming the `unit` or `compound_unit`
+node, covered or not. The requested nodes and the annotation-only record lower.
