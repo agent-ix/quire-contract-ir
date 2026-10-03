@@ -292,10 +292,12 @@ from a sequence of sequences of `text` to a sequence of `text` with `leaves`
 empty and check it admits, then to a `set`, `bag` and `ordered_set` of `text`
 and check each refuses `operation-law-missing`; do the same for
 `collection.set` over `text`. Give a record a field naming a node that is not
-in the graph, and a type whose only cycle runs through an option, and check
-each refuses `ill_typed` with cause `operator-ineligible` at
-`operation.leaves`. Give a record a field that reaches the record again
-through an option and check it is no longer refused (FR-038-AC-70). Nest `text` under 40 options and check it refuses
+in the graph, and a type that reaches an option again with no record or tuple
+between the two visits, and check each refuses `ill_typed` with cause
+`operator-ineligible` at `operation.leaves`. Give a record a field that reaches
+the record again through an option and check it is no longer refused
+(FR-038-AC-70), and a record whose two optional text fields name one option node
+and check it admits. Nest `text` under 40 options and check it refuses
 `operation-law-missing`, and nest integers 2000 deep and check the work budget
 refuses. Chain 12 record levels of 4 fields each naming the next level and
 check it admits within the budget. Put a leaf whose mode disagrees with its
@@ -334,22 +336,21 @@ Compare the whole refusal code, cause and pointer with the expected one.
 ## Recursive compared types (FR-038-AC-70 through FR-038-AC-72)
 
 Declare `Node { label: Text[0, 8; nfc]; next?: Node; }` and apply
-`structural.eq` to two parameters of it with the one `field:label` leaf, and
-again with the recursion leaf `field:next`, `inner`, `recursion:0` after it, and
-check each admits, each node under the key derived from its own leaves and each
-refusing `stale-node-key` under the other's key. Compare `Option<Node>`, the
-mutually recursive `A` and `B` at `A` and at `B` in one package, `Two`,
+`structural.eq` to two parameters of it with the `field:label` leaf and the
+recursion leaf `field:next`, `inner`, `recursion:0` after it, and check it
+admits, and with the text leaf alone and the recursion leaf alone and check each
+refuses `operation-law-missing` at `operation.leaves`. Compare `Option<Node>`,
+the mutually recursive `A` and `B` at `A` and at `B` in one package, `Two`,
 `Tree2`, a declared tuple `Pair` and `Wrap` over `X` and `Y` with the leaves
-FR-038-AC-70 lists, each recursion leaf present and absent, and check each
-admits; compare a `List` of integers by `structural.eq` and `collection.contains`
-with `leaves` empty and check both admit. Give `Wrap` its first three leaves and
-then its four and a fifth, and check `operation-law-missing` and
-`operation-law-mismatch` at the fifth. Leave `Node`'s text leaf out, and supply
-the recursion leaf alone, and check `operation-law-missing`; add a second text
-leaf and check `operation-law-mismatch` at it. Supply the recursion leaves
-FR-038-AC-71 lists (a wrong segment, a wrong `d`, a second one, one with a law,
-one with a mode, one at a reentry of the integer `List`) and check the code,
-cause and pointer of each; bind no profile on a text type inside the cycle,
+FR-038-AC-70 lists, recursion leaves included, and check each admits; compare
+a `List` of integers by `structural.eq` and `collection.contains` with `leaves`
+empty and check both admit. Give `Wrap` its four text leaves alone, and then all
+six and a further text leaf, and check `operation-law-missing` and
+`operation-law-mismatch` at the seventh entry. Add a second text leaf after
+`Node`'s two leaves and check `operation-law-mismatch` at `operation.leaves/2`.
+Supply the recursion leaves FR-038-AC-71 lists (before the text leaf, a wrong
+segment, a wrong `d`, a second one, one with a law, one with a mode, one at a
+reentry of the integer `List`) and check the code, cause and pointer of each; bind no profile on a text type inside the cycle,
 unselect a leaf law, and use `T` as an `Option` of itself, a `Sequence` of itself
 and a record holding a field of such a type under a work limit of 1000, and check
 `operator-ineligible`, `operation-law-unselected` and `operator-ineligible`
