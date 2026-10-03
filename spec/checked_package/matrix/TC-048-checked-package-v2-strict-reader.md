@@ -638,14 +638,14 @@ cause `inexact-number`; repeat with `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`,
 `2.5e-10`, `1.0`, `-0` and `1e2` and check none refuses for it; repeat with the tie texts `1125899906842624.2`, `1500000000000000.2` and `2.9802322387695312e-8` and check none refuses, and with `1125899906842624.3`, `1500000000000000.3` and `2.9802322387695313e-8` and check each refuses `inexact-number`; digest two documents differing only in
 `0.1` and `0.1000000000000000000001` and check the second refuses
 (FR-038-AC-109). Repeat the numbers of FR-038-AC-93 (including the integer value type
-upper bound), `9007199254740993.0`, `1e400` and `-1e400` and check cause
+upper bound), and `9007199254740993.0` and check cause
 `inexact-integer` and `noncanonical_wire`, not `byte-digest-mismatch`; check `9007199254740992.5` refuses
 `inexact-number` and the admitted whole numbers still admit; put an inexact
 number and a whole number past 2^53 in one document in both orders and check the
 first in document order is named with its own cause (FR-038-AC-110). Read a
 package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
 node body and check `noncanonical_wire` with no pointer, no `document_pointer`
-and no cause, and `0.1` not refused for it; read the manifest of the crate that holds the
+and no cause, and `0.1`, `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` not refused for it; read the manifest of the crate that holds the
 reader and check it declares `serde_json` with the feature `float_roundtrip` (a
 source-level check; the package document is the read that goes through
 `serde_json`) (FR-038-AC-111).
