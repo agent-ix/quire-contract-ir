@@ -40,9 +40,11 @@ and FR-038-AC-89 through FR-038-AC-95 against every identity digest's move to
 `quire-canonical` (node keys, lowered identities, the nominal digest's byte
 limit, the absence of an encoder of this repository's own, a selected model
 document's integer check and byte limit, and the lowering byte ceiling), and
-FR-038-AC-96 through FR-038-AC-101 (QSpec FR-370 and FR-440) against the
-temporal, fairness, union and `case` nodes of a self-built package and the
-placement of their applications. FR-038-AC-66 is retired and has no case.
+FR-038-AC-96 through FR-038-AC-107 (QSpec FR-370 and FR-440) against the
+temporal, fairness, union and `case` nodes of a self-built package, the
+temporal step's placement, clause, profile-fit and interval-bound checks, and
+QSpec's own positive fixtures read from the QSpec checkout. FR-038-AC-66 is
+retired, its ID not reused (ADR-0056), and has no case.
 
 ## Test Procedure
 
@@ -143,7 +145,7 @@ with its `package_id` admits, under another identity `missing_import`/
 `stale_dependency`/`byte-digest-mismatch`; the same-identity pair refuses as
 stated. Compare the whole refusal code, cause and pointer.
 
-## Catalog words (FR-038-AC-65 through FR-038-AC-69)
+## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69)
 
 Read the production catalog and convert each of `case`, `temporal_formula`,
 `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` from its
@@ -182,49 +184,84 @@ the formula reference fits the sixth operand and the `any_term` position and not
 the `boolean` one, and the two members refuse `operation-member-mismatch`.
 Compare the whole refusal code, cause and pointer.
 
-## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-101)
+## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-107)
 
 Planned (IR-549 code change); the cases are authored here and have no test yet.
 Build, from this crate's own vocabulary and never from a copy of QSpec's
 fixtures, a package whose `temporal`/`formula` nodes apply each of the fifteen
-`temporal_formula` identities with their catalogued member and operands, a
-`temporal`/`fairness` node applying `quire.op.temporal.fair`, and a clause whose
-formula applies `quire.op.temporal.eventually` with the interval `{0, 3}` over
-`quire.op.temporal.holds`; read it, then lower it under a profile that supports
-the `temporal` tag and under one that does not (AC-96). On each of the eight
-interval operators read the member as `{0, 3}`, `{2, null}`, `null`, `{3, 0}`,
-a `fairness` member, an interval with a third member, a non-string `lower` and an
-`upper` of `"3x"`, and put a member on `holds`, `not` and the clause (AC-97). Read
+`temporal_formula` identities with their catalogued member and operands under a
+clause selecting a bounded profile, a `temporal`/`fairness` node applying
+`quire.op.temporal.fair` under a clause selecting `quire.temporal.infinite-trace/v1`,
+and a clause whose formula applies `quire.op.temporal.eventually` with the
+interval `{0, 3}` over `quire.op.temporal.holds`; read it, then lower it under a
+profile that supports the `temporal` tag and under one that does not (AC-96). On
+each of the eight interval operators read the member as `{0, 3}`, `{9, 10}`,
+`{-1, 3}`, `{2, null}`, `null` interval, `{3, 0}`, `{10, 9}`, `{2^64+1, 2^64}`,
+a `fairness` member, a `null` member, an interval with a third member, an integer
+`lower`, and bounds `"1.5"`, `"01"`, `"+1"`, `""` and `"3x"`, and put a member on
+`holds`, `not` and the clause (AC-97). Read
 the `fairness` member well formed with `weak`/`whole` and `strong`/`each`, then
 with `medium`, with `part`, without `name`, with an extra member, `null`, of kind
 `temporal_interval`, and on `quire.op.boolean.not` (AC-98). Build the `Shape`
 union, the `Shape::Rect(2, 3)` value and the three-arm `case` and read them; then
-read the `case` with its arms out of order, an arm omitted, a binder aggregate of
+read the `case` with its arms out of order, an arm omitted, an arm repeated, a binder aggregate of
 the wrong count, a binder of the wrong type and an arm body of another type; a
 union with a duplicated member and one with a non-type payload; and a union value
 naming an absent member, with a wrong payload count and with a payload of the
 wrong type (AC-99). Put an application of each of the four classes in a node of
 another form, as an element of another application's `arguments`, as a `binding`
 value, inside an `aggregate`, and as a root and as a nested term in a diagnostic
-entry's `details`; read each, then read each class at its own node root (AC-100).
-Compile the reader's refusal types for the code `unsupported_construct` and the
-cause `expression-form`, and lower the admitted `temporal`/`formula` and
-`expression`/`case` nodes under supporting and non-supporting profiles, comparing
-the lowered body and `ir_id` with the admitted node's (AC-101).
+entry's `details`; give a formula, fairness and clause node an empty `aggregate`
+body, a `literal` body and another class's application; reference a formula node
+from a `function` body, a fairness argument and a `case` argument, and a fairness
+node from a formula argument and a formula operand; read each, then read each
+class, node and reference at its own place (AC-100). Compile the reader's refusal
+types for the code `unsupported_construct` and the cause `expression-form`, read a
+diagnostics entry whose `code` is `unsupported_construct`, and lower the admitted
+`temporal`/`formula` and `expression`/`case` nodes under supporting and
+non-supporting profiles, comparing the lowered body and `ir_id` with the admitted
+node's (AC-101). Build a placement defect beside a lower-digest node with an
+unknown identity or a class mismatch, in both digest orders, two placement
+defects, and each adjacent pair of the order placement, `over`, fairness
+resolution, profile fit, bounds, in both digest orders (AC-102). Give a clause's
+`over` a `value`/`parameter` dependency, one that is no dependency and a
+`scalar_type` dependency, and a fairness member an existing operation, a missing
+name, an absent declaration and a non-`model` declaration (AC-103). Select
+`quire.temporal.event-position.false-extension/v1` and
+`quire.temporal.infinite-trace/v1` in turn over closed, `{lower, null}` and `null`
+intervals and an empty and a non-empty fairness argument, with a second clause
+whose tree shares no node with the first (AC-104). Give `holds` a formula
+reference and a Boolean reference, `until` one argument, `not` two, `true` one,
+`and` a Boolean reference and `not` a formula reference (AC-105). Compare two
+`Shape` values, a `Shape` and another union, a union reaching no `text` and, as an
+unpinned case, one reaching `text` (AC-106). Read the QSpec positive fixtures
+`positive-all-families.json`, `positive-clause-operations.json` and
+`positive-union-nodes.json` from the QSpec checkout, and compare the self-built
+packages' features with the fixtures' (AC-107).
 
 Expected: the package of AC-96 admits with its recorded identities and lowers or
-returns `unsupported` naming `temporal` as stated; AC-97's first three members
-admit, `{3, 0}` refuses `invalid_package`/`invalid-value` at `operation.member`
-and each other member `operation-member-mismatch` at `operation.member`; AC-98's
-two well-formed members admit and each other refuses `operation-member-mismatch`
-at `operation.member`; the `Shape` package admits and each defective `case`
-refuses `ill_typed`/`operator-ineligible` at the `case` node, the duplicate
-member `invalid_package`/`duplicate-member` and each defective union value
-`ill_typed`/`type-mismatch` at the node; each misplaced application refuses
-`ill_typed`/`operator-ineligible` at its own `operator` and each is admitted at
-its own node root; the reader's refusal types hold neither word, and the lowered
-body equals the admitted body. Compare the whole refusal code, cause and
-pointer.
+returns `unsupported` naming `temporal` as stated; AC-97's admitted members admit,
+`{3, 0}`, `{10, 9}` and `{2^64+1, 2^64}` refuse `invalid_package`/`invalid-value`
+at the application and each other member `operation-member-mismatch` at
+`operation.member`; AC-98's two well-formed members admit and each other refuses
+`operation-member-mismatch` at `operation.member`; the `Shape` package admits and
+each defective `case` refuses `ill_typed`/`operator-ineligible` at the `case` node,
+the duplicate member `invalid_package`/`duplicate-member` and each defective
+union value `ill_typed`/`type-mismatch` at the node; each misplaced application,
+node or reference refuses `ill_typed`/`operator-ineligible` as AC-100 locates it
+and each is admitted at its own place; the reader's refusal types hold neither
+word, the diagnostics entry reads, and the lowered body equals the admitted body;
+the placement defect is reported ahead of every other defect in both digest
+orders, and each later stage ahead of the next; the `over` and fairness cases
+refuse `missing_declaration`/`missing-name` or `invalid_model_binding`/
+`malformed-declaration` as AC-103 states; the bounded profile refuses a `null`
+interval, a `null` `upper` and a non-empty fairness argument
+`operation-member-mismatch` and the infinite-trace profile admits them; the
+operand cases refuse `ill_typed`/`operator-ineligible` at the operation step; the
+`Shape` comparisons admit and refuse as AC-106 states with no outcome asserted for
+the `text` case; and each QSpec fixture admits with its recorded `package_id`, or
+the step is reported as not run when the checkout is absent. Compare the whole
+refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
