@@ -70,6 +70,15 @@ one target profile, and explicit aggregate limits before mapper dispatch.
   from the selected target profile.
 - The coordinator shall reject zero, exceeded, or arithmetically overflowing
   limits before mapper dispatch whenever the nonempty request cannot fit.
+- The coordinator shall canonicalize the request identity material through
+  `quire-canonical` with `maximum_request_bytes` as the encoder's ceiling,
+  never encoding without a ceiling and comparing lengths afterwards.
+- The coordinator shall admit canonical request material of exactly
+  `maximum_request_bytes` and refuse material one byte over with
+  `request_limit_exceeded` at `request` (FR-034 states the same rule for record
+  and package identity).
+- The coordinator shall write the request limits into the identity material as
+  decimal strings.
 - The coordinator shall expose no partially admitted request after validation,
   allocation, cancellation, or resource failure.
 
@@ -82,6 +91,7 @@ one target profile, and explicit aggregate limits before mapper dispatch.
 | FR-032-AC-3 | Target family, standard references, mapping revision/digest, capability, and native/model/semantic selection mutations change request equality or refuse admission. | Test (TC-043) |
 | FR-032-AC-4 | Path, timestamp, locale, display text, installed software, observer state, and previous requests cannot supply or alter an admitted semantic selection. | Test (TC-043) |
 | FR-032-AC-5 | Every emitted refusal code has exactly one STD-003 row and every STD-003 row is emittable, no spelling is shared with the STD-001 diagnostic catalog in either direction, and an obligation that is simultaneously foreign and stale-by-revision refuses as `foreign_obligation` while a same-package present-requirement wrong-revision obligation refuses as `stale_obligation` rather than `unknown_obligation`. | Test (TC-051, TC-043) |
+| FR-032-AC-6 | A request whose canonical identity material is exactly `maximum_request_bytes` long admits and one whose material is one byte longer refuses `request_limit_exceeded` at `request` with no mapper invocation; the request identity step, called through a seam that takes the ceiling as an argument as FR-034-AC-6's package step does and records the ceiling it passes to the encoder, passes exactly `maximum_request_bytes` and never `u64::MAX`; and a request whose `maximum_emitted_bytes` is `18446744073709551615` admits. | Test (TC-043) |
 
 ## Dependencies
 

@@ -81,7 +81,7 @@ dispatched mapper's candidates against the admitted limits.
 
 | Code | Condition | Required location |
 |---|---|---|
-| `request_limit_exceeded` | The admitted request exceeds its declared request-byte limit | `request` |
+| `request_limit_exceeded` | The canonical identity material of the request, of one of its records or of the package exceeds the declared request-byte limit it is encoded under | `request`; `record.identity`; `package.identity` |
 | `obligation_limit_exceeded` | The obligation count exceeds its declared limit | `request.obligations` |
 | `expression_node_limit_exceeded` | The accounted expression-node count exceeds its declared limit | `request.expression_nodes` |
 | `nesting_depth_limit_exceeded` | The accounted nesting depth exceeds its declared limit | `request.nesting_depth` |

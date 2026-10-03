@@ -55,6 +55,27 @@ and the complete `sha256-jcs` package identity preimage have been verified.
   target profile, generator owner, target raw digest,
   ordered record identities, and
   limits in the package identity preimage.
+- Every canonical identity this pipeline computes (the request's, each
+  record's and the package's) shall be encoded by `quire-canonical` under the
+  request's own byte limit, `maximum_request_bytes`.
+- Identity material whose canonical bytes exceed that ceiling shall refuse
+  `request_limit_exceeded` at `request`, `record.identity` or `package.identity`
+  and yield no record, identity or package; material of exactly the ceiling
+  encodes. An allocation failure stays `allocation_failed` at the same paths.
+- `maximum_request_bytes` therefore bounds more than the request: it also bounds
+  the canonical material of every record, which is built from mapper-supplied
+  candidate material, and of the package, so no identity step runs without a
+  ceiling (FR-033 states the record rule).
+- The identity material shall spell every `u64` as a decimal string of its
+  minimal base-ten digits (QSpec `IntegerString`, as FR-016 does for the model's
+  integers): the members of `MappingLimits` and the `start` and `end` of an
+  `OutputByteRegion`.
+- Every other integer of the identity material (a requirement revision, a source
+  revision, a byte offset, a line, a column, a schema version) shall be a JSON
+  number, which FR-011 and FR-012 hold at or below 2^53, so no encode of
+  identity material refuses for an integer. RFC 8785 spells no integer past 2^53
+  exactly, so a number for a `u64` limit or region would refuse a legitimate
+  value as an artificial cap.
 - The assembler shall exclude paths, timestamps, locale, display diagnostics,
   allocation layout, and structural-observer output from target bytes and
   semantic identity.
@@ -74,6 +95,8 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 | FR-034-AC-3 | Every zero, exact, just-over, and overflowing aggregate limit is classified without partial output or a smaller successful package. | Test (TC-043) |
 | FR-034-AC-4 | Mutating source/profile/generator owner/record/limit/target-byte identity inputs changes or invalidates package identity, while path/time/locale/display/observer changes do not. | Test (TC-043) |
 | FR-034-AC-5 | Structural observer acceptance, refusal, absence, and observer owner remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
+| FR-034-AC-6 | Identity material is canonicalized under `maximum_request_bytes` and never without a ceiling: through the public admission and mapping calls, request material whose canonical length equals the limit admits and one byte over refuses `request_limit_exceeded` at `request`, and a record whose material is one byte over refuses at `record.identity`, each with no record, identity or package and not `allocation_failed`; and the package identity step, called with a ceiling equal to the measured length of its material, encodes, and with a ceiling one byte lower refuses `request_limit_exceeded` at `package.identity` with no package. | Test (TC-043) |
+| FR-034-AC-7 | The request, record and package identities are the SHA-256 digests of an expected canonical byte string written out in the test for a fixed request, record and package (members in UTF-16 order), not computed by a call into the code under test; `MappingLimits` members, including `18446744073709551615` and `0`, and the `start` and `end` of an `OutputByteRegion`, including `9007199254740993` and `18446744073709551615`, appear in the material as the strings `"18446744073709551615"`, `"0"`, `"9007199254740993"` and `"18446744073709551615"`; and a request whose `maximum_emitted_bytes` is `18446744073709551615` and one whose is `18446744073709551614` both admit and have distinct request identities. | Test (TC-043) |
 
 ## Dependencies
 

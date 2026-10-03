@@ -61,7 +61,7 @@ artifact trace-coverage classification.
 | FR-012-AC-3 | Malformed, cross-package, stale-revision, orphaned-requirement, and orphaned-clause references produce distinct STD-001 diagnostic codes and the narrowest available source span. | Test (TC-015) |
 | FR-012-AC-4 | Every executable clause kind accepts only its declared anchor kinds using `floating_executable_clause` or `incompatible_clause_anchor`; informational clauses reject any anchor using `informational_clause_anchored`; malformed anchor identifiers use `invalid_identifier`. | Test (TC-015) |
 | FR-012-AC-5 | The typed expression tree implements the dependency-source contract and exposes every input, state, field, enum variant, and pure-function reference. | Test (TC-016) |
-| FR-012-AC-6 | Source spans reject zero line/column positions, decreasing byte offsets or positions, and endpoints from different source-document identities/revisions using `invalid_source_span`. | Test (TC-015) |
+| FR-012-AC-6 | Source spans reject zero line/column positions, decreasing byte offsets or positions, a byte offset above 9007199254740992 (2^53, the largest integer RFC 8785 spells exactly, FR-016), and endpoints from different source-document identities/revisions using `invalid_source_span`. | Test (TC-015) |
 
 ## Dependencies
 

@@ -73,14 +73,20 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 - On the wire the assertion is `contract_version`, read once by IR (AD-004). The one digest on
   this seam is `package_id`, the content identity of a checked package. QSL computes it through
   `quire-canonical` (a dependency of QSL's root `Cargo.toml`, at the time of writing); IR recomputes it and
-  refuses a mismatch (`stale_dependency`). Two encoders therefore produce one identity today. IR
-  recomputes it from the typed `identity_preimage` struct (`serde_json::to_value`, then
-  `digest_json`, `checked_package/v2/mod.rs:759-760`), and `digest_json` is `serde_json::to_vec`
-  followed by SHA-256 (`crates/quire-contract-model/src/checked_package/common.rs:419-421`), after
-  the reader has refused non-canonical bytes. The target is IR-274: IR calls `quire_canonical::to_vec(v, Limits)`
-  and `quire_canonical::sha256`, and the check of agreement by emission tests (QSL
-  `tc_469_step_6_the_emitted_package_admits_via_i04`, one fixture; D-5) stays as a test, not as
-  the guard.
+  refuses a mismatch (`stale_dependency`). One encoder produces that identity on both sides: IR
+  recomputes it from the typed `identity_preimage` struct with `quire_canonical::sha256`
+  (`checked_package/v2/mod.rs`, after IR-533), after the reader has refused bytes that are not
+  `quire_canonical::to_vec`'s. The other identity digests IR computes (a nominal, application
+  and structural node key, a lowered node's `ir_id` and the lowered package's id, the selected
+  model document's digest) were still `digest_json` at the time of writing, which is
+  `serde_json::to_vec` followed by SHA-256 (`checked_package/common.rs`); FR-038 ("Every
+  identity digest is computed through quire-canonical") states that all of them go through
+  `quire-canonical` and that no encoder of IR's own remains, and the check of agreement by
+  emission tests (QSL `tc_469_step_6_the_emitted_package_admits_via_i04`, one fixture; D-5)
+  stays as a test, not as the guard. The v1 `quire.contract.canonical-json/v1` objects and the
+  output-mapping identities take the same encoder (FR-016, FR-034), which spells the v1
+  64-bit integers as decimal strings (a public v1 wire change that QSL's lowering wire emits
+  as numbers today and must follow).
 - IR states no pin, commit id or tool version about QSL, and QSL's references to "the pinned IR
   revision" in comments (for example `qsl-package/src/emit.rs:961`) name its Cargo lock, which
   is not an identity this seam asserts.
@@ -118,8 +124,11 @@ Four decisions govern the seam. None adds a layer between the repositories.
   (AD-004 precedence) and does not keep a second shape for QSL's convenience.
 - C. One encoder for one identity, and the one-encoder rule binds IR: IR computes digests with
   `quire_canonical::to_vec(v, Limits)` and `quire_canonical::sha256`, not with `serde_json`. IR-274
-  (adopt `quire-canonical`, drop the serde_json canonicalizer) is
-  the one-owner fix and this AD recommends it be brought forward.
+  (adopt `quire-canonical` for every identity digest and delete IR's own encoders) is the
+  one-owner fix; its spec is FR-016, FR-034 and FR-038, and its code lands in three changes.
+  The target is that the encode of a `serde_json::Value` is `quire-canonical`'s (one owner for
+  IR, codegen and QSL) so IR carries no walker of its own; that upstream `Encode` is
+  quire-canonical #7, open and pending merge, and until it merges IR's `value_to_vec` stays.
 - D. Target: IR has no dependency on codegen, runtime or QSL, and that is a build failure, not
   prose: `deny.toml` `[bans]` is to list those crates under `deny`, so `make deny` (part of
   `make ci`) fails on any such edge. No such entry exists today. The home of this guard is the IR
@@ -174,16 +183,21 @@ What is measured today, what is open and with whom, and what is routed.
   report a cycle, but only when someone runs it with all three clones.
 - Two encoders: QSL's ADR-013 section 2 and its `arch-lint canonical-encoder` forbid a second
   canonical encoder beside `quire-canonical`; IR's `digest_json` is that pattern, in a repository
-  the lint does not scan, and the one-encoder rule binds IR (decision C). `digest_json` has six
-  production call sites: the `package_id` check (`checked_package/v2/mod.rs:760`), the identity
-  preimage digest (`v2/identity.rs:407`), the lowered-node identity (`v2/lower.rs:511`), the
-  application-node check (`v2/operations.rs:145`), the model-member preimage
-  (`v2/model_members.rs:259`) and the selected-document check (`v2/model_members.rs:881`). QSL's
-  claim that `package_id` is computed three times today was not matched to a count of three.
-  QSL states (not re-measured here) that the serde_json form diverges from RFC 8785 on integers
-  above 2^53, floats, negative zero and key order under `preserve_order`; IR's own
-  `serde_json` features do not enable `preserve_order` (`Cargo.toml`), but a canonicalizer crate
-  (`serde_json_canonicalizer`) is in IR's lock through `quire-verification-contracts`.
+  the lint does not scan, and the one-encoder rule binds IR (decision C). After IR-533 the
+  `package_id` check is `quire_canonical::sha256`; `digest_json` still has five production call
+  sites: the nominal preimage digest (`v2/identity.rs`), the lowered-node identity
+  (`v2/lower.rs`), the application-node check (`v2/operations.rs`), the model-member preimage
+  and the selected-document check (both `v2/model_members.rs`). Beside them the v1 model has its
+  own writer, `CanonicalWriter` (`canonical.rs`), reached through `canonical_envelope_bytes`
+  from the bound identity (`binding.rs`) and the three output-mapping identity steps
+  (`output_mapping.rs`, each with a `u64::MAX` ceiling, IR-74), and the lowered package's bytes
+  are `serde_json::to_vec`. FR-016, FR-034 and FR-038 state that all of these go through
+  `quire-canonical`; the code removing them is IR-274's. QSL states (not re-measured here)
+  that the serde_json form diverges from RFC 8785 on integers above 2^53, floats, negative
+  zero and key order under `preserve_order`; IR's own `serde_json` features do not enable
+  `preserve_order` (`Cargo.toml`), but a canonicalizer crate (`serde_json_canonicalizer`) is in
+  IR's lock through `quire-verification-contracts`, which VER-52 moves onto `quire-canonical`;
+  no IR source file names it.
 - The QSL root crate still reads the authored-contract model widely (table above), while QSL
   ADR-011 states that `check` never imports the model crate and that its checker does not ask a
   backend to decide a semantic question (FB-06). Which of these uses survive QSL's layer
@@ -194,7 +208,7 @@ What is measured today, what is open and with whom, and what is routed.
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
 | Which authored-contract model items stay on the seam? | QSL | QSL reads only the layer-4 set; the root-crate uses of the authored-contract model retire with its layer extraction (ADR-011 M-6c, as relayed), so IR does not freeze those items by name | IR would assert items that are about to retire |
-| When does IR-274 land? | IR, QSL | bring it forward; it removes the second encoder and the lint gap | two encoders held equal by fixtures only |
+| When does IR-274 land? | IR, QSL | in three code changes after the spec: the v2 digests, the output-mapping identities, then the v1 model (whose decimal-string integers QSL's lowering wire follows in lockstep); each removes encoders and the lint gap | two encoders held equal by fixtures only |
 | Which cargo-deny `bans` entries does IR carry? | IR (IR-343) | `quire-contract-codegen`, `quire-contract-runtime`, `quire-spec-language` and each QSL crate by name; a ban matches a crate name, so the list is revisited when QSL adds a crate, and the by-source check of `tc_041` (D-1) stays as a test | a reverse edge goes unnoticed until QSL's lint is run with clones |
 
 ### Routed gaps

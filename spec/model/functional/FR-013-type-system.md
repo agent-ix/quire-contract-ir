@@ -42,6 +42,31 @@ closed unsigned 32-bit range `1` through `4294967295`; zero uses
 `invalid_numeric_bounds`. Options and collections recursively contain value
 types.
 
+On the wire, and in every serialized form of a validated value, an integer's
+`minimum` and `maximum`, a rational's `numerator_minimum`, `numerator_maximum`
+and `maximum_denominator`, an integer literal's `value` and a rational literal's
+`numerator` and `denominator` are JSON strings of minimal base-ten digits: the
+QSpec V2 `IntegerString` `^(0|-?[1-9][0-9]*)$`, with `0` for zero, no `+`, no
+leading zero and `-` only before a nonzero digit. The same spelling is the one
+FR-016 canonicalizes, so the wire and the canonical bytes agree. A member of
+those eight that is a JSON number, whatever its value, and one that is a string
+outside that grammar (empty, `+1`, `01`, `-0`, `1.0`, `1e3`, or with surrounding
+whitespace) refuses `invalid_wire_format`, decided by the member's type: the
+loaders make no separate scan of the document for large numerals. A string in
+the grammar whose value lies outside the closed range of its member refuses
+`invalid_numeric_bounds`, the code this requirement already names for a wider
+bound. This is a reader change for the six `i64` members (an integer type's
+bounds, a rational type's numerator bounds, an integer literal's value and a
+rational literal's numerator and denominator): a number wider than `i64` was
+refused `invalid_wire_format` when it was decoded, and is now a grammar-valid
+string refused `invalid_numeric_bounds`. `maximum_denominator` already refused
+`invalid_numeric_bounds` for a number in the `u64` range outside `1` through
+`9223372036854775807`; a number past `u64` was `invalid_wire_format` when it was
+decoded, as for the other members, and is now a string refused
+`invalid_numeric_bounds`. A collection's
+`maximum_items` stays a JSON number in the unsigned 32-bit range. No earlier
+number spelling of the eight members is read.
+
 Text is a sequence of Unicode scalar values with no normalization or locale
 folding. A text value contains at most `1048576` scalar values; an over-length
 literal uses `text_bound_exceeded`.
@@ -79,6 +104,7 @@ denominator bounds are checked.
 | FR-013-AC-2 | Public serialized types contain no Rust, GUMBO, AADL, HAMR, solver, or runtime-specific vocabulary. | Inspection (TC-016) |
 | FR-013-AC-3 | Duplicate names/fields/variants, empty enums, zero or over-unsigned-32-bit collection declarations, invalid integer bounds, absent named types, direct or indirect record cycles, and FR-019 semantic node/depth/collection limit breaches fail before expression validation. | Test (TC-016, TC-018) |
 | FR-013-AC-4 | A valid declaration environment round trips structurally through public constructors/accessors without losing declaration identity, types, bounds, overflow policy, or provenance spans. | Test (TC-016) |
+| FR-013-AC-5 | An integer type with minimum `"-9223372036854775808"` and maximum `"9223372036854775807"`, a rational type with `maximum_denominator` `"9223372036854775807"`, an integer literal `"0"` and a rational literal `"-3"` over `"4"` decode and serialize back to the same strings; each of the eight members given as a JSON number (`0`, `1`, `1.0`, `9223372036854775807` and `100000000000000000001`) refuses `invalid_wire_format`; each given as the strings `""`, `"+1"`, `"01"`, `"-0"`, `"1.0"`, `"1e3"` and `" 1"` refuses `invalid_wire_format`; and the strings `"9223372036854775808"` for an integer bound and `"-9223372036854775809"` for a numerator bound refuse `invalid_numeric_bounds`, as does `"0"` for `maximum_denominator`. | Test (TC-016, TC-018) |
 
 ## Dependencies
 
