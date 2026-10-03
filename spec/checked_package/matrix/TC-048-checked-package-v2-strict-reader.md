@@ -53,7 +53,10 @@ identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (pla
 IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
 misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
 the absence of a depth limit and of call-stack recursion, and the five body-grammar
-mutations.
+mutations. FR-038-AC-119 (planned, IR-551) is against the timed interval form of
+merged QSpec FR-370 and FR-370-AC-8: the four end variants, rational bounds in lowest
+terms, the refusal of a negative, malformed or non-reduced bound, a null upper bound,
+an open end with equal bounds and a missing or extra member, and the profile fit.
 
 ## Test Procedure
 
@@ -782,3 +785,39 @@ pointer at the strict parse and the 20-level one at the first value outside the 
 grammar; and each of the five
 `body_grammar_mutations` refuses `malformed_wire` with the expected-failure list
 empty of them.
+
+## Timed interval form (FR-038-AC-119)
+
+Planned (IR-551 code). Under a clause whose `temporal_profile` law names
+`quire.temporal.timed/v1`, on each of the eight interval operators of a
+self-built package, read the timed form `{lower, upper, lower_end, upper_end}`
+as `[0, 3]`, `[0, 3)`, `(0, 3]` and `(0, 3)` with bounds `{0, 1}` and `{3, 1}`
+(numerator, denominator), with `lower` `{1, 2}`, and as the punctual `[3, 3]`,
+and compare the four end variants as unequal members. Read the same form with a
+`lower` numerator `"-1"`, a `lower` numerator `"01"`, an `upper` denominator
+`"0"`, an `upper` denominator `"-2"`, an `upper` of `null`, a bound that is a
+JSON integer and a bound that is a string; with `lower` `{2, 4}`; with `lower`
+`{2, 4}` and `upper` numerator `"-1"`; with `lower` numerator `"-1"` and `upper`
+`{2, 4}`. Read `(3, 3]`, `[3, 3)` and `(3, 3)`, a `lower` `{5, 2}` over an `upper`
+`{2, 1}`, and `{1, 2}` against `{2, 3}` and `{2, 3}` against `{1, 2}`, and a pair of
+bounds beyond 2^64 whose cross-products differ only past 64 bits. Read the
+four-member form under `quire.temporal.infinite-trace/v1` and under each of the three
+bounded profiles; read an integer-form `{0, 3}`, a `{0, null}` and a `null` interval
+under `timed/v1`; and read `lower_end` `"half"`, an interval holding `lower`,
+`upper` and `lower_end` only with string bounds, and a four-member interval with a
+fifth member.
+
+Expected: the four end variants admit as four unequal members, `{1, 2}` and the
+punctual `[3, 3]` admit; every bound outside the rational pattern and the `null`
+upper refuse `invalid_package`/`invalid-value` at `.../interval/lower` or
+`.../interval/upper`, first in member order, in the term walk and under every
+profile; `{2, 4}` refuses `invalid_semantic_graph` at `.../interval/lower`, and ahead
+of a negative `upper`, but behind a negative `lower`; `(3, 3]`, `[3, 3)`, `(3, 3)`
+and `{5, 2}` over `{2, 1}` refuse `invalid_package`/`invalid-value` at
+`/semantic_graph/nodes/{n}/body`, `{1, 2}` before `{2, 3}` admits and the reverse
+refuses, with the beyond-2^64 pair decided by its value; the four-member form under
+a profile other than the timed profile, and an integer-form `{0, 3}` and a
+`{0, null}` under the timed profile, refuse `operation-member-mismatch` at the
+application, `null` admits under the timed profile; and the `"half"` end, the
+three-member interval and the five-member interval refuse
+`operation-member-mismatch` at `operation.member`.
