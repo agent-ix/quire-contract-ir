@@ -707,7 +707,8 @@ shared all-families fixture builds a temporal clause with a `profile_operator`
 member and no arguments, which refuses under this shape; the code PR rewrites
 that fixture, and an all-families package cannot hold a temporal clause whose
 formula is a `temporal_formula` application. The rows that build on the fixture
-(FR-035, FR-040, TC-044, TC-048, TC-050, TC-052, TC-053, TC-056 and TC-222)
+(FR-035, FR-040, FR-344, TC-044, TC-047, TC-048, TC-050, TC-052, TC-053, TC-056
+and TC-222)
 are re-verified by that change.
 
 QSpec FR-440 and FR-370 own the encodings; the semantics of the union and
