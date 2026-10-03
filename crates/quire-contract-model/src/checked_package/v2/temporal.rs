@@ -523,13 +523,15 @@ fn check_clause(
     let at_body = at_node.clone().key("body");
     let arguments: Vec<&Value> = terms(&node.body, "arguments").collect();
 
-    // The profile identity, first: it decides the interval fit.
+    // The profile identity, first: it decides the interval fit. Only a clause
+    // whose `laws` is exactly one `temporal_profile` law has a profile to
+    // check; any other law list is the operation step's defect (FR-038-AC-108).
     let mut profile = None;
-    if let Some(law) = operation
-        .laws
-        .first()
-        .filter(|law| law.role_class() == Some(LawRole::TemporalProfile))
-    {
+    let sole_profile_law = match operation.laws.as_slice() {
+        [law] if law.role_class() == Some(LawRole::TemporalProfile) => Some(law),
+        _ => None,
+    };
+    if let Some(law) = sole_profile_law {
         match TemporalProfile::from_wire(&law.definition.identity) {
             Some(known) => profile = Some(known),
             None => {

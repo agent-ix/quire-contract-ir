@@ -906,8 +906,7 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   not an interval and refuses `operation-member-mismatch` at the application. Each of `lower` and
   `upper` is a non-negative integer string, matching `^(0|[1-9][0-9]*)$` exactly:
   `"0"`, `"3"` and `"10"` match; `"-1"`, `"1.5"`, `"01"`, `"+1"`, `""` and `"3x"` do
-  not. QSpec FR-370 (merged at
-  f39c93f9ec3b3fecc404a1935dbaa40665281b8c) makes the integer-form bounds non-negative
+  not. QSpec FR-370 (merged) makes the integer-form bounds non-negative
   decimal integer strings in the published schema (`NonNegativeIntegerString`,
   `^(0|[1-9][0-9]*)$`) and states that a bound outside its form's pattern, including a
   negative integer bound such as `{lower: "-1", upper: null}`, refuses
@@ -997,7 +996,7 @@ payload of another type refuses `ill_typed` with cause `type-mismatch` at the
 node (QSpec FR-440 reader joins 1 and 2). Neither `duplicate-member` nor
 `type-mismatch` is a cause of the reader's refusal types today, and the code
 change adds both with the pairings FR-440 states and no other. Merged QSpec FR-322
-(at f39c93f9ec3b3fecc404a1935dbaa40665281b8c, FR-322-AC-47) pairs
+(FR-322-AC-47) pairs
 `ill_typed`/`type-mismatch` (FR-440's union value join) and admits `type-mismatch`
 in the V2 `Diagnostic` schema only with `ill_typed`; it likewise admits
 `missing-selection` only with `missing_import` or `missing_declaration`, which the
@@ -1007,8 +1006,7 @@ reader's `missing-selection` pairs already follow. The operand family of a
 admit and over values of two different unions refuse `ill_typed`/
 `operator-ineligible` by their `same_type` constraint (QSpec FR-440-AC-6). The
 leaves of a comparison over a union follow merged QSpec FR-322 "Structural leaf
-walk" and FR-322-AC-45 and AC-46 and FR-440 (at
-f39c93f9ec3b3fecc404a1935dbaa40665281b8c): the leaf segments gain `member:<Ident>`,
+walk" and FR-322-AC-45 and AC-46 and FR-440: the leaf segments gain `member:<Ident>`,
 naming the union member; a
 `structural.eq` or `structural.ne` leaf path through a union is `member:<Name>`
 followed by `position:i`, `i` the index within that member's ordered payload even
@@ -1025,8 +1023,7 @@ node carries.
 **The temporal step.** QSpec FR-370 "Reader order" puts a temporal step after
 the state step (FR-040) and before any operation refusal, and this reader runs it
 there, replacing the earlier placement of these applications in the operation
-step and the term walk. Merged QSpec FR-370 and FR-440 (at
-f39c93f9ec3b3fecc404a1935dbaa40665281b8c) state the rules this section cites unless a
+step and the term walk. Merged QSpec FR-370 and FR-440 state the rules this section cites unless a
 sentence says it is an IR reading or pending. Strict wire validation (here the term
 walk's negative-bound refusal) precedes the step. The step reports the first defect
 of this order: placement of every temporal application and of every reference to a
@@ -1075,7 +1072,7 @@ defect:
      frame entry's reference (QSpec FR-370 "Reader order" states the check and these
      two pairings).
    - **Fairness resolution.** Merged QSpec FR-370 "Fairness resolution" and
-     FR-370-AC-11 (at f39c93f9ec3b3fecc404a1935dbaa40665281b8c) resolve a fairness
+     FR-370-AC-11 resolve a fairness
      member's `name` by FR-322 "Model-owned members" steps 2 and 3 among the
      effective operation members of its `declaration` node, the set QSpec FR-362
      resolves a fairness constraint against (own and inherited, redefinitions
@@ -1130,7 +1127,7 @@ defect:
    defect is the operation step's (`operation-law-missing`,
    `operation-law-mismatch`), as merged QSpec FR-370 "Profile check" states. The fit
    of the interval members per profile is merged QSpec FR-370's table and
-   FR-370-AC-3 (at f39c93f9ec3b3fecc404a1935dbaa40665281b8c), and any other shape, or
+   FR-370-AC-3, and any other shape, or
    a non-empty fairness argument the profile does not admit, refuses `invalid_package`/
    `operation-member-mismatch` at the application:
    - `quire.temporal.infinite-trace/v1` admits `interval: null`, `{lower, upper:
@@ -1167,8 +1164,7 @@ defect:
      operator's application, and a non-empty fairness argument refuses the same
      way at the clause's application.
 
-   **Unknown profile.** Merged QSpec FR-370 "Profile check" and FR-370-AC-10 (at
-   f39c93f9ec3b3fecc404a1935dbaa40665281b8c): a clause's `temporal_profile` law is
+   **Unknown profile.** Merged QSpec FR-370 "Profile check" and FR-370-AC-10: a clause's `temporal_profile` law is
    checked first among that clause's checks and must name one of the five FR-250
    members, its `identity` equal byte for byte. A law whose `definition` is not one
    refuses `unknown_profile`, located at
@@ -1244,8 +1240,7 @@ because a key that names no node cannot locate a node in the graph. A fairness
 step 1 says, and uses the named key. Every other row that names a target uses the
 target's key, as FR-040 does.
 
-**Merged QSpec text.** QSpec PR #181 is merged at QSpec main
-f39c93f9ec3b3fecc404a1935dbaa40665281b8c: FR-322 (the `type-mismatch`,
+**Merged QSpec text.** QSpec PR #181 is merged: FR-322 (the `type-mismatch`,
 `missing-selection`, `unsupported-selection` and `wrong-selection-role` pairings, the
 `member:<Ident>` leaf segment, "Structural leaf walk", AC-45 through AC-47), FR-370
 (interval forms and non-negative bound pattern, profile table, "Profile check",

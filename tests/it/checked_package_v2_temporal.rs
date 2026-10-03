@@ -2156,6 +2156,69 @@ fn tc_048_an_unknown_profile_is_checked_first_and_is_not_read_as_bounded() {
     );
 }
 
+/// A clause whose `laws` is not exactly one `temporal_profile` law skips the
+/// profile check and its profile fit: its law defect refuses at the operation
+/// step, at the first law past the catalogued one (`operation-law-mismatch`,
+/// `laws/1`) or at the list (`operation-law-missing`).
+///
+/// Tracing: TC-048, FR-038-AC-108
+#[trace("TC-048", "FR-038-AC-108")]
+#[test]
+fn tc_048_a_clause_without_exactly_one_profile_law_skips_the_profile_check() {
+    let laws_at =
+        |clause_at: usize, tail: &str| at_node(clause_at, &format!("/body/operation/laws{tail}"));
+
+    // An unknown first law and the fixture's own law: not `unknown_profile`.
+    let mut package = v2_all_families();
+    let clause_at = clause(&package);
+    let own = package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0].clone();
+    let mut unknown = own.clone();
+    unknown["definition"]["identity"] = json!("quire.fixture.temporal-profile/v1");
+    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"] =
+        json!([unknown, own.clone()]);
+    settle(&mut package);
+    expect(
+        "an unknown first law and a second law",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationLawMismatch,
+        &laws_at(clause_at, "/1"),
+    );
+
+    // A known profile twice and a `null` interval, which the bounded profile
+    // would refuse as a profile fit: not `operation-member-mismatch`.
+    let mut package = v2_all_families();
+    let root = find_identity(&package, &temporal_identity("eventually"));
+    package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = unbounded();
+    let clause_at = clause(&package);
+    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"] =
+        json!([own.clone(), own]);
+    settle(&mut package);
+    expect(
+        "the bounded profile twice and a null interval",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationLawMismatch,
+        &laws_at(clause_at, "/1"),
+    );
+
+    // No law at all, under a `null` interval the lock's bounded profile would
+    // refuse as a profile fit: the lawless clause has no profile to fit.
+    let mut package = v2_all_families();
+    let root = find_identity(&package, &temporal_identity("eventually"));
+    package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = unbounded();
+    let clause_at = clause(&package);
+    package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"] = json!([]);
+    settle(&mut package);
+    expect(
+        "no law",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationLawMissing,
+        &laws_at(clause_at, ""),
+    );
+}
+
 /// Ahead of any defect of a higher-digest clause: the lower-digest clause is
 /// reported, whether it holds the unknown profile or an `over` defect.
 ///
