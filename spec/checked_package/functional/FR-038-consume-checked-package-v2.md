@@ -541,8 +541,13 @@ decided differently as a result:
   admits nothing by itself: the closed body grammar still decides the document.
 
 The order of checks is: strict syntax, duplicate member and depth; canonical
-bytes; closed-schema decode and header; `package_id` recomputation; then the
-grammar and graph checks. The `package_id` recomputation therefore runs on a
+bytes; closed-schema decode and header; the body grammar, as part of strict wire
+validation (merged QSpec FR-322 "Identity and validation" and "Body grammar", FR-322-AC-40:
+a body outside the grammar refuses `malformed_wire` before any identity is recomputed);
+`package_id` and node-key recomputation; then the graph checks. The reader as it stands
+runs the body-grammar check after the `package_id` recomputation; the change that moves it
+into strict wire validation is IR-495's code, and this paragraph adds no criterion for it.
+The `package_id` recomputation therefore runs on a
 value every number of which `quire-canonical` encodes, and a more specific
 grammar refusal is never decided by an encoder refusal. An encode refusal at the
 recomputation is not reachable from a document that passed intake; a caller who
