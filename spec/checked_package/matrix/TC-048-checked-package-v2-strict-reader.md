@@ -47,7 +47,9 @@ QSpec's own positive fixtures read from the QSpec checkout. FR-038-AC-66 is
 retired, its ID not reused (ADR-0056), and has no case. FR-038-AC-109 through
 FR-038-AC-111 are against a number whose exact value its RFC 8785 encoding loses
 (the `inexact-number` and `inexact-integer` causes of a selected model document,
-and the package's own byte-stream refusal).
+and the package's own byte-stream refusal). FR-038-AC-112 and FR-038-AC-113 are
+against QSpec's own `adverse.json` mutations and `dependency-selection-vectors.json`
+identity, read from the QSpec checkout.
 
 ## Test Procedure
 
@@ -226,8 +228,7 @@ wrong type (AC-99). Put an application of each of the four classes in a node of
 another form, as an element of another application's `arguments`, as a `binding`
 value, inside an `aggregate`, and as a root and as a nested term in a diagnostic
 entry's `details`, with a `details` reference to a formula, a fairness, a union and a
-union value node (the first two refuse, the last two admit; QSL ruling relayed
-2026-10-03), a `case` nested in another term, and an `expression` node whose form
+union value node (the first two refuse, the last two admit; merged QSpec FR-370, #182), a `case` nested in another term, and an `expression` node whose form
 contradicts its root operator class (`invalid_semantic_graph`); give a formula,
 fairness and clause node an empty `aggregate`
 body, a `literal` body and another class's application; reference a formula node
@@ -268,7 +269,7 @@ leaf for `Empty`; the recursive unions `IntList` (no `text`, `leaves` empty) and
 `["member:Cons", "position:1", "recursion:0"]`, the recursion leaf missing, written
 `recursion:1`, and placed at an `IntList` reentry (AC-106; `member:<Ident>` and union
 cycles are merged QSpec FR-322-AC-45 and AC-46; the recursion-leaf entry for a
-cycle that reaches `text` is an unreconciled difference with merged FR-322). Read an empty union and a union value with two
+cycle that reaches `text` is merged FR-322 text, #182). Read an empty union and a union value with two
 bindings (AC-99, `invalid_semantic_graph` at the body); a fairness `declaration`
 naming a `scalar_type` node (AC-103, `invalid_model_binding`/`malformed-declaration`
 with path `.../member/declaration` on the fairness node and the target's key as
@@ -282,7 +283,15 @@ class-mismatch node (AC-102). Run
 the empty string, to an unset value and to a path without the fixtures directory,
 reading `positive-all-families.json`, `positive-clause-operations.json` and
 `positive-union-nodes.json` from it, and compare the self-built packages' features
-with the fixtures' (AC-107).
+with the fixtures' (AC-107); the same target reads `adverse.json` and applies each of its mutations to
+`positive-all-families.json` with no identity refreshed, and each body-grammar mutation's `flattened`
+form as a positive control (AC-112), and reads `dependency-selection-vectors.json` and derives the
+`package_id` through the reader's own derivation over its version-free `dependency_selections` in
+the lock and the identity preimage (AC-113). Run each of AC-112 and AC-113 with the variable
+unset, empty and naming a path without the fixtures, with the file missing and not JSON, with a
+mutation list absent or empty, with a body-grammar entry lacking `flattened`, and, for AC-112,
+with an expected-failure entry naming an id absent from `adverse.json`, one the reader refuses as
+recorded, and one the reader refuses with a different code than listed.
 
 Expected: the package of AC-96 admits with its recorded identities and lowers or
 returns `unsupported` naming `temporal` as stated; AC-97's admitted members admit,
@@ -321,7 +330,12 @@ FR-370 "Profile check" and FR-370-AC-10, decided from the package alone); a clau
 no `temporal_profile` law or two skips the check; each at the law's
 `definition`, first among the clause's checks, and each of the five FR-250
 members admits (AC-108). Compare the whole
-refusal code, cause and pointer.
+refusal code, cause and pointer. Every structural mutation of `adverse.json` refuses with its
+recorded code, every body-grammar mutation refuses `malformed_wire` as recorded or is listed with
+its current refusal and owning ticket, each flattened form is not refused `malformed_wire`, and
+the version-free dependency selections derive the recorded `package_id` through the reader's own
+derivation while the unchanged base derives a different one (AC-112 and AC-113); each fail-closed
+case above fails the run and never skips.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
