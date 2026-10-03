@@ -78,7 +78,8 @@ pub(in crate::checked_package) fn is_placed_class(operator: ApplicationOperator)
 /// node `refused_target` names (a `temporal`/`formula`, `temporal`/`fairness`
 /// or `expression`/`case` node) is refused at the entry, `at`, the pointer of
 /// `term` itself. A reference to a union or union value node is an ordinary one
-/// (QSL ruling relayed 2026-10-03).
+/// (merged QSpec FR-370 and FR-440: a `details` term may reference a
+/// `composite_type`/`union` or `value`/`union_value` node).
 pub(in crate::checked_package) fn misplaced_in_details(
     term: &Value,
     at: JsonPointer,

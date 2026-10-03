@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! Strict CheckedPackage V2 reader: vendored adverse mutations, injected
+//! Strict CheckedPackage V2 reader: locally authored adverse mutations, injected
 //! refusals, resource limits, package identity, and nominal node identity.
 
 use crate::support::checked_package::{

@@ -22,7 +22,7 @@ help:
 	@echo "  make spec             - Validate and cover all Quire artifacts"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run cargo test"
-	@echo "  make conformance-qspec - QSpec's positive fixtures admit (needs QUIRE_SPECIFICATION_DIR; not in ci)"
+	@echo "  make conformance-qspec - QSpec's positive fixtures admit, adverse mutations refuse as recorded, selection identity derives (needs QUIRE_SPECIFICATION_DIR; not in ci)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
