@@ -343,14 +343,14 @@ deep as their input. The target is that `quire-canonical` provides the iterative
 `Encode` for `serde_json::Value`, behind a `serde_json` feature, as the one
 owner for this repository, `quire-contract-codegen` and `quire-spec-language`,
 and that this repository's `Encode` types delegate their `Value` members to it.
-That upstream change is quire-canonical #7, open and pending merge, and the code
-change that depends on it is blocked until it merges. The same change adds a
+That upstream change is quire-canonical #7, merged as
+b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1. The same change adds a
 public non-recursive drop helper for a deep `serde_json::Value`, because
 `serde_json`'s own drop recurses and this reader parses with unbounded depth;
-the reader drops a deep `Value` through that helper and writes no drop of its own. Until then `Value` members encode through this
-repository's own walker, `value_to_vec` in `checked_package/v2/encode.rs`, which
-stays; this requirement does not specify removing it before the upstream
-`Encode` exists. The assignment follows from the types:
+the reader drops a deep `Value` through that helper and writes no drop of its own.
+`Value` members encode through that `Encode`, and this repository has no walker of
+its own: there is no `value_to_vec` in `checked_package/v2/encode.rs`
+(FR-038-AC-91). The assignment follows from the types:
 
 | Type | Path | Reason |
 |---|---|---|
@@ -392,17 +392,20 @@ type, never derives `FixedShape`; `CheckedNodeProjectionV2`,
 types that hold them. A type that has an `Encode` implementation of its own
 writes its members as `Writer` events in its own field order, delegating a
 fixed-depth member to `Writer::serialize` and a `Value` member to the encode of
-a `Value` (this repository's walker until `quire-canonical`'s `Encode` for
-`serde_json::Value` lands, then that `Encode`).
+a `Value` (`quire-canonical`'s `Encode` for `serde_json::Value`, quire-canonical
+#7, merged as b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1).
 
-Once the upstream `Encode` lands, this repository holds no walker over a
+This repository holds no walker over a
 `Value`: the iterative encode of a `Value`, its number rule (an integer past
 2^53 is refused, any other number is its `f64`) and its member order belong to
-`quire-canonical`. Until then the walker is the one encoder of a `Value` and
-FR-038-AC-77 and FR-038-AC-78 are verified against it. Encoding
+`quire-canonical`, and FR-038-AC-77 and FR-038-AC-78 are verified against that
+`Encode`. Encoding
 adds no depth limit of its own: a body nested deeper than the reader admits,
-built in memory, still encodes, and the only refusals an encode returns are the
-byte ceiling and a number `quire-canonical` has no encoding for. The byte
+built in memory, still encodes. An encode refuses for the byte ceiling and for
+any other cause `quire-canonical` reports (a number it has no encoding for, an
+object buffer past its fixed bound, an allocation failure, and its other
+errors, which it may extend); lowering reports every such refusal as a `failed`
+record for `bytes` (see below). The byte
 ceiling is the read's byte limit.
 
 The canonical bytes are unchanged for every value that the reader admitted
@@ -459,11 +462,54 @@ record and carries no package bytes or id; the `expect` that the package encode
 makes today is replaced by that outcome, so lowering never panics on an encode
 refusal (FR-038-AC-95). A ceiling equal to the canonical length admits; one byte
 under it refuses.
+
 `NominalIdentityPreimage::digest`, which a
 caller may call on a preimage it built, takes the caller's configured byte
 limit as an argument and returns the encoder's refusal when the preimage's
 canonical bytes exceed it; it takes neither `u64::MAX` nor a fixed cap of its
 own (FR-038-AC-90).
+
+A `failed` record names the limit it failed. The record carries the limit kind
+beside `limit` and `consumed`, as the closed `CheckedPackageLimit` of an
+`incomplete` outcome (FR-038-AC-3) already names it. For `work`, `limit` is the
+caller's work ceiling and `consumed` the counter at the failed charge. For
+`bytes`, `limit` is the retained byte limit. When the refusal is
+`quire-canonical`'s canonical-bytes limit (`LimitKind::CanonicalBytes`),
+`consumed` is that refusal's `required`: the length of the canonical output
+written so far, including the bytes being written, when the encode refused. It is
+greater than `limit` and at most the full canonical length of the value. It can
+be less than the full length (a refusal inside the encoding), and is equal to it
+at a ceiling one byte under the full length, where the closing of the outermost
+object is counted in one final step, so there `required` is also `limit + 1`.
+For every other encoder refusal (an object buffer past the encoder's fixed object
+bound, an allocation failure, a number `quire-canonical` has no encoding for),
+`consumed` is `limit + 1`, the smallest count that exceeds `limit`, saturating at
+`u64::MAX`. Every encoder
+refusal during lowering is therefore a `failed` record for `bytes`, a total
+mapping that adds no record kind, returns no error beside the records and never
+panics. The other refusals are unreachable for an admitted package at the default
+limits: the reader refuses a number past 2^53 (FR-038-AC-79, FR-038-AC-93), so an
+admitted body holds none; the object bound is `u32::MAX` bytes, so it needs an
+object buffer over 4 GiB, which a retained limit of `u32::MAX` or less excludes
+and the default of 1 MiB does; an allocation failure is a property of the host,
+not of the package. A byte-ceiling failure is never reported as a `work` failure.
+A `failed` record has `consumed` above `limit`, with one exception: a retained
+limit of `u64::MAX` has no greater count, no encoding that fits in memory exceeds
+it, so no canonical-bytes refusal is reachable there, and a refusal of another
+cause records `consumed` equal to `limit`, `u64::MAX`.
+
+A lowered node over the ceiling fails only its own request: that record is
+`failed` for `bytes`, and the sibling records are unchanged, meaning they are the
+records the same call returns with the failed node's request removed. A lowered
+package over the ceiling is the one exception to sibling independence
+(FR-035 Behavior, FR-035-AC-3, FR-038-AC-6): every requested record is `failed`
+for `bytes` with the retained `limit` and the package's `consumed`, because no
+package exists to carry a lowered node, which overrides the disposition each
+record would have had alone; the lowering returns no lowered node, no dependency
+node, no package bytes and no id, and no requested record is left `lowered` in a
+package that was not produced. The independence of per-node outcomes
+(`invalid_input`, `unsupported`, `requires_bound`, a work or byte `failed` of one
+node) is unchanged.
 
 ### Canonical bytes are quire-canonical's bytes
 
@@ -1982,7 +2028,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
 | FR-038-AC-4 | The recomputed package id equals each positive fixture's declared id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by and round-trips its own wire form; every authored invalid nominal mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
-| FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records. | Test (TC-050) |
+| FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
 | FR-038-AC-9 | The shipped default read-limit policy is exactly those seven finite values, every member is strictly positive and finite, and each meter is enforced at its own true measured boundary against a real package: the package's exact measured consumption for that meter admits it, and one below that exact value refuses it as `incomplete`, naming that meter and reporting the true consumption. The shipped default is far larger than any fixture, so this boundary is proven against each meter's real measured cost rather than against the default value itself; no fixture approaches that scale, and none is fabricated to do so. | Test (TC-048) |
 | FR-038-AC-7 | Lowering every node of every positive fixture under a profile supporting every tag yields no `invalid_body` and no `body_incomplete` record, and the seven-member record vocabulary is exhaustive: no eighth kind is reachable and each of the seven is named. | Test (TC-052) |
 | FR-038-AC-8 | A closure holding both an out-of-profile tag and an unbounded type returns `unsupported`; a zero work limit returns `failed` for an absent key rather than `invalid_input`; each named offending key is the least in ascending order rather than the first visited; each of the eight unbounded forms raises `requires_bound` and each other declared form of those two families, carrying no `recursion_group`, does not; and a lowered record's `dependencies` contains every key in its `bounds` and `claims`. | Test (TC-052) |
@@ -2064,11 +2110,11 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes, observed at the key check and with members in sorted order, to exactly this object: `body` (`arguments` the `group_reference` `{ordinal: 0, term: group_reference}` then the `reference` to the outside node, `operation` `{identity: quire.op.integer.add, laws: [], leaves: [], member: null, mode: null}`, `operator` `binary`, `result_type`, `term` `application`), `declaration` `{qualified_name: [pkg, total]}`, `node_tag` `function`, `recursion` `{ordinal: 1, size: 2}`, `semantic_form` `function`, `semantic_type` and `version` `quire.application-node/v1`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
 | FR-038-AC-89 | Every identity digest recomputes to the value an in-repo fixture recorded before the move to `quire-canonical`: for every positive fixture each nominal, application and structural node key and the `package_id` equal the recorded digest; lowering every node of every positive fixture yields `ir_id` values, a lowered package `package_id` and lowered package canonical bytes equal to the ones recorded from the lowering before the move; and the canonical bytes of one preimage of each kind (a nominal preimage of each of its four versions, an application, a structural, a lowered node and a lowered package preimage) equal an expected byte string written out in the test from the preimage's JSON text, not computed by a call into the code under test, with the recorded digests as the second oracle. | Test (TC-048) |
 | FR-038-AC-90 | `NominalIdentityPreimage::digest` takes a byte limit: called with the limit equal to the canonical byte length of a preimage of each of its four versions it returns the digest the node key holds, and one byte lower it returns the encoder's byte-limit refusal and no digest; the reader passes its configured `limits.bytes` to it, and no call in the crate source passes `u64::MAX` or a literal cap, each checked by a test that reads the crate source. | Test (TC-048) |
-| FR-038-AC-91 | The files `canonical.rs`, `binding.rs`, `output_mapping.rs` and everything under `checked_package/` hold none of the symbols `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` and `serde_json_canonicalizer`, and no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest, a node key, a lowered preimage, the order of a dimension's terms, the selected-document digest, output-mapping identity material or the bound identity envelope, each checked by a test that reads those files and counts the symbols and calls, which finds none. Planned, and blocked on `quire-canonical`'s pending `Encode` for `serde_json::Value`: the same scan finds no `value_to_vec` and no `impl` of `Encode` for `serde_json::Value`, and the manifest enables `quire-canonical`'s `serde_json` feature; until that upstream change lands the scan excludes `value_to_vec`. | Test (TC-048) |
+| FR-038-AC-91 | The files `canonical.rs`, `binding.rs`, `output_mapping.rs` and everything under `checked_package/` hold none of the symbols `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` and `serde_json_canonicalizer`, and no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest, a node key, a lowered preimage, the order of a dimension's terms, the selected-document digest, output-mapping identity material or the bound identity envelope, each checked by a test that reads those files and counts the symbols and calls, which finds none. The same scan finds no `value_to_vec` and no `impl` of `Encode` for `serde_json::Value`, and the manifest enables `quire-canonical`'s `serde_json` feature (`quire-canonical` #7, merged). | Test (TC-048) |
 | FR-038-AC-92 | The application node preimage, `LoweredNodePreimage` and `ContractPackagePreimage` implement `quire_canonical::Encode` and none derives `FixedShape`; `NominalIdentityPreimage` with its four preimage structs, the structural node preimage and the bound identity envelope derive `FixedShape` and hold no `Value`; no `FixedShape` implementation is hand-written for any of them, each checked by a test that reads the crate source. | Test (TC-048) |
 | FR-038-AC-93 | A selected model document holding the number `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20` or `18446744073709551617` at `/package/count` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/count`, whether the row selects the document's own digest or another digest, so the refusal precedes `byte-digest-mismatch`; a document holding such numbers at `/b` and then `/a/0` names `/b`, the first in document order; the same document holding `9007199254740992`, `-9007199254740992`, `9.007199254740992e15` or `0.5` at that pointer is not refused for it and is digested; an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change); and a package document refused `noncanonical_wire` for its own bytes (FR-038-AC-79) carries no pointer and no `document_pointer`. | Test (TC-048) |
 | FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read, digested and matches its row, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the row pointer `/lock/model_selections/0` (FR-038-AC-30). | Test (TC-048) |
-| FR-038-AC-95 | Lowering encodes under the byte limit the package was read under: lowering an admitted package whose retained limit equals the length of a lowered node's preimage lowers it, and with the retained limit one byte lower, through a unit seam that takes the ceiling as an argument as FR-034-AC-6's package step does, that node's record is `failed` and its sibling records are unchanged; a lowered package whose bytes exceed the ceiling makes every requested record `failed` with no package bytes or id and no panic; and the crate source holds no `expect` or `unwrap` on the package encode, checked by a test that reads `lower.rs`. | Test (TC-048) |
+| FR-038-AC-95 | Lowering encodes under the byte limit the package was read under: through the unit seam `identify_node`, which takes the ceiling as an argument as FR-034-AC-6's package step does, a node whose retained limit equals the length of its preimage is identified and with the retained limit one byte lower is refused, and that refusal's record is `failed` for the `bytes` limit with `limit` equal to the retained limit and `consumed` equal to the `required` of encoding the same preimage under that limit, which is greater than `limit` and at most the preimage's canonical length, and the same equality holds at a ceiling chosen for the fixture inside a string value of at least two bytes (not at a byte the encoder writes alone, such as a quote, colon, comma or brace, nor inside an escape run), roughly mid-way through the encoding, where `consumed` is neither `limit + 1` nor the full length; a node preimage built in memory holding an integer past 2^53, which no admitted package holds and which the reader would have refused, so the in-memory preimage skips the reader, is refused by the same seam as `failed` for the `bytes` limit with `consumed` equal to `limit + 1`, under a ceiling at or above the length of the encoding up to that number and below `u64::MAX`; through a whole call of `lower` at a ceiling the package fits under but one of the requested nodes' preimages does not, that node's record is `failed` as above and the sibling records are equal to the records the same call returns with that request removed, with the siblings `lowered` in both calls, so the comparison cannot pass because every record failed; a lowered package whose bytes exceed the ceiling, checked through a whole call of `lower` at a ceiling one byte below the package's canonical length, makes every requested record `failed` for the `bytes` limit with `limit` equal to the retained limit and `consumed` equal to the `required` of encoding the package under that limit, returns no lowered node, no dependency node, no package bytes and no id, and does not panic, while a call at a ceiling equal to that length lowers; a work-budget failure still records the `work` limit; no `failed` record has `consumed` at or below its `limit` unless the limit is `u64::MAX`; and the crate source holds no `expect` or `unwrap` on the package encode, checked by a test that reads `lower.rs`. | Test (TC-048) |
 | FR-038-AC-96 | Each of the fifteen `temporal_formula` identities (`holds`, `true`, `false`, `not`, `and`, `or`, `implies`, `eventually`, `always`, `once`, `historically`, `until`, `release`, `since`, `triggered`) admits as the body root of a `temporal`/`formula` node, with operator `temporal_formula`, no law, `mode` `null`, no leaves, its catalogued member (`temporal_interval` with a closed interval on the eight interval operators, `null` on the other seven, under a clause selecting a bounded `temporal_profile`) and its catalogued operands (`holds` over one `boolean` operand, `true` and `false` over none, `not` and the four unary interval operators over one `reference` to a `temporal`/`formula` node, `and`, `or`, `implies` and the four binary interval operators over two); each formula node is referenced from a clause's formula argument or a formula operand; `quire.op.temporal.fair` admits as the body root of a `temporal`/`fairness` node with a well-formed `fairness` member and no operand, referenced from the fairness argument of a clause selecting `quire.temporal.infinite-trace/v1` (a bounded profile admits no fairness argument); and a package holding a `quire.op.temporal.clause` node whose sixth argument references a `temporal`/`formula` node applying `quire.op.temporal.eventually` with the member `{kind: temporal_interval, interval: {lower: "0", upper: "3"}}` over a second formula node applying `quire.op.temporal.holds` admits with every node key and its `package_id` re-derived, and lowers under a profile that supports the `temporal` tag and returns `unsupported` naming `temporal` under one that does not. | Test (TC-048) |
 | FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in the term walk of the body, before any temporal step and under every profile (merged QSpec FR-370-AC-9 and the schema's non-negative bound pattern); every other bound outside the pattern (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`, and the JSON integer `0`, which is no string) refuses `invalid_package`/`invalid-value` at that bound, `{lower: "1.5", upper: "0"}` at `.../interval/lower`, in the same early stage and first in member order (`lower`, then `upper`), never `operation-member-mismatch` (merged FR-370: "a bound outside its form's pattern ... refuses `invalid_package`/`invalid-value` at that bound's pointer during strict wire validation"); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness` and an interval holding a third member each refuse `invalid_package`/`operation-member-mismatch` at `operation.member` (an IR reading, merged text silent), and a `null` member on an interval-capable operator refuses `invalid_package`/`operation-member-mismatch` at the application (`/semantic_graph/nodes/{n}/body`, merged FR-370); and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-98 | The `fairness` member of `quire.op.temporal.fair` admits as `{kind: fairness, fairness_kind: weak, granularity: whole, declaration, name}` and as `strong` with `each`, with a `declaration` and `name` that resolve (the resolution refusals are FR-038-AC-103's); a `fairness_kind` of `medium`, a `granularity` of `part`, a member lacking `name`, a member holding an extra member, a `null` member and a member of kind `temporal_interval` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and a `fairness` member on `quire.op.boolean.not` refuses the same way. | Test (TC-048) |
@@ -2102,7 +2148,8 @@ quire-specification:TC-217 names this repository as their consumer evidence
 owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
 encoder that "Canonical encoding of the wire types" and "Every identity digest
 is computed through quire-canonical" consume (FR-038-AC-74 through
-FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its pending
-`Encode` for `serde_json::Value`. [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
+FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its
+`Encode` for `serde_json::Value` (quire-canonical #7, merged).
+[FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.

@@ -128,7 +128,8 @@ Four decisions govern the seam. None adds a layer between the repositories.
   one-owner fix; its spec is FR-016, FR-034 and FR-038, and its code lands in three changes.
   The target is that the encode of a `serde_json::Value` is `quire-canonical`'s (one owner for
   IR, codegen and QSL) so IR carries no walker of its own; that upstream `Encode` is
-  quire-canonical #7, open and pending merge, and until it merges IR's `value_to_vec` stays.
+  quire-canonical #7, merged as b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1, and IR holds no walker of its own
+  (FR-038-AC-91).
 - D. Target: IR has no dependency on codegen, runtime or QSL, and that is a build failure, not
   prose: `deny.toml` `[bans]` is to list those crates under `deny`, so `make deny` (part of
   `make ci`) fails on any such edge. No such entry exists today. The home of this guard is the IR

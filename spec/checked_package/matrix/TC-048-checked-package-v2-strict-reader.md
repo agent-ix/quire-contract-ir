@@ -594,8 +594,8 @@ a limit equal to its canonical length and one byte lower (FR-038-AC-90). A test
 reads `canonical.rs`, `binding.rs`, `output_mapping.rs` and `checked_package/` and
 counts `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json`,
 `serde_json_canonicalizer`, and `serde_json::to_vec` and `serde_json::to_value`
-calls reaching a digest (FR-038-AC-91; its no-`value_to_vec`, no-`Encode`-for-`Value`
-and `serde_json` feature clauses wait for the pending upstream `Encode`); it lists
+calls reaching a digest (FR-038-AC-91, including its no-`value_to_vec`, no-`Encode`-for-`Value`
+and `serde_json` feature clauses); it lists
 the derives and `Encode` implementations of the six preimage types of the
 assignment table (FR-038-AC-92). Read a package that selects a model document
 holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
@@ -610,8 +610,21 @@ refuses (FR-038-AC-93). Supply a model document whose bytes are exactly
 `limits.bytes` long, then lower `limits.bytes` by one and check `incomplete` for
 `bytes` with no pointer, and a work limit one low with the row pointer
 (FR-038-AC-94). Drive the lowering through a ceiling seam at a node preimage's
-length and one byte lower, and at a lowered package's length and one byte lower
-(FR-038-AC-95).
+length and one byte lower through `identify_node`, and through a whole call of
+`lower` at a ceiling the package fits under but one node's preimage does not
+(the siblings `lowered`, and equal to the records of the same call with that
+request removed), and at a lowered package's length and one byte lower through
+`lower`, and through `identify_node` at a ceiling mid-way through a string value
+of at least two bytes (chosen per fixture so the byte is not one the encoder
+writes alone, nor inside an escape run) and with an in-memory preimage holding an
+integer past 2^53 (the reader would refuse it, so it is built past the reader)
+under a ceiling that reaches the number and is below `u64::MAX`; check that each `failed`
+record names the `bytes` limit with the retained limit as `limit` and as
+`consumed` the `required` of encoding the same value under that limit (above
+`limit`, at most the canonical length; at the mid-string ceiling neither `limit + 1`
+nor the full length; `limit + 1` for the integer past 2^53), that a
+package over the ceiling returns no lowered node and no dependency node, and
+that a work-budget failure still names `work` (FR-038-AC-95).
 
 ## Inexact numbers (FR-038-AC-109 through FR-038-AC-111)
 

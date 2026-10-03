@@ -63,7 +63,10 @@ Unknown tagged nodes may survive transport but consumers that lack their
 declared version shall refuse them. When a requested item exceeds a declared
 resource limit, the lowerer shall return `failed` for that item without exposing
 a substitute node. The lowerer shall not substitute a node,
-change a source/type/anchor/bound, or affect a sibling disposition.
+change a source/type/anchor/bound, or affect a sibling disposition. The one
+exception is a lowered package that could not be produced because its bytes
+exceed the byte ceiling: every requested record is `failed`, because no package
+exists to carry a lowered node (FR-038-AC-95).
 
 ## Acceptance Criteria
 
@@ -71,7 +74,7 @@ change a source/type/anchor/bound, or affect a sibling disposition.
 | --- | --- | --- |
 | FR-035-AC-1 | Every V1-BACK-001 through V1-BACK-004 and V1-BACK-014 request has an exact semantic vector or a per-item refusal. | Test (TC-044) |
 | FR-035-AC-2 | Mutation of source, type, anchor, identity, bound, dependency, or version refuses before a backend artifact is emitted. | Test (TC-044) |
-| FR-035-AC-3 | Mixed supported and unsupported requests retain independent sibling records and expose no placeholder semantics. | Test (TC-044) |
+| FR-035-AC-3 | Mixed supported and unsupported requests retain independent sibling records and expose no placeholder semantics, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-044) |
 | FR-035-AC-4 | Every reference resolves by stable identity to a reachable version-compatible node and every represented node has exact source correspondence. | Test (TC-044) |
 | FR-035-AC-5 | One lowering call over a mixed request emits a single canonical cycle-free versioned `ContractPackage` carrying every `lowered` node of that call, whose canonical bytes and digest are stable across repeated identical calls and change when any represented node changes. | Test (TC-047) |
 
