@@ -47,6 +47,13 @@ repairing, or approximating its disposition.
   dependencies, target profile, disposition, conditions, causes, generated
   regions, source-fact state, and separately qualified observation/protocol
   adequacy references into the record identity preimage.
+- The record constructor shall canonicalize the record identity material
+  through `quire-canonical` under the request's `maximum_request_bytes`: the
+  material is mapper-supplied (dependencies, conditions, causes, regions and
+  adequacy references), so it is bounded by the request's own limit and not
+  encoded without a ceiling. Material over it refuses `request_limit_exceeded`
+  at `record.identity` as a whole-operation refusal, and material of exactly the
+  limit encodes (FR-034 owns the rule for the request, record and package).
 - The record constructor shall accept only `preserved` with no conditions or
   causes and represented output, `conditional` with nonempty conditions and
   represented output, `unrepresented` with nonempty causes and no output, or
@@ -68,6 +75,7 @@ repairing, or approximating its disposition.
 | FR-033-AC-3 | Mutating any source, dependency, profile, disposition, condition, cause, region, source state, or adequacy-domain member changes the record identity or refuses construction. | Test (TC-043) |
 | FR-033-AC-4 | Pending, incomplete, or refused source facts and plausible target text cannot become preserved, conditional, or Boolean success. | Test (TC-043) |
 | FR-033-AC-5 | Observation and protocol adequacy remain independently typed, and an omitted value remains absent without a cross-domain default. | Test (TC-043) |
+| FR-033-AC-6 | A mapper candidate whose record identity material exceeds `maximum_request_bytes` (for instance a condition or cause text longer than the limit) refuses `request_limit_exceeded` at `record.identity` with no record set or package, the same candidate maps under a larger limit, and material of exactly the limit yields a record. | Test (TC-043) |
 
 ## Dependencies
 

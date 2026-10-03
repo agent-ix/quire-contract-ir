@@ -65,7 +65,12 @@ and `map_admitted_request_controlled` let a caller cancel a running mapping
 through a token it owns, checked between stages.
 Serde deserialization trait implementations are not part of that surface:
 untrusted package JSON enters through `ContractPackage::from_json_str` or
-`from_json_bytes`, while validated values remain serializable.
+`from_json_bytes`, while validated values remain serializable. The serialized form of
+`IntegerType` and `RationalType` (and of the integer and rational literals) is
+stable public surface: their `minimum`, `maximum`, `numerator_minimum`,
+`numerator_maximum`, `maximum_denominator`, `value`, `numerator` and
+`denominator` members serialize as decimal strings (FR-013), the spelling FR-016
+canonicalizes, and a JSON number in one of them is `invalid_wire_format`.
 Unvalidated JSON enters only through wire/request decoders. Validated identity,
 package, declaration, expression, canonical, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There

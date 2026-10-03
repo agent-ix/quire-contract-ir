@@ -35,7 +35,11 @@ themselves, and FR-038-AC-74 through FR-038-AC-80 against the V2 wire types'
 encoding through `quire-canonical` and the reader's canonical-bytes check, and
 FR-038-AC-81 through FR-038-AC-88 against the operation identity, law, mode,
 member and operand checks of a single application and the key of an application
-node, as unit tests of `crates/quire-contract-model/src/checked_package/v2/operations.rs`.
+node, as unit tests of `crates/quire-contract-model/src/checked_package/v2/operations.rs`,
+and FR-038-AC-89 through FR-038-AC-95 against every identity digest's move to
+`quire-canonical` (node keys, lowered identities, the nominal digest's byte
+limit, the absence of an encoder of this repository's own, a selected model
+document's integer check and byte limit, and the lowering byte ceiling).
 
 ## Test Procedure
 
@@ -437,6 +441,40 @@ manifests, `deny.toml` and the crate source, lists every `derive` of
 `FixedShape` and every `impl` of `Encode` and `FixedShape`, searches for
 `const DEPTH`, and checks each of the seven wire types and each type they hold
 is on the stated path; `make deny` passes.
+
+## Identity digests through quire-canonical (FR-038-AC-89 through FR-038-AC-95)
+
+Planned: no test exists until the code changes of IR-274 land. For each in-repo
+positive fixture, recompute every nominal, application and structural node key
+and the `package_id`, and compare each with the digest the fixture recorded
+before the move; lower every node and compare each `ir_id`, the lowered package's
+`package_id` and its canonical bytes with the values recorded from the lowering
+before the move; compare the canonical bytes of one preimage of each kind with an
+expected byte string written out in the test, not computed by the code under test
+(FR-038-AC-89). Call
+`NominalIdentityPreimage::digest` for a preimage of each of the four versions with
+a limit equal to its canonical length and one byte lower (FR-038-AC-90). A test
+reads `canonical.rs`, `binding.rs`, `output_mapping.rs` and `checked_package/` and
+counts `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json`,
+`serde_json_canonicalizer`, and `serde_json::to_vec` and `serde_json::to_value`
+calls reaching a digest (FR-038-AC-91; its no-`value_to_vec`, no-`Encode`-for-`Value`
+and `serde_json` feature clauses wait for the pending upstream `Encode`); it lists
+the derives and `Encode` implementations of the six preimage types of the
+assignment table (FR-038-AC-92). Read a package that selects a model document
+holding 9007199254740993, -9007199254740993, 9.007199254740993e15, 1e20 and
+18446744073709551617 at `/package/count`, under the document's own digest and
+under another, and check `noncanonical_wire` at
+`/lock/model_selections/0/digest` with `document_pointer` `/package/count` and no
+pointer on a package-stream refusal; repeat with 9007199254740992,
+-9007199254740992, 9.007199254740992e15 and `0.5` and check none refuses for it;
+put two such numbers in the document and check the first in document order is
+named; give an integer value type the upper bound 9007199254740993 and check it
+refuses (FR-038-AC-93). Supply a model document whose bytes are exactly
+`limits.bytes` long, then lower `limits.bytes` by one and check `incomplete` for
+`bytes` with no pointer, and a work limit one low with the row pointer
+(FR-038-AC-94). Drive the lowering through a ceiling seam at a node preimage's
+length and one byte lower, and at a lowered package's length and one byte lower
+(FR-038-AC-95).
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 

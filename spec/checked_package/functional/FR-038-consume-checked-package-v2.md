@@ -89,7 +89,11 @@ lacks points at the object that lacks it. The empty pointer names the whole
 document.
 
 A refusal about the byte stream rather than a value carries no pointer. These
-are malformed JSON and non-canonical bytes. A repeated member points at that
+are malformed JSON and non-canonical bytes. The one refusal that carries a
+second pointer, `document_pointer`, is about a number inside a supplied model
+document and not about the package's bytes ("A model document is a value inside
+a supplied document"); its `noncanonical_wire` code does not make it a refusal
+about the package's byte stream. A repeated member points at that
 member. A closed-schema decode refusal points where the decoder stopped: at
 an unknown member, at the object missing a required member, or at a value of
 the wrong kind. Inside a nominal identity preimage, and inside its owner,
@@ -221,7 +225,9 @@ outcome rather than a position-dependent one:
 4. An entry whose selection evidence FR-322 step 1 does not admit (see
    "Model-owned members" below) refuses with that step's code and cause:
    `missing_import`/`missing-selection` at the entry's `digest` when the
-   evidence supplies no document under it, `stale_dependency`/`byte-digest-mismatch`
+   evidence supplies no document under it, `noncanonical_wire` at its `digest`
+   with a `document_pointer` when the document holds a number whose text denotes a magnitude past 2^53 (this
+   precedes the digest comparison), `stale_dependency`/`byte-digest-mismatch`
    at its `digest` when the document's RFC 8785 SHA-256 is another digest,
    `invalid_model_binding`/`wrong-model-selection` at its `identity` when the
    document names another identity, and the first FR-154 declaration refusal
@@ -307,11 +313,17 @@ The V2 wire types encode to RFC 8785 canonical bytes through the first-party
 `quire-canonical` crate, which this repository depends on at `branch = "main"`
 as a git dependency, with its source allow-listed in `deny.toml`. The crate
 owns the encoder; this repository holds no copy of it, adds no wrapper type
-around it and writes no `DEPTH` literal. The in-repo `CanonicalWriter` and
-`digest_json` are retired by IR-274, not by this requirement: this requirement
-changes how the types below encode and how the reader checks that a document is
-canonical (see "Canonical bytes are quire-canonical's bytes"), and leaves every
-other canonical path as it is.
+around it and writes no `DEPTH` literal. Every identity digest this repository
+computes is computed through `quire-canonical`, and no encoder of this
+repository's own remains: the `package_id`, a nominal preimage's digest, an
+application and a structural node key, a lowered node's `ir_id`, a lowered
+package's bytes and `package_id`, and a selected model document's digest (see
+"Every identity digest is computed through quire-canonical"). This requirement
+also changes how the reader checks that a document is canonical (see "Canonical
+bytes are quire-canonical's bytes"). `CanonicalWriter`, `canonical_envelope_bytes`
+and `digest_json` do not exist (FR-038-AC-91), and the v1 model's canonical
+objects and output-mapping identity material take the same encoder (FR-016,
+FR-034).
 
 `quire-canonical` has two encode paths, and each type takes the one its depth
 allows. `#[derive(FixedShape)]` is valid only for a type whose JSON nests to a
@@ -319,8 +331,18 @@ depth fixed by the type itself; serde then recurses once per fixed level. A
 type with a member whose depth follows the input implements
 `quire_canonical::Encode` instead. Every `serde_json::Value` in the wire is
 such a member, because a node `body` and a diagnostic `details` entry nest as
-deep as their input, and `quire-canonical` provides no `Encode` for `Value`.
-The assignment follows from the types:
+deep as their input. The target is that `quire-canonical` provides the iterative
+`Encode` for `serde_json::Value`, behind a `serde_json` feature, as the one
+owner for this repository, `quire-contract-codegen` and `quire-spec-language`,
+and that this repository's `Encode` types delegate their `Value` members to it.
+That upstream change is quire-canonical #7, open and pending merge, and the code
+change that depends on it is blocked until it merges. The same change adds a
+public non-recursive drop helper for a deep `serde_json::Value`, because
+`serde_json`'s own drop recurses and this reader parses with unbounded depth;
+the reader drops a deep `Value` through that helper and writes no drop of its own. Until then `Value` members encode through this
+repository's own walker, `value_to_vec` in `checked_package/v2/encode.rs`, which
+stays; this requirement does not specify removing it before the upstream
+`Encode` exists. The assignment follows from the types:
 
 | Type | Path | Reason |
 |---|---|---|
@@ -331,6 +353,12 @@ The assignment follows from the types:
 | `CheckedPackageIdentityPreimageV2` | `Encode` | `identity_projection` holds `CheckedNodeProjectionV2`, whose `body` is a `Value` |
 | `CheckedSemanticGraphV2` | `Encode` | every `CheckedSemanticNodeV2` has a `body` that is a `Value` |
 | `CheckedDiagnosticsV2` | `Encode` | every `CheckedDiagnosticV2` carries `details: Vec<Value>` |
+| the application node preimage (a node's body and its recursion group's members) | `Encode` | the body is a `Value` |
+| `LoweredNodePreimage` | `Encode` | it holds the lowered node, whose `body` is a `Value` |
+| `ContractPackagePreimage` | `Encode` | it holds every lowered node and dependency node |
+| `NominalIdentityPreimage` | `FixedShape` | four closed preimage structs of strings, `CheckedRational`s and `DimensionTerm`s, its owner a `NominalOwner` |
+| the structural node preimage of a model declaration node | `FixedShape` | a fixed body (`aggregate` with no members), `null` for the members the shape declares null, and a `ModelOwner` of three strings |
+| the bound identity envelope of FR-023 (`quire.contract.bound-identity/v1`) | `FixedShape` | a profile, a canonical profile, a package digest and the clause identity, declaration digest and expression digest of each binding: depth fixed by the type |
 
 Each fixed-depth type derives `FixedShape`, and so does every type it holds, so
 a member that later grows a recursive or `Value` member stops compiling instead
@@ -340,7 +368,7 @@ artifact-reference types (today `CheckedArtifactRef` and `CheckedRevision`;
 the types the reference shape of FR-038-AC-46 through FR-038-AC-61 replaces
 them with, such as `CheckedSourceRef`, when that change merges),
 `CheckedSelection`, `CheckedSelectionRole`, `CheckedCapabilityDisposition`,
-`CheckedDomainPackageRef` and `CheckedDependencySelection`. The three `Encode`
+`CheckedDomainPackageRef` and `CheckedDependencySelection`. The `Encode`
 types delegate their fixed-depth members to `Writer::serialize`, which
 requires `FixedShape`, so these derive it as well: `CheckedOccurrence`,
 `CheckedDeclaration`, `NominalIdentityPreimage` with `EnumDeclarationPreimage`,
@@ -357,31 +385,79 @@ type, never derives `FixedShape`; `CheckedNodeProjectionV2`,
 `CheckedSemanticNodeV2` and `CheckedDiagnosticV2` share the `Encode` path of the
 types that hold them. A type that has an `Encode` implementation of its own
 writes its members as `Writer` events in its own field order, delegating a
-fixed-depth member to `Writer::serialize`, and writes a `Value` iteratively.
+fixed-depth member to `Writer::serialize` and a `Value` member to the encode of
+a `Value` (this repository's walker until `quire-canonical`'s `Encode` for
+`serde_json::Value` lands, then that `Encode`).
 
-A `Value` is written from an explicit heap stack of the containers still open,
-with no native recursion over the `Value`: an array is `begin_array`, its
-elements and `end_array`; an object is `begin_object`, a `name` and value per
-member and `end_object`; a string, boolean and null are the matching scalar
-event. A JSON number is written by its kind: a number that is an `i64` or `u64`
-goes through `Writer::integer`, which refuses a magnitude past 2^53, and any
-other number goes through `Writer::number` as the `f64` it denotes. The `Writer`
-orders object members itself, so the bytes do not depend on how the `Value`'s
-map is backed. Encoding adds no depth limit of its own: a body nested deeper
-than the reader admits, built in memory, still encodes, and the only refusals an
-encode returns are the byte ceiling and a number `quire-canonical` has no
-encoding for. The byte ceiling is the read's byte limit.
+Once the upstream `Encode` lands, this repository holds no walker over a
+`Value`: the iterative encode of a `Value`, its number rule (an integer past
+2^53 is refused, any other number is its `f64`) and its member order belong to
+`quire-canonical`. Until then the walker is the one encoder of a `Value` and
+FR-038-AC-77 and FR-038-AC-78 are verified against it. Encoding
+adds no depth limit of its own: a body nested deeper than the reader admits,
+built in memory, still encodes, and the only refusals an encode returns are the
+byte ceiling and a number `quire-canonical` has no encoding for. The byte
+ceiling is the read's byte limit.
 
 The canonical bytes are unchanged for every value that the reader admitted
-before this requirement and admits after it. For every type above the bytes
+before this requirement and admits after it. For every V2 type above the bytes
 `quire-canonical` produces equal the bytes of the type's `serde_json` canonical
 form (`to_value` then `to_vec`, members in sorted order) for every in-repo
 fixture and for the crafted values of FR-038-AC-74 and FR-038-AC-75 (strings
 with non-ASCII and astral characters, and the integers 9007199254740992 and
 -9007199254740992), and `package_id` is the SHA-256 of exactly those bytes
 with no domain label hashed in, so every `package_id` already recorded in a
-fixture still recomputes. Lowering output
-and the QSL output that consumes these types are unchanged.
+fixture still recomputes. The same holds for every node key and for the lowered
+package: each application, structural and nominal node key recorded in a fixture
+still recomputes, and a lowered node's `ir_id` and the lowered package's bytes
+and `package_id` are the ones the lowering produced before the move
+(FR-038-AC-89). Lowering output and the QSL output that consumes these types are
+unchanged. This statement is about V2 only: the v1 model's canonical objects
+change spelling (FR-016) and so do their digests.
+
+### Every identity digest is computed through quire-canonical
+
+Each digest below is the SHA-256 of `quire-canonical`'s bytes for its preimage,
+computed by `quire-canonical`, and by no function of this repository's own that
+serializes through `serde_json`:
+
+- `package_id`, over `identity_preimage`;
+- a nominal node key, over `NominalIdentityPreimage`, and an application node
+  key, over the application node preimage, and a structural node key, over a
+  model declaration node's structural preimage;
+- a lowered node's `ir_id`, over `LoweredNodePreimage`, and the lowered
+  package's bytes and `package_id`, over `ContractPackagePreimage`;
+- the order of a dimension's terms, which is the order of each term's
+  canonical bytes, not of its `serde_json::to_vec` bytes;
+- a selected model document's digest, over the document read through
+  `quire_canonical::read` (see "A model document is a value inside a supplied
+  document").
+
+The assignment table above says which path each preimage takes: the preimages
+whose depth follows their input (the application, lowered node and lowered
+package preimages) implement `Encode`, and the fixed-depth ones (the nominal and
+structural preimages and the bound identity envelope) derive `FixedShape`. No
+digest here hashes a domain label ahead of the bytes: each is the SHA-256 of the
+canonical bytes alone, as before.
+
+Every encode runs under a byte ceiling: the reader's byte limit, `limits.bytes`,
+for each digest the reader computes while reading, and for the lowering of an
+admitted package the byte limit it was read under, which the admitted package
+retains. An encode refusal while reading refuses the document with the code and
+location its check already uses for a preimage that cannot be encoded:
+`malformed_wire` at `/identity_preimage` for `package_id`, and
+`invalid_semantic_graph` at the node for a node key. A lowered node whose
+preimage's canonical bytes exceed the retained limit is reported `failed`, and a
+lowered package whose bytes exceed it is reported `failed` for every requested
+record and carries no package bytes or id; the `expect` that the package encode
+makes today is replaced by that outcome, so lowering never panics on an encode
+refusal (FR-038-AC-95). A ceiling equal to the canonical length admits; one byte
+under it refuses.
+`NominalIdentityPreimage::digest`, which a
+caller may call on a preimage it built, takes the caller's configured byte
+limit as an argument and returns the encoder's refusal when the preimage's
+canonical bytes exceed it; it takes neither `u64::MAX` nor a fixed cap of its
+own (FR-038-AC-90).
 
 ### Canonical bytes are quire-canonical's bytes
 
@@ -419,6 +495,51 @@ value every number of which `quire-canonical` encodes, and a more specific
 grammar refusal is never decided by an encoder refusal. An encode refusal at the
 recomputation is not reachable from a document that passed intake; a caller who
 meets one (an in-memory value) receives `quire-canonical`'s error.
+
+### A model document is a value inside a supplied document
+
+A selected domain package's Semantic IR 2.0.0 document is evidence the caller
+supplies under its `sha256-jcs` digest, and the reader recomputes that digest
+(FR-322 step 1) through `quire-canonical`: the document is read with
+`quire_canonical::read`, which keeps each number's text, and encoded from that
+reading, under the reader's byte limit. It is not parsed a second time into a
+`serde_json::Value`, so there is one reader for the document and the decision
+below is made on the number's text before any rounding to a double. Two
+refusals about it are different in kind and are not two forms of one refusal:
+
+- A refusal about the checked package's own byte stream (malformed JSON,
+  non-canonical bytes: FR-038-AC-79) is about the document the reader was handed
+  as the package. It carries no pointer, because no value of that document is
+  the fault: the bytes as a whole are.
+- A refusal about a value located inside a supplied domain document is about
+  one number of that document (any number whose text denotes a magnitude past
+  2^53, however spelled), which is not the package. It carries the RFC 6901
+  pointer of that number into the model document.
+
+Before the digest is computed, the reader refuses a model document that holds,
+at any depth, a number whose text denotes a value of magnitude greater than 2^53
+(9007199254740992), however it is spelled: `9007199254740993`,
+`9.007199254740993e15`, `1e20` and an integer spelling past the 64-bit range
+are all refused, and `9007199254740992`, `-9007199254740992` and
+`9.007199254740992e15` are admitted. The decision is on the text, so a
+spelling a double would round to 2^53 is still refused. RFC 8785 has no exact
+number past 2^53, so two different documents would otherwise share one digest.
+This is this repository's own rule, not one a consumer or the specification
+requires of it: IR refuses because two documents that differ in such a number
+must not share a digest. It is a reader change: a bound such as an integer
+type's `Int[lo, hi]` past 2^53 in a model document, which this reader accepts
+exactly today, is refused. The refusal is `noncanonical_wire`, located at the
+selection row's `digest` (`/lock/model_selections/<i>/digest`) and carrying a
+`document_pointer`, the pointer of the first such number in document order
+(`/package/count` for a member `count` of the object `package` at the document's
+root). It is decided at the place the digest comparison is: after the supplied
+document is read and before any digest is computed, so it precedes the
+`byte-digest-mismatch` and the identity refusals of the same row. The document is
+read and encoded under the reader's byte limit: bytes that exceed it return
+`incomplete` for `bytes` with that limit and the document's length as consumed
+and no pointer, as every byte-limit outcome is (FR-038-AC-26); the `work` limit
+charged for the same document is located at the row (FR-038-AC-30), and the two
+are different limits with different locations.
 
 ### Artifact references
 
@@ -579,7 +700,8 @@ reader runs FR-322's four steps:
 
 1. **Selection evidence**, before graph admission, for each `model_selections`
    row in lock order: the digest domain, the document supplied under the
-   digest, the recomputed RFC 8785 SHA-256 and the document's own identity, in
+   digest, the check that the document holds no number whose text denotes a magnitude past 2^53, the
+   recomputed RFC 8785 SHA-256 and the document's own identity, in
    that order (class 4 above). The reader then reads the
    document's object types, systems interfaces, integer value types and
    relationships, node by node in ascending IR node identity, and refuses with
@@ -1383,7 +1505,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
 | FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: depth at the first value nested one level past it, nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
-| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `identity`; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and the same package supplied as two documents at different versions admits when each is selected in its own package under its own digest (FR-038-AC-64). | Test (TC-048) |
+| FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document holding a number whose text denotes a magnitude past 2^53 refuses `noncanonical_wire` at the `digest` before any digest is computed (FR-038-AC-93); a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `identity`; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and the same package supplied as two documents at different versions admits when each is selected in its own package under its own digest (FR-038-AC-64). | Test (TC-048) |
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. | Test (TC-048) |
 | FR-038-AC-30 | Reading a selected domain package and resolving a model-owned member are charged to the `work` limit: a limit one below the work a read used returns `incomplete` for `work` with the pointer `/lock/model_selections/<i>` of the row, and the exact work admits. | Test (TC-048) |
@@ -1444,6 +1566,13 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-86 | Observed at the operation check, `quire.op.structural.eq`, whose `same_type` constraint covers both operands, admits two distinct `value`/`parameter` nodes typed at one record type, two `literal`s typed at one type and two nested applications of one `result_type`, and refuses `ill_typed`/`operator-ineligible` at `arguments/1` for parameters typed at two record types, `literal`s typed at two types and nested applications of two result types, so the constraint compares the types the operands resolve to and not the operand nodes. | Test (TC-048) |
 | FR-038-AC-87 | The operand family of a node is exactly, by tag and form: `scalar_type` `boolean`, `integer`, `rational`, `decimal`, `float32`, `float64`, `text` and `enum`, and `composite_type` `option`, `sequence`, `set`, `bag`, `ordered_set`, `record`, `tuple` and `reference`, each its own name; `expression`/`reference`, `reference`; `function` `pure_function`, `predicate` and `recursive_function`, `function`; `model` `object_type` and `systems_interface`, `object`; and `relation`/`population`, `population`; and `temporal`/`formula`, `temporal` (FR-038-AC-68); every other kind of the closed node taxonomy has none, and the pairs are compared whole, so a form moved to another family or added to the list fails it. A kind is type-shaped exactly when its tag is `scalar_type`, `composite_type`, `bounded_domain`, `relation` or `function`, or it is `expression`/`reference` or `temporal`/`formula`, checked for every kind of the taxonomy. The `temporal`/`formula` pair arrives with the IR-503 code change; until it lands the pairs the unit test compares do not include it. | Test (TC-048) |
 | FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes, observed at the key check and with members in sorted order, to exactly this object: `body` (`arguments` the `group_reference` `{ordinal: 0, term: group_reference}` then the `reference` to the outside node, `operation` `{identity: quire.op.integer.add, laws: [], leaves: [], member: null, mode: null}`, `operator` `binary`, `result_type`, `term` `application`), `declaration` `{qualified_name: [pkg, total]}`, `node_tag` `function`, `recursion` `{ordinal: 1, size: 2}`, `semantic_form` `function`, `semantic_type` and `version` `quire.application-node/v1`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
+| FR-038-AC-89 | Every identity digest recomputes to the value an in-repo fixture recorded before the move to `quire-canonical`: for every positive fixture each nominal, application and structural node key and the `package_id` equal the recorded digest; lowering every node of every positive fixture yields `ir_id` values, a lowered package `package_id` and lowered package canonical bytes equal to the ones recorded from the lowering before the move; and the canonical bytes of one preimage of each kind (a nominal preimage of each of its four versions, an application, a structural, a lowered node and a lowered package preimage) equal an expected byte string written out in the test from the preimage's JSON text, not computed by a call into the code under test, with the recorded digests as the second oracle. | Test (TC-048) |
+| FR-038-AC-90 | `NominalIdentityPreimage::digest` takes a byte limit: called with the limit equal to the canonical byte length of a preimage of each of its four versions it returns the digest the node key holds, and one byte lower it returns the encoder's byte-limit refusal and no digest; the reader passes its configured `limits.bytes` to it, and no call in the crate source passes `u64::MAX` or a literal cap, each checked by a test that reads the crate source. | Test (TC-048) |
+| FR-038-AC-91 | The files `canonical.rs`, `binding.rs`, `output_mapping.rs` and everything under `checked_package/` hold none of the symbols `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` and `serde_json_canonicalizer`, and no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest, a node key, a lowered preimage, the order of a dimension's terms, the selected-document digest, output-mapping identity material or the bound identity envelope, each checked by a test that reads those files and counts the symbols and calls, which finds none. Planned, and blocked on `quire-canonical`'s pending `Encode` for `serde_json::Value`: the same scan finds no `value_to_vec` and no `impl` of `Encode` for `serde_json::Value`, and the manifest enables `quire-canonical`'s `serde_json` feature; until that upstream change lands the scan excludes `value_to_vec`. | Test (TC-048) |
+| FR-038-AC-92 | The application node preimage, `LoweredNodePreimage` and `ContractPackagePreimage` implement `quire_canonical::Encode` and none derives `FixedShape`; `NominalIdentityPreimage` with its four preimage structs, the structural node preimage and the bound identity envelope derive `FixedShape` and hold no `Value`; no `FixedShape` implementation is hand-written for any of them, each checked by a test that reads the crate source. | Test (TC-048) |
+| FR-038-AC-93 | A selected model document holding the number `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20` or `18446744073709551617` at `/package/count` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/count`, whether the row selects the document's own digest or another digest, so the refusal precedes `byte-digest-mismatch`; a document holding such numbers at `/b` and then `/a/0` names `/b`, the first in document order; the same document holding `9007199254740992`, `-9007199254740992`, `9.007199254740992e15` or `0.5` at that pointer is not refused for it and is digested; an integer value type whose upper bound is `9007199254740993` in a document that is otherwise admitted refuses the same way, where today it is admitted (the reader change); and a package document refused `noncanonical_wire` for its own bytes (FR-038-AC-79) carries no pointer and no `document_pointer`. | Test (TC-048) |
+| FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read, digested and matches its row, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the row pointer `/lock/model_selections/0` (FR-038-AC-30). | Test (TC-048) |
+| FR-038-AC-95 | Lowering encodes under the byte limit the package was read under: lowering an admitted package whose retained limit equals the length of a lowered node's preimage lowers it, and with the retained limit one byte lower, through a unit seam that takes the ceiling as an argument as FR-034-AC-6's package step does, that node's record is `failed` and its sibling records are unchanged; a lowered package whose bytes exceed the ceiling makes every requested record `failed` with no package bytes or id and no panic; and the crate source holds no `expect` or `unwrap` on the package encode, checked by a test that reads `lower.rs`. | Test (TC-048) |
 
 ## Dependencies
 
@@ -1451,7 +1580,9 @@ QSpec FR-322 (AC-4, AC-8, AC-10, AC-28, AC-35 through AC-37), FR-201 (AC-2, AC-3
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 quire-specification:TC-217 names this repository as their consumer evidence
 owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
-encoder that "Canonical encoding of the wire types" consumes (FR-038-AC-74
-through FR-038-AC-80). [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
+encoder that "Canonical encoding of the wire types" and "Every identity digest
+is computed through quire-canonical" consume (FR-038-AC-74 through
+FR-038-AC-80 and FR-038-AC-89 through FR-038-AC-95), including its pending
+`Encode` for `serde_json::Value`. [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.

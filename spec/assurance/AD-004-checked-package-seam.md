@@ -66,7 +66,11 @@ The seam is described as what crosses it, how identity is asserted, which way de
   `identity_preimage` under `quire.package.semantic/v2`, requires the preimage's lock members
   to equal the lock and its projection to equal the graph's occurrence-free projection (each
   mismatch refuses `stale_dependency`), and re-derives every nominal node identity (a violation
-  refuses `invalid_semantic_graph`). `package_id` is the package's content identity: it binds a
+  refuses `invalid_semantic_graph`). Every one of these identity digests is `quire-canonical`'s
+  (FR-038, "Every identity digest is computed through quire-canonical"); a selected model
+  document holding a number past 2^53 is refused `noncanonical_wire` (IR's own rule) with a pointer into
+  that document, a different refusal from the pointer-free ones about the package's own
+  bytes. `package_id` is the package's content identity: it binds a
   package to its content and is the value QSL's replay recomputes later. The wire carries other
   digests (application node keys, nominal identity digests, dependency `package_id`s, the lock's
   raw-source digests; a definition reference carries none) and domain package documents carry `sha256-jcs` digests; these are
