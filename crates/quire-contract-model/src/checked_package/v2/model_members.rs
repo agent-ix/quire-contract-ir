@@ -1266,13 +1266,20 @@ fn inexact_cause(text: &str, value: f64) -> Option<CheckedPackageRefusalCause> {
     // Writing one finite double cannot fail; were it to, the number has no
     // RFC 8785 text to be exact against, so it is refused.
     let mut written = Vec::new();
-    let mut writer = quire_canonical::Writer::new(&mut written, quire_canonical::Limits::new(64));
+    let mut writer = quire_canonical::Writer::new(
+        &mut written,
+        quire_canonical::Limits::new(DOUBLE_TEXT_BYTES),
+    );
     if writer.number(value).is_err() {
         return Some(Cause::InexactNumber);
     }
     let written = String::from_utf8_lossy(&written);
     (spelled != Spelling::of(&written)).then_some(Cause::InexactNumber)
 }
+
+/// The bytes one double's RFC 8785 text can take (at most 25), with room to
+/// spare: the room one number's text is written in, not a cap on a document.
+const DOUBLE_TEXT_BYTES: u64 = 64;
 
 /// The decimal digits of `2^53`, 9007199254740992.
 const MAXIMUM_INTEGER_DIGITS: &str = "9007199254740992";
