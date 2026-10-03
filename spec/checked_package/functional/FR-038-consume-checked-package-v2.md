@@ -1189,9 +1189,26 @@ otherwise, the locus is the key of the node that path is on.
 | `lower > upper` | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
 | negative bound | `/semantic_graph/nodes/{formula node}/body/operation/member/interval/lower` or `.../upper` | the formula node's key |
 
-AC-103's and AC-104's "at the clause node" and "at that operator's application" are
-these paths and loci. (An IR reading of how the two are paired, pending QSpec; the
-fairness rows replace the earlier "at the clause node" for fairness refusals.)
+The paths AC-97, AC-102, AC-103, AC-104 and AC-108 give, and the loci they name,
+are the rows of this table. The table is an IR reading of how path and locus are
+paired, pending QSpec (QSpec PR #181 is silent on loci).
+
+Two rows are a deliberate departure from FR-040, which makes the locus the entry's
+declaring node key (the key the entry names, as `frame.rs` carries it): an `over` that
+names no node and a fairness `declaration` that names no node put the locus on the
+holder (the clause, the fairness node) rather than on the named key, because a key
+that names no node cannot locate a node in the graph. Every other row that names a
+target uses the target's key, as FR-040 does.
+
+**QSpec PR #181 (draft, not merged; head 454bb057c32c73b472bd83cb4d94b2f77bf8c8ce)**
+carries drafts of several of the relayed rulings marked pending above: the
+`type-mismatch` cause and its `ill_typed` pairing, the `member:<Ident>` leaf segment, a
+non-negative integer bound pattern with a negative bound refused `invalid_package`/
+`invalid-value` before any FR-370 step, a rational timed interval form with open and
+closed ends, the `unsupported-selection` and `wrong-selection-role` causes with their
+`unknown_profile` pairing, and the cause rulings of its description for profile fit,
+fairness resolution and placement. IR's text keeps every pending mark until that PR
+merges, and nothing here cites it as merged.
 
 Operand family and count and `result_type` stay the operation step's
 (FR-370-AC-7), so `holds` over a `reference` to a `temporal`/`formula` node
