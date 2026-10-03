@@ -19,6 +19,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-440
     type: references
+  - target: ix://agent-ix/quire-specification/FR-271
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-272
+    type: references
   - target: ix://agent-ix/quire-contract-ir/FR-040
     type: references
 ---
@@ -230,7 +234,7 @@ outcome rather than a position-dependent one:
    "Model-owned members" below) refuses with that step's code and cause:
    `missing_import`/`missing-selection` at the entry's `digest` when the
    evidence supplies no document under it, `noncanonical_wire` at its `digest`
-   with a `document_pointer` when the document holds a number whose text denotes a magnitude past 2^53 (this
+   with a `document_pointer` and a cause (FR-038-AC-109) when the document holds a number whose exact value its RFC 8785 encoding loses (quire-specification:FR-272), among them one whose text denotes a magnitude past 2^53 (this
    precedes the digest comparison), `stale_dependency`/`byte-digest-mismatch`
    at its `digest` when the document's RFC 8785 SHA-256 is another digest,
    `invalid_model_binding`/`wrong-model-selection` at its `identity` when the
@@ -542,6 +546,34 @@ read and encoded under the reader's byte limit: bytes that exceed it return
 and no pointer, as every byte-limit outcome is (FR-038-AC-26); the `work` limit
 charged for the same document is located at the row (FR-038-AC-30), and the two
 are different limits with different locations.
+
+The same check refuses a number whose exact value its RFC 8785 encoding loses,
+by the requirements of the QSpec native `noncanonical_wire` diagnostic
+(quire-specification:FR-271) and its two causes (quire-specification:FR-272):
+`inexact-integer` for a number whose text denotes a whole value past 2^53,
+however spelled, which is every number FR-038-AC-93 refuses, and
+`inexact-number` for any other number that FR-272 defines as inexact; a number
+that matches both reports `inexact-integer`. Today a model document is read as
+`serde_json` values and digested over `serde_json`'s own bytes, so two model
+documents that differ only in such a number (`0.1000000000000000000001` and
+`0.1`, `9007199254740993.5` and `9007199254740994.0`) read as one value and share
+one digest: the reader refuses neither. A number past the double range
+(`1e400`, `-1e400`) is a whole value past 2^53 however spelled, so it is an
+`inexact-integer` by FR-272; `serde_json` refuses it at parse time, and the
+selection check turns that into `stale_dependency`/`byte-digest-mismatch` at the
+row's `digest`, which is the refusal FR-038-AC-110 replaces. The reader decides
+each number from its text, and its result does not depend on which `serde_json`
+features other crates in the build turn on: the crate's own manifest declares
+`serde_json` with the feature `float_roundtrip`, so the parse of a shortest
+round-trip text is exact whatever the rest of the build holds. The refusal causes
+`CheckedPackageRefusalCause` carries have no `inexact-integer` or
+`inexact-number` member. The refusal is the one of FR-038-AC-93, located at the
+row's `digest` with the `document_pointer` of the first such number in document
+order, and now carries the cause (FR-038-AC-109 through FR-038-AC-111). The package's
+own byte stream already refuses such a number, because its text is not the
+canonical bytes of the value read, and carries neither cause nor pointer
+(FR-038-AC-79). The whole-number rule of FR-038-AC-93 is unchanged. QSL
+never emits such a number, so this change has no lockstep with QSL.
 
 ### Artifact references
 
@@ -2050,6 +2082,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-105 | The temporal and case operands are checked at the operation step, after the temporal step: `quire.op.temporal.holds` over a `reference` to a `temporal`/`formula` node, and over a Boolean-family `reference`, admits only the latter, the former refusing `ill_typed`/`operator-ineligible` at the argument; `quire.op.temporal.until` with one argument, `quire.op.temporal.not` with two, `quire.op.temporal.true` with one, and `quire.op.temporal.and` over a Boolean-family `reference` each refuse `ill_typed`/`operator-ineligible` at `arguments` or at the argument; and `quire.op.temporal.not` over a `reference` to a `temporal`/`formula` node admits. | Test (TC-048) |
 | FR-038-AC-106 | `quire.op.structural.eq` over two values of the `Shape` union admits, and over a `Shape` value and a value of another union refuses `ill_typed`/`operator-ineligible` at `arguments/1` by its `same_type` constraint (QSpec FR-440-AC-6); over a union whose payload types reach no `text` type, `leaves` empty admits; and over `union Label { Named(Text[0, 8; nfc]), Tagged(Integer, Text[0, 8; nfc]), Empty }`, a comparison admits with exactly the leaves `["member:Named", "position:0"]` and `["member:Tagged", "position:1"]` in member declaration order, and, following FR-038-AC-70's convention, a list holding only the `Named` leaf, and a list holding only the `Tagged` leaf, each refuse `invalid_package`/`operation-law-missing` at `operation.leaves`, while the list of both leaves followed by the `Named` leaf again, and the list of both followed by a leaf `["member:Empty"]`, each refuse `invalid_package`/`operation-law-mismatch` at `operation.leaves/2` (the `member:<Ident>` segment is merged QSpec FR-322-AC-45); and over the recursive unions `union IntList { Cons(Integer, IntList), Nil }` and `union TextList { Cons(Text[0, 8; nfc], TextList), Nil }`, `structural.eq` admits (a cycle through a union is never refused `ill_typed`/`operator-ineligible`, merged QSpec FR-322-AC-46 and FR-440-AC-8): over `IntList`, which reaches no `text`, with `leaves` empty; over `TextList` with exactly the leaves `["member:Cons", "position:0"]` and the recursion leaf `["member:Cons", "position:1", "recursion:0"]` (`d` is 0, the segments the path held when `TextList` was entered, as for a record's `recursion:<d>`), a list lacking the recursion leaf refusing `operation-law-missing` at `operation.leaves`, one whose recursion leaf reads `recursion:1` refusing `operation-law-mismatch` at that leaf's `path`, and a recursion leaf at a reentry of `IntList` refusing `operation-law-mismatch` at its `path`. | Test (TC-048) |
 | FR-038-AC-107 | Read from the authoritative `quire-specification` checkout, never copied into this repository, the QSpec positive fixtures `positive-all-families.json` (the clause, `quire.op.temporal.holds` and `quire.op.temporal.eventually` with the interval `{lower: "0", upper: "3"}`), `positive-clause-operations.json` and `positive-union-nodes.json` (`quire.op.control.case`) each admit end to end with their recorded `package_id`. The test is named `tc_048_qspec_positive_fixtures_admit`, lives in its own test target, outside the run of `make test`, which has no checkout; it is run by a dedicated target, `make conformance-qspec`, which reads the root of a `quire-specification` checkout from the environment variable `QUIRE_SPECIFICATION_DIR` and fails, not skips, when the variable is unset, when it names a path that does not hold `proposals/checked-package-v2/fixtures/`, or when a fixture does not admit. The criterion is verified by that target alone and never counted from `make test`; wiring the target into CI is a separate decision this specification does not make. Nothing is copied from QSpec into this repository. The self-built packages of FR-038-AC-96 and FR-038-AC-99 reproduce the fixtures' features: a clause with the `temporal_profile` law `quire.temporal.event-position.false-extension/v1`, formula nodes whose body root is the application, a `case` scrutinee that is a `value`/`parameter` node typed at the union, union value payloads that are references to value nodes, arm binders that are `value`/`parameter` nodes whose body is the `{name, level}` aggregate, and the `case` node's `dependencies` as the digest-ascending reference targets. | Test (TC-048) |
+| FR-038-AC-109 | A selected model document holding at `/package/ratio` the number `0.1000000000000000000001`, `9007199254740993.5`, `-0.1000000000000000000001`, `4.9e-324` or `1e-400` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/ratio` and cause `inexact-number` (quire-specification:FR-272), whether the row selects the document's own digest or another digest, so the refusal precedes `byte-digest-mismatch`; the same document holding `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324` or `2.5e-10` at that pointer, each a number whose exact decimal value equals that of its double's shortest round-trip text, is not refused for it and is digested; two documents that differ only in `0.1` and `0.1000000000000000000001` at that pointer are not both admitted, the second refusing as above where today both digest alike; the manifest of the crate that holds the reader declares `serde_json` with the feature `float_roundtrip`, so every decision above is the same whatever other crates in the build turn on. | Test (TC-048) |
+| FR-038-AC-110 | The cause of each refusal FR-038-AC-93 names is `inexact-integer`, with the `document_pointer` AC-93 gives, for `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20`, `18446744073709551617`, `9007199254740993.0`, `1e400` and `-1e400`, and for an integer value type whose upper bound is `9007199254740993`; `9007199254740993.0` is `inexact-integer` and never `inexact-number` although its text also differs from its double's shortest round-trip text, and `1e400` and `-1e400`, which `serde_json` refuses at parse time and so refuse today as `stale_dependency`/`byte-digest-mismatch` at the row's `digest`, refuse `noncanonical_wire` at that `digest` with the `document_pointer` of the number; `9007199254740992`, `-9007199254740992` and `9.007199254740992e15` are unchanged and admitted, while `9007199254740992.5` (whose nearest double is `9007199254740992`) refuses `inexact-number`; a document holding an inexact number at `/b` and then a whole number past 2^53 at `/a/0` names `/b` with `inexact-number`, the first in document order, and the reverse order names the whole number with `inexact-integer`. | Test (TC-048) |
+| FR-038-AC-111 | A package document holding the number `0.1000000000000000000001` or `9007199254740993.5` in a node body refuses `noncanonical_wire` with no pointer, no `document_pointer` and no cause, as it does today, each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document holding `0.1` in that place is not refused `noncanonical_wire`. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
@@ -2067,7 +2102,7 @@ quire-specification:TC-217 names this repository as their consumer evidence
 owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
 encoder that "Canonical encoding of the wire types" and "Every identity digest
 is computed through quire-canonical" consume (FR-038-AC-74 through
-FR-038-AC-80 and FR-038-AC-89 through FR-038-AC-95), including its pending
+FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its pending
 `Encode` for `serde_json::Value`. [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.
