@@ -233,8 +233,9 @@ one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
 "0"}` and a wrong-kind member under a bounded and the infinite-trace profile;
 `{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile, under
 infinite-trace and beside a placement defect at a lower-digest node, each
-refused at the negative bound at schema validation (the term walk of the node body), while `"1.5"` is refused
-`operation-member-mismatch` at the operation step (AC-102). Give a clause's
+refused at the negative bound at schema validation (the term walk of the node body),
+as is `{"1.5", "0"}` at its malformed bound, none of them `operation-member-mismatch`
+(AC-102). Give a clause's
 `over` a `value`/`parameter` dependency, one that is no dependency and a
 `scalar_type` dependency, and a fairness member an existing operation, a missing
 name, an absent declaration, a non-`model` declaration, a name matching two
@@ -271,10 +272,12 @@ with the fixtures' (AC-107).
 
 Expected: the package of AC-96 admits with its recorded identities and lowers or
 returns `unsupported` naming `temporal` as stated; AC-97's admitted members admit,
-`{-1, 3}`, `{0, -2}` and `{-5, -2}` refuse `invalid_package`/`invalid-value` at the
-negative bound, and `{3, 0}`, `{10, 9}` and `{2^64+1, 2^64}` refuse `invalid_package`/`invalid-value`
-at the application and each other member `operation-member-mismatch` at
-`operation.member`; AC-98's two well-formed members admit and each other refuses
+`{-1, 3}`, `{0, -2}` and `{-5, -2}` and the malformed bounds `"1.5"`, `"01"`, `"+1"`,
+`""`, `"3x"` and the JSON integer `0` refuse `invalid_package`/`invalid-value` at the
+bound, and `{3, 0}`, `{10, 9}` and `{2^64+1, 2^64}` refuse `invalid_package`/`invalid-value`
+at the application; a `null` member on an interval operator refuses
+`operation-member-mismatch` at the application, and each other member shape
+`operation-member-mismatch` at `operation.member`; AC-98's two well-formed members admit and each other refuses
 `operation-member-mismatch` at `operation.member`; the `Shape` package admits and
 each defective `case` refuses `ill_typed`/`operator-ineligible` at the `case` node,
 the duplicate member `invalid_package`/`duplicate-member` and each defective
