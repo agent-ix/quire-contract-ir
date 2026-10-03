@@ -376,16 +376,17 @@ The canonical bytes are unchanged for every value that the reader admitted
 before this requirement and admits after it. For every type above the bytes
 `quire-canonical` produces equal the bytes of the type's `serde_json` canonical
 form (`to_value` then `to_vec`, members in sorted order) for every in-repo
-fixture, including strings with non-ASCII and astral characters and the
-integers 9007199254740992 and -9007199254740992, and `package_id` is the
-SHA-256 of exactly those bytes with no domain label hashed in, so every
-`package_id` already recorded in a fixture still recomputes. Lowering output
+fixture and for the crafted values of FR-038-AC-74 and FR-038-AC-75 (strings
+with non-ASCII and astral characters, and the integers 9007199254740992 and
+-9007199254740992), and `package_id` is the SHA-256 of exactly those bytes
+with no domain label hashed in, so every `package_id` already recorded in a
+fixture still recomputes. Lowering output
 and the QSL output that consumes these types are unchanged.
 
 ### Canonical bytes are quire-canonical's bytes
 
-This requirement narrows what the reader admits, once, for one input and one
-code. A document is canonical when its bytes equal `quire-canonical`'s bytes for
+This requirement changes what the reader accepts as canonical bytes, and gives
+each input it changes one code. A document is canonical when its bytes equal `quire-canonical`'s bytes for
 the value read, and the reader makes that check through `quire-canonical`,
 without recursing over the document, in the place it checks canonical bytes
 today: after the strict syntax, duplicate-member and depth checks and before the
@@ -393,8 +394,8 @@ closed-schema decode, the header check, the `package_id` recomputation and every
 grammar check. A document that is not canonical in that sense, or that
 `quire-canonical` refuses to encode, refuses `noncanonical_wire` with no
 pointer, the code and form of every other refusal about the byte stream and the
-one the QSpec FR-322 refusal vocabulary names for it. Three inputs that are
-admitted or refused differently as a result:
+one the QSpec FR-322 refusal vocabulary names for it. Three inputs are
+decided differently as a result:
 
 - An integer whose magnitude exceeds 2^53 anywhere in the document, such as
   9007199254740993 in a node body, refuses `noncanonical_wire`. The v2 literal
@@ -408,7 +409,8 @@ admitted or refused differently as a result:
 - An object whose member names are ordered by UTF-8 bytes but not by UTF-16
   code units (a member name holding a scalar above U+FFFF beside one in U+E000
   to U+FFFF) refuses `noncanonical_wire`, and the same names in UTF-16 order
-  are admitted; the reverse holds today.
+  pass the canonical-bytes check; the reverse holds today. Passing that check
+  admits nothing by itself: the closed body grammar still decides the document.
 
 The order of checks is: strict syntax, duplicate member and depth; canonical
 bytes; closed-schema decode and header; `package_id` recomputation; then the
@@ -416,10 +418,7 @@ grammar and graph checks. The `package_id` recomputation therefore runs on a
 value every number of which `quire-canonical` encodes, and a more specific
 grammar refusal is never decided by an encoder refusal. An encode refusal at the
 recomputation is not reachable from a document that passed intake; a caller who
-meets one (an in-memory value) receives `quire-canonical`'s error. The held
-change of IR-274 states the same rule for its own encodes, with the same code, so
-one input never receives two codes; whichever of the two changes merges second
-keeps this paragraph's text once.
+meets one (an in-memory value) receives `quire-canonical`'s error.
 
 ### Artifact references
 
