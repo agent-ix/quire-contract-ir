@@ -614,8 +614,8 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
     ];
     // A bound outside the non-negative integer pattern, malformed as well as
     // negative, is `invalid-value` at that bound in the early stage (merged
-    // QSpec FR-370 temporal step), first in member order; a JSON integer is no
-    // string.
+    // QSpec FR-370: strict wire validation, before the temporal step), first
+    // in member order; a JSON integer is no string.
     let mut outside_pattern = vec![
         ("an integer lower", interval(json!(0), json!("3")), "lower"),
         ("an integer upper", interval(json!("0"), json!(3)), "upper"),

@@ -181,6 +181,17 @@ fn cause_word(cause: Cause) -> &'static str {
     }
 }
 
+/// Whether the reader's `given` reading is the refusal QSpec's `recorded`
+/// outcome names: the same code, and the same cause only where the outcome
+/// gives one (`refused:<code>` or `refused:<code>/<cause>`, FR-038-AC-112).
+fn refuses_as(given: &str, recorded: &str) -> bool {
+    if recorded.contains('/') {
+        given == recorded
+    } else {
+        given.split('/').next() == Some(recorded)
+    }
+}
+
 /// A mutation the reader does not yet refuse as QSpec records it.
 struct ExpectedFailure {
     /// The mutation `id` in `adverse.json`.
@@ -288,10 +299,10 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
             }
             let given = reading_of(&mutated)?;
             match expected.iter().find(|listed| listed.id == id) {
-                None if given != recorded => {
+                None if !refuses_as(&given, recorded) => {
                     return Err(format!("read as {given}, not the recorded {recorded}"));
                 }
-                Some(listed) if given == recorded => {
+                Some(listed) if refuses_as(&given, recorded) => {
                     return Err(format!(
                         "listed for {} but refused as recorded, {recorded}: delete the entry",
                         listed.ticket
@@ -365,14 +376,28 @@ fn selection_problems(base: &Value, vectors: &Value) -> Vec<String> {
         Ok(derived) => problems.push(format!("derived {derived}, not the recorded {recorded}")),
         Err(why) => problems.push(why),
     }
+    let own = base["package_id"]["digest"].as_str();
     match derived_with(base, None) {
         Ok(unchanged) if unchanged == recorded => {
             problems.push("the unchanged base derives the recorded package_id too".into());
         }
+        Ok(unchanged) if Some(unchanged.as_str()) != own => problems.push(format!(
+            "the unchanged base derives {unchanged}, not its own recorded package_id {own:?}"
+        )),
         Ok(_) => {}
         Err(why) => problems.push(why),
     }
     problems
+}
+
+/// The path, from the proposal directory, of the package the vectors name, or
+/// why they name none.
+fn base_path_of(vectors: &Value) -> Result<&str, String> {
+    vectors
+        .get("base")
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| format!("{SELECTION_VECTORS} has no string base"))
 }
 
 /// Tracing: TC-048, FR-038-AC-107
@@ -433,10 +458,34 @@ fn assert_no_problems(problems: &[String]) {
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
     let (base, adverse) = adverse_inputs();
     assert_no_problems(&adverse_problems(&base, &adverse, EXPECTED_FAILURES));
-    // A listed id is a mutation of the file, and each entry names its owner.
-    for listed in EXPECTED_FAILURES {
-        assert!(listed.ticket.starts_with("IR-"), "{}: owner", listed.id);
-    }
+}
+
+/// Whether some problem contains `text`.
+fn mentions(problems: &[String], text: &str) -> bool {
+    problems.iter().any(|problem| problem.contains(text))
+}
+
+/// A recorded outcome names the cause only where it gives one: a cause-less
+/// outcome is met by the code with any cause, and by no other code.
+///
+/// Tracing: TC-048, FR-038-AC-112
+#[trace("TC-048", "FR-038-AC-112")]
+#[test]
+fn tc_048_a_recorded_outcome_without_a_cause_is_met_by_its_code() {
+    let code = "refused:invalid_package";
+    assert!(refuses_as(code, code));
+    assert!(refuses_as("refused:invalid_package/invalid-value", code));
+    assert!(!refuses_as("refused:ill_typed/invalid-value", code));
+    assert!(!refuses_as("refused:invalid_package_other", code));
+    assert!(!refuses_as("admitted", code));
+    // A recorded cause is compared.
+    let caused = "refused:invalid_package/invalid-value";
+    assert!(refuses_as(caused, caused));
+    assert!(!refuses_as(
+        "refused:invalid_package/unknown-operation",
+        caused
+    ));
+    assert!(!refuses_as(code, caused));
 }
 
 /// Tracing: TC-048, FR-038-AC-112
@@ -467,18 +516,39 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         .clone();
     let body = adverse["body_grammar_mutations"][0].clone();
     let with = |structural: Value, grammar: Value| json!({"structural_mutations": [structural], "body_grammar_mutations": [grammar]});
-    let failing = |adverse: &Value, expected: &[ExpectedFailure]| {
-        !adverse_problems(&base, adverse, expected).is_empty()
-    };
 
-    // A list absent or empty fails.
-    assert!(failing(
+    // A list absent or empty fails, by its own problem: the other list holds
+    // only the entry the reader refuses as recorded, so nothing else fails.
+    let no_list = |name: &str| format!("{ADVERSE} has no non-empty {name} list");
+    let absent_body = adverse_problems(
+        &base,
+        &json!({"structural_mutations": [versions.clone()]}),
+        &[],
+    );
+    assert_eq!(absent_body, [no_list("body_grammar_mutations")]);
+    let empty_body = adverse_problems(
+        &base,
+        &json!({"structural_mutations": [versions.clone()], "body_grammar_mutations": []}),
+        &[],
+    );
+    assert_eq!(empty_body, [no_list("body_grammar_mutations")]);
+    let absent_structural = adverse_problems(
+        &base,
         &json!({"body_grammar_mutations": [body.clone()]}),
-        &[]
+        &[],
+    );
+    assert!(mentions(
+        &absent_structural,
+        &no_list("structural_mutations")
     ));
-    assert!(failing(
+    let empty_structural = adverse_problems(
+        &base,
         &json!({"structural_mutations": [], "body_grammar_mutations": [body.clone()]}),
-        &[]
+        &[],
+    );
+    assert!(mentions(
+        &empty_structural,
+        &no_list("structural_mutations")
     ));
     // A body-grammar entry lacking `flattened` fails, whatever the reader gives it.
     let mut unflattened = body.clone();
@@ -545,7 +615,9 @@ fn selection_inputs() -> (Value, Value) {
     let dir = fixtures_dir();
     let vectors = read_json(&proposal_dir_of(&dir).join(SELECTION_VECTORS))
         .unwrap_or_else(|why| panic!("{why}"));
-    let base = read_json(&dir.join(MUTATED_BASE)).unwrap_or_else(|why| panic!("{why}"));
+    let base_path = base_path_of(&vectors).unwrap_or_else(|why| panic!("{why}"));
+    let base =
+        read_json(&proposal_dir_of(&dir).join(base_path)).unwrap_or_else(|why| panic!("{why}"));
     (base, vectors)
 }
 
@@ -568,37 +640,57 @@ fn tc_048_qspec_selection_run_fails_closed() {
     assert!(read_json(&proposal_dir_of(&dir).join("no-such-vectors.json")).is_err());
 
     let (base, vectors) = selection_inputs();
-    let failing = |vectors: &Value| !selection_problems(&base, vectors).is_empty();
-    // A differing recorded identity, an absent or empty list and an absent id fail.
+    // Each case fails with its own problem, the rest of the vectors being sound.
+    let problems_of = |vectors: &Value| selection_problems(&base, vectors);
     let mut wrong = vectors.clone();
     wrong["package_id"] = json!("0".repeat(64));
-    assert!(failing(&wrong));
+    assert!(mentions(&problems_of(&wrong), "not the recorded"));
     let mut empty = vectors.clone();
     empty["dependency_selections"] = json!([]);
-    assert!(failing(&empty));
+    assert_eq!(
+        problems_of(&empty),
+        [format!(
+            "{SELECTION_VECTORS} has no non-empty dependency_selections"
+        )]
+    );
     let mut absent = vectors.clone();
     absent
         .as_object_mut()
         .expect("vectors")
         .remove("dependency_selections");
-    assert!(failing(&absent));
+    assert_eq!(
+        problems_of(&absent),
+        [format!(
+            "{SELECTION_VECTORS} has no non-empty dependency_selections"
+        )]
+    );
     let mut unrecorded = vectors.clone();
     unrecorded
         .as_object_mut()
         .expect("vectors")
         .remove("package_id");
-    assert!(failing(&unrecorded));
+    assert_eq!(
+        problems_of(&unrecorded),
+        [format!("{SELECTION_VECTORS} has no string package_id")]
+    );
+    // The vectors name their base, and a base whose own package_id the
+    // unchanged preimage does not derive fails on that.
+    let mut unnamed = vectors.clone();
+    unnamed.as_object_mut().expect("vectors").remove("base");
+    assert!(base_path_of(&unnamed).is_err());
+    let mut other_base = base.clone();
+    other_base["package_id"]["digest"] = json!("1".repeat(64));
+    assert!(mentions(
+        &selection_problems(&other_base, &vectors),
+        "not its own recorded package_id"
+    ));
     // An entry carrying a `version` member is never the input of an identity.
     let mut versioned = vectors.clone();
     versioned["dependency_selections"][0]["version"] = json!("1.0.0");
-    let problems = selection_problems(&base, &versioned);
-    assert!(
-        problems.iter().any(|problem| problem.contains("not a V2")),
-        "{problems:?}"
-    );
-    // The harness derives through the reader's own derivation, so an entry
-    // whose package id changes moves the identity.
+    assert!(mentions(&problems_of(&versioned), "not a V2"));
+    // Changing one entry's package id changes the derived identity, so a
+    // recorded id that ignored the entries would fail here.
     let mut moved = vectors.clone();
     moved["dependency_selections"][0]["package_id"]["digest"] = json!("9".repeat(64));
-    assert!(failing(&moved));
+    assert!(mentions(&problems_of(&moved), "not the recorded"));
 }

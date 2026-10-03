@@ -740,9 +740,11 @@ pub(super) fn validate_term(
             }
             // A `case` application is a body root only; nested in another term
             // it is refused at its own `operator` (merged QSpec FR-322 "Body
-            // grammar" and FR-440 "Case placement"), here where nested
-            // applications are refused. A
-            // details term is no body root either, so this covers it too.
+            // grammar" and FR-440 "Case placement"). Merged FR-322 refuses
+            // every other nested application `malformed_wire`; this reader
+            // refuses only `case` here today, and IR-495 owns the change
+            // that refuses the rest at strict wire validation. A details
+            // term is no body root either, so this covers it too.
             if !is_body_root && application_operator(value) == Some(ApplicationOperator::Case) {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,

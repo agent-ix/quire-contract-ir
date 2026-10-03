@@ -805,8 +805,8 @@ fn option_chain_package(leaves: Vec<Value>) -> Value {
 /// Over `Option<Chain>` the union is entered one segment in, so its recursion
 /// leaf reads `recursion:1` (QSpec FR-322 "Structural leaf walk"): the leaves
 /// `["inner", "member:Link", "position:0"]` and `["inner", "member:Link",
-/// "position:1", "recursion:1"]` admit; the recursion leaf missing, one reading
-/// `recursion:0` and the text leaf alone are refused.
+/// "position:1", "recursion:1"]` admit; the recursion leaf missing (the text
+/// leaf alone) and one reading `recursion:0` are refused.
 ///
 /// Tracing: TC-048, FR-038-AC-106
 #[trace("TC-048", "FR-038-AC-106")]
