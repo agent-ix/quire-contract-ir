@@ -814,6 +814,7 @@ dependencies = [
  "ix-trace-rs",
  "jsonschema 0.17.1",
  "quire-contract-model",
+ "quire-verification-contracts",
  "serde",
  "serde_json",
  "sha2",
