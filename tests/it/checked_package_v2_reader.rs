@@ -2316,6 +2316,23 @@ fn tc_048_expression_forms_bound_admission() {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form.as_wire());
         refresh_identity(&mut value);
+        if *form == ExpressionForm::Case {
+            // An `expression`/`case` node stands only with a `case`
+            // application as its body (FR-038-AC-100), which this node's
+            // `reference` body is not: its form contradicts its root, so it is
+            // `invalid_semantic_graph` at the body. The form admits with its
+            // own body in `checked_package_v2_union.rs`.
+            assert_eq!(
+                refused(&value, &evidence_for(&value)),
+                refusal_at(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    &format!("/semantic_graph/nodes/{expression}/body"),
+                    None,
+                    &digest_of(&value["semantic_graph"]["nodes"][expression]),
+                )
+            );
+            continue;
+        }
         admitted(&value);
     }
     let mut sixteenth = base.clone();

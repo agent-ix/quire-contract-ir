@@ -122,11 +122,11 @@ pub enum CheckedPackageRefusalCode {
     /// `model_selections` digest (FR-154 admission, FR-322 "Model-owned
     /// members" step 1).
     MissingImport,
-    /// `unsupported_construct`: an application term whose operator class the
-    /// reader decodes and does not carry the semantics of (`case`,
-    /// `temporal_formula`, `temporal_fairness`), at any depth. Paired with
-    /// [`CheckedPackageRefusalCause::ExpressionForm`].
-    UnsupportedConstruct,
+    /// `unknown_profile`: a temporal clause's `temporal_profile` law names no
+    /// member of QSpec FR-250's Values table (QSpec FR-272). Paired with
+    /// [`CheckedPackageRefusalCause::UnsupportedSelection`] or
+    /// [`CheckedPackageRefusalCause::WrongSelectionRole`].
+    UnknownProfile,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -201,10 +201,24 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
-    /// `expression-form`: the construct is an expression form (an application
-    /// term) the reader does not carry; QSpec's native diagnostics catalog
-    /// pairs it with `unsupported_construct`.
-    ExpressionForm,
+    /// `duplicate-member`: a `composite_type`/`union` node whose body names
+    /// one member twice (QSpec FR-440 reader join 1); paired with
+    /// `invalid_package`. The wire-level repeated object member is the code
+    /// [`CheckedPackageRefusalCode::DuplicateMember`], not this cause.
+    DuplicateMember,
+    /// `type-mismatch`: a `value`/`union_value` node that is no construction
+    /// of a member of its union type (QSpec FR-440 reader join 2); paired with
+    /// `ill_typed`.
+    TypeMismatch,
+    /// `unsupported-selection`: a clause's `temporal_profile` law names an
+    /// identity that is no member of QSpec FR-250's Values table and that the
+    /// package's own lock selects under no other role; paired with
+    /// `unknown_profile`.
+    UnsupportedSelection,
+    /// `wrong-selection-role`: a clause's `temporal_profile` law names an
+    /// identity the package's own lock selects under a role other than
+    /// `temporal_profile`; paired with `unknown_profile`.
+    WrongSelectionRole,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

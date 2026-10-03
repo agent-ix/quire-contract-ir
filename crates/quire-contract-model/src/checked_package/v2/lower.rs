@@ -678,6 +678,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             CompositeTypeForm::Option
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Union
             | CompositeTypeForm::Alias
             | CompositeTypeForm::Reference,
         ) => false,
@@ -696,6 +697,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
+            | ValueForm::UnionValue
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => false,
@@ -705,6 +707,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::Unary
             | ExpressionForm::Binary
             | ExpressionForm::Conditional
+            | ExpressionForm::Case
             | ExpressionForm::Let
             | ExpressionForm::Quantify
             | ExpressionForm::Collection
@@ -752,6 +755,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
         K::Temporal(
             TemporalForm::TemporalClause
             | TemporalForm::Formula
+            | TemporalForm::Fairness
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation

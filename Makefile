@@ -22,6 +22,7 @@ help:
 	@echo "  make spec             - Validate and cover all Quire artifacts"
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run cargo test"
+	@echo "  make conformance-qspec - QSpec's positive fixtures admit (needs QUIRE_SPECIFICATION_DIR; not in ci)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
@@ -68,6 +69,14 @@ test:
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test $(LOCKED) -p quire-contract-model --doc
+
+# FR-038-AC-107: QSpec's positive CheckedPackage V2 fixtures admit. Reads the
+# checkout named by QUIRE_SPECIFICATION_DIR and fails, never skips, when it is
+# unset, empty, or holds no proposals/checked-package-v2/fixtures/, or when a
+# fixture does not admit. Outside `test` and `ci`: they have no checkout.
+.PHONY: conformance-qspec
+conformance-qspec:
+	$(CARGO) test $(LOCKED) --test conformance_qspec
 
 .PHONY: build
 build:

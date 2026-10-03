@@ -466,8 +466,15 @@ fn tc_048_a_profile_role_law_must_be_the_pair_of_the_locks_profile_selection() {
         "the law is the lock's own temporal_profile pair"
     );
     admitted(&base);
+    // A known FR-250 profile the lock does not select, and a law whose
+    // authority differs from the lock row's: neither is `unknown_profile`
+    // (FR-038-AC-108 refuses an identity outside the five), both are
+    // unselected.
     for (member, value) in [
-        ("identity", json!("quire.fixture.other-profile/v1")),
+        (
+            "identity",
+            json!("quire.temporal.fixed-sample.false-extension/v1"),
+        ),
         ("authority", json!("other")),
     ] {
         let mut mutated = base.clone();

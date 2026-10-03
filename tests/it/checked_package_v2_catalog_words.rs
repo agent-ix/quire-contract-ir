@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038-AC-65 through AC-69, at the package: the application operator
-//! classes `case`, `temporal_formula` and `temporal_fairness` decode and are
-//! refused `unsupported_construct`/`expression-form` at any depth, and an
+//! FR-038-AC-65 and FR-038-AC-100, at the package: the application operator
+//! classes `case`, `temporal_formula` and `temporal_fairness` decode, stand
+//! only at the body root of their node form, and refuse
+//! `ill_typed`/`operator-ineligible` at the node that holds them anywhere
+//! else, and at the application's `operator` in a diagnostic detail; an
 //! operator outside the closed vocabulary refuses `invalid_semantic_graph`.
 //! The catalog read, the root-application checks and the temporal clause shape
 //! are unit tests in `crates/quire-contract-model/src/checked_package/v2/`,
-//! where the catalog's own entries are read rather than listed.
+//! where the catalog's own entries are read rather than listed; the placement
+//! of nodes and references and the rest of the temporal step are
+//! `checked_package_v2_temporal.rs`.
 
 use crate::support::checked_package::{
     canonical, evidence_for, pointer, refresh_identity, rekey_application_node, v2_all_families,
@@ -73,17 +77,33 @@ fn with_second_argument(second: impl Fn(&Value) -> Value) -> (Value, usize) {
     (package, position)
 }
 
-/// Tracing: TC-048, FR-038-AC-66
-#[trace("TC-048", "FR-038-AC-66")]
+/// `ill_typed`/`operator-ineligible` at `path`.
+fn ineligible(
+    path: &str,
+) -> (
+    CheckedPackageRefusalCode,
+    Option<CheckedPackageRefusalCause>,
+    Option<quire_contract_ir::JsonPointer>,
+) {
+    (
+        CheckedPackageRefusalCode::IllTyped,
+        Some(CheckedPackageRefusalCause::OperatorIneligible),
+        Some(pointer(path)),
+    )
+}
+
+/// Tracing: TC-048, FR-038-AC-100
+#[trace("TC-048", "FR-038-AC-100")]
 #[test]
-fn tc_048_a_nested_application_of_a_refused_class_refuses_at_its_operator() {
+fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_node_that_holds_it() {
     for (operator, identity) in OPERATORS {
         type Build = Box<dyn Fn(&Value) -> Value>;
+        // Where the nested application sits, below the holder's body.
         let cases: [(&str, Build, &str); 3] = [
             (
                 "an argument element",
                 Box::new(move |t| nested(operator, identity, t)),
-                "arguments/1/operator",
+                "arguments/1",
             ),
             (
                 "a binding value",
@@ -91,53 +111,55 @@ fn tc_048_a_nested_application_of_a_refused_class_refuses_at_its_operator() {
                     json!({"term": "binding", "name": "b",
                            "value": nested(operator, identity, t)})
                 }),
-                "arguments/1/value/operator",
+                "arguments/1/value",
             ),
             (
                 "inside an aggregate",
                 Box::new(
                     move |t| json!({"term": "aggregate", "members": [nested(operator, identity, t)]}),
                 ),
-                "arguments/1/members/0/operator",
+                "arguments/1/members/0",
             ),
         ];
-        for (name, build, tail) in cases {
+        // A nested `case` is refused at its own `operator`, in the term walk; the
+        // temporal classes at the node that holds them. The locus is the holder.
+        let expected = |position: usize, below: &str| {
+            if operator == "case" {
+                ineligible(&format!(
+                    "/semantic_graph/nodes/{position}/body/{below}/operator"
+                ))
+            } else {
+                ineligible(&format!("/semantic_graph/nodes/{position}"))
+            }
+        };
+        let holder = |package: &Value, position: usize| {
+            package["semantic_graph"]["nodes"][position]["node_id"].clone()
+        };
+        for (name, build, below) in cases {
             let (package, position) = with_second_argument(build);
             let refusal = refused(&package);
             assert_eq!(
-                refusal.code,
-                CheckedPackageRefusalCode::UnsupportedConstruct,
+                (refusal.code, refusal.cause, refusal.path),
+                expected(position, below),
                 "{operator} {name}"
             );
             assert_eq!(
-                refusal.cause,
-                Some(CheckedPackageRefusalCause::ExpressionForm),
-                "{operator} {name}"
-            );
-            assert_eq!(
-                refusal.path,
-                Some(pointer(&format!(
-                    "/semantic_graph/nodes/{position}/body/{tail}"
-                ))),
-                "{operator} {name}"
+                serde_json::to_value(refusal.locus).expect("locus"),
+                holder(&package, position),
+                "{operator} {name}: the locus is the holder"
             );
         }
         // The refusal is of the operator class, whatever identity it names.
         let (package, position) =
             with_second_argument(move |t| nested(operator, "quire.op.boolean.not", t));
-        assert_eq!(
-            refused(&package).path,
-            Some(pointer(&format!(
-                "/semantic_graph/nodes/{position}/body/arguments/1/operator"
-            )))
-        );
+        assert_eq!(refused(&package).path, expected(position, "arguments/1").2);
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-66
-#[trace("TC-048", "FR-038-AC-66")]
+/// Tracing: TC-048, FR-038-AC-100
+#[trace("TC-048", "FR-038-AC-100")]
 #[test]
-fn tc_048_a_root_application_of_a_refused_class_refuses_in_a_package() {
+fn tc_048_a_root_application_of_a_placed_class_in_another_form_refuses_in_a_package() {
     for (operator, identity) in OPERATORS {
         let mut package = v2_all_families();
         let position = call_position(&package);
@@ -152,26 +174,20 @@ fn tc_048_a_root_application_of_a_refused_class_refuses_in_a_package() {
         let refusal = refused(&package);
         assert_eq!(
             (refusal.code, refusal.cause, refusal.path),
-            (
-                CheckedPackageRefusalCode::UnsupportedConstruct,
-                Some(CheckedPackageRefusalCause::ExpressionForm),
-                Some(pointer(&format!(
-                    "/semantic_graph/nodes/{position}/body/operator"
-                ))),
-            ),
+            ineligible(&format!("/semantic_graph/nodes/{position}")),
             "{operator}"
         );
     }
 }
 
-/// A diagnostic detail is a semantic term read by the same walk, so an
-/// application of a refused class as its root, or nested in it, refuses at its
-/// own `operator` rather than being silently admitted.
+/// A diagnostic detail is a semantic term read by the same walk, and no
+/// node's body, so an application of a placed class as its root, or nested in
+/// it, refuses at its own `operator`.
 ///
-/// Tracing: TC-048, FR-038-AC-66
-#[trace("TC-048", "FR-038-AC-66")]
+/// Tracing: TC-048, FR-038-AC-100
+#[trace("TC-048", "FR-038-AC-100")]
 #[test]
-fn tc_048_a_diagnostic_detail_of_a_refused_class_refuses_at_its_operator() {
+fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
     for (operator, identity) in OPERATORS {
         let base = v2_all_families();
         let result_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
@@ -203,11 +219,7 @@ fn tc_048_a_diagnostic_detail_of_a_refused_class_refuses_at_its_operator() {
             let refusal = refused(&package);
             assert_eq!(
                 (refusal.code, refusal.cause, refusal.path),
-                (
-                    CheckedPackageRefusalCode::UnsupportedConstruct,
-                    Some(CheckedPackageRefusalCause::ExpressionForm),
-                    Some(pointer(&format!("/diagnostics/entries/0/details/0/{tail}"))),
-                ),
+                ineligible(&format!("/diagnostics/entries/0/details/0/{tail}")),
                 "{operator} {name}"
             );
         }
