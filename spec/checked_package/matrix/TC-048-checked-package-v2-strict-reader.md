@@ -229,7 +229,7 @@ one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
 "0"}` and a wrong-kind member under a bounded and the infinite-trace profile;
 `{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile, under
 infinite-trace and beside a placement defect at a lower-digest node, each
-refused at the negative bound in the term walk, while `"1.5"` is refused
+refused at the negative bound at schema validation (the term walk of the node body), while `"1.5"` is refused
 `operation-member-mismatch` at the operation step (AC-102). Give a clause's
 `over` a `value`/`parameter` dependency, one that is no dependency and a
 `scalar_type` dependency, and a fairness member an existing operation, a missing
