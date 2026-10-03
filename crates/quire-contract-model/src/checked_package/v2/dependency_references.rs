@@ -351,6 +351,7 @@ fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Clos
                 | ValueForm::CollectionValue
                 | ValueForm::RecordValue
                 | ValueForm::TupleValue
+                | ValueForm::UnionValue
                 | ValueForm::OptionValue,
             )
             | CheckedNodeKind::Expression(_)

@@ -12,7 +12,10 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRef, JsonPointer,
 };
-use super::v2::{encode, ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use super::v2::{
+    encode, interval_bound_outside_pattern, ApplicationOperator, BodyTerm, LiteralKind,
+    PACKAGE_DOMAIN_V2,
+};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -742,19 +745,34 @@ pub(super) fn validate_term(
             {
                 return Err(invalid(at));
             }
-            // A nested application is never checked against the catalog (the
-            // operation step reads a body root only), so the operator
-            // classes whose semantics the reader does not carry are refused
-            // here, at the nested term's `operator` (FR-038-AC-66). A body
-            // root is refused by the operation step, after the catalog
-            // lookup and the operator-class comparison.
-            if !is_body_root
-                && application_operator(value).is_some_and(ApplicationOperator::is_unsupported)
+            // A `case` application is a body root only; nested in another term
+            // it is refused at its own `operator` (QSL ruling relayed
+            // 2026-10-03), here where nested applications are refused. A
+            // details term is no body root either, so this covers it too.
+            if !is_body_root && application_operator(value) == Some(ApplicationOperator::Case) {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::IllTyped,
+                    at.key("operator").pointer(),
+                    CheckedPackageRefusalCause::OperatorIneligible,
+                ));
+            }
+            // An interval bound outside the schema's non-negative
+            // integer-string pattern, negative or malformed, is a failure of
+            // that pattern, not of any later check of the member, so it is
+            // refused here, first in member order and under every profile
+            // (merged QSpec FR-370).
+            if let Some(bound) = object
+                .get("operation")
+                .and_then(interval_bound_outside_pattern)
             {
                 return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::UnsupportedConstruct,
-                    at.key("operator").pointer(),
-                    CheckedPackageRefusalCause::ExpressionForm,
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at.key("operation")
+                        .key("member")
+                        .key("interval")
+                        .key(bound)
+                        .pointer(),
+                    CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
             // The `operation` member's presence is checked here; its own

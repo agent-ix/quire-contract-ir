@@ -23,6 +23,13 @@
 //!   clause}` with a closed clause kind, and whose three arguments are an
 //!   `aggregate` of one or more `reference` terms, a `reference` and the
 //!   condition. Every occurrence has role `claim`.
+//! - **Union type and union value** (QSpec FR-440): a `composite_type`/`union`
+//!   body is an `aggregate` of one or more `binding`s, each named by an
+//!   identifier and valued by an `aggregate` of `reference` terms (its payload
+//!   types in position order); a `value`/`union_value` body is an `aggregate`
+//!   of exactly one such `binding` over its payload terms. The joins of both
+//!   to their union (`duplicate-member`, `type-mismatch`) are the operation
+//!   step's.
 //! - **Frame** (QSpec FR-340): its body is the frame body the per-node loop
 //!   already read; every occurrence has role `generated`.
 //! - **Compound unit** (QSL FR-094 "Compound unit"): the anonymous type of
@@ -123,6 +130,8 @@ enum StructuralForm {
     Frame,
     OperationAnchor,
     StateClause,
+    UnionType,
+    UnionValue,
 }
 
 impl StructuralForm {
@@ -134,7 +143,7 @@ impl StructuralForm {
             Self::Frame => Some(CheckedOccurrenceRole::Generated),
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
             Self::StateClause => Some(CheckedOccurrenceRole::Claim),
-            Self::CompoundUnit => None,
+            Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
         }
     }
 
@@ -157,6 +166,7 @@ impl StructuralForm {
                 | ScalarTypeForm::Unit
                 | ScalarTypeForm::Enum,
             ) => None,
+            K::CompositeType(CompositeTypeForm::Union) => Some(Self::UnionType),
             K::CompositeType(
                 CompositeTypeForm::Option
                 | CompositeTypeForm::Sequence
@@ -177,6 +187,7 @@ impl StructuralForm {
                 | BoundedDomainForm::CollectionBounds
                 | BoundedDomainForm::ModelPopulation,
             ) => None,
+            K::Value(ValueForm::UnionValue) => Some(Self::UnionValue),
             K::Value(
                 ValueForm::Literal
                 | ValueForm::EnumValue
@@ -191,6 +202,7 @@ impl StructuralForm {
                 | ExpressionForm::Unary
                 | ExpressionForm::Binary
                 | ExpressionForm::Conditional
+                | ExpressionForm::Case
                 | ExpressionForm::Let
                 | ExpressionForm::Quantify
                 | ExpressionForm::Collection
@@ -237,6 +249,7 @@ impl StructuralForm {
             K::Temporal(
                 TemporalForm::TemporalClause
                 | TemporalForm::Formula
+                | TemporalForm::Fairness
                 | TemporalForm::Clock
                 | TemporalForm::Window
                 | TemporalForm::Activation
@@ -302,6 +315,12 @@ pub(super) fn validate_structural_nodes(
             Some(StructuralForm::StateClause) => {
                 clause_body(&node.body).is_none().then_some(Defect::Body)
             }
+            Some(StructuralForm::UnionType) => union_type_body(&node.body)
+                .is_none()
+                .then_some(Defect::Body),
+            Some(StructuralForm::UnionValue) => union_value_body(&node.body)
+                .is_none()
+                .then_some(Defect::Body),
             // The per-node body loop already read the frame body.
             Some(StructuralForm::Frame) | None => None,
         };
@@ -505,6 +524,50 @@ pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<Chec
     reference_target(target)
 }
 
+/// One member of a `composite_type`/`union` node (QSpec FR-440): its name and
+/// its payload type nodes in position order.
+pub(super) struct UnionMember<'a> {
+    pub(super) name: &'a str,
+    pub(super) payload: Vec<CheckedNodeId>,
+}
+
+/// The members a `composite_type`/`union` body holds, in declaration order, or
+/// `None` for any other shape: an `aggregate` of one or more `binding`s, each
+/// named by an identifier and valued by an `aggregate` of `reference` terms
+/// (QSpec's `UnionTypeBody`). A repeated name is not a shape defect here: it
+/// is the operation step's `duplicate-member`.
+pub(super) fn union_type_body(body: &Value) -> Option<Vec<UnionMember<'_>>> {
+    let members = aggregate_members(body)?
+        .iter()
+        .map(|member| {
+            let name = member
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| is_identifier(name))?;
+            let payload = aggregate_members(binding(member, name)?)?
+                .iter()
+                .map(reference_target)
+                .collect::<Option<Vec<_>>>()?;
+            Some(UnionMember { name, payload })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!members.is_empty()).then_some(members)
+}
+
+/// The active member and payload terms a `value`/`union_value` body holds, or
+/// `None` for any other shape: an `aggregate` of exactly one `binding`, named
+/// by an identifier and valued by an `aggregate` (QSpec's `UnionValueBody`).
+pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
+    let [member] = aggregate_members(body)? else {
+        return None;
+    };
+    let name = member
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| is_identifier(name))?;
+    Some((name, aggregate_members(binding(member, name)?)?))
+}
+
 /// FR-322's dependency join for a body that contains an `application` term
 /// at any depth: `None` for a body holding none, else the unique
 /// digest-ascending reference targets and member declarations. A member
@@ -558,7 +621,7 @@ fn terms<'a>(object: &'a Map<String, Value>, key: &str) -> impl Iterator<Item = 
 }
 
 /// An `aggregate` term's members.
-fn aggregate_members(term: &Value) -> Option<&[Value]> {
+pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
     let object = term.as_object()?;
     (body_term(term) == Some(BodyTerm::Aggregate))
         .then(|| object.get("members").and_then(Value::as_array))
@@ -567,7 +630,7 @@ fn aggregate_members(term: &Value) -> Option<&[Value]> {
 }
 
 /// A `binding` term's value, when the binding is named `name`.
-fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
+pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
     let object = term.as_object()?;
     (body_term(term) == Some(BodyTerm::Binding)
         && object.get("name").and_then(Value::as_str) == Some(name))

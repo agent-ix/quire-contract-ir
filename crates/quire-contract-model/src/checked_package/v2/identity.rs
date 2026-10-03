@@ -261,6 +261,7 @@ impl NominalKind {
                 | CompositeTypeForm::OrderedSet
                 | CompositeTypeForm::Record
                 | CompositeTypeForm::Tuple
+                | CompositeTypeForm::Union
                 | CompositeTypeForm::Alias
                 | CompositeTypeForm::Reference,
             ) => None,
@@ -278,6 +279,7 @@ impl NominalKind {
                 | ValueForm::CollectionValue
                 | ValueForm::RecordValue
                 | ValueForm::TupleValue
+                | ValueForm::UnionValue
                 | ValueForm::OptionValue
                 | ValueForm::Parameter,
             ) => None,
@@ -287,6 +289,7 @@ impl NominalKind {
                 | ExpressionForm::Unary
                 | ExpressionForm::Binary
                 | ExpressionForm::Conditional
+                | ExpressionForm::Case
                 | ExpressionForm::Let
                 | ExpressionForm::Quantify
                 | ExpressionForm::Collection
@@ -336,6 +339,7 @@ impl NominalKind {
             K::Temporal(
                 TemporalForm::TemporalClause
                 | TemporalForm::Formula
+                | TemporalForm::Fairness
                 | TemporalForm::Clock
                 | TemporalForm::Window
                 | TemporalForm::Activation

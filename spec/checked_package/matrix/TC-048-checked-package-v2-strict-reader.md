@@ -186,7 +186,18 @@ Compare the whole refusal code, cause and pointer.
 
 ## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-108)
 
-Planned (IR-549 code change); the cases are authored here and have no test yet.
+Implemented (IR-549 code change) in `tests/it/checked_package_v2_temporal.rs`
+(AC-96 through AC-98, AC-100 through AC-105, AC-108), `tests/it/checked_package_v2_union.rs`
+(AC-99, AC-101, AC-106), `tests/it/checked_package_v2_catalog_words.rs` (AC-100's
+nested and diagnostics cases), the unit tests of `operations.rs` and `temporal.rs`
+(AC-96, AC-97, AC-98, AC-103: an `over` outside its clause's `dependencies` is
+reachable only at the step, since the dependency join refuses it first in a
+package read) and `tests/conformance_qspec/main.rs` (AC-107, run by
+`make conformance-qspec` alone). The two-clause cases of AC-102 and AC-108 find
+the digest order they need by varying the clauses' names, and the adjacent pairs
+of one clause are swapped where the two defects' positions can be (the
+operator order of a formula tree); `over` and the fairness argument have one
+position each.
 Build, from this crate's own vocabulary and never from a copy of QSpec's
 fixtures, a package whose `temporal`/`formula` nodes apply each of the fifteen
 `temporal_formula` identities with their catalogued member and operands under a

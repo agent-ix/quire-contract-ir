@@ -15,6 +15,10 @@
 //! | selection role | `lock.*_selections.role`, `lock.edition.role` | [`CheckedSelectionRole`] |
 //! | capability disposition | `capability_report.disposition` | [`CheckedCapabilityDisposition`] |
 //!
+//! A clause's temporal profile (QSpec FR-250's five members), a `fairness`
+//! member's `fairness_kind` and `granularity` are decoded the same way, into
+//! crate-private enums the temporal step reads.
+//!
 //! The semantic term grammar inside a node `body` stays JSON, so its closed
 //! members are decoded by the `common` edge readers (`body_term`,
 //! `literal_kind`, `application_operator`) into [`BodyTerm`], [`LiteralKind`]
@@ -137,6 +141,7 @@ closed_vocabulary! {
         OrderedSet => "ordered_set",
         Record => "record",
         Tuple => "tuple",
+        Union => "union",
         Alias => "alias",
         Reference => "reference",
     }
@@ -163,6 +168,7 @@ closed_vocabulary! {
         CollectionValue => "collection_value",
         RecordValue => "record_value",
         TupleValue => "tuple_value",
+        UnionValue => "union_value",
         OptionValue => "option_value",
         Parameter => "parameter",
     }
@@ -176,6 +182,7 @@ closed_vocabulary! {
         Unary => "unary",
         Binary => "binary",
         Conditional => "conditional",
+        Case => "case",
         Let => "let",
         Quantify => "quantify",
         Collection => "collection",
@@ -245,6 +252,7 @@ closed_vocabulary! {
     pub TemporalForm {
         TemporalClause => "temporal_clause",
         Formula => "formula",
+        Fairness => "fairness",
         Clock => "clock",
         Window => "window",
         Activation => "activation",
@@ -443,33 +451,69 @@ closed_vocabulary! {
     }
 }
 
-impl ApplicationOperator {
-    /// Whether this operator class is one whose semantics the reader does not
-    /// carry and refuses `unsupported_construct` at any depth (`case`,
-    /// `temporal_formula`, `temporal_fairness`; FR-038-AC-66). Exhaustive, so a
-    /// class added to the vocabulary must decide here.
-    pub(in crate::checked_package) const fn is_unsupported(self) -> bool {
+closed_vocabulary! {
+    /// The closed temporal profile identities of QSpec FR-250's Values table.
+    /// The wire word is the `identity` of a `temporal_profile` law's
+    /// `definition`; the reader holds no other list of profiles.
+    pub(in crate::checked_package) TemporalProfile {
+        EventPositionFalseExtension => "quire.temporal.event-position.false-extension/v1",
+        FixedSampleFalseExtension => "quire.temporal.fixed-sample.false-extension/v1",
+        TimestampedEventFiniteWindow => "quire.temporal.timestamped-event.finite-window/v1",
+        InfiniteTrace => "quire.temporal.infinite-trace/v1",
+        Timed => "quire.temporal.timed/v1",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `fairness_kind` of a `fairness` operation member (QSpec FR-370).
+    pub(in crate::checked_package) FairnessKind {
+        Weak => "weak",
+        Strong => "strong",
+    }
+}
+
+closed_vocabulary! {
+    /// The closed `granularity` of a `fairness` operation member (QSpec FR-370).
+    pub(in crate::checked_package) FairnessGranularity {
+        Whole => "whole",
+        Each => "each",
+    }
+}
+
+/// Which `temporal_interval` shapes a profile admits on an interval operator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::checked_package) enum IntervalFit {
+    /// Only a closed `{lower, upper}` interval.
+    ClosedOnly,
+    /// Only an unbounded (`null`) interval: a timed interval is the timed form
+    /// (merged QSpec FR-370-AC-3), which this reader does not yet decode
+    /// (IR-551), and an integer-form interval is not one.
+    NullOnly,
+    /// A `null`, a lower-bounded or a closed interval.
+    Any,
+}
+
+impl TemporalProfile {
+    /// The interval shapes this profile admits (QSpec FR-250, FR-255, FR-370).
+    /// Exhaustive, so a profile added to the vocabulary must decide here.
+    pub(in crate::checked_package) const fn interval_fit(self) -> IntervalFit {
         match self {
-            Self::Case | Self::TemporalFormula | Self::TemporalFairness => true,
-            Self::Call
-            | Self::Unary
-            | Self::Binary
-            | Self::Conditional
-            | Self::Let
-            | Self::Quantify
-            | Self::Collection
-            | Self::Query
-            | Self::Convert
-            | Self::Pre
-            | Self::Present
-            | Self::Value
-            | Self::Deref
-            | Self::Reaches
-            | Self::Temporal
-            | Self::ProtocolControl
-            | Self::StateTransition
-            | Self::Claim
-            | Self::StateClause => false,
+            Self::EventPositionFalseExtension
+            | Self::FixedSampleFalseExtension
+            | Self::TimestampedEventFiniteWindow => IntervalFit::ClosedOnly,
+            Self::Timed => IntervalFit::NullOnly,
+            Self::InfiniteTrace => IntervalFit::Any,
+        }
+    }
+
+    /// Whether a clause under this profile may carry fairness references:
+    /// the three bounded profiles admit none.
+    pub(in crate::checked_package) const fn admits_fairness(self) -> bool {
+        match self {
+            Self::EventPositionFalseExtension
+            | Self::FixedSampleFalseExtension
+            | Self::TimestampedEventFiniteWindow => false,
+            Self::InfiniteTrace | Self::Timed => true,
         }
     }
 }

@@ -102,10 +102,25 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             // dependency set gains that reference beside its self-typed
             // `result_type`; digest-ascending puts "8080" before "aaaa".
             "ffff" => vec![id("8080"), id("aaaa")],
-            // The temporal clause names its `over` value ("dddd"), the
-            // `text` type of its name literal ("a1a1") and its formula
-            // ("a2a2") beside its `result_type`.
-            "4040" => vec![id("a1a1"), id("a2a2"), id("aaaa"), id("dddd")],
+            // The temporal clause reaches its `over` parameter ("a4a4") and
+            // that parameter's `integer` level type ("a3a3"), the `text`
+            // type of its name literal ("a1a1"), its formula ("a2a2"), the
+            // formula's `holds` operand ("a5a5") and that operand's Boolean
+            // literal type ("a6a6") beside its `result_type`, in digest
+            // order (two of them are application keys).
+            "4040" => {
+                let mut reached = vec![
+                    id("a1a1"),
+                    id("a2a2"),
+                    id("a3a3"),
+                    id("a4a4"),
+                    id("a5a5"),
+                    id("a6a6"),
+                    id("aaaa"),
+                ];
+                reached.sort();
+                reached
+            }
             _ => vec![id("aaaa")],
         };
         assert_eq!(node.dependencies, expected_dependencies, "{prefix}");
