@@ -601,14 +601,22 @@ The operation catalog is the owner of its own words, and the reader holds none
 of them as a second list. Every application operator class, operation member
 kind and constraint kind the catalog declares is a member of the matching enum,
 so that reading the catalog never fails on a word the catalog declares. The
-members the catalog declares beyond the earlier set are the operator classes
-`case`, `temporal_formula` and `temporal_fairness`, the member kinds
-`temporal_interval` and `fairness`, and the constraint kind `union_arms`. The
-catalog's `union` and `temporal` families, the `arm_body` result form and the
-operand family names are catalog strings that the reader indexes and does not
-decode into an enum. A word outside a vocabulary still refuses: in a catalog it
-is a catalog read error that names the word, and as an application `operator`
-in a package it refuses `invalid_semantic_graph` at the term.
+catalog's operator classes include `case`, `temporal_formula` and
+`temporal_fairness`, its member kinds include `temporal_interval` and
+`fairness`, and its constraint kinds include `union_arms`; each is a member of
+its enum. The catalog's `union` and `temporal` families, the `arm_body` result
+form and the operand family names are catalog strings that the reader indexes
+and does not decode into an enum. The `union` family is a member of the
+`any_value`, `any_term` and `structural_kind` groups and the `temporal` family
+a member of `any_term` only. A word outside a vocabulary still refuses: in a
+catalog it is an error of the fallible catalog read of FR-038-AC-58, which
+names the unreadable entry or word and never stops the process for bytes it
+cannot decode, and as an application `operator` in a package it refuses
+`invalid_semantic_graph` at the term. The catalog's `law_roles` entries carry no
+`revision`, and the catalog is readable only when FR-038-AC-46 through
+FR-038-AC-61 and FR-038-AC-65 are both implemented; the two code changes move
+the catalog lock together (IR-530 for the references, IR-503 for the words),
+and neither is merged against a lock that the other leaves unreadable.
 
 ### Catalog words whose semantics the reader does not carry
 
@@ -628,25 +636,39 @@ only on those entries. Each is refused, never admitted:
 | operator `temporal_fairness` | `quire.op.temporal.fair` (member `fairness`) | refused `unsupported_construct` |
 | member kinds `temporal_interval`, `fairness`; constraint kind `union_arms` | only the entries above | decoded; no admitted application reaches them |
 
-`unsupported_construct` is the one refusal code for all three classes. It is a
-code of QSpec FR-322's closed refusal vocabulary, and it carries no cause, so
-FR-322's cause pairing does not constrain it. It is located at the
-application's `operator` member. The operation step reaches it right after the
-catalog lookup and the operator-class comparison, so an identity the catalog
-does not hold still refuses `unknown-operation` and an `operator` that differs
-from the entry's class still refuses `operation-class-mismatch`, each first.
-The `operation` object is read for its closed wire shape first, as for every
+`unsupported_construct` is the one refusal code for all three classes, with the
+one cause `expression-form`, as QSpec's native diagnostics catalog pairs it
+(`declaration-form` or `expression-form`; an application term is an expression
+form). The code is in QSpec FR-322's closed refusal vocabulary. The refusal
+code and the cause are both new to the reader's refusal types, and the code PR
+adds the matching variants and no other pairing. The refusal applies at any
+depth: an application term whose `operator` is `case`, `temporal_formula` or
+`temporal_fairness` refuses at that term's `operator` member whether it is a
+node's body root, an element of `arguments`, or nested inside a `binding` or
+`aggregate` value, because the reader checks operations only at a body root and
+a nested application would otherwise be admitted unchecked. A body-root
+application is refused by the operation step, right after the catalog lookup
+and the operator-class comparison, so an identity the catalog does not hold
+still refuses `unknown-operation` and an `operator` that differs from the entry's
+class still refuses `operation-class-mismatch`, each first. A nested
+application is refused by the term walk of the body, which runs before the
+operation step, at the nested term's `operator`. The `operation` object of a
+body-root application is read for its closed wire shape first, as for every
 entry, and a defect of that shape refuses as before. Past that read the refusal
 does not compare the application's laws, mode, member, leaves or arguments with
 the entry, so an application that agrees with the entry and one that
-contradicts it refuse alike. It is
-reported at the lowest `node_id` digest among the nodes that fail the operation
-step, as every operation defect is.
+contradicts it refuse alike. At the operation step it is reported at the lowest
+`node_id` digest among the nodes that fail, as every operation defect is.
 
-A member of kind `temporal_interval` or `fairness` on any entry whose catalogued
-member is another kind or none refuses `invalid_package` with cause
-`operation-member-mismatch`, as every member that disagrees with its entry does.
-The node forms that carry these words (`expression`/`case`, `composite_type`/
+A member of kind `temporal_interval` or `fairness` on an entry whose operator
+class is none of the three refused classes and whose catalogued member is
+another kind or none refuses `invalid_package` with cause
+`operation-member-mismatch`, as every member that disagrees with its entry
+does. For an entry of a refused class the operator refusal is the only one
+reported. The code PR does not put `union_arms`, `temporal_interval` or
+`fairness` in the arms that enforce nothing, in `check_operands` or in the
+member-kind match: a reached `union_arms` constraint refuses, so lifting the
+`case` refusal is a visible change and not a silent pass. The node forms that carry these words (`expression`/`case`, `composite_type`/
 `union`, `value`/`union_value` and `temporal`/`fairness`) are not forms the
 reader decodes, and a node of one refuses at the form gate as
 `invalid_semantic_graph`, as FR-344 describes for any other unrecognized form.
@@ -658,14 +680,32 @@ law, no member, no rest and the six fixed operands `reference`, `text`,
 checks it as it checks every entry: any other argument count refuses
 `ill_typed`/`operator-ineligible` at `arguments`; an argument whose family
 resolves and does not fit its operand family refuses the same way at that
-argument; and a supplied member of any kind, including the `profile_operator`
-member the entry carried earlier, refuses `invalid_package`/
-`operation-member-mismatch`. A `reference` to a `temporal`/`formula` node has
-family `temporal`, which fits the sixth operand and no `boolean` operand
-position, and a `boolean` reference does not fit the sixth. The clause's
+argument; and a supplied member of any kind, including a `profile_operator`
+member, which the entry no longer admits, refuses `invalid_package`/
+`operation-member-mismatch`. The six arguments of QSpec FR-370, in order, are:
+a `reference` to the `value`/`parameter` node of the clause's `over`
+parameter; a `text` literal; three `aggregate` terms; and a `reference` to a
+`temporal`/`formula` node. The first is not family-resolved: it matches the
+`reference` operand when it is a `reference` term, whatever the type of the
+parameter it names, because resolving it through the parameter's
+`semantic_type` would give the parameter's own family. The second resolves to
+`text`. The three aggregates resolve to no family and are not checked, as every
+aggregate argument is today. The sixth resolves to family `temporal` when it is
+a `reference` to a `temporal`/`formula` node, and to `boolean` when it
+references a Boolean node, which does not fit. A `reference` to a
+`temporal`/`formula` node fits the `temporal` operand and every `any_term`
+position, and no `boolean` or `any_value` operand position. The clause's
 activation, captures and fairness aggregates, the placement of temporal
 applications and the interval and fairness profile rules are not checked here.
-Every formula node a clause can name is itself refused as above.
+Every `temporal`/`formula` node a clause can name has an application body root
+refused as above, so the clause's own check passing is seen at the operation
+check of the clause node and not as an admitted package (FR-038-AC-68). The
+shared all-families fixture builds a temporal clause with a `profile_operator`
+member and no arguments, which refuses under this shape; the code PR rewrites
+that fixture, and an all-families package cannot hold a temporal clause whose
+formula is a `temporal_formula` application. The rows that build on the fixture
+(FR-035, TC-044, TC-052, TC-053, TC-056, TC-222 and TC-048) are re-verified by
+that change.
 
 QSpec FR-440 and FR-370 own the encodings; the semantics of the union and
 temporal words are tracked by IR-506 and IR-507 (union) and IR-510 and IR-7
@@ -1000,10 +1040,11 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-62 | A package whose `lock.model_selections` rows are exactly `{identity, digest_domain, digest}`, mirrored identically in `identity_preimage.model_selections`, admits, each other check passing; a row carrying every one of those members plus `version`, in the lock or in the identity preimage, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package (a row that also lacks a required member is the missing-member case below, and this criterion pins no outcome for that combination); a row lacking `identity`, `digest_domain` or `digest`, or holding one of the wrong kind, refuses as `malformed_wire` at the row or the value; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
 | FR-038-AC-63 | A package whose `lock.dependency_selections` entries are exactly `{identity, package_id}`, mirrored identically in `identity_preimage.dependency_selections`, admits, each other check passing; an entry carrying both `identity` and `package_id` plus `version`, in the lock or in the identity preimage, alone or beside an otherwise well-formed entry, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package; an old-shape entry `{identity, version}` that lacks `package_id` refuses as `malformed_wire` at the entry; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
 | FR-038-AC-64 | Selections bind by identity and content digest alone: a `model_selections` row admits when the document supplied under its `digest` names the row's `identity`, so two documents of one package at different versions, each selected in its own package under its own digest, both admit and yield the same model-owned node keys; a model owner joins the row whose `identity` equals its own, and an owner naming another identity refuses as `invalid_semantic_graph`; and a `dependency_selections` entry admits when the package supplied under its `identity` has the entry's `package_id`, with no version supplied or compared, and refuses `missing_import`/`missing-selection` for a package supplied under another identity and `stale_dependency`/`byte-digest-mismatch` for another `package_id`. | Test (TC-048) |
-| FR-038-AC-65 | Every application operator class, operation member kind and constraint kind the operation catalog declares decodes to a member of its closed vocabulary, so the production catalog reads; each of `case`, `temporal_formula`, `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` converts wire string to enum member and back to the same string; catalog bytes that name an operator class, member kind or constraint kind outside its vocabulary return an error naming the word instead of a catalog and without a panic; and a package application whose `operator` is outside the closed operator vocabulary refuses `invalid_semantic_graph` at that term. | Test (TC-048) |
-| FR-038-AC-66 | An application whose `operation.identity` is catalogued with operator class `case`, `temporal_formula` or `temporal_fairness` and whose `operator` equals that class refuses `unsupported_construct`, with no cause, at `/semantic_graph/nodes/{n}/body/operator` and returns no package, for `quire.op.control.case`, each of the fifteen `temporal_formula` identities and `quire.op.temporal.fair`, whether its laws, mode, member, leaves and arguments agree with the entry or contradict it, an `operation` object of the closed wire shape being given. | Test (TC-048) |
-| FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of `unsupported_construct`, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; of two defective nodes the one with the lower `node_id` digest is reported, whether its defect is `unsupported_construct` or another operation refusal; and a member of kind `temporal_interval` or `fairness` on an entry whose catalogued member is another kind or none refuses `operation-member-mismatch` at the member. | Test (TC-048) |
-| FR-038-AC-68 | A `quire.op.temporal.clause` application with the one selected `temporal_profile` law, no member and exactly six arguments passes the reader's operation checks for the entry; five or seven arguments refuse `ill_typed`/`operator-ineligible` at `arguments`; a sixth argument that is a `boolean` reference and a first argument that is a `text` reference each refuse the same way at that argument; a `reference` to a `temporal`/`formula` node fits the sixth operand and no `boolean` operand; and a member of kind `profile_operator` or any other kind refuses `invalid_package`/`operation-member-mismatch` at `operation.member`. | Test (TC-048) |
+| FR-038-AC-65 | Every application operator class, operation member kind and constraint kind the operation catalog declares decodes to a member of its closed vocabulary, so the production catalog, whose `law_roles` entries carry no `revision`, reads once FR-038-AC-46 through FR-038-AC-61 are also implemented; each of `case`, `temporal_formula`, `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` converts wire string to enum member and back to the same string; catalog bytes that name an operator class, member kind or constraint kind outside its vocabulary return the typed error of the catalog read of FR-038-AC-58, naming the word, instead of a catalog; and a package application whose `operator` is outside the closed operator vocabulary refuses `invalid_semantic_graph` at that term. | Test (TC-048) |
+| FR-038-AC-66 | An application whose `operation.identity` is catalogued with operator class `case`, `temporal_formula` or `temporal_fairness` and whose `operator` equals that class refuses `unsupported_construct` with cause `expression-form` at that application's `operator` and returns no package: for a node's body root, at `/semantic_graph/nodes/{n}/body/operator`, for `quire.op.control.case`, each of the fifteen `temporal_formula` identities and `quire.op.temporal.fair`, whether its laws, mode, member, leaves and arguments agree with the entry or contradict it, an `operation` object of the closed wire shape being given; and, for the same three operator classes, an application nested as an element of another application's `arguments`, as a `binding` value, or inside an `aggregate`, at that nested term's `operator`, whatever the identity it names. | Test (TC-048) |
+| FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of `unsupported_construct`, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; and of two defective body-root nodes the one with the lower `node_id` digest is reported, whether its defect is `unsupported_construct` or another operation refusal. | Test (TC-048) |
+| FR-038-AC-68 | At the operation check of a `quire.op.temporal.clause` application, observed on that node (a unit-level check of the node's operation step, since the formula node it names is itself refused), an application with the one selected `temporal_profile` law, no member and six arguments (a `reference` to a `value`/`parameter` node of any type, a `text` literal, three `aggregate` terms and a `reference` to a `temporal`/`formula` node) passes; five or seven arguments refuse `ill_typed`/`operator-ineligible` at `arguments`; a first argument that is not a `reference` term and a sixth that references a Boolean node each refuse the same way at that argument; a `reference` to a `temporal`/`formula` node fits the sixth operand and an `any_term` position and no `boolean` operand position; and a member of kind `profile_operator` or any other kind refuses `invalid_package`/`operation-member-mismatch` at `operation.member`. | Test (TC-048) |
+| FR-038-AC-69 | A member of kind `temporal_interval` or `fairness` on an application whose catalogued entry has none of the operator classes `case`, `temporal_formula` and `temporal_fairness` and a member of another kind or none, such as `quire.op.boolean.not` or `quire.op.temporal.clause`, refuses `invalid_package`/`operation-member-mismatch` at the member, and the same member on a `temporal_formula` identity such as `quire.op.temporal.holds` refuses `unsupported_construct` at `operator`, not `operation-member-mismatch`. | Test (TC-048) |
 
 ## Dependencies
 
