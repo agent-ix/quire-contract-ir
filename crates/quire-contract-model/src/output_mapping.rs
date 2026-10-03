@@ -1964,7 +1964,7 @@ pub fn assemble_output_package(
         record_ids: &record_ids,
         limits: request.limits(),
     };
-    let canonical = package_identity_bytes(&material, request.limits().maximum_request_bytes())?;
+    let canonical = package_identity_bytes(&material, request.limits(), quire_canonical::to_vec)?;
     control.check_cancelled("package.complete")?;
 
     Ok(GeneratedOutputPackage {
@@ -2265,7 +2265,8 @@ impl AdmittedMappingRequest {
                 maximum_emitted_bytes: limits.maximum_emitted_bytes,
             },
         };
-        let canonical = request_identity_bytes(&request_material, limits.maximum_request_bytes)?;
+        let canonical =
+            request_identity_bytes(&request_material, &limits, quire_canonical::to_vec)?;
         let request_bytes = u64::try_from(canonical.len()).map_err(|_| {
             MappingRequestError::new(
                 MappingRequestErrorCode::ArithmeticOverflow,
@@ -2553,7 +2554,7 @@ fn build_mapping_record(
         observation_adequacy: candidate.observation_adequacy.as_ref(),
         protocol_adequacy: candidate.protocol_adequacy.as_ref(),
     };
-    let canonical = record_identity_bytes(&material, request.limits().maximum_request_bytes())?;
+    let canonical = record_identity_bytes(&material, request.limits(), quire_canonical::to_vec)?;
     Ok(OutputMappingRecord {
         record_id: MappingRecordId::digest(&canonical),
         source,
@@ -2602,56 +2603,74 @@ struct RequestResourceShape {
 }
 
 /// The request identity step: the canonical bytes of the request material
-/// under `ceiling`, which admission sets to `maximum_request_bytes`.
-fn request_identity_bytes(
-    material: &RequestIdentityMaterial<'_>,
-    ceiling: u64,
+/// under `limits.maximum_request_bytes`. The steps take `quire_canonical::to_vec`
+/// as `encode` so a test can observe the ceiling it is handed; production
+/// passes that function itself.
+fn request_identity_bytes<'m>(
+    material: &RequestIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(&RequestIdentityMaterial<'m>, Limits) -> Result<Vec<u8>, quire_canonical::Error>,
 ) -> Result<Vec<u8>, MappingRequestError> {
-    canonical_identity_bytes(material, ceiling, "request")
+    identity_bytes(material, limits, "request", encode)
 }
 
-/// The package identity step, under `ceiling` as the request step is.
-fn package_identity_bytes(
-    material: &GeneratedOutputPackageIdentityMaterial<'_>,
-    ceiling: u64,
+/// The package identity step, under the same ceiling as the request step.
+fn package_identity_bytes<'m>(
+    material: &GeneratedOutputPackageIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(
+        &GeneratedOutputPackageIdentityMaterial<'m>,
+        Limits,
+    ) -> Result<Vec<u8>, quire_canonical::Error>,
 ) -> Result<Vec<u8>, MappingRequestError> {
-    canonical_identity_bytes(material, ceiling, "package.identity")
+    identity_bytes(material, limits, "package.identity", encode)
 }
 
-/// The record identity step, under `ceiling` as the request step is.
-fn record_identity_bytes(
-    material: &MappingRecordIdentityMaterial<'_>,
-    ceiling: u64,
+/// The record identity step, under the same ceiling as the request step.
+fn record_identity_bytes<'m>(
+    material: &MappingRecordIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(
+        &MappingRecordIdentityMaterial<'m>,
+        Limits,
+    ) -> Result<Vec<u8>, quire_canonical::Error>,
 ) -> Result<Vec<u8>, MappingRequestError> {
-    canonical_identity_bytes(material, ceiling, "record.identity")
+    identity_bytes(material, limits, "record.identity", encode)
 }
 
-/// Encode identity material through `quire-canonical`, refusing at `path`
-/// with the limit code when the canonical text would exceed `ceiling`.
-fn canonical_identity_bytes<T: quire_canonical::Encode>(
+/// The one place a ceiling is chosen for identity material: the request byte
+/// limit, handed to `encode`.
+fn identity_bytes<T>(
     material: &T,
-    ceiling: u64,
+    limits: &MappingLimits,
     path: &'static str,
+    encode: impl FnOnce(&T, Limits) -> Result<Vec<u8>, quire_canonical::Error>,
 ) -> Result<Vec<u8>, MappingRequestError> {
-    quire_canonical::to_vec(material, Limits::new(ceiling)).map_err(|error| match error {
-        quire_canonical::Error::Limit(_) => MappingRequestError::new(
-            MappingRequestErrorCode::RequestLimitExceeded,
-            path,
-            "canonical identity material exceeds maximum_request_bytes",
-        ),
-        quire_canonical::Error::IntegerMagnitudeAboveMaximum(_)
-        | quire_canonical::Error::UnsignedIntegerMagnitudeAboveMaximum(_)
-        | quire_canonical::Error::WideIntegerMagnitudeAboveMaximum(_) => MappingRequestError::new(
-            MappingRequestErrorCode::ArithmeticOverflow,
-            path,
-            "identity material holds an integer beyond 2^53",
-        ),
+    encode(material, Limits::new(limits.maximum_request_bytes))
+        .map_err(|error| identity_refusal(&error, path))
+}
+
+/// The registered refusal for an encoder error at `path`. Only reaching the
+/// canonical byte limit is `request_limit_exceeded`; every other encoder
+/// error, including the fixed object-buffer bound and an integer past 2^53,
+/// is a failed canonicalization step, `allocation_failed` (STD-003).
+fn identity_refusal(error: &quire_canonical::Error, path: &'static str) -> MappingRequestError {
+    match error {
+        quire_canonical::Error::Limit(exceeded)
+            if exceeded.kind == quire_canonical::LimitKind::CanonicalBytes =>
+        {
+            MappingRequestError::new(
+                MappingRequestErrorCode::RequestLimitExceeded,
+                path,
+                "canonical identity material exceeds maximum_request_bytes",
+            )
+        }
         _ => MappingRequestError::new(
             MappingRequestErrorCode::AllocationFailed,
             path,
             "identity material canonicalization failed",
         ),
-    })
+    }
 }
 
 fn check_limit(
@@ -2712,7 +2731,7 @@ fn classify_unknown(package: &BoundPackage, identity: &ClauseRef) -> MappingRequ
 #[cfg(test)]
 mod tests {
     use super::{
-        package_identity_bytes, record_identity_bytes, request_identity_bytes,
+        identity_refusal, package_identity_bytes, record_identity_bytes, request_identity_bytes,
         GeneratedOutputPackageIdentityMaterial, MappingCondition, MappingDependencyKind,
         MappingDependencyRef, MappingDisposition, MappingLimits, MappingRecordId,
         MappingRecordIdentityMaterial, MappingRecordSource, MappingRequestErrorCode,
@@ -2729,32 +2748,44 @@ mod tests {
         RequirementId, RequirementRef, RequirementRevision, SchemaVersion, SourceDocumentId,
         SourceIdentity, SourceLocation, SourceRevision, SourceSpan,
     };
+    use ix_trace_rs::trace;
+    use std::cell::Cell;
 
     fn hex(seed: u8) -> String {
         format!("{seed:02x}").repeat(32)
     }
 
+    /// A FRETish profile; the integration tests use the OCL one.
     fn profile() -> OutputMappingProfile {
         OutputMappingProfile::new(
-            "ocl",
-            vec!["formal/14-02-03"],
-            "quire.output.ocl24/v1",
+            "fretish",
+            vec!["v3.1.0"],
+            "quire.output.fretish31/v1",
             "1-draft.1",
-            MappingRuleDigest::from_bytes([1; 32]),
-            vec![OutputCapability::Boolean, OutputCapability::BoundedInteger],
+            MappingRuleDigest::from_bytes([5; 32]),
+            vec![
+                OutputCapability::StatePredicate,
+                OutputCapability::ImmediateResponse,
+            ],
         )
-        .expect("accepted OCL profile")
+        .expect("accepted FRETish profile")
     }
 
     /// The profile of [`profile`] as RFC 8785 text, members in UTF-16 order.
     fn profile_text() -> String {
         format!(
-            "{{\"mapping_digest\":\"{}\",\"mapping_profile_id\":\"quire.output.ocl24/v1\",\
+            "{{\"mapping_digest\":\"{}\",\"mapping_profile_id\":\"quire.output.fretish31/v1\",\
              \"mapping_revision\":\"1-draft.1\",\
-             \"required_capabilities\":[\"boolean\",\"bounded-integer\"],\
-             \"target_family\":\"ocl\",\"target_standard_refs\":[\"formal/14-02-03\"]}}",
-            hex(1)
+             \"required_capabilities\":[\"state-predicate\",\"immediate-response\"],\
+             \"target_family\":\"fretish\",\"target_standard_refs\":[\"v3.1.0\"]}}",
+            hex(5)
         )
+    }
+
+    /// Limits whose `maximum_request_bytes` is `ceiling`.
+    fn limits_with(ceiling: u64, maximum_emitted_bytes: u64) -> MappingLimits {
+        MappingLimits::new(ceiling, 32, 1_024, 128, 4_096, 32, maximum_emitted_bytes)
+            .expect("positive limits")
     }
 
     fn source_package() -> MappingSourcePackageRef {
@@ -2811,6 +2842,19 @@ mod tests {
         maximum_emitted_bytes: u64,
         ceiling: u64,
     ) -> Result<Vec<u8>, super::MappingRequestError> {
+        request_bytes_with(maximum_emitted_bytes, ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn request_bytes_with(
+        maximum_emitted_bytes: u64,
+        ceiling: u64,
+        encode: impl FnOnce(
+            &RequestIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
         let native = NativeSourceSelection::new("quire.native/v1", "rev-native", digest(2))
             .expect("native selection");
         let model = ModelSourceSelection::new("quire.model/v1", "rev-model", digest(3))
@@ -2832,7 +2876,8 @@ mod tests {
                 target_profile: &profile(),
                 resource_shape: shape(maximum_emitted_bytes),
             },
-            ceiling,
+            &limits_with(ceiling, maximum_emitted_bytes),
+            encode,
         )
     }
 
@@ -2872,6 +2917,7 @@ mod tests {
     }
 
     /// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
     #[test]
     fn tc_043_request_identity_is_the_hand_written_text_under_its_ceiling() {
         let expected = request_text("18446744073709551615");
@@ -2887,6 +2933,7 @@ mod tests {
     }
 
     /// Tracing: TC-043, FR-034-AC-7.
+    #[trace("TC-043", "FR-034-AC-7")]
     #[test]
     fn tc_043_request_limits_at_two_to_the_64_enter_the_material_as_distinct_decimal_strings() {
         let high = request_text("18446744073709551615");
@@ -2918,6 +2965,19 @@ mod tests {
     }
 
     fn record_bytes(byte_offset: u64, ceiling: u64) -> Result<Vec<u8>, super::MappingRequestError> {
+        record_bytes_with(byte_offset, ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn record_bytes_with(
+        byte_offset: u64,
+        ceiling: u64,
+        encode: impl FnOnce(
+            &MappingRecordIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
         let dependencies = [MappingDependencyRef::new(
             MappingDependencyKind::Semantic,
             "agent-ix/owner",
@@ -2965,7 +3025,8 @@ mod tests {
                 observation_adequacy: Some(&observation),
                 protocol_adequacy: Some(&protocol),
             },
-            ceiling,
+            &limits_with(ceiling, 64 * 1024),
+            encode,
         )
     }
 
@@ -3006,6 +3067,7 @@ mod tests {
     }
 
     /// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
     #[test]
     fn tc_043_record_identity_is_the_hand_written_text_under_its_ceiling() {
         let expected = record_text();
@@ -3020,21 +3082,116 @@ mod tests {
         assert_eq!(refusal.path(), "record.identity");
     }
 
+    /// A source byte offset above 2^53 is a failed canonicalization step,
+    /// `allocation_failed`, the code STD-003 registers at `record.identity`;
+    /// it is neither a limit nor `arithmetic_overflow`, which STD-003 does not
+    /// register there. Code change B bounds the offset's type and makes this
+    /// unreachable.
+    ///
     /// Tracing: TC-043, FR-034-AC-6.
+    #[trace("TC-043", "FR-034-AC-6")]
     #[test]
-    fn tc_043_a_source_offset_past_two_to_the_53_refuses_with_the_overflow_code_not_a_limit() {
+    fn tc_043_a_source_offset_past_two_to_the_53_refuses_with_the_registered_code() {
         let refusal = record_bytes(9_007_199_254_740_993, u64::MAX - 1)
             .expect_err("a number the encoder refuses");
-        assert_eq!(refusal.code(), MappingRequestErrorCode::ArithmeticOverflow);
+        assert_eq!(refusal.code(), MappingRequestErrorCode::AllocationFailed);
         assert_eq!(refusal.path(), "record.identity");
     }
 
+    /// Only the canonical byte limit is `request_limit_exceeded`; the
+    /// encoder's fixed object-buffer bound and an integer past 2^53 are not
+    /// the request byte limit.
+    ///
+    /// Tracing: TC-043, FR-034-AC-6.
+    #[trace("TC-043", "FR-034-AC-6")]
+    #[test]
+    fn tc_043_only_the_canonical_byte_limit_is_the_request_limit_refusal() {
+        use quire_canonical::{Error, LimitExceeded, LimitKind};
+        let limit = |kind| {
+            Error::Limit(LimitExceeded {
+                kind,
+                bound: 1,
+                required: 2,
+            })
+        };
+        let cases = [
+            (
+                limit(LimitKind::CanonicalBytes),
+                MappingRequestErrorCode::RequestLimitExceeded,
+            ),
+            (
+                limit(LimitKind::ObjectBytes),
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+            (
+                Error::IntegerMagnitudeAboveMaximum(1 << 60),
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+            (
+                Error::Allocation { requested: 1 },
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+        ];
+        for (error, code) in cases {
+            let refusal = identity_refusal(&error, "request");
+            assert_eq!(refusal.code(), code, "{error:?}");
+            assert_eq!(refusal.path(), "request");
+        }
+    }
+
+    /// Each identity step hands the encoder exactly the request byte limit of
+    /// the limits it is given: not `u64::MAX`, not a fixed cap. A step that
+    /// encoded without that ceiling and compared the length afterwards would
+    /// record a different value here.
+    ///
+    /// Tracing: TC-043, FR-032-AC-6, FR-033-AC-6, FR-034-AC-6.
+    #[trace("TC-043", "FR-032-AC-6", "FR-033-AC-6", "FR-034-AC-6")]
+    #[test]
+    fn tc_043_each_identity_step_hands_the_encoder_the_request_byte_limit() {
+        for ceiling in [4_096, 5_000] {
+            let seen = Cell::new(None);
+            request_bytes_with(1, ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("request encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "request step");
+
+            let seen = Cell::new(None);
+            record_bytes_with(40, ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("record encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "record step");
+
+            let seen = Cell::new(None);
+            package_bytes_with(ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("package encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "package step");
+        }
+    }
+
     fn package_bytes(ceiling: u64) -> Result<Vec<u8>, super::MappingRequestError> {
+        package_bytes_with(ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn package_bytes_with(
+        ceiling: u64,
+        encode: impl FnOnce(
+            &GeneratedOutputPackageIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
         let generator =
             OutputGeneratorIdentity::new("agent-ix/quire-contract-ir").expect("generator identity");
         let record_ids = [MappingRecordId::from_bytes([0x51; 32])];
-        let limits = MappingLimits::new(u64::MAX, 32, 1_024, 128, 4_096, 32, 9_007_199_254_740_993)
-            .expect("limits");
+        let limits = limits_with(ceiling, 9_007_199_254_740_993);
         package_identity_bytes(
             &GeneratedOutputPackageIdentityMaterial {
                 identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
@@ -3045,11 +3202,27 @@ mod tests {
                 record_ids: &record_ids,
                 limits: &limits,
             },
-            ceiling,
+            &limits,
+            encode,
         )
     }
 
-    fn package_text() -> String {
+    /// The package material's own `maximum_request_bytes` is the ceiling, so
+    /// the text and its length depend on each other: iterate to the length
+    /// that equals the number written in it.
+    fn package_ceiling() -> u64 {
+        let mut ceiling = 100;
+        for _ in 0..8 {
+            let length = length(&package_text(ceiling));
+            if length == ceiling {
+                return ceiling;
+            }
+            ceiling = length;
+        }
+        panic!("the package text length has no fixed point");
+    }
+
+    fn package_text(maximum_request_bytes: u64) -> String {
         format!(
             "{{\"generator\":{{\"owner\":\"agent-ix/quire-contract-ir\"}},\
              \"identity_version\":\"quire.output.package-identity/v1-draft.1\",\
@@ -3057,7 +3230,7 @@ mod tests {
              \"maximum_expression_nodes\":\"1024\",\"maximum_mapping_work\":\"4096\",\
              \"maximum_nesting_depth\":\"128\",\"maximum_obligations\":\"32\",\
              \"maximum_records\":\"32\",\
-             \"maximum_request_bytes\":\"18446744073709551615\"}},\
+             \"maximum_request_bytes\":\"{maximum_request_bytes}\"}},\
              \"record_ids\":[\"{r}\"],\"source_package\":{package},\
              \"target_bytes_digest\":\"{t}\",\"target_profile\":{profile}}}",
             r = hex(0x51),
@@ -3068,13 +3241,16 @@ mod tests {
     }
 
     /// Tracing: TC-043, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-034-AC-6", "FR-034-AC-7")]
     #[test]
     fn tc_043_package_identity_is_the_hand_written_text_under_its_ceiling() {
-        let expected = package_text();
-        let bytes = package_bytes(length(&expected)).expect("exact ceiling encodes");
+        let ceiling = package_ceiling();
+        let expected = package_text(ceiling);
+        let bytes = package_bytes(ceiling).expect("exact ceiling encodes");
         assert_eq!(bytes, expected.as_bytes());
-        let refusal =
-            package_bytes(length(&expected) - 1).expect_err("one byte under the length refuses");
+        // One byte lower: the limit written in the material is one lower too,
+        // and the text keeps its length because both numbers have three digits.
+        let refusal = package_bytes(ceiling - 1).expect_err("one byte under the length refuses");
         assert_eq!(
             refusal.code(),
             MappingRequestErrorCode::RequestLimitExceeded

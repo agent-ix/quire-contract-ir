@@ -369,7 +369,7 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
     .expect("source reads");
     let production = production_source(&text);
     assert!(
-        production.contains("fn canonical_identity_bytes"),
+        production.contains("fn identity_bytes<T>"),
         "the scan reads the production source"
     );
     for symbol in [
@@ -384,6 +384,19 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
         let hits = production.matches(symbol).count();
         assert_eq!(hits, 0, "output_mapping.rs: `{symbol}` x{hits}");
     }
+    // The one ceiling chosen for identity material is the request byte limit;
+    // any other spelling of a ceiling (`!0`, `MAX`, a literal) adds a second
+    // `Limits::new` or changes this one. The unit test that spies on the
+    // encoder's ceiling covers a value passed some other way.
+    assert_eq!(
+        production.matches("Limits::new(").count(),
+        1,
+        "output_mapping.rs builds exactly one encoder limit"
+    );
+    assert!(
+        production.contains("Limits::new(limits.maximum_request_bytes)"),
+        "the encoder limit is the request byte limit"
+    );
     for material in [
         "RequestIdentityMaterial<'a>",
         "GeneratedOutputPackageIdentityMaterial<'a>",
