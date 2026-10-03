@@ -641,7 +641,10 @@ one cause `expression-form`, as QSpec's native diagnostics catalog pairs it
 (`declaration-form` or `expression-form`; an application term is an expression
 form). The code is in QSpec FR-322's closed refusal vocabulary. The refusal
 code and the cause are both new to the reader's refusal types, and the code PR
-adds the matching variants and no other pairing. The refusal applies at any
+adds the matching variants and no other pairing. QSpec's checked-package V2
+schema `cause_tag` enumeration does not yet list `expression-form`, although
+the native diagnostics catalog requires it; that is a QSpec follow-up (STD-153),
+and the reader follows the diagnostics catalog until it lands. The refusal applies at any
 depth: an application term whose `operator` is `case`, `temporal_formula` or
 `temporal_fairness` refuses at that term's `operator` member whether it is a
 node's body root, an element of `arguments`, or nested inside a `binding` or
@@ -704,8 +707,8 @@ shared all-families fixture builds a temporal clause with a `profile_operator`
 member and no arguments, which refuses under this shape; the code PR rewrites
 that fixture, and an all-families package cannot hold a temporal clause whose
 formula is a `temporal_formula` application. The rows that build on the fixture
-(FR-035, TC-044, TC-052, TC-053, TC-056, TC-222 and TC-048) are re-verified by
-that change.
+(FR-035, FR-040, TC-044, TC-048, TC-050, TC-052, TC-053, TC-056 and TC-222)
+are re-verified by that change.
 
 QSpec FR-440 and FR-370 own the encodings; the semantics of the union and
 temporal words are tracked by IR-506 and IR-507 (union) and IR-510 and IR-7
