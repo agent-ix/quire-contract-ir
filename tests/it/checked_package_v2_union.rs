@@ -771,6 +771,72 @@ fn tc_048_a_cycle_through_a_union_is_a_recursion_leaf() {
     );
 }
 
+/// `union Chain { Link(Text[nfc], Chain), End }` in one recursion group, the
+/// option `Option<Chain>` outside it, and a parameter `p` of the option under an
+/// equality carrying `leaves`.
+fn option_chain_package(leaves: Vec<Value>) -> Value {
+    let mut chain = union_type("chain", &[("Link", &["nfc", "chain"]), ("End", &[])]);
+    chain["recursion_group"] = json!("g");
+    let option = node(
+        "chain_option",
+        "composite_type",
+        "option",
+        "chain_option",
+        &["chain"],
+        "type",
+        aggregate(vec![reference("chain")]),
+    );
+    let mut nodes = common();
+    nodes.push(shape());
+    nodes.push(chain);
+    nodes.push(option);
+    nodes.push(parameter("p", "3", "chain_option"));
+    nodes.push(equality("p", "p", leaves));
+    let mut package = nominal_package(&[]);
+    package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    package["lock"]["definition_selections"]
+        .as_array_mut()
+        .expect("definition selections")
+        .push(text_law());
+    settle(&mut package);
+    package
+}
+
+/// Over `Option<Chain>` the union is entered one segment in, so its recursion
+/// leaf reads `recursion:1` (QSpec FR-322 "Structural leaf walk"): the leaves
+/// `["inner", "member:Link", "position:0"]` and `["inner", "member:Link",
+/// "position:1", "recursion:1"]` admit; the recursion leaf missing, one reading
+/// `recursion:0` and the text leaf alone are refused.
+///
+/// Tracing: TC-048, FR-038-AC-106
+#[trace("TC-048", "FR-038-AC-106")]
+#[test]
+fn tc_048_a_union_cycle_under_an_option_enters_at_recursion_one() {
+    let text = || text_leaf(&["inner", "member:Link", "position:0"]);
+    let recursion = |depth: &str| recursion_leaf(&["inner", "member:Link", "position:1", depth]);
+    admitted(
+        "Option<Chain>",
+        &option_chain_package(vec![text(), recursion("recursion:1")]),
+    );
+
+    let package = option_chain_package(vec![text()]);
+    expect(
+        "the recursion leaf missing",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationLawMissing,
+        &leaves_at(&package, ""),
+    );
+    let package = option_chain_package(vec![text(), recursion("recursion:0")]);
+    expect(
+        "recursion:0",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationLawMismatch,
+        &leaves_at(&package, "/1/path"),
+    );
+}
+
 /// A union type or union value body that is not its closed shape (an empty
 /// union, a union value with two bindings, a binding whose value is no
 /// `aggregate`) is `invalid_semantic_graph` at the node's `body`.

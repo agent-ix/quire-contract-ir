@@ -309,6 +309,82 @@ fn tc_048_the_reader_admits_equality_over_a_recursive_record() {
     );
 }
 
+/// A tuple type named `name`, one position per type name.
+fn tuple_of(name: &str, positions: &[&str]) -> Typed {
+    let members: Vec<Value> = positions.iter().map(|ty| reference(ty)).collect();
+    node(
+        name,
+        "composite_type",
+        "tuple",
+        name,
+        positions.iter().copied(),
+        "type",
+        json!({"term": "aggregate", "members": members}),
+    )
+}
+
+/// `record Cell { item: (Text[nfc], Option<Cell>); }`: the cycle passes
+/// through a tuple and an option, and the record is entered at the empty path,
+/// so its recursion leaf reads `recursion:0` (QSpec FR-322 "Structural leaf
+/// walk"). The text leaf alone and a recursion leaf reading `recursion:1` are
+/// refused.
+///
+/// Tracing: TC-048, FR-038-AC-70
+#[trace("TC-048", "FR-038-AC-70")]
+#[test]
+fn tc_048_the_reader_admits_equality_over_a_record_cycling_through_a_tuple() {
+    let types = || {
+        vec![
+            in_group(record("cell", &[("item", "cell_item")])),
+            in_group(tuple_of("cell_item", &["nfc", "cell_next"])),
+            in_group(option_of("cell_next", "cell")),
+        ]
+    };
+    let item = |last: &[&str]| -> Vec<String> {
+        [field("item")]
+            .into_iter()
+            .chain(last.iter().map(|segment| (*segment).to_owned()))
+            .collect()
+    };
+    let text = text_leaf(&item(&["position:0"]));
+    let recursion = |depth: &str| recursion_leaf(&item(&["position:1", "inner", depth]));
+    let limits = CheckedPackageReadLimits::bounded();
+
+    let (package, _) = equality_package(
+        types(),
+        "cell",
+        vec![text.clone(), recursion("recursion:0")],
+    );
+    match read(&package, limits) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("expected V2 admission, got {other:?}"),
+    }
+
+    let (package, id) = equality_package(types(), "cell", vec![text.clone()]);
+    assert_eq!(
+        read(&package, limits),
+        CheckedPackageV2ReadResult::Refused(refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &leaves_pointer(&package, &id),
+            Some(CheckedPackageRefusalCause::OperationLawMissing),
+            &id,
+        )),
+        "the text leaf alone"
+    );
+
+    let (package, id) = equality_package(types(), "cell", vec![text, recursion("recursion:1")]);
+    assert_eq!(
+        read(&package, limits),
+        CheckedPackageV2ReadResult::Refused(refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &format!("{}/1/path", leaves_pointer(&package, &id)),
+            Some(CheckedPackageRefusalCause::OperationLawMismatch),
+            &id,
+        )),
+        "a recursion leaf with the wrong depth"
+    );
+}
+
 /// A ring of `size` records, each holding one text field and an optional
 /// field naming the next, the last naming the first, and the leaves of the
 /// ring compared at the first: its `size` text leaves and its one recursion

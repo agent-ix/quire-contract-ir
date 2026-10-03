@@ -2322,7 +2322,8 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
     /// fields, a `tuple`'s positions, the inner type of an option or
     /// collection, and a union's payload positions, each under its member.
     /// A union is an open composite like a record or tuple: a cycle through
-    /// one is a recursion leaf, never a record-free cycle (a relayed ruling).
+    /// one is a recursion leaf, never a record-free cycle (QSpec FR-322
+    /// "Structural leaf walk").
     fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<(Anchor, RawEdges)> {
         let members = || self.nodes[position].body.get("members")?.as_array();
         match kind {
@@ -2351,9 +2352,8 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                 })
                 .collect::<Option<Vec<_>>>()
                 .map(|edges| (Anchor::Composite, edges)),
-            // QSpec FR-322's leaf segments gain `member:<Ident>` (a relayed
-            // owner ruling, pending the QSpec change): a leaf through a union
-            // is `member:<Name>`, `position:<i>` (`i` the index within the
+            // QSpec FR-322 "Structural leaf walk": a leaf through a union is
+            // `member:<Name>`, `position:<i>` (`i` the index within the
             // member's payload, even for a single payload), then the segments
             // into the payload type.
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
@@ -2787,12 +2787,13 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
 
 /// QSpec FR-322: for an entry naming a leaf source, `operation.leaves` lists,
 /// in declaration order, one entry for every `text` leaf of the compared
-/// type, each with that leaf's path (`field:<name>`, `position:<n>`, `inner`)
-/// and one `text_profile` law. A type that reaches itself through a record or
-/// tuple is admitted (FR-038, "Recursive compared types"): its text leaves are
-/// followed by, at each reentry into a composite from which text is
-/// reachable, a recursion leaf `{path: p + "recursion:<d>", laws: [], mode:
-/// null}`, a stated deviation from QSpec's schema. A type with no leaf takes
+/// type, each with that leaf's path (`field:<name>`, `member:<Name>`,
+/// `position:<n>`, `inner`) and one `text_profile` law. A type that reaches
+/// itself through a record, tuple or union is admitted (FR-038, "Recursive
+/// compared types"): its text leaves are followed by, at each reentry into a
+/// composite from which text is reachable, a recursion leaf `{path: p +
+/// "recursion:<d>", laws: [], mode: null}`, as QSpec FR-322 "Structural leaf
+/// walk" states and both V2 schemas admit. A type with no leaf takes
 /// an empty list; fewer entries than derived leaves is `operation-law-missing`,
 /// and then one in-order pass places each supplied entry: a leaf that is not
 /// the one derived for its place (a wrong or misordered path, a recursion leaf
