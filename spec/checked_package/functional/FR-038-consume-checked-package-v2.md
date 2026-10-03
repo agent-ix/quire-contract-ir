@@ -883,6 +883,96 @@ above does. These are graph-shape refusals: they precede the stale-key
 stage. The reader re-derives neither form's node key: QSL keys both by its
 proposed `quire.structural-node/v1` preimage, which QSpec does not publish.
 
+### Application node keys
+
+A node whose `body` is an `application` term carries a `node_id` that is the
+SHA-256 of the RFC 8785 bytes of its own preimage, `{version, node_tag,
+semantic_form, semantic_type, declaration, recursion, body}`, with `version`
+`quire.application-node/v1` (QSpec FR-322 `application_node_preimage`). The
+`recursion` member is `{size, ordinal}` of the node within its `recursion_group`,
+the members of the group taken in graph order, and `null` outside a group. Each
+`reference` in the body to a member of the node's own group becomes
+`{term: "group_reference", ordinal}`, wherever the term stands (an application
+argument, a binding value or an aggregate member), and a reference to a node
+outside the group stays as it was. The reader re-derives the key for each such
+node and refuses a retained key that differs as `invalid_package` with cause
+`stale-node-key` at the node's `node_id`; a node whose `node_id` is that digest
+is not refused for its key. This is the key check of an application node that
+FR-038-AC-35 exercises for a `dependency_reference` callee, stated for every
+application-bodied node.
+
+### Operation identity, laws, mode, member and operands
+
+An `application` term's `operation` is read as its own closed shape. A value that
+is not an object of that shape, such as a bare string, refuses
+`invalid_semantic_graph` at the application's `operation`. Past that read the
+reader looks `operation.identity` up in the operation catalog and checks the
+application against the entry it finds. Each refusal below is `invalid_package`
+unless it names another code, and is located at the member that carries the
+defect. This section fixes each refusal. It does not fix the order between two of
+these checks beyond what "Catalog words whose semantics the reader does not
+carry" and "Operation leaves" fix, so a package that carries two defects in one
+application is not decided by this section.
+
+- **Identity and operator class.** An identity the catalog does not list refuses
+  `unknown-operation` at `operation.identity`, and an `operator` other than the
+  entry's operator class refuses `operation-class-mismatch` at `operator`. An
+  application that names a catalogued identity under its catalogued operator
+  class, with the laws, mode, member and operands its entry requires, is not
+  refused for either.
+- **Laws.** An entry that catalogues a law role and an application that supplies
+  no law refuses `operation-law-missing` at `operation.laws`. An entry that
+  catalogues no law and an application that supplies one refuses
+  `operation-law-mismatch` at `operation.laws/0`. A law whose `role` is not the
+  role the entry catalogues at that position refuses `operation-law-mismatch` at
+  the law's `role`, whatever its `definition` is, so the role is checked in its
+  own right. The `definition` of a law of the right role is "Artifact
+  references" (FR-038-AC-56, FR-038-AC-57).
+- **Mode.** An entry that catalogues a mode kind and an application that carries
+  no mode refuses `operation-mode-mismatch` at `operation.mode`. When the first
+  operand's type pins a value for that mode, a `bounded_domain` over a `decimal`
+  that binds `rounding`, reached by a `reference` to it or by a `literal` whose
+  `type` names it, a mode value other than the pinned one refuses
+  `operation-mode-type-mismatch` at `operation.mode/value`. The modes of a leaf
+  are "Operation leaves".
+- **Member.** An entry that catalogues a member kind and an application that
+  carries no member refuses `operation-member-mismatch` at `operation.member`. An
+  entry that catalogues a `field` member, whose member names a field that its
+  declaring record type does not declare, refuses `ill_typed` with cause
+  `operator-ineligible` at `operation.member.name`. An application of
+  `quire.op.model.reaches_field` whose member `declaration` names no node of the
+  graph refuses `ill_typed`/`operator-ineligible` at `operation.member.declaration`.
+- **Arity.** An application that supplies more arguments than its entry has
+  fixed operands, the entry admitting no rest operand, refuses `ill_typed`/
+  `operator-ineligible` at `arguments`.
+- **Operand families.** A `literal` argument resolves to its declared `type` and a
+  nested `application` argument to its `result_type`, as a `reference` resolves
+  to its target, and each takes part in the operand-family and mode-pin checks. An
+  argument whose family does not fit its operand position refuses
+  `ill_typed`/`operator-ineligible` at that argument. A clause application, the
+  application of an entry whose result is `clause`, has family `clause` and fits
+  no `boolean` operand position.
+- **Same type.** A `same_type` constraint compares the type node each constrained
+  operand resolves to, not the operand nodes: two operands of one type admit
+  whichever nodes carry them, and the first operand whose resolved type differs
+  from its predecessor's refuses `ill_typed`/`operator-ineligible` at that
+  argument. An operand that resolves to no type leaves the constraint undecided
+  and is admitted.
+- **Operand families by form.** The operand family a node denotes is read from its
+  tag and form alone: for `scalar_type`, the forms `boolean`, `integer`,
+  `rational`, `decimal`, `float32`, `float64`, `text` and `enum`, each its own
+  name; for `composite_type`, the forms `option`, `sequence`, `set`, `bag`,
+  `ordered_set`, `record`, `tuple` and `reference`, each its own name;
+  `expression`/`reference`, `reference`; `function`/`pure_function`,
+  `function`/`predicate` and `function`/`recursive_function`, `function`;
+  `model`/`object_type` and `model`/`systems_interface`, `object`; and
+  `relation`/`population`, `population`. Every other tag and form has none of its
+  own. An enum's family is `enum` by form, refined to `ordered_enum` for an
+  ordered enum (FR-038-AC-42). A node is type-shaped, so that an argument naming
+  it names a type and not a value of its `semantic_type`, exactly when its tag is
+  `scalar_type`, `composite_type`, `bounded_domain`, `relation` or `function`, or
+  it is an `expression`/`reference`.
+
 ### Operation leaves
 
 For a catalog entry that names a leaf source, QSpec FR-322 has `operation.leaves`
@@ -1310,6 +1400,14 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-78 | The encodes of FR-038-AC-77, run under a byte ceiling of the encoded text's exact length, return the bytes; run under a ceiling one byte lower, return the byte-limit error with no bytes; a body nested 20000 levels deep, past both the reader's default depth limit of 128 and its 16,384 ceiling, encodes and is not refused for its depth; and a body holding the integer 9007199254740993 returns the encoder's refusal naming that value with no bytes. | Test (TC-048) |
 | FR-038-AC-79 | A package document holding the integer 9007199254740993 in a node body refuses `noncanonical_wire` with no pointer, as does one holding -9007199254740993, one holding the float `2.0` in a body, and one whose body object lists a member named with U+E000 before one named with U+10000 (UTF-8 byte order), each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document with 9007199254740992, with `2` in place of `2.0`, and with U+10000 before U+E000 (UTF-16 code-unit order) is not refused `noncanonical_wire`. | Test (TC-048) |
 | FR-038-AC-80 | `quire-canonical` is a `branch = "main"` git dependency of this repository's manifests with its source in the `allow-git` list of `deny.toml`, and `make deny` passes; `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedCapability` and `CheckedPackageLockV2`, and every type the three `Encode` types and these four hold that does not itself hold a `Value` (`CheckedOccurrence`, `CheckedDeclaration`, `NominalIdentityPreimage`, its four preimage structs, `NominalOwner`, `DimensionTerm`, `CheckedRational`, `CheckedDiagnosticStage`, `CheckedDiagnosticCode`, `CheckedDiagnosticCause`, the node identity, selection, domain-package, dependency-selection, source-region and artifact-reference types), derive `FixedShape`; `CheckedPackageIdentityPreimageV2`, `CheckedSemanticGraphV2` and `CheckedDiagnosticsV2` implement `quire_canonical::Encode`, and they and the types that hold a `Value` do not implement `FixedShape`; the crate's source holds no hand-written `impl FixedShape`, no `const DEPTH` and no wrapper type around a `quire-canonical` type; and no copy of `quire-canonical` source or of its published vectors is in the repository, each checked by a test that reads the manifests, `deny.toml` and crate source. | Test (TC-048) |
+| FR-038-AC-81 | An application whose `operation.identity` the operation catalog does not list refuses `invalid_package` with cause `unknown-operation` at `operation.identity`; `quire.op.integer.add`, a `binary` operation, under the operator `unary` refuses `invalid_package`/`operation-class-mismatch` at `operator`; and `quire.op.integer.add` under `binary` with two operands, no law, no mode and no member admits, so neither refusal is a refusal of every application. Their order against `unsupported_construct` is FR-038-AC-67's. | Test (TC-048) |
+| FR-038-AC-82 | `quire.op.integer.div`, which catalogues the one law role `integer_division`, with no law refuses `invalid_package`/`operation-law-missing` at `operation.laws`; `quire.op.integer.add`, which catalogues no law, with one law refuses `invalid_package`/`operation-law-mismatch` at `operation.laws/0`; and `quire.op.integer.div` with one law whose `role` is the word `not_integer_division` and whose `definition` is a catalogued `integer_division` definition refuses `invalid_package`/`operation-law-mismatch` at that law's `role`, so the role is checked in its own right and not only through the definition. | Test (TC-048) |
+| FR-038-AC-83 | `quire.op.decimal.add`, which catalogues the mode kind `rounding`, with no mode refuses `invalid_package`/`operation-mode-mismatch` at `operation.mode`; with the mode `{kind: rounding, value: toward-zero}` over a first operand typed at a `bounded_domain` over a `decimal` whose body binds `rounding` to `nearest-even`, reached by a `reference` to the domain and, separately, by a `literal` whose `type` names it, it refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`. | Test (TC-048) |
+| FR-038-AC-84 | `quire.op.quantity.convert`, which catalogues the member kind `type_argument`, with no member refuses `invalid_package`/`operation-member-mismatch` at `operation.member`; `quire.op.record.project` with a `field` member whose `name` is a field the declaring record type does not declare refuses `ill_typed`/`operator-ineligible` at `operation.member.name`; and `quire.op.model.reaches_field` with a `field` member whose `declaration` names no node of the graph refuses `ill_typed`/`operator-ineligible` at `operation.member.declaration`. | Test (TC-048) |
+| FR-038-AC-85 | `quire.op.integer.add` with three arguments refuses `ill_typed`/`operator-ineligible` at `arguments`; with a `literal` typed at an `integer` node first and second it admits, and with a first `literal` typed at a `boolean` node it refuses the same way at `arguments/0`; `quire.op.boolean.not` over an application of `quire.op.state.clause`, whose catalogued result is `clause`, refuses the same way at `arguments/0`; a `literal` typed at a `decimal_range` that pins `rounding` `nearest-even`, as the first operand of `quire.op.decimal.add` under the mode `toward-zero`, refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`; and `quire.op.structural.eq`, whose `same_type` constraint covers both operands, admits two distinct `value`/`parameter` nodes typed at one record type, two `literal`s typed at one type and two nested applications of one `result_type`, and refuses `ill_typed`/`operator-ineligible` at `arguments/1` for parameters typed at two record types, `literal`s typed at two types and nested applications of two result types, while a first operand typed beside a second `literal` that has no `type` admits. | Test (TC-048) |
+| FR-038-AC-86 | The operand family of a node is exactly, by tag and form: `scalar_type` `boolean`, `integer`, `rational`, `decimal`, `float32`, `float64`, `text` and `enum`, and `composite_type` `option`, `sequence`, `set`, `bag`, `ordered_set`, `record`, `tuple` and `reference`, each its own name; `expression`/`reference`, `reference`; `function` `pure_function`, `predicate` and `recursive_function`, `function`; `model` `object_type` and `systems_interface`, `object`; and `relation`/`population`, `population`; every other kind of the closed node taxonomy has none, and the pairs are compared whole, so a form moved to another family or added to the list fails it. A kind is type-shaped exactly when its tag is `scalar_type`, `composite_type`, `bounded_domain`, `relation` or `function`, or it is `expression`/`reference`, checked for every kind of the taxonomy. | Test (TC-048) |
+| FR-038-AC-87 | An application whose `operation` is a bare string, not an object of the closed operation shape, refuses `invalid_semantic_graph` at that application's `operation`. | Test (TC-048) |
+| FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes to the one canonical text QSL's `application_key` pins for it: `recursion` is `{ordinal: 1, size: 2}`, the first argument is `{ordinal: 0, term: group_reference}` and the second stays the `reference`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
 
 ## Dependencies
 
