@@ -3339,6 +3339,9 @@ mod tests {
     /// pins (`preimage_bytes_are_pinned`): the node is member 1 of a group
     /// of 2, its reference to member 0 becomes a `group_reference`, and its
     /// reference outside the group stays a reference.
+    ///
+    /// Tracing: TC-048, FR-038-AC-88
+    #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_application_preimage_matches_the_qsl_pinned_group_vector() {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
@@ -3383,6 +3386,9 @@ mod tests {
 
     /// Group references are rewritten in every nested term position, as in
     /// quire-spec-language's `group_references_are_rewritten_in_every_nested_term`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-88
+    #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_group_references_are_rewritten_in_every_nested_term() {
         let body = json!({
@@ -3502,6 +3508,9 @@ mod tests {
     /// agent-ix/quire-contract-ir#166): without it, the `catalog.entry(...)`
     /// lookup in `operation_defect` could be replaced by an always-`Some`
     /// admission and nothing in this crate's test suite would notice.
+    ///
+    /// Tracing: TC-048, FR-038-AC-81
+    #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_uncatalogued_identity() {
         let node = application_node(UNCATALOGUED_IDENTITY, "binary");
@@ -3526,6 +3535,9 @@ mod tests {
     /// refused for `unknown-operation` or anything else. Without this
     /// control, a reader that refused every node would satisfy the assertion
     /// above just as well as the real check does.
+    ///
+    /// Tracing: TC-048, FR-038-AC-81
+    #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_admits_catalogued_identity_used_correctly() {
         // Guard against catalog drift: fail loudly here, not by way of a
@@ -3553,6 +3565,9 @@ mod tests {
     /// `quire.op.model.reaches_field` whose member declaration names no node
     /// of the graph cannot satisfy `reference_edge`: it refuses as
     /// `ill_typed`/`operator-ineligible` at the member's declaration.
+    ///
+    /// Tracing: TC-048, FR-038-AC-84
+    #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_a_reference_edge_with_no_declaring_node() {
         let node = custom_application_node(
@@ -3582,6 +3597,9 @@ mod tests {
     /// `operator-class-mismatch`: agent-ix/quire-contract-ir#171. `binary` is
     /// catalogued for [`CATALOGUED_IDENTITY`]; supplying `unary` must be
     /// refused before arity or anything else is checked.
+    ///
+    /// Tracing: TC-048, FR-038-AC-81
+    #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_wrong_operator_class() {
         let node = application_node(CATALOGUED_IDENTITY, "unary");
@@ -3604,6 +3622,9 @@ mod tests {
     /// `operation-law-missing`: agent-ix/quire-contract-ir#171.
     /// [`INTEGER_DIV_IDENTITY`] requires one `integer_division` law;
     /// supplying zero must be refused.
+    ///
+    /// Tracing: TC-048, FR-038-AC-82
+    #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_missing_laws() {
         let node = custom_application_node(
@@ -3633,6 +3654,9 @@ mod tests {
     /// `operation-law-mismatch` (too many laws): agent-ix/quire-contract-ir#171.
     /// [`CATALOGUED_IDENTITY`] requires zero laws; supplying one must be
     /// refused as a mismatch, not admitted as extra.
+    ///
+    /// Tracing: TC-048, FR-038-AC-82
+    #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_too_many_laws() {
         let mut operation = plain_operation(CATALOGUED_IDENTITY);
@@ -3673,6 +3697,9 @@ mod tests {
     /// (`operation-law-mismatch` for an uncatalogued definition) — and this
     /// test would not distinguish the role check being gone from it being
     /// present.
+    ///
+    /// Tracing: TC-048, FR-038-AC-82
+    #[trace("TC-048", "FR-038-AC-82")]
     #[test]
     fn operation_defect_refuses_wrong_law_role() {
         let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
@@ -3708,6 +3735,9 @@ mod tests {
     /// agent-ix/quire-contract-ir#171. `integer_division` is a value role
     /// closed over the catalog's own definition list; a definition outside
     /// that list must be refused before the lock is even consulted.
+    ///
+    /// Tracing: TC-048, FR-038-AC-56
+    #[trace("TC-048", "FR-038-AC-56")]
     #[test]
     fn operation_defect_refuses_uncatalogued_law_definition() {
         let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
@@ -3743,6 +3773,9 @@ mod tests {
     /// the *lock selection* check specifically, not the catalog-membership
     /// check the previous test covers: `empty_lock` selects nothing, so it
     /// must still be refused.
+    ///
+    /// Tracing: TC-048, FR-038-AC-56
+    #[trace("TC-048", "FR-038-AC-56")]
     #[test]
     fn operation_defect_refuses_unselected_law_definition() {
         let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
@@ -3850,6 +3883,9 @@ mod tests {
     /// `operation-mode-mismatch`: agent-ix/quire-contract-ir#171.
     /// [`DECIMAL_ADD_IDENTITY`] requires a `rounding` mode; a missing mode
     /// must be refused.
+    ///
+    /// Tracing: TC-048, FR-038-AC-83
+    #[trace("TC-048", "FR-038-AC-83")]
     #[test]
     fn operation_defect_refuses_mode_mismatch() {
         let node = custom_application_node(
@@ -3880,6 +3916,9 @@ mod tests {
     /// [`QUANTITY_CONVERT_IDENTITY`] requires a `type_argument` member; the
     /// mode is set to match so the member check, not the mode check, is what
     /// fails.
+    ///
+    /// Tracing: TC-048, FR-038-AC-84
+    #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_member_mismatch() {
         let mut operation = plain_operation(QUANTITY_CONVERT_IDENTITY);
@@ -3908,6 +3947,9 @@ mod tests {
     /// `operator-ineligible` (arity): agent-ix/quire-contract-ir#171.
     /// [`CATALOGUED_IDENTITY`] takes exactly two operands and admits no
     /// `rest`; three arguments must be refused by `check_operands`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-85
+    #[trace("TC-048", "FR-038-AC-85")]
     #[test]
     fn operation_defect_refuses_wrong_arity() {
         let node = custom_application_node(
@@ -3940,6 +3982,9 @@ mod tests {
     /// `check_field_member` specifically (reached only once the generic
     /// member-kind check above already passed) by naming a field its
     /// declared record type does not declare.
+    ///
+    /// Tracing: TC-048, FR-038-AC-84
+    #[trace("TC-048", "FR-038-AC-84")]
     #[test]
     fn operation_defect_refuses_undeclared_field_member() {
         let record_type = node_id('7');
@@ -3998,6 +4043,9 @@ mod tests {
     /// `bounded_domain` node whose own body pins `rounding` to
     /// `"nearest-even"`; the operation's own mode value disagrees, so
     /// `check_mode_type` must refuse it.
+    ///
+    /// Tracing: TC-048, FR-038-AC-83
+    #[trace("TC-048", "FR-038-AC-83")]
     #[test]
     fn operation_defect_refuses_mode_type_mismatch_on_operand() {
         let decimal_scalar = graph_node('5', "scalar_type", "decimal", &node_id('6'), json!({}));
@@ -4055,6 +4103,9 @@ mod tests {
     /// (left absent here, so `check_mode_type` never fires first). The field
     /// is text and the leaf carries its `text_profile` law, so the leaf shape
     /// settles first.
+    ///
+    /// Tracing: TC-048, FR-038-AC-44
+    #[trace("TC-048", "FR-038-AC-44")]
     #[test]
     fn operation_defect_refuses_mode_type_mismatch_on_leaf() {
         let record_node = graph_node(
@@ -6026,6 +6077,9 @@ mod tests {
     /// operands' own nodes: [`STRUCTURAL_EQ_IDENTITY`] over two distinct
     /// parameters of one record type is admitted, and over parameters of two
     /// different record types is refused at the second operand.
+    ///
+    /// Tracing: TC-048, FR-038-AC-86
+    #[trace("TC-048", "FR-038-AC-86")]
     #[test]
     fn operation_defect_same_type_compares_operand_types_not_operand_nodes() {
         let record = |id_byte: char, field: &str| {
@@ -6107,6 +6161,9 @@ mod tests {
     /// over two different type nodes are refused at the second operand; an
     /// operand that resolves to no type leaves the constraint undecided, so
     /// it is admitted rather than guessed at.
+    ///
+    /// Tracing: TC-048, FR-038-AC-86
+    #[trace("TC-048", "FR-038-AC-86")]
     #[test]
     fn operation_defect_same_type_resolves_literal_and_application_operands() {
         let record_type = |id_byte: char| {
@@ -6173,6 +6230,9 @@ mod tests {
     /// different `rounding` than the operation's mode is refused as
     /// `operation-mode-type-mismatch`, and a clause application has family
     /// `clause`, so it fits no `boolean` position.
+    ///
+    /// Tracing: TC-048, FR-038-AC-85
+    #[trace("TC-048", "FR-038-AC-85")]
     #[test]
     fn operation_defect_checks_literal_and_application_operands() {
         let typed_literal = |type_byte: char| {
@@ -6290,6 +6350,9 @@ mod tests {
     /// `validate_application_keys` directly rather than `operation_defect`:
     /// the two are separate stages (see the module doc), and nothing above
     /// reaches this one.
+    ///
+    /// Tracing: TC-048, FR-038-AC-88
+    #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
         let node = application_node(CATALOGUED_IDENTITY, "binary");
@@ -6318,6 +6381,9 @@ mod tests {
     /// refused. Without this control, a `validate_application_keys` that
     /// refused every node would satisfy the assertion above just as well as
     /// the real re-derivation does.
+    ///
+    /// Tracing: TC-048, FR-038-AC-88
+    #[trace("TC-048", "FR-038-AC-88")]
     #[test]
     fn tc_048_validate_application_keys_admits_a_correctly_keyed_node() {
         let node = correctly_keyed(application_node(CATALOGUED_IDENTITY, "binary"));
@@ -6339,6 +6405,9 @@ mod tests {
     /// `invalid_semantic_graph` (malformed wire): agent-ix/quire-contract-ir#171.
     /// `operation` must deserialize as `OperationWire`; a bare string is not
     /// one, so this must be refused before any catalog lookup runs.
+    ///
+    /// Tracing: TC-048, FR-038-AC-81
+    #[trace("TC-048", "FR-038-AC-81")]
     #[test]
     fn operation_defect_refuses_malformed_operation_wire() {
         let node = custom_application_node("binary", json!("not-an-operation-object"), Vec::new());
