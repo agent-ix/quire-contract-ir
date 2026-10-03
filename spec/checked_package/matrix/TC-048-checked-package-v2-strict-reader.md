@@ -251,7 +251,9 @@ leaf for `Empty`; the recursive unions `IntList` (no `text`, `leaves` empty) and
 union cycles pending QSpec merge). Read an empty union and a union value with two
 bindings (AC-99, `invalid_semantic_graph` at the body); a fairness `declaration`
 naming a `scalar_type` node (AC-103, `invalid_model_binding`/`malformed-declaration`
-at the target); a law with a member's identity under another `authority` (AC-108,
+with path `.../member/declaration` on the fairness node and the target's key as
+locus, comparing path and locus for every temporal-step refusal as the "Path and
+locus" table of FR-038 lists them); a law with a member's identity under another `authority` (AC-108,
 `operation-law-unselected`); a case arm body of unresolvable type; an unreached
 formula node with `{3, 0}` (AC-97); and the placement defect in the shape of a
 formula application in a `function` node beside an unknown-identity node and beside a
