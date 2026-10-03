@@ -4097,12 +4097,12 @@ mod tests {
 
     /// `operation-mode-type-mismatch` (leaf): agent-ix/quire-contract-ir#171.
     /// [`STRUCTURAL_EQ_IDENTITY`]'s first operand is a `record` whose
-    /// `name` field's own type pins `rounding` to `"nearest-even"`; a
-    /// `["field:name"]` leaf whose mode value disagrees must be refused by
+    /// `name` field's own text type pins the `nfc` `text_profile`; a
+    /// `["field:name"]` leaf whose `text_profile` mode value (`nfd`) is a
+    /// catalogued value other than the pinned one must be refused by
     /// `check_leaf_count`, independent of the operation's own top-level mode
-    /// (left absent here, so `check_mode_type` never fires first). The field
-    /// is text and the leaf carries its `text_profile` law, so the leaf shape
-    /// settles first.
+    /// (left absent here, so `check_mode_type` never fires first). The leaf
+    /// carries its `text_profile` law, so the leaf shape settles first.
     ///
     /// Tracing: TC-048, FR-038-AC-44
     #[trace("TC-048", "FR-038-AC-44")]
@@ -6231,8 +6231,8 @@ mod tests {
     /// `operation-mode-type-mismatch`, and a clause application has family
     /// `clause`, so it fits no `boolean` position.
     ///
-    /// Tracing: TC-048, FR-038-AC-85
-    #[trace("TC-048", "FR-038-AC-85")]
+    /// Tracing: TC-048, FR-038-AC-83, FR-038-AC-85
+    #[trace("TC-048", "FR-038-AC-83", "FR-038-AC-85")]
     #[test]
     fn operation_defect_checks_literal_and_application_operands() {
         let typed_literal = |type_byte: char| {
