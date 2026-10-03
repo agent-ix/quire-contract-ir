@@ -232,6 +232,7 @@ To QSpec:
 | Id | Stated need |
 | --- | --- |
 | R-S1 | Rule on recursive compared types and `recursion:<d>` leaves (STD-129). |
+| R-S8 | Reconcile FR-440 "Reader joins", which decides a nested `case` at the operation step, with FR-322 "Body grammar", whose first-in-document-pre-order rule needs it decided in the same walk as `malformed_wire`. IR reads it at strict wire validation (FR-038-AC-115, FR-038-AC-116). |
 | R-S4 | Renumber one of the two `FR-341` documents. |
 | R-S5 | Rule on `record_value_type` field entries (FR-340). |
 | R-S7 | Publish wire carriers for the five ADR-002 members or state them out of v2. |
