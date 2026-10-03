@@ -32,7 +32,10 @@ package, and FR-038-AC-65 through FR-038-AC-69 against the operation catalog's
 words and the applications of a self-built package that name them, and
 FR-038-AC-70 through FR-038-AC-72 against self-built compared types that reach
 themselves, and FR-038-AC-74 through FR-038-AC-80 against the V2 wire types'
-encoding through `quire-canonical` and the reader's canonical-bytes check.
+encoding through `quire-canonical` and the reader's canonical-bytes check, and
+FR-038-AC-81 through FR-038-AC-88 against the operation identity, law, mode,
+member and operand checks of a single application and the key of an application
+node, as unit tests of `crates/quire-contract-model/src/checked_package/v2/operations.rs`.
 
 ## Test Procedure
 
@@ -280,6 +283,52 @@ entry at a time to a wrong-domain, empty-identity, short-digest, bare-digest or
 adjacent and not, and reverse two entries, and read. Order two identities
 whose UTF-8 and UTF-16 orders differ and read. Compare the whole refusal code,
 cause and pointer with the expected one.
+
+## Operation identity, laws, mode, member and operands (FR-038-AC-81 through FR-038-AC-88)
+
+Run the operation check of one `application` node as a unit, over a graph of the
+node and the type nodes it names, and the application key check of a graph of
+application nodes. Name an identity the catalog lacks, and `quire.op.integer.add`
+under `unary`; admit `quire.op.integer.add` under `binary` with two plain
+operands, and give `operation` a bare string (AC-81). Supply no law to `quire.op.integer.div`, one law to
+`quire.op.integer.add`, and to `quire.op.integer.div` a law whose `role` is
+`not_integer_division` over a catalogued `integer_division` definition (AC-82).
+Give `quire.op.decimal.add` a `null` mode; supply the mode `toward-zero` over a
+first operand that is a `reference` to a `decimal_range` binding `rounding`
+`nearest-even`, and over a `literal` typed at it (AC-83). Give a `null` member to
+`quire.op.quantity.convert` with its `rounding` mode supplied; name an undeclared field in
+`quire.op.record.project`; name no node as the `declaration` of
+`quire.op.model.reaches_field` (AC-84). Give `quire.op.integer.add` three
+arguments, an `integer`-typed and a `boolean`-typed literal first, and
+`quire.op.boolean.not` a `quire.op.state.clause` application (AC-85); give
+`quire.op.structural.eq` two parameters of one record type and of two, two typed
+literals of one type and of two, and two nested applications of one result type
+and of two (AC-86). Compare the operand family and the type-shaped predicate of
+every kind of the closed node taxonomy with the stated pairs, the
+`temporal`/`formula` pair added when the IR-503 code lands (AC-87). Key an
+application node that is member 1 of a group of two and compare its canonical
+preimage text with the object FR-038-AC-88 lists, member by member; rewrite group references in an aggregate member, a
+binding value and nested applications' arguments; read a node with a stale
+`node_id` and one keyed by its own preimage (AC-88).
+
+Expected: the uncatalogued identity refuses `unknown-operation` at
+`operation.identity`, the `unary` case `operation-class-mismatch` at `operator`,
+and the correct use admits; `operation-law-missing` at `operation.laws`,
+`operation-law-mismatch` at `operation.laws/0` and at the law's `role`; the
+absent mode `operation-mode-mismatch` at `operation.mode` and the disagreeing
+value `operation-mode-type-mismatch` at `operation.mode/value`, for the
+`reference` and the `literal` (the `null` mode and `null` member cases; an omitted
+member reads as `null`, a reader leniency this case does not pin); `operation-member-mismatch` at `operation.member`
+and `operator-ineligible` at `operation.member.name` and
+`operation.member.declaration`; `operator-ineligible` at `arguments` for the
+third argument and at the argument for the `boolean` literal and the clause, and
+at `arguments/1` for each differing type; every same-type admission admits; the
+table equals the stated pairs; the bare string refuses `invalid_semantic_graph`
+at `operation`; the preimage equals the object AC-88 lists, each reference is rewritten
+as stated, the stale key refuses `stale-node-key` at `node_id` and the genuine
+one admits. Compare the whole refusal code, cause and pointer. The `definition`
+of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a
+leaf are FR-038-AC-44's.
 
 ## Operation leaf count (FR-038-AC-43)
 
