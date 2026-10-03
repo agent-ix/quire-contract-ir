@@ -1317,10 +1317,10 @@ otherwise, the locus is the key of the node that path is on.
 | fairness `declaration` not a `model`/`object_type` node, including a target that names no node (`malformed-declaration`, FR-370 "Fairness resolution" step 1, "located at the target") | `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` | the `declaration` target's key as named (`member.declaration`) |
 | fairness `name` matches no effective operation (`missing-name`) or two or more (`ambiguous-name`) | `/semantic_graph/nodes/{fairness node}/body/operation/member/name` | the `declaration` target's key |
 | fairness declaring node's owner not recovered | `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` | the fairness node's key (the calling node, as FR-038 states for a model-owner refusal) |
-| a `details` term references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node (QSL ruling relayed 2026-10-03 for formula and fairness; merged FR-370-AC-12 for `case`, QSL confirmed 2026-10-03, QSpec text follow-up pending; a union or union value node reference is admitted) | `/diagnostics/entries/{e}/details/{d}` | the holder is a diagnostic entry, not a node: no node key; the entry's pointer is the locus |
-| an application of the four classes in a `details` term (QSL ruling relayed 2026-10-03) | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
+| a `details` term references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node (merged QSpec FR-370 and FR-440, #182; a union or union value node reference is admitted) | `/diagnostics/entries/{e}/details/{d}` | the holder is a diagnostic entry, not a node: no node key; the entry's pointer is the locus |
+| an application of the four classes in a `details` term (merged QSpec FR-370, #182) | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
 | an `expression` node whose `semantic_form` contradicts its root application's operator class (`invalid_semantic_graph`) | `/semantic_graph/nodes/{n}/body` | the node's key |
-| a `case` application nested in another term (QSL ruling relayed 2026-10-03; refused in the term walk) | `/semantic_graph/nodes/{holder}/body/.../operator` of the nested application | the holder's key |
+| a `case` application nested in another term (merged QSpec FR-440, #182; refused in the term walk) | `/semantic_graph/nodes/{holder}/body/.../operator` of the nested application | the holder's key |
 | a `case` application as the body root of a node that is not an `expression` node (merged FR-440 join 1; the operation step, not the temporal step) | `/semantic_graph/nodes/{holder}` | the holder's key |
 | a `null` member on an interval-capable operator (`operation-member-mismatch`, merged FR-370) | `/semantic_graph/nodes/{n}/body` | the node's key |
 | profile fit, interval | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
@@ -1341,7 +1341,7 @@ because a key that names no node cannot locate a node in the graph. A fairness
 step 1 says, and uses the named key. Every other row that names a target uses the
 target's key, as FR-040 does.
 
-**Merged QSpec text.** QSpec PR #181 is merged: FR-322 (the `type-mismatch`,
+**Merged QSpec text.** QSpec PRs #181 and #182 are merged: FR-322 (the `type-mismatch`,
 `missing-selection`, `unsupported-selection` and `wrong-selection-role` pairings, the
 `member:<Ident>` leaf segment, "Structural leaf walk", AC-45 through AC-47), FR-370
 (interval forms and non-negative bound pattern, profile table, "Profile check",
@@ -1353,8 +1353,8 @@ malformed union or union value body; the path and locus pairing of the refusals
 beyond the loci quoted above; the refusal of a fairness `declaration` that names no
 node is no longer on this list (merged step 1 covers it); the unreached-formula
 `lower > upper` sweep; and an arm body of unresolvable type. The recursion-leaf
-contradiction below is a QSpec text error QSL confirmed 2026-10-03 (QSpec text
-follow-up pending), not an IR reading.
+entry for a record, tuple or union cycle that reaches `text` is merged FR-322
+"Structural leaf walk" text (#182), not an IR reading.
 
 Operand family and count and `result_type` stay the operation step's
 (FR-370-AC-7), so `holds` over a `reference` to a `temporal`/`formula` node
@@ -1374,10 +1374,9 @@ the three temporal classes only. The order consequence: a defect of the temporal
 whatever the digest order, so it is reported before a `case` placement defect; among
 operation-step defects the lowest `node_id` digest is reported, and case placement is
 the first check of its node's joins. This replaces the earlier IR reading that put
-`case` in the one placement pass. Two further outcomes, settled by a QSL ruling relayed
-2026-10-03 (the QSpec text being corrected by a QSL follow-up; not merged text; the
-nested case is refused in the term walk of the body, where nested applications are
-refused, and not by the operation step): a `case` application nested
+`case` in the one placement pass. Two further outcomes, merged QSpec text (#182: FR-370
+and FR-440; the nested case is refused in the term walk of the body, where nested
+applications are refused, and not by the operation step): a `case` application nested
 inside another term refuses `ill_typed`/`operator-ineligible` at the nested
 application's `operator` (this is the ruling's pointer; the misplaced-application
 rule of FR-370 refuses at the holding node instead, so the two differ; the nested
@@ -1393,15 +1392,12 @@ that is not an `expression` node at all is the placement refusal above.
 
 **Diagnostic details.** Details terms are checked after the placement of
 applications and references and before the clause checks, in entry order and then
-`details` order (merged QSpec FR-370 "Reader order"). By a QSL ruling relayed
-2026-10-03 (the QSpec text being corrected by a QSL follow-up; not merged text, which
-as written also lists the union and union value nodes):
+`details` order (merged QSpec FR-370 "Reader order", #182):
 - a `details` term that REFERENCES a `temporal`/`formula` or `temporal`/`fairness`
   node refuses `ill_typed`/`operator-ineligible` at that entry,
   `/diagnostics/entries/{e}/details/{d}`; so does a reference to an
   `expression`/`case` node, which the ruling does not name but merged FR-370-AC-12
-  states with the same code, cause and path (QSL confirmed 2026-10-03 that the `case` node reference refuses, as
-  merged FR-370-AC-12; QSpec text follow-up pending);
+  states with the same code, cause and path (merged FR-370-AC-12);
 - a `details` term that REFERENCES a `composite_type`/`union` or `value`/`union_value`
   node is an ordinary type or value reference and is ADMITTED;
 - an APPLICATION of operator class `temporal`, `temporal_formula`, `temporal_fairness`
@@ -1787,16 +1783,10 @@ payload is `member:<Name>` then `position:i`, `i` the index within the member's
 ordered payload even for a single payload, and a reentry into an open union is a
 reentry like any other: a cycle through a union is never record-free and never
 refused for it, and expects one recursion leaf where a `text` type is reachable,
-`d` counted as for a record. Merged FR-322's "Structural leaf walk" says the walk
-"lists no entry" for a recursion leaf, for every recursion leaf including a record's
-or a tuple's, and its examples reach no `text` through a cycle. That contradicts this
-repository's implemented FR-038-AC-70 through FR-038-AC-72, which require a
-`recursion:<d>` entry for a record, a tuple and now a union cycle that reaches `text`
-(QSL FR-093, Text leaves, rule 3). The entries stay as implemented for records and
-tuples, and for unions by the QSL ruling relayed 2026-10-03; QSL confirmed 2026-10-03
-that QSpec #181 dropped the entry by mistake, and QSL's FR-322 follow-up (QSpec text
-follow-up pending) restores the recursion entry for records, tuples and unions; it must restore the recursion entry for records
-as well. It is not specific to unions.
+`d` counted as for a record. Merged FR-322's "Structural leaf walk" (#182, which
+restored the entry #181 had dropped) lists a `recursion:<d>` entry for a record, a
+tuple and a union cycle that reaches `text` (QSL FR-093, Text leaves, rule 3), as
+this repository's FR-038-AC-70 through FR-038-AC-72 require.
 
 At each reentry into a composite from which a `text` type is reachable, the
 derivation expects one **recursion leaf**, `{path: p + "recursion:d", laws: [],
@@ -2154,6 +2144,8 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-109 | A selected model document holding at `/package/ratio` the number `0.1000000000000000000001`, `9007199254740993.5`, `-0.1000000000000000000001`, `4.9e-324` or `1e-400` refuses `noncanonical_wire` at `/lock/model_selections/0/digest` with `document_pointer` equal to `/package/ratio` and cause `inexact-number` (quire-specification:FR-272), whether the row selects the document's own digest or another digest, so the refusal precedes `byte-digest-mismatch`; the same document holding `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`, `2.5e-10`, `1.0`, `-0` or `1e2` at that pointer (`1.0`, `-0` and `1e2` are spelled other than the text `quire-canonical` writes, `1`, `0` and `100`, and each is admitted because the value is the same), each a number whose exact decimal value equals that of its double's shortest round-trip text, is not refused for it and is digested; the text that decides is the one `quire-canonical` writes for the number, which where two shortest texts are equally close to the double is the one with the even last digit, so a document holding `1125899906842624.2`, `1500000000000000.2` or `2.9802322387695312e-8` at that pointer (each the even-digit text of a tie) is not refused and one holding `1125899906842624.3`, `1500000000000000.3` or `2.9802322387695313e-8` refuses `inexact-number`, and the two texts are compared by their digits and scale, never as doubles; two documents that differ only in `0.1` and `0.1000000000000000000001` at that pointer are not both admitted, the second refusing as above where today both digest alike; the decision is made on the number's text read by `quire-canonical`, through no `serde_json` value, so it is the same whatever features other crates in the build turn on. | Test (TC-048) |
 | FR-038-AC-110 | The cause of each refusal FR-038-AC-93 names is `inexact-integer`, with the `document_pointer` AC-93 gives, for `9007199254740993`, `-9007199254740993`, `9.007199254740993e15`, `1e20`, `18446744073709551617`, `9007199254740993.0`, `1e400` and `-1e400`, and for an integer value type whose upper bound is `9007199254740993`; `9007199254740993.0` is `inexact-integer` and never `inexact-number` although its text also differs from its double's shortest round-trip text, and `1e400` and `-1e400`, which refuse today as `stale_dependency`/`byte-digest-mismatch` at the row's `digest` (today's behaviour, not a requirement), refuse `noncanonical_wire` at that `digest` with the `document_pointer` of the number; `9007199254740992`, `-9007199254740992` and `9.007199254740992e15` are unchanged and admitted, while `9007199254740992.5` (whose nearest double is `9007199254740992`) refuses `inexact-number`; a document holding an inexact number at `/b` and then a whole number past 2^53 at `/a/0` names `/b` with `inexact-number`, the first in document order, and the reverse order names the whole number with `inexact-integer`. | Test (TC-048) |
 | FR-038-AC-111 | A package document holding the number `0.1000000000000000000001` or `9007199254740993.5` in a node body refuses `noncanonical_wire` with no pointer, no `document_pointer` and no cause, as it does today, each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document holding `0.1` in that place is not refused `noncanonical_wire`; the package document is parsed through `serde_json`, so the manifest of the crate that holds the reader declares `serde_json` with the feature `float_roundtrip`, which makes the parse of a shortest round-trip text exact, so that a package document holding `1.2793061557049685`, `1.2106592671318679` or `1.3567384036451073` in a node body (each its double's shortest round-trip text, which `serde_json` without that feature reads as a neighbouring double and so would re-encode to different bytes) is not refused `noncanonical_wire`, whatever other crates in the build turn on. | Test (TC-048) |
+| FR-038-AC-112 | `make conformance-qspec` reads `proposals/checked-package-v2/fixtures/adverse.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and applies every mutation of its `structural_mutations` and `body_grammar_mutations` lists, each at its `pointer` with its `replacement`, to the `positive-all-families.json` package, reading the result with the production reader; each mutation refuses with exactly the code its `outcome` names (`refused:<code>`, and the cause after a `/` where it gives one). The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, when a list is absent or empty, or when a mutation does not refuse as recorded. A mutation id the reader does not yet refuse as recorded is named in the harness's expected-failure list with the open ticket that owns the missing refusal (IR-495 for the five `body_grammar_mutations`), and the run passes only while every listed id still fails as listed: a listed id the reader now refuses as recorded fails the run until its entry is deleted. | Test (TC-048) |
+| FR-038-AC-113 | `make conformance-qspec` reads `proposals/checked-package-v2/dependency-selection-vectors.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and recomputes the `package_id` of its `base` fixture with the lock's `dependency_selections` replaced by the file's version-free `{identity, package_id}` entries; the result equals the file's recorded `package_id`, so an entry carrying a `version` member, which is refused `unknown_member` (FR-038-AC-62 through FR-038-AC-64), is never the input of the recomputed identity. The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, or when the recomputed identity differs from the file's. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
