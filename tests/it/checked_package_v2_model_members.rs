@@ -456,14 +456,14 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
     }
 }
 
-/// The bytes of [`domain_document`] with the JSON number text `count` at
-/// `/package/count`, spelled exactly as given.
-fn document_bytes_with_count(count: &str) -> Vec<u8> {
+/// The bytes of [`domain_document`] with the JSON number text `number` at
+/// `/package/ratio`, spelled exactly as given.
+fn document_bytes_with_number(number: &str) -> Vec<u8> {
     let mut document = domain_document(json!({}));
-    document["package"]["count"] = json!(0);
+    document["package"]["ratio"] = json!(0);
     let text = String::from_utf8(canonical(&document)).expect("utf-8");
-    assert_eq!(text.matches("\"count\":0").count(), 1);
-    text.replace("\"count\":0", &format!("\"count\":{count}"))
+    assert_eq!(text.matches("\"ratio\":0").count(), 1);
+    text.replace("\"ratio\":0", &format!("\"ratio\":{number}"))
         .into_bytes()
 }
 
@@ -502,7 +502,7 @@ fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointe
         "1e20",
         "18446744073709551617",
     ] {
-        let bytes = document_bytes_with_count(text);
+        let bytes = document_bytes_with_number(text);
         // Under the document's own digest and under another one: the refusal
         // precedes `byte-digest-mismatch` either way.
         for digest in [sha256_hex(&bytes), other.clone()] {
@@ -511,7 +511,7 @@ fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointe
                     assert_eq!(
                         refused,
                         number_refusal(
-                            "/package/count",
+                            "/package/ratio",
                             CheckedPackageRefusalCause::InexactInteger
                         ),
                         "{text}"
@@ -533,9 +533,9 @@ fn tc_048_a_model_document_number_at_or_under_2_pow_53_is_digested() {
         ("9.007199254740992e15", "9007199254740992"),
         ("0.5", "0.5"),
     ] {
-        let bytes = document_bytes_with_count(text);
+        let bytes = document_bytes_with_number(text);
         // The digest is of the canonical form of the number read.
-        let digest = sha256_hex(&document_bytes_with_count(canonical_text));
+        let digest = sha256_hex(&document_bytes_with_number(canonical_text));
         assert!(
             matches!(
                 read_selecting(&digest, &bytes),
@@ -658,15 +658,13 @@ fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexac
         "1125899906842624.3",
         "1500000000000000.3",
         "2.9802322387695313e-8",
-        // Not whole, so never an integer cause, though its nearest double is 2^53.
-        "9007199254740992.5",
     ] {
-        let bytes = document_bytes_with_count(text);
+        let bytes = document_bytes_with_number(text);
         for digest in [sha256_hex(&bytes), other.clone()] {
             match read_selecting(&digest, &bytes) {
                 CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
                     refused,
-                    number_refusal("/package/count", CheckedPackageRefusalCause::InexactNumber),
+                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
                     "{text}"
                 ),
                 other => panic!("{text}: expected a refusal, read {other:?}"),
@@ -695,8 +693,8 @@ fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
         ("1500000000000000.2", "1500000000000000.2"),
         ("2.9802322387695312e-8", "2.9802322387695312e-8"),
     ] {
-        let bytes = document_bytes_with_count(text);
-        let digest = sha256_hex(&document_bytes_with_count(canonical_text));
+        let bytes = document_bytes_with_number(text);
+        let digest = sha256_hex(&document_bytes_with_number(canonical_text));
         assert!(
             matches!(
                 read_selecting(&digest, &bytes),
@@ -707,13 +705,20 @@ fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-109
-#[trace("TC-048", "FR-038-AC-109")]
+/// Tracing: TC-048, FR-038-AC-110
+#[trace("TC-048", "FR-038-AC-110")]
 #[test]
 fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause() {
     // An inexact number at `/b` before a whole number past 2^53 at `/a/0`
-    // names `/b`; the reverse order names the whole number.
+    // names `/b`; the reverse order names the whole number. `9007199254740992.5`
+    // is not whole, so it is never an integer cause though its nearest double
+    // is 2^53. (The `1e400` and `-1e400` clause of AC-110 is not asserted.)
     for (members, pointer, cause) in [
+        (
+            "\"b\":9007199254740992.5",
+            "/b",
+            CheckedPackageRefusalCause::InexactNumber,
+        ),
         (
             "\"b\":0.1000000000000000000001,\"a\":[9007199254740993]",
             "/b",

@@ -703,9 +703,12 @@ fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer
         assert_eq!(read_bytes(&bytes, &package), noncanonical(), "{spelled}");
     }
     // Each is its double's shortest round-trip text, which `serde_json` reads
-    // as a neighbouring double without `float_roundtrip` and so would
-    // re-encode to other bytes: with the feature it is not noncanonical, and
-    // the document reaches the package id comparison it also fails.
+    // as a neighbouring double without `float_roundtrip`. With the feature on
+    // it is not noncanonical, and the document reaches the package id
+    // comparison it also fails. This loop checks the build as a whole: other
+    // crates (quire-canonical's `serde_json` feature) also turn the feature
+    // on, so it does not fail if this crate's manifest drops it. The manifest
+    // assertion below is the oracle for AC-111's declaration clause.
     for spelled in [
         "0.1",
         "1.2793061557049685",

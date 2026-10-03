@@ -1263,18 +1263,18 @@ fn inexact_cause(text: &str, value: f64) -> Option<CheckedPackageRefusalCause> {
     if spelled.is_whole_past_2_pow_53() {
         return Some(Cause::InexactInteger);
     }
-    // Writing one finite double cannot fail; were it to, the number has no
-    // RFC 8785 text to be exact against, so it is refused.
+    // Writing one finite double cannot fail, and its text is ASCII; were
+    // either to fail, the number has no RFC 8785 text to be exact against, so
+    // it is refused.
     let mut written = Vec::new();
     let mut writer = quire_canonical::Writer::new(
         &mut written,
         quire_canonical::Limits::new(DOUBLE_TEXT_BYTES),
     );
-    if writer.number(value).is_err() {
-        return Some(Cause::InexactNumber);
-    }
-    let written = String::from_utf8_lossy(&written);
-    (spelled != Spelling::of(&written)).then_some(Cause::InexactNumber)
+    let wrote = writer.number(value).is_ok();
+    let exact = wrote
+        && std::str::from_utf8(&written).is_ok_and(|written| spelled == Spelling::of(written));
+    (!exact).then_some(Cause::InexactNumber)
 }
 
 /// The bytes one double's RFC 8785 text can take (at most 25), with room to
