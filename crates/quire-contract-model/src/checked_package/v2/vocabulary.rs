@@ -37,7 +37,7 @@ macro_rules! closed_vocabulary {
         $vis:vis $name:ident { $($variant:ident => $wire:literal,)+ }
     ) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+        #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, ::quire_canonical::FixedShape)]
         $vis enum $name {
             $(
                 #[doc = concat!("`", $wire, "`.")]

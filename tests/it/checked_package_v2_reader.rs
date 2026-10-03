@@ -566,8 +566,10 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
 
     // Literal numbers are integers, in node bodies and diagnostic details. A
     // whole-valued float spelling is refused too, as the reader admits
-    // integer tokens only. The refusal is the same whether or not
-    // serde_json's `arbitrary_precision` is unified into the build.
+    // integer tokens only: a fractional one refuses as a literal grammar
+    // defect, and a whole one is not canonical bytes. The refusal is the same
+    // whether or not serde_json's `arbitrary_precision` is unified into the
+    // build.
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
     let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
     let body: Build = Box::new(|literal| {
@@ -599,9 +601,14 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             CheckedPackageV2ReadResult::Admitted(_)
         ));
         let fractional = build(json!(1.5));
-        for candidate in [fractional, build(json!(2.0))] {
-            assert_eq!(refused(&candidate, &evidence), integer_refusal);
-        }
+        assert_eq!(refused(&fractional, &evidence), integer_refusal);
+        // A whole float is spelled `2` in RFC 8785, so its `2.0` spelling is
+        // refused at intake as non-canonical bytes, before the literal
+        // grammar is read (FR-038-AC-79).
+        assert_eq!(
+            refused(&build(json!(2.0)), &evidence),
+            refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
+        );
     }
 
     // A cycle is admitted once every member shares one explicit group.

@@ -16,12 +16,13 @@ use crate::checked_package::common::{
     decoder_pointer, digest_json, node_pointer, ValidationFailure,
 };
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
+use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The closed nominal identity preimage carried by a V2 node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "version", deny_unknown_fields)]
 pub enum NominalIdentityPreimage {
     /// `quire.enum-declaration-node/v1`.
@@ -39,7 +40,7 @@ pub enum NominalIdentityPreimage {
 }
 
 /// Owner subject of a nominal declaration; joins an exact lock selection.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NominalOwner {
     /// A locked raw source, joined by authority and identity.
@@ -70,7 +71,7 @@ pub enum NominalOwner {
 }
 
 /// Enum declaration identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct EnumDeclarationPreimage {
     /// Declaring owner.
@@ -84,7 +85,7 @@ pub struct EnumDeclarationPreimage {
 }
 
 /// Enum member identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct EnumMemberPreimage {
     /// Declaring enum node key.
@@ -94,7 +95,7 @@ pub struct EnumMemberPreimage {
 }
 
 /// Dimension identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionPreimage {
     /// Declaring owner.
@@ -106,7 +107,7 @@ pub struct DimensionPreimage {
 }
 
 /// One base-dimension power in a derived dimension.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionTerm {
     /// Base dimension node key.
@@ -116,7 +117,7 @@ pub struct DimensionTerm {
 }
 
 /// Declared unit identity preimage.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct UnitPreimage {
     /// Declaring owner.
@@ -135,7 +136,7 @@ pub struct UnitPreimage {
 }
 
 /// A canonical decimal rational.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRational {
     /// Canonical integer string.

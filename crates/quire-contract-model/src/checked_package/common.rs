@@ -12,7 +12,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     CheckedSourceMapEntry, JsonPointer,
 };
-use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
+use super::v2::{encode, ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -247,16 +247,28 @@ pub(super) fn read_value<T>(
     }
     on_stack_for(shape.depth, || {
         let value = strict_parse(bytes)?;
-        let canonical = serde_json::to_vec(&value).map_err(|_| {
-            ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire)
-        })?;
-        if canonical.as_slice() != bytes {
-            return Err(ValidationFailure::refused_bytes(
-                CheckedPackageRefusalCode::NoncanonicalWire,
-            ));
-        }
+        require_canonical_bytes(bytes, &value, limits.bytes)?;
         admit(value, shape.depth)
     })
+}
+
+/// Requires `bytes` to be `quire-canonical`'s RFC 8785 bytes for `value`, the
+/// document they hold, under a byte ceiling of `ceiling`. The value is written
+/// through `quire-canonical`'s writer from an explicit heap stack, so the
+/// check does not recurse over it. A document whose bytes differ, and one
+/// `quire-canonical` refuses to encode (an integer past 2^53, a canonical text
+/// past the ceiling) refuse `noncanonical_wire`, with no pointer.
+fn require_canonical_bytes(
+    bytes: &[u8],
+    value: &Value,
+    ceiling: u64,
+) -> Result<(), ValidationFailure> {
+    match encode::value_to_vec(value, ceiling) {
+        Ok(canonical) if canonical.as_slice() == bytes => Ok(()),
+        _ => Err(ValidationFailure::refused_bytes(
+            CheckedPackageRefusalCode::NoncanonicalWire,
+        )),
+    }
 }
 
 /// Runs `operation` on a stack with room for the recursion it makes over a
@@ -1380,13 +1392,17 @@ mod tests {
     #[test]
     fn tc_048_number_tokens_decode_identically_with_or_without_arbitrary_precision() {
         let limits = CheckedPackageReadLimits::bounded();
-        for (bytes, integer) in [
-            (&br#"{"v":1.5}"#[..], false),
-            (br#"{"v":2.0}"#, false),
-            (br#"{"v":-7}"#, true),
-            (br#"{"v":18446744073709551615}"#, true),
+        for (bytes, integer, canonical) in [
+            (&br#"{"v":1.5}"#[..], false, true),
+            // Not canonical RFC 8785 bytes: `2.0` is spelled `2`, and an
+            // integer past 2^53 has no encoding (FR-038-AC-79).
+            (br#"{"v":2.0}"#, false, false),
+            (br#"{"v":-7}"#, true, true),
+            (br#"{"v":18446744073709551615}"#, true, false),
         ] {
-            let value = canonical_value(bytes, limits).expect("canonical number admits");
+            let text = String::from_utf8_lossy(bytes);
+            assert_eq!(canonical_value(bytes, limits).is_ok(), canonical, "{text}");
+            let value: Value = serde_json::from_slice(bytes).expect("number document parses");
             let number = &value["v"];
             assert!(number.is_number(), "{number}");
             assert_eq!(

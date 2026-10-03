@@ -8,6 +8,7 @@
 //! definition byte artifacts.
 
 mod dependency_references;
+pub(in crate::checked_package) mod encode;
 mod frame;
 mod identity;
 mod lower;
@@ -28,10 +29,10 @@ use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 
 use super::common::{
-    count, decode_closed, digest_json, dismantle, exceeds, first_difference, is_digest,
-    is_nonempty, node_pointer, on_stack_for, read_value, validate_locked_artifact,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    count, decode_closed, dismantle, exceeds, first_difference, is_digest, is_nonempty,
+    node_pointer, on_stack_for, read_value, validate_locked_artifact, validate_source_map_entries,
+    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -41,6 +42,7 @@ use super::shared::{
     CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
 };
 use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
+use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
@@ -59,7 +61,7 @@ pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
 /// A node's declared qualified name (FR-208). Present exactly where the
 /// schema's `DeclarationOccurrenceRule` requires it and forbidden where
 /// `DeclarationTagRules` forbids it; see [`validate_declaration`].
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDeclaration {
     /// ASCII identifier segments.
@@ -144,7 +146,7 @@ impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
 }
 
 /// One selected `sha256-jcs` domain package (QSpec `ModelRef`).
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDomainPackageRef {
     /// Domain package identity.
@@ -160,7 +162,7 @@ pub struct CheckedDomainPackageRef {
 /// One selected library dependency (QSpec `DependencySelection`, FR-322
 /// `dependency_selections`): the library identity and version an import
 /// names, and the dependency's own semantic package identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDependencySelection {
     /// Library identity; the sort and uniqueness key of the array.
@@ -172,7 +174,7 @@ pub struct CheckedDependencySelection {
 }
 
 /// The exact immutable V2 package lock.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageLockV2 {
     /// Locked raw source documents.
@@ -224,7 +226,7 @@ pub struct CheckedSemanticGraphV2 {
 }
 
 /// Pipeline stage of a typed V2 diagnostic.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedDiagnosticStage {
     /// `source_recognition`.
@@ -240,7 +242,7 @@ pub enum CheckedDiagnosticStage {
 }
 
 /// Closed V2 diagnostic code.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedDiagnosticCode {
     /// `invalid_syntax`.
@@ -284,7 +286,7 @@ pub enum CheckedDiagnosticCode {
 }
 
 /// Closed V2 diagnostic cause tag.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "kebab-case")]
 pub enum CheckedDiagnosticCause {
     /// `malformed-json`.
@@ -750,15 +752,21 @@ fn validate(
     evidence: &CheckedPackageEvidence,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     check_package_header(wire)?;
-    let unserializable = |_| {
+    // The package id is the SHA-256 of the preimage's canonical bytes with no
+    // domain label hashed in. A document that passed intake holds only numbers
+    // `quire-canonical` encodes and a preimage no longer than the byte limit,
+    // so this refusal is not reachable from one.
+    let computed = quire_canonical::sha256(
+        &wire.identity_preimage,
+        quire_canonical::Limits::new(limits.bytes),
+    )
+    .map_err(|_| {
         refuse(
             CheckedPackageRefusalCode::MalformedWire,
             member_pointer(&["identity_preimage"]),
         )
-    };
-    let preimage = serde_json::to_value(&wire.identity_preimage).map_err(unserializable)?;
-    let computed = digest_json(&preimage).map_err(unserializable)?;
-    if computed != wire.package_id.digest.as_ref() {
+    })?;
+    if computed.to_string() != wire.package_id.digest.as_ref() {
         return Err(refuse(
             CheckedPackageRefusalCode::StaleDependency,
             member_pointer(&["package_id", "digest"]),
