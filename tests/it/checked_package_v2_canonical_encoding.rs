@@ -654,6 +654,36 @@ fn tc_048_an_integer_past_2_pow_53_a_whole_float_and_a_utf8_ordered_name_are_non
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
+fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
+    // serde_json reads these as floats whose RFC 8785 text is the same
+    // digits, so the byte comparison alone would admit them; they are still
+    // integers past 2^53 (FR-038). Each document also earns a stale refusal.
+    for spelled in [
+        "100000000000000000000",
+        "-100000000000000000000",
+        "18446744073709552000",
+        "-9223372036854777000",
+    ] {
+        let package = package_with_body(json!({"term": "bogus", "n": 7_777_777}));
+        let text = String::from_utf8(canonical(&package)).expect("UTF-8");
+        assert_eq!(text.matches("\"n\":7777777").count(), 2);
+        let bytes = text.replace("\"n\":7777777", &format!("\"n\":{spelled}"));
+        assert_eq!(
+            read_bytes(bytes.as_bytes(), &package),
+            noncanonical(),
+            "{spelled}"
+        );
+    }
+    // A float that is not whole is canonical bytes: the document reaches the
+    // package id comparison it also fails.
+    let package = package_with_body(json!({"term": "bogus", "n": 1.5}));
+    assert_eq!(read_bytes(&canonical(&package), &package), stale());
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-79
+#[trace("TC-048", "FR-038-AC-79")]
+#[test]
 fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() {
     // 9007199254740992 and `2` are canonical, so the document reaches the
     // package id comparison it also fails.
