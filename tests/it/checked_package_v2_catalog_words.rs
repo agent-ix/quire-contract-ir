@@ -78,7 +78,8 @@ fn with_second_argument(second: impl Fn(&Value) -> Value) -> (Value, usize) {
 #[test]
 fn tc_048_a_nested_application_of_a_refused_class_refuses_at_its_operator() {
     for (operator, identity) in OPERATORS {
-        let cases: [(&str, Box<dyn Fn(&Value) -> Value>, &str); 3] = [
+        type Build = Box<dyn Fn(&Value) -> Value>;
+        let cases: [(&str, Build, &str); 3] = [
             (
                 "an argument element",
                 Box::new(move |t| nested(operator, identity, t)),
