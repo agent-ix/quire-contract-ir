@@ -637,8 +637,9 @@ IR's FR-038-AC-110 and QSpec FR-272 (`inexact-integer`, "however spelled") say i
 refuses `noncanonical_wire`/`inexact-integer` with a `document_pointer`. The two
 differ, and the QSL lane has indicated, as relayed by the IR planner and not yet
 recorded in a QSL ticket or merged text, that it will amend FR-056 and change
-`quire-canonical`'s `read` error to carry the number's pointer and lexeme (QSL
-ticket: QSL-219; no `quire-canonical` PR exists yet). AC-110 does not depend on that change being recorded. QSL's rule also checks the members of an invocation or snapshot
+`quire-canonical`'s `read` error to carry the number's pointer and lexeme (not
+yet recorded on a QSL ticket, tracked on the IR side as IR-555; no
+`quire-canonical` PR exists yet). AC-110 does not depend on that change being recorded. QSL's rule also checks the members of an invocation or snapshot
 document it admits (QSL FR-106-AC-11); this reader reads no invocation or
 snapshot document, only the selected model documents and the package document,
 so that clause has no counterpart here.
