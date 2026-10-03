@@ -122,6 +122,11 @@ pub enum CheckedPackageRefusalCode {
     /// `model_selections` digest (FR-154 admission, FR-322 "Model-owned
     /// members" step 1).
     MissingImport,
+    /// `unsupported_construct`: an application term whose operator class the
+    /// reader decodes and does not carry the semantics of (`case`,
+    /// `temporal_formula`, `temporal_fairness`), at any depth. Paired with
+    /// [`CheckedPackageRefusalCause::ExpressionForm`].
+    UnsupportedConstruct,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -196,6 +201,10 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
+    /// `expression-form`: the construct is an expression form (an application
+    /// term) the reader does not carry; QSpec's native diagnostics catalog
+    /// pairs it with `unsupported_construct`.
+    ExpressionForm,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

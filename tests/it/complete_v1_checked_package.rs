@@ -378,7 +378,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Nodes,
         exact.nodes,
-        Some("/semantic_graph/nodes/16"),
+        Some("/semantic_graph/nodes/18"),
     );
     exact.nodes += 1;
 
@@ -389,7 +389,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Occurrences,
         exact.occurrences,
-        Some("/source_map/16/regions/0"),
+        Some("/source_map/18/regions/0"),
     );
     exact.occurrences += 1;
 
@@ -427,7 +427,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &edge_evidence,
         CheckedPackageLimit::Edges,
         edges_with_one_more - 1,
-        Some("/semantic_graph/nodes/16/dependencies/2"),
+        Some("/semantic_graph/nodes/18/dependencies/0"),
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly

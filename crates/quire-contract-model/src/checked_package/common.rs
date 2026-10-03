@@ -742,6 +742,21 @@ pub(super) fn validate_term(
             {
                 return Err(invalid(at));
             }
+            // A nested application is never checked against the catalog (the
+            // operation step reads a body root only), so the operator
+            // classes whose semantics the reader does not carry are refused
+            // here, at the nested term's `operator` (FR-038-AC-66). A body
+            // root is refused by the operation step, after the catalog
+            // lookup and the operator-class comparison.
+            if !is_body_root
+                && application_operator(value).is_some_and(ApplicationOperator::is_unsupported)
+            {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::UnsupportedConstruct,
+                    at.key("operator").pointer(),
+                    CheckedPackageRefusalCause::ExpressionForm,
+                ));
+            }
             // The `operation` member's presence is checked here; its own
             // closed shape and catalog-law validation is
             // `v2::operations::validate_operations`'s job, run once the

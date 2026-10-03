@@ -127,6 +127,13 @@ impl OperationCatalog {
             .is_some_and(|values| values.iter().any(|candidate| &**candidate == value))
     }
 
+    /// Every catalogued entry, so a test reads a set of entries from the
+    /// catalog this build depends on rather than listing identities.
+    #[cfg(test)]
+    pub(super) fn entries(&self) -> impl Iterator<Item = &OperationCatalogEntry> {
+        self.operations.values()
+    }
+
     /// The catalogued entry for an `operation.identity`, if it names one.
     pub(super) fn entry(&self, identity: &str) -> Option<&OperationCatalogEntry> {
         self.operations.get(identity)
@@ -195,12 +202,33 @@ impl CatalogReadError {
 /// `law_roles` entry that is not exactly `{authority, identity}`, return an
 /// error naming the entry; nothing here panics on supplied bytes.
 pub(super) fn read_catalog(bytes: &str) -> Result<OperationCatalog, CatalogReadError> {
-    let mut decoder = serde_json::Deserializer::from_str(bytes);
-    let wire: OperationCatalogWire =
-        serde_path_to_error::deserialize(&mut decoder).map_err(|error| CatalogReadError {
-            path: error.path().to_string(),
-            message: error.inner().to_string(),
+    let value: serde_json::Value =
+        serde_json::from_str(bytes).map_err(|error| CatalogReadError {
+            path: ".".to_owned(),
+            message: error.to_string(),
         })?;
+    let wire: OperationCatalogWire = serde_path_to_error::deserialize(&value).map_err(|error| {
+        // A closed vocabulary's decode error does not echo the word (the
+        // package reader classifies by message), so the catalog read names
+        // the offending word from the bytes it was given.
+        let mut at = Some(&value);
+        for segment in error.path() {
+            at = at.and_then(|current| match segment {
+                serde_path_to_error::Segment::Seq { index } => current.get(*index),
+                serde_path_to_error::Segment::Map { key } => current.get(key.as_str()),
+                serde_path_to_error::Segment::Enum { .. }
+                | serde_path_to_error::Segment::Unknown => None,
+            });
+        }
+        let word = at
+            .and_then(serde_json::Value::as_str)
+            .map(|word| format!(" (word `{word}`)"))
+            .unwrap_or_default();
+        CatalogReadError {
+            path: error.path().to_string(),
+            message: format!("{}{word}", error.inner()),
+        }
+    })?;
     Ok(index_catalog(wire))
 }
 
@@ -223,6 +251,98 @@ fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
 mod tests {
     use super::*;
     use ix_trace_rs::trace;
+
+    /// FR-038-AC-65: each of the six new words converts wire string to enum
+    /// member and back; the operator classes the catalog's entries name are
+    /// exactly the enum's members (read from the catalog this build depends
+    /// on, no copy); and the production catalog reads.
+    ///
+    /// Tracing: TC-048, FR-038-AC-65
+    #[trace("TC-048", "FR-038-AC-65")]
+    #[test]
+    fn tc_048_the_new_catalog_words_round_trip_and_the_catalog_reads() {
+        use std::collections::BTreeSet;
+        for (wire, member) in [
+            ("case", ApplicationOperator::Case),
+            ("temporal_formula", ApplicationOperator::TemporalFormula),
+            ("temporal_fairness", ApplicationOperator::TemporalFairness),
+        ] {
+            assert_eq!(ApplicationOperator::from_wire(wire), Some(member));
+            assert_eq!(member.as_wire(), wire);
+        }
+        for (wire, member) in [
+            ("temporal_interval", OperationMemberKind::TemporalInterval),
+            ("fairness", OperationMemberKind::Fairness),
+        ] {
+            assert_eq!(OperationMemberKind::from_wire(wire), Some(member));
+            assert_eq!(member.as_wire(), wire);
+        }
+        assert_eq!(
+            OperationConstraintKind::from_wire("union_arms"),
+            Some(OperationConstraintKind::UnionArms)
+        );
+        assert_eq!(OperationConstraintKind::UnionArms.as_wire(), "union_arms");
+
+        let supplied: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let operators: BTreeSet<&str> = supplied["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .filter_map(|entry| entry["operator"].as_str())
+            .collect();
+        let enum_operators: BTreeSet<&str> = ApplicationOperator::ALL
+            .iter()
+            .map(|o| o.as_wire())
+            .collect();
+        assert_eq!(operators, enum_operators);
+        assert!(read_catalog(CATALOG_BYTES).is_ok());
+    }
+
+    /// FR-038-AC-65: catalog bytes naming an operator class, a member kind or
+    /// a constraint kind outside its vocabulary return the typed error naming
+    /// the word, with no panic.
+    ///
+    /// Tracing: TC-048, FR-038-AC-65
+    #[trace("TC-048", "FR-038-AC-65")]
+    #[test]
+    fn tc_048_a_catalog_word_outside_its_vocabulary_is_a_typed_error_naming_it() {
+        let supplied: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let position = |identity: &str| {
+            supplied["operations"]
+                .as_array()
+                .expect("operations")
+                .iter()
+                .position(|entry| entry["identity"] == identity)
+                .expect("catalogued identity")
+        };
+        let not = position("quire.op.boolean.not");
+        let eventually = position("quire.op.temporal.eventually");
+        let case = position("quire.op.control.case");
+        for (index, member, word) in [
+            (not, "operator", "not_an_operator"),
+            (eventually, "member", "not_a_member_kind"),
+            (case, "constraints", "not_a_constraint_kind"),
+        ] {
+            let mut edited = supplied.clone();
+            let entry = &mut edited["operations"][index];
+            match member {
+                "member" => entry["member"] = serde_json::json!(word),
+                "constraints" => entry["constraints"][0]["kind"] = serde_json::json!(word),
+                other => entry[other] = serde_json::json!(word),
+            }
+            let error = match read_catalog(&edited.to_string()) {
+                Ok(_) => panic!("`{word}` must not read"),
+                Err(error) => error,
+            };
+            assert!(
+                error.path().starts_with(&format!("operations[{index}]")),
+                "{error}"
+            );
+            assert!(error.to_string().contains(word), "{error}");
+        }
+    }
 
     /// FR-038-AC-58: the catalog read over supplied bytes whose `law_roles`
     /// entries are exactly `{authority, identity}` returns the catalog, and

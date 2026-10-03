@@ -102,6 +102,10 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             // dependency set gains that reference beside its self-typed
             // `result_type`; digest-ascending puts "8080" before "aaaa".
             "ffff" => vec![id("8080"), id("aaaa")],
+            // The temporal clause names its `over` value ("dddd"), the
+            // `text` type of its name literal ("a1a1") and its formula
+            // ("a2a2") beside its `result_type`.
+            "4040" => vec![id("a1a1"), id("a2a2"), id("aaaa"), id("dddd")],
             _ => vec![id("aaaa")],
         };
         assert_eq!(node.dependencies, expected_dependencies, "{prefix}");

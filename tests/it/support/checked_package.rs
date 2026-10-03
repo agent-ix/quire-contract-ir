@@ -642,6 +642,13 @@ fn protocol_profile_law() -> Value {
     })
 }
 
+/// The shared fixture's `quire.op.temporal.clause` body, in the shape the
+/// catalog fixes (FR-038-AC-68): six arguments and no member. The first is a
+/// `reference` to the `over` value node (`dddd`), the second a `text`
+/// literal, the next three empty aggregates, and the sixth a `reference` to a
+/// `temporal`/`formula` node (`a2a2`) whose body is not an application. The
+/// fixture cannot hold a clause over a formula that is a `temporal_formula`
+/// application: the reader refuses those (FR-038-AC-66).
 fn temporal_clause_body() -> Value {
     json!({
         "term": "application",
@@ -650,12 +657,28 @@ fn temporal_clause_body() -> Value {
             "identity": "quire.op.temporal.clause",
             "laws": [temporal_profile_law()],
             "mode": Value::Null,
-            "member": {"kind": "profile_operator"},
+            "member": Value::Null,
             "leaves": Value::Array(Vec::new()),
         },
         "result_type": node_id(&family_key("aaaa")),
-        "arguments": Value::Array(Vec::new()),
+        "arguments": [
+            {"term": "reference", "target": node_id(&family_key("dddd"))},
+            {"term": "literal", "type": node_id(&family_key("a1a1")),
+             "value_kind": "text", "value": "clause"},
+            empty_aggregate(),
+            empty_aggregate(),
+            empty_aggregate(),
+            {"term": "reference", "target": node_id(&family_key("a2a2"))},
+        ],
     })
+}
+
+/// The reference targets of [`temporal_clause_body`], digest-ascending: the
+/// node's wire `dependencies` (FR-322's application-node join).
+fn temporal_clause_dependencies() -> Vec<String> {
+    let mut targets = vec![family_key("dddd"), family_key("a2a2")];
+    targets.sort();
+    targets
 }
 
 fn protocol_control_body() -> Value {
@@ -1142,8 +1165,14 @@ fn build_v2_all_families() -> Value {
             "temporal",
             temporal_clause_body()["operation"].clone(),
             &aaaa,
-            Vec::new(),
-            &[],
+            temporal_clause_body()["arguments"]
+                .as_array()
+                .expect("arguments")
+                .clone(),
+            &temporal_clause_dependencies()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
         ),
         application_node(
             "protocol",
@@ -1213,6 +1242,24 @@ fn build_v2_all_families() -> Value {
                 "creates": [node_id(&f1515)],
                 "deletes": [node_id(&f1616)],
             }),
+        ),
+        // The two nodes the temporal clause's arguments name: the `text` type
+        // of its name literal and the `temporal`/`formula` node it applies.
+        plain_node(
+            &family_key("a1a1"),
+            "scalar_type",
+            "text",
+            &family_key("a1a1"),
+            &[],
+            empty_aggregate(),
+        ),
+        plain_node(
+            &family_key("a2a2"),
+            "temporal",
+            "formula",
+            &aaaa,
+            &[aaaa.as_str()],
+            empty_aggregate(),
         ),
     ];
 

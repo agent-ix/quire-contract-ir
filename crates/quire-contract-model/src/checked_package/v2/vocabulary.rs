@@ -359,6 +359,9 @@ closed_vocabulary! {
         StateTransition => "state_transition",
         Claim => "claim",
         StateClause => "state_clause",
+        Case => "case",
+        TemporalFormula => "temporal_formula",
+        TemporalFairness => "temporal_fairness",
     }
 }
 
@@ -412,6 +415,8 @@ closed_vocabulary! {
         TypeArgument => "type_argument",
         ProfileOperator => "profile_operator",
         StateClause => "state_clause",
+        TemporalInterval => "temporal_interval",
+        Fairness => "fairness",
     }
 }
 
@@ -434,6 +439,38 @@ closed_vocabulary! {
         ScaleReduction => "scale_reduction",
         PromotesExact => "promotes_exact",
         UniformRest => "uniform_rest",
+        UnionArms => "union_arms",
+    }
+}
+
+impl ApplicationOperator {
+    /// Whether this operator class is one whose semantics the reader does not
+    /// carry and refuses `unsupported_construct` at any depth (`case`,
+    /// `temporal_formula`, `temporal_fairness`; FR-038-AC-66). Exhaustive, so a
+    /// class added to the vocabulary must decide here.
+    pub(in crate::checked_package) const fn is_unsupported(self) -> bool {
+        match self {
+            Self::Case | Self::TemporalFormula | Self::TemporalFairness => true,
+            Self::Call
+            | Self::Unary
+            | Self::Binary
+            | Self::Conditional
+            | Self::Let
+            | Self::Quantify
+            | Self::Collection
+            | Self::Query
+            | Self::Convert
+            | Self::Pre
+            | Self::Present
+            | Self::Value
+            | Self::Deref
+            | Self::Reaches
+            | Self::Temporal
+            | Self::ProtocolControl
+            | Self::StateTransition
+            | Self::Claim
+            | Self::StateClause => false,
+        }
     }
 }
 
