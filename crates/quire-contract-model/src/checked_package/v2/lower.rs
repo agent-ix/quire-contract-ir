@@ -472,8 +472,10 @@ impl CheckedPackageV2 {
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
         if profile.require_bounds {
+            let quantities = quantity_position_ends(&positions, &ordered);
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
                 is_recursive_type(node, *kind)
+                    || quantities.contains(&node.node_id)
                     || (requires_bound(*kind)
                         && (positions.contains(&node.node_id)
                             || (typed.contains(&node.node_id) && !is_bounded(node, &ordered))))
@@ -556,8 +558,97 @@ fn is_recursive_type(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> boo
     ) && node.recursion_group.is_some()
 }
 
+/// How a type node continues a quantity chain walk (FR-038-AC-73).
+enum QuantityChain {
+    /// A `unit` or `compound_unit`: the chain ends here, at a quantity.
+    Quantity,
+    /// A `bounded_domain` other than `model_population`: the chain continues
+    /// through its own `semantic_type`, its base type.
+    Base,
+    /// Any other node: the chain ends and holds no quantity.
+    Other,
+}
+
+/// Exhaustive over every form, so a new form must decide whether it is a
+/// quantity or forwards to one.
+fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
+    use CheckedNodeKind as K;
+    match kind {
+        K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit) => {
+            QuantityChain::Quantity
+        }
+        K::ScalarType(
+            ScalarTypeForm::Integer
+            | ScalarTypeForm::Rational
+            | ScalarTypeForm::Decimal
+            | ScalarTypeForm::Text
+            | ScalarTypeForm::Boolean
+            | ScalarTypeForm::Float32
+            | ScalarTypeForm::Float64
+            | ScalarTypeForm::Dimension
+            | ScalarTypeForm::Enum,
+        ) => QuantityChain::Other,
+        K::BoundedDomain(BoundedDomainForm::ModelPopulation) => QuantityChain::Other,
+        K::BoundedDomain(
+            BoundedDomainForm::IntegerRange
+            | BoundedDomainForm::RationalRange
+            | BoundedDomainForm::DecimalRange
+            | BoundedDomainForm::FloatRounding
+            | BoundedDomainForm::TextBounds
+            | BoundedDomainForm::CollectionBounds,
+        ) => QuantityChain::Base,
+        K::CompositeType(_)
+        | K::Value(_)
+        | K::Expression(_)
+        | K::Function(_)
+        | K::Model(_)
+        | K::Relation(_)
+        | K::State(_)
+        | K::Temporal(_)
+        | K::Protocol(_)
+        | K::Claim(_)
+        | K::Correspondence(_) => QuantityChain::Other,
+    }
+}
+
+/// The `unit` or `compound_unit` nodes that a position is typed at, directly
+/// or through a `bounded_domain` base chain (FR-038-AC-73). A quantity is its
+/// own class, tested by this position predicate and never by
+/// [`requires_bound`], so a requested unit, a compound unit's `dependencies`
+/// and a `literal.type` annotation never raise. The walk is iterative and
+/// bounded by the closure's size, so a cyclic chain ends without a quantity.
+fn quantity_position_ends(
+    positions: &BTreeSet<CheckedNodeId>,
+    closure: &[(&CheckedSemanticNodeV2, CheckedNodeKind)],
+) -> BTreeSet<CheckedNodeId> {
+    let by_key = closure
+        .iter()
+        .map(|(node, kind)| (&node.node_id, (*node, *kind)))
+        .collect::<BTreeMap<_, _>>();
+    let mut ends = BTreeSet::new();
+    for position in positions {
+        let mut current = position;
+        for _ in 0..=closure.len() {
+            let Some(&(node, kind)) = by_key.get(current) else {
+                break;
+            };
+            match quantity_chain(kind) {
+                QuantityChain::Quantity => {
+                    ends.insert(node.node_id.clone());
+                    break;
+                }
+                QuantityChain::Base => current = &node.semantic_type,
+                QuantityChain::Other => break,
+            }
+        }
+    }
+    ends
+}
+
 /// Whether a node of this kind is an unbounded numeric, text or collection
 /// type that `require_bounds` needs a reachable bounding domain for.
+/// Unit and compound-unit quantities are not decided here: see
+/// [`quantity_position_ends`].
 /// Exhaustive over every form.
 fn requires_bound(kind: CheckedNodeKind) -> bool {
     use CheckedNodeKind as K;
