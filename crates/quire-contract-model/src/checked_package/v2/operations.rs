@@ -5529,6 +5529,31 @@ mod tests {
         assert_eq!(three - two, 5, "and one more");
     }
 
+    /// The component search that decides where a memoised count applies is
+    /// charged one unit per reachable type node: an integer field added to a
+    /// record costs the node in the search, the edge in the count and the
+    /// edge in the pass, three units, where two would mean the search is free.
+    ///
+    /// Tracing: TC-048, FR-038-AC-72
+    #[trace("TC-048", "FR-038-AC-72")]
+    #[test]
+    fn tc_048_the_component_search_costs_one_unit_per_reachable_type_node() {
+        let work = |with_integer: bool| {
+            let mut fields = vec![("t", 'x')];
+            let mut types = vec![
+                profiled_text_node('x', "nfc"),
+                unpinned_text_node('T'),
+                scalar_type_node('i', "integer"),
+            ];
+            if with_integer {
+                fields.push(("n", 'i'));
+            }
+            types.push(record_type_node('R', &fields));
+            eq_work('R', types, json!([text_leaf(&["field:t"])]))
+        };
+        assert_eq!(work(true) - work(false), 3);
+    }
+
     /// Only a cycle through a record or tuple is admitted: `T` as an
     /// `Option` of itself, a `Sequence` of itself and a record holding a
     /// field of such a type are `ill_typed`/`operator-ineligible` at a work
