@@ -1911,3 +1911,320 @@ fn tc_043_unresolved_obligation_precedence_is_total() {
         MappingRequestErrorCode::UnknownObligation
     );
 }
+
+/// The smallest `maximum_request_bytes` in `1..=1 << 20` under which `attempt`
+/// succeeds. `attempt` succeeds exactly when the limit is at least the longest
+/// canonical identity material it encodes, so this is that material's length.
+fn smallest_passing_request_limit<T>(
+    attempt: impl Fn(u64) -> Result<T, MappingRequestError>,
+) -> u64 {
+    let (mut low, mut high) = (1_u64, 1_u64 << 20);
+    assert!(attempt(high).is_ok(), "the search ceiling passes");
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if attempt(middle).is_ok() {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low
+}
+
+fn limits_with_request_bytes(maximum_request_bytes: u64) -> MappingLimits {
+    MappingLimits::new(maximum_request_bytes, 32, 1_024, 128, 4_096, 32, 64 * 1024)
+        .expect("positive limits")
+}
+
+/// A record whose condition text is long enough that its identity material is
+/// longer than the request's, so the record step is the longest one.
+fn long_condition_record(
+    package: &BoundPackage,
+    maximum_request_bytes: u64,
+) -> Result<quire_contract_ir::CompletedMappings, MappingRequestError> {
+    let request = admit(
+        package,
+        vec![RequestedMappingObligation::new(
+            package.clauses()[0].identity().clone(),
+            SourceFactState::Ready,
+        )],
+        ocl_profile(),
+        limits_with_request_bytes(maximum_request_bytes),
+    )?;
+    let mut mapper = FixedMapper {
+        profile: ocl_profile(),
+        candidate: candidate(
+            request.obligations()[0].identity().clone(),
+            SourceFactState::Ready,
+            MappingDisposition::Conditional,
+            b"x",
+            vec![condition(&"c".repeat(256))],
+            vec![],
+        )
+        .expect("long-condition candidate"),
+    };
+    map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+}
+
+/// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6.
+#[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6")]
+#[test]
+fn tc_043_record_identity_material_is_metered_by_the_request_byte_limit() {
+    let package = bound_package();
+    let exact = smallest_passing_request_limit(|limit| long_condition_record(&package, limit));
+    assert!(long_condition_record(&package, exact).is_ok());
+    let refusal = long_condition_record(&package, exact - 1)
+        .expect_err("record material one byte over the limit");
+    assert_eq!(
+        refusal.code(),
+        MappingRequestErrorCode::RequestLimitExceeded
+    );
+    assert_eq!(
+        refusal.path(),
+        "record.identity",
+        "the request still admits one byte lower, so the record step refuses"
+    );
+    // The same candidate maps under a larger limit.
+    assert!(long_condition_record(&package, exact + 1).is_ok());
+}
+
+fn long_generator_package(
+    package: &BoundPackage,
+    maximum_request_bytes: u64,
+) -> Result<quire_contract_ir::GeneratedOutputPackage, MappingRequestError> {
+    let request = admit(
+        package,
+        requested(package).into_iter().take(1).collect(),
+        ocl_profile(),
+        limits_with_request_bytes(maximum_request_bytes),
+    )?;
+    let mut mapper = DeterministicMapper::new(ocl_profile());
+    let completed = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)?;
+    assemble_output_package(
+        &completed,
+        // Each quote escapes to two bytes, so the owner is 512 bytes of material.
+        OutputGeneratorIdentity::new("\"".repeat(256)).expect("long generator identity"),
+        &MappingExecutionControl::active(),
+    )
+}
+
+/// Tracing: TC-043, FR-034-AC-6.
+#[trace("TC-043", "FR-034-AC-6")]
+#[test]
+fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
+    let package = bound_package();
+    let exact = smallest_passing_request_limit(|limit| long_generator_package(&package, limit));
+    let refusal = long_generator_package(&package, exact - 1)
+        .expect_err("package material one byte over the limit");
+    assert_eq!(
+        refusal.code(),
+        MappingRequestErrorCode::RequestLimitExceeded
+    );
+    assert_eq!(
+        refusal.path(),
+        "package.identity",
+        "the request and the records still pass one byte lower, so the package step refuses"
+    );
+}
+
+/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7.
+#[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+#[test]
+fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
+    let package = bound_package();
+    let obligations = requested(&package);
+    let measured = admit(
+        &package,
+        obligations.clone(),
+        ocl_profile(),
+        limits_with_request_bytes(1 << 20),
+    )
+    .expect("measure the request")
+    .request_bytes();
+    let refusal = admit(
+        &package,
+        obligations.clone(),
+        ocl_profile(),
+        limits_with_request_bytes(measured - 1),
+    )
+    .expect_err("request material one byte over the limit");
+    assert_eq!(
+        refusal.code(),
+        MappingRequestErrorCode::RequestLimitExceeded
+    );
+    assert_eq!(refusal.path(), "request");
+    assert!(admit(
+        &package,
+        obligations.clone(),
+        ocl_profile(),
+        limits_with_request_bytes(measured),
+    )
+    .is_ok());
+    for emitted in [u64::MAX, u64::MAX - 1] {
+        let limits = MappingLimits::new(1 << 20, 32, 1_024, 128, 4_096, 32, emitted)
+            .expect("limit near 2^64");
+        assert!(admit(&package, obligations.clone(), ocl_profile(), limits).is_ok());
+    }
+}
+
+/// The fixture clause `identity` as written in the shared input, so the
+/// expected text below is built from the input and not from the code under test.
+fn fixture_clause(identity: &ClauseRef) -> Value {
+    projection()["package"]["requirements"]
+        .as_array()
+        .expect("requirements")
+        .iter()
+        .find(|requirement| requirement["id"] == identity.requirement().requirement().as_str())
+        .expect("requirement")["clauses"]
+        .as_array()
+        .expect("clauses")
+        .iter()
+        .find(|clause| clause["id"] == identity.clause().as_str())
+        .expect("clause")
+        .clone()
+}
+
+fn fixture_location(location: &Value) -> String {
+    format!(
+        "{{\"byte_offset\":{},\"column\":{},\"line\":{},\
+         \"source\":{{\"document\":{},\"revision\":{}}}}}",
+        location["byte_offset"],
+        location["column"],
+        location["line"],
+        location["source"]["document"],
+        location["source"]["revision"],
+    )
+}
+
+fn fixture_anchor(anchor: &Value) -> String {
+    let (member, value) = ["operation", "name"]
+        .into_iter()
+        .find_map(|member| anchor.get(member).map(|value| (member, value)))
+        .expect("anchor member");
+    format!("{{\"kind\":{},\"{member}\":{value}}}", anchor["kind"])
+}
+
+fn hex_of(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn expected_ocl_profile() -> String {
+    format!(
+        "{{\"mapping_digest\":\"{}\",\"mapping_profile_id\":\"quire.output.ocl24/v1\",\
+         \"mapping_revision\":\"1-draft.1\",\
+         \"required_capabilities\":[\"boolean\",\"bounded-integer\"],\
+         \"target_family\":\"ocl\",\"target_standard_refs\":[\"formal/14-02-03\"]}}",
+        hex_of(&digest(1))
+    )
+}
+
+/// Tracing: TC-043, FR-034-AC-7.
+#[trace("TC-043", "FR-034-AC-7")]
+#[test]
+fn tc_043_record_and_package_identities_are_the_digests_of_hand_written_text() {
+    use sha2::{Digest, Sha256};
+
+    let package = bound_package();
+    let request = one_request(&package, 0, SourceFactState::Ready, ocl_profile());
+    let clause = &package.clauses()[0];
+    let identity = clause.identity();
+    let mut mapper = FixedMapper {
+        profile: ocl_profile(),
+        candidate: candidate(
+            identity.clone(),
+            SourceFactState::Ready,
+            MappingDisposition::Conditional,
+            b"x",
+            vec![condition("bounded")],
+            vec![],
+        )
+        .expect("candidate"),
+    };
+    let completed = map_admitted_request(&request, &mut mapper, MappingCancellation::Active)
+        .expect("mapped record");
+
+    let fixture = fixture_clause(identity);
+    let requirement = identity.requirement();
+    let clause_text = format!(
+        "{{\"clause\":\"{}\",\"requirement\":{{\"package\":\"{}\",\"requirement\":\"{}\",\
+         \"revision\":{}}}}}",
+        identity.clause().as_str(),
+        requirement.package().as_str(),
+        requirement.requirement().as_str(),
+        requirement.revision().get(),
+    );
+    let record_text = format!(
+        "{{\"causes\":[],\
+         \"conditions\":[{{\"code\":\"bounded\",\"contract\":\"quire.output.ocl24/v1\",\
+         \"digest\":\"{c7}\",\"owner\":\"agent-ix/quire-specification\",\
+         \"revision\":\"1-draft.1\"}}],\
+         \"dependencies\":[{{\"digest\":\"{c9}\",\"identity\":\"boolean\",\
+         \"kind\":\"semantic\",\"owner\":\"agent-ix/owner\",\"revision\":\"rev-owner\"}}],\
+         \"disposition\":\"conditional\",\
+         \"identity_version\":\"quire.output.mapping-record-identity/v1-draft.1\",\
+         \"observation_adequacy\":{{\"contract\":\"quire.observation.result/v1\",\
+         \"digest\":\"{c10}\",\"owner\":\"agent-ix/quire-observation\",\
+         \"revision\":\"rev-observation\",\"state\":\"adequate\"}},\
+         \"output_regions\":[{{\"end\":\"1\",\"start\":\"0\"}}],\
+         \"protocol_adequacy\":{{\"contract\":\"quire.protocol.result/v1\",\
+         \"digest\":\"{c11}\",\"owner\":\"agent-ix/quire-protocol\",\
+         \"revision\":\"rev-protocol\",\"state\":\"demonstrated\"}},\
+         \"source\":{{\"anchor\":{anchor},\"declaration_digest\":\"{declaration}\",\
+         \"expression_digest\":\"{expression}\",\"identity\":{clause_text},\
+         \"kind\":{kind},\
+         \"source\":{{\"end\":{end},\"start\":{start}}}}},\
+         \"source_state\":\"ready\",\"target_profile\":{profile}}}",
+        c7 = hex_of(&digest(7)),
+        c9 = hex_of(&digest(9)),
+        c10 = hex_of(&digest(10)),
+        c11 = hex_of(&digest(11)),
+        anchor = fixture_anchor(&fixture["anchor"]),
+        declaration = clause.declaration_digest(),
+        expression = clause.expression_digest(),
+        kind = fixture["kind"],
+        end = fixture_location(&fixture["source"]["end"]),
+        start = fixture_location(&fixture["source"]["start"]),
+        profile = expected_ocl_profile(),
+    );
+    let record_id = completed.records()[0].record_id();
+    assert_eq!(
+        record_id.as_bytes().as_slice(),
+        Sha256::digest(record_text.as_bytes()).as_slice(),
+        "record identity is the digest of the written-out text"
+    );
+
+    let assembled =
+        assemble_output_package(&completed, generator(), &MappingExecutionControl::active())
+            .expect("package");
+    let limits = limits();
+    let package_text = format!(
+        "{{\"generator\":{{\"owner\":\"agent-ix/quire-contract-ir\"}},\
+         \"identity_version\":\"quire.output.package-identity/v1-draft.1\",\
+         \"limits\":{{\"maximum_emitted_bytes\":\"{emitted}\",\
+         \"maximum_expression_nodes\":\"{nodes}\",\"maximum_mapping_work\":\"{work}\",\
+         \"maximum_nesting_depth\":\"{depth}\",\"maximum_obligations\":\"{obligations}\",\
+         \"maximum_records\":\"{records}\",\"maximum_request_bytes\":\"{request_bytes}\"}},\
+         \"record_ids\":[\"{record_id}\"],\
+         \"source_package\":{{\"digest\":\"{package_digest}\",\"package\":\"{package_id}\",\
+         \"schema_version\":{{\"major\":1,\"minor\":1}}}},\
+         \"target_bytes_digest\":\"{target}\",\"target_profile\":{profile}}}",
+        emitted = limits.maximum_emitted_bytes(),
+        nodes = limits.maximum_expression_nodes(),
+        work = limits.maximum_mapping_work(),
+        depth = limits.maximum_nesting_depth(),
+        obligations = limits.maximum_obligations(),
+        records = limits.maximum_records(),
+        request_bytes = limits.maximum_request_bytes(),
+        record_id = hex_of(record_id.as_bytes()),
+        package_digest = package.digest(),
+        package_id = package.package().id().as_str(),
+        target = hex_of(&Sha256::digest(b"x").into()),
+        profile = expected_ocl_profile(),
+    );
+    assert_eq!(assembled.target_bytes(), b"x");
+    assert_eq!(
+        assembled.package_id().as_bytes().as_slice(),
+        Sha256::digest(package_text.as_bytes()).as_slice(),
+        "package identity is the digest of the written-out text"
+    );
+}

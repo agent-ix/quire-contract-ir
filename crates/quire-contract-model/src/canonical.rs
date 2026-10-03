@@ -64,7 +64,7 @@ impl CanonicalBytes {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, quire_canonical::FixedShape)]
 pub struct CanonicalDigest([u8; 32]);
 
 impl CanonicalDigest {

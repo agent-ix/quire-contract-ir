@@ -352,6 +352,83 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
     assert!(line.contains("features = [\"serde_json\"]"), "{line}");
 }
 
+/// IR-274 part C: the output-mapping identity steps encode through
+/// `quire-canonical` under the request byte limit. The production source of
+/// `output_mapping.rs` holds no encoder of its own, no `serde_json` value or
+/// call (so no `to_vec` or `to_value` reaches identity material), no
+/// `u64::MAX` ceiling, and its three identity materials derive `FixedShape`.
+///
+/// Tracing: TC-048
+/// ACs: FR-038-AC-91
+#[trace("TC-048", "FR-038-AC-91")]
+#[test]
+fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() {
+    let text = fs::read_to_string(repository_path(
+        "crates/quire-contract-model/src/output_mapping.rs",
+    ))
+    .expect("source reads");
+    let production = production_source(&text);
+    assert!(
+        production.contains("fn identity_bytes<T>"),
+        "the scan reads the production source"
+    );
+    for symbol in [
+        "CanonicalWriter",
+        "canonical_envelope_bytes",
+        "digest_json",
+        "serde_json_canonicalizer",
+        "serde_json",
+        "json!",
+        "u64::MAX",
+    ] {
+        let hits = production.matches(symbol).count();
+        assert_eq!(hits, 0, "output_mapping.rs: `{symbol}` x{hits}");
+    }
+    // The one ceiling chosen for identity material is the request byte limit;
+    // any other spelling of a ceiling (`!0`, `MAX`, a literal) adds a second
+    // `Limits::new` or changes this one. The unit test that spies on the
+    // encoder's ceiling covers a value passed some other way.
+    assert_eq!(
+        production.matches("Limits::new(").count(),
+        1,
+        "output_mapping.rs builds exactly one encoder limit"
+    );
+    assert!(
+        production.contains("Limits::new(limits.maximum_request_bytes)"),
+        "the encoder limit is the request byte limit"
+    );
+    // Each step is called exactly once, with the caller's own limits (the
+    // admission parameter `limits`, or the admitted request's `limits()`) and
+    // `quire_canonical::to_vec` itself. A call that builds other limits or
+    // wraps the encoder changes this text. Whitespace is collapsed so
+    // rustfmt's line breaks do not matter.
+    let flat = production.split_whitespace().collect::<Vec<_>>().join(" ");
+    for call in [
+        "request_identity_bytes(&request_material, &limits, quire_canonical::to_vec)",
+        "record_identity_bytes(&material, request.limits(), quire_canonical::to_vec)",
+        "package_identity_bytes(&material, request.limits(), quire_canonical::to_vec)",
+    ] {
+        assert_eq!(flat.matches(call).count(), 1, "call site `{call}`");
+        let step = call.split('(').next().expect("step name");
+        assert_eq!(
+            flat.matches(&format!("{step}(")).count(),
+            1,
+            "`{step}` has no other call site"
+        );
+    }
+    for material in [
+        "RequestIdentityMaterial<'a>",
+        "GeneratedOutputPackageIdentityMaterial<'a>",
+        "MappingRecordIdentityMaterial<'a>",
+    ] {
+        let derive = format!("#[derive(Serialize, FixedShape)]\nstruct {material}");
+        assert!(
+            production.contains(&derive),
+            "{material} derives FixedShape"
+        );
+    }
+}
+
 /// Tracing: TC-048
 /// ACs: FR-038-AC-90
 #[trace("TC-048", "FR-038-AC-90")]

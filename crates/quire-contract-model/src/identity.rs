@@ -250,7 +250,17 @@ impl fmt::Display for Diagnostic {
 
 macro_rules! identifier_type {
     ($name:ident, $path:literal) => {
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+        #[derive(
+            Clone,
+            Debug,
+            Eq,
+            Hash,
+            Ord,
+            PartialEq,
+            PartialOrd,
+            Serialize,
+            quire_canonical::FixedShape,
+        )]
         #[serde(transparent)]
         pub struct $name(String);
 
@@ -305,7 +315,9 @@ fn valid_identifier(value: &str) -> bool {
         })
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape,
+)]
 #[serde(transparent)]
 pub struct PackageId(String);
 
@@ -357,7 +369,9 @@ impl<'de> Deserialize<'de> for PackageId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape,
+)]
 pub struct SchemaVersion {
     major: u16,
     minor: u16,
@@ -404,7 +418,18 @@ impl<'de> Deserialize<'de> for SchemaVersion {
 
 macro_rules! positive_revision {
     ($name:ident, $code:expr, $path:literal) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            Eq,
+            Hash,
+            Ord,
+            PartialEq,
+            PartialOrd,
+            Serialize,
+            quire_canonical::FixedShape,
+        )]
         #[serde(transparent)]
         pub struct $name(u64);
 
@@ -458,7 +483,18 @@ impl RequirementRevision {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    quire_canonical::FixedShape,
+)]
 pub struct SourceIdentity {
     document: SourceDocumentId,
     revision: SourceRevision,
@@ -478,7 +514,9 @@ impl SourceIdentity {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape,
+)]
 pub struct SourceLocation {
     source: SourceIdentity,
     line: u32,
@@ -543,7 +581,9 @@ impl SourceLocation {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape,
+)]
 pub struct SourceSpan {
     start: SourceLocation,
     end: SourceLocation,
@@ -597,7 +637,18 @@ impl<'de> Deserialize<'de> for SourceSpan {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    quire_canonical::FixedShape,
+)]
 pub struct RequirementRef {
     package: PackageId,
     requirement: RequirementId,
@@ -658,7 +709,18 @@ impl RequirementRef {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    quire_canonical::FixedShape,
+)]
 pub struct ClauseRef {
     requirement: RequirementRef,
     clause: ClauseId,
@@ -817,7 +879,7 @@ impl DependencySource for ReferenceBody {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, quire_canonical::FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExecutionPoint {
     Initialization { name: AnchorName },
@@ -826,7 +888,9 @@ pub enum ExecutionPoint {
     Post { operation: AnchorName },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, quire_canonical::FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ClauseKind {
     Precondition,

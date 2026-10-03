@@ -11,8 +11,8 @@ use std::{
     },
 };
 
+use quire_canonical::{FixedShape, Limits};
 use serde::{Serialize, Serializer};
-use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -35,7 +35,7 @@ pub const GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION: &str =
 macro_rules! raw_digest_type {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, FixedShape)]
         pub struct $name([u8; 32]);
 
         impl $name {
@@ -90,6 +90,12 @@ macro_rules! raw_digest_type {
             }
         }
     };
+}
+
+/// Serialize a `u64` as its decimal string, so a value past 2^53 reaches
+/// `quire-canonical` as a string rather than an integer it would refuse.
+fn serialize_decimal<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_str(value)
 }
 
 raw_digest_type!(
@@ -261,7 +267,7 @@ impl fmt::Display for MappingRequestError {
 impl Error for MappingRequestError {}
 
 /// Closed FS06 output target family.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub enum OutputTargetFamily {
     /// OMG OCL 2.4 output.
     #[serde(rename = "ocl")]
@@ -300,7 +306,7 @@ impl OutputTargetFamily {
 }
 
 /// Closed requested mapping capability catalog shared by the initial profiles.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputCapability {
     /// Total Boolean literals and connectives.
@@ -409,7 +415,7 @@ impl OutputCapability {
 }
 
 /// Exact, observer-independent FS06 target profile selection.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct OutputMappingProfile {
     target_family: OutputTargetFamily,
     target_standard_refs: Vec<&'static str>,
@@ -531,7 +537,7 @@ fn valid_selection_member(value: &str) -> bool {
 macro_rules! source_selection_type {
     ($name:ident, $doc:literal, $path:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+        #[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
         pub struct $name {
             identity: Box<str>,
             revision: Box<str>,
@@ -596,14 +602,21 @@ source_selection_type!(
 );
 
 /// Explicit aggregate resource ceilings for one mapping request.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct MappingLimits {
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_request_bytes: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_obligations: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_expression_nodes: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_nesting_depth: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_mapping_work: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_records: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_emitted_bytes: u64,
 }
 
@@ -677,7 +690,7 @@ impl MappingLimits {
 }
 
 /// Closed dependency domains retained by a mapping record.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum MappingDependencyKind {
     /// Native or target semantic selection.
@@ -703,7 +716,7 @@ pub enum MappingDependencyKind {
 }
 
 /// Exact owner-qualified dependency actually used for one mapping decision.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub struct MappingDependencyRef {
     kind: MappingDependencyKind,
     owner: Box<str>,
@@ -760,7 +773,7 @@ impl MappingDependencyRef {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 struct QualifiedMappingCode {
     owner: Box<str>,
     contract: Box<str>,
@@ -803,7 +816,7 @@ impl QualifiedMappingCode {
 macro_rules! qualified_code_type {
     ($name:ident, $doc:literal, $path:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+        #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
         #[serde(transparent)]
         pub struct $name(QualifiedMappingCode);
 
@@ -859,7 +872,7 @@ qualified_code_type!(
 );
 
 /// Closed observation-adequacy vocabulary from FR-245.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub enum ObservationAdequacyState {
     /// Required observations are present.
     #[serde(rename = "adequate")]
@@ -876,7 +889,7 @@ pub enum ObservationAdequacyState {
 }
 
 /// Exact owner-qualified observation-adequacy fact.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct ObservationAdequacyRef {
     owner: Box<str>,
     contract: Box<str>,
@@ -934,7 +947,7 @@ impl ObservationAdequacyRef {
 }
 
 /// Closed protocol-adequacy vocabulary from FR-246.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub enum ProtocolAdequacyState {
     /// Exact declared obligation/case set was demonstrated.
     #[serde(rename = "demonstrated")]
@@ -951,7 +964,7 @@ pub enum ProtocolAdequacyState {
 }
 
 /// Exact owner-qualified protocol-adequacy fact, disjoint by type from observation adequacy.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct ProtocolAdequacyRef {
     owner: Box<str>,
     contract: Box<str>,
@@ -1009,7 +1022,7 @@ impl ProtocolAdequacyRef {
 }
 
 /// Closed per-obligation mapping disposition from FR-269.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum MappingDisposition {
     /// Every required fact is represented without retained semantic loss.
@@ -1023,9 +1036,11 @@ pub enum MappingDisposition {
 }
 
 /// One nonempty half-open target byte region.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub struct OutputByteRegion {
+    #[serde(serialize_with = "serialize_decimal")]
     start: u64,
+    #[serde(serialize_with = "serialize_decimal")]
     end: u64,
 }
 
@@ -1073,7 +1088,7 @@ impl OutputByteRegion {
 }
 
 /// Source assessment state retained independently from mapping disposition.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceFactState {
     /// The exact source fact is available for mapping.
@@ -1087,7 +1102,7 @@ pub enum SourceFactState {
 }
 
 /// One exact requested source obligation and its retained source state.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct RequestedMappingObligation {
     identity: ClauseRef,
     source_state: SourceFactState,
@@ -1265,7 +1280,7 @@ impl MappingExecutionControl {
 }
 
 /// Exact source-package reference retained by an admitted request.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct MappingSourcePackageRef {
     package: PackageId,
     schema_version: SchemaVersion,
@@ -1536,7 +1551,7 @@ raw_digest_type!(
 );
 
 /// Exact source identity and semantic content bound into a mapping record.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct MappingRecordSource {
     identity: ClauseRef,
     kind: ClauseKind,
@@ -1698,7 +1713,7 @@ impl CompletedMappings {
 
 /// Rust generator identity retained by a generated-output package: the owner
 /// that produced it.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 pub struct OutputGeneratorIdentity {
     owner: Box<str>,
 }
@@ -1786,7 +1801,7 @@ impl GeneratedOutputPackage {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, FixedShape)]
 struct GeneratedOutputPackageIdentityMaterial<'a> {
     identity_version: &'static str,
     source_package: &'a MappingSourcePackageRef,
@@ -1949,23 +1964,7 @@ pub fn assemble_output_package(
         record_ids: &record_ids,
         limits: request.limits(),
     };
-    let value = serde_json::to_value(material).map_err(|_| {
-        MappingRequestError::new(
-            MappingRequestErrorCode::AllocationFailed,
-            "package.identity",
-            "package identity material allocation failed",
-        )
-    })?;
-    let canonical =
-        crate::canonical::canonical_envelope_bytes(&value, u64::MAX, "package.identity").map_err(
-            |_| {
-                MappingRequestError::new(
-                    MappingRequestErrorCode::AllocationFailed,
-                    "package.identity",
-                    "package identity canonicalization failed",
-                )
-            },
-        )?;
+    let canonical = package_identity_bytes(&material, request.limits(), quire_canonical::to_vec)?;
     control.check_cancelled("package.complete")?;
 
     Ok(GeneratedOutputPackage {
@@ -2249,32 +2248,25 @@ impl AdmittedMappingRequest {
         };
         control.check_cancelled("request.identity")?;
         control.allocate(MappingAllocationPoint::RequestIdentity)?;
-        let request_material = json!({
-            "identity_version": OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
-            "source_package": &source_package,
-            "obligations": requested,
-            "native_selection": &native,
-            "model_selection": &model,
-            "semantic_selection": &semantic,
-            "target_profile": &profile,
-            "resource_shape": {
-                "maximum_obligations": limits.maximum_obligations,
-                "maximum_expression_nodes": limits.maximum_expression_nodes,
-                "maximum_nesting_depth": limits.maximum_nesting_depth,
-                "maximum_mapping_work": limits.maximum_mapping_work,
-                "maximum_records": limits.maximum_records,
-                "maximum_emitted_bytes": limits.maximum_emitted_bytes,
-            }
-        });
+        let request_material = RequestIdentityMaterial {
+            identity_version: OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
+            source_package: &source_package,
+            obligations: &requested,
+            native_selection: &native,
+            model_selection: &model,
+            semantic_selection: &semantic,
+            target_profile: &profile,
+            resource_shape: RequestResourceShape {
+                maximum_obligations: limits.maximum_obligations,
+                maximum_expression_nodes: limits.maximum_expression_nodes,
+                maximum_nesting_depth: limits.maximum_nesting_depth,
+                maximum_mapping_work: limits.maximum_mapping_work,
+                maximum_records: limits.maximum_records,
+                maximum_emitted_bytes: limits.maximum_emitted_bytes,
+            },
+        };
         let canonical =
-            crate::canonical::canonical_envelope_bytes(&request_material, u64::MAX, "request")
-                .map_err(|_| {
-                    MappingRequestError::new(
-                        MappingRequestErrorCode::AllocationFailed,
-                        "request",
-                        "canonical request allocation failed",
-                    )
-                })?;
+            request_identity_bytes(&request_material, &limits, quire_canonical::to_vec)?;
         let request_bytes = u64::try_from(canonical.len()).map_err(|_| {
             MappingRequestError::new(
                 MappingRequestErrorCode::ArithmeticOverflow,
@@ -2282,12 +2274,6 @@ impl AdmittedMappingRequest {
                 "canonical request byte count exceeds the supported integer range",
             )
         })?;
-        check_limit(
-            request_bytes,
-            limits.maximum_request_bytes,
-            MappingRequestErrorCode::RequestLimitExceeded,
-            "request",
-        )?;
 
         Ok(Self {
             package: package.clone(),
@@ -2531,7 +2517,7 @@ pub fn map_admitted_request_controlled<M: OutputMapper + ?Sized>(
     })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, FixedShape)]
 struct MappingRecordIdentityMaterial<'a> {
     identity_version: &'static str,
     source: &'a MappingRecordSource,
@@ -2568,21 +2554,7 @@ fn build_mapping_record(
         observation_adequacy: candidate.observation_adequacy.as_ref(),
         protocol_adequacy: candidate.protocol_adequacy.as_ref(),
     };
-    let value = serde_json::to_value(material).map_err(|_| {
-        MappingRequestError::new(
-            MappingRequestErrorCode::AllocationFailed,
-            "record.identity",
-            "mapping record identity material allocation failed",
-        )
-    })?;
-    let canonical = crate::canonical::canonical_envelope_bytes(&value, u64::MAX, "record.identity")
-        .map_err(|_| {
-            MappingRequestError::new(
-                MappingRequestErrorCode::AllocationFailed,
-                "record.identity",
-                "mapping record canonicalization failed",
-            )
-        })?;
+    let canonical = record_identity_bytes(&material, request.limits(), quire_canonical::to_vec)?;
     Ok(OutputMappingRecord {
         record_id: MappingRecordId::digest(&canonical),
         source,
@@ -2596,6 +2568,109 @@ fn build_mapping_record(
         observation_adequacy: candidate.observation_adequacy.clone(),
         protocol_adequacy: candidate.protocol_adequacy.clone(),
     })
+}
+
+/// The request identity material (FR-032-AC-6, FR-034-AC-7). Its members are
+/// typed, so the type is the schema and the encoder's depth is fixed.
+#[derive(Serialize, FixedShape)]
+struct RequestIdentityMaterial<'a> {
+    identity_version: &'static str,
+    source_package: &'a MappingSourcePackageRef,
+    obligations: &'a [RequestedMappingObligation],
+    native_selection: &'a NativeSourceSelection,
+    model_selection: &'a ModelSourceSelection,
+    semantic_selection: &'a SemanticSourceSelection,
+    target_profile: &'a OutputMappingProfile,
+    resource_shape: RequestResourceShape,
+}
+
+/// The request limits other than `maximum_request_bytes`, which bounds the
+/// material itself and so is not part of it.
+#[derive(Serialize, FixedShape)]
+struct RequestResourceShape {
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_obligations: u64,
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_expression_nodes: u64,
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_nesting_depth: u64,
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_mapping_work: u64,
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_records: u64,
+    #[serde(serialize_with = "serialize_decimal")]
+    maximum_emitted_bytes: u64,
+}
+
+/// The request identity step: the canonical bytes of the request material
+/// under `limits.maximum_request_bytes`. The steps take `quire_canonical::to_vec`
+/// as `encode` so a test can observe the ceiling it is handed; production
+/// passes that function itself.
+fn request_identity_bytes<'m>(
+    material: &RequestIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(&RequestIdentityMaterial<'m>, Limits) -> Result<Vec<u8>, quire_canonical::Error>,
+) -> Result<Vec<u8>, MappingRequestError> {
+    identity_bytes(material, limits, "request", encode)
+}
+
+/// The package identity step, under the same ceiling as the request step.
+fn package_identity_bytes<'m>(
+    material: &GeneratedOutputPackageIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(
+        &GeneratedOutputPackageIdentityMaterial<'m>,
+        Limits,
+    ) -> Result<Vec<u8>, quire_canonical::Error>,
+) -> Result<Vec<u8>, MappingRequestError> {
+    identity_bytes(material, limits, "package.identity", encode)
+}
+
+/// The record identity step, under the same ceiling as the request step.
+fn record_identity_bytes<'m>(
+    material: &MappingRecordIdentityMaterial<'m>,
+    limits: &MappingLimits,
+    encode: impl FnOnce(
+        &MappingRecordIdentityMaterial<'m>,
+        Limits,
+    ) -> Result<Vec<u8>, quire_canonical::Error>,
+) -> Result<Vec<u8>, MappingRequestError> {
+    identity_bytes(material, limits, "record.identity", encode)
+}
+
+/// The one place a ceiling is chosen for identity material: the request byte
+/// limit, handed to `encode`.
+fn identity_bytes<T>(
+    material: &T,
+    limits: &MappingLimits,
+    path: &'static str,
+    encode: impl FnOnce(&T, Limits) -> Result<Vec<u8>, quire_canonical::Error>,
+) -> Result<Vec<u8>, MappingRequestError> {
+    encode(material, Limits::new(limits.maximum_request_bytes))
+        .map_err(|error| identity_refusal(&error, path))
+}
+
+/// The registered refusal for an encoder error at `path`. Only reaching the
+/// canonical byte limit is `request_limit_exceeded`; every other encoder
+/// error, including the fixed object-buffer bound and an integer past 2^53,
+/// is a failed canonicalization step, `allocation_failed` (STD-003).
+fn identity_refusal(error: &quire_canonical::Error, path: &'static str) -> MappingRequestError {
+    match error {
+        quire_canonical::Error::Limit(exceeded)
+            if exceeded.kind == quire_canonical::LimitKind::CanonicalBytes =>
+        {
+            MappingRequestError::new(
+                MappingRequestErrorCode::RequestLimitExceeded,
+                path,
+                "canonical identity material exceeds maximum_request_bytes",
+            )
+        }
+        _ => MappingRequestError::new(
+            MappingRequestErrorCode::AllocationFailed,
+            path,
+            "identity material canonicalization failed",
+        ),
+    }
 }
 
 fn check_limit(
@@ -2655,7 +2730,533 @@ fn classify_unknown(package: &BoundPackage, identity: &ClauseRef) -> MappingRequ
 
 #[cfg(test)]
 mod tests {
-    use super::{MappingRequestErrorCode, OutputByteRegion};
+    use super::{
+        identity_refusal, package_identity_bytes, record_identity_bytes, request_identity_bytes,
+        GeneratedOutputPackageIdentityMaterial, MappingCondition, MappingDependencyKind,
+        MappingDependencyRef, MappingDisposition, MappingLimits, MappingRecordId,
+        MappingRecordIdentityMaterial, MappingRecordSource, MappingRequestErrorCode,
+        MappingRuleDigest, MappingSourcePackageRef, ModelSourceSelection, NativeSourceSelection,
+        ObservationAdequacyRef, ObservationAdequacyState, OutputByteRegion, OutputCapability,
+        OutputGeneratorIdentity, OutputMappingProfile, ProtocolAdequacyRef, ProtocolAdequacyState,
+        RequestIdentityMaterial, RequestResourceShape, RequestedMappingObligation,
+        SemanticSourceSelection, SourceBytesDigest, SourceFactState, TargetBytesDigest,
+        GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION, OUTPUT_MAPPING_RECORD_IDENTITY_VERSION,
+        OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
+    };
+    use crate::{
+        AnchorName, CanonicalDigest, ClauseId, ClauseKind, ClauseRef, ExecutionPoint, PackageId,
+        RequirementId, RequirementRef, RequirementRevision, SchemaVersion, SourceDocumentId,
+        SourceIdentity, SourceLocation, SourceRevision, SourceSpan,
+    };
+    use ix_trace_rs::trace;
+    use std::cell::Cell;
+
+    fn hex(seed: u8) -> String {
+        format!("{seed:02x}").repeat(32)
+    }
+
+    /// A FRETish profile; the integration tests use the OCL one.
+    fn profile() -> OutputMappingProfile {
+        OutputMappingProfile::new(
+            "fretish",
+            vec!["v3.1.0"],
+            "quire.output.fretish31/v1",
+            "1-draft.1",
+            MappingRuleDigest::from_bytes([5; 32]),
+            vec![
+                OutputCapability::StatePredicate,
+                OutputCapability::ImmediateResponse,
+            ],
+        )
+        .expect("accepted FRETish profile")
+    }
+
+    /// The profile of [`profile`] as RFC 8785 text, members in UTF-16 order.
+    fn profile_text() -> String {
+        format!(
+            "{{\"mapping_digest\":\"{}\",\"mapping_profile_id\":\"quire.output.fretish31/v1\",\
+             \"mapping_revision\":\"1-draft.1\",\
+             \"required_capabilities\":[\"state-predicate\",\"immediate-response\"],\
+             \"target_family\":\"fretish\",\"target_standard_refs\":[\"v3.1.0\"]}}",
+            hex(5)
+        )
+    }
+
+    /// Limits whose `maximum_request_bytes` is `ceiling`.
+    fn limits_with(ceiling: u64, maximum_emitted_bytes: u64) -> MappingLimits {
+        MappingLimits::new(ceiling, 32, 1_024, 128, 4_096, 32, maximum_emitted_bytes)
+            .expect("positive limits")
+    }
+
+    fn source_package() -> MappingSourcePackageRef {
+        MappingSourcePackageRef {
+            package: PackageId::new("agent-ix/conformance").expect("package id"),
+            schema_version: SchemaVersion::new(1, 1).expect("schema version"),
+            digest: CanonicalDigest::parse(&hex(0xaa)).expect("digest"),
+        }
+    }
+
+    fn source_package_text() -> String {
+        format!(
+            "{{\"digest\":\"{}\",\"package\":\"agent-ix/conformance\",\
+             \"schema_version\":{{\"major\":1,\"minor\":1}}}}",
+            hex(0xaa)
+        )
+    }
+
+    fn clause() -> ClauseRef {
+        ClauseRef::new(
+            RequirementRef::new(
+                PackageId::new("agent-ix/conformance").expect("package id"),
+                RequirementId::new("FR-1").expect("requirement id"),
+                RequirementRevision::new(1).expect("revision"),
+            ),
+            ClauseId::new("AC-1").expect("clause id"),
+        )
+    }
+
+    const CLAUSE_TEXT: &str = "{\"clause\":\"AC-1\",\"requirement\":{\"package\":\
+        \"agent-ix/conformance\",\"requirement\":\"FR-1\",\"revision\":1}}";
+
+    fn selection_text(seed: u8, identity: &str, revision: &str) -> String {
+        format!(
+            "{{\"digest\":\"{}\",\"identity\":\"{identity}\",\"revision\":\"{revision}\"}}",
+            hex(seed)
+        )
+    }
+
+    fn shape(maximum_emitted_bytes: u64) -> RequestResourceShape {
+        RequestResourceShape {
+            maximum_obligations: 32,
+            maximum_expression_nodes: 1_024,
+            maximum_mapping_work: 4_096,
+            maximum_nesting_depth: 128,
+            maximum_records: 32,
+            maximum_emitted_bytes,
+        }
+    }
+
+    /// The request material built with the given emitted-bytes limit, run
+    /// through the request identity step under `ceiling`.
+    fn request_bytes(
+        maximum_emitted_bytes: u64,
+        ceiling: u64,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
+        request_bytes_with(maximum_emitted_bytes, ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn request_bytes_with(
+        maximum_emitted_bytes: u64,
+        ceiling: u64,
+        encode: impl FnOnce(
+            &RequestIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
+        let native = NativeSourceSelection::new("quire.native/v1", "rev-native", digest(2))
+            .expect("native selection");
+        let model = ModelSourceSelection::new("quire.model/v1", "rev-model", digest(3))
+            .expect("model selection");
+        let semantic = SemanticSourceSelection::new("quire.semantic/v1", "rev-semantic", digest(4))
+            .expect("semantic selection");
+        let obligations = [RequestedMappingObligation::new(
+            clause(),
+            SourceFactState::Ready,
+        )];
+        request_identity_bytes(
+            &RequestIdentityMaterial {
+                identity_version: OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION,
+                source_package: &source_package(),
+                obligations: &obligations,
+                native_selection: &native,
+                model_selection: &model,
+                semantic_selection: &semantic,
+                target_profile: &profile(),
+                resource_shape: shape(maximum_emitted_bytes),
+            },
+            &limits_with(ceiling, maximum_emitted_bytes),
+            encode,
+        )
+    }
+
+    fn digest(seed: u8) -> SourceBytesDigest {
+        SourceBytesDigest::from_bytes([seed; 32])
+    }
+
+    fn request_text(emitted: &str) -> String {
+        format!(
+            "{{\"identity_version\":\"quire.output.mapping-request-identity/v1-draft.1\",\
+             \"model_selection\":{model},\"native_selection\":{native},\
+             \"obligations\":[{{\"identity\":{CLAUSE_TEXT},\"source_state\":\"ready\"}}],\
+             \"resource_shape\":{{\"maximum_emitted_bytes\":\"{emitted}\",\
+             \"maximum_expression_nodes\":\"1024\",\"maximum_mapping_work\":\"4096\",\
+             \"maximum_nesting_depth\":\"128\",\"maximum_obligations\":\"32\",\
+             \"maximum_records\":\"32\"}},\
+             \"semantic_selection\":{semantic},\"source_package\":{package},\
+             \"target_profile\":{profile}}}",
+            model = selection_text(3, "quire.model/v1", "rev-model"),
+            native = selection_text(2, "quire.native/v1", "rev-native"),
+            semantic = selection_text(4, "quire.semantic/v1", "rev-semantic"),
+            package = source_package_text(),
+            profile = profile_text(),
+        )
+    }
+
+    fn length(text: &str) -> u64 {
+        u64::try_from(text.len()).expect("test text length fits u64")
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+    #[test]
+    fn tc_043_request_identity_is_the_hand_written_text_under_its_ceiling() {
+        let expected = request_text("18446744073709551615");
+        let bytes = request_bytes(u64::MAX, length(&expected)).expect("exact ceiling encodes");
+        assert_eq!(bytes, expected.as_bytes());
+        let refusal = request_bytes(u64::MAX, length(&expected) - 1)
+            .expect_err("one byte under the length refuses");
+        assert_eq!(
+            refusal.code(),
+            MappingRequestErrorCode::RequestLimitExceeded
+        );
+        assert_eq!(refusal.path(), "request");
+    }
+
+    /// Tracing: TC-043, FR-034-AC-7.
+    #[trace("TC-043", "FR-034-AC-7")]
+    #[test]
+    fn tc_043_request_limits_at_two_to_the_64_enter_the_material_as_distinct_decimal_strings() {
+        let high = request_text("18446744073709551615");
+        let below = request_text("18446744073709551614");
+        let high_bytes = request_bytes(u64::MAX, length(&high)).expect("u64::MAX admits");
+        let below_bytes = request_bytes(u64::MAX - 1, length(&below)).expect("u64::MAX - 1 admits");
+        assert_eq!(high_bytes, high.as_bytes());
+        assert_eq!(below_bytes, below.as_bytes());
+        assert_ne!(sha256_hex(&high_bytes), sha256_hex(&below_bytes));
+    }
+
+    fn record_source(byte_offset: u64) -> MappingRecordSource {
+        let source = SourceIdentity::new(
+            SourceDocumentId::new("spec.md").expect("document id"),
+            SourceRevision::new(3).expect("source revision"),
+        );
+        let start = SourceLocation::new(source.clone(), 1, 1, 0).expect("start location");
+        let end = SourceLocation::new(source, 2, 5, byte_offset).expect("end location");
+        MappingRecordSource {
+            identity: clause(),
+            kind: ClauseKind::Precondition,
+            anchor: ExecutionPoint::Handler {
+                name: AnchorName::new("on_start").expect("anchor name"),
+            },
+            source: SourceSpan::new(start, end).expect("span"),
+            declaration_digest: CanonicalDigest::parse(&hex(0xd1)).expect("digest"),
+            expression_digest: CanonicalDigest::parse(&hex(0xe1)).expect("digest"),
+        }
+    }
+
+    fn record_bytes(byte_offset: u64, ceiling: u64) -> Result<Vec<u8>, super::MappingRequestError> {
+        record_bytes_with(byte_offset, ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn record_bytes_with(
+        byte_offset: u64,
+        ceiling: u64,
+        encode: impl FnOnce(
+            &MappingRecordIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
+        let dependencies = [MappingDependencyRef::new(
+            MappingDependencyKind::Semantic,
+            "agent-ix/owner",
+            "boolean",
+            "rev-owner",
+            digest(9),
+        )
+        .expect("dependency")];
+        let conditions = [MappingCondition::new(
+            "agent-ix/quire-specification",
+            "quire.output.ocl24/v1",
+            "1-draft.1",
+            digest(7),
+            "bounded",
+        )
+        .expect("condition")];
+        let regions = [OutputByteRegion::new(9_007_199_254_740_993, u64::MAX).expect("region")];
+        let observation = ObservationAdequacyRef::new(
+            "agent-ix/quire-observation",
+            "quire.observation.result/v1",
+            "rev-observation",
+            digest(10),
+            ObservationAdequacyState::Adequate,
+        )
+        .expect("observation adequacy");
+        let protocol = ProtocolAdequacyRef::new(
+            "agent-ix/quire-protocol",
+            "quire.protocol.result/v1",
+            "rev-protocol",
+            digest(11),
+            ProtocolAdequacyState::Demonstrated,
+        )
+        .expect("protocol adequacy");
+        record_identity_bytes(
+            &MappingRecordIdentityMaterial {
+                identity_version: OUTPUT_MAPPING_RECORD_IDENTITY_VERSION,
+                source: &record_source(byte_offset),
+                source_state: SourceFactState::Ready,
+                dependencies: &dependencies,
+                target_profile: &profile(),
+                disposition: MappingDisposition::Conditional,
+                conditions: &conditions,
+                causes: &[],
+                output_regions: &regions,
+                observation_adequacy: Some(&observation),
+                protocol_adequacy: Some(&protocol),
+            },
+            &limits_with(ceiling, 64 * 1024),
+            encode,
+        )
+    }
+
+    fn record_text() -> String {
+        format!(
+            "{{\"causes\":[],\
+             \"conditions\":[{{\"code\":\"bounded\",\"contract\":\"quire.output.ocl24/v1\",\
+             \"digest\":\"{c7}\",\"owner\":\"agent-ix/quire-specification\",\
+             \"revision\":\"1-draft.1\"}}],\
+             \"dependencies\":[{{\"digest\":\"{c9}\",\"identity\":\"boolean\",\
+             \"kind\":\"semantic\",\"owner\":\"agent-ix/owner\",\"revision\":\"rev-owner\"}}],\
+             \"disposition\":\"conditional\",\
+             \"identity_version\":\"quire.output.mapping-record-identity/v1-draft.1\",\
+             \"observation_adequacy\":{{\"contract\":\"quire.observation.result/v1\",\
+             \"digest\":\"{c10}\",\"owner\":\"agent-ix/quire-observation\",\
+             \"revision\":\"rev-observation\",\"state\":\"adequate\"}},\
+             \"output_regions\":[{{\"end\":\"18446744073709551615\",\
+             \"start\":\"9007199254740993\"}}],\
+             \"protocol_adequacy\":{{\"contract\":\"quire.protocol.result/v1\",\
+             \"digest\":\"{c11}\",\"owner\":\"agent-ix/quire-protocol\",\
+             \"revision\":\"rev-protocol\",\"state\":\"demonstrated\"}},\
+             \"source\":{{\"anchor\":{{\"kind\":\"handler\",\"name\":\"on_start\"}},\
+             \"declaration_digest\":\"{d1}\",\"expression_digest\":\"{e1}\",\
+             \"identity\":{CLAUSE_TEXT},\"kind\":\"precondition\",\
+             \"source\":{{\"end\":{{\"byte_offset\":40,\"column\":5,\"line\":2,\
+             \"source\":{{\"document\":\"spec.md\",\"revision\":3}}}},\
+             \"start\":{{\"byte_offset\":0,\"column\":1,\"line\":1,\
+             \"source\":{{\"document\":\"spec.md\",\"revision\":3}}}}}}}},\
+             \"source_state\":\"ready\",\"target_profile\":{profile}}}",
+            c7 = hex(7),
+            c9 = hex(9),
+            c10 = hex(10),
+            c11 = hex(11),
+            d1 = hex(0xd1),
+            e1 = hex(0xe1),
+            profile = profile_text(),
+        )
+    }
+
+    /// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+    #[test]
+    fn tc_043_record_identity_is_the_hand_written_text_under_its_ceiling() {
+        let expected = record_text();
+        let bytes = record_bytes(40, length(&expected)).expect("exact ceiling encodes");
+        assert_eq!(bytes, expected.as_bytes());
+        let refusal =
+            record_bytes(40, length(&expected) - 1).expect_err("one byte under the length refuses");
+        assert_eq!(
+            refusal.code(),
+            MappingRequestErrorCode::RequestLimitExceeded
+        );
+        assert_eq!(refusal.path(), "record.identity");
+    }
+
+    /// A source byte offset above 2^53 is a failed canonicalization step,
+    /// `allocation_failed`, the code STD-003 registers at `record.identity`;
+    /// it is neither a limit nor `arithmetic_overflow`, which STD-003 does not
+    /// register there. Code change B bounds the offset's type and makes this
+    /// unreachable.
+    ///
+    /// Tracing: TC-043, FR-034-AC-6.
+    #[trace("TC-043", "FR-034-AC-6")]
+    #[test]
+    fn tc_043_a_source_offset_past_two_to_the_53_refuses_with_the_registered_code() {
+        let refusal = record_bytes(9_007_199_254_740_993, u64::MAX - 1)
+            .expect_err("a number the encoder refuses");
+        assert_eq!(refusal.code(), MappingRequestErrorCode::AllocationFailed);
+        assert_eq!(refusal.path(), "record.identity");
+    }
+
+    /// Only the canonical byte limit is `request_limit_exceeded`; the
+    /// encoder's fixed object-buffer bound and an integer past 2^53 are not
+    /// the request byte limit.
+    ///
+    /// Tracing: TC-043, FR-034-AC-6.
+    #[trace("TC-043", "FR-034-AC-6")]
+    #[test]
+    fn tc_043_only_the_canonical_byte_limit_is_the_request_limit_refusal() {
+        use quire_canonical::{Error, LimitExceeded, LimitKind};
+        let limit = |kind| {
+            Error::Limit(LimitExceeded {
+                kind,
+                bound: 1,
+                required: 2,
+            })
+        };
+        let cases = [
+            (
+                limit(LimitKind::CanonicalBytes),
+                MappingRequestErrorCode::RequestLimitExceeded,
+            ),
+            (
+                limit(LimitKind::ObjectBytes),
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+            (
+                Error::IntegerMagnitudeAboveMaximum(1 << 60),
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+            (
+                Error::Allocation { requested: 1 },
+                MappingRequestErrorCode::AllocationFailed,
+            ),
+        ];
+        for (error, code) in cases {
+            let refusal = identity_refusal(&error, "request");
+            assert_eq!(refusal.code(), code, "{error:?}");
+            assert_eq!(refusal.path(), "request");
+        }
+    }
+
+    /// Each identity step hands the encoder exactly the request byte limit of
+    /// the limits it is given: not `u64::MAX`, not a fixed cap. A step that
+    /// encoded without that ceiling and compared the length afterwards would
+    /// record a different value here.
+    ///
+    /// Tracing: TC-043, FR-032-AC-6, FR-033-AC-6, FR-034-AC-6.
+    #[trace("TC-043", "FR-032-AC-6", "FR-033-AC-6", "FR-034-AC-6")]
+    #[test]
+    fn tc_043_each_identity_step_hands_the_encoder_the_request_byte_limit() {
+        for ceiling in [4_096, 5_000] {
+            let seen = Cell::new(None);
+            request_bytes_with(1, ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("request encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "request step");
+
+            let seen = Cell::new(None);
+            record_bytes_with(40, ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("record encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "record step");
+
+            let seen = Cell::new(None);
+            package_bytes_with(ceiling, |material, limits| {
+                seen.set(Some(limits.max_bytes()));
+                quire_canonical::to_vec(material, limits)
+            })
+            .expect("package encodes under its limit");
+            assert_eq!(seen.get(), Some(ceiling), "package step");
+        }
+    }
+
+    fn package_bytes(ceiling: u64) -> Result<Vec<u8>, super::MappingRequestError> {
+        package_bytes_with(ceiling, |material, limits| {
+            quire_canonical::to_vec(material, limits)
+        })
+    }
+
+    fn package_bytes_with(
+        ceiling: u64,
+        encode: impl FnOnce(
+            &GeneratedOutputPackageIdentityMaterial<'_>,
+            quire_canonical::Limits,
+        ) -> Result<Vec<u8>, quire_canonical::Error>,
+    ) -> Result<Vec<u8>, super::MappingRequestError> {
+        let generator =
+            OutputGeneratorIdentity::new("agent-ix/quire-contract-ir").expect("generator identity");
+        let record_ids = [MappingRecordId::from_bytes([0x51; 32])];
+        let limits = limits_with(ceiling, 9_007_199_254_740_993);
+        package_identity_bytes(
+            &GeneratedOutputPackageIdentityMaterial {
+                identity_version: GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION,
+                source_package: &source_package(),
+                target_profile: &profile(),
+                generator: &generator,
+                target_bytes_digest: TargetBytesDigest::from_bytes([0x71; 32]),
+                record_ids: &record_ids,
+                limits: &limits,
+            },
+            &limits,
+            encode,
+        )
+    }
+
+    /// The package material's own `maximum_request_bytes` is the ceiling, so
+    /// the text and its length depend on each other: iterate to the length
+    /// that equals the number written in it.
+    fn package_ceiling() -> u64 {
+        let mut ceiling = 100;
+        for _ in 0..8 {
+            let length = length(&package_text(ceiling));
+            if length == ceiling {
+                return ceiling;
+            }
+            ceiling = length;
+        }
+        panic!("the package text length has no fixed point");
+    }
+
+    fn package_text(maximum_request_bytes: u64) -> String {
+        format!(
+            "{{\"generator\":{{\"owner\":\"agent-ix/quire-contract-ir\"}},\
+             \"identity_version\":\"quire.output.package-identity/v1-draft.1\",\
+             \"limits\":{{\"maximum_emitted_bytes\":\"9007199254740993\",\
+             \"maximum_expression_nodes\":\"1024\",\"maximum_mapping_work\":\"4096\",\
+             \"maximum_nesting_depth\":\"128\",\"maximum_obligations\":\"32\",\
+             \"maximum_records\":\"32\",\
+             \"maximum_request_bytes\":\"{maximum_request_bytes}\"}},\
+             \"record_ids\":[\"{r}\"],\"source_package\":{package},\
+             \"target_bytes_digest\":\"{t}\",\"target_profile\":{profile}}}",
+            r = hex(0x51),
+            t = hex(0x71),
+            package = source_package_text(),
+            profile = profile_text(),
+        )
+    }
+
+    /// Tracing: TC-043, FR-034-AC-6, FR-034-AC-7.
+    #[trace("TC-043", "FR-034-AC-6", "FR-034-AC-7")]
+    #[test]
+    fn tc_043_package_identity_is_the_hand_written_text_under_its_ceiling() {
+        let ceiling = package_ceiling();
+        let expected = package_text(ceiling);
+        let bytes = package_bytes(ceiling).expect("exact ceiling encodes");
+        assert_eq!(bytes, expected.as_bytes());
+        // One byte lower: the limit written in the material is one lower too,
+        // and the text keeps its length because both numbers have three digits.
+        let refusal = package_bytes(ceiling - 1).expect_err("one byte under the length refuses");
+        assert_eq!(
+            refusal.code(),
+            MappingRequestErrorCode::RequestLimitExceeded
+        );
+        assert_eq!(refusal.path(), "package.identity");
+    }
 
     /// Tracing: TC-043, FR-034-AC-3, NFR-060.
     #[test]
