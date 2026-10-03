@@ -275,16 +275,16 @@ operand cases refuse `ill_typed`/`operator-ineligible` at the operation step; th
 `make conformance-qspec` passes with each QSpec fixture admitted with its recorded
 `package_id` and fails when the variable is unset, empty or names a path without
 the fixtures; `make test` does not run it, and wiring it into CI is a separate
-decision. Selecting `quire.fixture.temporal-profile/v1`, an empty identity and a
-differently spelled infinite-trace identity refuses `unknown_profile`/
-`unsupported-selection`, and selecting `quire.package.composed/v1` and
-`quire.native.diagnostics/v1` as the clause profile refuses `unknown_profile`/
-`wrong-selection-role`, as do `quire.temporal.bounded-facet/v1` and
-`quire.protocol.finite-global/v1` (catalogued in QSpec's definition catalog; a
-relayed ruling pending QSpec merge), while `quire.protocol.complete/v1` has no
-outcome asserted (not in the merged catalog; flagged); each at the law's
-`definition`, first among the clause's checks, and each of the five known
-identities admits (AC-108). Compare the whole
+decision. Selecting `quire.fixture.temporal-profile/v1` (selected nowhere else),
+an empty identity and a differently spelled infinite-trace identity as the clause
+profile refuses `unknown_profile`/`unsupported-selection`; naming
+`quire.package.composed/v1` with the lock selecting it as a `binding_contract` row,
+and `quire.protocol.complete/v1` with the lock selecting it as a `protocol_profile`
+row, refuses `unknown_profile`/`wrong-selection-role`, while the same two
+identities with no such lock row refuse `unsupported-selection` (a relayed ruling
+pending QSpec merge, decided from the package alone); each at the law's
+`definition`, first among the clause's checks, and each of the five FR-250
+members admits (AC-108). Compare the whole
 refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
