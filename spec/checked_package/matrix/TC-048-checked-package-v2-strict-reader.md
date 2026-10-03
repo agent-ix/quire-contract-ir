@@ -196,7 +196,7 @@ and a clause whose formula applies `quire.op.temporal.eventually` with the
 interval `{0, 3}` over `quire.op.temporal.holds`; read it, then lower it under a
 profile that supports the `temporal` tag and under one that does not (AC-96). On
 each of the eight interval operators read the member as `{0, 3}`, `{9, 10}`,
-`{2, null}`, `null` interval, `{3, 0}`, `{10, 9}`, `{2^64+1, 2^64}`,
+`{2, null}`, `null` interval, `{-1, 3}`, `{0, -2}`, `{-5, -2}`, `{3, 0}`, `{10, 9}`, `{2^64+1, 2^64}`,
 a `fairness` member, a `null` member, an interval with a third member, an integer
 `lower`, and bounds `"1.5"`, `"01"`, `"+1"`, `""` and `"3x"`, and put a member on
 `holds`, `not` and the clause (AC-97). Read
@@ -250,7 +250,8 @@ with the fixtures' (AC-107).
 
 Expected: the package of AC-96 admits with its recorded identities and lowers or
 returns `unsupported` naming `temporal` as stated; AC-97's admitted members admit,
-`{3, 0}`, `{10, 9}` and `{2^64+1, 2^64}` refuse `invalid_package`/`invalid-value`
+`{-1, 3}`, `{0, -2}` and `{-5, -2}` refuse `invalid_package`/`invalid-value` at the
+negative bound, and `{3, 0}`, `{10, 9}` and `{2^64+1, 2^64}` refuse `invalid_package`/`invalid-value`
 at the application and each other member `operation-member-mismatch` at
 `operation.member`; AC-98's two well-formed members admit and each other refuses
 `operation-member-mismatch` at `operation.member`; the `Shape` package admits and
@@ -273,8 +274,10 @@ operand cases refuse `ill_typed`/`operator-ineligible` at the operation step; th
 the fixtures; `make test` does not run it, and wiring it into CI is a separate
 decision. Selecting `quire.fixture.temporal-profile/v1`, an empty identity and a
 differently spelled infinite-trace identity refuses `unknown_profile`/
-`unknown-profile` at the law's `definition`, first among the clause's checks, and
-each of the five known identities admits (AC-108). Compare the whole
+`unsupported-selection`, and selecting `quire.package.composed/v1` and
+`quire.native.diagnostics/v1` as the clause profile refuses `unknown_profile`/
+`wrong-selection-role`, each at the law's `definition`, first among the clause's
+checks, and each of the five known identities admits (AC-108). Compare the whole
 refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
