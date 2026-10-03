@@ -236,12 +236,11 @@ impl DeclarationForm {
 
 /// The `ModelDeclarationNode` key of one declaration: the JCS SHA-256 of
 /// `node-identity-preimage.schema.json`'s closed preimage.
-pub(super) fn declaration_key(
-    identity: &str,
-    version: &str,
-    form: DeclarationForm,
-    node: &str,
-) -> String {
+///
+/// The owner is the content-only `ModelOwner` (`kind`, `identity`, `node`):
+/// it carries no package version, so the key is stable across a
+/// version-only change of the domain package (FR-038-AC-45).
+pub(super) fn declaration_key(identity: &str, form: DeclarationForm, node: &str) -> String {
     structural_key(&json!({
         "version": STRUCTURAL_NODE,
         "node_tag": form.tag(),
@@ -249,7 +248,7 @@ pub(super) fn declaration_key(
         "semantic_type": null,
         "declaration": null,
         "recursion": null,
-        "owner": {"kind": "model", "identity": identity, "version": version, "node": node},
+        "owner": {"kind": "model", "identity": identity, "node": node},
         "body": {"term": "aggregate", "members": []},
     }))
 }
@@ -614,13 +613,7 @@ impl DomainModel {
         let object = self.object_types.get(type_ref)?;
         (!object.interface).then(|| {
             MemberType::Reference(
-                declaration_key(
-                    &self.identity,
-                    &self.version,
-                    DeclarationForm::ObjectType,
-                    type_ref,
-                )
-                .into(),
+                declaration_key(&self.identity, DeclarationForm::ObjectType, type_ref).into(),
             )
         })
     }
@@ -699,7 +692,7 @@ impl<'m> ModelOwners<'m> {
             for (node, form) in objects.chain(relationships) {
                 charge(index)?;
                 by_key.insert(
-                    declaration_key(&package.identity, &package.version, form, node),
+                    declaration_key(&package.identity, form, node),
                     Owner {
                         package,
                         form,

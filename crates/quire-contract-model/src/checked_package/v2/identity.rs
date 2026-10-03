@@ -63,8 +63,6 @@ pub enum NominalOwner {
     Model {
         /// Domain package identity.
         identity: Box<str>,
-        /// Domain package version.
-        version: Box<str>,
         /// IR node identity within the domain package.
         node: Box<str>,
     },
@@ -212,7 +210,7 @@ fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
         Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
             &["kind", "authority", "identity"]
         }
-        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "version", "node"],
+        Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
         Some(_) => return at.key("kind"),
         None => return at,
     };
@@ -527,20 +525,16 @@ fn validate_owner(
             definition.authority == *authority && definition.identity == *identity
         }),
         // The lock selects whole domain packages; the node is not a lock
-        // member, so the join is by package identity and the node is only
-        // required to be present. `validate_lock` refuses a
+        // member, so the join is by package identity, and the owner's
+        // identity and node must each be nonempty (FR-038-AC-45). The owner
+        // is content-only: it carries no version, which stays selection
+        // evidence in the lock. `validate_lock` refuses a
         // `model_selections` array holding two entries with the same
         // identity but different versions before this join ever runs, so
-        // the lock guarantees at most one selection per model identity —
-        // that single-selection invariant is what makes joining by identity
-        // alone (and not also by version) sound.
-        NominalOwner::Model {
-            identity,
-            version,
-            node,
-        } => {
+        // the lock guarantees at most one selection per model identity.
+        NominalOwner::Model { identity, node } => {
             !node.is_empty()
-                && !version.is_empty()
+                && !identity.is_empty()
                 && lock
                     .model_selections
                     .iter()

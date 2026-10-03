@@ -162,7 +162,7 @@ fn package_over(
         "model",
         "object_type",
         None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "version": VERSION, "node": ORDER})),
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": ORDER})),
         &empty(),
     );
     let reference_body = json!({"term": "aggregate", "members": [reference(&order)]});
@@ -261,6 +261,92 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
     }
 }
 
+/// Tracing: TC-048, FR-038-AC-45
+#[trace("TC-048", "FR-038-AC-45")]
+#[test]
+fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes() {
+    let (selected, selected_evidence) = package_over(&domain_document(json!({})), "total");
+    match read(&selected, &selected_evidence) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("expected admission, got {other:?}"),
+    }
+
+    // A document that differs only in content the keys do not read (its
+    // display name), so the selected row's digest changes and its version
+    // does not: the keys are unchanged (FR-038-AC-45).
+    let renamed = domain_document(json!({"displayName": "Order renamed"}));
+    let (digest_only, digest_evidence) = package_over(&renamed, "total");
+    assert_ne!(
+        selected["lock"]["model_selections"][0]["digest"],
+        digest_only["lock"]["model_selections"][0]["digest"]
+    );
+    match read(&digest_only, &digest_evidence) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("expected admission under the changed digest, got {other:?}"),
+    }
+    assert_eq!(selected["semantic_graph"], digest_only["semantic_graph"]);
+
+    // The same declarations in a document whose only difference is its
+    // package version, selected at that version by the lock.
+    let mut document = domain_document(json!({}));
+    document["package"]["version"] = json!("2.0.0");
+    let (mut other, other_evidence) = package_over(&document, "total");
+    other["lock"]["model_selections"][0]["version"] = json!("2.0.0");
+    refresh_identity(&mut other);
+    match read(&other, &other_evidence) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("expected admission at the other version, got {other:?}"),
+    }
+    assert_eq!(
+        selected["semantic_graph"], other["semantic_graph"],
+        "the model declaration node keys, and every key built on them, are version-free"
+    );
+    assert_ne!(
+        declaration_key_of(ORDER, IDENTITY),
+        declaration_key_of(ORDER, OTHER_PACKAGE),
+        "the owner's identity, not its version, distinguishes declaration keys"
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-45
+#[trace("TC-048", "FR-038-AC-45")]
+#[test]
+fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
+    // The member's declaration is `Order` keyed under a package the lock does
+    // not select: the key resolves to no selected declaration.
+    let (package, evidence, position) = reaches_package(
+        (ORDER, OTHER_PACKAGE),
+        "parent",
+        Operand::Reference("unselected"),
+        Operand::Reference("unselected"),
+    );
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingSelection)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some(
+            format!("/semantic_graph/nodes/{position}/body/operation/member/declaration").as_str()
+        )
+    );
+    // The selected package's own key for the same node resolves.
+    let (package, evidence, _) = reaches_package(
+        (ORDER, IDENTITY),
+        "parent",
+        Operand::Reference(ORDER),
+        Operand::Reference(ORDER),
+    );
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
 /// Tracing: TC-048, FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]
@@ -328,7 +414,8 @@ const TAGGED: &str = "ix://acme/orders/Tagged";
 const CODED: &str = "ix://acme/orders/Coded";
 const BOTH: &str = "ix://acme/orders/Both";
 const MODELS: [&str; 7] = [ORDER, SUB, SUBSUB, INVOICE, TAGGED, CODED, BOTH];
-const OTHER_VERSION: &str = "2.0.0";
+/// A domain package identity the lock never selects.
+const OTHER_PACKAGE: &str = "acme/other";
 
 fn edge_field(
     owner: &str,
@@ -421,12 +508,14 @@ fn edge_document() -> Value {
     })
 }
 
-fn declaration_key_of(node: &str, version: &str) -> String {
+/// The model declaration node key of `node` owned by the domain package
+/// `identity`; the owner is content-only and carries no version.
+fn declaration_key_of(node: &str, identity: &str) -> String {
     structural_key(
         "model",
         "object_type",
         None,
-        Some(json!({"kind": "model", "identity": IDENTITY, "version": version, "node": node})),
+        Some(json!({"kind": "model", "identity": identity, "node": node})),
         &empty(),
     )
 }
@@ -442,11 +531,11 @@ enum Operand {
 
 /// A package over [`edge_document`] holding `reaches(source, target, name)`
 /// as a `quire.op.model.reaches_field` application whose member declaration
-/// is `declaring` (keyed under `version`), with the operands typed as
-/// given. Returns the package, its evidence, and the application's node
-/// position.
+/// is `declaring` (keyed under the domain package `package`), with the
+/// operands typed as given. Returns the package, its evidence, and the
+/// application's node position.
 fn reaches_package(
-    (declaring, version): (&str, &str),
+    (declaring, package_identity): (&str, &str),
     name: &str,
     source: Operand,
     target: Operand,
@@ -462,11 +551,11 @@ fn reaches_package(
     let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
     let mut models: Vec<(String, String)> = MODELS
         .into_iter()
-        .map(|node| (node.to_owned(), declaration_key_of(node, VERSION)))
+        .map(|node| (node.to_owned(), declaration_key_of(node, IDENTITY)))
         .collect();
     models.push((
         "unselected".to_owned(),
-        declaration_key_of(ORDER, OTHER_VERSION),
+        declaration_key_of(ORDER, OTHER_PACKAGE),
     ));
     let reference_types: Vec<(String, String, Value)> = models
         .iter()
@@ -476,8 +565,8 @@ fn reaches_package(
             (node.clone(), type_key, body)
         })
         .collect();
-    let model_of = |node: &str, version: &str| {
-        let name = if version == VERSION {
+    let model_of = |node: &str, owner: &str| {
+        let name = if owner == IDENTITY {
             node
         } else {
             "unselected"
@@ -500,11 +589,11 @@ fn reaches_package(
             let (key, node) = parameter(name, level, &type_key);
             (key, Some(node))
         }
-        Operand::Object(node) => (model_of(node, VERSION), None),
+        Operand::Object(node) => (model_of(node, IDENTITY), None),
     };
     let (receiver, receiver_node) = operand(source, "receiver", "0");
     let (argument, argument_node) = operand(target, "argument", "1");
-    let declaring_key = model_of(declaring, version);
+    let declaring_key = model_of(declaring, package_identity);
     let body = json!({
         "term": "application",
         "operator": "reaches",
@@ -571,7 +660,7 @@ fn reaches_package(
     (package, evidence, position)
 }
 
-const SELECTED: &str = VERSION;
+const SELECTED: &str = IDENTITY;
 
 fn reaches(
     declaring: &'static str,
@@ -678,7 +767,7 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
         ),
         (
             reaches_package(
-                (ORDER, OTHER_VERSION),
+                (ORDER, OTHER_PACKAGE),
                 "parent",
                 Operand::Reference("unselected"),
                 Operand::Reference("unselected"),

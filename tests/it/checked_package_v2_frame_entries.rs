@@ -1202,6 +1202,8 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
 
 const ORDERS: &str = "acme/orders";
 const ORDERS_VERSION: &str = "1.0.0";
+/// A domain package identity the lock never selects.
+const OTHER_PACKAGE: &str = "acme/other";
 const ORDER_NODE: &str = "ix://acme/orders/Order";
 const SUB_NODE: &str = "ix://acme/orders/Sub";
 const LEFT_NODE: &str = "ix://acme/orders/Left";
@@ -1269,13 +1271,24 @@ fn structural(tag: &str, form: &str, owner: Option<Value>) -> String {
     sha256_hex(&canonical(&preimage))
 }
 
-/// The model declaration node key of `node` owned by `acme/orders` at `version`.
-fn model_key(node: &str, version: &str) -> String {
+/// The model declaration node key of `node` owned by the domain package
+/// `identity`. The owner is content-only: it carries no package version.
+fn model_key_in(identity: &str, node: &str) -> String {
     structural(
         "model",
         "object_type",
-        Some(json!({"kind": "model", "identity": ORDERS, "version": version, "node": node})),
+        Some(json!({"kind": "model", "identity": identity, "node": node})),
     )
+}
+
+/// The model declaration node key of `node` owned by the selected `acme/orders`.
+fn model_key(node: &str) -> String {
+    model_key_in(ORDERS, node)
+}
+
+/// The key of `ORDER_NODE` owned by a domain package the lock does not select.
+fn unselected_key() -> String {
+    model_key_in(OTHER_PACKAGE, ORDER_NODE)
 }
 
 /// Reads `value` with [`orders_document`] supplied under its digest.
@@ -1346,7 +1359,7 @@ fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
 
 impl ModelPackage {
     fn new() -> Self {
-        let order = model_key(ORDER_NODE, ORDERS_VERSION);
+        let order = model_key(ORDER_NODE);
         let integer = structural("scalar_type", "integer", None);
         let mut state = StatePackage::new();
         let frame = state.at("state", "frame");
@@ -1367,15 +1380,14 @@ impl ModelPackage {
             "type",
             empty(),
         )];
-        for (node, version) in [
-            (ORDER_NODE, ORDERS_VERSION),
-            (SUB_NODE, ORDERS_VERSION),
-            (LEFT_NODE, ORDERS_VERSION),
-            (RIGHT_NODE, ORDERS_VERSION),
-            (BOTH_NODE, ORDERS_VERSION),
-            (ORDER_NODE, "2.0.0"),
+        for key in [
+            model_key(ORDER_NODE),
+            model_key(SUB_NODE),
+            model_key(LEFT_NODE),
+            model_key(RIGHT_NODE),
+            model_key(BOTH_NODE),
+            unselected_key(),
         ] {
-            let key = model_key(node, version);
             added.push(plain(
                 &key,
                 "model",
@@ -1511,10 +1523,10 @@ impl ModelPackage {
 #[trace("TC-056", "FR-040-AC-3")]
 #[test]
 fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
-    let order = model_key(ORDER_NODE, ORDERS_VERSION);
-    let sub = model_key(SUB_NODE, ORDERS_VERSION);
-    let both = model_key(BOTH_NODE, ORDERS_VERSION);
-    let unselected = model_key(ORDER_NODE, "2.0.0");
+    let order = model_key(ORDER_NODE);
+    let sub = model_key(SUB_NODE);
+    let both = model_key(BOTH_NODE);
+    let unselected = unselected_key();
     model_admits("the base package", &ModelPackage::new().value);
     model_admits(
         "an own field",
@@ -1547,7 +1559,7 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
             Cause::AmbiguousName,
         ),
         (
-            "an unselected version",
+            "another domain package",
             &unselected,
             "total",
             Code::MissingDeclaration,
@@ -1571,9 +1583,9 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
 #[trace("TC-056", "FR-040-AC-7")]
 #[test]
 fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
-    let order = model_key(ORDER_NODE, ORDERS_VERSION);
-    let sub = model_key(SUB_NODE, ORDERS_VERSION);
-    let unselected = model_key(ORDER_NODE, "2.0.0");
+    let order = model_key(ORDER_NODE);
+    let sub = model_key(SUB_NODE);
+    let unselected = unselected_key();
     model_admits(
         "Order.scaled",
         &ModelPackage::new().anchored(&order, "scaled").value,
@@ -1601,7 +1613,7 @@ fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
             Cause::MalformedDeclaration,
         ),
         (
-            "an unselected version",
+            "another domain package",
             &unselected,
             "scaled",
             Code::MissingDeclaration,
