@@ -397,6 +397,25 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
         production.contains("Limits::new(limits.maximum_request_bytes)"),
         "the encoder limit is the request byte limit"
     );
+    // Each step is called exactly once, with the caller's own limits (the
+    // admission parameter `limits`, or the admitted request's `limits()`) and
+    // `quire_canonical::to_vec` itself. A call that builds other limits or
+    // wraps the encoder changes this text. Whitespace is collapsed so
+    // rustfmt's line breaks do not matter.
+    let flat = production.split_whitespace().collect::<Vec<_>>().join(" ");
+    for call in [
+        "request_identity_bytes(&request_material, &limits, quire_canonical::to_vec)",
+        "record_identity_bytes(&material, request.limits(), quire_canonical::to_vec)",
+        "package_identity_bytes(&material, request.limits(), quire_canonical::to_vec)",
+    ] {
+        assert_eq!(flat.matches(call).count(), 1, "call site `{call}`");
+        let step = call.split('(').next().expect("step name");
+        assert_eq!(
+            flat.matches(&format!("{step}(")).count(),
+            1,
+            "`{step}` has no other call site"
+        );
+    }
     for material in [
         "RequestIdentityMaterial<'a>",
         "GeneratedOutputPackageIdentityMaterial<'a>",
