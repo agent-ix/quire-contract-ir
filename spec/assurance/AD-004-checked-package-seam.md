@@ -49,7 +49,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | `quire.checked-package/v2` bytes: `contract_version`, `package_id`, `identity_preimage`, `lock`, `semantic_graph`, `source_map`, `diagnostics` | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
 | `CheckedPackageEvidence`: selected domain package documents (supplied under their `sha256-jcs` digest), dependency packages (already admitted), supported features | caller to IR | IR defines the type | only `lock.sources` rows carry a raw-source byte digest (`quire.source.bytes/v1`), which is not checked against evidence (the `sha256-jcs` digest of a `model_selections` row and the `package_id` of a dependency row are); definition references (`lock` selections, `diagnostics.catalog`, operation laws) are `{authority, identity}` with no revision or digest (FR-038 "Artifact references"); `package_id` is the content identity (`evidence.rs` doc) |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
-| `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 128 depth, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits) | caller to IR | IR | every member finite |
+| `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
 | `CheckedPackageV2` and its accessors | IR to codegen and QSL | IR | only the reader can build one |
 | Lowering records (seven kinds) and `ContractPackage` (`quire.contract-ir.contract-package/v1`) | IR to backends | IR (FR-035) | one record per requested node |
@@ -165,9 +165,10 @@ What is measured today, what is open and with whom, and what is routed.
 - Reader: `dispatch.rs` (version dispatch), `v2/` (identity, operations, frame, state,
   structural, lowering), `evidence.rs`. FR-038 declares ACs 1 to 15, 17 to 33 and 35 to 43; it
   has no AC-16 or AC-34, a numbering hole and not a gap in behaviour.
-- FR-038 states a known deviation: the depth ceiling is capped at 16,384
-  (`CheckedPackageReadLimits::MAXIMUM_DEPTH`) although FR-322 and FR-038-AC-3 charge the caller's
-  limit as given, pending STD-125.
+- Merged QSpec FR-322 settles STD-125: the reader has no depth limit, because the body grammar
+  fixes the JSON depth of every package. FR-038 states the flat wire and no depth limit
+  (FR-038-AC-114 through FR-038-AC-118); the reader still charges a capped caller depth limit and
+  admits nested applications until IR-495's code lands.
 - FR-040 states a known deviation: a field entry on a `model`/`record_value_type` node is joined
   and ordered but its name is not resolved, because QSpec's `ModelDeclarationNode` has no such
   form while FR-340 says the name matches a declared field. Pending a QSpec ruling.
@@ -208,7 +209,6 @@ What is measured today, what is open and with whom, and what is routed.
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
 | Recursive compared type: refuse (matches the reference reader, which IR follows) or 0 leaves for no-text cyclic types; adopt `recursion:<d>` leaves | QSpec (STD-129) | IR does not change before the ruling | IR widening first would diverge from the reference reader |
-| Depth ceiling: caller's limit as given, or capped | QSpec (STD-125) | whichever QSpec rules; remove the deviation note then | a stated deviation stays in an FR |
 | `record_value_type` field names | QSpec | rule that a field entry on that form names no declared field, or add the form to `ModelDeclarationNode` | IR keeps a documented deviation |
 | Text admission for `numeric.convert` | the owner (decision pending; not routed) | decide, then state it where the operation catalog and FR-322 can carry it | consumer paths with no admitted input |
 | Five ADR-002 members have no wire carrier | QSpec | publish carriers or state they are out of v2 | reader refuses forever |
@@ -234,7 +234,6 @@ To QSpec:
 | R-S1 | Rule on recursive compared types and `recursion:<d>` leaves (STD-129). |
 | R-S4 | Renumber one of the two `FR-341` documents. |
 | R-S5 | Rule on `record_value_type` field entries (FR-340). |
-| R-S6 | Rule on the depth ceiling (STD-125). |
 | R-S7 | Publish wire carriers for the five ADR-002 members or state them out of v2. |
 
 The routing ids R-S2 and R-S3 (the FR-331 provider envelope and the obligation-identity digest
