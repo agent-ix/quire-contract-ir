@@ -599,11 +599,13 @@ by the requirements of the QSpec native `noncanonical_wire` diagnostic
 `inexact-integer` for a number whose text denotes a whole value past 2^53,
 however spelled, which is every number FR-038-AC-93 refuses, and
 `inexact-number` for any other number that FR-272 defines as inexact; a number
-that matches both reports `inexact-integer`. Today a model document is read once by
+that matches both reports `inexact-integer`. A model document is read once by
 `quire_canonical::read`, which keeps each number's text next to its double, and
-is digested through `quire-canonical`, so two model documents that differ only
-in such a number (`0.1000000000000000000001` and `0.1`, `9007199254740993.5`
-and `9007199254740994.0`) share one digest: the reader refuses neither. A
+is digested through `quire-canonical`; because the reader refuses a number whose
+text is not the exact spelling of its double's value, two model documents that
+differ only in such a number (`0.1000000000000000000001` and `0.1`,
+`9007199254740993.5` and `9007199254740994.0`) no longer share one digest: the
+first of each pair is refused. A
 number past the double range (`1e400`, `-1e400`) denotes a whole value past
 2^53, so it is an `inexact-integer` (FR-038-AC-110; see the QSL ruling below).
 Today's behaviour, not a requirement: `quire_canonical::read` refuses such a number as malformed
@@ -615,11 +617,11 @@ read: it is parsed through `serde_json` and its bytes compared with the
 canonical bytes of the value read, so the crate's own manifest declares
 `serde_json` with the feature `float_roundtrip` (FR-038-AC-111), which makes
 that parse of a shortest round-trip text exact whatever other crates in the
-build turn on. The refusal causes
-`CheckedPackageRefusalCause` carries have no `inexact-integer` or
-`inexact-number` member. The refusal is the one of FR-038-AC-93, located at the
-row's `digest` with the `document_pointer` of the first such number in document
-order, and now carries the cause (FR-038-AC-109 through FR-038-AC-111). The package's
+build turn on. `CheckedPackageRefusalCause` carries the members
+`inexact-integer` and `inexact-number`. The refusal is the one of FR-038-AC-93,
+located at the row's `digest` with the `document_pointer` of the first such
+number in document order, and carries the cause (FR-038-AC-109 through
+FR-038-AC-111). The package's
 own byte stream already refuses such a number, because its text is not the
 canonical bytes of the value read, and carries neither cause nor pointer
 (FR-038-AC-79). The whole-number rule of FR-038-AC-93 is unchanged. QSL
@@ -635,8 +637,9 @@ IR's FR-038-AC-110 and QSpec FR-272 (`inexact-integer`, "however spelled") say i
 refuses `noncanonical_wire`/`inexact-integer` with a `document_pointer`. The two
 differ, and the QSL lane has indicated, as relayed by the IR planner and not yet
 recorded in a QSL ticket or merged text, that it will amend FR-056 and change
-`quire-canonical`'s `read` error to carry the number's pointer and lexeme (QSL
-ticket: pending). AC-110 does not depend on that change being recorded. QSL's rule also checks the members of an invocation or snapshot
+`quire-canonical`'s `read` error to carry the number's pointer and lexeme (not
+yet recorded on a QSL ticket, tracked on the IR side as IR-555; no
+`quire-canonical` PR exists yet). AC-110 does not depend on that change being recorded. QSL's rule also checks the members of an invocation or snapshot
 document it admits (QSL FR-106-AC-11); this reader reads no invocation or
 snapshot document, only the selected model documents and the package document,
 so that clause has no counterpart here.

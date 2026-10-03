@@ -982,11 +982,13 @@ impl SelectionRefusal {
 pub(super) enum SelectionFailure {
     Refused(SelectionRefusal),
     Limit(ValidationFailure),
-    /// The document holds a number whose text denotes a magnitude past 2^53:
+    /// The document holds a number with no exact RFC 8785 spelling:
     /// `noncanonical_wire` at the row's `digest`, with the pointer of the
-    /// first such number in the document.
-    NumberPast2Pow53 {
+    /// first such number in the document and the cause `inexact-integer` or
+    /// `inexact-number`.
+    InexactNumber {
         document_pointer: JsonPointer,
+        cause: CheckedPackageRefusalCause,
     },
 }
 
@@ -1062,8 +1064,11 @@ pub(super) fn admit_document(
     // Decided on the text of each number, before any rounding to a double and
     // before any digest, so two documents that differ in such a number never
     // share one.
-    if let Some(document_pointer) = first_number_past_2_pow_53(&reading) {
-        return Err(SelectionFailure::NumberPast2Pow53 { document_pointer });
+    if let Some((document_pointer, cause)) = first_inexact_number(&reading) {
+        return Err(SelectionFailure::InexactNumber {
+            document_pointer,
+            cause,
+        });
     }
     let digest = match quire_canonical::sha256(&reading, quire_canonical::Limits::new(budget.bytes))
     {
@@ -1183,11 +1188,13 @@ fn bytes_exceeded(limit: quire_canonical::LimitExceeded) -> ValidationFailure {
     )
 }
 
-/// The RFC 6901 pointer of the first number, in document order, whose text
-/// denotes a magnitude greater than 2^53; `None` when there is none. Walks
-/// from an explicit heap stack, so a document of any depth is walked on any
-/// thread stack.
-fn first_number_past_2_pow_53(document: &quire_canonical::Document) -> Option<JsonPointer> {
+/// The RFC 6901 pointer and cause of the first number, in document order,
+/// that has no exact RFC 8785 spelling (see [`inexact_cause`]); `None` when
+/// there is none. Walks from an explicit heap stack, so a document of any
+/// depth is walked on any thread stack.
+fn first_inexact_number(
+    document: &quire_canonical::Document,
+) -> Option<(JsonPointer, CheckedPackageRefusalCause)> {
     use quire_canonical::{Items, Members, Node};
     enum Open<'d> {
         Array(Items<'d>, usize),
@@ -1199,12 +1206,14 @@ fn first_number_past_2_pow_53(document: &quire_canonical::Document) -> Option<Js
     loop {
         if let Some(value) = next.take() {
             match value.node() {
-                Node::Number(number) if exceeds_2_pow_53(number.text()) => {
-                    return Some(pointer_from_steps(path.iter().copied()));
+                Node::Number(number) => {
+                    if let Some(cause) = inexact_cause(number.text(), number.value()) {
+                        return Some((pointer_from_steps(path.iter().copied()), cause));
+                    }
                 }
                 Node::Array(items) => open.push(Open::Array(items, 0)),
                 Node::Object(members) => open.push(Open::Object(members)),
-                Node::Null | Node::Bool(_) | Node::Number(_) | Node::String(_) => {}
+                Node::Null | Node::Bool(_) | Node::String(_) => {}
             }
         }
         // The path holds one step for each open container but the innermost
@@ -1238,52 +1247,104 @@ fn first_number_past_2_pow_53(document: &quire_canonical::Document) -> Option<Js
     }
 }
 
+/// The cause of a model-document number's refusal, or `None` when the number
+/// is admitted. `text` is the
+/// number as spelled in the document and `value` the double `quire-canonical`
+/// read from it. The decision is made on the text, never on a double:
+///
+/// - `inexact-integer` when the text denotes a whole value past 2^53,
+///   however spelled;
+/// - `inexact-number` when the digits and scale of the text differ from those
+///   of the text `quire-canonical` writes for `value`, so the exact value of
+///   the number is not the one its RFC 8785 encoding carries.
+fn inexact_cause(text: &str, value: f64) -> Option<CheckedPackageRefusalCause> {
+    use CheckedPackageRefusalCause as Cause;
+    let spelled = Spelling::of(text);
+    if spelled.is_whole_past_2_pow_53() {
+        return Some(Cause::InexactInteger);
+    }
+    // Writing one finite double cannot fail, and its text is ASCII; were
+    // either to fail, the number has no RFC 8785 text to be exact against, so
+    // it is refused.
+    let mut written = Vec::new();
+    let mut writer = quire_canonical::Writer::new(
+        &mut written,
+        quire_canonical::Limits::new(DOUBLE_TEXT_BYTES),
+    );
+    let wrote = writer.number(value).is_ok();
+    let exact = wrote
+        && std::str::from_utf8(&written).is_ok_and(|written| spelled == Spelling::of(written));
+    (!exact).then_some(Cause::InexactNumber)
+}
+
+/// The bytes one double's RFC 8785 text can take (at most 25), with room to
+/// spare: the room one number's text is written in, not a cap on a document.
+const DOUBLE_TEXT_BYTES: u64 = 64;
+
 /// The decimal digits of `2^53`, 9007199254740992.
 const MAXIMUM_INTEGER_DIGITS: &str = "9007199254740992";
 
-/// Whether the JSON number written `text` denotes a magnitude greater than
-/// 2^53, decided on the digits and exponent as written and never on a double.
-/// `text` is a number `quire-canonical` read, so it is `-? int frac? exp?`.
-fn exceeds_2_pow_53(text: &str) -> bool {
-    let unsigned = text.strip_prefix('-').unwrap_or(text);
-    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
-        Some((mantissa, exponent)) => (mantissa, exponent),
-        None => (unsigned, "0"),
-    };
-    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    // The value is `digits` x 10^scale.
-    let digits = [whole, fraction].concat();
-    let fraction_len = i64::try_from(fraction.len()).unwrap_or(i64::MAX);
-    let exponent_value = parse_exponent(exponent);
-    let trimmed = digits.trim_start_matches('0');
-    let significant = trimmed.trim_end_matches('0');
-    if significant.is_empty() {
-        return false;
+/// A JSON number's value as `digits` x 10^`scale`, with neither a leading nor
+/// a trailing zero in `digits`, so two texts spell one value exactly when
+/// their spellings are equal. Zero has no digits and no sign.
+#[derive(Debug, Eq, PartialEq)]
+struct Spelling {
+    negative: bool,
+    digits: String,
+    scale: i64,
+}
+
+impl Spelling {
+    /// The spelling of `text`, a number `quire-canonical` read or wrote, so
+    /// `-? int frac? exp?`.
+    fn of(text: &str) -> Self {
+        let (negative, unsigned) = match text.strip_prefix('-') {
+            Some(unsigned) => (true, unsigned),
+            None => (false, text),
+        };
+        let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
+        let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+        let digits = [whole, fraction].concat();
+        let trimmed = digits.trim_start_matches('0');
+        let significant = trimmed.trim_end_matches('0');
+        if significant.is_empty() {
+            return Self {
+                negative: false,
+                digits: String::new(),
+                scale: 0,
+            };
+        }
+        let trailing = trimmed.len().saturating_sub(significant.len());
+        let scale = parse_exponent(exponent)
+            .saturating_sub(i64::try_from(fraction.len()).unwrap_or(i64::MAX))
+            .saturating_add(i64::try_from(trailing).unwrap_or(i64::MAX));
+        Self {
+            negative,
+            digits: significant.to_owned(),
+            scale,
+        }
     }
-    let trailing = trimmed.len().saturating_sub(significant.len());
-    let scale = exponent_value
-        .saturating_sub(fraction_len)
-        .saturating_add(i64::try_from(trailing).unwrap_or(i64::MAX));
-    // `significant` has no trailing zero, so a negative `scale` leaves a
-    // nonzero fraction behind its last integer digit.
-    let length = i64::try_from(significant.len()).unwrap_or(i64::MAX);
-    let integer_digits = length.saturating_add(scale);
-    let maximum = i64::try_from(MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(i64::MAX);
-    match integer_digits.cmp(&maximum) {
-        std::cmp::Ordering::Greater => true,
-        std::cmp::Ordering::Less => false,
-        std::cmp::Ordering::Equal => {
-            // Sixteen integer digits: the first sixteen of `significant`,
-            // zero-padded when `scale` is positive, against 2^53.
-            let value = [
-                significant,
-                &"0".repeat(usize::try_from(scale).unwrap_or(0)),
-            ]
-            .concat();
-            let head = value.get(..MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(&value);
-            match head.cmp(MAXIMUM_INTEGER_DIGITS) {
-                std::cmp::Ordering::Equal => scale < 0,
-                other => other.is_gt(),
+
+    /// Whether the value is a whole number of magnitude greater than 2^53.
+    /// `digits` has no trailing zero, so a negative `scale` leaves a nonzero
+    /// fraction: the value is not whole.
+    fn is_whole_past_2_pow_53(&self) -> bool {
+        if self.digits.is_empty() || self.scale < 0 {
+            return false;
+        }
+        let length = i64::try_from(self.digits.len()).unwrap_or(i64::MAX);
+        let maximum = i64::try_from(MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(i64::MAX);
+        match length.saturating_add(self.scale).cmp(&maximum) {
+            std::cmp::Ordering::Greater => true,
+            std::cmp::Ordering::Less => false,
+            // Sixteen integer digits: `digits` padded with `scale` zeros.
+            std::cmp::Ordering::Equal => {
+                let padding = usize::try_from(self.scale).unwrap_or(0);
+                [self.digits.as_str(), &"0".repeat(padding)]
+                    .concat()
+                    .as_str()
+                    .cmp(MAXIMUM_INTEGER_DIGITS)
+                    .is_gt()
             }
         }
     }
