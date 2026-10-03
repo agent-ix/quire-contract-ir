@@ -180,7 +180,9 @@ lowering re-walks an admitted body through the same validator.
 
 The reader shall recompute `package_id` as the SHA-256 of the RFC 8785
 canonical bytes of `identity_preimage` under `quire.package.semantic/v2`,
-require the preimage's lock members to equal the lock, and require its
+produced by encoding `CheckedPackageIdentityPreimageV2` through
+`quire_canonical::Encode` (see "Canonical encoding of the wire types" below)
+and not through `serde_json`, require the preimage's lock members to equal the lock, and require its
 `identity_projection` to equal the occurrence-free projection of the graph in
 graph order. It shall check each digest's declared domain before its bytes,
 each selected domain package by reading the document the
@@ -298,6 +300,125 @@ occurrence-free identity projection it compares against
 `identity_preimage.identity_projection`, so a package whose preimage omits a
 `declaration`, a literal `type` or an application `operation` refuses rather
 than admitting a projection that disagrees with the graph.
+
+### Canonical encoding of the wire types
+
+The V2 wire types encode to RFC 8785 canonical bytes through the first-party
+`quire-canonical` crate, which this repository depends on at `branch = "main"`
+as a git dependency, with its source allow-listed in `deny.toml`. The crate
+owns the encoder; this repository holds no copy of it, adds no wrapper type
+around it and writes no `DEPTH` literal. The in-repo `CanonicalWriter` and
+`digest_json` are retired by IR-274, not by this requirement: this requirement
+changes how the types below encode and how the reader checks that a document is
+canonical (see "Canonical bytes are quire-canonical's bytes"), and leaves every
+other canonical path as it is.
+
+`quire-canonical` has two encode paths, and each type takes the one its depth
+allows. `#[derive(FixedShape)]` is valid only for a type whose JSON nests to a
+depth fixed by the type itself; serde then recurses once per fixed level. A
+type with a member whose depth follows the input implements
+`quire_canonical::Encode` instead. Every `serde_json::Value` in the wire is
+such a member, because a node `body` and a diagnostic `details` entry nest as
+deep as their input, and `quire-canonical` provides no `Encode` for `Value`.
+The assignment follows from the types:
+
+| Type | Path | Reason |
+|---|---|---|
+| `CheckedSemanticId` | `FixedShape` | three strings |
+| `CheckedSourceMapEntry` | `FixedShape` | `CheckedNodeId`, `CheckedOccurrenceRole`, an integer and `CheckedSourceRegion`s of `CheckedArtifactRef`s: every member nests to a depth fixed by its type |
+| `CheckedCapability` | `FixedShape` | a string and the closed `CheckedCapabilityDisposition` |
+| `CheckedPackageLockV2` | `FixedShape` | arrays of `CheckedArtifactRef`, `CheckedSelection`, `CheckedDomainPackageRef`, `CheckedDependencySelection` and strings: no `Value` and no recursive member |
+| `CheckedPackageIdentityPreimageV2` | `Encode` | `identity_projection` holds `CheckedNodeProjectionV2`, whose `body` is a `Value` |
+| `CheckedSemanticGraphV2` | `Encode` | every `CheckedSemanticNodeV2` has a `body` that is a `Value` |
+| `CheckedDiagnosticsV2` | `Encode` | every `CheckedDiagnosticV2` carries `details: Vec<Value>` |
+
+Each fixed-depth type derives `FixedShape`, and so does every type it holds, so
+a member that later grows a recursive or `Value` member stops compiling instead
+of recursing. The types held by the four `FixedShape` types are the node
+identity `CheckedNodeId`, `CheckedOccurrenceRole`, `CheckedSourceRegion`, the
+artifact-reference types (today `CheckedArtifactRef` and `CheckedRevision`;
+the types the reference shape of FR-038-AC-46 through FR-038-AC-61 replaces
+them with, such as `CheckedSourceRef`, when that change merges),
+`CheckedSelection`, `CheckedSelectionRole`, `CheckedCapabilityDisposition`,
+`CheckedDomainPackageRef` and `CheckedDependencySelection`. The three `Encode`
+types delegate their fixed-depth members to `Writer::serialize`, which
+requires `FixedShape`, so these derive it as well: `CheckedOccurrence`,
+`CheckedDeclaration`, `NominalIdentityPreimage` with `EnumDeclarationPreimage`,
+`EnumMemberPreimage`, `DimensionPreimage` and `UnitPreimage`, `NominalOwner`,
+`DimensionTerm`, `CheckedRational`, `CheckedDiagnosticStage`,
+`CheckedDiagnosticCode`, `CheckedDiagnosticCause`, `CheckedSourceRegion` and
+the artifact-reference type of `CheckedDiagnosticsV2.catalog`. Types are named
+by role where a pending change renames them; the code change for this
+requirement is ordered after the one that lands the artifact-reference shape,
+so it derives on the types that exist then. The derive is not used with a serde
+attribute that replaces a field's serialization (`into`, `serialize_with`,
+`with`, `remote`). A type that holds a `Value`, directly or through another
+type, never derives `FixedShape`; `CheckedNodeProjectionV2`,
+`CheckedSemanticNodeV2` and `CheckedDiagnosticV2` share the `Encode` path of the
+types that hold them. A type that has an `Encode` implementation of its own
+writes its members as `Writer` events in its own field order, delegating a
+fixed-depth member to `Writer::serialize`, and writes a `Value` iteratively.
+
+A `Value` is written from an explicit heap stack of the containers still open,
+with no native recursion over the `Value`: an array is `begin_array`, its
+elements and `end_array`; an object is `begin_object`, a `name` and value per
+member and `end_object`; a string, boolean and null are the matching scalar
+event. A JSON number is written by its kind: a number that is an `i64` or `u64`
+goes through `Writer::integer`, which refuses a magnitude past 2^53, and any
+other number goes through `Writer::number` as the `f64` it denotes. The `Writer`
+orders object members itself, so the bytes do not depend on how the `Value`'s
+map is backed. Encoding adds no depth limit of its own: a body nested deeper
+than the reader admits, built in memory, still encodes, and the only refusals an
+encode returns are the byte ceiling and a number `quire-canonical` has no
+encoding for. The byte ceiling is the read's byte limit.
+
+The canonical bytes are unchanged for every value that the reader admitted
+before this requirement and admits after it. For every type above the bytes
+`quire-canonical` produces equal the bytes of the type's `serde_json` canonical
+form (`to_value` then `to_vec`, members in sorted order) for every in-repo
+fixture and for the crafted values of FR-038-AC-74 and FR-038-AC-75 (strings
+with non-ASCII and astral characters, and the integers 9007199254740992 and
+-9007199254740992), and `package_id` is the SHA-256 of exactly those bytes
+with no domain label hashed in, so every `package_id` already recorded in a
+fixture still recomputes. Lowering output
+and the QSL output that consumes these types are unchanged.
+
+### Canonical bytes are quire-canonical's bytes
+
+This requirement changes what the reader accepts as canonical bytes, and gives
+each input it changes one code. A document is canonical when its bytes equal `quire-canonical`'s bytes for
+the value read, and the reader makes that check through `quire-canonical`,
+without recursing over the document, in the place it checks canonical bytes
+today: after the strict syntax, duplicate-member and depth checks and before the
+closed-schema decode, the header check, the `package_id` recomputation and every
+grammar check. A document that is not canonical in that sense, or that
+`quire-canonical` refuses to encode, refuses `noncanonical_wire` with no
+pointer, the code and form of every other refusal about the byte stream and the
+one the QSpec FR-322 refusal vocabulary names for it. Three inputs are
+decided differently as a result:
+
+- An integer whose magnitude exceeds 2^53 anywhere in the document, such as
+  9007199254740993 in a node body, refuses `noncanonical_wire`. The v2 literal
+  grammar admits any `i64` or `u64` today and the document is canonical by
+  `serde_json`'s spelling, so it is admitted today; exact integers past 2^53
+  travel as decimal strings. The integer 9007199254740992 is canonical and is
+  not refused for its size.
+- A whole float such as `2.0`, whose RFC 8785 spelling is `2`, refuses
+  `noncanonical_wire` at intake. It refuses today as a literal grammar defect
+  once the document is canonical, so the code it returns changes.
+- An object whose member names are ordered by UTF-8 bytes but not by UTF-16
+  code units (a member name holding a scalar above U+FFFF beside one in U+E000
+  to U+FFFF) refuses `noncanonical_wire`, and the same names in UTF-16 order
+  pass the canonical-bytes check; the reverse holds today. Passing that check
+  admits nothing by itself: the closed body grammar still decides the document.
+
+The order of checks is: strict syntax, duplicate member and depth; canonical
+bytes; closed-schema decode and header; `package_id` recomputation; then the
+grammar and graph checks. The `package_id` recomputation therefore runs on a
+value every number of which `quire-canonical` encodes, and a more specific
+grammar refusal is never decided by an encoder refusal. An encode refusal at the
+recomputation is not reachable from a document that passed intake; a caller who
+meets one (an in-memory value) receives `quire-canonical`'s error.
 
 ### Artifact references
 
@@ -1180,12 +1301,21 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-71 | Over `Node`, the recursion leaf placed before the text leaf, a recursion leaf at `["field:next", "recursion:0"]`, one `["field:next", "inner", "recursion:1"]` with the wrong `d`, and a second recursion leaf after the first each refuse `invalid_package`/`operation-law-mismatch` at that leaf's `path`, one that carries a law refuses the same way at its `laws`, and one that carries a mode refuses `operation-mode-mismatch` at its `mode`; a recursion leaf at a reentry of an integer `List`, which reaches no `text` type, refuses `operation-law-mismatch` at that leaf's `path`; a text leaf inside a recursive record whose type binds no `text_profile` still refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; `T` = `Option<T>`, a `Sequence` of itself, and a record that holds a field of such a type each refuse `ill_typed`/`operator-ineligible` at `operation.leaves` under a work limit of 1000, so the refusal is not `incomplete` for `work`, whereas `R { x: Option<R> }` admits; and a leaf law the lock does not select inside a recursive record refuses `operation-law-unselected` at its `definition`. | Test (TC-048) |
 | FR-038-AC-72 | The leaf count and derivation over a cyclic compared type are iterative and decided by the work budget: a cycle of 20000 record nodes, each holding an integer field and naming the next, the last naming the first, with the last also holding one `text` field, admits with its one 20000-segment leaf and its recursion leaf under byte, node, edge and work limits raised to admit it (the default byte limit of 1 MiB is below the package's size), on a thread whose stack is 256 KiB; ten records `R0` to `R9` that each hold a text field and an optional field naming every other record, compared at `R0` with `leaves` empty, return `incomplete` for `work` at `operation.leaves` under the default read limits, rather than a listing of their leaves or any other refusal; and for a ring of 12 records, each holding one text field and an optional field naming the next, compared at the first with its 12 text leaves and its one recursion leaf (the last record's field reenters the first), a work limit one below the work a read used returns `incomplete` for `work` and the exact work admits. | Test (TC-048) |
 | FR-038-AC-73 | Under a bounds-required profile a position typed at a quantity returns `requires_bound` naming the `unit` or `compound_unit` node: a record whose field is typed at a `unit` node, a parameter typed at a `compound_unit` node, `Sequence<Quantity>[0,3]` whose element type is a `unit` node, and a record whose field is typed at a reachable `bounded_domain` over a `unit` node, which names the `unit` node rather than the domain, each return it; while a `unit` declaration lowered as the requested node, a `compound_unit` node lowered as the requested node with its unit nodes in `dependencies`, a record with no quantity position whose closure reaches a unit only as a `literal.type` annotation, and an application whose `result_type` is a quantity over parameters typed at a bounded type each lower. | Test (TC-050) |
+| FR-038-AC-74 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for its `CheckedPackageIdentityPreimageV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&preimage))`, also for a preimage whose projection bodies hold non-ASCII and astral strings and the integers 9007199254740992 and -9007199254740992, and `quire_canonical::sha256` over it equals the fixture's `package_id.digest`; a fixture whose preimage differs in one member from the one its `package_id` was computed over refuses `stale_dependency` at `/package_id/digest`. | Test (TC-048) |
+| FR-038-AC-75 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for its `CheckedSemanticGraphV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&graph))`; and for a graph whose nodes carry a nominal identity preimage of each of the four versions, a `declaration`, a `recursion_group` and bodies of object, array, string, integer, boolean and null values, with strings holding non-ASCII and astral characters (for instance U+00E9 and U+1F600), member names ordered the same by UTF-8 bytes and by UTF-16 code units, and the integers 9007199254740992, -9007199254740992, 0 and -1, the bytes are equal as well. | Test (TC-048) |
+| FR-038-AC-76 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for each of `CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`, `CheckedSemanticId` and `CheckedDiagnosticsV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&value))`, one assertion per type; the diagnostics value carries entries whose `details` hold nested objects and arrays and whose `loci` are non-empty. | Test (TC-048) |
+| FR-038-AC-77 | A `CheckedSemanticGraphV2` holding one node whose `body` is a `Value` nested 100000 levels deep, a `CheckedPackageIdentityPreimageV2` whose one projection holds the same body, and a `CheckedDiagnosticsV2` whose one entry holds it in `details`, each encode on a thread whose stack is 256 KiB, return the bytes of the expected text (the nesting written out by repetition, not by `serde_json`) and complete without a stack overflow. | Test (TC-048) |
+| FR-038-AC-78 | The encodes of FR-038-AC-77, run under a byte ceiling of the encoded text's exact length, return the bytes; run under a ceiling one byte lower, return the byte-limit error with no bytes; a body nested 20000 levels deep, past both the reader's default depth limit of 128 and its 16,384 ceiling, encodes and is not refused for its depth; and a body holding the integer 9007199254740993 returns the encoder's refusal naming that value with no bytes. | Test (TC-048) |
+| FR-038-AC-79 | A package document holding the integer 9007199254740993 in a node body refuses `noncanonical_wire` with no pointer, as does one holding -9007199254740993, one holding the float `2.0` in a body, and one whose body object lists a member named with U+E000 before one named with U+10000 (UTF-8 byte order), each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document with 9007199254740992, with `2` in place of `2.0`, and with U+10000 before U+E000 (UTF-16 code-unit order) is not refused `noncanonical_wire`. | Test (TC-048) |
+| FR-038-AC-80 | `quire-canonical` is a `branch = "main"` git dependency of this repository's manifests with its source in the `allow-git` list of `deny.toml`, and `make deny` passes; `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedCapability` and `CheckedPackageLockV2`, and every type the three `Encode` types and these four hold that does not itself hold a `Value` (`CheckedOccurrence`, `CheckedDeclaration`, `NominalIdentityPreimage`, its four preimage structs, `NominalOwner`, `DimensionTerm`, `CheckedRational`, `CheckedDiagnosticStage`, `CheckedDiagnosticCode`, `CheckedDiagnosticCause`, the node identity, selection, domain-package, dependency-selection, source-region and artifact-reference types), derive `FixedShape`; `CheckedPackageIdentityPreimageV2`, `CheckedSemanticGraphV2` and `CheckedDiagnosticsV2` implement `quire_canonical::Encode`, and they and the types that hold a `Value` do not implement `FixedShape`; the crate's source holds no hand-written `impl FixedShape`, no `const DEPTH` and no wrapper type around a `quire-canonical` type; and no copy of `quire-canonical` source or of its published vectors is in the repository, each checked by a test that reads the manifests, `deny.toml` and crate source. | Test (TC-048) |
 
 ## Dependencies
 
 QSpec FR-322 (AC-4, AC-8, AC-10, AC-28, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 quire-specification:TC-217 names this repository as their consumer evidence
-owner. [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
+owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
+encoder that "Canonical encoding of the wire types" consumes (FR-038-AC-74
+through FR-038-AC-80). [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.

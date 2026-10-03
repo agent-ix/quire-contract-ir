@@ -31,7 +31,8 @@ operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
 package, and FR-038-AC-65 through FR-038-AC-69 against the operation catalog's
 words and the applications of a self-built package that name them, and
 FR-038-AC-70 through FR-038-AC-72 against self-built compared types that reach
-themselves.
+themselves, and FR-038-AC-74 through FR-038-AC-80 against the V2 wire types'
+encoding through `quire-canonical` and the reader's canonical-bytes check.
 
 ## Test Procedure
 
@@ -360,6 +361,33 @@ thread, build the ten all-referencing records and check `incomplete` for `work`
 under the default limits, and bisect the work limit of a ring of 12 records, compared with its
 12 text leaves and its recursion leaf, to the exact work (FR-038-AC-72). Compare the whole refusal code, cause and pointer
 with the expected one.
+
+## Canonical encoding (FR-038-AC-74 through FR-038-AC-80)
+
+For each in-repo positive fixture, encode the identity preimage, graph, lock,
+each source-map entry, each capability, each semantic id and the diagnostics
+through `quire_canonical::to_vec` and compare the bytes with
+`serde_json::to_vec(&serde_json::to_value(..))` of the same value, one assertion
+per type, and check `quire_canonical::sha256` of the preimage equals the
+fixture's `package_id.digest`; change one preimage member and check
+`stale_dependency` at `/package_id/digest`. Add a graph with all four nominal
+preimage versions, a `declaration`, a `recursion_group` and bodies of every
+scalar kind, with non-ASCII and astral strings and the integers 9007199254740992,
+-9007199254740992, 0 and -1, and compare again. Nest a body 100000 levels deep, put it in a
+graph node, a preimage projection and a diagnostic's `details`, encode each on a
+256 KiB thread and compare with the expected text written by repetition. Encode
+the same values under a byte ceiling of the exact length and one byte below it,
+encode a body nested 20000 levels, and encode a body holding the integer
+9007199254740993. Read package documents (FR-038-AC-79) holding 9007199254740993
+and -9007199254740993, the float `2.0` and a body object whose members are named
+U+E000 and U+10000 in UTF-8 byte order in a node body, each also carrying a
+grammar defect, and check `noncanonical_wire` with no pointer in every case;
+read the same documents with 9007199254740992, `2` and the UTF-16 order and
+check none refuses `noncanonical_wire`. For FR-038-AC-80, a test reads the
+manifests, `deny.toml` and the crate source, lists every `derive` of
+`FixedShape` and every `impl` of `Encode` and `FixedShape`, searches for
+`const DEPTH`, and checks each of the seven wire types and each type they hold
+is on the stated path; `make deny` passes.
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 
