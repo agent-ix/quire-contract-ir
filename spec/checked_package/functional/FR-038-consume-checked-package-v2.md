@@ -631,16 +631,12 @@ and FR-056-AC-14, quire-spec-language #617, merged as
 every number with a finite IEEE 754 double. For a number with no finite double,
 such as `1e400` and `-1e400`, QSL's merged FR-056 (AC-2 and TC-145, at the SHA
 above) says it does not parse and refuses `stale_dependency`/`byte-digest-mismatch`.
-QSL ruled otherwise (QSL ruling relayed 2026-10-03, the planner's relay; QSL
-FR-056 lines 86-99, AC-2 and TC-145 are being amended by QSL, and the
-`quire-canonical` change below is pending its merged SHA): `1e400` and `-1e400`
-denote a whole value past 2^53 and refuse `noncanonical_wire`/`inexact-integer`
-with a `document_pointer`, a non-whole underflow such as `1e-400` refuses
-`inexact-number`, and `byte-digest-mismatch` was a false cause. The ruled
-mechanism, pending that SHA, is that `quire-canonical`'s `read` error for an
-out-of-range number carries the number's JSON pointer and lexeme, which this
-reader maps to `noncanonical_wire` with its cause, with no pre-scan; it is a
-ruling, not a requirement of AC-110. QSL's rule also checks the members of an invocation or snapshot
+IR's FR-038-AC-110 and QSpec FR-272 (`inexact-integer`, "however spelled") say it
+refuses `noncanonical_wire`/`inexact-integer` with a `document_pointer`. The two
+differ, and the QSL lane has indicated, as relayed by the IR planner and not yet
+recorded in a QSL ticket or merged text, that it will amend FR-056 and change
+`quire-canonical`'s `read` error to carry the number's pointer and lexeme (QSL
+ticket: pending). AC-110 does not depend on that change being recorded. QSL's rule also checks the members of an invocation or snapshot
 document it admits (QSL FR-106-AC-11); this reader reads no invocation or
 snapshot document, only the selected model documents and the package document,
 so that clause has no counterpart here.
