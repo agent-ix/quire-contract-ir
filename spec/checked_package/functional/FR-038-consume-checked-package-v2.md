@@ -773,14 +773,17 @@ type, the inner type of the first operand, or, for a `set`, `bag` or
 and bounded domains, the fields of a `record`, the positions of a `tuple` and
 the inner type of an `option`, `sequence`, `set`, `bag` or `ordered_set`, and
 counts its `text` leaves. A type with none expects none, so an empty `leaves`
-is admitted; fewer supplied leaves than text leaves refuse as
+is admitted; fewer supplied leaves than derived leaves (the text leaves and,
+for a type that reaches itself, its recursion leaves) refuse as
 `operation-law-missing` at `operation.leaves`.
 
-The leaves supplied must be exactly the derived ones. The expected path of a
-leaf is its `field:<name>`, `position:<n>` and `inner` segments from the
-compared type, and each leaf carries exactly one law, of role `text_profile`
+The leaves supplied must be exactly the derived ones: the text leaves and the
+recursion leaves described under Recursive compared types. The rules in this
+and the next paragraph are about text leaves. The expected path of a
+text leaf is its `field:<name>`, `position:<n>` and `inner` segments from the
+compared type, and each text leaf carries exactly one law, of role `text_profile`
 and a definition the operation catalog lists for that role. More supplied
-leaves than text leaves, a leaf at another path or out of declaration order,
+text leaves than text leaves derived, a leaf at another path or out of declaration order,
 and a leaf whose laws are not that one law each refuse as `invalid_package`
 with cause `operation-law-mismatch`, at the first extra leaf, or at the `path`
 or `laws` of the first leaf that differs. A leaf whose law the lock does not
@@ -788,14 +791,18 @@ select then refuses `operation-law-unselected` at that law's `definition`. An
 entry that names no leaf source takes no leaves, and a supplied one refuses
 `operation-law-mismatch` at `operation.leaves/0`. The expected paths are
 derived one at a time, never listed ahead, and only after the leaf count is
-settled; the number of text leaves is memoised per type node. Deriving them
+settled; the number of text leaves is memoised per type node, where a node's
+entry applies (Recursive compared types states where, for a type that reaches
+itself). For a type none of whose nodes reaches an open composite, deriving them
 costs the supplied leaves times the nesting depth times the width of a node's
-fields, since a sibling holding no text is entered and skipped; each visit is
-charged to the work budget. A compared type that reaches
-itself, or names a node that is not in the graph or is not shaped as its form
-requires, refuses `ill_typed` with cause `operator-ineligible` at
-`operation.leaves`; so does a text leaf whose type, through its aliases and
-bounded domains, binds no `text_profile`. Each type node is counted once
+fields, since a sibling holding no text is entered and skipped; for a type that
+reaches itself the work budget alone bounds the cost. Each visit is
+charged to the work budget. A compared type that names a node that is not in
+the graph or is not shaped as its form requires refuses `ill_typed` with cause
+`operator-ineligible` at `operation.leaves`; so does a text leaf whose type,
+through its aliases and bounded domains, binds no `text_profile`. A compared
+type that reaches itself through a record or tuple is admitted (Recursive
+compared types, below). Each type node whose entry applies is counted once
 however many fields name it
 and each visit is charged to the work budget, so nesting depth is bounded by
 that budget and a type too large for it is refused as the budget is.
@@ -808,8 +815,112 @@ profile the leaf's type pins refuses `operation-mode-type-mismatch` at
 expects no leaves under `result_inner`, so a supplied leaf refuses as the
 extra leaf it is.
 
-This reader does not match the reference reader in two respects, which
-remain open. A `float32` or `float64` leaf counts as no text leaf, where the
+#### Recursive compared types
+
+Equality, and every other operation that names a leaf source, over a compared
+type that reaches itself is admitted, with the structural meaning QSL
+FR-093-AC-11 gives it: two values are equal when their shapes agree and
+their corresponding leaves are equal, however deep the values nest, and the
+finite leaf list describes the type's unfolding rather than listing it. The
+leaves a cyclic type expects are these. The derivation keeps the **open
+composites**: the `record` and `tuple` nodes it is inside, after resolving
+aliases and bounded domains, between entering one's fields or positions and
+leaving them. An edge (a `field`, a `position` or an `inner`) whose target is
+an open composite is a **reentry**. The
+derivation does not follow a reentry: it contributes no text leaf, only the
+recursion leaf below where text is reachable. Every
+other path is walked and counted as before, so each distinct path to a text
+leaf is one expected leaf; a record or tuple that two sibling fields both name
+is not a cycle, and its leaves are derived under each path. The open set holds
+the composites on the current path only, not every composite visited. A
+composite from which no `text` type is reachable expects nothing, not even a
+recursion leaf, so an equality over a recursive record with no text field
+admits with `leaves` empty.
+
+A composite's text-leaf count depends on which composites are open where it is
+entered, so a node's memoised count applies at a use only when no record or
+tuple reachable from that node is open at that use. With `X { t: Text; n?: Y }`,
+`Y { u: Text; x?: X }` and `Wrap { y: Y; x: X }`, `Y` counts 2 under `field:y`;
+under `field:x` the composite `X` is open and reachable from `Y`, so `Y` is
+counted again, as 1 there, and `Wrap` has four text leaves. A count memoised
+once per node regardless of the open set gives five, and one that turns a
+reentry into 0 but keeps that memo gives three.
+
+A cycle that passes through no record or tuple is not admitted. The
+derivation also notes each option, `sequence`, `set`, `bag` and `ordered_set`
+node it enters, with the number of open composites at that point. The note is
+held only while the node is on the current path and is dropped when the walk
+leaves it, so a node a sibling field names later is not a revisit (node keys
+are content digests, and one `Option` of `Text` serves every optional text
+field: `R { a?: Text; b?: Text }` admits). Reaching a node again while its
+note is held, with no record or tuple entered between the two visits, refuses
+`ill_typed` with cause `operator-ineligible` at `operation.leaves` (`T` as an
+`Option` of itself, or a `Sequence` of itself). QSL never writes a leaf for one, and there is no
+composite to anchor a recursion leaf's `d`. A cycle through a record or tuple
+that also passes through an option or collection is a recursive composite and
+is admitted as above; an independent record-free cycle elsewhere in the same
+type is still refused.
+
+At each reentry into a composite from which a `text` type is reachable, the
+derivation expects one **recursion leaf**, `{path: p + "recursion:d", laws: [],
+mode: null}`, where `p` is the path of the reentry edge and `d` is the decimal
+count of segments the path held when the reentered composite was entered (QSL
+FR-093, Text leaves, rule 3). A reentry into a composite that reaches no `text`
+type expects none and admits none. The leaves derived are the text leaves and
+these recursion leaves, in the order the walk reaches them, a recursion leaf at
+the position of its reentry. A supplied entry whose last path segment is
+`recursion:` followed by a decimal is a recursion leaf; every other entry is a
+text leaf. A recursion leaf is required, so a type has one `operation.leaves`
+and a meaning has one node key and one package id: the application node key
+hashes the whole `operation`, leaves included, and a list written without a
+required recursion leaf, or with one where none is derived, is refused as
+below and is not admitted under a key of its own.
+
+The checks run in this order. The supplied leaves are counted against the
+derived ones, text and recursion: fewer refuses `operation-law-missing` at
+`operation.leaves`, the same refusal a missing text leaf gets, since a missing
+recursion leaf is a derived leaf the list lacks (so `Node` with its text leaf
+alone, or with the recursion leaf alone, refuses it). One pass over the supplied
+list then follows the derivation in order, and at each place the next entry must
+be the leaf derived there. The first entry the pass cannot place refuses
+`invalid_package`/`operation-law-mismatch`: a recursion leaf, wherever it
+sits and whatever the cause (a wrong prefix, another `d`, a second one, one at a
+reentry into a composite that reaches no `text` type, one where the place
+holds a text leaf), at its `path`; a text leaf at another path at its `path`;
+and a text leaf for which no place is left at `operation.leaves/<i>`, the
+index into the supplied list, recursion leaves counted. A recursion leaf that
+carries a law refuses at its `laws`. After the shape and laws of every leaf
+hold and the law selection is settled, a recursion leaf that carries a mode
+refuses `operation-mode-mismatch` at its `mode`, and the text leaves' modes
+are checked as above.
+
+The count and the path derivation are iterative over an explicit stack, as
+they already were for a type that does not reach itself: a cycle costs heap,
+never call stack, and no recursion on the call stack is used at any depth. A
+reentry is found by the open set, not by exhausting a depth limit. Each node
+visit, and each reentry edge examined, is charged one unit to the work budget
+as every visit is; emitting the recursion leaf there, and consuming it in the
+pass, costs no unit beyond the one that reentry edge was charged. A cyclic type whose leaves or width exceed the budget
+refuses as the budget does (`incomplete` for `work`), so the cost of a type
+such as `n` records that each hold text and an optional field of every other
+record is bounded by the budget and not by the `(n - 1)!` leaves it unfolds
+to. The memoised count applies where the paragraph above says. No depth
+limit applies to the cycle itself, since each composite is open at most once
+at a time and a path is no longer than the composites it passes.
+
+This reader does not match the reference reader in four respects, which
+remain open. The QSpec reference reader finds a compared type undecidable
+when its walk reaches any node a second time, and refuses it
+`operator-ineligible`, and FR-322 is silent on cycles (QSpec STD-129 asks for
+the ruling and is unruled); this reader admits a compared type that reaches
+itself through a record or tuple as above, which QSL FR-093-AC-11 requires and
+which QSL's lowering emits. This is a deviation from the reference reader, not
+an alignment with it. The recursion leaf is QSL's ADR-013 QC-24 proposal; QSpec
+has not adopted it (STD-129 asks whether it is) and QSpec's published leaf
+segment schema rejects the `recursion:<d>` segment. This reader requires it
+where text is reachable along a cycle, as QSL FR-093's Text leaves rule 3 writes
+it, so every package QSL's lowering writes admits; that requirement is a stated
+deviation from QSpec's schema, held until that ruling. A `float32` or `float64` leaf counts as no text leaf, where the
 reference reader finds the type undecidable. A compared type this reader cannot
 resolve from the first operand (an operand it does not type, such as an untyped
 literal, an aggregate or a nested application with no `result_type`), and a
@@ -1022,8 +1133,8 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-40 | Under a bounds-required profile a `bounded_domain` over a shared unbounded type does not bound another position naming it: `{n: Integer, k: Int[0,9]}`, `Sequence<Integer>[0,3]` beside `Int[0,9]`, and `(x + 1) + n` over `x: Int[0,9]` and an `n` typed at `integer` each return `requires_bound` naming `integer`, while `Sequence<Boolean>[0,3]`, a record of bounded collections and ranged fields, and `x + 1` over `x: Int[0,9]` lower. | Test (TC-050) |
 | FR-038-AC-41 | Under a bounds-required profile a `scalar_type` or `composite_type` node declaring a `recursion_group` returns `requires_bound` naming the least offending node key, although every field of the recursive record is bounded. | Test (TC-050) |
 | FR-038-AC-42 | An enum's operand family is `ordered_enum` when its nominal preimage is `ordered` and `enum` otherwise (QSpec FR-322): `quire.op.enum.lt`, `le`, `gt` and `ge` over two operands of an ordered enum, member literals or parameters, admit; the same operations over an unordered enum refuse `ill_typed`/`operator-ineligible` at the first argument (QSpec FR-141-AC-5), and over operands of two different enums at the second; `quire.op.enum.eq` and `ne` admit over either. | Test (TC-048) |
-| FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that reaches itself or names a missing node refuses `ill_typed`/`operator-ineligible` at `operation.leaves`; and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
-| FR-038-AC-44 | `operation.leaves` is exactly the derived leaves: a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
+| FR-038-AC-43 | `structural.eq` over an all-integer record, and `collection.contains` over a set of integers, admit with `leaves` empty, because the compared type has no text leaf; the same operations over a record with a nested `text` field, or a set of `text`, refuse `invalid_package`/`operation-law-missing` at `operation.leaves` when `leaves` is empty, and one supplied leaf over two text fields refuses the same way; `collection.flatten` to a `sequence` of text admits with `leaves` empty, while a `set` of text result refuses; a compared type that names a missing node, or that reaches an option or collection again with no record or tuple between the two visits, refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, while a compared type that reaches itself through a record or tuple admits (FR-038-AC-70 through FR-038-AC-72); and a chain of 12 record levels of 4 fields naming the next level is decided inside the work budget. | Test (TC-048) |
+| FR-038-AC-44 | `operation.leaves` is exactly the derived leaves, the text leaves and, for a type that reaches itself, its recursion leaves (FR-038-AC-70, FR-038-AC-71): a record with `a`, `b` and `c` (an option of text) fields over a `text_bounds` text type that binds the `nfc` profile admits the leaves `["field:a"]`, `["field:b"]` and `["field:c", "inner"]`, a tuple the `position:<n>` segments, and `collection.contains` over a set of text the one empty path, each carrying exactly one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}`; a text leaf whose type binds no profile refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; a leaf with no mode refuses `operation-mode-mismatch` at its `mode`, one of another kind at `mode/kind`, one of an uncatalogued value at `mode/value`, and a catalogued value other than the pinned one `operation-mode-type-mismatch` at `mode/value`; `collection.flatten` to a `sequence` of text refuses one supplied leaf `operation-law-mismatch` at `operation.leaves/0` and admits none; an entry with a law the lock does not select and a supplied leaf but no leaf source refuses `operation-law-mismatch`, not `operation-law-unselected`; two leaves over an all-integer record, one leaf more than the text leaves, and an entry that names no leaf source with a leaf refuse `invalid_package`/`operation-law-mismatch` at the first extra leaf; three unrelated paths, a wrong or missing `inner` segment, two leaves out of order and a wrong segment kind refuse the same way at that leaf's `path`; a leaf with no law, two laws, a law of another role and a law outside the catalogued `text_profile` definitions refuse the same way at that leaf's `laws`; a leaf law the lock does not select refuses `operation-law-unselected` at its `definition`; and 16 levels of 10 fields all naming the next level over text refuse `operation-law-missing` without listing its 10^16 leaves, while the one leaf of a 16-level path with nine integer fields per level admits at its exact path and refuses at a wrong segment. | Test (TC-048) |
 | FR-038-AC-45 | A package a producer emits under the content-only `ModelOwner` identity (QSpec FR-322-AC-28), whose model-owned nominal preimages carry the owner `{kind: model, identity, node}` and no `version`, admits when the owner's identity names a selected domain package; its model-owned node keys are the SHA-256 of that preimage's canonical bytes and do not change when only the selected row's `digest` changes (the lock row carries no `version` to change, FR-038-AC-62). A package whose lock selects a domain package and whose graph holds a model declaration node keyed under the version-free `ModelOwner` (`ModelDeclarationNode`) resolves a model-owned `field` or `operation` member against it and admits, the declaration node's key is unchanged when only the selected row's `digest` changes, and the same node keyed under another domain package's identity refuses `missing_declaration`/`missing-selection` at the member's `declaration`. An owner of kind `model` that carries a `version` member refuses as `unknown_member` at that member, and one with an empty `identity` or `node` refuses as `invalid_semantic_graph`. | Test (TC-048) |
 | FR-038-AC-46 | A package whose definition references are exactly `{authority, identity}` with nonempty strings, at `lock.edition.definition`, each `lock.profile_selections[].definition`, each `lock.definition_selections` entry, the same three in `identity_preimage`, `diagnostics.catalog` and each `operation.laws[].definition`, admits, each other check passing. | Test (TC-048) |
 | FR-038-AC-47 | A package whose source references are exactly `{authority, identity, digest_domain, digest}`, at each `lock.sources` row, each `source_map` region `source` and each `diagnostics.entries[].loci[].source`, admits, each other check passing. | Test (TC-048) |
@@ -1049,6 +1160,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of `unsupported_construct`, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; and of two defective body-root nodes the one with the lower `node_id` digest is reported, whether its defect is `unsupported_construct` or another operation refusal. | Test (TC-048) |
 | FR-038-AC-68 | At the operation check of a `quire.op.temporal.clause` application, observed on that node (a unit-level check of the node's operation step, since the formula node it names is itself refused), an application with the one selected `temporal_profile` law, no member and six arguments (a `reference` to a `value`/`parameter` node of any type, a `text` literal, three `aggregate` terms and a `reference` to a `temporal`/`formula` node) passes; five or seven arguments refuse `ill_typed`/`operator-ineligible` at `arguments`; a first argument that is not a `reference` term and a sixth that references a Boolean node each refuse the same way at that argument; a `reference` to a `temporal`/`formula` node fits the sixth operand and an `any_term` position and no `boolean` operand position; and a member of kind `profile_operator` or any other kind refuses `invalid_package`/`operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-69 | A member of kind `temporal_interval` or `fairness` on an application whose catalogued entry has none of the operator classes `case`, `temporal_formula` and `temporal_fairness` and a member of another kind or none, such as `quire.op.boolean.not` or `quire.op.temporal.clause`, refuses `invalid_package`/`operation-member-mismatch` at the member, and the same member on a `temporal_formula` identity such as `quire.op.temporal.holds` refuses `unsupported_construct` at `operator`, not `operation-member-mismatch`. | Test (TC-048) |
+| FR-038-AC-70 | `structural.eq` over `record Node { label: Text[0, 8; nfc]; next?: Node; }` admits with the leaf `["field:label"]` carrying one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}` followed by the recursion leaf `["field:next", "inner", "recursion:0"]` with no laws and no mode, and the same comparison with the text leaf alone refuses `invalid_package`/`operation-law-missing` at `operation.leaves`, as does the recursion leaf alone; over `Option<Node>` it admits the leaves `["inner", "field:label"]` and `["inner", "field:next", "inner", "recursion:1"]`; over a mutually recursive pair `A { name: Text[0, 8; binary-utf8]; b?: B }` and `B { tag: Text[0, 4; nfc]; a?: A }` in one package, compared at `A` and compared at `B`, each leaf with the mode its own type pins, it admits `["field:name"]`, `["field:b", "inner", "field:tag"]` and the recursion leaf `["field:b", "inner", "field:a", "inner", "recursion:0"]` at `A`, and `["field:tag"]`, `["field:a", "inner", "field:name"]` and the recursion leaf `["field:a", "inner", "field:b", "inner", "recursion:0"]` at `B`; over `Two { x: Node; y: Node }` it admits exactly the text leaves `["field:x", "field:label"]` and `["field:y", "field:label"]` each followed by its own recursion leaf, `["field:x", "field:next", "inner", "recursion:1"]` and `["field:y", "field:next", "inner", "recursion:1"]`, and refuses the list lacking either recursion leaf `operation-law-missing`; over `Tree2 { label: Text[0, 8; binary-utf8]; kids: Sequence<Tree2>[0, 3]; }` it admits `["field:label"]` and the recursion leaf `["field:kids", "inner", "recursion:0"]`; over a declared tuple `Pair` of a `Text[0, 8; nfc]` and an `Option<Pair>` it admits `["position:0"]` and the recursion leaf `["position:1", "inner", "recursion:0"]`; over `X { t: Text[0, 8; nfc]; n?: Y }`, `Y { u: Text[0, 8; nfc]; x?: X }` and `Wrap { y: Y; x: X }` compared at `Wrap` it admits exactly the four text leaves `["field:y", "field:u"]`, `["field:y", "field:x", "inner", "field:t"]`, `["field:x", "field:t"]` and `["field:x", "field:n", "inner", "field:u"]` with the two recursion leaves its reentries derive in their places, `["field:y", "field:x", "inner", "field:n", "inner", "recursion:1"]` after the second and `["field:x", "field:n", "inner", "field:x", "inner", "recursion:1"]` after the fourth, so a count memoised for `Y` under `field:y` is not reused under `field:x`, where `X` is open, and a list of the four text leaves alone refuses `operation-law-missing` at `operation.leaves` while a list of all six and one further text leaf refuses `operation-law-mismatch` at the seventh entry; over a record `R { a?: Text[0, 8; nfc]; b?: Text[0, 8; nfc] }`, whose two optional fields name one option node, it admits `["field:a", "inner"]` and `["field:b", "inner"]`; over a recursive record that reaches no `text` type, such as a `List` of integers, `structural.eq` and `collection.contains` admit with `leaves` empty; and the `Node` comparison with a second text leaf supplied after `["field:label"]` and the recursion leaf refuses `operation-law-mismatch` at that extra entry, `operation.leaves/2`, so a cyclic type is no longer refused `ill_typed`/`operator-ineligible` at `operation.leaves` and no longer admits unchecked leaves. | Test (TC-048) |
+| FR-038-AC-71 | Over `Node`, the recursion leaf placed before the text leaf, a recursion leaf at `["field:next", "recursion:0"]`, one `["field:next", "inner", "recursion:1"]` with the wrong `d`, and a second recursion leaf after the first each refuse `invalid_package`/`operation-law-mismatch` at that leaf's `path`, one that carries a law refuses the same way at its `laws`, and one that carries a mode refuses `operation-mode-mismatch` at its `mode`; a recursion leaf at a reentry of an integer `List`, which reaches no `text` type, refuses `operation-law-mismatch` at that leaf's `path`; a text leaf inside a recursive record whose type binds no `text_profile` still refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with the leaves supplied or not; `T` = `Option<T>`, a `Sequence` of itself, and a record that holds a field of such a type each refuse `ill_typed`/`operator-ineligible` at `operation.leaves` under a work limit of 1000, so the refusal is not `incomplete` for `work`, whereas `R { x: Option<R> }` admits; and a leaf law the lock does not select inside a recursive record refuses `operation-law-unselected` at its `definition`. | Test (TC-048) |
+| FR-038-AC-72 | The leaf count and derivation over a cyclic compared type are iterative and decided by the work budget: a cycle of 20000 record nodes, each holding an integer field and naming the next, the last naming the first, with the last also holding one `text` field, admits with its one 20000-segment leaf and its recursion leaf under byte, node, edge and work limits raised to admit it (the default byte limit of 1 MiB is below the package's size), on a thread whose stack is 256 KiB; ten records `R0` to `R9` that each hold a text field and an optional field naming every other record, compared at `R0` with `leaves` empty, return `incomplete` for `work` at `operation.leaves` under the default read limits, rather than a listing of their leaves or any other refusal; and for a ring of 12 records, each holding one text field and an optional field naming the next, compared at the first with its 12 text leaves and its one recursion leaf (the last record's field reenters the first), a work limit one below the work a read used returns `incomplete` for `work` and the exact work admits. | Test (TC-048) |
 
 ## Dependencies
 
