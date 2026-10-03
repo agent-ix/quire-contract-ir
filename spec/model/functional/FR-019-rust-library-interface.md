@@ -84,7 +84,13 @@ span, semantic path, related identities, and obligation kind. Callers never
 need to parse display/debug/panic text.
 
 Canonical APIs require the explicit closed `CanonicalProfile`, which registers
-only `quire.contract.canonical-json/v1`. Coverage accepts immutable traces and returns a complete report
+only `quire.contract.canonical-json/v1`. The V2 checked-package wire types
+`CheckedPackageLockV2`, `CheckedPackageIdentityPreimageV2`,
+`CheckedSemanticGraphV2`, `CheckedDiagnosticsV2`, `CheckedSourceMapEntry`,
+`CheckedCapability` and `CheckedSemanticId` implement `quire_canonical::Encode`
+(the fixed-depth ones through `FixedShape`), and those implementations are part
+of the stable public surface; FR-038 owns which type takes which path and the
+bytes they produce. Coverage accepts immutable traces and returns a complete report
 plus ordered diagnostics. No mutable cache, global registry, filesystem path,
 process handle, host-width integer, downstream engine type, or schema-library
 type appears in the semantic API.
