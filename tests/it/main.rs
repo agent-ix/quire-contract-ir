@@ -11,6 +11,7 @@
 
 mod support;
 
+mod canonical_v1_quire_canonical;
 mod canonicalization;
 mod checked_package_v2_adr002_members;
 mod checked_package_v2_artifact_refs;

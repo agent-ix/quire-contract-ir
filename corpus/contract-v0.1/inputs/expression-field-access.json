@@ -106,8 +106,8 @@
           "value_type": {
             "kind": "integer",
             "domain": "signed",
-            "minimum": -10,
-            "maximum": 10,
+            "minimum": "-10",
+            "maximum": "10",
             "overflow": "reject"
           },
           "source": {
@@ -141,8 +141,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -172,8 +172,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -205,8 +205,8 @@
         "value": {
           "kind": "integer",
           "domain": "signed",
-          "minimum": -10,
-          "maximum": 10,
+          "minimum": "-10",
+          "maximum": "10",
           "overflow": "reject"
         }
       },
@@ -239,8 +239,8 @@
         "element": {
           "kind": "integer",
           "domain": "signed",
-          "minimum": -10,
-          "maximum": 10,
+          "minimum": "-10",
+          "maximum": "10",
           "overflow": "reject"
         },
         "maximum_items": 4
@@ -272,8 +272,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "unsigned",
-        "minimum": 0,
-        "maximum": 4,
+        "minimum": "0",
+        "maximum": "4",
         "overflow": "reject"
       },
       "source": {
@@ -335,8 +335,8 @@
           "value_type": {
             "kind": "integer",
             "domain": "signed",
-            "minimum": -10,
-            "maximum": 10,
+            "minimum": "-10",
+            "maximum": "10",
             "overflow": "reject"
           },
           "source": {
@@ -364,8 +364,8 @@
       "result_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -442,8 +442,8 @@
   "expected_type": {
     "kind": "integer",
     "domain": "signed",
-    "minimum": -10,
-    "maximum": 10,
+    "minimum": "-10",
+    "maximum": "10",
     "overflow": "reject"
   },
   "execution_point": {

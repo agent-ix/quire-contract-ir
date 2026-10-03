@@ -216,7 +216,7 @@ fn tc_048_a_nominal_digest_takes_a_byte_limit_and_hashes_the_expected_bytes() {
 // Source scans.
 // ---------------------------------------------------------------------------
 
-fn repository_path(relative: &str) -> PathBuf {
+pub(crate) fn repository_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
@@ -239,7 +239,7 @@ fn rust_files_under(directory: &Path, found: &mut Vec<PathBuf>) {
 /// attributed item is skipped from the attribute to the closing brace at the
 /// attribute's own indentation, or to its first line ending in `;`. The code
 /// after a test item is kept.
-fn production_source(text: &str) -> String {
+pub(crate) fn production_source(text: &str) -> String {
     let mut kept = String::new();
     let mut lines = text.lines();
     while let Some(line) = lines.next() {
@@ -426,6 +426,101 @@ fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() 
             production.contains(&derive),
             "{material} derives FixedShape"
         );
+    }
+}
+
+/// IR-274 part B: the v1 canonical objects and the bound identity envelope take
+/// `quire-canonical` too. The production source of `canonical.rs` and
+/// `binding.rs` holds no encoder of its own and no `serde_json` call that
+/// builds bytes or a value, the one encoder call of each is
+/// `quire_canonical::to_vec` or `quire_canonical::sha256` under its own
+/// ceiling, `canonical_envelope_bytes` exists nowhere in the crate, and the
+/// bound identity envelope derives `FixedShape` and holds no `Value`.
+///
+/// Tracing: TC-048
+/// ACs: FR-038-AC-91, FR-038-AC-92
+#[trace("TC-048", "FR-038-AC-91", "FR-038-AC-92")]
+#[test]
+fn tc_048_the_v1_canonical_and_binding_source_hold_no_encoder_of_their_own() {
+    let source = |name: &str| {
+        let text = fs::read_to_string(repository_path(&format!(
+            "crates/quire-contract-model/src/{name}"
+        )))
+        .expect("source reads");
+        production_source(&text)
+    };
+    let canonical = source("canonical.rs");
+    let binding = source("binding.rs");
+    assert!(
+        canonical.contains("fn canonicalize<"),
+        "the scan reads canonical.rs"
+    );
+    assert!(
+        binding.contains("struct BoundIdentityEnvelope"),
+        "the scan reads binding.rs"
+    );
+    for (name, text) in [("canonical.rs", &canonical), ("binding.rs", &binding)] {
+        for symbol in [
+            "CanonicalWriter",
+            "canonical_envelope_bytes",
+            "digest_json",
+            "serde_json_canonicalizer",
+            "value_to_vec",
+            "serde_json::to_vec",
+            "serde_json::to_value",
+            "to_vec_pretty",
+            "to_writer",
+            "sha256_with_domain",
+        ] {
+            assert_eq!(text.matches(symbol).count(), 0, "{name}: `{symbol}`");
+        }
+        assert!(!text.contains("Encode for serde_json::Value"), "{name}");
+        assert!(!text.contains("Encode for Value {"), "{name}");
+        assert!(!text.contains("impl FixedShape for"), "{name}");
+    }
+    // `canonical.rs`: one encoder call, under the ceiling the caller passed,
+    // and a digest over an explicit domain prefix.
+    assert_eq!(canonical.matches("quire_canonical::to_vec(").count(), 1);
+    assert_eq!(canonical.matches("Limits::new(").count(), 1);
+    assert!(canonical.contains("Limits::new(maximum_bytes)"));
+    assert!(canonical.contains("const DIGEST_DOMAIN: &[u8] = b\"quire-contract-ir\";"));
+    // `binding.rs`: one hash of the envelope under the file-size ceiling.
+    assert_eq!(binding.matches("quire_canonical::sha256(").count(), 1);
+    assert_eq!(binding.matches("Limits::new(").count(), 1);
+    assert!(binding.contains("Limits::new(MAX_CONFORMANCE_FILE_BYTES)"));
+    // The bound identity envelope and its binding rows derive `FixedShape`, by
+    // the derive and not by hand, and hold no `Value`.
+    for item in ["BoundIdentityEnvelope<'a>", "BoundBindingIdentity<'a>"] {
+        let derive = format!("#[derive(Serialize, FixedShape)]\nstruct {item}");
+        assert!(binding.contains(&derive), "{item} derives FixedShape");
+        let body = binding
+            .split(&format!("struct {item} {{"))
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("struct body");
+        assert!(
+            !body
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .any(|token| token == "Value"),
+            "{item} holds no Value"
+        );
+    }
+    // `canonical_envelope_bytes` exists nowhere in the model crate's source.
+    let mut files = Vec::new();
+    rust_files_under(
+        &repository_path("crates/quire-contract-model/src"),
+        &mut files,
+    );
+    for path in files {
+        let text = fs::read_to_string(&path).expect("source reads");
+        for symbol in ["canonical_envelope_bytes", "CanonicalWriter", "digest_json"] {
+            assert_eq!(
+                text.matches(symbol).count(),
+                0,
+                "{}: `{symbol}`",
+                path.display()
+            );
+        }
     }
 }
 

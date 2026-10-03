@@ -37,9 +37,12 @@ def span(at: int = 0, document: str = "contract", revision: int = 1) -> dict:
 
 OWNER = {"package": "agent-ix/conformance", "requirement": "REQ_alpha", "revision": 1}
 BOOL = {"kind": "boolean"}
-INT = {"kind": "integer", "domain": "signed", "minimum": -10, "maximum": 10, "overflow": "reject"}
-UINT = {"kind": "integer", "domain": "unsigned", "minimum": 0, "maximum": 4, "overflow": "reject"}
-RAT = {"kind": "rational", "numerator_minimum": -10, "numerator_maximum": 10, "maximum_denominator": 10}
+# The eight integer members (an integer type's minimum and maximum, a rational
+# type's three bounds, an integer literal's value and a rational literal's
+# numerator and denominator) are decimal strings (FR-013-AC-5).
+INT = {"kind": "integer", "domain": "signed", "minimum": "-10", "maximum": "10", "overflow": "reject"}
+UINT = {"kind": "integer", "domain": "unsigned", "minimum": "0", "maximum": "4", "overflow": "reject"}
+RAT = {"kind": "rational", "numerator_minimum": "-10", "numerator_maximum": "10", "maximum_denominator": "10"}
 COLL = {"kind": "collection", "element": INT, "maximum_items": 4}
 OPT = {"kind": "option", "value": INT}
 
@@ -49,7 +52,7 @@ def expr(node: str, **fields: object) -> dict:
 
 
 def integer(value: int = 1, value_type: dict = INT) -> dict:
-    return expr("integer_literal", value=value, value_type=copy.deepcopy(value_type))
+    return expr("integer_literal", value=str(value), value_type=copy.deepcopy(value_type))
 
 
 def boolean(value: bool = True) -> dict:
@@ -229,10 +232,34 @@ def build_cases() -> list:
     add_case(cases, "package-wire-depth-over", "package", {"document_json": wire_over},
              "diagnostic:invalid_wire_format", "boundary:wire.depth.over_maximum")
 
+    # Decoder fixtures (FR-011-AC-3, FR-012-AC-6, FR-013-AC-5, FR-020-AC-3): a
+    # `document_json` input hands the decoder the exact text, so a value the
+    # schema bounds (a revision or byte offset above 2^53, a JSON number in one
+    # of the eight integer members) reaches the decoder, which refuses it. The
+    # same value in a plain input is refused by the schema as invalid_corpus.
+    def wire_document(request: dict) -> dict:
+        return {"document_json": json.dumps(request, separators=(",", ":"))}
+
+    bound = package()
+    bound["source"]["revision"] = 2**53
+    bound_requirement = bound["requirements"][0]
+    bound_requirement["revision"] = 2**53
+    bound_requirement["source"] = span(0, "contract", 2**53)
+    bound_requirement["source"]["end"]["byte_offset"] = 2**53
+    bound_requirement["clauses"][0]["source"] = span(0, "contract", 2**53)
+    add_case(cases, "package-revision-maximum", "package", bound)
+    for fixture_id, mutate, code in [
+        ("package-invalid-requirement-revision-over", lambda p: p["requirements"][0].update(revision=2**53 + 1), "invalid_requirement_revision"),
+        ("package-invalid-source-revision-over", lambda p: p["source"].update(revision=2**53 + 1), "invalid_source_revision"),
+        ("package-invalid-span-offset-over", lambda p: p["requirements"][0]["source"]["end"].update(byte_offset=2**53 + 1), "invalid_source_span"),
+    ]:
+        candidate = package(); mutate(candidate)
+        add_case(cases, fixture_id, "package", wire_document(candidate), f"diagnostic:{code}")
+
     construct_cases = [
         ("boolean-literal", boolean(), BOOL, ["expression.boolean_literal"]),
         ("integer-literal", integer(), INT, ["expression.integer_literal", "type.integer"]),
-        ("rational-literal", expr("rational_literal", numerator=2, denominator=1, value_type=copy.deepcopy(RAT)), RAT, ["expression.rational_literal", "type.rational", "boundary:rational.normalized"]),
+        ("rational-literal", expr("rational_literal", numerator="2", denominator="1", value_type=copy.deepcopy(RAT)), RAT, ["expression.rational_literal", "type.rational", "boundary:rational.normalized"]),
         ("text-literal", expr("text_literal", value="line\nend"), {"kind": "text"}, ["expression.text_literal", "type.text", "boundary:canonical.escape_controls"]),
         ("enum-literal", expr("enum_literal", enumeration="Color", variant="red"), {"kind": "enum", "name": "Color"}, ["expression.enum_literal", "type.enum", "dependency.kind.enum_variant"]),
         ("option-none", expr("option_none", value_type=copy.deepcopy(OPT)), OPT, ["expression.option_none", "type.option"]),
@@ -271,7 +298,7 @@ def build_cases() -> list:
     diagnostic_cases = []
     def bad(fixture_id: str, expression: dict, expected: dict, code: str, **changes: object) -> None:
         diagnostic_cases.append((fixture_id, expression_input(expression, expected, **changes), code, []))
-    bad("invalid-wire", expr("integer_literal", value=1, value_type=copy.deepcopy(BOOL)), INT, "invalid_wire_format")
+    bad("invalid-wire", expr("integer_literal", value="1", value_type=copy.deepcopy(BOOL)), INT, "invalid_wire_format")
     bad("orphan-value", value("missing"), BOOL, "orphaned_value_reference")
     bad("orphan-function", expr("call", function="missing", arguments=[]), BOOL, "orphaned_function_reference")
     bad("invalid-state", value("state_value", "post"), INT, "invalid_state_observation")
@@ -293,7 +320,7 @@ def build_cases() -> list:
         ("duplicate-variant", "duplicate_variant", lambda r: r["types"][0]["variants"].append(copy.deepcopy(r["types"][0]["variants"][0]))),
         ("duplicate-parameter", "duplicate_parameter", lambda r: r["functions"][0]["parameters"].append(copy.deepcopy(r["functions"][0]["parameters"][0]))),
         ("empty-enum", "empty_enum", lambda r: r["types"][0].update(variants=[])),
-        ("invalid-numeric", "invalid_numeric_bounds", lambda r: r["values"][0]["value_type"].update(minimum=2, maximum=1)),
+        ("invalid-numeric", "invalid_numeric_bounds", lambda r: r["values"][0]["value_type"].update(minimum="2", maximum="1")),
         ("unbounded-collection", "unbounded_collection", lambda r: r["values"][3]["value_type"].update(maximum_items=0)),
         ("recursive-type", "recursive_type", lambda r: r.update(types=[{"kind": "record", "name": "Cycle", "source": span(1, "expression"), "fields": [{"name": "next", "value_type": {"kind": "option", "value": {"kind": "record", "name": "Cycle"}}, "source": span(2, "expression")}]}], values=[], functions=[])),
     ]
@@ -318,21 +345,38 @@ def build_cases() -> list:
     # Exact resource and numeric edges. These are generated because checking in
     # hand-expanded million-character and ten-thousand-entry JSON is error prone.
     edge = expression_input(boolean(), BOOL)
-    edge["values"][0]["value_type"] = {"kind": "integer", "domain": "signed", "minimum": -(2**63), "maximum": 2**63 - 1, "overflow": "reject"}
+    edge["values"][0]["value_type"] = {"kind": "integer", "domain": "signed", "minimum": str(-(2**63)), "maximum": str(2**63 - 1), "overflow": "reject"}
     edge["values"][3]["value_type"] = {"kind": "collection", "element": BOOL, "maximum_items": 2**32 - 1}
-    edge["values"].append({"name": "wide_rational", "kind": "input", "value_type": {"kind": "rational", "numerator_minimum": -1, "numerator_maximum": 1, "maximum_denominator": 2**63 - 1}, "source": span(14, "expression")})
+    edge["values"].append({"name": "wide_rational", "kind": "input", "value_type": {"kind": "rational", "numerator_minimum": "-1", "numerator_maximum": "1", "maximum_denominator": str(2**63 - 1)}, "source": span(14, "expression")})
     add_case(cases, "expression-numeric-edges", "expression", edge,
              "boundary:integer.minimum", "boundary:integer.maximum",
              "boundary:collection.declared_maximum", "boundary:rational.maximum_denominator")
 
     zero_denominator = expression_input(boolean(), BOOL)
-    zero_denominator["values"][0]["value_type"] = {"kind": "rational", "numerator_minimum": -1, "numerator_maximum": 1, "maximum_denominator": 0}
+    zero_denominator["values"][0]["value_type"] = {"kind": "rational", "numerator_minimum": "-1", "numerator_maximum": "1", "maximum_denominator": "0"}
     add_case(cases, "expression-rational-zero-denominator", "expression", zero_denominator,
              "diagnostic:invalid_numeric_bounds", "boundary:rational.zero_denominator")
     declared_over = expression_input(boolean(), BOOL)
     declared_over["values"][3]["value_type"]["maximum_items"] = 2**32
     add_case(cases, "expression-declared-collection-over", "expression", declared_over,
              "diagnostic:invalid_numeric_bounds", "boundary:collection.declared_out_of_range")
+
+    number_bound = expression_input(boolean(), BOOL)
+    number_bound["values"][0]["value_type"]["minimum"] = -10
+    add_case(cases, "expression-invalid-wire-number-bound", "expression", wire_document(number_bound),
+             "diagnostic:invalid_wire_format")
+    number_literal = expression_input(integer(), INT)
+    number_literal["expression"]["value"] = 1
+    add_case(cases, "expression-invalid-wire-number-literal", "expression", wire_document(number_literal),
+             "diagnostic:invalid_wire_format")
+    grammar_string = expression_input(boolean(), BOOL)
+    grammar_string["values"][0]["value_type"]["maximum"] = "+10"
+    add_case(cases, "expression-invalid-wire-string-grammar", "expression", wire_document(grammar_string),
+             "diagnostic:invalid_wire_format")
+    range_over = expression_input(boolean(), BOOL)
+    range_over["values"][0]["value_type"]["maximum"] = str(2**63)
+    add_case(cases, "expression-invalid-numeric-range", "expression", range_over,
+             "diagnostic:invalid_numeric_bounds")
 
     text_max = expr("text_literal", value="x" * 1_048_576)
     add_case(cases, "expression-text-maximum", "expression", expression_input(text_max, {"kind": "text"}),

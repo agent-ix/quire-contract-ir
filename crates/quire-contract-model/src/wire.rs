@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::decimal::IntegerString;
+use crate::expression::{INTEGER_BOUNDS_PATH, RATIONAL_BOUNDS_PATH};
 use crate::{
     conformance::{canonical_value, diagnostics_value},
     limits::{MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES},
@@ -35,14 +37,14 @@ enum WireValueType {
     Boolean,
     Integer {
         domain: IntegerDomain,
-        minimum: i64,
-        maximum: i64,
+        minimum: IntegerString,
+        maximum: IntegerString,
         overflow: OverflowPolicy,
     },
     Rational {
-        numerator_minimum: i64,
-        numerator_maximum: i64,
-        maximum_denominator: u64,
+        numerator_minimum: IntegerString,
+        numerator_maximum: IntegerString,
+        maximum_denominator: IntegerString,
     },
     Text,
     Enum {
@@ -69,13 +71,23 @@ impl WireValueType {
                 minimum,
                 maximum,
                 overflow,
-            } => IntegerType::new(domain, minimum, maximum, overflow).map(ValueType::integer),
+            } => IntegerType::new(
+                domain,
+                minimum.to_i64(INTEGER_BOUNDS_PATH)?,
+                maximum.to_i64(INTEGER_BOUNDS_PATH)?,
+                overflow,
+            )
+            .map(ValueType::integer),
             Self::Rational {
                 numerator_minimum,
                 numerator_maximum,
                 maximum_denominator,
-            } => RationalType::new(numerator_minimum, numerator_maximum, maximum_denominator)
-                .map(ValueType::rational),
+            } => RationalType::new(
+                numerator_minimum.to_i64(RATIONAL_BOUNDS_PATH)?,
+                numerator_maximum.to_i64(RATIONAL_BOUNDS_PATH)?,
+                maximum_denominator.to_u64(RATIONAL_BOUNDS_PATH)?,
+            )
+            .map(ValueType::rational),
             Self::Text => Ok(ValueType::Text),
             Self::Enum { name } => Ok(ValueType::Enum {
                 name: SymbolName::new(name)?,
@@ -251,12 +263,12 @@ enum WireExpressionKind {
         value: bool,
     },
     IntegerLiteral {
-        value: i64,
+        value: IntegerString,
         value_type: WireValueType,
     },
     RationalLiteral {
-        numerator: i64,
-        denominator: i64,
+        numerator: IntegerString,
+        denominator: IntegerString,
         value_type: WireValueType,
     },
     TextLiteral {
@@ -357,7 +369,10 @@ impl WireExpression {
                 let ValueType::Integer { value: value_type } = value_type.validate()? else {
                     return Err(wire_type_error("expression.integer_literal.value_type"));
                 };
-                ExpressionKind::IntegerLiteral { value, value_type }
+                ExpressionKind::IntegerLiteral {
+                    value: value.to_i64("expression.integer_literal.value")?,
+                    value_type,
+                }
             }
             WireExpressionKind::RationalLiteral {
                 numerator,
@@ -368,8 +383,8 @@ impl WireExpression {
                     return Err(wire_type_error("expression.rational_literal.value_type"));
                 };
                 ExpressionKind::RationalLiteral {
-                    numerator,
-                    denominator,
+                    numerator: numerator.to_i64("expression.rational_literal.numerator")?,
+                    denominator: denominator.to_i64("expression.rational_literal.denominator")?,
                     value_type,
                 }
             }
@@ -640,6 +655,16 @@ pub(crate) fn check_expression_input(
 }
 
 pub(crate) fn execute_expression(input: Value) -> Value {
+    // A `document_json` input hands the decoder the exact text, so a number in
+    // one of the eight integer members reaches the member's own type instead
+    // of being refused by a schema first.
+    let input = match input.get("document_json").and_then(Value::as_str) {
+        Some(document) => match parse_document(document) {
+            Ok(value) => value,
+            Err(diagnostic) => return invalid(vec![diagnostic]),
+        },
+        None => input,
+    };
     let CheckedExpression {
         environment,
         expression: typed,
@@ -671,6 +696,25 @@ pub(crate) fn execute_expression(input: Value) -> Value {
         "diagnostics": [],
         "canonical": canonical,
         "dependencies": typed.dependencies(),
+    })
+}
+
+/// The JSON of a `document_json` input, refused as `invalid_wire_format` when
+/// it nests past the wire depth limit or is not JSON.
+fn parse_document(document: &str) -> Result<Value, Diagnostic> {
+    if crate::limits::json_nesting_exceeds(document.as_bytes(), crate::MAX_WIRE_JSON_DEPTH) {
+        return Err(Diagnostic::error(
+            DiagnosticCode::InvalidWireFormat,
+            "JSON nesting exceeds decode limit",
+            "document.nesting",
+        ));
+    }
+    crate::identity::parse_json_stack_safe(document).map_err(|error| {
+        Diagnostic::error(
+            DiagnosticCode::InvalidWireFormat,
+            error.to_string(),
+            "document",
+        )
     })
 }
 
@@ -786,4 +830,217 @@ fn too_large(path: &'static str) -> Diagnostic {
         "semantic input exceeds a fixed validation limit",
         path,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    use super::*;
+
+    const WIDEST_INTEGER: &str = "9223372036854775807";
+    const NARROWEST_INTEGER: &str = "-9223372036854775808";
+
+    fn span() -> Value {
+        json!({
+            "start": {"source": {"document": "doc", "revision": 1}, "line": 1, "column": 1,
+                      "byte_offset": 0},
+            "end": {"source": {"document": "doc", "revision": 1}, "line": 1, "column": 2,
+                    "byte_offset": 1},
+        })
+    }
+
+    fn integer_type() -> Value {
+        json!({"kind": "integer", "domain": "signed", "minimum": NARROWEST_INTEGER,
+               "maximum": WIDEST_INTEGER, "overflow": "reject"})
+    }
+
+    fn rational_type() -> Value {
+        json!({"kind": "rational", "numerator_minimum": NARROWEST_INTEGER,
+               "numerator_maximum": WIDEST_INTEGER, "maximum_denominator": WIDEST_INTEGER})
+    }
+
+    fn request(expression: Value, expected_type: Value) -> Value {
+        json!({
+            "owner": {"package": "agent-ix/pkg", "requirement": "REQ_a", "revision": 1},
+            "types": [], "values": [], "functions": [],
+            "expression": expression,
+            "expected_type": expected_type,
+            "execution_point": {"kind": "pre", "operation": "check"},
+            "clause_root": false,
+        })
+    }
+
+    fn integer_literal(value: &str) -> Value {
+        json!({"node": "integer_literal", "value": value, "value_type": integer_type(),
+               "source": span()})
+    }
+
+    fn rational_literal(numerator: &str, denominator: &str) -> Value {
+        json!({"node": "rational_literal", "numerator": numerator, "denominator": denominator,
+               "value_type": rational_type(), "source": span()})
+    }
+
+    /// The eight members, each with a request that is valid until the member
+    /// is replaced, and the JSON pointer of the member.
+    fn members() -> Vec<(&'static str, Value, &'static str)> {
+        let rational_expected = || request(rational_literal("-3", "4"), rational_type());
+        let integer_expected = || request(integer_literal("0"), integer_type());
+        vec![
+            (
+                "IntegerType.minimum",
+                integer_expected(),
+                "/expected_type/minimum",
+            ),
+            (
+                "IntegerType.maximum",
+                integer_expected(),
+                "/expected_type/maximum",
+            ),
+            (
+                "RationalType.numerator_minimum",
+                rational_expected(),
+                "/expected_type/numerator_minimum",
+            ),
+            (
+                "RationalType.numerator_maximum",
+                rational_expected(),
+                "/expected_type/numerator_maximum",
+            ),
+            (
+                "RationalType.maximum_denominator",
+                rational_expected(),
+                "/expected_type/maximum_denominator",
+            ),
+            (
+                "IntegerLiteral.value",
+                integer_expected(),
+                "/expression/value",
+            ),
+            (
+                "RationalLiteral.numerator",
+                rational_expected(),
+                "/expression/numerator",
+            ),
+            (
+                "RationalLiteral.denominator",
+                rational_expected(),
+                "/expression/denominator",
+            ),
+        ]
+    }
+
+    fn with_member(base: &Value, pointer: &str, member: Value) -> Value {
+        let mut changed = base.clone();
+        *changed.pointer_mut(pointer).expect("the member exists") = member;
+        changed
+    }
+
+    fn refusal(input: Value) -> Diagnostic {
+        let mut diagnostics = match check_expression_input(input, None) {
+            Ok(_) => panic!("the input must be refused"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(diagnostics.len(), 1);
+        diagnostics.remove(0)
+    }
+
+    /// Tracing: TC-016, FR-013-AC-5.
+    #[trace("TC-016", "FR-013-AC-5")]
+    #[test]
+    fn tc_016_the_widest_strings_decode_and_serialize_back_to_the_same_strings() {
+        let integer = check_expression_input(request(integer_literal("0"), integer_type()), None)
+            .expect("integer request decodes");
+        let value_type = serde_json::to_value(integer.expression.value_type()).unwrap();
+        assert_eq!(value_type["value"]["minimum"], NARROWEST_INTEGER);
+        assert_eq!(value_type["value"]["maximum"], WIDEST_INTEGER);
+        let tree = serde_json::to_value(integer.expression.expression()).unwrap();
+        assert_eq!(tree["kind"]["value"], "0");
+
+        let rational =
+            check_expression_input(request(rational_literal("-3", "4"), rational_type()), None)
+                .expect("rational request decodes");
+        let value_type = serde_json::to_value(rational.expression.value_type()).unwrap();
+        assert_eq!(value_type["value"]["numerator_minimum"], NARROWEST_INTEGER);
+        assert_eq!(value_type["value"]["numerator_maximum"], WIDEST_INTEGER);
+        assert_eq!(value_type["value"]["maximum_denominator"], WIDEST_INTEGER);
+        let tree = serde_json::to_value(rational.expression.expression()).unwrap();
+        assert_eq!(tree["kind"]["numerator"], "-3");
+        assert_eq!(tree["kind"]["denominator"], "4");
+    }
+
+    /// Tracing: TC-016, FR-013-AC-5.
+    #[trace("TC-016", "FR-013-AC-5")]
+    #[test]
+    fn tc_016_each_member_refuses_a_number_or_an_out_of_grammar_string_as_invalid_wire_format() {
+        for (name, base, pointer) in members() {
+            check_expression_input(base.clone(), None)
+                .unwrap_or_else(|_| panic!("{name}: the base request decodes"));
+            let numbers = [
+                json!(0),
+                json!(1),
+                json!(1.0),
+                json!(9_223_372_036_854_775_807_i64),
+                serde_json::from_str::<Value>("100000000000000000001").unwrap(),
+            ];
+            let strings = ["", "+1", "01", "-0", "1.0", "1e3", " 1"].map(Value::from);
+            for member in numbers.into_iter().chain(strings) {
+                let diagnostic = refusal(with_member(&base, pointer, member.clone()));
+                assert_eq!(
+                    diagnostic.code,
+                    DiagnosticCode::InvalidWireFormat,
+                    "{name} = {member}"
+                );
+                assert_eq!(diagnostic.path, "expression", "{name} = {member}");
+            }
+        }
+    }
+
+    /// Tracing: TC-016, FR-013-AC-5.
+    #[trace("TC-016", "FR-013-AC-5")]
+    #[test]
+    fn tc_016_a_grammar_valid_string_out_of_range_is_invalid_numeric_bounds() {
+        let (_, integer, minimum) = members().remove(0);
+        let diagnostic = refusal(with_member(&integer, minimum, json!("9223372036854775808")));
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+        let (_, rational, numerator) = members().remove(2);
+        let diagnostic = refusal(with_member(
+            &rational,
+            numerator,
+            json!("-9223372036854775809"),
+        ));
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+        let (_, rational, denominator) = members().remove(4);
+        for member in ["0", "-1", "9223372036854775808", "18446744073709551616"] {
+            let diagnostic = refusal(with_member(&rational, denominator, json!(member)));
+            assert_eq!(
+                diagnostic.code,
+                DiagnosticCode::InvalidNumericBounds,
+                "maximum_denominator = {member}"
+            );
+        }
+        let (_, literal, value) = members().remove(5);
+        let diagnostic = refusal(with_member(&literal, value, json!("9223372036854775808")));
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+        assert_eq!(diagnostic.path, "expression.integer_literal.value");
+    }
+
+    /// Tracing: TC-016, FR-013-AC-5.
+    #[trace("TC-016", "FR-013-AC-5")]
+    #[test]
+    fn tc_016_a_document_input_reaches_the_decoder_as_the_text_it_is() {
+        let number = with_member(
+            &request(integer_literal("0"), integer_type()),
+            "/expected_type/minimum",
+            json!(0),
+        );
+        let result = execute_expression(json!({"document_json": number.to_string()}));
+        assert_eq!(result["valid"], false);
+        assert_eq!(result["diagnostics"][0]["code"], "invalid_wire_format");
+        assert_eq!(result["diagnostics"][0]["path"], "expression");
+        let malformed = execute_expression(json!({"document_json": "{"}));
+        assert_eq!(malformed["diagnostics"][0]["code"], "invalid_wire_format");
+        assert_eq!(malformed["diagnostics"][0]["path"], "document");
+    }
 }

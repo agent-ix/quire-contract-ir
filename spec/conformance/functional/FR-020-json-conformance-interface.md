@@ -96,13 +96,11 @@ preload limit. The per-file limit is strictly below the total budget, so no
 single file can exhaust a run on its own. Raw JSON nesting is scanned before
 recursive materialization and is limited to 576 levels.
 
-The code change that lands the v1 decimal-string integers (IR-274 code change
-B) amends the published schemas, the corpus and the runner together, because
+The code change that landed the v1 decimal-string integers (IR-274 code change
+B) amended the published schemas, the corpus and the runner together, because
 the runner and the executable-projection binder read the schemas at run time
 and a schema that disagrees with the corpus fails the run as `invalid_corpus`.
-This requirement states the target; until that change the schemas and corpus
-hold the earlier number spelling and are not amended. After it, the published
-fixture schema carries the eight integer members of FR-013 (an integer type's
+The published fixture schema carries the eight integer members of FR-013 (an integer type's
 `minimum` and `maximum`, a rational type's `numerator_minimum`,
 `numerator_maximum` and `maximum_denominator`, an integer literal's `value`, a
 rational literal's `numerator` and `denominator`) as `IntegerString` strings
@@ -111,7 +109,9 @@ and a byte offset at 2^53 (FR-011, FR-012). Two levels decide an input that
 carries a JSON number in one of the eight members, and they do not overlap: a
 valid-operation input is checked against the schema first, so it is
 `invalid_corpus`; a fixture that exercises the decoder's refusal supplies the
-wire to the decoder directly and its expectation carries `invalid_wire_format`,
+wire to the decoder directly (an input of the form `{"document_json": "<text>"}`,
+which the package and expression operations both accept) and its expectation
+carries `invalid_wire_format`,
 as FR-013 states for every v1 loader. Every canonical file of the corpus whose
 object holds one of the eight members (47 of the 75 canonical files and 59 of
 the 99 inputs at the time of writing) is re-recorded with `quire-canonical`'s
@@ -133,7 +133,7 @@ and exits 0 without reading a corpus.
 |---|---|---|
 | FR-020-AC-1 | A process test runs the published corpus twice without linking a test harness to the library and obtains byte-identical JSON Lines, one `match` with non-empty observed trace ids per fixture input, exit 0, empty stderr, and complete tool/schema/profile identity. | Test (TC-018) |
 | FR-020-AC-2 | Process fixtures pin exit 1 with all six mismatch kinds in fixed order and exit 2 for each of the six closed operational codes (`invalid_invocation`, `invalid_corpus`, `unsupported_profile`, `unsafe_path`, `fixture_io`, `resource_exhausted`), with no absolute path in the error record; stdout/stderr separation, no partial output, `--version`, unknown/repeated arguments, non-UTF-8 argument handling, and pre-decode rejection of a 60000-level referenced JSON input are exact. | Test (TC-018) |
-| FR-020-AC-3 | Planned, landing with code change B: the published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members and rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each; the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format` and its expectation carries that code, while the same number in a valid-operation input is `invalid_corpus` at the schema check; and every canonical file of the published corpus whose object holds one of the eight members equals the expected bytes written in the test, with the eight members only as strings, and the published corpus runs exit 0 with every fixture a `match`. | Test (TC-018) |
+| FR-020-AC-3 | Landed with code change B (IR-274), its last clause only partly (the matrix names the gap): the published fixture schema accepts `"-9223372036854775808"`, `"0"` and `"9223372036854775807"` in each of the eight integer members and rejects `0`, `1.0`, `"+1"`, `"01"`, `"-0"` and `""` in each; the package schema accepts a revision and a byte offset of `9007199254740992` and rejects `9007199254740993`; a decoder fixture that supplies a JSON number in one of the eight members straight to the decoder returns `invalid_wire_format` and its expectation carries that code, while the same number in a valid-operation input is `invalid_corpus` at the schema check; and every canonical file of the published corpus whose object holds one of the eight members equals the expected bytes written in the test, with the eight members only as strings, and the published corpus runs exit 0 with every fixture a `match`. | Test (TC-018) |
 
 ## Dependencies
 

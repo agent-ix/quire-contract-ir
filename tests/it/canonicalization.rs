@@ -594,9 +594,21 @@ fn tc_017_declaration_and_expression_projections_are_source_free_and_exact() {
             .canonical_expression(CanonicalProfile::V1)
             .unwrap()
     );
-    let rational_text = String::from_utf8(rational_output.bytes().as_slice().to_vec()).unwrap();
-    assert!(rational_text.contains("\"denominator\":2"));
-    assert!(rational_text.contains("\"numerator\":1"));
+    // The reduced `1/2`, with the eight integer members spelled as strings
+    // (FR-016-AC-5), written out member by member rather than read back from
+    // this crate or the encoder.
+    assert_eq!(
+        std::str::from_utf8(rational_output.bytes().as_slice()).unwrap(),
+        concat!(
+            "{\"kind\":\"expression\",\"profile\":\"quire.contract.canonical-json/v1\",",
+            "\"value\":{\"result_type\":{\"kind\":\"rational\",\"value\":",
+            "{\"maximum_denominator\":\"10\",\"numerator_maximum\":\"10\",",
+            "\"numerator_minimum\":\"-10\"}},\"tree\":{\"kind\":{\"denominator\":\"2\",",
+            "\"node\":\"rational_literal\",\"numerator\":\"1\",\"value_type\":",
+            "{\"maximum_denominator\":\"10\",\"numerator_maximum\":\"10\",",
+            "\"numerator_minimum\":\"-10\"}}}}}"
+        )
+    );
 
     let collection_type = CollectionType::new(ValueType::Text, 2).unwrap();
     let collection = Expression::new(

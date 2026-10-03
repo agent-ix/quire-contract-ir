@@ -94,7 +94,19 @@ pub enum DefinednessObligationKind {
     CheckedRange,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    quire_canonical::FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum StateObservation {
     Current,
@@ -416,6 +428,12 @@ impl<'de> Deserialize<'de> for SchemaVersion {
     }
 }
 
+/// 2^53, the largest integer RFC 8785 spells exactly and the largest number
+/// `quire-canonical` encodes: a revision or a byte offset above it is refused
+/// at construction, so it never reaches a canonical object as a number it
+/// would refuse (FR-011-AC-3, FR-012-AC-6, FR-016-AC-7).
+pub(crate) const MAX_EXACT_INTEGER: u64 = 9_007_199_254_740_992;
+
 macro_rules! positive_revision {
     ($name:ident, $code:expr, $path:literal) => {
         #[derive(
@@ -437,6 +455,12 @@ macro_rules! positive_revision {
             pub fn new(value: u64) -> Result<Self, Diagnostic> {
                 if value == 0 {
                     Err(Diagnostic::error($code, "revision must be positive", $path))
+                } else if value > MAX_EXACT_INTEGER {
+                    Err(Diagnostic::error(
+                        $code,
+                        "revision exceeds 9007199254740992 (2^53)",
+                        $path,
+                    ))
                 } else {
                     Ok(Self(value))
                 }
@@ -552,6 +576,12 @@ impl SourceLocation {
             Err(Diagnostic::error(
                 DiagnosticCode::InvalidSourceSpan,
                 "source lines and columns are one-based",
+                "source_span",
+            ))
+        } else if byte_offset > MAX_EXACT_INTEGER {
+            Err(Diagnostic::error(
+                DiagnosticCode::InvalidSourceSpan,
+                "source byte offset exceeds 9007199254740992 (2^53)",
                 "source_span",
             ))
         } else {
@@ -752,7 +782,19 @@ pub enum SemanticIdentity {
     Dependency { identity: DependencyIdentity },
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    quire_canonical::FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyKind {
     Input,
@@ -762,7 +804,9 @@ pub enum DependencyKind {
     PureFunction,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, quire_canonical::FixedShape,
+)]
 pub struct DependencyIdentity {
     requirement: RequirementRef,
     kind: DependencyKind,
@@ -1337,9 +1381,37 @@ impl ContractPackage<ReferenceBody> {
         })?;
         Self::from_json_str(input, options)
     }
+
+    /// Decodes a package from a JSON value already parsed and bounded by the
+    /// caller (the executable projection's `package` member), through the same
+    /// decoders and refusals as the text form. The caller owns the nesting
+    /// limit of the document the value came from.
+    pub(crate) fn from_json_value(
+        input: &serde_json::Value,
+        options: crate::ValidationOptions,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        debug_assert!(options.is_strict());
+        let wire_error = |error: serde_json::Error| {
+            vec![Diagnostic::error(
+                DiagnosticCode::InvalidWireFormat,
+                error.to_string(),
+                "document",
+            )]
+        };
+        let preflight = VersionPreflight::deserialize(serde_stacker::Deserializer::new(input))
+            .map_err(wire_error)?;
+        preflight
+            .validate()
+            .map_err(|diagnostic| vec![diagnostic])?;
+        let wire = WirePackage::deserialize(serde_stacker::Deserializer::new(input))
+            .map_err(wire_error)?;
+        wire.validate()
+    }
 }
 
-fn parse_json_stack_safe<T: DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+pub(crate) fn parse_json_stack_safe<T: DeserializeOwned>(
+    input: &str,
+) -> Result<T, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(input);
     deserializer.disable_recursion_limit();
     T::deserialize(serde_stacker::Deserializer::new(&mut deserializer))

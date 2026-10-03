@@ -1,0 +1,25 @@
+{
+  "canonical": [
+    {
+      "digest": "3e636351e023d949b76309bb0febc1f4b90537eee7f3bc298e842c9c43b6ee08",
+      "identity": "package",
+      "kind": "package",
+      "bytes_path": "canonical/package-revision-maximum-0.json"
+    },
+    {
+      "digest": "b7368d5d470f99306b84b03263120dc2b4e8ab5980ff046bb27e025974c01822",
+      "identity": "requirement:REQ_alpha",
+      "kind": "requirement",
+      "bytes_path": "canonical/package-revision-maximum-1.json"
+    },
+    {
+      "digest": "cccdfc9f909a5bc0fb9f1dfeed296ab7d4e3ea70ab122abe88916645d9070720",
+      "identity": "clause:REQ_alpha:note",
+      "kind": "clause",
+      "bytes_path": "canonical/package-revision-maximum-2.json"
+    }
+  ],
+  "dependencies": [],
+  "diagnostics": [],
+  "valid": true
+}

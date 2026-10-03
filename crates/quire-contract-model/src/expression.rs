@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 
+use crate::decimal::serialize_decimal;
 use crate::{
     DefinednessObligationKind, DependencyIdentity, DependencyKind, DependencyName,
     DependencySource, Diagnostic, DiagnosticCode, ExecutionPoint, RequirementRef, SourceSpan,
@@ -11,6 +13,11 @@ use crate::{
 pub const MAX_EXPRESSION_NODES: u32 = 10_000;
 pub const MAX_EXPRESSION_DEPTH: u32 = 256;
 pub const MAX_TEXT_LENGTH: u32 = 1_048_576;
+
+/// Where an integer type's bounds, and a rational type's, are refused: an
+/// unordered pair at construction, an out-of-range decimal string at decode.
+pub(crate) const INTEGER_BOUNDS_PATH: &str = "type.integer.bounds";
+pub(crate) const RATIONAL_BOUNDS_PATH: &str = "type.rational.bounds";
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -38,24 +45,32 @@ impl SymbolName {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegerDomain {
     Signed,
     Unsigned,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum OverflowPolicy {
     Reject,
     Saturate,
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+/// An integer type. `minimum` and `maximum` serialize as decimal strings
+/// (FR-013-AC-5); the depth of the type is fixed, so it is `FixedShape`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub struct IntegerType {
     domain: IntegerDomain,
+    #[serde(serialize_with = "serialize_decimal")]
     minimum: i64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum: i64,
     overflow: OverflowPolicy,
 }
@@ -71,7 +86,7 @@ impl IntegerType {
             Err(Diagnostic::error(
                 DiagnosticCode::InvalidNumericBounds,
                 "integer bounds are unordered or violate the unsigned domain",
-                "type.integer.bounds",
+                INTEGER_BOUNDS_PATH,
             ))
         } else {
             Ok(Self {
@@ -100,10 +115,15 @@ impl IntegerType {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+/// A rational type. All three bounds serialize as decimal strings
+/// (FR-013-AC-5); the depth of the type is fixed, so it is `FixedShape`.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub struct RationalType {
+    #[serde(serialize_with = "serialize_decimal")]
     numerator_minimum: i64,
+    #[serde(serialize_with = "serialize_decimal")]
     numerator_maximum: i64,
+    #[serde(serialize_with = "serialize_decimal")]
     maximum_denominator: u64,
 }
 
@@ -120,7 +140,7 @@ impl RationalType {
             Err(Diagnostic::error(
                 DiagnosticCode::InvalidNumericBounds,
                 "rational numerator or denominator bounds are invalid",
-                "type.rational.bounds",
+                RATIONAL_BOUNDS_PATH,
             ))
         } else {
             Ok(Self {
@@ -401,7 +421,7 @@ impl TypeDeclaration {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueDeclarationKind {
     Input,
@@ -928,7 +948,7 @@ fn record_references(value_type: &ValueType, output: &mut Vec<SymbolName>) {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum NumericOperator {
     Add,
@@ -938,7 +958,7 @@ pub enum NumericOperator {
     Remainder,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum ComparisonOperator {
     Equal,
@@ -949,7 +969,7 @@ pub enum ComparisonOperator {
     GreaterEqual,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum BooleanOperator {
     ShortCircuitAnd,
@@ -959,14 +979,14 @@ pub enum BooleanOperator {
     Implication,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantifierKind {
     ForAll,
     Exists,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum QuantifierDomain {
     Elements,
@@ -1095,11 +1115,14 @@ pub enum ExpressionKind {
         value: bool,
     },
     IntegerLiteral {
+        #[serde(serialize_with = "serialize_decimal")]
         value: i64,
         value_type: IntegerType,
     },
     RationalLiteral {
+        #[serde(serialize_with = "serialize_decimal")]
         numerator: i64,
+        #[serde(serialize_with = "serialize_decimal")]
         denominator: i64,
         value_type: RationalType,
     },

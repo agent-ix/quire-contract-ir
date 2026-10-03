@@ -83,6 +83,7 @@ mod canonical;
 mod checked_package;
 mod conformance;
 mod coverage;
+mod decimal;
 mod expression;
 mod identity;
 mod limits;

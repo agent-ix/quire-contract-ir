@@ -3082,20 +3082,28 @@ mod tests {
         assert_eq!(refusal.path(), "record.identity");
     }
 
-    /// A source byte offset above 2^53 is a failed canonicalization step,
-    /// `allocation_failed`, the code STD-003 registers at `record.identity`;
-    /// it is neither a limit nor `arithmetic_overflow`, which STD-003 does not
-    /// register there. Code change B bounds the offset's type and makes this
-    /// unreachable.
+    /// A source byte offset above 2^53 cannot reach the record material: the
+    /// source location refuses it at construction (`invalid_source_span`,
+    /// FR-012-AC-6), so the number the encoder would refuse, and the
+    /// `allocation_failed` that refusal mapped to at `record.identity`, are
+    /// unreachable. An offset of exactly 2^53 is the largest the material
+    /// holds, and it encodes as a number.
     ///
     /// Tracing: TC-043, FR-034-AC-6.
     #[trace("TC-043", "FR-034-AC-6")]
     #[test]
-    fn tc_043_a_source_offset_past_two_to_the_53_refuses_with_the_registered_code() {
-        let refusal = record_bytes(9_007_199_254_740_993, u64::MAX - 1)
-            .expect_err("a number the encoder refuses");
-        assert_eq!(refusal.code(), MappingRequestErrorCode::AllocationFailed);
-        assert_eq!(refusal.path(), "record.identity");
+    fn tc_043_a_source_offset_past_two_to_the_53_cannot_reach_the_record_material() {
+        let source = SourceIdentity::new(
+            SourceDocumentId::new("spec.md").expect("document id"),
+            SourceRevision::new(3).expect("source revision"),
+        );
+        let refusal = SourceLocation::new(source, 2, 5, 9_007_199_254_740_993)
+            .expect_err("an offset past 2^53 cannot be built");
+        assert_eq!(refusal.code, crate::DiagnosticCode::InvalidSourceSpan);
+        let bytes =
+            record_bytes(9_007_199_254_740_992, u64::MAX - 1).expect("2^53 encodes as a number");
+        let text = String::from_utf8(bytes).expect("canonical bytes are UTF-8");
+        assert!(text.contains("\"byte_offset\":9007199254740992"), "{text}");
     }
 
     /// Only the canonical byte limit is `request_limit_exceeded`; the

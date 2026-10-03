@@ -761,3 +761,74 @@ fn dependency_package(
     package["requirements"][0]["clauses"][0]["body"]["children"][0]["identity"] = dependency;
     package
 }
+
+/// A source or requirement revision and a byte offset above 2^53
+/// (9007199254740992), the largest integer RFC 8785 spells exactly, are
+/// refused with the registered code; 2^53 itself is accepted.
+///
+/// Tracing: TC-015
+/// TC-015.
+/// FR-011-AC-3.
+/// FR-012-AC-6.
+#[ix_trace_rs::trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
+#[test]
+fn tc_015_a_revision_or_byte_offset_above_two_to_the_53_is_refused() {
+    const BOUND: u64 = 9_007_199_254_740_992;
+    assert_eq!(RequirementRevision::new(BOUND).unwrap().get(), BOUND);
+    assert_eq!(SourceRevision::new(BOUND).unwrap().get(), BOUND);
+    assert_eq!(
+        diagnostic_code(RequirementRevision::new(BOUND + 1)),
+        DiagnosticCode::InvalidRequirementRevision
+    );
+    assert_eq!(
+        diagnostic_code(SourceRevision::new(BOUND + 1)),
+        DiagnosticCode::InvalidSourceRevision
+    );
+    assert_eq!(
+        diagnostic_code(RequirementRevision::new(u64::MAX)),
+        DiagnosticCode::InvalidRequirementRevision
+    );
+    assert_eq!(
+        diagnostic_code(RequirementRevision::new(1).unwrap().advance(BOUND + 1)),
+        DiagnosticCode::InvalidRequirementRevision
+    );
+    assert_eq!(
+        diagnostic_code(RequirementRef::parse("agent-ix/pkg", "REQ_a", BOUND + 1)),
+        DiagnosticCode::InvalidRequirementRevision
+    );
+    assert!(RequirementRef::parse("agent-ix/pkg", "REQ_a", BOUND).is_ok());
+
+    let identity = source("doc", 1);
+    let location = |offset| SourceLocation::new(identity.clone(), 1, 1, offset);
+    assert_eq!(location(BOUND).unwrap().byte_offset(), BOUND);
+    assert_eq!(
+        diagnostic_code(location(BOUND + 1)),
+        DiagnosticCode::InvalidSourceSpan
+    );
+    assert_eq!(
+        diagnostic_code(location(u64::MAX)),
+        DiagnosticCode::InvalidSourceSpan
+    );
+    assert!(SourceSpan::new(location(0).unwrap(), location(BOUND).unwrap()).is_ok());
+
+    // The decoders refuse the same values as the same codes.
+    let valid = serde_json::to_value(valid_package()).unwrap();
+    let decoded = |value: &serde_json::Value| package_error(value)[0].code;
+    let mut candidate = valid.clone();
+    candidate["requirements"][0]["revision"] = (BOUND + 1).into();
+    assert_eq!(
+        decoded(&candidate),
+        DiagnosticCode::InvalidRequirementRevision
+    );
+    let mut candidate = valid.clone();
+    candidate["source"]["revision"] = (BOUND + 1).into();
+    assert_eq!(decoded(&candidate), DiagnosticCode::InvalidSourceRevision);
+    let mut candidate = valid.clone();
+    candidate["requirements"][0]["source"]["end"]["byte_offset"] = (BOUND + 1).into();
+    assert_eq!(decoded(&candidate), DiagnosticCode::InvalidSourceSpan);
+    let mut at_bound = serde_json::to_value(valid_package_at(BOUND)).unwrap();
+    at_bound["requirements"][0]["source"]["end"]["byte_offset"] = BOUND.into();
+    assert!(
+        ContractPackage::from_json_str(&at_bound.to_string(), ValidationOptions::strict()).is_ok()
+    );
+}
