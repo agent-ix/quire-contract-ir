@@ -39,7 +39,10 @@ node, as unit tests of `crates/quire-contract-model/src/checked_package/v2/opera
 and FR-038-AC-89 through FR-038-AC-95 against every identity digest's move to
 `quire-canonical` (node keys, lowered identities, the nominal digest's byte
 limit, the absence of an encoder of this repository's own, a selected model
-document's integer check and byte limit, and the lowering byte ceiling).
+document's integer check and byte limit, and the lowering byte ceiling), and
+FR-038-AC-96 through FR-038-AC-101 (QSpec FR-370 and FR-440) against the
+temporal, fairness, union and `case` nodes of a self-built package and the
+placement of their applications. FR-038-AC-66 is retired and has no case.
 
 ## Test Procedure
 
@@ -150,50 +153,78 @@ catalog bytes that name an operator class, a member kind and a constraint kind
 outside the vocabulary, one at a time. Put an operator outside the closed
 operator vocabulary on a package application and read the package.
 
-Build a package whose root-bodied application names `quire.op.control.case`
-with operator `case`, and one for each of the fifteen `temporal_formula`
-identities and `quire.op.temporal.fair` with their own operator class, with
-agreeing laws, mode, member, leaves and arguments in one set of cases and
-contradicting ones in another, and read each (all seventeen entries at the
-operation step of the node as a unit, whose contradicting cases contradict the
-laws, mode, member, leaves and arguments, and one identity of each class
-through a package read). Nest one such application of each
-of the three operator classes as an element of another application's
-`arguments`, as a `binding` value and inside an `aggregate`, under a root whose
-own operation is otherwise admitted, and read each. Put one of each class as a
-root, and one nested in another term, in a diagnostic entry's `details`, and
-read each. Name
-`quire.op.control.case` under operator `unary`, and an identity the catalog
-lacks, and read each. Build two defective body-root nodes, one
-`unsupported_construct` and one other operation defect, in both digest orders.
-Put a `temporal_interval` member on `quire.op.boolean.not` and on
-`quire.op.temporal.clause`, and a `fairness` member on `quire.op.temporal.holds`.
+Name `quire.op.control.case` under operator `unary`, and an identity the catalog
+lacks, and read each. Build two defective body-root nodes, one a
+`temporal_formula` application in a `function` node and one other operation
+defect, in both digest orders (AC-67). Put a `temporal_interval` member on
+`quire.op.boolean.not` and on `quire.op.temporal.clause`, and a `fairness`
+member on `quire.op.boolean.not` and on `quire.op.temporal.holds` (AC-69).
 
 Run the operation check of a `quire.op.temporal.clause` application node as a
-unit (its formula node is itself refused, so a package read cannot show the
-clause passing): with its law selected, no member and the six arguments, the
-first a `reference` to a `value`/`parameter` node of a record type, with five
-and seven arguments, with a `text` literal first and a `reference` to a Boolean
-node sixth, with a `reference` to a `temporal`/`formula` node sixth and in a
-`boolean` operand position and an `any_term` position, and with a
-`profile_operator` member and a `fairness` member.
+unit and, since IR-549, through a package read whose formula node is a
+`temporal_formula` application (AC-68): with its law selected, no member and the
+six arguments, the first a `reference` to a `value`/`parameter` node of a record
+type, with five and seven arguments, with a `text` literal first and a
+`reference` to a Boolean node sixth, with a `reference` to a `temporal`/`formula`
+node sixth and in a `boolean` operand position and an `any_term` position, and
+with a `profile_operator` member and a `fairness` member.
 
 Expected: every word converts both ways and the catalog's sets equal the
 enums'; each unreadable catalog returns the typed error of FR-038-AC-58
 naming the word; the foreign operator refuses `invalid_semantic_graph` at the
-term; each case or temporal application, root or nested, in a node body or a
-diagnostic detail, refuses
-`unsupported_construct` with cause `expression-form` at its `operator`, agreeing
-or not; the `unary` case refuses `operation-class-mismatch`, the unknown
-identity `unknown-operation`; the lower digest is reported in both orders; the
-stray members on `quire.op.boolean.not` and `quire.op.temporal.clause` refuse
-`operation-member-mismatch` at the member, and the `fairness` member on
-`quire.op.temporal.holds` refuses `unsupported_construct` at `operator`; the
-clause unit passes, the wrong counts refuse `operator-ineligible` at
-`arguments`, the two wrong families at their arguments, the formula reference
-fits the sixth operand and the `any_term` position and not the `boolean` one,
-and the two members refuse `operation-member-mismatch`. Compare the whole
-refusal code, cause and pointer.
+term; the `unary` case refuses `operation-class-mismatch`, the unknown identity
+`unknown-operation`; the lower digest is reported in both orders; the stray
+members on `quire.op.boolean.not`, `quire.op.temporal.holds` and
+`quire.op.temporal.clause` refuse `operation-member-mismatch` at the member; the
+clause passes in the unit and the package, the wrong counts refuse
+`operator-ineligible` at `arguments`, the two wrong families at their arguments,
+the formula reference fits the sixth operand and the `any_term` position and not
+the `boolean` one, and the two members refuse `operation-member-mismatch`.
+Compare the whole refusal code, cause and pointer.
+
+## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-101)
+
+Planned (IR-549 code change); the cases are authored here and have no test yet.
+Build, from this crate's own vocabulary and never from a copy of QSpec's
+fixtures, a package whose `temporal`/`formula` nodes apply each of the fifteen
+`temporal_formula` identities with their catalogued member and operands, a
+`temporal`/`fairness` node applying `quire.op.temporal.fair`, and a clause whose
+formula applies `quire.op.temporal.eventually` with the interval `{0, 3}` over
+`quire.op.temporal.holds`; read it, then lower it under a profile that supports
+the `temporal` tag and under one that does not (AC-96). On each of the eight
+interval operators read the member as `{0, 3}`, `{2, null}`, `null`, `{3, 0}`,
+a `fairness` member, an interval with a third member, a non-string `lower` and an
+`upper` of `"3x"`, and put a member on `holds`, `not` and the clause (AC-97). Read
+the `fairness` member well formed with `weak`/`whole` and `strong`/`each`, then
+with `medium`, with `part`, without `name`, with an extra member, `null`, of kind
+`temporal_interval`, and on `quire.op.boolean.not` (AC-98). Build the `Shape`
+union, the `Shape::Rect(2, 3)` value and the three-arm `case` and read them; then
+read the `case` with its arms out of order, an arm omitted, a binder aggregate of
+the wrong count, a binder of the wrong type and an arm body of another type; a
+union with a duplicated member and one with a non-type payload; and a union value
+naming an absent member, with a wrong payload count and with a payload of the
+wrong type (AC-99). Put an application of each of the four classes in a node of
+another form, as an element of another application's `arguments`, as a `binding`
+value, inside an `aggregate`, and as a root and as a nested term in a diagnostic
+entry's `details`; read each, then read each class at its own node root (AC-100).
+Compile the reader's refusal types for the code `unsupported_construct` and the
+cause `expression-form`, and lower the admitted `temporal`/`formula` and
+`expression`/`case` nodes under supporting and non-supporting profiles, comparing
+the lowered body and `ir_id` with the admitted node's (AC-101).
+
+Expected: the package of AC-96 admits with its recorded identities and lowers or
+returns `unsupported` naming `temporal` as stated; AC-97's first three members
+admit, `{3, 0}` refuses `invalid_package`/`invalid-value` at `operation.member`
+and each other member `operation-member-mismatch` at `operation.member`; AC-98's
+two well-formed members admit and each other refuses `operation-member-mismatch`
+at `operation.member`; the `Shape` package admits and each defective `case`
+refuses `ill_typed`/`operator-ineligible` at the `case` node, the duplicate
+member `invalid_package`/`duplicate-member` and each defective union value
+`ill_typed`/`type-mismatch` at the node; each misplaced application refuses
+`ill_typed`/`operator-ineligible` at its own `operator` and each is admitted at
+its own node root; the reader's refusal types hold neither word, and the lowered
+body equals the admitted body. Compare the whole refusal code, cause and
+pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
 
@@ -315,7 +346,8 @@ arguments, an `integer`-typed and a `boolean`-typed literal first, and
 literals of one type and of two, and two nested applications of one result type
 and of two (AC-86). Compare the operand family and the type-shaped predicate of
 every kind of the closed node taxonomy with the stated pairs, the
-`temporal`/`formula` pair added when the IR-503 code lands (AC-87). Key an
+`temporal`/`formula` pair added when the IR-503 code lands and the
+`composite_type`/`union` pair when the IR-549 code lands (AC-87). Key an
 application node that is member 1 of a group of two and compare its canonical
 preimage text with the object FR-038-AC-88 lists, member by member; rewrite group references in an aggregate member, a
 binding value and nested applications' arguments; read a node with a stale
