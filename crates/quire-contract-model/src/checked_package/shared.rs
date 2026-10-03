@@ -5,6 +5,7 @@
 //! source/occurrence records that the current reader and its lowering
 //! pipeline both use unchanged.
 
+use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 
 /// Caller-supplied, exact ceilings for a checked-package read.
@@ -337,7 +338,7 @@ pub struct CheckedArtifactLocator {
 }
 
 /// A semantic digest with an explicit domain and algorithm.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSemanticId {
     /// Identity domain.
@@ -349,7 +350,7 @@ pub struct CheckedSemanticId {
 }
 
 /// A checked semantic graph node identity.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedNodeId {
     /// Must be `quire.checked-semantic-node/v1`.
@@ -359,7 +360,7 @@ pub struct CheckedNodeId {
 }
 
 /// A source occurrence role.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedOccurrenceRole {
     /// Declaration occurrence.
@@ -377,7 +378,7 @@ pub enum CheckedOccurrenceRole {
 }
 
 /// One semantic occurrence named by a graph node.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedOccurrence {
     /// Semantic role.
@@ -387,7 +388,7 @@ pub struct CheckedOccurrence {
 }
 
 /// A revision in a stable namespace.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedRevision {
     /// Revision namespace.
@@ -397,7 +398,7 @@ pub struct CheckedRevision {
 }
 
 /// One raw source, definition, or model identity from the package lock.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedArtifactRef {
     /// Artifact authority.
@@ -416,7 +417,7 @@ pub struct CheckedArtifactRef {
 }
 
 /// A selected definition-role identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSelection {
     /// The closed selection role.
@@ -426,7 +427,7 @@ pub struct CheckedSelection {
 }
 
 /// A source interval under an exact raw-source identity.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceRegion {
     /// Raw source document identity.
@@ -438,7 +439,7 @@ pub struct CheckedSourceRegion {
 }
 
 /// Exact source correspondence for one node occurrence.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceMapEntry {
     /// Graph node identity.
@@ -452,7 +453,7 @@ pub struct CheckedSourceMapEntry {
 }
 
 /// Reported availability of one required capability.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedCapability {
     /// Capability identifier.

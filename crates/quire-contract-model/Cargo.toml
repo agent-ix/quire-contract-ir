@@ -26,6 +26,9 @@ jsonschema = { version = "=0.17.1", default-features = false }
 # from there rather than carrying its own copy of the bytes; see
 # `checked_package/v2/operation_catalog.rs`.
 quire-verification-contracts = { version = "=0.1.0", git = "https://github.com/agent-ix/quire-verification-contracts", branch = "main" }
+# The one RFC 8785 encoder the V2 wire types encode through, and the reader's
+# canonical-bytes check; see `checked_package/v2/encode.rs`.
+quire-canonical = { version = "=0.3.0", git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
 # Locates a closed-schema decode failure at the member the decoder reached,
