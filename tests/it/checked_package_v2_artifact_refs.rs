@@ -579,7 +579,7 @@ fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
     );
 }
 
-/// The member sets of the artifact references (FR-019-AC-5, TC-058's
+/// The member sets of the artifact references (FR-019-AC-6, TC-058's
 /// member-set probes). A struct literal builds only when it names every member
 /// and no other, so these literals fail to compile if a member is added or
 /// removed; the further-member and `CheckedRevision` probes, which must fail
@@ -587,8 +587,8 @@ fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
 /// (`crates/quire-contract-model/src/lib.rs`), the form its fault-injection
 /// probes use.
 ///
-/// Tracing: TC-058, FR-019-AC-5
-#[trace("TC-058", "FR-019-AC-5")]
+/// Tracing: TC-058, FR-019-AC-6
+#[trace("TC-058", "FR-019-AC-6")]
 #[test]
 fn tc_058_the_artifact_reference_member_sets_are_exact() {
     use quire_contract_model::{CheckedArtifactLocator, CheckedArtifactRef, CheckedSourceRef};

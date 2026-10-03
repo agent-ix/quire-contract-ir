@@ -16,7 +16,7 @@
     not(feature = "fault-injection"),
     doc = "```compile_fail,E0599\nlet _ = quire_contract_model::MappingExecutionControl::fail_allocation_at;\n```"
 )]
-//! The artifact references have closed member sets (FR-019-AC-5, FR-038
+//! The artifact references have closed member sets (FR-019-AC-6, FR-038
 //! "Artifact references"): a definition reference is `{authority, identity}`, a
 //! source reference `{authority, identity, digest_domain, digest}` and a locator
 //! `{authority, identity, domain}`. Each builds with exactly its members,
@@ -37,7 +37,13 @@
 //! };
 //! ```
 //!
-//! and fails to build with a further member, such as `revision`,
+//! and fails to build with a further member, such as `revision`. Stable rustc
+//! does not check the error code a `compile_fail` doctest names, and a type
+//! change to an added `revision` field would fail these probes for another
+//! reason, so the real oracles for a member added to a type are the positive
+//! doctest above, whose literal must name every member, and
+//! `tc_058_the_artifact_reference_member_sets_are_exact` in the root crate's
+//! tests; these probes pin that an absent member is refused:
 //!
 //! ```compile_fail,E0560
 //! let _ = quire_contract_model::CheckedArtifactRef {

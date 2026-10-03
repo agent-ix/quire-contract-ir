@@ -154,10 +154,15 @@ Build a package whose root-bodied application names `quire.op.control.case`
 with operator `case`, and one for each of the fifteen `temporal_formula`
 identities and `quire.op.temporal.fair` with their own operator class, with
 agreeing laws, mode, member, leaves and arguments in one set of cases and
-contradicting ones in another, and read each. Nest one such application of each
+contradicting ones in another, and read each (all seventeen entries at the
+operation step of the node as a unit, whose contradicting cases contradict the
+laws, mode, member, leaves and arguments, and one identity of each class
+through a package read). Nest one such application of each
 of the three operator classes as an element of another application's
 `arguments`, as a `binding` value and inside an `aggregate`, under a root whose
-own operation is otherwise admitted, and read each. Name
+own operation is otherwise admitted, and read each. Put one of each class as a
+root, and one nested in another term, in a diagnostic entry's `details`, and
+read each. Name
 `quire.op.control.case` under operator `unary`, and an identity the catalog
 lacks, and read each. Build two defective body-root nodes, one
 `unsupported_construct` and one other operation defect, in both digest orders.
@@ -176,7 +181,8 @@ node sixth, with a `reference` to a `temporal`/`formula` node sixth and in a
 Expected: every word converts both ways and the catalog's sets equal the
 enums'; each unreadable catalog returns the typed error of FR-038-AC-58
 naming the word; the foreign operator refuses `invalid_semantic_graph` at the
-term; each case or temporal application, root or nested, refuses
+term; each case or temporal application, root or nested, in a node body or a
+diagnostic detail, refuses
 `unsupported_construct` with cause `expression-form` at its `operator`, agreeing
 or not; the `unary` case refuses `operation-class-mismatch`, the unknown
 identity `unknown-operation`; the lower digest is reported in both orders; the

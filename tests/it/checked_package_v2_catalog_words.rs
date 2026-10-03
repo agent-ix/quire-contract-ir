@@ -164,6 +164,56 @@ fn tc_048_a_root_application_of_a_refused_class_refuses_in_a_package() {
     }
 }
 
+/// A diagnostic detail is a semantic term read by the same walk, so an
+/// application of a refused class as its root, or nested in it, refuses at its
+/// own `operator` rather than being silently admitted.
+///
+/// Tracing: TC-048, FR-038-AC-66
+#[trace("TC-048", "FR-038-AC-66")]
+#[test]
+fn tc_048_a_diagnostic_detail_of_a_refused_class_refuses_at_its_operator() {
+    for (operator, identity) in OPERATORS {
+        let base = v2_all_families();
+        let result_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+        let cases = [
+            (
+                "a detail root",
+                nested(operator, identity, &result_type),
+                "operator",
+            ),
+            (
+                "inside a detail aggregate",
+                json!({"term": "aggregate",
+                       "members": [nested(operator, identity, &result_type)]}),
+                "members/0/operator",
+            ),
+            (
+                "a detail binding value",
+                json!({"term": "binding", "name": "b",
+                       "value": nested(operator, identity, &result_type)}),
+                "value/operator",
+            ),
+        ];
+        for (name, detail, tail) in cases {
+            let mut package = base.clone();
+            package["diagnostics"]["entries"] = json!([{
+                "stage": "type_checking", "code": "ill_typed", "cause_tag": "invalid-value",
+                "details": [detail], "loci": [],
+            }]);
+            let refusal = refused(&package);
+            assert_eq!(
+                (refusal.code, refusal.cause, refusal.path),
+                (
+                    CheckedPackageRefusalCode::UnsupportedConstruct,
+                    Some(CheckedPackageRefusalCause::ExpressionForm),
+                    Some(pointer(&format!("/diagnostics/entries/0/details/0/{tail}"))),
+                ),
+                "{operator} {name}"
+            );
+        }
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-65
 #[trace("TC-048", "FR-038-AC-65")]
 #[test]

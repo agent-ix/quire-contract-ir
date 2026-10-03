@@ -6102,6 +6102,11 @@ mod tests {
                 operation["laws"] = json!([law_json("text_profile", dummy_law_definition('a'))]);
                 operation["mode"] = json!({ "kind": "rounding", "value": "nearest-even" });
                 operation["member"] = json!({ "kind": "state_clause" });
+                operation["leaves"] = json!([{
+                    "path": ["field:x"],
+                    "laws": [law_json("text_profile", dummy_law_definition('b'))],
+                    "mode": { "kind": "rounding", "value": "nearest-even" },
+                }]);
                 custom_application_node(
                     operator,
                     operation,
