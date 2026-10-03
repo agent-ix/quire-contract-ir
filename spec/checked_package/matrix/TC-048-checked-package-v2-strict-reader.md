@@ -357,8 +357,8 @@ and a record holding a field of such a type under a work limit of 1000, and chec
 (never `incomplete`); check `R { x: Option<R> }` admits. Build the 20000-record
 cycle with the byte, node, edge and work limits raised and decide it on a 256 KiB
 thread, build the ten all-referencing records and check `incomplete` for `work`
-under the default limits, and bisect the work limit of a ring of 12 records to the
-exact work (FR-038-AC-72). Compare the whole refusal code, cause and pointer
+under the default limits, and bisect the work limit of a ring of 12 records, compared with its
+12 text leaves and its recursion leaf, to the exact work (FR-038-AC-72). Compare the whole refusal code, cause and pointer
 with the expected one.
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
