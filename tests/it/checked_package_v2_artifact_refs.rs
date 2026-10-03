@@ -587,10 +587,13 @@ fn tc_048_a_nominal_owner_naming_no_lock_row_is_an_invalid_semantic_graph() {
 /// (`crates/quire-contract-model/src/lib.rs`), the form its fault-injection
 /// probes use.
 ///
-/// Tracing: TC-058, FR-019-AC-6
-#[trace("TC-058", "FR-019-AC-6")]
+/// Tracing: TC-018, FR-019-AC-6
+///
+/// Traced to TC-018, not TC-058: TC-058 verifies the planned FR-019-AC-5
+/// clauses, and tracing it here would make the strict gate count AC-5 backed.
+#[trace("TC-018", "FR-019-AC-6")]
 #[test]
-fn tc_058_the_artifact_reference_member_sets_are_exact() {
+fn tc_018_the_artifact_reference_member_sets_are_exact() {
     use quire_contract_model::{CheckedArtifactLocator, CheckedArtifactRef, CheckedSourceRef};
     let definition = CheckedArtifactRef {
         authority: "a".into(),

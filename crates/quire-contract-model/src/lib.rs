@@ -42,7 +42,7 @@
 //! change to an added `revision` field would fail these probes for another
 //! reason, so the real oracles for a member added to a type are the positive
 //! doctest above, whose literal must name every member, and
-//! `tc_058_the_artifact_reference_member_sets_are_exact` in the root crate's
+//! `tc_018_the_artifact_reference_member_sets_are_exact` in the root crate's
 //! tests; these probes pin that an absent member is refused:
 //!
 //! ```compile_fail,E0560

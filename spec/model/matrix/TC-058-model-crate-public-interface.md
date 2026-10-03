@@ -10,7 +10,7 @@ relationships:
 
 ## Description
 
-Verify FR-019-AC-6 (the member-set probes below) and FR-019-AC-5: the `quire_contract_model` crate root re-exports its
+Verify FR-019-AC-5: the `quire_contract_model` crate root re-exports its
 public items by name with no glob re-export, its default-feature public items
 equal FR-019's Public items table, and none of those items is reachable
 through a `quire_contract_ir` path.
@@ -24,31 +24,18 @@ compare the set with FR-019's Public items table. Build the same inventory
 with the `fault-injection` feature and confirm the only added item is
 `MappingAllocationPoint`. Compile one probe that names a table item through
 `quire_contract_model` and expect it to build, and one that names the same
-item through `quire_contract_ir` and expect it to fail. Then compile member-set
-probes for the FR-038 artifact references: a struct literal of `CheckedArtifactRef`
-naming exactly `authority` and `identity`, one of `CheckedSourceRef` naming
-exactly `authority`, `identity`, `digest_domain` and `digest`, and one of
-`CheckedArtifactLocator` naming exactly `authority`, `identity` and `domain`,
-each expected to build, and a probe adding any further member, such as
-`revision`, to each, expected to fail; and a probe naming `CheckedRevision`,
-expected to fail.
+item through `quire_contract_ir` and expect it to fail. The member sets of the
+FR-038 artifact references are FR-019-AC-6's, verified under TC-018 (struct
+literals naming exactly each reference's members, and a `CheckedRevision`
+probe), not here.
 
 ## Expected Results
 
 `lib.rs` has no glob re-export. The default-feature inventory equals the table
 with no extra or missing item, and the `fault-injection` inventory adds
 `MappingAllocationPoint` alone. The `quire_contract_model` probe builds and
-the `quire_contract_ir` probe fails to compile. Each member-set probe builds
-with exactly its members and fails with an added one, and the `CheckedRevision`
-probe fails to compile.
+the `quire_contract_ir` probe fails to compile.
 
 ## Status
 
-Partially implemented. The member-set probes and the `CheckedRevision` probe
-(FR-019-AC-6) are implemented: `tc_058_the_artifact_reference_member_sets_are_exact` in
-`tests/it/checked_package_v2_artifact_refs.rs` builds each reference with
-exactly its members, and the `compile_fail` doctests on the
-`quire_contract_model` crate root (`crates/quire-contract-model/src/lib.rs`)
-fail with a further member and with `CheckedRevision`. The no-glob check, the
-public-item inventory and the `quire_contract_ir` path probe (FR-019-AC-5) are
-planned, and the model crate root still has seven glob re-exports.
+Planned.
