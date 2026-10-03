@@ -306,8 +306,8 @@ literals of one type and of two, and two nested applications of one result type
 and of two (AC-86). Compare the operand family and the type-shaped predicate of
 every kind of the closed node taxonomy with the stated pairs, the
 `temporal`/`formula` pair added when the IR-503 code lands (AC-87). Key an
-application node that is member 1 of a group of two and compare its preimage
-text with the pinned one; rewrite group references in an aggregate member, a
+application node that is member 1 of a group of two and compare its canonical
+preimage text with the object FR-038-AC-88 lists, member by member; rewrite group references in an aggregate member, a
 binding value and nested applications' arguments; read a node with a stale
 `node_id` and one keyed by its own preimage (AC-88).
 
@@ -324,7 +324,7 @@ and `operator-ineligible` at `operation.member.name` and
 third argument and at the argument for the `boolean` literal and the clause, and
 at `arguments/1` for each differing type; every same-type admission admits; the
 table equals the stated pairs; the bare string refuses `invalid_semantic_graph`
-at `operation`; the preimage equals the pinned text, each reference is rewritten
+at `operation`; the preimage equals the object AC-88 lists, each reference is rewritten
 as stated, the stale key refuses `stale-node-key` at `node_id` and the genuine
 one admits. Compare the whole refusal code, cause and pointer. The `definition`
 of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a

@@ -937,8 +937,9 @@ no criterion below fixes the order of the reversed pair.
 QSpec requires `mode` and `member` as members of `operation`, each nullable. The
 reader decodes each as optional, so an omitted `mode` or `member` is read as
 absent, as `null` is. The criteria below are stated for `null`, and the omission
-is a leniency the reader has and this specification does not endorse; it is
-tracked as an existing defect and not changed here.
+is a leniency the reader has and this specification does not endorse; it is an
+existing defect, tracked as IR-539, and is not changed here. The other
+deviations named in this section are stated deviations, not scheduled defects.
 
 - **Identity and operator class.** An identity the catalog does not list refuses
   `unknown-operation` at `operation.identity`, and an `operator` other than the
@@ -963,7 +964,8 @@ tracked as an existing defect and not changed here.
   `literal` whose `type` names it, and a mode value other than the bound one
   refuses `operation-mode-type-mismatch` at `operation.mode/value`. QSpec
   FR-322 also takes the pin from the result type and from a type with no binding
-  (`exact` for `rounding`); the reader checks the operand types that carry a
+  (`exact` for `rounding`, the strict default of QSpec AD-005 and FR-140 for an
+absent rounding spelling, which FR-322 applies to the pin); the reader checks the operand types that carry a
   binding only, a stated deviation. The modes of a leaf are "Operation leaves".
 - **Member.** An entry that catalogues a member kind and an application that
   carries no member (`member` `null`) refuses `operation-member-mismatch` at
@@ -1441,7 +1443,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-85 | Observed at the operation check, `quire.op.integer.add`, whose entry has two fixed operands and no rest operand, with three arguments refuses `ill_typed`/`operator-ineligible` at `arguments`; with two `literal`s typed at an `integer` node it admits, and with a first `literal` typed at a `boolean` node it refuses the same way at `arguments/0`; `quire.op.boolean.not` over an application of `quire.op.state.clause`, whose catalogued result is `clause`, refuses the same way at `arguments/0`. | Test (TC-048) |
 | FR-038-AC-86 | Observed at the operation check, `quire.op.structural.eq`, whose `same_type` constraint covers both operands, admits two distinct `value`/`parameter` nodes typed at one record type, two `literal`s typed at one type and two nested applications of one `result_type`, and refuses `ill_typed`/`operator-ineligible` at `arguments/1` for parameters typed at two record types, `literal`s typed at two types and nested applications of two result types, so the constraint compares the types the operands resolve to and not the operand nodes. | Test (TC-048) |
 | FR-038-AC-87 | The operand family of a node is exactly, by tag and form: `scalar_type` `boolean`, `integer`, `rational`, `decimal`, `float32`, `float64`, `text` and `enum`, and `composite_type` `option`, `sequence`, `set`, `bag`, `ordered_set`, `record`, `tuple` and `reference`, each its own name; `expression`/`reference`, `reference`; `function` `pure_function`, `predicate` and `recursive_function`, `function`; `model` `object_type` and `systems_interface`, `object`; and `relation`/`population`, `population`; and `temporal`/`formula`, `temporal` (FR-038-AC-68); every other kind of the closed node taxonomy has none, and the pairs are compared whole, so a form moved to another family or added to the list fails it. A kind is type-shaped exactly when its tag is `scalar_type`, `composite_type`, `bounded_domain`, `relation` or `function`, or it is `expression`/`reference` or `temporal`/`formula`, checked for every kind of the taxonomy. The `temporal`/`formula` pair arrives with the IR-503 code change; until it lands the pairs the unit test compares do not include it. | Test (TC-048) |
-| FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes to the canonical text the unit test spells out literally, observed at the key check: `recursion` is `{ordinal: 1, size: 2}`, the first argument is `{ordinal: 0, term: group_reference}` and the second stays the `reference`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
+| FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes, observed at the key check and with members in sorted order, to exactly this object: `body` (`arguments` the `group_reference` `{ordinal: 0, term: group_reference}` then the `reference` to the outside node, `operation` `{identity: quire.op.integer.add, laws: [], leaves: [], member: null, mode: null}`, `operator` `binary`, `result_type`, `term` `application`), `declaration` `{qualified_name: [pkg, total]}`, `node_tag` `function`, `recursion` `{ordinal: 1, size: 2}`, `semantic_form` `function`, `semantic_type` and `version` `quire.application-node/v1`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
 
 ## Dependencies
 
