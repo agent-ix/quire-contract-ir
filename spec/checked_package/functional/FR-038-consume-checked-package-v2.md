@@ -1147,15 +1147,19 @@ defect:
      `invalid_semantic_graph` and an open end with equal bounds refused
      `invalid-value` (FR-370-AC-8). This change does not read that form and pins no
      behaviour for it; IR-551 owns it. As what the reader does today, not as a
-     requirement: on the IR-549 code (the held code change, head
-     ddaf828d0fbe6d0732753bd1c169079b1d6c505e) a timed-form interval carries a
-     non-string bound (`lower` and `upper` are `{numerator, denominator}` objects),
-     which is outside the integer bound pattern, so the term walk refuses it
-     `invalid-value` at that bound before any temporal or operation step; an interval
-     that is neither `null` nor exactly `{lower, upper}` and fails no bound pattern
-     (a third member, say) does not decode as an interval member and refuses
-     `operation-member-mismatch` at `operation.member`. So until IR-551, a timed-form
-     interval under `timed/v1`, which merged QSpec admits, is refused by this reader.
+     requirement, and whichever of this specification and the held code change lands
+     first: a timed-form interval carries non-string bounds (`lower` and `upper` are
+     `{numerator, denominator}` objects), which are outside the integer bound pattern.
+     Once FR-038-AC-97's rule is implemented (every bound outside the pattern refuses
+     `invalid-value` at the bound in the term walk) the term walk refuses it
+     `invalid-value` at that bound before any temporal or operation step; before that
+     rule is implemented, the reader's negative-bound check catches only negative
+     integer strings, so an object bound passes the term walk, the member does not
+     decode as an interval member, and the operation step refuses it
+     `operation-member-mismatch` at `operation.member`, as it does an interval that
+     is neither `null` nor exactly `{lower, upper}` and fails no bound pattern (a
+     third member, say). Either way, until IR-551 a timed-form interval under
+     `timed/v1`, which merged QSpec admits, is refused by this reader.
    - The three bounded profiles (`event-position.false-extension`,
      `fixed-sample.false-extension`, `timestamped-event.finite-window`) admit
      integer `{lower, upper}` only: a `null` interval or a `{lower, upper: null}` interval
