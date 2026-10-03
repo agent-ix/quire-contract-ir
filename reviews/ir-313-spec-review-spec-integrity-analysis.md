@@ -1,5 +1,5 @@
 ---
-id: SR-591
+id: SR-977
 title: "PR #204 integrity review of the accepted AD-001 rulings"
 type: SpecReview
 analysis: integrity
@@ -15,7 +15,9 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-039
     type: reviews
 ---
-# SR-591: PR #204 integrity review of the accepted AD-001 rulings
+# SR-977: PR #204 integrity review of the accepted AD-001 rulings
+
+Former id: SR-591 (cited by the marker on IR-313).
 
 ## Summary
 

@@ -1,12 +1,14 @@
 ---
-id: SR-592
+id: SR-980
 title: "integrity review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: integrity
 scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
-# SR-592: integrity review of PR 203
+# SR-980: integrity review of PR 203
+
+Former id: SR-592 (cited by the marker on IR-314).
 
 ## Summary
 

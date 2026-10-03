@@ -1,5 +1,5 @@
 ---
-id: SR-592
+id: SR-979
 title: "PR #204 base checklist and coverage review"
 type: SpecReview
 analysis: base
@@ -15,7 +15,9 @@ relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-019
     type: reviews
 ---
-# SR-592: PR #204 base checklist and coverage review
+# SR-979: PR #204 base checklist and coverage review
+
+Former id: SR-592 (cited by the marker on IR-313).
 
 ## Summary
 

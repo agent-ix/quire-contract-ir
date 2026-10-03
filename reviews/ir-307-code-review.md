@@ -1,12 +1,14 @@
 ---
-id: SR-624
+id: SR-982
 title: "code review of PR 230 (same_type compares resolved operand types)"
 type: SpecReview
 analysis: code-review
 scope: "agent-ix/quire-contract-ir@c24c6a4f2fba713b35ea577969fa0a7c5f3c0082; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
-# SR-624: code review of PR 230
+# SR-982: code review of PR 230
+
+Former id: SR-624 (cited by the marker on IR-307).
 
 ## Summary
 

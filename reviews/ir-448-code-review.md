@@ -1,12 +1,14 @@
 ---
-id: SR-625
+id: SR-987
 title: "code review of PR 232 (TC-222 tests)"
 type: SpecReview
 analysis: base
 scope: "agent-ix/quire-contract-ir@122c21f6cacb25222b35b6629d19ed90e541d81a; tests/it/checked_package_v2_adr002_members.rs, tests/it/main.rs"
 review_set: subset
 ---
-# SR-625: code review of PR 232 (TC-222 tests)
+# SR-987: code review of PR 232 (TC-222 tests)
+
+Former id: SR-625 (cited by the marker on IR-448).
 
 ## Summary
 
