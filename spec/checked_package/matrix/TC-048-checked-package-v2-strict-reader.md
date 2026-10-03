@@ -635,7 +635,7 @@ document holding `0.1000000000000000000001`, `9007199254740993.5`,
 the document's own digest and under another, and check `noncanonical_wire` at
 `/lock/model_selections/0/digest` with `document_pointer` `/package/ratio` and
 cause `inexact-number`; repeat with `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324` and
-`2.5e-10` and check none refuses for it; digest two documents differing only in
+`2.5e-10` and check none refuses for it; repeat with the tie texts `1125899906842624.2`, `1500000000000000.2` and `2.9802322387695312e-8` and check none refuses, and with `1125899906842624.3`, `1500000000000000.3` and `2.9802322387695313e-8` and check each refuses `inexact-number`; digest two documents differing only in
 `0.1` and `0.1000000000000000000001` and check the second refuses
 (FR-038-AC-109); read the manifest of the crate that holds the reader and check
 it declares `serde_json` with the feature `float_roundtrip` (a source-level
