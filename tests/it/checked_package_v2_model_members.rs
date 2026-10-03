@@ -12,8 +12,8 @@
 //! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    refusal_cause, sha256_hex,
+    canonical, evidence_for, node_id, nominal_package, pointer, rebuild_source_map,
+    refresh_identity, refusal, refusal_bytes, refusal_cause, sha256_hex,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -152,6 +152,14 @@ fn package_over(
     name: &str,
 ) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
     let digest = sha256_hex(&canonical(document));
+    let package = package_selecting(name, &digest);
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest, canonical(document));
+    (package, evidence)
+}
+
+/// [`package_over`]'s package, whose one `model_selections` row names `digest`.
+fn package_selecting(name: &str, digest: &str) -> Value {
     let mut package = nominal_package(&[]);
     package["lock"]["model_selections"] = json!([{
         "identity": IDENTITY, "version": VERSION,
@@ -221,9 +229,7 @@ fn package_over(
         .extend(nodes);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
-    let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(document));
-    (package, evidence)
+    package
 }
 
 fn read(
@@ -400,6 +406,240 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
             assert_eq!(limit, 0);
             assert_eq!(
                 path.map(|path| path.to_string()).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected an incomplete read, got {other:?}"),
+    }
+}
+
+/// The bytes of [`domain_document`] with the JSON number text `count` at
+/// `/package/count`, spelled exactly as given.
+fn document_bytes_with_count(count: &str) -> Vec<u8> {
+    let mut document = domain_document(json!({}));
+    document["package"]["count"] = json!(0);
+    let text = String::from_utf8(canonical(&document)).expect("utf-8");
+    assert_eq!(text.matches("\"count\":0").count(), 1);
+    text.replace("\"count\":0", &format!("\"count\":{count}"))
+        .into_bytes()
+}
+
+/// A read of a package whose one selection row names `digest`, with `bytes`
+/// supplied under it.
+fn read_selecting(digest: &str, bytes: &[u8]) -> CheckedPackageV2ReadResult {
+    let package = package_selecting("total", digest);
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest.to_owned(), bytes.to_vec());
+    read(&package, &evidence)
+}
+
+fn number_refusal(document_pointer: &str) -> CheckedPackageRefusal {
+    CheckedPackageRefusal {
+        document_pointer: Some(pointer(document_pointer)),
+        ..refusal(
+            CheckedPackageRefusalCode::NoncanonicalWire,
+            "/lock/model_selections/0/digest",
+        )
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-93
+#[trace("TC-048", "FR-038-AC-93")]
+#[test]
+fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointer() {
+    let other = "ab".repeat(32);
+    for text in [
+        "9007199254740993",
+        "-9007199254740993",
+        "9.007199254740993e15",
+        "1e20",
+        "18446744073709551617",
+    ] {
+        let bytes = document_bytes_with_count(text);
+        // Under the document's own digest and under another one: the refusal
+        // precedes `byte-digest-mismatch` either way.
+        for digest in [sha256_hex(&bytes), other.clone()] {
+            match read_selecting(&digest, &bytes) {
+                CheckedPackageV2ReadResult::Refused(refused) => {
+                    assert_eq!(refused, number_refusal("/package/count"), "{text}");
+                }
+                other => panic!("{text}: expected a refusal, read {other:?}"),
+            }
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-93
+#[trace("TC-048", "FR-038-AC-93")]
+#[test]
+fn tc_048_a_model_document_number_at_or_under_2_pow_53_is_digested() {
+    for (text, canonical_text) in [
+        ("9007199254740992", "9007199254740992"),
+        ("-9007199254740992", "-9007199254740992"),
+        ("9.007199254740992e15", "9007199254740992"),
+        ("0.5", "0.5"),
+    ] {
+        let bytes = document_bytes_with_count(text);
+        // The digest is of the canonical form of the number read.
+        let digest = sha256_hex(&document_bytes_with_count(canonical_text));
+        assert!(
+            matches!(
+                read_selecting(&digest, &bytes),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{text} is digested and admitted"
+        );
+    }
+}
+
+/// [`domain_document`] with an integer value type `Count` whose `max` bound is
+/// `maximum`, a JSON number or a decimal string.
+fn document_with_count_bound(maximum: Value) -> Value {
+    let mut document = domain_document(json!({}));
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "count"},
+            "construct": {"meaning": "quire.meaning.model.value-type/v1"},
+        }));
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .push(json!({
+            "identity": "ix://acme/orders/Count", "displayName": "Count",
+            "kind": {"module": "acme/orders", "name": "count"},
+            "roles": [], "extensions": [], "unknownPolicy": "reject", "scalar": "integer",
+            "constraints": [
+                {"keyword": "min", "operands": {"value": 0}},
+                {"keyword": "max", "operands": {"value": maximum}},
+            ],
+        }));
+    document
+}
+
+/// Tracing: TC-048, FR-038-AC-93
+#[trace("TC-048", "FR-038-AC-93")]
+#[test]
+fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
+    // Written as a JSON number, the bound is refused at its own pointer, where
+    // the reader admitted it before.
+    let past = document_with_count_bound(json!(9_007_199_254_740_993_i64));
+    let bytes = canonical(&past);
+    match read_selecting(&sha256_hex(&bytes), &bytes) {
+        CheckedPackageV2ReadResult::Refused(refused) => {
+            assert_eq!(
+                refused,
+                number_refusal("/types/1/constraints/1/operands/value")
+            );
+        }
+        other => panic!("expected a refusal, read {other:?}"),
+    }
+    // At 2^53 the same document is admitted.
+    let at = document_with_count_bound(json!(9_007_199_254_740_992_i64));
+    let bytes = canonical(&at);
+    assert!(matches!(
+        read_selecting(&sha256_hex(&bytes), &bytes),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    // Written as a decimal string, the bound is not a number of the document:
+    // exact integers past 2^53 travel this way, so it is admitted.
+    let spelled = document_with_count_bound(json!("9007199254740993"));
+    let bytes = canonical(&spelled);
+    assert!(matches!(
+        read_selecting(&sha256_hex(&bytes), &bytes),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Tracing: TC-048, FR-038-AC-93
+#[trace("TC-048", "FR-038-AC-93")]
+#[test]
+fn tc_048_the_first_number_in_document_order_past_2_pow_53_is_named() {
+    let document = domain_document(json!({}));
+    let text = String::from_utf8(canonical(&document)).expect("utf-8");
+    // `/b` is written first and `/a/0` second, so document order is not the
+    // sorted order that would name `/a/0` first.
+    let spelled = format!(
+        "{{\"b\":9007199254740993,\"a\":[9007199254740995],{}",
+        &text[1..]
+    );
+    let bytes = spelled.into_bytes();
+    match read_selecting(&sha256_hex(&bytes), &bytes) {
+        CheckedPackageV2ReadResult::Refused(refused) => {
+            assert_eq!(refused, number_refusal("/b"));
+        }
+        other => panic!("expected a refusal, read {other:?}"),
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-93
+#[trace("TC-048", "FR-038-AC-93")]
+#[test]
+fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
+    let package = package_selecting("total", &"ab".repeat(32));
+    let mut bytes = canonical(&package);
+    bytes.push(b' ');
+    match CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&package),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refused) => {
+            assert_eq!(
+                refused,
+                refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
+            );
+            assert_eq!(refused.document_pointer, None);
+        }
+        other => panic!("expected a refusal, read {other:?}"),
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-94
+#[trace("TC-048", "FR-038-AC-94")]
+#[test]
+fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
+    let mut document = domain_document(json!({}));
+    document["package"]["padding"] = json!("x".repeat(30_000));
+    let bytes = canonical(&document);
+    let digest = sha256_hex(&bytes);
+    let length = u64::try_from(bytes.len()).expect("length");
+    let package = package_selecting("total", &digest);
+    let package_bytes = canonical(&package);
+    assert!(
+        u64::try_from(package_bytes.len()).expect("length") < length,
+        "the package is shorter than the document"
+    );
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest, bytes);
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.bytes = length;
+    assert!(
+        matches!(
+            CheckedPackageV2::read(&package_bytes, limits, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "a document exactly `limits.bytes` long is read, digested and matches"
+    );
+    limits.bytes = length - 1;
+    match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
+            assert_eq!(incomplete.limit, length - 1);
+            assert_eq!(incomplete.consumed, length);
+            assert_eq!(incomplete.path, None);
+        }
+        other => panic!("expected an incomplete read, got {other:?}"),
+    }
+    // The work limit charged for the same document is located at the row.
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = length.div_ceil(1024) - 1;
+    match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                incomplete.path.map(|path| path.to_string()).as_deref(),
                 Some("/lock/model_selections/0")
             );
         }

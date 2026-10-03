@@ -9,7 +9,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     CONTRACT_IR_SEMANTIC_DOMAIN,
 };
@@ -251,6 +251,7 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
         result.records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("eeee"),
+            limit_kind: CheckedPackageLimit::Work,
             limit: 14,
             consumed: 15,
         }
@@ -274,6 +275,7 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
         package.lower(&[id("aaaa")], &profile(4)).records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("aaaa"),
+            limit_kind: CheckedPackageLimit::Work,
             limit: 4,
             consumed: 5,
         }
@@ -282,6 +284,7 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
         package.lower(&[id("aaaa")], &profile(1)).records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("aaaa"),
+            limit_kind: CheckedPackageLimit::Work,
             limit: 1,
             consumed: 2,
         }
@@ -290,6 +293,7 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
         package.lower(&[id("aaaa")], &profile(0)).records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("aaaa"),
+            limit_kind: CheckedPackageLimit::Work,
             limit: 0,
             consumed: 1,
         }
@@ -476,6 +480,7 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
             .records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: missing.clone(),
+            limit_kind: CheckedPackageLimit::Work,
             limit: 0,
             consumed: 1,
         }

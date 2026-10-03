@@ -10,19 +10,22 @@
 //! A refused request contributes nothing to it, so the package never holds a
 //! substitute for meaning it could not represent.
 
+use super::encode::{elements, encoded, member};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{
-    digest_bytes, digest_json, on_stack_for, ReferenceMember, Step, Trail, ValidationFailure,
+    on_stack_for, ReferenceMember, Step, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageIncomplete, CheckedPackageRefusal, CheckedSemanticId,
-    CheckedSourceMapEntry,
+    CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
+    CheckedSemanticId, CheckedSourceMapEntry,
 };
+use quire_canonical::{Encode, Error, LimitKind, Limits, Sink, Writer};
 use serde::{Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity domain of a lowered Contract IR node.
@@ -124,13 +127,19 @@ pub enum CompleteLoweringRecordV2 {
         /// The term validator's limit stop.
         incomplete: CheckedPackageIncomplete,
     },
-    /// This request exceeded its work budget.
+    /// This request exceeded a budget: its work budget, or the byte limit the
+    /// package was read under (FR-038 "Every identity digest is computed
+    /// through quire-canonical").
     Failed {
         /// Requested key.
         node_id: CheckedNodeId,
-        /// Caller-selected ceiling.
+        /// The limit that failed: [`CheckedPackageLimit::Work`] or
+        /// [`CheckedPackageLimit::Bytes`].
+        limit_kind: CheckedPackageLimit,
+        /// The ceiling: the caller's work limit, or the retained byte limit.
         limit: u64,
-        /// Counter at the failed charge.
+        /// The counter at the failed charge: the work consumed, or the
+        /// canonical byte count the encoder needed, which is above `limit`.
         consumed: u64,
     },
 }
@@ -162,6 +171,14 @@ pub struct CompleteContractPackageV2 {
     source_package_id: CheckedSemanticId,
     lowered: Vec<CompleteContractNodeV2>,
     dependencies: Vec<ContractPackageDependencyV2>,
+    /// Absent exactly when the package's canonical bytes exceed the byte
+    /// limit the lowering ran under: such a package has neither bytes nor id.
+    encoding: Option<PackageEncoding>,
+}
+
+/// The canonical bytes of a package and the identity they hash to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PackageEncoding {
     canonical_bytes: Box<[u8]>,
     package_id: CheckedSemanticId,
 }
@@ -188,14 +205,19 @@ impl CompleteContractPackageV2 {
     }
 
     /// RFC 8785 canonical bytes of the whole package, the encoding the V2
-    /// reader requires of the checked package itself.
-    pub fn canonical_bytes(&self) -> &[u8] {
-        &self.canonical_bytes
+    /// reader requires of the checked package itself; `None` when they exceed
+    /// the byte limit the lowering ran under (every record of that call is
+    /// then `failed`).
+    pub fn canonical_bytes(&self) -> Option<&[u8]> {
+        self.encoding
+            .as_ref()
+            .map(|encoding| encoding.canonical_bytes.as_ref())
     }
 
-    /// `quire.contract-ir.contract-package/v1` digest of the canonical bytes.
-    pub fn package_id(&self) -> &CheckedSemanticId {
-        &self.package_id
+    /// `quire.contract-ir.contract-package/v1` digest of the canonical bytes;
+    /// `None` exactly when [`Self::canonical_bytes`] is.
+    pub fn package_id(&self) -> Option<&CheckedSemanticId> {
+        self.encoding.as_ref().map(|encoding| &encoding.package_id)
     }
 }
 
@@ -208,9 +230,9 @@ pub struct CompleteLoweringResultV2 {
     pub package: CompleteContractPackageV2,
 }
 
-/// The whole package as it is encoded; every member is a typed field, so a
-/// field added to a node type is carried into the bytes by construction.
-#[derive(Serialize)]
+/// The whole package as it is encoded. It holds every lowered node and
+/// dependency node, whose bodies are `Value`s, so it implements
+/// [`quire_canonical::Encode`] and not `FixedShape`.
 struct ContractPackagePreimage<'a> {
     version: &'static str,
     source_package_id: &'a CheckedSemanticId,
@@ -218,13 +240,133 @@ struct ContractPackagePreimage<'a> {
     dependencies: &'a [ContractPackageDependencyV2],
 }
 
-#[derive(Serialize)]
+impl Encode for ContractPackagePreimage<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("version")?;
+        writer.string(self.version)?;
+        member(writer, "source_package_id", self.source_package_id)?;
+        elements(writer, "lowered", self.lowered)?;
+        elements(writer, "dependencies", self.dependencies)?;
+        writer.end_object()
+    }
+}
+
+/// A lowered node as it is encoded: the node's identity projection and the
+/// three key sets of its closure. It holds the node's `Value` body, so it
+/// implements [`quire_canonical::Encode`] and not `FixedShape`.
 struct LoweredNodePreimage<'a> {
     version: &'static str,
     node: super::CheckedNodeProjectionV2,
     dependencies: &'a [CheckedNodeId],
     bounds: &'a [CheckedNodeId],
     claims: &'a [CheckedNodeId],
+}
+
+impl Encode for LoweredNodePreimage<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("version")?;
+        writer.string(self.version)?;
+        encoded(writer, "node", &self.node)?;
+        member(writer, "dependencies", self.dependencies)?;
+        member(writer, "bounds", self.bounds)?;
+        member(writer, "claims", self.claims)?;
+        writer.end_object()
+    }
+}
+
+/// The `consumed` of a `failed` record for the `bytes` limit. When the refusal
+/// is the encoder's canonical-bytes limit it is that refusal's `required`, the
+/// canonical output written when it refused, which is above `ceiling`. Every
+/// other encoder refusal (the object-buffer limit, an allocation failure, a
+/// number the encoder has no encoding for, and any refusal a later
+/// `quire-canonical` adds) is `ceiling + 1`, the smallest count above the
+/// ceiling, saturating at `u64::MAX`. So every refusal is a `failed` record,
+/// none is an error beside the records, and none panics (FR-038 "Every
+/// identity digest is computed through quire-canonical").
+fn required_bytes(error: &Error, ceiling: u64) -> u64 {
+    match error {
+        Error::Limit(limit) if limit.kind == LimitKind::CanonicalBytes => limit.required,
+        _ => ceiling.saturating_add(1),
+    }
+}
+
+/// The SHA-256 of a lowered node preimage's canonical bytes, by
+/// `quire-canonical`; the byte count the encoder needed when `ceiling` was
+/// exceeded otherwise.
+fn identify_node(preimage: &LoweredNodePreimage<'_>, ceiling: u64) -> Result<String, u64> {
+    quire_canonical::sha256(preimage, Limits::new(ceiling))
+        .map(|digest| digest.to_string())
+        .map_err(|error| required_bytes(&error, ceiling))
+}
+
+/// A package's canonical bytes and id, by `quire-canonical`, in one pass; the
+/// byte count the encoder needed when `ceiling` was exceeded otherwise. A
+/// package over the ceiling has neither bytes nor id, and no encode here
+/// panics.
+fn encode_package(
+    preimage: &ContractPackagePreimage<'_>,
+    ceiling: u64,
+) -> Result<PackageEncoding, u64> {
+    let mut sink = (Vec::new(), Sha256::new());
+    quire_canonical::encode(&mut sink, preimage, Limits::new(ceiling))
+        .map_err(|error| required_bytes(&error, ceiling))?;
+    let (bytes, hasher) = sink;
+    Ok(PackageEncoding {
+        package_id: CheckedSemanticId {
+            domain: CONTRACT_PACKAGE_VERSION.into(),
+            algorithm: "sha256".into(),
+            digest: format!("{:x}", hasher.finalize()).into_boxed_str(),
+        },
+        canonical_bytes: bytes.into_boxed_slice(),
+    })
+}
+
+/// Every requested record `failed` for the `bytes` limit, for a call whose
+/// package is over the ceiling: `limit` is the retained byte limit and
+/// `consumed` the byte count the encoder needed.
+fn failed_records(
+    requested: &[CheckedNodeId],
+    ceiling: u64,
+    required: u64,
+) -> Vec<CompleteLoweringRecordV2> {
+    requested
+        .iter()
+        .map(|request| CompleteLoweringRecordV2::Failed {
+            node_id: request.clone(),
+            limit_kind: CheckedPackageLimit::Bytes,
+            limit: ceiling,
+            consumed: required,
+        })
+        .collect()
+}
+
+impl Encode for CompleteContractNodeV2 {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        encoded(writer, "node", &self.node)?;
+        writer.name("node_tag")?;
+        writer.string(self.node_tag.as_wire())?;
+        member(writer, "source_map", &self.source_map)?;
+        member(writer, "semantic_type", &self.semantic_type)?;
+        member(writer, "dependencies", &self.dependencies)?;
+        member(writer, "bounds", &self.bounds)?;
+        member(writer, "claims", &self.claims)?;
+        member(writer, "ir_id", &self.ir_id)?;
+        writer.end_object()
+    }
+}
+
+impl Encode for ContractPackageDependencyV2 {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        encoded(writer, "node", &self.node)?;
+        writer.name("node_tag")?;
+        writer.string(self.node_tag.as_wire())?;
+        member(writer, "source_map", &self.source_map)?;
+        writer.end_object()
+    }
 }
 
 impl CheckedPackageV2 {
@@ -237,13 +379,16 @@ impl CheckedPackageV2 {
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
     ) -> CompleteLoweringResultV2 {
-        on_stack_for(self.depth, || self.lower_on_stack(requested, profile))
+        on_stack_for(self.depth, || {
+            self.lower_on_stack(requested, profile, self.bytes)
+        })
     }
 
     fn lower_on_stack(
         &self,
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
+        ceiling: u64,
     ) -> CompleteLoweringResultV2 {
         let index = self
             .graph()
@@ -254,18 +399,34 @@ impl CheckedPackageV2 {
             .collect::<BTreeMap<_, _>>();
         let records = requested
             .iter()
-            .map(|request| self.lower_one(request, profile, &index))
+            .map(|request| self.lower_one(request, profile, &index, ceiling))
             .collect::<Vec<_>>();
-        let package = self.assemble(&records, &index);
-        CompleteLoweringResultV2 { records, package }
+        match self.assemble(&records, &index, ceiling) {
+            Ok(package) => CompleteLoweringResultV2 { records, package },
+            // The package is over the ceiling: no package exists, so no
+            // lowered node, dependency node, bytes or id is returned and every
+            // requested record is `failed` for `bytes`.
+            Err(required) => CompleteLoweringResultV2 {
+                records: failed_records(requested, ceiling, required),
+                package: CompleteContractPackageV2 {
+                    source_package_id: self.package_id().clone(),
+                    lowered: Vec::new(),
+                    dependencies: Vec::new(),
+                    encoding: None,
+                },
+            },
+        }
     }
 
-    /// Builds the call's package from its `lowered` records alone.
+    /// Builds the call's package from its `lowered` records alone, encoded
+    /// under `ceiling` bytes; the byte count the encoder needed when the
+    /// package is over it.
     fn assemble(
         &self,
         records: &[CompleteLoweringRecordV2],
         index: &BTreeMap<&CheckedNodeId, usize>,
-    ) -> CompleteContractPackageV2 {
+        ceiling: u64,
+    ) -> Result<CompleteContractPackageV2, u64> {
         let mut lowered = BTreeMap::new();
         for record in records {
             if let CompleteLoweringRecordV2::Lowered { node } = record {
@@ -300,23 +461,13 @@ impl CheckedPackageV2 {
             lowered: &lowered,
             dependencies: &dependencies,
         };
-        // Every map in the preimage is string-keyed, so neither step can
-        // fail. Encoding through `Value` sorts every object's keys, which is
-        // the RFC 8785 form `CheckedPackageV2::read` requires of its input.
-        let canonical_bytes = serde_json::to_value(&preimage)
-            .and_then(|value| serde_json::to_vec(&value))
-            .expect("the package preimage has only string-keyed maps");
-        CompleteContractPackageV2 {
+        let encoding = encode_package(&preimage, ceiling)?;
+        Ok(CompleteContractPackageV2 {
             source_package_id: self.package_id().clone(),
-            package_id: CheckedSemanticId {
-                domain: CONTRACT_PACKAGE_VERSION.into(),
-                algorithm: "sha256".into(),
-                digest: digest_bytes(&canonical_bytes).into_boxed_str(),
-            },
+            encoding: Some(encoding),
             lowered,
             dependencies,
-            canonical_bytes: canonical_bytes.into_boxed_slice(),
-        }
+        })
     }
 
     fn node_source_map(&self, node_id: &CheckedNodeId) -> Vec<CheckedSourceMapEntry> {
@@ -332,9 +483,11 @@ impl CheckedPackageV2 {
         request: &CheckedNodeId,
         profile: &CompleteLoweringProfileV2,
         index: &BTreeMap<&CheckedNodeId, usize>,
+        ceiling: u64,
     ) -> CompleteLoweringRecordV2 {
         let failed = |consumed| CompleteLoweringRecordV2::Failed {
             node_id: request.clone(),
+            limit_kind: CheckedPackageLimit::Work,
             limit: profile.work_limit,
             consumed,
         };
@@ -505,14 +658,18 @@ impl CheckedPackageV2 {
             bounds: &bounds,
             claims: &claims,
         };
-        // The preimage holds only string-keyed maps and strings, so encoding
-        // cannot fail; the arm keeps the path panic-free and still terminal
-        // for this request alone rather than emitting an unidentified node.
-        let Some(digest) = serde_json::to_value(&preimage)
-            .ok()
-            .and_then(|value| digest_json(&value).ok())
-        else {
-            return failed(work);
+        // A preimage over the ceiling is terminal for this request alone
+        // rather than an unidentified node.
+        let digest = match identify_node(&preimage, ceiling) {
+            Ok(digest) => digest,
+            Err(required) => {
+                return CompleteLoweringRecordV2::Failed {
+                    node_id: request.clone(),
+                    limit_kind: CheckedPackageLimit::Bytes,
+                    limit: ceiling,
+                    consumed: required,
+                }
+            }
         };
         CompleteLoweringRecordV2::Lowered {
             node: Box::new(CompleteContractNodeV2 {
@@ -784,3 +941,6 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
         ) => false,
     }
 }
+
+#[cfg(test)]
+mod ceiling_tests;

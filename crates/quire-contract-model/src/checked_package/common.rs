@@ -13,13 +13,11 @@ use super::shared::{
     CheckedSourceMapEntry, CheckedSourceRef, JsonPointer,
 };
 use super::v2::{
-    encode, interval_bound_outside_pattern, ApplicationOperator, BodyTerm, LiteralKind,
-    PACKAGE_DOMAIN_V2,
+    interval_bound_outside_pattern, ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2,
 };
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -45,6 +43,23 @@ impl ValidationFailure {
             cause: None,
             locus: None,
             contract_version: None,
+            document_pointer: None,
+        })
+    }
+
+    /// `noncanonical_wire` about the number at `document_pointer` inside a
+    /// supplied model document, located at the selection row's `path`.
+    pub(super) fn refused_number_in_document(
+        path: JsonPointer,
+        document_pointer: JsonPointer,
+    ) -> Self {
+        Self::Refused(CheckedPackageRefusal {
+            code: CheckedPackageRefusalCode::NoncanonicalWire,
+            path: Some(path),
+            cause: None,
+            locus: None,
+            contract_version: None,
+            document_pointer: Some(document_pointer),
         })
     }
 
@@ -61,6 +76,7 @@ impl ValidationFailure {
             cause: Some(cause),
             locus: None,
             contract_version: None,
+            document_pointer: None,
         })
     }
 
@@ -73,6 +89,7 @@ impl ValidationFailure {
             cause: None,
             locus: None,
             contract_version: None,
+            document_pointer: None,
         })
     }
 
@@ -91,6 +108,7 @@ impl ValidationFailure {
             cause,
             locus: Some(locus),
             contract_version: None,
+            document_pointer: None,
         })
     }
 
@@ -103,6 +121,7 @@ impl ValidationFailure {
             cause: None,
             locus: None,
             contract_version: Some(version.into()),
+            document_pointer: None,
         })
     }
 
@@ -274,7 +293,7 @@ fn require_canonical_bytes(
             CheckedPackageRefusalCode::NoncanonicalWire,
         ));
     }
-    match encode::value_to_vec(value, ceiling) {
+    match quire_canonical::to_vec(value, quire_canonical::Limits::new(ceiling)) {
         Ok(canonical) if canonical.as_slice() == bytes => Ok(()),
         _ => Err(ValidationFailure::refused_bytes(
             CheckedPackageRefusalCode::NoncanonicalWire,
@@ -329,26 +348,6 @@ pub(super) fn canonical_value(
     limits: CheckedPackageReadLimits,
 ) -> Result<Value, ValidationFailure> {
     read_value(bytes, limits, |value, _| Ok(value))
-}
-
-/// Empties `value`, dropping its descendants iteratively. A deep value's
-/// default drop recurses once per level, so a package holding one must take
-/// it apart with this before it is dropped on an ordinary stack.
-pub(super) fn dismantle(value: &mut Value) {
-    let mut pending = vec![std::mem::take(value)];
-    while let Some(mut next) = pending.pop() {
-        match &mut next {
-            Value::Array(elements) => pending.append(elements),
-            Value::Object(members) => {
-                pending.extend(
-                    std::mem::take(members)
-                        .into_iter()
-                        .map(|(_, member)| member),
-                );
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Stack reserved for any read, before its depth is counted.
@@ -459,14 +458,6 @@ pub(super) fn is_digest(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-pub(super) fn digest_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-
-pub(super) fn digest_json(value: &Value) -> Result<String, serde_json::Error> {
-    serde_json::to_vec(value).map(|bytes| digest_bytes(&bytes))
 }
 
 pub(super) fn artifact_locator(value: &CheckedSourceRef) -> CheckedArtifactLocator {
@@ -972,7 +963,10 @@ fn visit_terms(
 /// Parses strict JSON with serde_json's own nesting cap: a repeated object
 /// member refuses as `duplicate_member` at that member, any other syntax
 /// error as `malformed_wire` with no pointer. For input whose depth no caller
-/// limit has charged.
+/// limit has charged. Test-only: the reader parses a package through
+/// `strict_parse`, and a selected model document is read once by
+/// `quire-canonical`.
+#[cfg(test)]
 pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure> {
     let duplicate = RefCell::new(None);
     let mut deserializer = serde_json::Deserializer::from_slice(input);

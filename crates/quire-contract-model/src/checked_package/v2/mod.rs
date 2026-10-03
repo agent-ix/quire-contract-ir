@@ -32,8 +32,8 @@ pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
 use temporal::{misplaced_in_details, validate_temporal};
 
 use super::common::{
-    count, decode_closed, dismantle, exceeds, first_difference, is_digest, is_nonempty,
-    node_pointer, on_stack_for, read_value, validate_definition_ref, validate_locked_artifact,
+    count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
+    on_stack_for, read_value, validate_definition_ref, validate_locked_artifact,
     validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
     Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
@@ -390,6 +390,9 @@ pub struct CheckedPackageV2 {
     kinds: Vec<CheckedNodeKind>,
     /// The nesting depth this package was admitted at.
     depth: u64,
+    /// The byte limit this package was read under: the ceiling of every
+    /// encode its lowering makes.
+    bytes: u64,
 }
 
 impl Clone for CheckedPackageV2 {
@@ -398,10 +401,14 @@ impl Clone for CheckedPackageV2 {
             wire: self.wire.clone(),
             kinds: self.kinds.clone(),
             depth: self.depth,
+            bytes: self.bytes,
         })
     }
 }
 
+/// Equality is the equality of the admitted content. The read limit a package
+/// retains for its lowering is not content, so two admissions of the same bytes
+/// under different limits are equal.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
         on_stack_for(self.depth.max(other.depth), || {
@@ -419,31 +426,34 @@ impl fmt::Debug for CheckedPackageV2 {
                 .debug_struct("CheckedPackageV2")
                 .field("wire", &self.wire)
                 .field("kinds", &self.kinds)
+                .field("bytes", &self.bytes)
                 .finish()
         })
     }
 }
 
 /// A node's body is a `Value` nested as deep as a caller's depth limit
-/// admitted, so it is taken apart iteratively rather than by `Value`'s
-/// recursive drop.
+/// admitted, so it is dropped through `quire-canonical`'s non-recursive
+/// `drop_value` rather than by `Value`'s recursive drop.
 impl Drop for CheckedSemanticNodeV2 {
     fn drop(&mut self) {
-        dismantle(&mut self.body);
+        quire_canonical::drop_value(std::mem::take(&mut self.body));
     }
 }
 
 /// See [`CheckedSemanticNodeV2`]'s `Drop`.
 impl Drop for CheckedNodeProjectionV2 {
     fn drop(&mut self) {
-        dismantle(&mut self.body);
+        quire_canonical::drop_value(std::mem::take(&mut self.body));
     }
 }
 
 /// See [`CheckedSemanticNodeV2`]'s `Drop`.
 impl Drop for CheckedDiagnosticV2 {
     fn drop(&mut self) {
-        self.details.iter_mut().for_each(dismantle);
+        for detail in &mut self.details {
+            quire_canonical::drop_value(std::mem::take(detail));
+        }
     }
 }
 
@@ -668,7 +678,12 @@ impl CheckedPackageV2 {
             }
         }
         let kinds = validate(&wire, limits, evidence)?;
-        Ok(Self { wire, kinds, depth })
+        Ok(Self {
+            wire,
+            kinds,
+            depth,
+            bytes: limits.bytes,
+        })
     }
 
     /// The versioned semantic package identity.
@@ -778,7 +793,7 @@ fn validate(
     let LockAdmission {
         models,
         dependencies,
-    } = validate_lock(wire, evidence, &mut meter)?;
+    } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
     let kinds = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
     validate_source_map_entries(
         wire.semantic_graph
@@ -866,6 +881,7 @@ fn validate_lock<'a>(
     wire: &'a CheckedPackageWireV2,
     evidence: &'a CheckedPackageEvidence,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<LockAdmission<'a>, ValidationFailure> {
     let lock = &wire.lock;
     if lock.sources.is_empty() {
@@ -957,7 +973,7 @@ fn validate_lock<'a>(
             }
         }
     }
-    let models = validate_domain_packages(&lock.model_selections, evidence, meter)?;
+    let models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -1071,6 +1087,7 @@ fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
     evidence: &CheckedPackageEvidence,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<Vec<DomainModel>, ValidationFailure> {
     let row = |index: usize| member_pointer(&["lock", "model_selections"]).index(index);
     let at = |index: usize, member: &str| row(index).key(member);
@@ -1114,9 +1131,15 @@ fn validate_domain_packages(
         .iter()
         .enumerate()
         .map(|(index, model)| {
-            let mut budget = Budget::new(meter, index);
+            let mut budget = Budget::new(meter, index, bytes);
             admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
                 SelectionFailure::Limit(failure) => failure,
+                SelectionFailure::NumberPast2Pow53 { document_pointer } => {
+                    ValidationFailure::refused_number_in_document(
+                        at(index, "digest"),
+                        document_pointer,
+                    )
+                }
                 SelectionFailure::Refused(refused) => {
                     let path = refused
                         .member
@@ -1775,8 +1798,15 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &index)?;
-    validate_application_keys(&graph.nodes, &index, meter)?;
-    validate_nominal_nodes(&graph.nodes, &kinds, &index, &wire.lock, meter)?;
+    validate_application_keys(&graph.nodes, &index, meter, limits.bytes)?;
+    validate_nominal_nodes(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &wire.lock,
+        meter,
+        limits.bytes,
+    )?;
     validate_declaration_names(&graph.nodes, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.

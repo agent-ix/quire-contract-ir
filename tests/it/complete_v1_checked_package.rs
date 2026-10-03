@@ -172,7 +172,12 @@ fn tc_044_reader_admits_and_lowers_every_public_node_family() {
     );
     assert!(matches!(
         &mixed.records[2],
-        CompleteLoweringRecordV2::Failed { node_id, limit: 5, consumed: 7 } if *node_id == expression
+        CompleteLoweringRecordV2::Failed {
+            node_id,
+            limit_kind: CheckedPackageLimit::Work,
+            limit: 5,
+            consumed: 7,
+        } if *node_id == expression
     ));
 
     // The successful sibling is exactly what an isolated request would

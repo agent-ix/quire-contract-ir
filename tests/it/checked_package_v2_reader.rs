@@ -944,7 +944,7 @@ fn tc_048_nominal_preimages_round_trip_and_digest_to_their_own_node_key() {
             "preimage did not round-trip through NominalIdentityPreimage"
         );
         assert_eq!(
-            typed.digest().as_deref(),
+            typed.digest(1 << 20).as_deref().ok(),
             Some(key.as_str()),
             "digest() did not reproduce the node key this preimage is keyed by"
         );
