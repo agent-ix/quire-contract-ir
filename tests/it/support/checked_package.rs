@@ -125,9 +125,11 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
         .cloned()
         .unwrap_or_default()
     {
+        // The row names no version; the document it is supplied as carries
+        // `1`, which nothing reads.
         let document = domain_package_document(
             model["identity"].as_str().expect("model identity"),
-            model["version"].as_str().expect("model version"),
+            "1",
             Vec::new(),
         );
         let digest = domain_package_digest(&document);

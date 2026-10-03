@@ -275,7 +275,8 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 }
 
 /// FR-322 step 1 over a Semantic IR document: the digest is recomputed from
-/// the bytes and the document's own `package` identity and version compared.
+/// the bytes and the document's own `package` identity compared; no version
+/// is read.
 ///
 /// Tracing: TC-048, FR-038-AC-27
 #[test]
@@ -285,9 +286,8 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
     let digest = quire_canonical::sha256(&document, quire_canonical::Limits::new(BYTES))
         .expect("digest")
         .to_string();
-    let selection = |version: &str, digest: &str| CheckedDomainPackageRef {
-        identity: "acme/orders".into(),
-        version: version.into(),
+    let selection = |identity: &str, digest: &str| CheckedDomainPackageRef {
+        identity: identity.into(),
         digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
         digest: digest.into(),
     };
@@ -297,7 +297,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         let mut meter = WorkMeter::new(u64::MAX);
         admit_selection(selection, evidence, &mut Budget::new(&mut meter, 0, BYTES))
     };
-    let admitted = admit(&selection("1.0.0", &digest), &evidence).expect("admitted");
+    let admitted = admit(&selection("acme/orders", &digest), &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
     let refusal =
         |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| match admit(
@@ -307,21 +307,21 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
             other => panic!("expected a refusal, got {other:?}"),
         };
     assert_eq!(
-        refusal(&selection("1.0.1", &digest), &evidence),
+        refusal(&selection("acme/other", &digest), &evidence),
         SelectionRefusal::at(
             Code::InvalidModelBinding,
             Cause::WrongModelSelection,
-            Some("version")
+            Some("identity")
         )
     );
     assert_eq!(
-        refusal(&selection("1.0.0", &"0".repeat(64)), &evidence),
+        refusal(&selection("acme/orders", &"0".repeat(64)), &evidence),
         SelectionRefusal::at(Code::MissingImport, Cause::MissingSelection, Some("digest"))
     );
     let mut forged = CheckedPackageEvidence::new();
     forged.insert_domain_package_document(digest.clone(), b"{}".to_vec());
     assert_eq!(
-        refusal(&selection("1.0.0", &digest), &forged),
+        refusal(&selection("acme/orders", &digest), &forged),
         SelectionRefusal::at(
             Code::StaleDependency,
             Cause::ByteDigestMismatch,

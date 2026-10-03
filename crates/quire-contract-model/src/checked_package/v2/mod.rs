@@ -48,7 +48,7 @@ use model_members::{admit_selection, Budget, DomainModel, ModelOwners, Selection
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// The I04 transport version admitted by the V2 reader.
@@ -153,8 +153,6 @@ impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
 pub struct CheckedDomainPackageRef {
     /// Domain package identity.
     pub identity: Box<str>,
-    /// Domain package version.
-    pub version: Box<str>,
     /// Must be `sha256-jcs`.
     pub digest_domain: Box<str>,
     /// Lowercase SHA-256 of the package's RFC 8785 canonical bytes.
@@ -162,15 +160,13 @@ pub struct CheckedDomainPackageRef {
 }
 
 /// One selected library dependency (QSpec `DependencySelection`, FR-322
-/// `dependency_selections`): the library identity and version an import
-/// names, and the dependency's own semantic package identity.
+/// `dependency_selections`): the library identity an import names, and the
+/// dependency's own semantic package identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedDependencySelection {
     /// Library identity; the sort and uniqueness key of the array.
     pub identity: Box<str>,
-    /// Library version string.
-    pub version: Box<str>,
     /// The dependency's `quire.package.semantic/v2` package identity.
     pub package_id: CheckedSemanticId,
 }
@@ -541,7 +537,7 @@ fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFa
 }
 
 /// Members every `dependency_selections` entry requires.
-const DEPENDENCY_SELECTION_MEMBERS: [&str; 3] = ["identity", "version", "package_id"];
+const DEPENDENCY_SELECTION_MEMBERS: [&str; 2] = ["identity", "package_id"];
 
 /// An entry of `dependency_selections` that both lacks a required member and
 /// carries a member outside the closed shape (a `Selection` or a
@@ -916,18 +912,18 @@ fn validate_lock<'a>(
     }
     // Whole-array uniqueness is checked before any entry's digest is
     // evaluated against evidence: a `model_selections` array that repeats an
-    // entry (identity, version, digest_domain and digest all equal —
-    // whole-item equality, matching the schema's `uniqueItems`; two entries
-    // pinning the same package to different digests are distinct items) is a
-    // defect in the shape of the wire, and evidence for an already-malformed
-    // array is not meaningful to check. This order — not the reverse, and not
-    // interleaved per entry — is what keeps the outcome for an array carrying
-    // both defects independent of which one comes first in the array.
-    // Class 1 (repeated entry) of the five classes FR-038 orders this array's
-    // refusal code by; class 2 (same identity, different version) is swept
-    // immediately below, and the remaining three, in their own stated order,
-    // by `validate_domain_packages` below — so the code is decided by defect
-    // class throughout and never by array position. Only the lock's copy is
+    // entry (identity, digest_domain and digest all equal — whole-item
+    // equality, matching the schema's `uniqueItems`; two entries naming the
+    // same identity with different digests are not a repeat, they are class 4
+    // in `validate_domain_packages`) is a defect in the shape of the wire,
+    // and evidence for an already-malformed array is not meaningful to check.
+    // This order — not the reverse, and not interleaved per entry — is what
+    // keeps the outcome for an array carrying both defects independent of
+    // which one comes first in the array.
+    // Class 1 (repeated entry) of the four classes FR-038 orders this array's
+    // refusal code by; the remaining three, in their own stated order, are
+    // checked by `validate_domain_packages` below — so the code is decided by
+    // defect class throughout and never by array position. Only the lock's copy is
     // checked: the `same_non_graph_lock` equality above already requires
     // `identity_preimage.model_selections` to equal `lock.model_selections`
     // element-for-element, so a duplicate-free lock guarantees the mirrored
@@ -943,35 +939,6 @@ fn validate_lock<'a>(
             CheckedPackageRefusalCode::MalformedWire,
             models_pointer().index(repeat),
         ));
-    }
-    // Class 2: two selections naming the same identity at different
-    // versions. The nominal `Model` owner (`identity::validate_owner`) joins
-    // `lock.model_selections` by identity alone, so the lock must guarantee
-    // at most one selection per identity for that join to stay unambiguous
-    // (FR-038 carries the full rationale, including its scope: this rule
-    // guarantees at most one selection per identity within one lock, not a
-    // version-independent node key across packages, which is a separate,
-    // tracked concern). A same-identity, same-version pair differing only in
-    // digest is not this class — it shares one locator, so class 5 below
-    // already refuses it deterministically as `stale_dependency` per
-    // FR-038-AC-10, and this check does not widen to reach it. Swept over the
-    // whole array before any per-entry check, so the outcome does not depend
-    // on array position (FR-038-AC-11), and before `validate_domain_packages`
-    // below, so this class outranks classes 3 and 5 (FR-038-AC-20).
-    let mut model_versions: BTreeMap<&str, &str> = BTreeMap::new();
-    for (index, model) in lock.model_selections.iter().enumerate() {
-        match model_versions.entry(model.identity.as_ref()) {
-            Entry::Occupied(entry) if *entry.get() != model.version.as_ref() => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    models_pointer().index(index).key("version"),
-                ));
-            }
-            Entry::Occupied(_) => {}
-            Entry::Vacant(entry) => {
-                entry.insert(model.version.as_ref());
-            }
-        }
     }
     let models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
@@ -1024,8 +991,6 @@ fn validate_dependency_selections(
     let malformed = selections.iter().enumerate().find_map(|(index, entry)| {
         if !is_nonempty(&entry.identity) {
             Some(at(index).key("identity"))
-        } else if !is_nonempty(&entry.version) {
-            Some(at(index).key("version"))
         } else if entry.package_id.algorithm.as_ref() != "sha256" {
             Some(at(index).key("package_id").key("algorithm"))
         } else if !is_digest(&entry.package_id.digest) {
@@ -1066,22 +1031,21 @@ fn validate_dependency_selections(
 /// returns its declarations, in lock order. Raw artifact evidence is never
 /// consulted, so equal digest bytes in another domain cannot satisfy it.
 ///
-/// Checks classes 3 and 4 of FR-038's five-class `model_selections` order,
+/// Checks classes 2 to 4 of FR-038's four-class `model_selections` order,
 /// each sweeping the whole array before the next begins, so the refusal an
 /// array carrying two different defects draws is decided by defect class
 /// and not by which defective entry the reader reaches first:
-/// declared-domain mismatch (`digest_domain_mismatch`, class 3) outranks a
-/// shape defect (`malformed_wire`, class 4). Classes 1 (repeated entry) and
-/// 2 (same identity, different version) are checked by the caller before
-/// any of these. Class 5, the selection's evidence, is FR-322 step 1: each
-/// row in lock order is admitted under FR-154's four checks and its
-/// declarations read, and the first refusal is the read's, at the row (or
-/// the row member it is about). The parse and read of each document are
-/// charged to `meter`, and an exhausted `work` limit is `incomplete` at the
-/// row (`/lock/model_selections/<i>`). Two rows sharing one identity and version
-/// but naming different digests are one locator selected twice: the later
-/// row refuses `stale_dependency` at its `digest`, whatever documents the
-/// caller supplied.
+/// declared-domain mismatch (`digest_domain_mismatch`, class 2) outranks a
+/// shape defect (`malformed_wire`, class 3). Class 1 (repeated entry) is
+/// checked by the caller before any of these. Class 4, the selection's
+/// evidence, is FR-322 step 1: each row in lock order is admitted under
+/// FR-154's four checks and its declarations read, and the first refusal is
+/// the read's, at the row (or the row member it is about). The parse and
+/// read of each document are charged to `meter`, and an exhausted `work`
+/// limit is `incomplete` at the row (`/lock/model_selections/<i>`). Two rows
+/// sharing one identity but naming different digests are one identity
+/// selected twice: the later row refuses `stale_dependency` at its `digest`
+/// before any document is read, whatever documents the caller supplied.
 // Intake: checks the fixed digest domain of each domain package selection.
 fn validate_domain_packages(
     models: &[CheckedDomainPackageRef],
@@ -1103,8 +1067,6 @@ fn validate_domain_packages(
     let malformed = models.iter().enumerate().find_map(|(index, model)| {
         if !is_nonempty(&model.identity) {
             Some(at(index, "identity"))
-        } else if !is_nonempty(&model.version) {
-            Some(at(index, "version"))
         } else if !is_digest(&model.digest) {
             Some(at(index, "digest"))
         } else {
@@ -1114,11 +1076,10 @@ fn validate_domain_packages(
     if let Some(path) = malformed {
         return Err(refuse(CheckedPackageRefusalCode::MalformedWire, path));
     }
-    let mut digests: BTreeMap<(&str, &str), &str> = BTreeMap::new();
+    let mut digests: BTreeMap<&str, &str> = BTreeMap::new();
     for (index, model) in models.iter().enumerate() {
-        let locator = (model.identity.as_ref(), model.version.as_ref());
         if digests
-            .insert(locator, model.digest.as_ref())
+            .insert(model.identity.as_ref(), model.digest.as_ref())
             .is_some_and(|earlier| earlier != model.digest.as_ref())
         {
             return Err(refuse(
@@ -2201,7 +2162,6 @@ mod tests {
     fn dependency_selection_required_members_match_the_type() {
         let entry = CheckedDependencySelection {
             identity: "a".into(),
-            version: "1".into(),
             package_id: CheckedSemanticId {
                 domain: "d".into(),
                 algorithm: "sha256".into(),

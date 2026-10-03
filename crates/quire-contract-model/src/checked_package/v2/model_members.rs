@@ -7,8 +7,9 @@
 //!
 //! 1. **Selection evidence** ([`admit_selection`]). Each `model_selections`
 //!    row's document is looked up by digest in the caller's evidence, its
-//!    RFC 8785 digest recomputed, its own identity and version compared with
-//!    the row, and its declarations read ([`read_semantic_ir`]).
+//!    RFC 8785 digest recomputed, its own identity compared with the row's
+//!    (selections bind by identity; no version is read), and its
+//!    declarations read ([`read_semantic_ir`]).
 //! 2. **Owner recovery** ([`ModelOwners::recover`]). Every object type and
 //!    relationship declaration of each admitted document has its
 //!    `ModelDeclarationNode` key recomputed; a declaring node's owner is the
@@ -200,7 +201,6 @@ pub(super) struct IntegerBounds {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DomainModel {
     pub(super) identity: Box<str>,
-    pub(super) version: Box<str>,
     /// The reader's byte limit, under which every key derived from this
     /// model's declarations is hashed.
     pub(super) bytes: u64,
@@ -1016,10 +1016,11 @@ impl From<ModelFailure> for SelectionFailure {
 
 /// FR-322 step 1's four admission checks, in FR-154's order, over the
 /// document supplied under the row's digest. `identity_of` reads the
-/// document's own identity and version. Parsing is charged to the reader's
-/// `work` limit before it starts, one unit per [`DOCUMENT_BYTES_PER_WORK`]
-/// bytes, so a document too large for the limit is `incomplete` at its row
-/// (`/lock/model_selections/<i>`) and is never parsed. The reader recomputes
+/// document's own identity (its `package.version`, if any, is never read).
+/// Parsing is charged to the reader's `work` limit before it starts, one unit
+/// per [`DOCUMENT_BYTES_PER_WORK`] bytes, so a document too large for the
+/// limit is `incomplete` at its row (`/lock/model_selections/<i>`) and is
+/// never parsed. The reader recomputes
 /// the RFC 8785 digest from the supplied bytes and compares it with the
 /// digest the lock selected, so the model actually parsed is the one the
 /// package was compiled against: a content identity check, not a comparison
@@ -1028,7 +1029,7 @@ impl From<ModelFailure> for SelectionFailure {
 pub(super) fn admit_document(
     selection: &CheckedDomainPackageRef,
     supplied: Option<&[u8]>,
-    identity_of: fn(&Value) -> Option<(&str, &str)>,
+    identity_of: fn(&Value) -> Option<&str>,
     budget: &mut Budget<'_>,
 ) -> Result<Value, SelectionFailure> {
     use CheckedPackageRefusalCause as Cause;
@@ -1086,10 +1087,8 @@ pub(super) fn admit_document(
         ))
     };
     let refusal = match identity_of(&document) {
-        Some((identity, _)) if identity != selection.identity.as_ref() => wrong("identity"),
-        Some((_, version)) if version != selection.version.as_ref() => wrong("version"),
-        Some(_) => return Ok(document),
-        None => wrong("identity"),
+        Some(identity) if identity == selection.identity.as_ref() => return Ok(document),
+        Some(_) | None => wrong("identity"),
     };
     quire_canonical::drop_value(document);
     Err(refusal)
@@ -1308,14 +1307,11 @@ fn parse_exponent(text: &str) -> i64 {
     }
 }
 
-/// A Semantic IR 2.0.0 document's own `package.identity` and
-/// `package.version`.
-pub(super) fn semantic_ir_identity(document: &Value) -> Option<(&str, &str)> {
-    let package = document.get("package")?;
-    Some((
-        package.get("identity")?.as_str()?,
-        package.get("version")?.as_str()?,
-    ))
+/// A Semantic IR 2.0.0 document's own `package.identity`. The document's
+/// `package.version` is neither required nor read: a selection binds by
+/// identity and content digest alone.
+pub(super) fn semantic_ir_identity(document: &Value) -> Option<&str> {
+    document.get("package")?.get("identity")?.as_str()
 }
 
 /// FR-322 step 1 for one `model_selections` row: admission, then the
@@ -1572,7 +1568,7 @@ pub(super) fn read_semantic_ir(
     document: &Value,
     budget: &mut Budget<'_>,
 ) -> Result<DomainModel, ModelFailure> {
-    let (identity, version) = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
+    let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
     let mut meanings: BTreeMap<(&str, &str), &str> = BTreeMap::new();
     for construct in list(document, "constructs")? {
         let kind = construct.get("kind").ok_or_else(ModelRefusal::malformed)?;
@@ -1602,7 +1598,6 @@ pub(super) fn read_semantic_ir(
         .collect();
     let mut model = DomainModel {
         identity: identity.into(),
-        version: version.into(),
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
         value_types: BTreeMap::new(),

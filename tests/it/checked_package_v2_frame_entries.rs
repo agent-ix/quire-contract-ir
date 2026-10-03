@@ -1367,7 +1367,7 @@ impl ModelPackage {
         let value = &mut state.value;
         let document = orders_document();
         value["lock"]["model_selections"] = json!([{
-            "identity": ORDERS, "version": ORDERS_VERSION,
+            "identity": ORDERS,
             "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
         }]);
         let empty = || json!({"term": "aggregate", "members": []});

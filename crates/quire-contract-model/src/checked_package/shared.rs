@@ -187,7 +187,7 @@ pub enum CheckedPackageRefusalCause {
     /// document's RFC 8785 bytes is not the digest it was supplied under.
     ByteDigestMismatch,
     /// `wrong-model-selection`: a supplied domain package document's own
-    /// identity or version differs from its selection.
+    /// identity differs from its selection's.
     WrongModelSelection,
     /// `conflicting-binding`: two declarations of one domain package share
     /// one IR node identity.
