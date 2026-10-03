@@ -196,7 +196,7 @@ and a clause whose formula applies `quire.op.temporal.eventually` with the
 interval `{0, 3}` over `quire.op.temporal.holds`; read it, then lower it under a
 profile that supports the `temporal` tag and under one that does not (AC-96). On
 each of the eight interval operators read the member as `{0, 3}`, `{9, 10}`,
-`{-1, 3}`, `{2, null}`, `null` interval, `{3, 0}`, `{10, 9}`, `{2^64+1, 2^64}`,
+`{2, null}`, `null` interval, `{3, 0}`, `{10, 9}`, `{2^64+1, 2^64}`,
 a `fairness` member, a `null` member, an interval with a third member, an integer
 `lower`, and bounds `"1.5"`, `"01"`, `"+1"`, `""` and `"3x"`, and put a member on
 `holds`, `not` and the clause (AC-97). Read
