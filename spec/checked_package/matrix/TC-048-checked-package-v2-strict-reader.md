@@ -247,8 +247,9 @@ reference and a Boolean reference, `until` one argument, `not` two, `true` one,
 leaf for `Empty`; the recursive unions `IntList` (no `text`, `leaves` empty) and
 `TextList` with the leaves `["member:Cons", "position:0"]` and
 `["member:Cons", "position:1", "recursion:0"]`, the recursion leaf missing, written
-`recursion:1`, and placed at an `IntList` reentry (AC-106, `member:<Ident>` and
-union cycles pending QSpec merge). Read an empty union and a union value with two
+`recursion:1`, and placed at an `IntList` reentry (AC-106; `member:<Ident>` and union
+cycles are merged QSpec FR-322-AC-45 and AC-46; the recursion-leaf entry for a
+cycle that reaches `text` is an unreconciled difference with merged FR-322). Read an empty union and a union value with two
 bindings (AC-99, `invalid_semantic_graph` at the body); a fairness `declaration`
 naming a `scalar_type` node (AC-103, `invalid_model_binding`/`malformed-declaration`
 with path `.../member/declaration` on the fairness node and the target's key as
@@ -294,8 +295,9 @@ profile refuses `unknown_profile`/`unsupported-selection`; naming
 `quire.package.composed/v1` with the lock selecting it as a `binding_contract` row,
 and `quire.protocol.complete/v1` with the lock selecting it as a `protocol_profile`
 row, refuses `unknown_profile`/`wrong-selection-role`, while the same two
-identities with no such lock row refuse `unsupported-selection` (a relayed ruling
-pending QSpec merge, decided from the package alone); each at the law's
+identities with no such lock row refuse `unsupported-selection` (merged QSpec
+FR-370 "Profile check" and FR-370-AC-10, decided from the package alone); a clause with
+no `temporal_profile` law or two skips the check; each at the law's
 `definition`, first among the clause's checks, and each of the five FR-250
 members admits (AC-108). Compare the whole
 refusal code, cause and pointer.

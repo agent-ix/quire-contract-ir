@@ -906,21 +906,24 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   not an interval and refuses as a member of the wrong kind. Each of `lower` and
   `upper` is an integer string, the schema's `IntegerString`, which matches
   `^(0|-?[1-9][0-9]*)$` exactly: `"0"`, `"3"`, `"10"` and `"-1"` match, `"1.5"`,
-  `"01"`, `"+1"`, `""` and `"3x"` do not. QSpec FR-255 and FR-091 require integer
-  bounds with `0 <= a`. A QSpec owner ruling relayed via the IR planner, not yet in
-  merged QSpec text (so an IR reading until it merges), is that QSpec's schema
-  tightens the bound pattern to a non-negative integer and that the reader refuses
-  a negative `lower` or `upper` as `invalid_package` with cause `invalid-value`,
-  the cause of `lower > upper`, at schema validation (the term walk of the node
-  body: the walk that validates each body term's closed shape, which runs after the
-  strict parse, the canonical-bytes check and the decode and before the graph's
-  identity checks, the temporal step and the operation step; measured, the two are
-  one stage in effect, a refusal from the body's closed-shape validation before
-  placement and every temporal step, and the term walk gains this one check on a
-  `temporal_interval` member; QSpec PR #181, draft and not merged, words the stage
-  "schema validation"), under every profile and whatever the
-  member's other defects of the temporal step, first in member order (`lower`, then
-  `upper`), located at the bound
+  `"01"`, `"+1"`, `""` and `"3x"` do not. QSpec FR-370 (merged at
+  f39c93f9ec3b3fecc404a1935dbaa40665281b8c) makes the integer-form bounds non-negative
+  decimal integer strings in the published schema (`NonNegativeIntegerString`,
+  `^(0|[1-9][0-9]*)$`) and states that a bound outside its form's pattern, including a
+  negative integer bound such as `{lower: "-1", upper: null}`, refuses
+  `invalid_package`/`invalid-value` at that bound's pointer during strict wire
+  validation, before any step of FR-370, so it is `invalid-value` under every
+  profile and never `operation-member-mismatch` (FR-370-AC-9; the merged
+  `adverse.json` has the case `negative-temporal-interval-bound` at
+  `/semantic_graph/nodes/29/body/operation/member/interval/lower`). This reader
+  refuses a negative `lower` or `upper` as `invalid_package`/`invalid-value` at
+  schema validation, which in this reader is the term walk of the node body (the
+  walk that validates each body term's closed shape, which runs after the strict
+  parse, the canonical-bytes check and the decode and before the graph's identity
+  checks, the temporal step and the operation step; measured, one stage in effect
+  with strict wire validation, and the term walk gains this one check on a
+  `temporal_interval` member), first in member order (`lower`, then `upper`),
+  located at the bound
   (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower` or `.../upper`).
   A negative bound is read as an integer, so it is not the shape refusal below. The
   asymmetry is deliberate: `"-1"` matches the integer-string grammar and is refused
@@ -986,33 +989,34 @@ nodes; a duplicated member name refuses `invalid_package` with cause
 body that is not that shape (an empty union with no member, a binding whose value
 is not an `aggregate`, a union value with other than one binding) is malformed and
 refuses `invalid_semantic_graph` at the node's `body`, as every other malformed
-node body does (confirmed relayed ruling, pending QSpec merge). A union value node's
+node body does (an IR reading, pending a QSpec ruling: merged QSpec FR-322 and FR-440 state no refusal for a malformed union body). A union value node's
 `semantic_type` is a union type node and its body is one `binding` naming a
 member of that union over exactly the member's payload terms, each of the
 member's payload type; a binding naming no member, a wrong payload count or a
 payload of another type refuses `ill_typed` with cause `type-mismatch` at the
 node (QSpec FR-440 reader joins 1 and 2). Neither `duplicate-member` nor
 `type-mismatch` is a cause of the reader's refusal types today, and the code
-change adds both with the pairings FR-440 states and no other. A QSpec owner
-ruling, relayed via the IR planner and not yet in merged QSpec text, is that
-QSpec's V2 schema gains `type-mismatch` in its `cause_tag` enumeration and in its
-cause-to-code pairing with `ill_typed`; until that merges this is an IR reading of
-FR-440's own text, which names the cause, and the reader states `type-mismatch`
-as the cause. The operand family of a
+change adds both with the pairings FR-440 states and no other. Merged QSpec FR-322
+(at f39c93f9ec3b3fecc404a1935dbaa40665281b8c, FR-322-AC-47) pairs
+`ill_typed`/`type-mismatch` (FR-440's union value join) and admits `type-mismatch`
+in the V2 `Diagnostic` schema only with `ill_typed`; it likewise admits
+`missing-selection` only with `missing_import` or `missing_declaration`, which the
+reader's `missing-selection` pairs already follow. The operand family of a
 `composite_type`/`union` node is `union`.
 `quire.op.structural.eq` and `quire.op.structural.ne` over two values of one union
 admit and over values of two different unions refuse `ill_typed`/
 `operator-ineligible` by their `same_type` constraint (QSpec FR-440-AC-6). The
-leaves of a comparison over a union follow a QSpec owner ruling relayed via the
-IR planner and not yet in merged QSpec text, so an IR reading until a QSpec PR
-lands: FR-322's leaf segments gain `member:<Ident>`, naming the union member; a
+leaves of a comparison over a union follow merged QSpec FR-322 "Structural leaf
+walk" and FR-322-AC-45 and AC-46 and FR-440 (at
+f39c93f9ec3b3fecc404a1935dbaa40665281b8c): the leaf segments gain `member:<Ident>`,
+naming the union member; a
 `structural.eq` or `structural.ne` leaf path through a union is `member:<Name>`
 followed by `position:i`, `i` the index within that member's ordered payload even
 for a single payload, and then the `field:`, `position:` and `inner` segments into
 the payload type, with one leaf per member whose payload reaches a `text` type,
 members in declaration order and none for a payload-less member. A comparison over a union whose payloads reach
 no `text` type admits with `leaves` empty, as for any compared type that reaches
-none. Until that text merges the leaf grammar is not cited by id. A union member key (QSpec FR-441) is
+none. A union member key (QSpec FR-441) is
 derived by a reader and never carried; this reader derives none, since it selects
 no arm. An `expression`/`case` node is keyed by the application-node preimage
 like every application node, and the other three forms carry the `node_id` every
@@ -1021,7 +1025,14 @@ node carries.
 **The temporal step.** QSpec FR-370 "Reader order" puts a temporal step after
 the state step (FR-040) and before any operation refusal, and this reader runs it
 there, replacing the earlier placement of these applications in the operation
-step and the term walk. It reports the first defect of this order. Placement
+step and the term walk. Merged QSpec FR-370 and FR-440 (at
+f39c93f9ec3b3fecc404a1935dbaa40665281b8c) state the rules this section cites unless a
+sentence says it is an IR reading or pending. Strict wire validation (here the term
+walk's negative-bound refusal) precedes the step. The step reports the first defect
+of this order: placement of every temporal application and of every reference to a
+`temporal`/`formula` or `temporal`/`fairness` node (1), then every diagnostic
+`details` term in entry order and then `details` order, then the clause checks (2).
+Placement
 (1) is checked over the whole graph first, in ascending `node_id` digest order;
 the clause checks (2) then run clause by clause, in ascending `node_id` digest
 order of the clause node, and each clause is taken through its four checks (`over`,
@@ -1049,42 +1060,42 @@ defect:
    argument (QSpec FR-370 "Placement and profile fit"); a `reference` to one from
    any other term refuses. Each refuses `ill_typed` with cause
    `operator-ineligible`, located at the node that holds the misplaced
-   application or, for a reference, at the referencing node. QSpec FR-370 states
-   "at the node that holds them" of applications only; locating a misplaced
-   reference at the referencing node is a QSpec owner ruling relayed via the IR
-   planner, not yet in merged QSpec text, and an IR reading until it merges.
+   application or, for a reference, at the referencing node: merged QSpec FR-370
+   states that a misplaced reference "is located at the node whose body holds the
+   reference, not at the formula or fairness node it names" and that a misplaced
+   application is refused `ill_typed`/`operator-ineligible` at the node that holds
+   it (FR-370-AC-12).
 2. **Each clause** (the clause checks, in this order for one clause):
    - **Profile identity** (first, "Unknown profile" below).
    - **`over`.** Its `over` argument is a `reference` to a node that is among the
      clause node's declared `dependencies` and is a `value`/`parameter` node, else
      `missing_declaration`/`missing-name` for a target that is no declared
      dependency and `invalid_model_binding`/`malformed-declaration` for a declared
-     dependency of another tag or form, the pairing a frame entry's reference has
-     (FR-040).
-   - **Fairness resolution.** For each fairness member reached through the
-     clause's fairness argument, the `declaration` names a `model`/`object_type`
-     declaration node, else `invalid_model_binding`/`malformed-declaration` with path
-     `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and
-     the `declaration` target's key as locus ("Path and locus" below; as FR-342
-     step 1 refuses an anchor's context; a QSpec owner ruling
-     relayed via the IR planner, pending QSpec merge, replacing the earlier reading
-     that any `model`-tag node would do), and the `name` resolves among that node's exposed operation members, own
-     and inherited, with redefinitions applied, as an operation anchor's
-     `operation` name does (FR-040 "Operation anchor body"), except that an
-     operation the node only inherits is admitted. QSpec FR-370 states only
-     `missing_declaration`/`missing-name`; the other outcomes are QSpec owner
-     rulings relayed via the IR planner, not yet in merged QSpec text, and IR
-     readings until they merge: a `declaration` that names no node, and a `name` that
-     no effective operation matches, refuse
-     `missing_declaration`/`missing-name`; two or more matches refuse
-     `ambiguous_declaration`/`ambiguous-name` (`ambiguous-name` pairs with
-     `ambiguous_declaration`); an inherited-only operation is a valid fairness member
-     and resolves to the most-derived redefinition, since fairness follows QSpec
-     FR-362's effective operation and FR-040's inherited-only refusal is specific to
-     an operation anchor; and a declaring node whose owner is not recovered refuses
-     with that resolution's own refusal (`missing_declaration`/`missing-selection`
-     or `invalid_package`/`stale-node-key`), as an operation anchor's unrecovered
-     owner does.
+     dependency of another tag or form, the pairing this repository's FR-040 gives a
+     frame entry's reference (QSpec FR-370 "Reader order" states the check and these
+     two pairings).
+   - **Fairness resolution.** Merged QSpec FR-370 "Fairness resolution" and
+     FR-370-AC-11 (at f39c93f9ec3b3fecc404a1935dbaa40665281b8c) resolve a fairness
+     member's `name` by FR-322 "Model-owned members" steps 2 and 3 among the
+     effective operation members of its `declaration` node, the set QSpec FR-362
+     resolves a fairness constraint against (own and inherited, redefinitions
+     applied), and state, for each fairness member reached through the clause's
+     fairness argument, in this order: (1) the `declaration` target is a `model` node
+     of `semantic_form` `object_type`, else `invalid_model_binding`/
+     `malformed-declaration` located at the target, with path
+     `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and the
+     `declaration` target's key as locus ("Path and locus" below); (2) the owner is
+     recovered, else FR-322 step 2's own refusal, `missing_declaration`/
+     `missing-selection` for a node no selected owner matches and `invalid_package`/
+     `stale-node-key` for a matched node that is not its own preimage; (3) exactly one
+     effective operation member matches `name`: two or more refuse
+     `ambiguous_declaration`/`ambiguous-name` and none refuses
+     `missing_declaration`/`missing-name`. An operation the declaring type only
+     inherits is admitted and resolves to its most derived redefinition: FR-342's
+     refusal of an inherited-only operation belongs to an operation anchor and does
+     not apply. Merged text does not say what a `declaration` that names no node at
+     all refuses; this reader refuses it `missing_declaration`/`missing-name`, an IR
+     reading pending a QSpec ruling.
    - **Profile fit** (below).
    - **Interval bounds**, the `lower > upper` refusal of the member rule above,
      which runs after profile fit. The refusal is a property of the member, not of
@@ -1095,8 +1106,8 @@ defect:
      temporal step, so `{lower: "-1", upper: null}` under a bounded profile refuses
      `invalid-value` at `lower` and never `operation-member-mismatch`, and
      `{lower: "0", upper: "-2"}` refuses at `upper` as a negative bound, not as
-     `lower > upper` (a relayed ruling, pending the QSpec change that tightens the
-     pattern).
+     `lower > upper` (merged FR-370-AC-9 and the stage order of its "Reader order":
+     strict wire validation precedes the temporal step).
 
    The temporal step reads only a well-formed member: an interval member whose
    shape the member rules above refuse (a `null` member, a member of another kind,
@@ -1110,52 +1121,56 @@ defect:
    (merged text): `quire.temporal.event-position.false-extension/v1`,
    `quire.temporal.fixed-sample.false-extension/v1`,
    `quire.temporal.timestamped-event.finite-window/v1`,
-   `quire.temporal.infinite-trace/v1` and `quire.temporal.timed/v1`. The fit of the
-   interval members per profile below is a QSpec owner ruling relayed via the IR
-   planner, not yet in merged QSpec text, and an IR reading until it merges (QSpec
-   FR-370-AC-3 states only the bounded rule: a `null` interval or a `null` `upper`
-   under a bounded profile refuses `operation-member-mismatch`):
+   `quire.temporal.infinite-trace/v1` and `quire.temporal.timed/v1`. A clause whose
+   `laws` is not exactly one law of role `temporal_profile` has no profile to check:
+   the temporal step skips that clause's profile check and profile fit, and its law
+   defect is the operation step's (`operation-law-missing`,
+   `operation-law-mismatch`), as merged QSpec FR-370 "Profile check" states. The fit
+   of the interval members per profile is merged QSpec FR-370's table and
+   FR-370-AC-3 (at f39c93f9ec3b3fecc404a1935dbaa40665281b8c), and any other shape, or
+   a non-empty fairness argument the profile does not admit, refuses `invalid_package`/
+   `operation-member-mismatch` at the application:
    - `quire.temporal.infinite-trace/v1` admits `interval: null`, `{lower, upper:
      null}` and `{lower, upper}`, and any number of fairness references.
-   - `quire.temporal.timed/v1` admits `interval: null` (an unbounded operator, which
-     QSpec FR-250-AC-6 admits under this profile) and `{lower, upper}`, and refuses
-     `{lower, upper: null}` because its upper bound is finite (QSpec FR-255). Timed
-     bounds are exact rationals with open or closed ends, which V2's
-     integer-string `temporal_interval` cannot carry. A KNOWN GAP, IR-551 (blocked by
-     QSpec PR #181, draft and not merged, merging): the draft's timed form
-     `{lower, upper}` of non-negative rationals with `lower_end` and `upper_end`
-     (closed or open), no null upper, timed only, is not read by this change, and
-     this specification pins no behaviour for a non-integer or open-ended timed
-     bound and invents no refusal for it. As what the reader does today, not as a
+   - `quire.temporal.timed/v1` admits `interval: null` (an unbounded operator) and
+     the timed form below, and any number of fairness references; `{lower, upper:
+     null}` and an integer-form `{lower, upper}` refuse `operation-member-mismatch`
+     under it (merged FR-370 states a timed interval has a finite upper bound and
+     exact rational bounds). A KNOWN GAP, IR-551: merged FR-370 defines the timed form
+     `{lower, upper, lower_end, upper_end}` with `lower` and `upper` exact non-negative
+     rationals `{numerator, denominator}` in lowest terms, `lower_end` and `upper_end`
+     each `closed` or `open`, used only under this profile, `lower <= upper` and
+     `lower < upper` when an end is open, a bound not in lowest terms refused
+     `invalid_semantic_graph` and an open end with equal bounds refused
+     `invalid-value` (FR-370-AC-8). This change does not read that form and pins no
+     behaviour for it; IR-551 owns it. As what the reader does today, not as a
      requirement: on the IR-549 code (the held code change, head
      ddaf828d0fbe6d0732753bd1c169079b1d6c505e) an interval that is neither `null` nor
      exactly `{lower, upper}` with integer-string bounds does not decode as an
      interval member, so it refuses `operation-member-mismatch` at `operation.member`
-     as any member shape that does not decode does.
-     Any number of fairness references is admitted, as under the infinite-trace
-     profile (relayed ruling, pending QSpec merge).
+     as any member shape that does not decode does. So until IR-551, a timed-form
+     interval under `timed/v1`, which merged QSpec admits, is refused by this reader.
    - The three bounded profiles (`event-position.false-extension`,
      `fixed-sample.false-extension`, `timestamped-event.finite-window`) admit
-     `{lower, upper}` only: a `null` interval or a `{lower, upper: null}` interval
+     integer `{lower, upper}` only: a `null` interval or a `{lower, upper: null}` interval
      refuses `invalid_package` with cause `operation-member-mismatch` at the
      operator's application, and a non-empty fairness argument refuses the same
      way at the clause's application.
 
-   **Unknown profile.** The clause's `temporal_profile` law, checked before `over`,
-   must name one of the five FR-250 members. A law whose `definition` is not one
-   refuses `unknown_profile`, with the pairings of merged QSpec FR-272, each located
-   at the clause application's `/semantic_graph/nodes/{n}/body/operation/laws/0/definition`.
-   The locus and the place of this check first among a clause's checks (the
-   profile decides interval fit) are a QSpec owner ruling relayed via the IR
-   planner, not yet in merged QSpec text.
+   **Unknown profile.** Merged QSpec FR-370 "Profile check" and FR-370-AC-10 (at
+   f39c93f9ec3b3fecc404a1935dbaa40665281b8c): a clause's `temporal_profile` law is
+   checked first among that clause's checks and must name one of the five FR-250
+   members, its `identity` equal byte for byte. A law whose `definition` is not one
+   refuses `unknown_profile`, located at
+   `/semantic_graph/nodes/{n}/body/operation/laws/0/definition` for the clause node
+   `n`, with the pairings of merged QSpec FR-272.
 
-   **Cause.** A QSpec owner ruling relayed via the IR planner, not yet in merged
-   QSpec text: the cause is `wrong-selection-role` when that same `definition`
-   (`{authority, identity}`) appears in the package's own `lock.profile_selections`
-   under a `role` other than `temporal_profile` (the roles `language`, `edition`,
-   `profile`, `binding_contract` and `protocol_profile`, the other values of a
-   row's `role`, and the `lock.edition` row), and `unsupported-selection`
-   otherwise. The rule is decidable from the package alone: this reader holds no
+   **Cause.** Merged QSpec FR-370: the cause is `wrong-selection-role` when the same
+   `DefinitionRef` is the `definition` of a `Selection` of the package's own lock (its
+   `edition` or a `profile_selections` row) whose `role` is not `temporal_profile`
+   (here the `lock.profile_selections` rows and the `lock.edition` row, whose roles are
+   `language`, `edition`, `profile`, `binding_contract`, `protocol_profile`), and
+   `unsupported-selection` otherwise. The rule is decidable from the package alone: this reader holds no
    catalog and no identity list beyond FR-250's five members, so an identity the
    package does not select under another role, such as the in-repo fixtures'
    `quire.fixture.temporal-profile/v1`, refuses `unsupported-selection`, and
@@ -1165,8 +1180,8 @@ defect:
    (QSpec FR-250 "Identity and comparison"; the label is the key); the
    `authority` of the definition reference takes no part, so a law with a member's
    identity and a different `authority` is still a known profile and later refuses
-   `operation-law-unselected` at FR-038-AC-57's join (a confirmed relayed ruling,
-   pending QSpec merge). This check precedes FR-038-AC-57's join of the law to the lock's
+   `operation-law-unselected` at FR-038-AC-57's join (merged FR-370 matches `identity`
+   alone: "its `identity` equals one of FR-250's five values byte for byte"). This check precedes FR-038-AC-57's join of the law to the lock's
    `temporal_profile` row, which still refuses `operation-law-unselected` for a
    known FR-250 member that is not the selected one. An unknown identity is never read as bounded or as unbounded.
    `unknown_profile` is a code of QSpec FR-271's diagnostic code vocabulary and not
@@ -1177,9 +1192,11 @@ defect:
    nodes reachable from the clause's formula argument by operand references.
 
 **Path and locus.** Every refusal of the temporal step carries both a path (an
-RFC 6901 pointer) and a locus (a node key), as the frame-entry refusals do (FR-040:
-the path is on the referencing member, the locus is the declaring node's key; FR-342
-step 1: "the locus is the target"). "At the node" and "at the application" above name
+RFC 6901 pointer) and a locus (a node key), as QSpec FR-047 requires of every
+refusal ("an exact locus") and as this repository's own FR-040 pairs them for a
+frame entry (the path is on the referencing member, the locus is the declaring node's
+key); merged QSpec FR-370 states "located at the target" for a fairness declaration
+and "located at the node whose body holds the reference" for a misplaced reference. "At the node" and "at the application" above name
 a path (`/semantic_graph/nodes/{n}` and its `/body`); unless a row below says
 otherwise, the locus is the key of the node that path is on.
 
@@ -1194,31 +1211,38 @@ otherwise, the locus is the key of the node that path is on.
 | fairness `declaration` not a `model`/`object_type` node (`malformed-declaration`) | `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` | the `declaration` target's key (`member.declaration`) |
 | fairness `name` matches no effective operation (`missing-name`) or two or more (`ambiguous-name`) | `/semantic_graph/nodes/{fairness node}/body/operation/member/name` | the `declaration` target's key |
 | fairness declaring node's owner not recovered | `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` | the fairness node's key (the calling node, as FR-038 states for a model-owner refusal) |
+| a `details` term references a formula, fairness, `case`, union or union value node | `/diagnostics/entries/{e}/details/{d}` | the holder is a diagnostic entry, not a node: no node key; the entry's pointer is the locus |
+| an application of the four classes in a `details` term (IR reading) | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
 | profile fit, interval | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
 | profile fit, fairness argument | `/semantic_graph/nodes/{clause}/body` | the clause's key |
 | `lower > upper` | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
 | negative bound | `/semantic_graph/nodes/{formula node}/body/operation/member/interval/lower` or `.../upper` | the formula node's key |
 
 The paths AC-97, AC-102, AC-103, AC-104 and AC-108 give, and the loci they name,
-are the rows of this table. The table is an IR reading of how path and locus are
-paired, pending QSpec (QSpec PR #181 is silent on loci).
+are the rows of this table. The table follows the loci merged FR-370 states (the
+target, the referencing node, the clause node for the law); the other pairings are IR
+readings, pending a QSpec ruling.
 
-Two rows are a deliberate departure from FR-040, which makes the locus the entry's
+Two rows are a deliberate departure from this repository's FR-040, which makes the locus the entry's
 declaring node key (the key the entry names, as `frame.rs` carries it): an `over` that
 names no node and a fairness `declaration` that names no node put the locus on the
 holder (the clause, the fairness node) rather than on the named key, because a key
 that names no node cannot locate a node in the graph. Every other row that names a
 target uses the target's key, as FR-040 does.
 
-**QSpec PR #181 (draft, not merged; head 454bb057c32c73b472bd83cb4d94b2f77bf8c8ce)**
-carries drafts of several of the relayed rulings marked pending above: the
-`type-mismatch` cause and its `ill_typed` pairing, the `member:<Ident>` leaf segment, a
-non-negative integer bound pattern with a negative bound refused `invalid_package`/
-`invalid-value` before any FR-370 step, a rational timed interval form with open and
-closed ends, the `unsupported-selection` and `wrong-selection-role` causes with their
-`unknown_profile` pairing, and the cause rulings of its description for profile fit,
-fairness resolution and placement. IR's text keeps every pending mark until that PR
-merges, and nothing here cites it as merged.
+**Merged QSpec text.** QSpec PR #181 is merged at QSpec main
+f39c93f9ec3b3fecc404a1935dbaa40665281b8c: FR-322 (the `type-mismatch`,
+`missing-selection`, `unsupported-selection` and `wrong-selection-role` pairings, the
+`member:<Ident>` leaf segment, "Structural leaf walk", AC-45 through AC-47), FR-370
+(interval forms and non-negative bound pattern, profile table, "Profile check",
+"Fairness resolution", placement, "Reader order", AC-3, AC-4, AC-8 through AC-12),
+FR-440 (case placement, union leaves, AC-7, AC-8) and the V2 schemas. The sentences
+above that cite them are no longer pending. What the merged text does NOT state, and
+stays an IR reading or pending a QSpec ruling, is listed in the PR description: a
+malformed union or union value body; the path and locus pairing of the refusals
+beyond the loci quoted above; the refusal of a fairness `declaration` that names no
+node; the unreached-formula `lower > upper` sweep; an arm body of unresolvable type;
+and the leaf rule for a recursion leaf that reaches `text`.
 
 Operand family and count and `result_type` stay the operation step's
 (FR-370-AC-7), so `holds` over a `reference` to a `temporal`/`formula` node
@@ -1226,31 +1250,40 @@ refuses `ill_typed`/`operator-ineligible` there, after the temporal step, and an
 identity the catalog does not hold or an `operator` that differs from the
 entry's class still refuses `unknown-operation` or `operation-class-mismatch`
 there, never ahead of a placement defect. A `case` application is not temporal.
-QSpec FR-440 requires the producer to encode every `case` expression as an
-`expression`/`case` node and the schema binds that form's body to a `case`
-application, and a QSpec owner ruling relayed via the IR planner, not yet in merged
-QSpec text and an IR reading until it merges, is that a `case` application stands
-only at that node root: a `case` application as the body root of a
-node of another form, or nested in a term, refuses `ill_typed`/`operator-ineligible`
-at the node that holds it, and an `expression`/`case` node whose body is not a
-`case` application refuses the same way, all in the one placement pass of the
-temporal step: one pass over the graph covers all four classes, `case` included, in
-ascending `node_id` digest order (confirmed, relayed, pending QSpec merge). The nested case is also what this reader
-could not otherwise check, since it does not operation-check a nested application
-(the stated deviation of "Operation identity" above); that is a second reason for
-the nested position only, not the basis of the body-root one. An application of any
-of the four classes in a `diagnostics.entries[].details[]` term, as its root or
-nested, is no node's body and refuses the same way (`ill_typed` with cause
-`operator-ineligible`) at that application's `operator`
-(`/diagnostics/entries/{i}/details/{j}/operator`), likewise a QSpec owner ruling
-relayed via the IR planner and not yet in merged QSpec text. QSpec PR #181 (draft, not
-merged) extends the sentence to "temporal formula, fairness, case and union forms
-inside diagnostic `details`". A `details` entry is a term and no node, so the only
-union-class construct it can hold is a `case` application, an application of one of
-the four classes already refused; the node forms `composite_type`/`union` and
-`value`/`union_value` are nodes and cannot stand as a term. This specification
-therefore adds no further refusal for union forms in `details`, and records the
-draft's "union forms" as one the QSpec owner should make exact if it means more.
+Merged QSpec FR-440 "Reader joins" 1 and FR-440-AC-7 state that a
+`quire.op.control.case` application stands only as the body root of an
+`expression`/`case` node and that one at the body root of any other node refuses
+`ill_typed`/`operator-ineligible` at the node that holds it; this reader checks it in
+the same placement pass as the temporal classes (one pass over the graph covers all
+four classes, `case` included, in ascending `node_id` digest order, an IR reading).
+Merged FR-440 states two further outcomes that this reader's text does not follow, and
+which are listed as unreconciled differences: a `case` used inside another term fails
+FR-322's body grammar, where this reader refuses a nested `case` application
+`ill_typed`/`operator-ineligible` at the node that holds it (the nested position is
+also what this reader could not otherwise check, since it does not operation-check a
+nested application, the stated deviation of "Operation identity" above); and an
+`expression` node whose `semantic_form` contradicts its root application's operator
+class is FR-322's `invalid_semantic_graph`, where this reader refuses an
+`expression`/`case` node whose body is not a `case` application
+`ill_typed`/`operator-ineligible`.
+
+**Diagnostic details.** Merged QSpec FR-322 and FR-370 "Placement and profile fit"
+(FR-370-AC-12) state that a diagnostic's `details` never reference a
+`temporal`/`formula`, `temporal`/`fairness`, `expression`/`case`,
+`composite_type`/`union` or `value`/`union_value` node, and that such a reference
+refuses `ill_typed`/`operator-ineligible` at that `details` entry,
+`/diagnostics/entries/{e}/details/{d}`; they are checked after the placement of
+applications and references and before the clause checks, in entry order and then
+`details` order. This reader follows that rule for references, with that path (the
+table's `details` row). Separately, and not stated by the merged text, this reader
+refuses an application of any of the four classes in a `details` term, as its root or
+nested, `ill_typed`/`operator-ineligible` at that application's `operator`
+(`/diagnostics/entries/{e}/details/{d}/operator`, and below it for a nested one),
+since a `details` term is no node's body; that path is an IR reading. A `details`
+reference to a union or union value node is refused by the merged text, which the IR
+planner's relayed statement that such a reference is an ordinary type or value
+reference and admitted does not match: this is a listed unreconciled difference, and
+this specification follows the merged text until it is resolved.
 
 **No evaluation.** Nothing in this repository evaluates an application. The
 reader admits and checks a catalogued entry by shape, and the lowerer carries an
@@ -1619,16 +1652,20 @@ and is admitted as above; an independent cycle through none of the three
 elsewhere in the same type is still refused.
 
 A `composite_type`/`union` node is such a composite, and each of its members
-anchors in the walk as a record's field or a tuple's position does (a QSpec owner
-ruling relayed via the IR planner, not yet in merged QSpec text, against reading a
-cycle through a union as `ill_typed`/`operator-ineligible`: recursive unions such
-as `List = Cons(Integer, List) | Nil` are core, and a union cycle counts in the
+anchors in the walk as a record's field or a tuple's position does (merged QSpec
+FR-322 "Structural leaf walk", FR-322-AC-46 and FR-440-AC-8: a cycle through a union
+is a recursion leaf and is admitted, never `operator-ineligible`; recursive unions
+such as `List = Cons(Integer, List) | Nil` are core, and a union cycle counts in the
 reader's visited set as IR-506 holds). The path of an edge into a union member's
 payload is `member:<Name>` then `position:i`, `i` the index within the member's
 ordered payload even for a single payload, and a reentry into an open union is a
 reentry like any other: a cycle through a union is never record-free and never
 refused for it, and expects one recursion leaf where a `text` type is reachable,
-`d` counted as for a record.
+`d` counted as for a record. Merged FR-322's walk says it "lists no entry" for a
+recursion leaf, and its examples reach no `text` through the cycle; this reader keeps
+its existing recursion-leaf entry for a cycle that reaches `text` (QSL FR-093, Text
+leaves, rule 3, applied to records already), which merged text does not address for
+unions with text: an unreconciled difference, listed.
 
 At each reentry into a composite from which a `text` type is reachable, the
 derivation expects one **recursion leaf**, `{path: p + "recursion:d", laws: [],
@@ -1971,17 +2008,17 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-94 | A selected model document whose bytes are exactly `limits.bytes` long is read, digested and matches its row, with the package itself shorter than that limit; read with a `limits.bytes` one lower the same package returns `incomplete` for `bytes` with that limit and the document's length reported and no pointer, as FR-038-AC-26 states for the byte limit, while a `work` limit one below the work of the same read still returns the row pointer `/lock/model_selections/0` (FR-038-AC-30). | Test (TC-048) |
 | FR-038-AC-95 | Lowering encodes under the byte limit the package was read under: lowering an admitted package whose retained limit equals the length of a lowered node's preimage lowers it, and with the retained limit one byte lower, through a unit seam that takes the ceiling as an argument as FR-034-AC-6's package step does, that node's record is `failed` and its sibling records are unchanged; a lowered package whose bytes exceed the ceiling makes every requested record `failed` with no package bytes or id and no panic; and the crate source holds no `expect` or `unwrap` on the package encode, checked by a test that reads `lower.rs`. | Test (TC-048) |
 | FR-038-AC-96 | Each of the fifteen `temporal_formula` identities (`holds`, `true`, `false`, `not`, `and`, `or`, `implies`, `eventually`, `always`, `once`, `historically`, `until`, `release`, `since`, `triggered`) admits as the body root of a `temporal`/`formula` node, with operator `temporal_formula`, no law, `mode` `null`, no leaves, its catalogued member (`temporal_interval` with a closed interval on the eight interval operators, `null` on the other seven, under a clause selecting a bounded `temporal_profile`) and its catalogued operands (`holds` over one `boolean` operand, `true` and `false` over none, `not` and the four unary interval operators over one `reference` to a `temporal`/`formula` node, `and`, `or`, `implies` and the four binary interval operators over two); each formula node is referenced from a clause's formula argument or a formula operand; `quire.op.temporal.fair` admits as the body root of a `temporal`/`fairness` node with a well-formed `fairness` member and no operand, referenced from the fairness argument of a clause selecting `quire.temporal.infinite-trace/v1` (a bounded profile admits no fairness argument); and a package holding a `quire.op.temporal.clause` node whose sixth argument references a `temporal`/`formula` node applying `quire.op.temporal.eventually` with the member `{kind: temporal_interval, interval: {lower: "0", upper: "3"}}` over a second formula node applying `quire.op.temporal.holds` admits with every node key and its `package_id` re-derived, and lowers under a profile that supports the `temporal` tag and returns `unsupported` naming `temporal` under one that does not. | Test (TC-048) |
-| FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in the term walk of the body, before any temporal step and under every profile (the non-negative bound is a relayed QSpec owner ruling, pending the QSpec change that tightens the pattern); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness`, a `null` member, an interval holding a third member, an interval whose `lower` is the integer `0`, and a bound of `"1.5"`, `"01"`, `"+1"`, `""` or `"3x"` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
+| FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in the term walk of the body, before any temporal step and under every profile (merged QSpec FR-370-AC-9 and the schema's non-negative bound pattern); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness`, a `null` member, an interval holding a third member, an interval whose `lower` is the integer `0`, and a bound of `"1.5"`, `"01"`, `"+1"`, `""` or `"3x"` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-98 | The `fairness` member of `quire.op.temporal.fair` admits as `{kind: fairness, fairness_kind: weak, granularity: whole, declaration, name}` and as `strong` with `each`, with a `declaration` and `name` that resolve (the resolution refusals are FR-038-AC-103's); a `fairness_kind` of `medium`, a `granularity` of `part`, a member lacking `name`, a member holding an extra member, a `null` member and a member of kind `temporal_interval` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and a `fairness` member on `quire.op.boolean.not` refuses the same way. | Test (TC-048) |
 | FR-038-AC-99 | A package holding a `composite_type`/`union` node `Shape` with the members `Circle(Integer)`, `Rect(Integer, Integer)` and `Empty`, a `value`/`union_value` node `Shape::Rect(2, 3)` and an `expression`/`case` node whose body root applies `quire.op.control.case` over the scrutinee and the arms `Circle`, `Rect` and `Empty` in member declaration order, the binders `r`, `w` and `h` as `value`/`parameter` nodes typed `Integer` and every arm body of the `result_type`, admits, the three forms decoded and the operand family of the `Shape` node `union`; the same `case` with its arms out of member order, with the `Empty` arm omitted, with the `Circle` arm repeated, with the `Rect` binder aggregate holding one reference, with the `Circle` binder typed `Text` and with one arm body of another type than the `result_type` each refuse `ill_typed`/`operator-ineligible` at the `case` node (`/semantic_graph/nodes/{n}`); a union with no member and a union value with two bindings each refuse `invalid_semantic_graph` at the node's `body`; a union type with `Circle` twice refuses `invalid_package`/`duplicate-member` and a payload reference to a node that is not a type refuses `ill_typed`/`operator-ineligible`, each at the union node; and a union value naming `Triangle`, a `Rect` with one payload term and a `Circle` over a `Text` payload each refuse `ill_typed`/`type-mismatch` at the node. | Test (TC-048) |
-| FR-038-AC-100 | Placement in both directions: an application of operator class `temporal`, `temporal_formula` or `temporal_fairness`, naming any identity, refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node of another form (a `temporal_formula` application in a `function` node, a `quire.op.temporal.fair` application in a `temporal`/`formula` node), an element of another application's `arguments`, a `binding` value or inside an `aggregate`; a `temporal`/`formula` node, a `temporal`/`fairness` node and a `temporal`/`temporal_clause` node whose body is an empty `aggregate`, a `literal`, or an application of another class refuses the same way at the node; a `reference` to a `temporal`/`formula` node from a `function` node's body, from a clause's fairness argument or from a `case` argument, and a `reference` to a `temporal`/`fairness` node from a clause's formula argument or from a `temporal_formula` operand, refuses the same way at the node that holds the reference; a `case` application refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is a body root of a node of another form or nested, and an `expression`/`case` node whose body is not a `case` application refuses the same way; any of the four classes as the root of or nested in a `diagnostics.entries[].details[]` term refuses `ill_typed`/`operator-ineligible` at that application's `operator` (`/diagnostics/entries/{i}/details/{j}/operator`, and below it for a nested one; QSpec PR #181, draft and not merged, words this "temporal formula, fairness, case and union forms inside diagnostic details", and a `details` term can hold no union node form, so the union-class case is the `case` application); and each application, node and reference at its own place admits (FR-038-AC-96, FR-038-AC-99), so none of the refusals is a refusal of every such term. The in-repo `v2_all_families` formula node, whose body is an empty `aggregate`, is refused as above and the code change replaces its body. | Test (TC-048) |
+| FR-038-AC-100 | Placement in both directions: an application of operator class `temporal`, `temporal_formula` or `temporal_fairness`, naming any identity, refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node of another form (a `temporal_formula` application in a `function` node, a `quire.op.temporal.fair` application in a `temporal`/`formula` node), an element of another application's `arguments`, a `binding` value or inside an `aggregate`; a `temporal`/`formula` node, a `temporal`/`fairness` node and a `temporal`/`temporal_clause` node whose body is an empty `aggregate`, a `literal`, or an application of another class refuses the same way at the node; a `reference` to a `temporal`/`formula` node from a `function` node's body, from a clause's fairness argument or from a `case` argument, and a `reference` to a `temporal`/`fairness` node from a clause's formula argument or from a `temporal_formula` operand, refuses the same way at the node that holds the reference; a `case` application refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is a body root of a node of another form or nested, and an `expression`/`case` node whose body is not a `case` application refuses the same way; a `diagnostics.entries[].details[]` term that references a `temporal`/`formula`, `temporal`/`fairness`, `expression`/`case`, `composite_type`/`union` or `value`/`union_value` node refuses `ill_typed`/`operator-ineligible` at that entry (`/diagnostics/entries/{e}/details/{d}`; merged QSpec FR-370-AC-12), and, an IR reading the merged text does not state, any of the four application classes as the root of or nested in a `details` term refuses the same way at that application's `operator` (`/diagnostics/entries/{e}/details/{d}/operator`, and below it for a nested one); and each application, node and reference at its own place admits (FR-038-AC-96, FR-038-AC-99), so none of the refusals is a refusal of every such term. The in-repo `v2_all_families` formula node, whose body is an empty `aggregate`, is refused as above and the code change replaces its body. | Test (TC-048) |
 | FR-038-AC-101 | The reader's refusal types, `CheckedPackageRefusalCode` and `CheckedPackageRefusalCause`, carry neither `unsupported_construct` nor `expression-form`, so no input is refused with either; the diagnostics wire vocabulary `CheckedDiagnosticCode` still carries `unsupported_construct`, so a `diagnostics.entries[]` entry whose `code` is `unsupported_construct` reads as QSpec's schema allows; no application is evaluated by the reader or the lowerer, so an admitted `temporal`/`formula` node and an admitted `expression`/`case` node lower, under a profile that supports their tags, to nodes whose body equals the admitted body and whose `ir_id` is derived from it as for every node, and a profile lacking the tag returns `unsupported` naming it (FR-038-AC-8). | Test (TC-048) |
-| FR-038-AC-102 | The temporal step runs after the frame and state-clause step and before the operation step, placement first: a package holding one node with a placement defect (a `temporal_formula` application as the body root of a `function` node) and a second with a lower `node_id` digest whose operation identity is unknown refuses for the placement defect, and so does the same placement defect beside a lower-digest node whose `operator` differs from its entry's class (`quire.op.control.case` under `unary`), in both digest orders each, the placement defect taken in the shape of a `temporal_formula` application in a `function` node; two placement defects are reported at the lower `node_id` digest; a placement defect is reported ahead of any clause defect in either digest order; within one clause an `over` defect is reported ahead of a fairness-resolution defect, ahead of a profile-fit defect, ahead of an interval-bounds defect, each adjacent pair built as two defects of one clause and in both orders of the two defects' positions; and across two clauses the lower-digest clause's later-stage defect (a profile-fit defect) is reported ahead of the higher-digest clause's earlier-stage defect (an `over` defect), in both digest orders of the two clauses. The temporal step skips a member whose shape the operation step refuses, so `{lower: "1.5", upper: "0"}` refuses `invalid_package`/`operation-member-mismatch` at `operation.member` and never `invalid-value`, under a bounded and under the infinite-trace profile alike, and a wrong-kind or `null` member on an interval operator under a bounded profile refuses the same way. A negative bound is a schema-pattern failure, refused `invalid_package`/`invalid-value` at the bound in the term walk of the body, before placement and every temporal step, while `"1.5"` is refused `operation-member-mismatch` at the operation step (the asymmetry is deliberate) (a relayed ruling, pending the QSpec change that tightens the pattern): `{lower: "0", upper: "-2"}` refuses at `.../interval/upper`, `{lower: "-1", upper: "-3"}` at `.../interval/lower`, and `{lower: "-1", upper: null}` refuses at `.../interval/lower` under a bounded profile, under `quire.temporal.infinite-trace/v1` and under a clause that also holds a placement defect at a lower-digest node, never `operation-member-mismatch`; `lower > upper` stays in the bounds step, after profile fit, so `{lower: "3", upper: "0"}` under a bounded profile in a clause whose profile fit also fails refuses the profile-fit defect first. | Test (TC-048) |
+| FR-038-AC-102 | The temporal step runs after the frame and state-clause step and before the operation step, placement first: a package holding one node with a placement defect (a `temporal_formula` application as the body root of a `function` node) and a second with a lower `node_id` digest whose operation identity is unknown refuses for the placement defect, and so does the same placement defect beside a lower-digest node whose `operator` differs from its entry's class (`quire.op.control.case` under `unary`), in both digest orders each, the placement defect taken in the shape of a `temporal_formula` application in a `function` node; two placement defects are reported at the lower `node_id` digest; a placement defect is reported ahead of any clause defect in either digest order; within one clause an `over` defect is reported ahead of a fairness-resolution defect, ahead of a profile-fit defect, ahead of an interval-bounds defect, each adjacent pair built as two defects of one clause and in both orders of the two defects' positions; and across two clauses the lower-digest clause's later-stage defect (a profile-fit defect) is reported ahead of the higher-digest clause's earlier-stage defect (an `over` defect), in both digest orders of the two clauses. The temporal step skips a member whose shape the operation step refuses, so `{lower: "1.5", upper: "0"}` refuses `invalid_package`/`operation-member-mismatch` at `operation.member` and never `invalid-value`, under a bounded and under the infinite-trace profile alike, and a wrong-kind or `null` member on an interval operator under a bounded profile refuses the same way. A negative bound is a schema-pattern failure, refused `invalid_package`/`invalid-value` at the bound in the term walk of the body, before placement and every temporal step, while `"1.5"` is refused `operation-member-mismatch` at the operation step (the asymmetry is deliberate; merged QSpec FR-370-AC-9): `{lower: "0", upper: "-2"}` refuses at `.../interval/upper`, `{lower: "-1", upper: "-3"}` at `.../interval/lower`, and `{lower: "-1", upper: null}` refuses at `.../interval/lower` under a bounded profile, under `quire.temporal.infinite-trace/v1` and under a clause that also holds a placement defect at a lower-digest node, never `operation-member-mismatch`; `lower > upper` stays in the bounds step, after profile fit, so `{lower: "3", upper: "0"}` under a bounded profile in a clause whose profile fit also fails refuses the profile-fit defect first. | Test (TC-048) |
 | FR-038-AC-103 | A clause whose `over` argument is a `reference` to a `value`/`parameter` node among its `dependencies` admits; one whose `over` references a `value`/`parameter` node that is not among its `dependencies` refuses `missing_declaration`/`missing-name`, and one that references a declared dependency that is a `scalar_type` node refuses `invalid_model_binding`/`malformed-declaration`, each with path `/semantic_graph/nodes/{clause}/body/arguments/0` and the locus of the "Path and locus" table; a fairness member whose `declaration` and `name` resolve to an operation of a `model` declaration node admits, and one whose `name` is no operation of that node, or whose `declaration` names no node, refuses `missing_declaration`/`missing-name` (a `name` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/name` and the `declaration` target's key as locus, a `declaration` with path `.../member/declaration` and the fairness node's key), and one whose `declaration` names a node that is not a `model`/`object_type` declaration (a `scalar_type` node, a `model`/`value_type` node) refuses `invalid_model_binding`/`malformed-declaration` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and the `declaration` target node's key as locus; the `over`-not-among-`dependencies` case is observed at the unit level of the temporal step, as AC-68 observes the clause check, because the application-node dependency join refuses a package that names a non-dependency reference first, while the package-level half (an `over` that names no node) is read through the reader; a `name` that matches two exposed operation members of the declaration node refuses `ambiguous_declaration`/`ambiguous-name`, one that the node only inherits admits and resolves to its most-derived redefinition, and a declaring node whose owner is not recovered refuses with that resolution's own refusal (`missing_declaration`/`missing-selection` or `invalid_package`/`stale-node-key`), the ambiguous name with path `.../member/name` and the `declaration` target's key as locus and the unrecovered owner with path `.../member/declaration` and the fairness node's key (the ambiguous, inherited and unrecovered-owner outcomes are QSpec owner rulings relayed via the IR planner and not yet in merged QSpec text). | Test (TC-048) |
-| FR-038-AC-104 | Under a clause whose `temporal_profile` law names `quire.temporal.event-position.false-extension/v1`, `quire.temporal.fixed-sample.false-extension/v1` or `quire.temporal.timestamped-event.finite-window/v1`, every interval operator of its formula tree with a closed interval admits, and one with a `null` interval or `{lower, upper: null}` refuses `invalid_package`/`operation-member-mismatch` at that operator's application; a non-empty fairness argument refuses `operation-member-mismatch` at the clause's application and an empty one admits; under `quire.temporal.infinite-trace/v1` the same `null` interval, `{lower, upper: null}` and a non-empty fairness argument admit; under `quire.temporal.timed/v1` a `null` interval and a closed integer interval admit and `{lower, upper: null}` refuses `operation-member-mismatch` at that operator's application, and a non-empty fairness argument admits under it as under infinite-trace (only the three bounded profiles refuse one, as above; a relayed ruling pending QSpec merge); this criterion pins no outcome for a timed bound that is not an integer string or an open end (a known gap, IR-551, blocked by QSpec PR #181, draft and not merged); and the profile fit reads only the formula nodes reachable from that clause. | Test (TC-048) |
-| FR-038-AC-108 | Each of the five members of QSpec FR-250's Values table admits as a clause's `temporal_profile` law (the lock's `temporal_profile` row naming it). A clause whose `temporal_profile` law `definition` is not one of the five refuses `unknown_profile` at `/semantic_graph/nodes/{n}/body/operation/laws/0/definition`, ahead of the same clause's `over` defect and of any defect of a higher-digest clause, and is not read as bounded (a `null` interval under it refuses `unknown_profile` and not `operation-member-mismatch`). The cause, a relayed ruling pending QSpec merge, is decided from the package alone: `wrong-selection-role` when the same `{authority, identity}` is a row of the package's own `lock.profile_selections` (or the `lock.edition` row) under a `role` other than `temporal_profile`, `unsupported-selection` otherwise. A known profile is matched by identity label alone, `authority` taking no part: a law naming a FR-250 member's identity under a different `authority` is a known profile and refuses `operation-law-unselected` at AC-57's join, not `unknown_profile`. So `quire.fixture.temporal-profile/v1` selected nowhere else, an empty identity and a differently spelled `quire.temporal.infinite-trace/v1` refuse `unsupported-selection`; `quire.package.composed/v1` named by the law and selected in the lock as a `profile_selections` row of role `binding_contract` refuses `wrong-selection-role`, and so does `quire.protocol.complete/v1` selected as a `protocol_profile` row; and the same two identities named by the law with no such row in the lock refuse `unsupported-selection`. The refusal is the reader's `CheckedPackageRefusalCode::UnknownProfile` with the causes `unsupported-selection` and `wrong-selection-role` in `CheckedPackageRefusalCause`, a code and two causes the code change adds. | Test (TC-048) |
+| FR-038-AC-104 | Under a clause whose `temporal_profile` law names `quire.temporal.event-position.false-extension/v1`, `quire.temporal.fixed-sample.false-extension/v1` or `quire.temporal.timestamped-event.finite-window/v1`, every interval operator of its formula tree with a closed interval admits, and one with a `null` interval or `{lower, upper: null}` refuses `invalid_package`/`operation-member-mismatch` at that operator's application; a non-empty fairness argument refuses `operation-member-mismatch` at the clause's application and an empty one admits; under `quire.temporal.infinite-trace/v1` the same `null` interval, `{lower, upper: null}` and a non-empty fairness argument admit; under `quire.temporal.timed/v1` a `null` interval admits and `{lower, upper: null}` and an integer-form closed `{lower, upper}` each refuse `operation-member-mismatch` at that operator's application (merged QSpec FR-370-AC-3: a timed interval is the timed form), and a non-empty fairness argument admits under it as under infinite-trace (only the three bounded profiles refuse one, as above; merged QSpec FR-370-AC-4); this criterion pins no outcome for the timed form itself, `{lower, upper, lower_end, upper_end}` (merged FR-370-AC-8, a known gap owned by IR-551); and the profile fit reads only the formula nodes reachable from that clause. | Test (TC-048) |
+| FR-038-AC-108 | Each of the five members of QSpec FR-250's Values table admits as a clause's `temporal_profile` law (the lock's `temporal_profile` row naming it). A clause whose `temporal_profile` law `definition` is not one of the five refuses `unknown_profile` at `/semantic_graph/nodes/{n}/body/operation/laws/0/definition`, ahead of the same clause's `over` defect and of any defect of a higher-digest clause, and is not read as bounded (a `null` interval under it refuses `unknown_profile` and not `operation-member-mismatch`). The cause, merged QSpec FR-370 "Profile check" and FR-370-AC-10, is decided from the package alone: `wrong-selection-role` when the same `{authority, identity}` is a row of the package's own `lock.profile_selections` (or the `lock.edition` row) under a `role` other than `temporal_profile`, `unsupported-selection` otherwise. A known profile is matched by identity label alone, `authority` taking no part: a law naming a FR-250 member's identity under a different `authority` is a known profile and refuses `operation-law-unselected` at AC-57's join, not `unknown_profile`. So `quire.fixture.temporal-profile/v1` selected nowhere else, an empty identity and a differently spelled `quire.temporal.infinite-trace/v1` refuse `unsupported-selection`; `quire.package.composed/v1` named by the law and selected in the lock as a `profile_selections` row of role `binding_contract` refuses `wrong-selection-role`, and so does `quire.protocol.complete/v1` selected as a `protocol_profile` row; and the same two identities named by the law with no such row in the lock refuse `unsupported-selection`. A clause whose `laws` is not exactly one law of role `temporal_profile` (none, or two) skips the profile check and its profile fit, and its law defect refuses at the operation step (`operation-law-missing`, `operation-law-mismatch`; merged QSpec FR-370 "Profile check"). The refusal is the reader's `CheckedPackageRefusalCode::UnknownProfile` with the causes `unsupported-selection` and `wrong-selection-role` in `CheckedPackageRefusalCause`, a code and two causes the code change adds. | Test (TC-048) |
 | FR-038-AC-105 | The temporal and case operands are checked at the operation step, after the temporal step: `quire.op.temporal.holds` over a `reference` to a `temporal`/`formula` node, and over a Boolean-family `reference`, admits only the latter, the former refusing `ill_typed`/`operator-ineligible` at the argument; `quire.op.temporal.until` with one argument, `quire.op.temporal.not` with two, `quire.op.temporal.true` with one, and `quire.op.temporal.and` over a Boolean-family `reference` each refuse `ill_typed`/`operator-ineligible` at `arguments` or at the argument; and `quire.op.temporal.not` over a `reference` to a `temporal`/`formula` node admits. | Test (TC-048) |
-| FR-038-AC-106 | `quire.op.structural.eq` over two values of the `Shape` union admits, and over a `Shape` value and a value of another union refuses `ill_typed`/`operator-ineligible` at `arguments/1` by its `same_type` constraint (QSpec FR-440-AC-6); over a union whose payload types reach no `text` type, `leaves` empty admits; and over `union Label { Named(Text[0, 8; nfc]), Tagged(Integer, Text[0, 8; nfc]), Empty }`, a comparison admits with exactly the leaves `["member:Named", "position:0"]` and `["member:Tagged", "position:1"]` in member declaration order, and, following FR-038-AC-70's convention, a list holding only the `Named` leaf, and a list holding only the `Tagged` leaf, each refuse `invalid_package`/`operation-law-missing` at `operation.leaves`, while the list of both leaves followed by the `Named` leaf again, and the list of both followed by a leaf `["member:Empty"]`, each refuse `invalid_package`/`operation-law-mismatch` at `operation.leaves/2` (the `member:<Ident>` segment is a QSpec owner ruling relayed via the IR planner and not yet in merged QSpec text); and over the recursive unions `union IntList { Cons(Integer, IntList), Nil }` and `union TextList { Cons(Text[0, 8; nfc], TextList), Nil }`, `structural.eq` admits (a cycle through a union is never refused `ill_typed`/`operator-ineligible`, a relayed ruling pending QSpec merge): over `IntList`, which reaches no `text`, with `leaves` empty; over `TextList` with exactly the leaves `["member:Cons", "position:0"]` and the recursion leaf `["member:Cons", "position:1", "recursion:0"]` (`d` is 0, the segments the path held when `TextList` was entered, as for a record's `recursion:<d>`), a list lacking the recursion leaf refusing `operation-law-missing` at `operation.leaves`, one whose recursion leaf reads `recursion:1` refusing `operation-law-mismatch` at that leaf's `path`, and a recursion leaf at a reentry of `IntList` refusing `operation-law-mismatch` at its `path`. | Test (TC-048) |
+| FR-038-AC-106 | `quire.op.structural.eq` over two values of the `Shape` union admits, and over a `Shape` value and a value of another union refuses `ill_typed`/`operator-ineligible` at `arguments/1` by its `same_type` constraint (QSpec FR-440-AC-6); over a union whose payload types reach no `text` type, `leaves` empty admits; and over `union Label { Named(Text[0, 8; nfc]), Tagged(Integer, Text[0, 8; nfc]), Empty }`, a comparison admits with exactly the leaves `["member:Named", "position:0"]` and `["member:Tagged", "position:1"]` in member declaration order, and, following FR-038-AC-70's convention, a list holding only the `Named` leaf, and a list holding only the `Tagged` leaf, each refuse `invalid_package`/`operation-law-missing` at `operation.leaves`, while the list of both leaves followed by the `Named` leaf again, and the list of both followed by a leaf `["member:Empty"]`, each refuse `invalid_package`/`operation-law-mismatch` at `operation.leaves/2` (the `member:<Ident>` segment is merged QSpec FR-322-AC-45); and over the recursive unions `union IntList { Cons(Integer, IntList), Nil }` and `union TextList { Cons(Text[0, 8; nfc], TextList), Nil }`, `structural.eq` admits (a cycle through a union is never refused `ill_typed`/`operator-ineligible`, merged QSpec FR-322-AC-46 and FR-440-AC-8): over `IntList`, which reaches no `text`, with `leaves` empty; over `TextList` with exactly the leaves `["member:Cons", "position:0"]` and the recursion leaf `["member:Cons", "position:1", "recursion:0"]` (`d` is 0, the segments the path held when `TextList` was entered, as for a record's `recursion:<d>`), a list lacking the recursion leaf refusing `operation-law-missing` at `operation.leaves`, one whose recursion leaf reads `recursion:1` refusing `operation-law-mismatch` at that leaf's `path`, and a recursion leaf at a reentry of `IntList` refusing `operation-law-mismatch` at its `path`. | Test (TC-048) |
 | FR-038-AC-107 | Read from the authoritative `quire-specification` checkout, never copied into this repository, the QSpec positive fixtures `positive-all-families.json` (the clause, `quire.op.temporal.holds` and `quire.op.temporal.eventually` with the interval `{lower: "0", upper: "3"}`), `positive-clause-operations.json` and `positive-union-nodes.json` (`quire.op.control.case`) each admit end to end with their recorded `package_id`. The test is named `tc_048_qspec_positive_fixtures_admit`, lives in its own test target, outside the run of `make test`, which has no checkout; it is run by a dedicated target, `make conformance-qspec`, which reads the root of a `quire-specification` checkout from the environment variable `QUIRE_SPECIFICATION_DIR` and fails, not skips, when the variable is unset, when it names a path that does not hold `proposals/checked-package-v2/fixtures/`, or when a fixture does not admit. The criterion is verified by that target alone and never counted from `make test`; wiring the target into CI is a separate decision this specification does not make. Nothing is copied from QSpec into this repository. The self-built packages of FR-038-AC-96 and FR-038-AC-99 reproduce the fixtures' features: a clause with the `temporal_profile` law `quire.temporal.event-position.false-extension/v1`, formula nodes whose body root is the application, a `case` scrutinee that is a `value`/`parameter` node typed at the union, union value payloads that are references to value nodes, arm binders that are `value`/`parameter` nodes whose body is the `{name, level}` aggregate, and the `case` node's `dependencies` as the digest-ascending reference targets. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
