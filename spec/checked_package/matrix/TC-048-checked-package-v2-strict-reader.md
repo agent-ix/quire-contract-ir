@@ -290,22 +290,22 @@ Run the operation check of one `application` node as a unit, over a graph of the
 node and the type nodes it names, and the application key check of a graph of
 application nodes. Name an identity the catalog lacks, and `quire.op.integer.add`
 under `unary`; admit `quire.op.integer.add` under `binary` with two plain
-operands (AC-81). Supply no law to `quire.op.integer.div`, one law to
+operands, and give `operation` a bare string (AC-81). Supply no law to `quire.op.integer.div`, one law to
 `quire.op.integer.add`, and to `quire.op.integer.div` a law whose `role` is
 `not_integer_division` over a catalogued `integer_division` definition (AC-82).
-Supply no mode to `quire.op.decimal.add`; supply the mode `toward-zero` over a
+Give `quire.op.decimal.add` a `null` mode; supply the mode `toward-zero` over a
 first operand that is a `reference` to a `decimal_range` binding `rounding`
-`nearest-even`, and over a `literal` typed at it (AC-83). Supply no member to
-`quire.op.quantity.convert` with its mode set; name an undeclared field in
+`nearest-even`, and over a `literal` typed at it (AC-83). Give a `null` member to
+`quire.op.quantity.convert` with its `rounding` mode supplied; name an undeclared field in
 `quire.op.record.project`; name no node as the `declaration` of
 `quire.op.model.reaches_field` (AC-84). Give `quire.op.integer.add` three
 arguments, an `integer`-typed and a `boolean`-typed literal first, and
-`quire.op.boolean.not` a `quire.op.state.clause` application; give
+`quire.op.boolean.not` a `quire.op.state.clause` application (AC-85); give
 `quire.op.structural.eq` two parameters of one record type and of two, two typed
-literals of one type and of two, two nested applications of one result type and
-of two, and a typed literal beside an untyped one (AC-85). Compare the operand
-family and the type-shaped predicate of every kind of the closed node taxonomy
-with the stated pairs (AC-86). Give `operation` a bare string (AC-87). Key an
+literals of one type and of two, and two nested applications of one result type
+and of two (AC-86). Compare the operand family and the type-shaped predicate of
+every kind of the closed node taxonomy with the stated pairs, the
+`temporal`/`formula` pair added when the IR-503 code lands (AC-87). Key an
 application node that is member 1 of a group of two and compare its preimage
 text with the pinned one; rewrite group references in an aggregate member, a
 binding value and nested applications' arguments; read a node with a stale
@@ -317,7 +317,8 @@ and the correct use admits; `operation-law-missing` at `operation.laws`,
 `operation-law-mismatch` at `operation.laws/0` and at the law's `role`; the
 absent mode `operation-mode-mismatch` at `operation.mode` and the disagreeing
 value `operation-mode-type-mismatch` at `operation.mode/value`, for the
-`reference` and the `literal`; `operation-member-mismatch` at `operation.member`
+`reference` and the `literal` (the `null` mode and `null` member cases; an omitted
+member reads as `null`, a reader leniency this case does not pin); `operation-member-mismatch` at `operation.member`
 and `operator-ineligible` at `operation.member.name` and
 `operation.member.declaration`; `operator-ineligible` at `arguments` for the
 third argument and at the argument for the `boolean` literal and the clause, and
