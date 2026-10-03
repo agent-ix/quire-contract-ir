@@ -44,7 +44,10 @@ FR-038-AC-96 through FR-038-AC-108 (QSpec FR-370, FR-440 and FR-250) against the
 temporal, fairness, union and `case` nodes of a self-built package, the
 temporal step's placement, clause, profile-fit and interval-bound checks, and
 QSpec's own positive fixtures read from the QSpec checkout. FR-038-AC-66 is
-retired, its ID not reused (ADR-0056), and has no case.
+retired, its ID not reused (ADR-0056), and has no case. FR-038-AC-109 through
+FR-038-AC-111 are against a number whose exact value its RFC 8785 encoding loses
+(the `inexact-number` and `inexact-integer` causes of a selected model document,
+and the package's own byte-stream refusal).
 
 ## Test Procedure
 
@@ -607,6 +610,29 @@ refuses (FR-038-AC-93). Supply a model document whose bytes are exactly
 (FR-038-AC-94). Drive the lowering through a ceiling seam at a node preimage's
 length and one byte lower, and at a lowered package's length and one byte lower
 (FR-038-AC-95).
+
+## Inexact numbers (FR-038-AC-109 through FR-038-AC-111)
+
+Planned: no test exists until the IR-542 code change lands. The causes are those
+of quire-specification:FR-271 and FR-272. Read a package that selects a model
+document holding `0.1000000000000000000001`, `9007199254740993.5`,
+`-0.1000000000000000000001`, `4.9e-324` and `1e-400` at `/package/ratio`, under
+the document's own digest and under another, and check `noncanonical_wire` at
+`/lock/model_selections/0/digest` with `document_pointer` `/package/ratio` and
+cause `inexact-number`; repeat with `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324` and
+`2.5e-10` and check none refuses for it; digest two documents differing only in
+`0.1` and `0.1000000000000000000001` and check the second refuses
+(FR-038-AC-109); read the manifest of the crate that holds the reader and check
+it declares `serde_json` with the feature `float_roundtrip` (a source-level
+check). Repeat the numbers of FR-038-AC-93 (including the integer value type
+upper bound), `9007199254740993.0`, `1e400` and `-1e400` and check cause
+`inexact-integer` and `noncanonical_wire`, not `byte-digest-mismatch`; check `9007199254740992.5` refuses
+`inexact-number` and the admitted whole numbers still admit; put an inexact
+number and a whole number past 2^53 in one document in both orders and check the
+first in document order is named with its own cause (FR-038-AC-110). Read a
+package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
+node body and check `noncanonical_wire` with no pointer, no `document_pointer`
+and no cause, and `0.1` not refused for it (FR-038-AC-111).
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 
