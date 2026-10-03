@@ -1174,8 +1174,10 @@ unbounded (QSL FR-097-AC-2: a quantity takes no finite bound). A quantity is
 checked by a separate position predicate and never through the typed path
 below: `requires_bound` raises it only when a position (below) is typed at a
 quantity, whether directly or through a `bounded_domain` base chain, and then
-names the `unit` or `compound_unit` node at the end of that chain. No
-`bounded_domain` covers it. A `unit` declaration node lowered as the requested
+names the `unit` or `compound_unit` node at the end of that chain. The base
+chain continues through every `bounded_domain` form other than
+`model_population`; a chain that returns to a domain already on it ends without
+a quantity. No `bounded_domain` covers it. A `unit` declaration node lowered as the requested
 node, the unit nodes a `compound_unit` lists in `dependencies`, a unit named
 only by a `literal.type` annotation, and an `application`'s `result_type` that
 is a quantity therefore do not raise it, and no node is a quantity position

@@ -6,8 +6,8 @@
 //! one on every literal, including the name literal of every parameter).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    sha256_hex, typed_node_id,
+    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, rebuild_source_map,
+    refresh_identity, sha256_hex, typed_node_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -15,8 +15,16 @@ use quire_contract_ir::{
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
+use std::sync::LazyLock;
+
+/// The key of the nominal unit `Example::Metre` the quantity tests name as
+/// `metre`; its node comes from [`quantity_package`], not from [`node`].
+static METRE: LazyLock<String> = LazyLock::new(|| nominal_fixture_members()[2].1.clone());
 
 fn key(name: &str) -> String {
+    if name == "metre" {
+        return METRE.clone();
+    }
     sha256_hex(name.as_bytes())
 }
 
@@ -75,12 +83,23 @@ fn parameter(name: &str, ty: &str) -> (String, Value) {
 /// An integer `add` application named `name` over `arguments`, whose
 /// `reference` targets (named here) are its dependencies.
 fn add(name: &str, targets: &[&str], arguments: Vec<Value>) -> (String, Value) {
+    application(name, "integer", targets, arguments)
+}
+
+/// An `add` application named `name` whose `result_type` and `semantic_type`
+/// are the node called `result`.
+fn application(
+    name: &str,
+    result: &str,
+    targets: &[&str],
+    arguments: Vec<Value>,
+) -> (String, Value) {
     let body = json!({
         "term": "application",
         "operator": "binary",
         "operation": {"identity": "quire.op.integer.add", "laws": [], "mode": null,
             "member": null, "leaves": []},
-        "result_type": node_id(&key("integer")),
+        "result_type": node_id(&key(result)),
         "arguments": arguments,
     });
     // FR-322 application key: the key is re-derived by the reader.
@@ -88,7 +107,7 @@ fn add(name: &str, targets: &[&str], arguments: Vec<Value>) -> (String, Value) {
         "version": "quire.application-node/v1",
         "node_tag": "expression",
         "semantic_form": "binary",
-        "semantic_type": node_id(&key("integer")),
+        "semantic_type": node_id(&key(result)),
         "declaration": null,
         "recursion": null,
         "body": body,
@@ -97,7 +116,7 @@ fn add(name: &str, targets: &[&str], arguments: Vec<Value>) -> (String, Value) {
         name,
         "expression",
         "binary",
-        "integer",
+        result,
         targets,
         "expression",
         body,
@@ -463,4 +482,253 @@ fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
             unbounded_type: id_of("integer"),
         }
     );
+}
+
+/// A package, built from this crate's own vocabulary in QSL's shapes, holding
+/// the nominal dimension and unit `metre`, the compound unit `cu` over it, the
+/// scalars the bodies annotate, `int09`, and every node of the quantity
+/// cases below. Each request's closure is its own, so one package serves all.
+fn quantity_package() -> Value {
+    let members = nominal_fixture_members();
+    let mut package = nominal_package(&[members[3].clone(), members[2].clone()]);
+    let compound = json!({"term": "aggregate", "members": [
+        {"term": "aggregate", "members": [
+            binding("unit", reference("metre")),
+            binding("exponent", literal("integer", "integer", "2")),
+        ]},
+    ]});
+    let (x, x_node) = parameter("x", "int09");
+    let mut nodes = vec![
+        scalar("integer", "integer"),
+        scalar("text", "text"),
+        scalar("boolean", "boolean"),
+        int_0_9(),
+        node(
+            "cu",
+            "scalar_type",
+            "compound_unit",
+            "cu",
+            &["metre"],
+            "type",
+            compound,
+        ),
+        // A position typed directly at a unit and at a compound unit.
+        composite("unit_field", "record", &["metre"]),
+        composite("cu_field", "record", &["cu"]),
+        // A collection, an option and an alias of a quantity.
+        composite("seq", "sequence", &["metre"]),
+        bounded_collection("seq03", "seq"),
+        composite("opt", "option", &["metre"]),
+        composite("alias", "alias", &["metre"]),
+        parameter("p_unit", "metre"),
+        parameter("p_cu", "cu"),
+        // Domains over a unit, a domain, and a compound unit.
+        quantity_domain("dom", "metre"),
+        quantity_domain("dom2", "dom"),
+        quantity_domain("cdom", "cu"),
+        composite("dom_field", "record", &["dom"]),
+        composite("dom2_field", "record", &["dom2"]),
+        composite("cdom_field", "record", &["cdom"]),
+        // Two quantity positions in one closure.
+        composite("both", "record", &["metre", "cu"]),
+        // A unit named only by a `literal.type` annotation.
+        node(
+            "lit",
+            "value",
+            "literal",
+            "boolean",
+            &[],
+            "anchor",
+            literal("metre", "integer", "1"),
+        ),
+        composite("annotated", "record", &["boolean", "lit"]),
+        // A domain chain that loops, and a field typed at it.
+        in_recursion_group(quantity_domain("loop_a", "loop_b")),
+        in_recursion_group(quantity_domain("loop_b", "loop_a")),
+        composite("loop_field", "record", &["loop_a"]),
+        (x, x_node),
+    ];
+    // An application whose `result_type` is a quantity, over a parameter
+    // typed at a bounded type.
+    nodes.push(application(
+        "q_app",
+        "metre",
+        &["x"],
+        vec![reference("x"), literal("integer", "integer", "1")],
+    ));
+    nodes.extend(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| {
+                let digest = node["node_id"]["digest"].as_str().expect("key");
+                (digest.to_owned(), node.clone())
+            }),
+    );
+    nodes.sort_by(|left, right| left.0.cmp(&right.0));
+    package["semantic_graph"]["nodes"] =
+        Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    package
+}
+
+/// A `rational_range` domain named `name` over the type called `base`.
+fn quantity_domain(name: &str, base: &str) -> (String, Value) {
+    node(
+        name,
+        "bounded_domain",
+        "rational_range",
+        base,
+        &[base],
+        "type",
+        empty(),
+    )
+}
+
+fn record_with(value: &Value, name: &str, require_bounds: bool) -> CompleteLoweringRecordV2 {
+    let profile = CompleteLoweringProfileV2 {
+        require_bounds,
+        ..bounded_profile()
+    };
+    let result = admit(value).lower(&[id_of(name)], &profile);
+    result.records.into_iter().next().expect("one record")
+}
+
+fn requires_bound_at(request: &str, unbounded: &str) -> CompleteLoweringRecordV2 {
+    CompleteLoweringRecordV2::RequiresBound {
+        node_id: id_of(request),
+        unbounded_type: id_of(unbounded),
+    }
+}
+
+/// Tracing: TC-050, FR-038-AC-73
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn tc_050_a_position_typed_at_a_quantity_requires_a_bound_naming_the_unit() {
+    let value = quantity_package();
+    // Each request is raised at the `unit` or `compound_unit` node, never at
+    // the composite, the parameter or a `bounded_domain` between them.
+    let cases = [
+        ("unit_field", "metre"),
+        ("cu_field", "cu"),
+        ("seq03", "metre"),
+        ("opt", "metre"),
+        ("alias", "metre"),
+        ("p_unit", "metre"),
+        ("p_cu", "cu"),
+        ("dom_field", "metre"),
+        ("dom2_field", "metre"),
+        ("cdom_field", "cu"),
+    ];
+    for (request, unit) in cases {
+        assert_eq!(
+            record_with(&value, request, true),
+            requires_bound_at(request, unit),
+            "{request}"
+        );
+    }
+}
+
+/// Tracing: TC-050, FR-038-AC-73
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn tc_050_the_least_quantity_among_positions_is_named() {
+    let value = quantity_package();
+    let least = std::cmp::min(id_of("metre"), id_of("cu"));
+    assert_eq!(
+        record_with(&value, "both", true),
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id: id_of("both"),
+            unbounded_type: least,
+        }
+    );
+}
+
+/// Tracing: TC-050, FR-038-AC-73
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
+    let value = quantity_package();
+    // A requested unit and compound unit lower, the compound unit with its
+    // unit in `dependencies`.
+    for request in ["metre", "cu"] {
+        assert!(
+            matches!(
+                record_with(&value, request, true),
+                CompleteLoweringRecordV2::Lowered { .. }
+            ),
+            "{request}"
+        );
+    }
+    match record_with(&value, "cu", true) {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert!(node.dependencies.contains(&id_of("metre")));
+        }
+        other => panic!("expected lowered, got {other:?}"),
+    }
+    // A unit reached only as a `literal.type` annotation.
+    match record_with(&value, "annotated", true) {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert!(node.dependencies.contains(&id_of("metre")));
+        }
+        other => panic!("expected lowered, got {other:?}"),
+    }
+    // An application's `result_type` is not a position.
+    let application = value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["semantic_form"] == "binary")
+        .expect("application")["node_id"]["digest"]
+        .as_str()
+        .expect("key")
+        .to_owned();
+    let result = admit(&value).lower(&[typed_node_id(&application)], &bounded_profile());
+    match &result.records[0] {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert!(node.dependencies.contains(&id_of("metre")));
+        }
+        other => panic!("expected lowered, got {other:?}"),
+    }
+}
+
+/// Tracing: TC-050, FR-038-AC-73
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn tc_050_a_cyclic_domain_chain_ends_without_a_quantity() {
+    let value = quantity_package();
+    assert!(matches!(
+        record_with(&value, "loop_field", true),
+        CompleteLoweringRecordV2::Lowered { .. }
+    ));
+}
+
+/// Tracing: TC-050, FR-038-AC-73
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn tc_050_without_require_bounds_every_quantity_position_lowers() {
+    let value = quantity_package();
+    for request in [
+        "unit_field",
+        "cu_field",
+        "seq03",
+        "opt",
+        "alias",
+        "p_unit",
+        "p_cu",
+        "dom_field",
+        "dom2_field",
+        "cdom_field",
+        "both",
+    ] {
+        assert!(
+            matches!(
+                record_with(&value, request, false),
+                CompleteLoweringRecordV2::Lowered { .. }
+            ),
+            "{request}"
+        );
+    }
 }
