@@ -211,7 +211,11 @@ naming an absent member, with a wrong payload count and with a payload of the
 wrong type (AC-99). Put an application of each of the four classes in a node of
 another form, as an element of another application's `arguments`, as a `binding`
 value, inside an `aggregate`, and as a root and as a nested term in a diagnostic
-entry's `details`; give a formula, fairness and clause node an empty `aggregate`
+entry's `details`, with a `details` reference to a formula, a fairness, a union and a
+union value node (the first two refuse, the last two admit; QSL ruling relayed
+2026-10-03), a `case` nested in another term, and an `expression` node whose form
+contradicts its root operator class (`invalid_semantic_graph`); give a formula,
+fairness and clause node an empty `aggregate`
 body, a `literal` body and another class's application; reference a formula node
 from a `function` body, a fairness argument and a `case` argument, and a fairness
 node from a formula argument and a formula operand; read each, then read each
