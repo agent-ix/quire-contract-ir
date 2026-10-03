@@ -49,7 +49,11 @@ FR-038-AC-111 are against a number whose exact value its RFC 8785 encoding loses
 (the `inexact-number` and `inexact-integer` causes of a selected model document,
 and the package's own byte-stream refusal). FR-038-AC-112 and FR-038-AC-113 are
 against QSpec's own `adverse.json` mutations and `dependency-selection-vectors.json`
-identity, read from the QSpec checkout.
+identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (planned,
+IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
+misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
+the absence of a depth limit and of call-stack recursion, and the five body-grammar
+mutations.
 
 ## Test Procedure
 
@@ -60,7 +64,7 @@ positive V2 fixture. Apply each authored adverse
 structural mutation and compare the outcome. Independently inject malformed
 JSON, a duplicate member, an unknown member, noncanonical bytes, an absent or
 mismatched context digest, an unreported or unsupported required feature, a
-dangling reference and an incomplete source map. Admit at exact byte, depth, node,
+dangling reference and an incomplete source map. Admit at exact byte, node,
 edge, occurrence, diagnostic and work limits, then lower each limit by one.
 Recompute every fixture's package id, edit excluded and included preimage
 members, and re-read. Re-derive each in-repo nominal preimage's digest; apply
@@ -727,3 +731,50 @@ bytes carry no pointer. Every refusal code is unchanged. Each
 `unknown_contract_version` refusal carries the exact string read, including
 the empty one. Each one-over limit other than the byte limit names the value
 whose charge failed, and that pointer resolves; the byte limit names none.
+
+## Flat wire and no depth limit (FR-038-AC-114 through FR-038-AC-118)
+
+Planned (IR-495 code). In a fresh copy of a self-built package, place each of
+`quire.op.function.call`, `quire.op.state.clause` and an application of the
+`temporal`, `temporal_formula` and `temporal_fairness` classes inside an
+application's `arguments`, as an `aggregate` member and as a `binding` value of
+a node body, and read each; put an `aggregate` inside a Group's members, a
+`binding` of an `aggregate` inside an `aggregate`'s members, a `binding` whose
+value is a `binding`, a `binding` and a Tuple inside a Tuple's members, and a
+`binding` as a body root; then write each of those bodies with its composite
+subterm as its own node reached by `reference` (AC-114). Nest a `case`
+application inside another term; put a non-`case` application at the body root
+of a node its class does not place it in; put a `temporal_formula` application
+with a nested `case` argument, an aggregate of a `temporal_formula` and then a
+`case` application, and an application of another class in a diagnostic's
+`details` term, and in a node body a nested `case` at `arguments/0` beside a
+nested call at `arguments/1` and the two swapped (AC-115). Leave `node_id`,
+`identity_preimage` and `package_id` stale in a package whose body holds a nested
+non-`case` application, and in one whose body holds a nested `case`, and read the
+first again with the body flattened (AC-116). Scan the source files under
+`crates/quire-contract-model/src/checked_package/` (not the v1 modules or the
+manifest) for `MAXIMUM_DEPTH`, any `MAX_*DEPTH`, `stacker`, `serde_stacker` and
+`on_stack_for`, and check `CheckedPackageReadLimits` and `CheckedPackageLimit` for
+a depth member and variant; build a chain of 100000 nodes each referencing the
+previous, read it on a thread whose stack is 256 KiB under every limit sized so
+that none decides the outcome, lower its last node, and compare its JSON nesting
+depth with that of a one-level package; read an otherwise canonical document whose
+node body nests a term 300 levels deep on a 256 KiB thread, and the same document
+nested 20 levels deep (AC-117). Run `make conformance-qspec` and read the harness's
+expected-failure list (AC-118).
+
+Expected: each nested non-`case` application refuses `malformed_wire` at the
+nested application, each Group and binding misplacement at that value, and each
+flattened form is not refused `malformed_wire`; the nested `case` and the
+misplaced body root refuse `ill_typed`/`operator-ineligible` at the pointer
+AC-115 gives, the `details` and node-body cases at the first construct in document
+pre-order, and the `details` application of another class `malformed_wire`; the
+stale non-`case` package refuses `malformed_wire`, the stale nested-`case` package
+`ill_typed`/`operator-ineligible` at the `operator`, and the flattened form refuses
+at an identity check; the scan finds none of the names and no depth member or
+variant, and the 100000-node chain is admitted and lowered with no outcome naming a
+depth and no stack overflow; the 300-level document refuses `malformed_wire` with no
+pointer at the strict parse and the 20-level one at the first value outside the body
+grammar; and each of the five
+`body_grammar_mutations` refuses `malformed_wire` with the expected-failure list
+empty of them.

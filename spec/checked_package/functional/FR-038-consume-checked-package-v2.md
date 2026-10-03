@@ -39,10 +39,12 @@ contract version is refused with a typed `unknown_contract_version` code.
 ## Inputs
 
 Untrusted wire bytes; caller-selected read limits, for which the crate ships one
-named finite default appropriate to a single local request — 1048576 bytes, 128
-nesting levels, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics
-and 1000000 term-validation visits — as stable API, every member finite so that
-the default admits no unbounded read; package evidence holding
+named finite default appropriate to a single local request — 1048576 bytes,
+10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics and 1000000
+term-validation visits — as stable API, every member finite so that the default
+admits no unbounded read, and (🚧 planned, IR-495 code; today the default also
+holds 128 nesting levels) no member a nesting depth, the reader having no depth
+limit (see "Reading"); package evidence holding
 each selected domain package's Semantic IR 2.0.0 document
 supplied as bytes under its `sha256-jcs` digest, each selected dependency's
 admitted V2 package supplied under its library identity, and the reader-supported
@@ -136,8 +138,6 @@ An incomplete outcome carries the pointer of the value whose charge failed,
 for every limit except the byte limit. The byte limit is charged before any
 value is parsed. The others are charged as follows:
 
-- The depth limit at the first value, in document order, nested one level
-  past it.
 - The node limit at the first node past it.
 - The edge limit at the dependency that took the count past it.
 - The occurrence limit at the source-map entry or region that did.
@@ -149,25 +149,35 @@ value is parsed. The others are charged as follows:
 ### Reading
 
 The reader shall measure raw bytes against the byte limit, read the document
-as strict JSON (duplicate members refuse, nesting charged against the depth
-limit, a document at the limit admitted), require canonical bytes, and read
-`contract_version` exactly once. Depth counts each container as one level and a
-scalar value as one level below its container, so `[]` is depth 1 and `[1]`
-and `{"a":1}` are depth 2. A syntax or duplicate-member defect anywhere in the
-document refuses before depth is charged, however deep the document is, and the
-JSON parser's own nesting cap never decides the outcome: a document deeper than
-the depth limit returns `incomplete` for `depth` with that limit and the
-measured depth, and one within it is read. The limit is the caller's up to
-16,384, the most nesting the reader reads; a caller limit above that reads as
-16,384. This ceiling is a known deviation from FR-322 and FR-038-AC-3, which
-charge the caller's limit as given, pending the upstream amendment tracked as
-STD-125; it is not a settled rule. An admitted package's own clone,
-comparison, `Debug` rendering and lowering, and dropping any of its nodes,
-projections or diagnostics, are safe at any depth the reader admits. The graph,
-lock and diagnostics its accessors return, and the records and package a
-lowering returns, are ordinary data whose derived traits recurse on the
-caller's stack, so a caller who raises the depth limit past the default of 128
-owns the stack they need. It shall
+as strict JSON (duplicate members refuse), require canonical bytes, and read
+`contract_version` exactly once. The reader has no depth limit, as merged QSpec
+FR-322 states ("Identity and validation" and "Body grammar", FR-322-AC-41): the
+closed body grammar (see "The flat wire" below) fixes the JSON depth of every
+package whatever its node count, so depth is never a limit kind. 🚧 Planned
+(IR-495 code): no outcome of the V2 reader names a depth, `CheckedPackageReadLimits`
+has no depth member (so `CheckedPackageLimit` has no `Depth` variant, a breaking
+change for a consumer that builds it), and no constant of the V2 reader
+(`crates/quire-contract-model/src/checked_package/`) caps a value a caller supplies
+by a nesting depth. Today the bounded default holds a depth of 128, a caller depth
+limit is clamped by `CheckedPackageReadLimits::MAXIMUM_DEPTH`, and the reader runs
+under `stacker` and `on_stack_for`. The v1 limits of FR-019 and FR-023 are a
+different surface and are unchanged. A body nested beyond the grammar, within what the
+strict parse reads, refuses `malformed_wire` at the first value outside it, at the body
+grammar of the order of checks, and is never an `incomplete` outcome. A document nested
+past the strict parse's own recursion limit (`serde_json`'s default of 128, which
+returns an error before it recurses deeper) refuses `malformed_wire` with no pointer,
+as malformed JSON does (FR-038-AC-24), at the strict parse, never `incomplete`, and
+without a stack overflow (FR-038-AC-117). 🚧 Planned (IR-495 code): today the reader
+disables that limit and parses under `serde_stacker`, so such a document is read, not
+refused at the parse. A syntax or duplicate-member defect anywhere in the document refuses first. 🚧 Planned
+(IR-495 code): no walk of the V2 reader after the strict parse (the body grammar,
+the term walk, the preimage, the closure and dependency walks and the lowering
+walk) recurses on the call stack at any depth: each runs on an explicit heap
+stack, in document pre-order, so a chain of nodes 100000 deep is read and lowered
+on a thread whose stack is 256 KiB. Every value an admitted package holds nests to a
+depth the grammar fixes, so its clone, comparison, `Debug` rendering, lowering and drop
+need no stack that follows the package's size, and the V2 reader has no `stacker`,
+`serde_stacker` or `on_stack_for`. It shall
 admit only `quire.checked-package/v2`; any other version, or a missing or
 malformed `contract_version`, refuses before any version-specific decoding
 begins. This is a refusal control, not a compatibility layer: it never
@@ -338,15 +348,15 @@ allows. `#[derive(FixedShape)]` is valid only for a type whose JSON nests to a
 depth fixed by the type itself; serde then recurses once per fixed level. A
 type with a member whose depth follows the input implements
 `quire_canonical::Encode` instead. Every `serde_json::Value` in the wire is
-such a member, because a node `body` and a diagnostic `details` entry nest as
-deep as their input. The target is that `quire-canonical` provides the iterative
+such a member, because an in-memory `Value` nests as deep as it is built (an
+admitted package's `body` and `details` nest to a depth the body grammar fixes). The target is that `quire-canonical` provides the iterative
 `Encode` for `serde_json::Value`, behind a `serde_json` feature, as the one
 owner for this repository, `quire-contract-codegen` and `quire-spec-language`,
 and that this repository's `Encode` types delegate their `Value` members to it.
 That upstream change is quire-canonical #7, merged as
 b4bb97a5fe0a946e9d980e6466c7ecf95c6e62f1. The same change adds a
 public non-recursive drop helper for a deep `serde_json::Value`, because
-`serde_json`'s own drop recurses and this reader parses with unbounded depth;
+`serde_json`'s own drop recurses and an in-memory `Value` is built at any depth;
 the reader drops a deep `Value` through that helper and writes no drop of its own.
 `Value` members encode through that `Encode`, and this repository has no walker of
 its own: there is no `value_to_vec` in `checked_package/v2/encode.rs`
@@ -400,8 +410,8 @@ This repository holds no walker over a
 2^53 is refused, any other number is its `f64`) and its member order belong to
 `quire-canonical`, and FR-038-AC-77 and FR-038-AC-78 are verified against that
 `Encode`. Encoding
-adds no depth limit of its own: a body nested deeper than the reader admits,
-built in memory, still encodes. An encode refuses for the byte ceiling and for
+adds no depth limit of its own: a body nested deeper than the body grammar
+admits, built in memory, still encodes. An encode refuses for the byte ceiling and for
 any other cause `quire-canonical` reports (a number it has no encoding for, an
 object buffer past its fixed bound, an allocation failure, and its other
 errors, which it may extend); lowering reports every such refusal as a `failed`
@@ -517,7 +527,7 @@ This requirement changes what the reader accepts as canonical bytes, and gives
 each input it changes one code. A document is canonical when its bytes equal `quire-canonical`'s bytes for
 the value read, and the reader makes that check through `quire-canonical`,
 without recursing over the document, in the place it checks canonical bytes
-today: after the strict syntax, duplicate-member and depth checks and before the
+today: after the strict syntax and duplicate-member checks and before the
 closed-schema decode, the header check, the `package_id` recomputation and every
 grammar check. A document that is not canonical in that sense, or that
 `quire-canonical` refuses to encode, refuses `noncanonical_wire` with no
@@ -540,18 +550,79 @@ decided differently as a result:
   pass the canonical-bytes check; the reverse holds today. Passing that check
   admits nothing by itself: the closed body grammar still decides the document.
 
-The order of checks is: strict syntax, duplicate member and depth; canonical
+The order of checks is: strict syntax and duplicate member; canonical
 bytes; closed-schema decode and header; the body grammar, as part of strict wire
 validation (merged QSpec FR-322 "Identity and validation" and "Body grammar", FR-322-AC-40:
-a body outside the grammar refuses `malformed_wire` before any identity is recomputed);
-`package_id` and node-key recomputation; then the graph checks. The reader as it stands
-runs the body-grammar check after the `package_id` recomputation; the change that moves it
-into strict wire validation is IR-495's code, and this paragraph adds no criterion for it.
+a body outside the grammar refuses `malformed_wire` before any identity is recomputed,
+FR-038-AC-116); `package_id` and node-key recomputation; then the graph checks. 🚧 The
+reader as it stands runs the body-grammar check after the `package_id` recomputation, so
+a body outside the grammar in a package whose identity is stale refuses at the identity
+check; that is today's behaviour pending IR-495's code, which moves the check ahead of
+the recomputation and is verified by FR-038-AC-116.
 The `package_id` recomputation therefore runs on a
 value every number of which `quire-canonical` encodes, and a more specific
 grammar refusal is never decided by an encoder refusal. An encode refusal at the
 recomputation is not reachable from a document that passed intake; a caller who
 meets one (an in-memory value) receives `quire-canonical`'s error.
+
+### The flat wire
+
+IR-495 makes this reader enforce the closed body grammar of merged QSpec FR-322
+"Body grammar" (FR-322-AC-39 through FR-322-AC-41; FR-341-AC-6; FR-370-AC-5 and
+FR-370-AC-12; QSpec TC-233, TC-303 and TC-427 BG-02), and this section states what
+that requires of this reader without copying the grammar. Where the reader and
+that text differ, the text is this reader's requirement; a reading of today's
+reader (the nested-application readings in "Operation identity", "Application
+node keys" and the temporal and state-clause sections) is superseded by it. The
+grammar covers every node `body` and every diagnostic `details` term, and is
+strict wire validation: it is decided over the decoded document, in document
+pre-order, after the closed-schema decode and before any identity is recomputed
+(the order of checks above).
+
+- An application of any operator class other than `case` nested inside a node
+  body or inside another term (an application's `arguments`, an `aggregate`'s
+  members, a `binding` value) refuses `malformed_wire` at the nested
+  application. This holds for every such class, `temporal`, `temporal_formula`,
+  `temporal_fairness`, `quire.op.state.clause` and the ordinary classes alike.
+  So do an `aggregate` inside a Group's members and a `binding` as a body root.
+  The same meaning written with each composite subterm as its own node reached
+  by `reference` is not refused for its shape. FR-038-AC-114.
+- A nested `case` application is the one named exception: it refuses
+  `ill_typed` with cause `operator-ineligible` at the nested application's
+  `operator`, and an application of the `temporal_formula`,
+  `temporal_fairness` or `case` class in a `details` term refuses the same way
+  at that application's `operator`, as FR-322 "Body grammar" and FR-370-AC-12
+  state. An application of any other class in a `details` term is outside the
+  grammar and refuses `malformed_wire` at that application. A non-`case`
+  application at the body root of a node that its class does not place there
+  refuses `ill_typed`/`operator-ineligible` at the node that holds it, never
+  `malformed_wire`. FR-038-AC-115.
+- When one body or `details` term holds several offending constructs, the
+  refusal is the first in document pre-order, outermost first, as FR-322
+  states: a `details` term that is a `temporal_formula` application holding a
+  nested `case` argument refuses at `.../details/{d}/operator`, and a `details`
+  aggregate of a `temporal_formula` application and then a `case` application
+  refuses at `.../details/{d}/members/0/operator`. The walk that decides the
+  nested `case` therefore does not run ahead of an outer construct in pre-order.
+  FR-038-AC-115.
+- The walk is iterative: it reads the body in document pre-order on a heap
+  stack and never recurses on the call stack, so no refusal and no admission
+  depends on a chain of nodes' length, and the preimage of an application node
+  (FR-038-AC-88) is built over the grammar's fixed depth without recursion.
+  Rewriting the references to a node's own `recursion_group` into
+  `group_reference` terms visits each term once and clones no enclosing term.
+  The specification states this requirement only. FR-038-AC-117.
+- The V2 reader has no depth limit and nothing in it caps a caller's value by
+  depth; the v1 limits of FR-019 and FR-023 are unchanged. FR-038-AC-117.
+- The refusal of a nested `case` is decided in the same document pre-order walk
+  as the `malformed_wire` refusals, ahead of every identity check, so that FR-322's
+  first-in-pre-order rule holds across both. Merged FR-440 "Reader joins" lists the
+  same refusal among the operation step's joins, and the merged texts do not
+  reconcile the two stages; this stage is this reader's reading, which keeps one
+  pre-order across the body. FR-038-AC-115 and FR-038-AC-116.
+- Each of the five `body_grammar_mutations` of QSpec's `adverse.json` refuses
+  `malformed_wire`, and the expected-failure list of FR-038-AC-112 holds none of
+  them. FR-038-AC-118.
 
 ### A model document is a value inside a supplied document
 
@@ -1155,9 +1226,12 @@ defect:
    application and such an application stands nowhere else (QSpec's V2 schema
    binds each form to its body). So a body that is not that application, as an
    aggregate, a literal or an application of another class, refuses, and so does
-   an application of these classes as the body root of a node of another form or
-   nested as an element of another application's `arguments`, in a `binding`
-   value or in an `aggregate`. A `temporal`/`formula` node is referenced only from
+   an application of these classes as the body root of a node of another form. An
+   application of these classes nested as an element of another application's
+   `arguments`, in a `binding` value or in an `aggregate` is no placement
+   defect: it is outside the body grammar and refuses `malformed_wire` at the
+   nested application at strict wire validation, ahead of this step ("The flat
+   wire"; FR-038-AC-114). A `temporal`/`formula` node is referenced only from
    a clause's formula argument or as an operand of a `temporal_formula`
    application, and a `temporal`/`fairness` node only from a clause's fairness
    argument (QSpec FR-370 "Placement and profile fit"); a `reference` to one from
@@ -1323,7 +1397,8 @@ otherwise, the locus is the key of the node that path is on.
 | fairness `name` matches no effective operation (`missing-name`) or two or more (`ambiguous-name`) | `/semantic_graph/nodes/{fairness node}/body/operation/member/name` | the `declaration` target's key |
 | fairness declaring node's owner not recovered | `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` | the fairness node's key (the calling node, as FR-038 states for a model-owner refusal) |
 | a `details` term references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node (merged QSpec FR-370 and FR-440, #182; a union or union value node reference is admitted) | `/diagnostics/entries/{e}/details/{d}` | the holder is a diagnostic entry, not a node: no node key; the entry's pointer is the locus |
-| an application of the `temporal_formula`, `temporal_fairness` or `case` class in a `details` term (merged QSpec FR-370 and FR-322 "Body grammar", #182 and #183; a `temporal`-class application there is this reader's reading, not merged text) | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
+| an application of the `temporal_formula`, `temporal_fairness` or `case` class in a `details` term (merged QSpec FR-370 and FR-322 "Body grammar", #182 and #183); an application of any other class there is `malformed_wire` at that application ("The flat wire") | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
+| an application of any class other than `case` nested in a node body or another term, an `aggregate` inside a Group's members, a `binding` as a body root (`malformed_wire`, strict wire validation, merged QSpec FR-322 "Body grammar", FR-341-AC-6, FR-370-AC-5) | the nested value, `/semantic_graph/nodes/{holder}/body/...` | the holder's key |
 | an `expression` node whose `semantic_form` contradicts its root application's operator class (`invalid_semantic_graph`) | `/semantic_graph/nodes/{n}/body` | the node's key |
 | a `case` application nested in another term (merged QSpec FR-440 and FR-322 "Body grammar", #182; refused in the term walk) | `/semantic_graph/nodes/{holder}/body/.../operator` of the nested application | the holder's key |
 | a `case` application as the body root of a node that is not an `expression` node (merged FR-440 join 1; the operation step, not the temporal step) | `/semantic_graph/nodes/{holder}` | the holder's key |
@@ -1360,16 +1435,15 @@ node is no longer on this list (merged step 1 covers it); the unreached-formula
 `lower > upper` sweep; and an arm body of unresolvable type. The recursion-leaf
 entry for a record, tuple or union cycle that reaches `text` is merged FR-322
 "Structural leaf walk" text (#182), not an IR reading. Merged FR-322 "Body grammar"
-(#183, #184) also states that an application of any operator class other than `case`
-nested inside a node body or another term (`temporal_formula`, `temporal_fairness`,
-`temporal`, `quire.op.state.clause` among them) is refused `malformed_wire` at the
-nested application, at strict wire validation and ahead of every identity check; that
-only an application at the body root of a node its class does not place it in refuses
-`ill_typed`/`operator-ineligible` at that node; and that among several offending
-constructs in one body or `details` term the first in document pre-order, outermost
-first, is reported. The nested-application readings below that give another refusal
-for a nested non-`case` application are IR-495's to reconcile: IR-495 owns the reader
-change that enforces the flat wire, and this paragraph does not restate its behaviour.
+(#183, #184) also states the flat wire: an application of any operator class other
+than `case` nested inside a node body or another term is `malformed_wire` at the
+nested application, at strict wire validation and ahead of every identity check; only
+an application at a body root its class does not place it in refuses
+`ill_typed`/`operator-ineligible` at that node; and the first offending construct in
+document pre-order, outermost first, is reported. "The flat wire" states what that
+requires of this reader (FR-038-AC-114 through FR-038-AC-118); this section's placement
+and `details` rules are read with it, and a nested non-`case` application is never a
+placement or `details` defect here.
 
 Operand family and count and `result_type` stay the operation step's
 (FR-370-AC-7), so `holds` over a `reference` to a `temporal`/`formula` node
@@ -1395,10 +1469,8 @@ the body, where nested applications are refused, and not by the operation step):
 `case` application nested inside another term refuses `ill_typed`/`operator-ineligible`
 at the nested application's `operator`, FR-322's named exception to `malformed_wire`
 (a nested application of any other class is `malformed_wire`, not placement, which
-refuses at the holding node only for an application at a body root; the nested
-position is also what this reader could not otherwise check, since it does not
-operation-check a nested application, the stated deviation of "Operation identity"
-above), where merged FR-440 words it as not a failure of FR-322's body grammar; and, as merged FR-440
+refuses at the holding node only for an application at a body root), where merged
+FR-440 words it as not a failure of FR-322's body grammar; and, as merged FR-440
 and FR-322 state, an `expression` node whose `semantic_form` contradicts its root
 application's operator class (for example an `expression`/`case` node whose body is
 not a `case` application, or an `expression` node of another form whose body root is
@@ -1406,9 +1478,11 @@ a `case` application) refuses `invalid_semantic_graph` at the node's `body`, not
 `ill_typed`/`operator-ineligible`. A `case` application at the body root of a node
 that is not an `expression` node at all is the placement refusal above.
 
-**Diagnostic details.** Details terms are checked after the placement of
+**Diagnostic details.** The `details` references below are checked after the placement of
 applications and references and before the clause checks, in entry order and then
-`details` order (merged QSpec FR-370 "Reader order", #182):
+`details` order (merged QSpec FR-370 "Reader order", #182). The `details`
+applications are not: they are decided at strict wire validation, in the body grammar
+walk ahead of every identity check ("The flat wire"):
 - a `details` term that REFERENCES a `temporal`/`formula` or `temporal`/`fairness`
   node refuses `ill_typed`/`operator-ineligible` at that entry,
   `/diagnostics/entries/{e}/details/{d}`; so does a reference to an
@@ -1421,9 +1495,9 @@ applications and references and before the clause checks, in entry order and the
   application's `operator` (`/diagnostics/entries/{e}/details/{d}/operator`, and
   below it for a nested one, the first in document pre-order, outermost first),
   since a `details` term is no node's body (merged FR-370-AC-12 and FR-322 "Body
-  grammar"). A `case` is an application, so it refuses here. An application of
-  class `temporal` there is this reader's reading and not merged text, which names
-  three classes.
+  grammar"). A `case` is an application, so it refuses here. An application of any
+  other class there, `temporal` among them, is outside the grammar and refuses
+  `malformed_wire` at that application, at the same stage (FR-038-AC-115).
 
 **No evaluation.** Nothing in this repository evaluates an application. The
 reader admits and checks a catalogued entry by shape, and the lowerer carries an
@@ -1542,13 +1616,12 @@ nonzero decimal string]}`, strictly ascending by unit node key. Its
 `dependencies` is exactly those unit keys in that order. The empty body is
 the dimensionless unit.
 
-A node whose body contains an `application` term at any depth has
+A node whose body is an `application` term has
 `dependencies` exactly the unique, digest-ascending reference targets and
 operation member declarations of its body (FR-322
 `application_node_preimage`); a `result_type` or literal `type` is not a
-dependency. The join applies to every node whose body contains an
-application, not only to a node whose body root is one: that is the set of
-nodes QSL's emitter writes the join for. A member `declaration` that is not
+dependency. An application stands only at a body root ("The flat wire"), so the
+join applies to the nodes whose body root is one. A member `declaration` that is not
 a node key is left to the operation stage's refusal.
 
 Any violation refuses as `invalid_semantic_graph` at the member that breaks
@@ -1575,10 +1648,8 @@ node and refuses a retained key that differs as `invalid_package` with cause
 `stale-node-key` at the node's `node_id`; a node whose `node_id` is that digest
 is not refused for its key. This is the key check that FR-038-AC-35 exercises
 for a `dependency_reference` callee, stated for every node whose body root is an
-application term. QSpec FR-322 keys every node whose body contains an
-application. The reader re-derives a key only where the body root is the
-application, so a nested application's own node is not re-keyed: a stated
-deviation from QSpec FR-322, not a settled rule. This section fixes what the
+application term, the only place an application stands ("The flat wire"). This
+section fixes what the
 preimage is (FR-038-AC-88); "Every identity digest is computed through
 quire-canonical" fixes who encodes and hashes it, and FR-038-AC-89 pins that the
 key is the one the reader derived before the move, so the two do not overlap.
@@ -1607,13 +1678,12 @@ and `operation-member-mismatch`; then each argument application under the same
 order; then `operation-mode-type-mismatch` and `operator-ineligible`; then the
 leaves. The reader runs the first seven in that order, then the argument
 `dependency_reference` walk, then `operator-ineligible` and then
-`operation-mode-type-mismatch`, so it reverses the last pair, and it checks an
-application only where it is a node's body root, where QSpec checks each argument
-application as well (a nested application is refused by the term walk only for
-the four node-root operator classes, `temporal`, `temporal_formula`,
-`temporal_fairness` and `case`, at their placement rule, "Catalog words:
-admitted, read and catalogued, never evaluated"). Both are stated deviations from QSpec FR-322, not settled rules, and
-no criterion below fixes the order of the reversed pair.
+`operation-mode-type-mismatch`, so it reverses the last pair: a stated deviation
+from QSpec FR-322, not a settled rule, and no criterion below fixes the order of the
+reversed pair. It checks an application at a node's body root, the only place one
+stands: a nested application never reaches this check, because it is refused at
+strict wire validation (`malformed_wire`, or for a nested `case`
+`ill_typed`/`operator-ineligible` at its `operator`; "The flat wire").
 
 QSpec requires `mode` and `member` as members of `operation`, each nullable. The
 reader decodes each as optional, so an omitted `mode` or `member` is read as
@@ -1660,9 +1730,9 @@ absent rounding spelling, which FR-322 applies to the pin); the reader checks th
   entry's fixed operands, the entry admitting no rest operand, refuses
   `ill_typed`/`operator-ineligible` at `arguments`; with a rest operand, fewer
   than the fixed operands refuses the same way.
-- **Operand families.** A `literal` argument resolves to its declared `type` and a
-  nested `application` argument to its `result_type`, as a `reference` resolves
-  to its target, and each takes part in the operand-family and mode-pin checks. An
+- **Operand families.** A `literal` argument resolves to its declared `type`, as a
+  `reference` resolves to its target, and each takes part in the operand-family
+  and mode-pin checks. An
   argument whose family does not fit its operand position refuses
   `ill_typed`/`operator-ineligible` at that argument. A clause application, the
   application of an entry whose result is `clause`, has family `clause` and fits
@@ -1868,7 +1938,7 @@ it, so every package QSL's lowering writes admits; that requirement is a stated
 deviation from QSpec's schema, held until that ruling. A `float32` or `float64` leaf counts as no text leaf, where the
 reference reader finds the type undecidable. A compared type this reader cannot
 resolve from the first operand (an operand it does not type, such as an untyped
-literal, an aggregate or a nested application with no `result_type`), and a
+literal or an aggregate), and a
 `set`, `bag` or `ordered_set` result whose inner type does not resolve, are not
 decided and their leaves are not checked, where the reference reader refuses
 `operator-ineligible`. Refusing them would refuse every operand this reader
@@ -2056,7 +2126,7 @@ the three as disjoint disagrees byte for byte.
 | --- | --- | --- |
 | FR-038-AC-1 | Each positive V2 package fixture this repository builds from its own public vocabulary admits; an unknown, empty, absent or malformed `contract_version` refuses as `unknown_contract_version` or `malformed_wire` before any version-specific decoding; and the strict parse (duplicate-member, noncanonical) refusals occur before a version is selected. | Test (TC-048) |
 | FR-038-AC-2 | The reader refuses malformed, duplicate-member, unknown-member, noncanonical, stale-dependency, cross-domain digest, unknown required capability, unsupported node tag, invalid graph and invalid source-map inputs with exactly those codes, and every authored adverse structural mutation returns its declared outcome, before exposing a package; a domain package selection or model owner carrying `authority`, `revision`, `export` or `version` refuses as `unknown_member`, a domain package selection outside `sha256-jcs` as `digest_domain_mismatch`, one with no supplied document as `missing_import` with cause `missing-selection`, and a `model_export` semantic form as `invalid_semantic_graph`. | Test (TC-048) |
-| FR-038-AC-3 | Exact byte, depth, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package. | Test (TC-048) |
+| FR-038-AC-3 | Exact byte, node, edge, occurrence, diagnostic and work limits admit a package; each one-over limit returns `incomplete` with that limit kind, the limit and the consumed counter and no package; no limit kind is a depth (FR-038-AC-117). | Test (TC-048) |
 | FR-038-AC-4 | The recomputed package id equals each positive fixture's declared id; editing a source-map region, occurrence, raw source digest or capability disposition leaves it unchanged, while editing the edition, a selection, a required feature or a node projection changes it and refuses unless mirrored. | Test (TC-048) |
 | FR-038-AC-5 | Every nominal preimage of the in-repo nominal fixture re-derives the node key it is keyed by and round-trips its own wire form; every authored invalid nominal mutation, an absent or wrong preimage, and each retained-preimage change of enum case, `semantic_type`, dependency or unit target refuses as `invalid_semantic_graph`; a model owner admits when its identity names a selected domain package and refuses as `invalid_semantic_graph` when it names none or carries an empty node. | Test (TC-048) |
 | FR-038-AC-6 | Every admitted node family lowers independently with exact source, type, dependency, bound and claim correspondence; missing, unsupported, unbounded and over-work requests return `invalid_input`, `unsupported`, `requires_bound` and `failed` without a node and without changing sibling records, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-050) |
@@ -2078,7 +2148,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of digest order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a stale mirror at the first differing value, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
-| FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: depth at the first value nested one level past it, nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
+| FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, and work at the value whose validation took the meter past it; the byte limit carries none. | Test (TC-048) |
 | FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its digest: a document supplied under no digest of the row refuses `missing_import`/`missing-selection` at the row's `digest`; a document holding a number whose text denotes a magnitude past 2^53 refuses `noncanonical_wire` at the `digest` before any digest is computed (FR-038-AC-93); a document whose RFC 8785 SHA-256 is not the digest it was supplied under refuses `stale_dependency`/`byte-digest-mismatch` at the `digest`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` at the row's `identity`; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and the same package supplied as two documents at different versions admits when each is selected in its own package under its own digest (FR-038-AC-64). | Test (TC-048) |
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. | Test (TC-048) |
@@ -2128,7 +2198,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-75 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for its `CheckedSemanticGraphV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&graph))`; and for a graph whose nodes carry a nominal identity preimage of each of the four versions, a `declaration`, a `recursion_group` and bodies of object, array, string, integer, boolean and null values, with strings holding non-ASCII and astral characters (for instance U+00E9 and U+1F600), member names ordered the same by UTF-8 bytes and by UTF-16 code units, and the integers 9007199254740992, -9007199254740992, 0 and -1, the bytes are equal as well. | Test (TC-048) |
 | FR-038-AC-76 | For every in-repo positive fixture, the bytes `quire_canonical::to_vec` returns for each of `CheckedPackageLockV2`, `CheckedSourceMapEntry`, `CheckedCapability`, `CheckedSemanticId` and `CheckedDiagnosticsV2` equal the bytes of `serde_json::to_vec(&serde_json::to_value(&value))`, one assertion per type; the diagnostics value carries entries whose `details` hold nested objects and arrays and whose `loci` are non-empty. | Test (TC-048) |
 | FR-038-AC-77 | A `CheckedSemanticGraphV2` holding one node whose `body` is a `Value` nested 100000 levels deep, a `CheckedPackageIdentityPreimageV2` whose one projection holds the same body, and a `CheckedDiagnosticsV2` whose one entry holds it in `details`, each encode on a thread whose stack is 256 KiB, return the bytes of the expected text (the nesting written out by repetition, not by `serde_json`) and complete without a stack overflow. | Test (TC-048) |
-| FR-038-AC-78 | The encodes of FR-038-AC-77, run under a byte ceiling of the encoded text's exact length, return the bytes; run under a ceiling one byte lower, return the byte-limit error with no bytes; a body nested 20000 levels deep, past both the reader's default depth limit of 128 and its 16,384 ceiling, encodes and is not refused for its depth; and a body holding the integer 9007199254740993 returns the encoder's refusal naming that value with no bytes. | Test (TC-048) |
+| FR-038-AC-78 | The encodes of FR-038-AC-77, run under a byte ceiling of the encoded text's exact length, return the bytes; run under a ceiling one byte lower, return the byte-limit error with no bytes; a body nested 20000 levels deep encodes and is not refused for its depth; and a body holding the integer 9007199254740993 returns the encoder's refusal naming that value with no bytes. | Test (TC-048) |
 | FR-038-AC-79 | A package document holding the integer 9007199254740993 in a node body refuses `noncanonical_wire` with no pointer, as does one holding -9007199254740993, one holding the float `2.0` in a body, and one whose body object lists a member named with U+E000 before one named with U+10000 (UTF-8 byte order), each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document with 9007199254740992, with `2` in place of `2.0`, and with U+10000 before U+E000 (UTF-16 code-unit order) is not refused `noncanonical_wire`. | Test (TC-048) |
 | FR-038-AC-80 | `quire-canonical` is a `branch = "main"` git dependency of this repository's manifests with its source in the `allow-git` list of `deny.toml`, and `make deny` passes; `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedCapability` and `CheckedPackageLockV2`, and every type the three `Encode` types and these four hold that does not itself hold a `Value` (`CheckedOccurrence`, `CheckedDeclaration`, `NominalIdentityPreimage`, its four preimage structs, `NominalOwner`, `DimensionTerm`, `CheckedRational`, `CheckedDiagnosticStage`, `CheckedDiagnosticCode`, `CheckedDiagnosticCause`, the node identity, selection, domain-package, dependency-selection, source-region types, `CheckedArtifactRef` and `CheckedSourceRef`), derive `FixedShape`; `CheckedPackageIdentityPreimageV2`, `CheckedSemanticGraphV2` and `CheckedDiagnosticsV2` implement `quire_canonical::Encode`, and they and the types that hold a `Value` do not implement `FixedShape`; the crate's source holds no hand-written `impl FixedShape`, no `const DEPTH` and no wrapper type around a `quire-canonical` type; and no copy of `quire-canonical` source or of its published vectors is in the repository, each checked by a test that reads the manifests, `deny.toml` and crate source. | Test (TC-048) |
 | FR-038-AC-81 | Observed at the operation check of a body-root application, an application whose `operation.identity` the operation catalog does not list refuses `invalid_package` with cause `unknown-operation` at `operation.identity`; `quire.op.integer.add`, a `binary` operation, under the operator `unary` refuses `invalid_package`/`operation-class-mismatch` at `operator`; and `quire.op.integer.add` under `binary` with two operands, no law, no mode and no member admits, so neither refusal is a refusal of every application. Their order against every other check of the entry is FR-038-AC-67's. An application whose `operation` is a bare string, not an object of the closed operation shape, refuses `invalid_semantic_graph` at that application's `operation`. | Test (TC-048) |
@@ -2136,9 +2206,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-83 | Observed at the operation check, `quire.op.decimal.add`, which catalogues the mode kind `rounding`, with `mode` `null` refuses `invalid_package`/`operation-mode-mismatch` at `operation.mode`; with the mode `{kind: rounding, value: toward-zero}` over a first operand typed at a `bounded_domain` over a `decimal` whose body binds `rounding` to `nearest-even`, reached by a `reference` to the domain and, separately, by a `literal` whose `type` names it, it refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`. | Test (TC-048) |
 | FR-038-AC-84 | Observed at the operation check, `quire.op.quantity.convert`, which catalogues the member kind `type_argument`, with its `rounding` mode supplied and `member` `null` refuses `invalid_package`/`operation-member-mismatch` at `operation.member`; `quire.op.record.project` with a `field` member whose `name` is a field the declaring record type does not declare refuses `ill_typed`/`operator-ineligible` at `operation.member.name`; and `quire.op.model.reaches_field` with a `field` member whose `declaration` names no node of the graph refuses `ill_typed`/`operator-ineligible` at `operation.member.declaration`. | Test (TC-048) |
 | FR-038-AC-85 | Observed at the operation check, `quire.op.integer.add`, whose entry has two fixed operands and no rest operand, with three arguments refuses `ill_typed`/`operator-ineligible` at `arguments`; with two `literal`s typed at an `integer` node it admits, and with a first `literal` typed at a `boolean` node it refuses the same way at `arguments/0`; `quire.op.boolean.not` over an application of `quire.op.state.clause`, whose catalogued result is `clause`, refuses the same way at `arguments/0`. | Test (TC-048) |
-| FR-038-AC-86 | Observed at the operation check, `quire.op.structural.eq`, whose `same_type` constraint covers both operands, admits two distinct `value`/`parameter` nodes typed at one record type, two `literal`s typed at one type and two nested applications of one `result_type`, and refuses `ill_typed`/`operator-ineligible` at `arguments/1` for parameters typed at two record types, `literal`s typed at two types and nested applications of two result types, so the constraint compares the types the operands resolve to and not the operand nodes. | Test (TC-048) |
+| FR-038-AC-86 | Observed at the operation check, `quire.op.structural.eq`, whose `same_type` constraint covers both operands, admits two distinct `value`/`parameter` nodes typed at one record type, two `literal`s typed at one type, and refuses `ill_typed`/`operator-ineligible` at `arguments/1` for parameters typed at two record types and `literal`s typed at two types, so the constraint compares the types the operands resolve to and not the operand nodes. | Test (TC-048) |
 | FR-038-AC-87 | The operand family of a node is exactly, by tag and form: `scalar_type` `boolean`, `integer`, `rational`, `decimal`, `float32`, `float64`, `text` and `enum`, and `composite_type` `option`, `sequence`, `set`, `bag`, `ordered_set`, `record`, `tuple` and `reference`, each its own name; `expression`/`reference`, `reference`; `function` `pure_function`, `predicate` and `recursive_function`, `function`; `model` `object_type` and `systems_interface`, `object`; and `relation`/`population`, `population`; and `temporal`/`formula`, `temporal` (FR-038-AC-68); and, since IR-549, `composite_type`/`union`, `union` (FR-038-AC-99); every other kind of the closed node taxonomy has none, and the pairs are compared whole, so a form moved to another family or added to the list fails it. A kind is type-shaped exactly when its tag is `scalar_type`, `composite_type`, `bounded_domain`, `relation` or `function`, or it is `expression`/`reference` or `temporal`/`formula`, checked for every kind of the taxonomy. The `temporal`/`formula` pair arrives with the IR-503 code change; until it lands the pairs the unit test compares do not include it. | Test (TC-048) |
-| FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes, observed at the key check and with members in sorted order, to exactly this object: `body` (`arguments` the `group_reference` `{ordinal: 0, term: group_reference}` then the `reference` to the outside node, `operation` `{identity: quire.op.integer.add, laws: [], leaves: [], member: null, mode: null}`, `operator` `binary`, `result_type`, `term` `application`), `declaration` `{qualified_name: [pkg, total]}`, `node_tag` `function`, `recursion` `{ordinal: 1, size: 2}`, `semantic_form` `function`, `semantic_type` and `version` `quire.application-node/v1`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and a nested application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
+| FR-038-AC-88 | The preimage of an application node that is member 1 of a `recursion_group` of two, whose body is `quire.op.integer.add` over a `reference` to member 0 and a `reference` to a node outside the group, with `declaration` `{qualified_name: [pkg, total]}`, serializes, observed at the key check and with members in sorted order, to exactly this object: `body` (`arguments` the `group_reference` `{ordinal: 0, term: group_reference}` then the `reference` to the outside node, `operation` `{identity: quire.op.integer.add, laws: [], leaves: [], member: null, mode: null}`, `operator` `binary`, `result_type`, `term` `application`), `declaration` `{qualified_name: [pkg, total]}`, `node_tag` `function`, `recursion` `{ordinal: 1, size: 2}`, `semantic_form` `function`, `semantic_type` and `version` `quire.application-node/v1`; a `reference` to a group member becomes a `group_reference` in an aggregate member, a binding value and the body-root application's arguments, a reference outside the group stays, and `recursion` is `{ordinal, size}` of the node in its group; an application node whose `node_id` is not the SHA-256 of that preimage refuses `invalid_package`/`stale-node-key` at its `node_id`, and one whose `node_id` is that digest admits. | Test (TC-048) |
 | FR-038-AC-89 | Every identity digest recomputes to the value an in-repo fixture recorded before the move to `quire-canonical`: for every positive fixture each nominal, application and structural node key and the `package_id` equal the recorded digest; lowering every node of every positive fixture yields `ir_id` values, a lowered package `package_id` and lowered package canonical bytes equal to the ones recorded from the lowering before the move; and the canonical bytes of one preimage of each kind (a nominal preimage of each of its four versions, an application, a structural, a lowered node and a lowered package preimage) equal an expected byte string written out in the test from the preimage's JSON text, not computed by a call into the code under test, with the recorded digests as the second oracle. | Test (TC-048) |
 | FR-038-AC-90 | `NominalIdentityPreimage::digest` takes a byte limit: called with the limit equal to the canonical byte length of a preimage of each of its four versions it returns the digest the node key holds, and one byte lower it returns the encoder's byte-limit refusal and no digest; the reader passes its configured `limits.bytes` to it, and no call in the crate source passes `u64::MAX` or a literal cap, each checked by a test that reads the crate source. | Test (TC-048) |
 | FR-038-AC-91 | The files `canonical.rs`, `binding.rs`, `output_mapping.rs` and everything under `checked_package/` hold none of the symbols `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` and `serde_json_canonicalizer`, and no `serde_json::to_vec` or `serde_json::to_value` call whose result reaches a digest, a node key, a lowered preimage, the order of a dimension's terms, the selected-document digest, output-mapping identity material or the bound identity envelope, each checked by a test that reads those files and counts the symbols and calls, which finds none. The same scan finds no `value_to_vec` and no `impl` of `Encode` for `serde_json::Value`, and the manifest enables `quire-canonical`'s `serde_json` feature (`quire-canonical` #7, merged). | Test (TC-048) |
@@ -2150,7 +2220,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-97 | On each of the eight interval operators the member `{kind: temporal_interval, interval}` admits, under `quire.temporal.infinite-trace/v1`, with `interval` `{lower: "0", upper: "3"}`, `{lower: "9", upper: "10"}`, `{lower: "2", upper: null}` and `null`; `{lower: "-1", upper: "3"}` refuses `invalid_package`/`invalid-value` at the bound (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower`), `{lower: "0", upper: "-2"}` refuses the same way at `.../interval/upper`, and `{lower: "-5", upper: "-2"}` refuses at `.../interval/lower`, the first bound in member order, each in the term walk of the body, before any temporal step and under every profile (merged QSpec FR-370-AC-9 and the schema's non-negative bound pattern); every other bound outside the pattern (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`, and the JSON integer `0`, which is no string) refuses `invalid_package`/`invalid-value` at that bound, `{lower: "1.5", upper: "0"}` at `.../interval/lower`, in the same early stage and first in member order (`lower`, then `upper`), never `operation-member-mismatch` (merged FR-370: "a bound outside its form's pattern ... refuses `invalid_package`/`invalid-value` at that bound's pointer during strict wire validation"); `{lower: "3", upper: "0"}` and `{lower: "10", upper: "9"}` refuse `invalid_package`/`invalid-value` at the application (`/semantic_graph/nodes/{n}/body`), also when the formula node is reached by no clause (the sweep after every clause, an IR reading) and `{lower: "18446744073709551617", upper: "18446744073709551616"}` refuses the same way, so the comparison is numeric and neither lexicographic nor fixed-width; a member of kind `fairness` and an interval holding a third member each refuse `invalid_package`/`operation-member-mismatch` at `operation.member` (an IR reading, merged text silent), and a `null` member on an interval-capable operator refuses `invalid_package`/`operation-member-mismatch` at the application (`/semantic_graph/nodes/{n}/body`, merged FR-370); and any member on `quire.op.temporal.holds`, `quire.op.temporal.not` or `quire.op.temporal.clause` refuses `operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-98 | The `fairness` member of `quire.op.temporal.fair` admits as `{kind: fairness, fairness_kind: weak, granularity: whole, declaration, name}` and as `strong` with `each`, with a `declaration` and `name` that resolve (the resolution refusals are FR-038-AC-103's); a `fairness_kind` of `medium`, a `granularity` of `part`, a member lacking `name`, a member holding an extra member, a `null` member and a member of kind `temporal_interval` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and a `fairness` member on `quire.op.boolean.not` refuses the same way. | Test (TC-048) |
 | FR-038-AC-99 | A package holding a `composite_type`/`union` node `Shape` with the members `Circle(Integer)`, `Rect(Integer, Integer)` and `Empty`, a `value`/`union_value` node `Shape::Rect(2, 3)` and an `expression`/`case` node whose body root applies `quire.op.control.case` over the scrutinee and the arms `Circle`, `Rect` and `Empty` in member declaration order, the binders `r`, `w` and `h` as `value`/`parameter` nodes typed `Integer` and every arm body of the `result_type`, admits, the three forms decoded and the operand family of the `Shape` node `union`; the same `case` with its arms out of member order, with the `Empty` arm omitted, with the `Circle` arm repeated, with the `Rect` binder aggregate holding one reference, with the `Circle` binder typed `Text` and with one arm body of another type than the `result_type` each refuse `ill_typed`/`operator-ineligible` at the `case` node (`/semantic_graph/nodes/{n}`); a union with no member and a union value with two bindings each refuse `invalid_semantic_graph` at the node's `body`; a union type with `Circle` twice refuses `invalid_package`/`duplicate-member` and a payload reference to a node that is not a type refuses `ill_typed`/`operator-ineligible`, each at the union node; and a union value naming `Triangle`, a `Rect` with one payload term and a `Circle` over a `Text` payload each refuse `ill_typed`/`type-mismatch` at the node. | Test (TC-048) |
-| FR-038-AC-100 | Placement in both directions: an application of operator class `temporal`, `temporal_formula` or `temporal_fairness`, naming any identity, refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node of another form (a `temporal_formula` application in a `function` node, a `quire.op.temporal.fair` application in a `temporal`/`formula` node), an element of another application's `arguments`, a `binding` value or inside an `aggregate`; a `temporal`/`formula` node, a `temporal`/`fairness` node and a `temporal`/`temporal_clause` node whose body is an empty `aggregate`, a `literal`, or an application of another class refuses the same way at the node; a `reference` to a `temporal`/`formula` node from a `function` node's body, from a clause's fairness argument or from a `case` argument, and a `reference` to a `temporal`/`fairness` node from a clause's formula argument or from a `temporal_formula` operand, refuses the same way at the node that holds the reference; a `case` application refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node that is not an `expression` node, at the operation step and so after every temporal-step defect whatever the digest order (merged FR-440 join 1; not in the temporal placement pass), and at its own `operator` (`/semantic_graph/nodes/{n}/body/.../operator`) when it is nested in another term (QSL ruling relayed 2026-10-03); an `expression` node whose `semantic_form` contradicts its root application's operator class (an `expression`/`case` node whose body is not a `case` application, an `expression` node of another form whose body root is a `case` application) refuses `invalid_semantic_graph` at the node's `body` (merged QSpec FR-440 and FR-322, confirmed by the same ruling); a `diagnostics.entries[].details[]` term that references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node refuses `ill_typed`/`operator-ineligible` at that entry (`/diagnostics/entries/{e}/details/{d}`; the `case` node reference is merged FR-370-AC-12, QSL confirmed 2026-10-03, QSpec text follow-up pending), a `details` reference to a `composite_type`/`union` or `value`/`union_value` node is an ordinary reference and admits, and any of the four application classes as the root of or nested in a `details` term refuses `ill_typed`/`operator-ineligible` at that application's `operator` (`/diagnostics/entries/{e}/details/{d}/operator`, and below it for a nested one) (QSL ruling relayed 2026-10-03, QSpec text being corrected by a QSL follow-up; merged FR-370-AC-12 as written also lists the union nodes); and each application, node and reference at its own place admits (FR-038-AC-96, FR-038-AC-99), so none of the refusals is a refusal of every such term. The in-repo `v2_all_families` formula node, whose body is an empty `aggregate`, is refused as above and the code change replaces its body. | Test (TC-048) |
+| FR-038-AC-100 | Placement in both directions: an application of operator class `temporal`, `temporal_formula` or `temporal_fairness`, naming any identity, refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node of another form (a `temporal_formula` application in a `function` node, a `quire.op.temporal.fair` application in a `temporal`/`formula` node), while the same application as an element of another application's `arguments`, a `binding` value or inside an `aggregate` refuses `malformed_wire` at the nested application at strict wire validation, ahead of every step here (FR-038-AC-114); a `temporal`/`formula` node, a `temporal`/`fairness` node and a `temporal`/`temporal_clause` node whose body is an empty `aggregate`, a `literal`, or an application of another class refuses the same way at the node; a `reference` to a `temporal`/`formula` node from a `function` node's body, from a clause's fairness argument or from a `case` argument, and a `reference` to a `temporal`/`fairness` node from a clause's formula argument or from a `temporal_formula` operand, refuses the same way at the node that holds the reference; a `case` application refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node that is not an `expression` node, at the operation step and so after every temporal-step defect whatever the digest order (merged FR-440 join 1; not in the temporal placement pass), and at its own `operator` (`/semantic_graph/nodes/{n}/body/.../operator`) when it is nested in another term (merged FR-322 "Body grammar"); an `expression` node whose `semantic_form` contradicts its root application's operator class (an `expression`/`case` node whose body is not a `case` application, an `expression` node of another form whose body root is a `case` application) refuses `invalid_semantic_graph` at the node's `body` (merged QSpec FR-440 and FR-322); a `diagnostics.entries[].details[]` term that references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node refuses `ill_typed`/`operator-ineligible` at that entry (`/diagnostics/entries/{e}/details/{d}`; the `case` node reference is merged FR-370-AC-12), a `details` reference to a `composite_type`/`union` or `value`/`union_value` node is an ordinary reference and admits, and an application of the `temporal_formula`, `temporal_fairness` or `case` class as the root of or nested in a `details` term refuses `ill_typed`/`operator-ineligible` at that application's `operator` (`/diagnostics/entries/{e}/details/{d}/operator`, and `.../members/0/operator` for the first member of a `details` aggregate; merged FR-370-AC-12 and FR-322 "Body grammar"), the first in document pre-order, outermost first, while an application of any other class there refuses `malformed_wire` at that application (FR-038-AC-115); and each application, node and reference at its own place admits (FR-038-AC-96, FR-038-AC-99), so none of the refusals is a refusal of every such term. The in-repo `v2_all_families` formula node, whose body is an empty `aggregate`, is refused as above and the code change replaces its body. | Test (TC-048) |
 | FR-038-AC-101 | The reader's refusal types, `CheckedPackageRefusalCode` and `CheckedPackageRefusalCause`, carry neither `unsupported_construct` nor `expression-form`, so no input is refused with either; the diagnostics wire vocabulary `CheckedDiagnosticCode` still carries `unsupported_construct`, so a `diagnostics.entries[]` entry whose `code` is `unsupported_construct` reads as QSpec's schema allows; no application is evaluated by the reader or the lowerer, so an admitted `temporal`/`formula` node and an admitted `expression`/`case` node lower, under a profile that supports their tags, to nodes whose body equals the admitted body and whose `ir_id` is derived from it as for every node, and a profile lacking the tag returns `unsupported` naming it (FR-038-AC-8). | Test (TC-048) |
 | FR-038-AC-102 | The temporal step runs after the frame and state-clause step and before the operation step, placement first: a package holding one node with a placement defect (a `temporal_formula` application as the body root of a `function` node) and a second with a lower `node_id` digest whose operation identity is unknown refuses for the placement defect, and so does the same placement defect beside a lower-digest node whose `operator` differs from its entry's class (`quire.op.control.case` under `unary`), in both digest orders each, the placement defect taken in the shape of a `temporal_formula` application in a `function` node; two placement defects are reported at the lower `node_id` digest; a placement defect is reported ahead of any clause defect in either digest order; within one clause an `over` defect is reported ahead of a fairness-resolution defect, ahead of a profile-fit defect, ahead of an interval-bounds defect, each adjacent pair built as two defects of one clause and in both orders of the two defects' positions; and across two clauses the lower-digest clause's later-stage defect (a profile-fit defect) is reported ahead of the higher-digest clause's earlier-stage defect (an `over` defect), in both digest orders of the two clauses. The temporal step skips a member whose shape the operation step refuses (a wrong-kind member, an interval with a third member), and a `null` member on an interval operator under a bounded profile refuses `invalid_package`/`operation-member-mismatch` at the application. Every bound outside the schema pattern, negative or malformed (`{lower: "1.5", upper: "0"}` included), is a schema-pattern failure, refused `invalid_package`/`invalid-value` at the bound in the term walk of the body, before placement and every temporal step, first in member order, under every profile (merged QSpec FR-370-AC-9; there is no asymmetry between a negative and a malformed bound): `{lower: "0", upper: "-2"}` refuses at `.../interval/upper`, `{lower: "-1", upper: "-3"}` at `.../interval/lower`, and `{lower: "-1", upper: null}` refuses at `.../interval/lower` under a bounded profile, under `quire.temporal.infinite-trace/v1` and under a clause that also holds a placement defect at a lower-digest node, never `operation-member-mismatch`; `lower > upper` stays in the bounds step, after profile fit, so `{lower: "3", upper: "0"}` under a bounded profile in a clause whose profile fit also fails refuses the profile-fit defect first. | Test (TC-048) |
 | FR-038-AC-103 | A clause whose `over` argument is a `reference` to a `value`/`parameter` node among its `dependencies` admits; one whose `over` references a `value`/`parameter` node that is not among its `dependencies` refuses `missing_declaration`/`missing-name`, and one that references a declared dependency that is a `scalar_type` node refuses `invalid_model_binding`/`malformed-declaration`, each with path `/semantic_graph/nodes/{clause}/body/arguments/0` and the locus of the "Path and locus" table; a fairness member whose `declaration` and `name` resolve to an operation of a `model`/`object_type` declaration node admits (FR-370 "Fairness resolution" steps 1 to 3, in that order), one whose `name` is no operation of that node refuses `missing_declaration`/`missing-name` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/name` and the `declaration` target's key as locus, and one whose `declaration` names a node that is not a `model`/`object_type` declaration (a `scalar_type` node, a `model`/`value_type` node, or a key that names no node) refuses `invalid_model_binding`/`malformed-declaration` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and the `declaration` target's key as named as locus; the `over`-not-among-`dependencies` case is observed at the unit level of the temporal step, as AC-68 observes the clause check, because the application-node dependency join refuses a package that names a non-dependency reference first, while the package-level half (an `over` that names no node) is read through the reader; a `name` that matches two exposed operation members of the declaration node refuses `ambiguous_declaration`/`ambiguous-name`, one that the node only inherits admits and resolves to its most-derived redefinition, and a declaring node whose owner is not recovered refuses with that resolution's own refusal (`missing_declaration`/`missing-selection` or `invalid_package`/`stale-node-key`), the ambiguous name with path `.../member/name` and the `declaration` target's key as locus and the unrecovered owner with path `.../member/declaration` and the fairness node's key (merged QSpec FR-370-AC-11 and FR-370 "Fairness resolution" state the ambiguous, inherited-admitted, unrecovered-owner and malformed-declaration outcomes; the loci of the name and owner rows are an IR reading). | Test (TC-048) |
@@ -2164,6 +2234,11 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-111 | A package document holding the number `0.1000000000000000000001` or `9007199254740993.5` in a node body refuses `noncanonical_wire` with no pointer, no `document_pointer` and no cause, as it does today, each refused before any grammar, `package_id` or graph refusal the same document also earns; the same document holding `0.1` in that place is not refused `noncanonical_wire`; the package document is parsed through `serde_json`, so the manifest of the crate that holds the reader declares `serde_json` with the feature `float_roundtrip`, which makes the parse of a shortest round-trip text exact, so that a package document holding `1.2793061557049685`, `1.2106592671318679` or `1.3567384036451073` in a node body (each its double's shortest round-trip text, which `serde_json` without that feature reads as a neighbouring double and so would re-encode to different bytes) is not refused `noncanonical_wire`, whatever other crates in the build turn on. | Test (TC-048) |
 | FR-038-AC-112 | `make conformance-qspec` reads `proposals/checked-package-v2/fixtures/adverse.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and applies every mutation of its `structural_mutations` and `body_grammar_mutations` lists, each at its `pointer` with its `replacement`, to a fresh copy of the `positive-all-families.json` package, reading the result with the production reader; each mutation refuses with exactly the code its `outcome` names (`refused:<code>`, and the cause after a `/` where it gives one). The harness refreshes no identity after a mutation: `node_id`, the references to it, `identity_preimage.identity_projection` and `package_id` stay as the fixture holds them, as QSpec's TC-427 BG-02 applies the same mutations, because merged FR-322 has the reader validate the wire, body grammar included, ahead of every identity check, so a mutation under test is the first check that can refuse; a mutation the reader refuses at an identity check (`stale-node-key`, `stale_dependency`, `invalid_semantic_graph`) instead of its recorded code fails. For each `body_grammar_mutations` entry the harness also applies its `flattened` replacement at the same `pointer` in a fresh copy as a positive control, and the reader does not refuse that package `malformed_wire`; it may refuse it at a later identity check, the package being unrefreshed. The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, when a list is absent or empty, when a `body_grammar_mutations` entry has no `flattened` member, or when a mutation does not refuse as recorded. A mutation the reader does not yet refuse as recorded is named in the harness's expected-failure list, each entry holding the mutation `id`, the refusal the reader gives it today, which differs from the recorded `outcome`, and the open ticket that owns the missing refusal; the run passes only while every listed id's refusal equals its listed one, and fails when a listed id is absent from `adverse.json`, when a listed id's refusal equals the recorded `outcome` (a stale entry, until it is deleted), when it equals neither, and when an unlisted mutation does not refuse as recorded. | Test (TC-048) |
 | FR-038-AC-113 | `make conformance-qspec` reads `proposals/checked-package-v2/dependency-selection-vectors.json` from the checkout named by `QUIRE_SPECIFICATION_DIR` (never copied into this repository) and replaces `dependency_selections` with the file's version-free `{identity, package_id}` entries in both the `lock` and the `identity_preimage` of its `base` fixture, as QSpec's README states, then derives the `package_id` by calling this repository's own derivation, the reader's `CheckedPackageIdentityPreimageV2` encoded through `quire-canonical` (FR-038-AC-89), so a harness that hashes the JSON itself cannot pass; the result equals the file's recorded `package_id`, and the `base` fixture unchanged derives its own different `package_id`, so an entry carrying a `version` member, which is refused `unknown_member` (FR-038-AC-62 through FR-038-AC-64), is never the input of the recomputed identity. The run fails, never skips, when the variable is unset or empty, when the file is missing or not JSON, or when the recomputed identity differs from the file's. | Test (TC-048) |
+| FR-038-AC-114 | 🚧 A node body in which an application of any operator class other than `case` stands as an element of another application's `arguments`, as a member of an `aggregate` or as the value of a `binding` refuses `malformed_wire` at that nested application, for `quire.op.function.call`, `quire.op.state.clause` and an application of each of the `temporal`, `temporal_formula` and `temporal_fairness` classes, in each of the three positions, at a pointer such as `/semantic_graph/nodes/{n}/body/arguments/0`; an `aggregate` inside a Group's members, a `binding` whose value is an `aggregate` inside an `aggregate`'s members where the stratum admits only a Leaf value, a `binding` whose value is a `binding`, a `binding` or a Tuple inside a Tuple's members (a Tuple's members are each a Leaf or a Group) and a `binding` as a body root refuse `malformed_wire` at that value; and the same meaning with each composite subterm as its own node reached by `reference` is not refused `malformed_wire`. | Test (TC-048) |
+| FR-038-AC-115 | 🚧 A `case` application nested inside another term refuses `ill_typed`/`operator-ineligible` at the nested application's `operator`; a non-`case` application at the body root of a node its class does not place it in refuses `ill_typed`/`operator-ineligible` at that node and not `malformed_wire`; and where one body or `details` term holds several offending constructs the refusal is at the first in document pre-order, outermost first: a `details` term that is a `temporal_formula` application with a nested `case` argument refuses at `/diagnostics/entries/{e}/details/{d}/operator`, a `details` aggregate of a `temporal_formula` application and then a `case` application refuses at `/diagnostics/entries/{e}/details/{d}/members/0/operator`, a node body whose `arguments/0` is a nested `case` application and whose `arguments/1` is a nested `quire.op.function.call` application refuses `ill_typed`/`operator-ineligible` at `.../body/arguments/0/operator` and, with the two swapped, `malformed_wire` at `.../body/arguments/0` (an IR reading: merged FR-322 gives the pre-order rule, merged FR-440 decides a nested `case` at the operation step, and the two are unreconciled), and an application of a class other than `temporal_formula`, `temporal_fairness` and `case` in a `details` term refuses `malformed_wire` at that application. | Test (TC-048) |
+| FR-038-AC-116 | 🚧 A package whose `node_id`s, `identity_preimage` and `package_id` are all stale and whose one node body holds a nested non-`case` application refuses `malformed_wire` at the nested application, and not `stale-node-key`, `stale_dependency` or `invalid_semantic_graph`, and one whose body holds a nested `case` application refuses `ill_typed`/`operator-ineligible` at its `operator` and not at an identity check (an IR reading, as in FR-038-AC-115); the same package with that body flattened and its identities left stale refuses at an identity check and not `malformed_wire`. | Test (TC-048) |
+| FR-038-AC-117 | 🚧 `CheckedPackageReadLimits` has no depth member and `CheckedPackageLimit` has no `Depth` variant, and no source file under `crates/quire-contract-model/src/checked_package/` holds `MAXIMUM_DEPTH`, another `MAX_*DEPTH` constant, `stacker`, `serde_stacker` or `on_stack_for` (the crate's v1 modules, their limits and its manifest are out of this scan: FR-019 and FR-023 keep them); a package holding a chain of 100000 nodes, each referencing the previous (a 100000-deep expression, as merged QSpec FR-322-AC-41 and TC-427 BG-03 build it), read under byte, node, edge, occurrence, diagnostic and work limits all sized so that none decides the outcome, on a thread whose stack is 256 KiB, is admitted and lowered from its last node with no outcome naming a depth and no stack overflow, and has the same JSON nesting depth as a package of one level; and an otherwise canonical document whose node body nests a term 300 levels deep, past the strict parse's recursion limit of 128, read on a thread whose stack is 256 KiB, refuses `malformed_wire` with no pointer at the strict parse, ahead of the canonical-bytes check and the body grammar, and is never `incomplete`, while the same document nested 20 levels deep refuses `malformed_wire` at the first value outside the body grammar (FR-038-AC-114). | Test (TC-048) |
+| FR-038-AC-118 | 🚧 Each of the five `body_grammar_mutations` of QSpec's `adverse.json` (`application-in-application-arguments`, `application-in-aggregate-members`, `application-in-binding-value`, `aggregate-in-group-members` and `binding-as-body-root`) refuses `malformed_wire` as its recorded `outcome` names, through the harness of FR-038-AC-112, whose expected-failure list holds none of them. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
@@ -2175,7 +2250,7 @@ reader has no such code or cause (FR-038-AC-101).
 
 QSpec FR-370 (temporal clause body and temporal operation identities) and FR-440
 (union, union value and case nodes) own the encodings that FR-038-AC-96 through
-FR-038-AC-101 admit and check. QSpec FR-322 (AC-4, AC-8, AC-10, AC-28, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
+FR-038-AC-101 admit and check. QSpec FR-322 "Body grammar" (AC-39 through AC-41), FR-341-AC-6 and FR-370 (AC-5, AC-12) own the flat wire and the absence of a depth limit that FR-038-AC-114 through FR-038-AC-118 check (QSpec TC-233, TC-303 and TC-427 BG-02, BG-03). QSpec FR-322 (AC-4, AC-8, AC-10, AC-28, AC-35 through AC-37), FR-201 (AC-2, AC-3) and FR-195 (AC-1 through
 AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 quire-specification:TC-217 names this repository as their consumer evidence
 owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
