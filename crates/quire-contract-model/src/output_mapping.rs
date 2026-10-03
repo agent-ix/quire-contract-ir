@@ -35,7 +35,7 @@ pub const GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION: &str =
 macro_rules! raw_digest_type {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, FixedShape)]
         pub struct $name([u8; 32]);
 
         impl $name {
@@ -88,11 +88,6 @@ macro_rules! raw_digest_type {
             {
                 serializer.collect_str(self)
             }
-        }
-
-        /// A digest serializes as one lowercase-hex string, so its shape has no depth.
-        impl FixedShape for $name {
-            const DEPTH: usize = 0;
         }
     };
 }

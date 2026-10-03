@@ -64,7 +64,7 @@ impl CanonicalBytes {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, quire_canonical::FixedShape)]
 pub struct CanonicalDigest([u8; 32]);
 
 impl CanonicalDigest {
@@ -112,11 +112,6 @@ impl Serialize for CanonicalDigest {
     {
         serializer.collect_str(self)
     }
-}
-
-/// A digest serializes as one lowercase-hex string, so its shape has no depth.
-impl quire_canonical::FixedShape for CanonicalDigest {
-    const DEPTH: usize = 0;
 }
 
 impl<'de> Deserialize<'de> for CanonicalDigest {
