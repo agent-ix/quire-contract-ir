@@ -222,22 +222,31 @@ diagnostics entry whose `code` is `unsupported_construct`, and lower the admitte
 non-supporting profiles, comparing the lowered body and `ir_id` with the admitted
 node's (AC-101). Build a placement defect beside a lower-digest node with an
 unknown identity or a class mismatch, in both digest orders, two placement
-defects, and each adjacent pair of the order placement, `over`, fairness
-resolution, profile fit, bounds, in both digest orders (AC-102). Give a clause's
+defects, and, within one clause, each adjacent pair of the order `over`, fairness
+resolution, profile fit, bounds, with the two defects' positions swapped; then two
+clauses, the lower-digest one holding a profile-fit defect and the higher-digest
+one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
+"0"}` and a wrong-kind member under a bounded and the infinite-trace profile
+(AC-102). Give a clause's
 `over` a `value`/`parameter` dependency, one that is no dependency and a
 `scalar_type` dependency, and a fairness member an existing operation, a missing
-name, an absent declaration and a non-`model` declaration (AC-103). Select
+name, an absent declaration, a non-`model` declaration, a name matching two
+operations, an operation the node only inherits and a declaring node whose owner
+is not recovered (AC-103). Select
 `quire.temporal.event-position.false-extension/v1` and
 `quire.temporal.infinite-trace/v1` in turn over closed, `{lower, null}` and `null`
 intervals and an empty and a non-empty fairness argument, with a second clause
 whose tree shares no node with the first (AC-104). Give `holds` a formula
 reference and a Boolean reference, `until` one argument, `not` two, `true` one,
 `and` a Boolean reference and `not` a formula reference (AC-105). Compare two
-`Shape` values, a `Shape` and another union, a union reaching no `text` and, as an
-unpinned case, one reaching `text` (AC-106). Read the QSpec positive fixtures
-`positive-all-families.json`, `positive-clause-operations.json` and
-`positive-union-nodes.json` from the QSpec checkout, and compare the self-built
-packages' features with the fixtures' (AC-107).
+`Shape` values, a `Shape` and another union, a union reaching no `text` and the
+`Label` union with its leaf list correct, missing a leaf, repeating one and with a
+leaf for `Empty` (AC-106, `member:<Ident>` pending QSpec merge). Run
+`make conformance-qspec` with `QUIRE_SPECIFICATION_DIR` set to a QSpec checkout, to
+the empty string, to an unset value and to a path without the fixtures directory,
+reading `positive-all-families.json`, `positive-clause-operations.json` and
+`positive-union-nodes.json` from it, and compare the self-built packages' features
+with the fixtures' (AC-107).
 
 Expected: the package of AC-96 admits with its recorded identities and lowers or
 returns `unsupported` naming `temporal` as stated; AC-97's admitted members admit,
@@ -258,9 +267,11 @@ refuse `missing_declaration`/`missing-name` or `invalid_model_binding`/
 interval, a `null` `upper` and a non-empty fairness argument
 `operation-member-mismatch` and the infinite-trace profile admits them; the
 operand cases refuse `ill_typed`/`operator-ineligible` at the operation step; the
-`Shape` comparisons admit and refuse as AC-106 states with no outcome asserted for
-the `text` case; and each QSpec fixture admits with its recorded `package_id`, or
-the step is reported as not run when the checkout is absent. Compare the whole
+`Shape` and `Label` comparisons admit and refuse as AC-106 states; and
+`make conformance-qspec` passes with each QSpec fixture admitted with its recorded
+`package_id` and fails when the variable is unset, empty or names a path without
+the fixtures. `make test` and CI do not run it, so this step is a manual gate until
+a CI job supplies a checkout. Compare the whole
 refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
