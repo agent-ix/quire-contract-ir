@@ -244,7 +244,18 @@ reference and a Boolean reference, `until` one argument, `not` two, `true` one,
 `and` a Boolean reference and `not` a formula reference (AC-105). Compare two
 `Shape` values, a `Shape` and another union, a union reaching no `text` and the
 `Label` union with its leaf list correct, missing a leaf, repeating one and with a
-leaf for `Empty` (AC-106, `member:<Ident>` pending QSpec merge). Run
+leaf for `Empty`; the recursive unions `IntList` (no `text`, `leaves` empty) and
+`TextList` with the leaves `["member:Cons", "position:0"]` and
+`["member:Cons", "position:1", "recursion:0"]`, the recursion leaf missing, written
+`recursion:1`, and placed at an `IntList` reentry (AC-106, `member:<Ident>` and
+union cycles pending QSpec merge). Read an empty union and a union value with two
+bindings (AC-99, `invalid_semantic_graph` at the body); a fairness `declaration`
+naming a `scalar_type` node (AC-103, `invalid_model_binding`/`malformed-declaration`
+at the target); a law with a member's identity under another `authority` (AC-108,
+`operation-law-unselected`); a case arm body of unresolvable type; an unreached
+formula node with `{3, 0}` (AC-97); and the placement defect in the shape of a
+formula application in a `function` node beside an unknown-identity node and beside a
+class-mismatch node (AC-102). Run
 `make conformance-qspec` with `QUIRE_SPECIFICATION_DIR` set to a QSpec checkout, to
 the empty string, to an unset value and to a path without the fixtures directory,
 reading `positive-all-families.json`, `positive-clause-operations.json` and
