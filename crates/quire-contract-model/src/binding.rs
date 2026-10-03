@@ -4,12 +4,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use quire_canonical::{FixedShape, Limits};
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize,
 };
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use serde_json::Value;
 
 use crate::{
     CanonicalDigest, CanonicalProfile, ClauseKind, ClauseRef, ContractPackage,
@@ -74,6 +74,26 @@ pub struct BoundPackage {
     clauses: Vec<BoundClause>,
     informational: Vec<ClauseRef>,
     digest: CanonicalDigest,
+}
+
+/// The bound identity envelope (`quire.contract.bound-identity/v1`): its depth
+/// is fixed by its type, it holds no `serde_json::Value`, and its digests
+/// serialize as lowercase hexadecimal.
+#[derive(Serialize, FixedShape)]
+struct BoundIdentityEnvelope<'a> {
+    profile: &'static str,
+    canonical_profile: &'static str,
+    package: CanonicalDigest,
+    bindings: Vec<BoundBindingIdentity<'a>>,
+}
+
+/// One executable clause's identity and the digests of its declaration and
+/// expression.
+#[derive(Serialize, FixedShape)]
+struct BoundBindingIdentity<'a> {
+    clause: &'a ClauseRef,
+    declaration: CanonicalDigest,
+    expression: CanonicalDigest,
 }
 
 #[derive(Deserialize)]
@@ -240,10 +260,8 @@ impl BoundPackage {
         if projection.format != EXECUTABLE_PROJECTION_FORMAT {
             return Err(invalid("unsupported executable projection format"));
         }
-        let package_bytes =
-            serde_json::to_vec(&projection.package).map_err(|_| invalid("invalid package JSON"))?;
         let package =
-            ContractPackage::from_json_bytes(&package_bytes, ValidationOptions::strict())?;
+            ContractPackage::from_json_value(&projection.package, ValidationOptions::strict())?;
         let mut nodes = 0;
         let mut expected = BTreeMap::new();
         let mut informational = Vec::new();
@@ -368,25 +386,32 @@ impl BoundPackage {
             .canonical_package(CanonicalProfile::V1)
             .map_err(|diagnostic| vec![diagnostic])?
             .digest();
-        let identities: Vec<_> = clauses
-            .iter()
-            .map(|clause| {
-                json!({
-                    "clause": clause.identity(), "declaration": clause.declaration_digest(),
-                    "expression": clause.expression_digest(),
+        let envelope = BoundIdentityEnvelope {
+            profile: BOUND_IDENTITY_PROFILE,
+            canonical_profile: CanonicalProfile::V1.as_str(),
+            package: package_digest,
+            bindings: clauses
+                .iter()
+                .map(|clause| BoundBindingIdentity {
+                    clause: clause.identity(),
+                    declaration: clause.declaration_digest(),
+                    expression: clause.expression_digest(),
                 })
+                .collect(),
+        };
+        // SHA-256 of the envelope's canonical bytes, with no domain prefix:
+        // the profile member is the separation.
+        let digest = quire_canonical::sha256(&envelope, Limits::new(MAX_CONFORMANCE_FILE_BYTES))
+            .map_err(|_| {
+                failure(
+                    DiagnosticCode::CanonicalizationResourceExhausted,
+                    "canonical byte allocation exceeded available resources",
+                    "projection.identity",
+                )
             })
-            .collect();
-        let envelope = json!({"profile": BOUND_IDENTITY_PROFILE,
-            "canonical_profile": CanonicalProfile::V1.as_str(), "package": package_digest, "bindings": identities});
-        let bytes = crate::canonical::canonical_envelope_bytes(
-            &envelope,
-            MAX_CONFORMANCE_FILE_BYTES,
-            "projection.identity",
-        )
-        .map_err(|diagnostic| vec![diagnostic])?;
-        let digest = CanonicalDigest::parse(&format!("{:x}", Sha256::digest(bytes)))
-            .map_err(|diagnostic| vec![diagnostic])?;
+            .and_then(|digest| {
+                CanonicalDigest::parse(&digest.to_string()).map_err(|diagnostic| vec![diagnostic])
+            })?;
         Ok(Self {
             package,
             clauses,

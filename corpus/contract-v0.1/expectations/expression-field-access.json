@@ -1,13 +1,13 @@
 {
   "canonical": [
     {
-      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "digest": "80412bc00c79a2511013736d68b51eb12b7b7fb9cd6fddfc6b6e9746d685c613",
       "identity": "declaration",
       "kind": "declaration",
       "bytes_path": "canonical/expression-field-access-0.json"
     },
     {
-      "digest": "e03997605b58f7bf1f94ac226cc9e7018eba39d7a6130ff883259974788d60d9",
+      "digest": "b536d0bb4add8f5249dd6cfa290d8387895471b3c5390850d2ef2fb0fb798902",
       "identity": "expression",
       "kind": "expression",
       "bytes_path": "canonical/expression-field-access-1.json"

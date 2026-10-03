@@ -1,7 +1,7 @@
 {
   "canonical": [
     {
-      "digest": "8b18917f45cd09bbe23d707fd9f92463b834d55c3e9138053e0e76039328a844",
+      "digest": "80412bc00c79a2511013736d68b51eb12b7b7fb9cd6fddfc6b6e9746d685c613",
       "identity": "declaration",
       "kind": "declaration",
       "bytes_path": "canonical/expression-text-literal-0.json"

@@ -171,7 +171,7 @@ impl ConformanceOperation {
     const fn input_definition(self) -> &'static str {
         match self {
             Self::Package => "packageInput",
-            Self::Expression => "expressionInput",
+            Self::Expression => "expressionOperationInput",
             Self::Coverage => "coverageInput",
         }
     }
@@ -1228,14 +1228,14 @@ fn observe_structural_boundaries(
                         }
                     }
                     if kind == "integer" {
-                        if object.get("minimum").and_then(Value::as_i64) == Some(i64::MIN) {
+                        if decimal_member(object, "minimum") == Some(i128::from(i64::MIN)) {
                             record("boundary:integer.minimum");
                         }
-                        if object.get("maximum").and_then(Value::as_i64) == Some(i64::MAX) {
+                        if decimal_member(object, "maximum") == Some(i128::from(i64::MAX)) {
                             record("boundary:integer.maximum");
                         }
-                        let minimum = object.get("minimum").and_then(Value::as_i64);
-                        let maximum = object.get("maximum").and_then(Value::as_i64);
+                        let minimum = decimal_member(object, "minimum");
+                        let maximum = decimal_member(object, "maximum");
                         if minimum.zip(maximum).is_some_and(|(minimum, maximum)| {
                             minimum > maximum
                                 || (object.get("domain").and_then(Value::as_str)
@@ -1246,20 +1246,21 @@ fn observe_structural_boundaries(
                         }
                     }
                     if kind == "rational"
-                        && object.get("maximum_denominator").and_then(Value::as_u64)
-                            == Some(i64::MAX as u64)
+                        && decimal_member(object, "maximum_denominator")
+                            == Some(i128::from(i64::MAX))
                     {
                         record("boundary:rational.maximum_denominator");
                     }
                     if kind == "rational"
-                        && object.get("maximum_denominator").and_then(Value::as_u64) == Some(0)
+                        && decimal_member(object, "maximum_denominator") == Some(0)
                     {
                         record("boundary:rational.zero_denominator");
                     }
                 }
                 if object.contains_key("node") {
                     semantic_nodes = semantic_nodes.saturating_add(1);
-                    if let Some(text) = object.get("value").and_then(Value::as_str) {
+                    if object.get("node").and_then(Value::as_str) == Some("text_literal") {
+                        let text = object.get("value").and_then(Value::as_str).unwrap_or("");
                         let length = text.chars().count();
                         if length == crate::MAX_TEXT_LENGTH as usize {
                             record("boundary:text.maximum");
@@ -1273,8 +1274,8 @@ fn observe_structural_boundaries(
                     }
                     if object.get("node").and_then(Value::as_str) == Some("rational_literal") {
                         if let (Some(numerator), Some(denominator)) = (
-                            object.get("numerator").and_then(Value::as_i64),
-                            object.get("denominator").and_then(Value::as_i64),
+                            decimal_member(object, "numerator"),
+                            decimal_member(object, "denominator"),
                         ) {
                             if denominator != 0 && numerator % denominator == 0 {
                                 record("boundary:rational.normalized");
@@ -1351,6 +1352,12 @@ fn observe_structural_boundaries(
     if observes_current_revision(input) {
         record("boundary:revision.current");
     }
+}
+
+/// One of the eight integer members of a fixture input, which is a decimal
+/// string (FR-013-AC-5); `None` for a member that is absent or is not one.
+fn decimal_member(object: &Map<String, Value>, name: &str) -> Option<i128> {
+    object.get(name)?.as_str()?.parse().ok()
 }
 
 fn structural_boundary_observed(

@@ -106,8 +106,8 @@
           "value_type": {
             "kind": "integer",
             "domain": "signed",
-            "minimum": -10,
-            "maximum": 10,
+            "minimum": "-10",
+            "maximum": "10",
             "overflow": "reject"
           },
           "source": {
@@ -141,8 +141,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -172,8 +172,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -205,8 +205,8 @@
         "value": {
           "kind": "integer",
           "domain": "signed",
-          "minimum": -10,
-          "maximum": 10,
+          "minimum": "-10",
+          "maximum": "10",
           "overflow": "reject"
         }
       },
@@ -239,8 +239,8 @@
         "element": {
           "kind": "integer",
           "domain": "signed",
-          "minimum": -10,
-          "maximum": 10,
+          "minimum": "-10",
+          "maximum": "10",
           "overflow": "reject"
         },
         "maximum_items": 4
@@ -272,8 +272,8 @@
       "value_type": {
         "kind": "integer",
         "domain": "unsigned",
-        "minimum": 0,
-        "maximum": 4,
+        "minimum": "0",
+        "maximum": "4",
         "overflow": "reject"
       },
       "source": {
@@ -335,8 +335,8 @@
           "value_type": {
             "kind": "integer",
             "domain": "signed",
-            "minimum": -10,
-            "maximum": 10,
+            "minimum": "-10",
+            "maximum": "10",
             "overflow": "reject"
           },
           "source": {
@@ -364,8 +364,8 @@
       "result_type": {
         "kind": "integer",
         "domain": "signed",
-        "minimum": -10,
-        "maximum": 10,
+        "minimum": "-10",
+        "maximum": "10",
         "overflow": "reject"
       },
       "source": {
@@ -392,13 +392,13 @@
   ],
   "expression": {
     "node": "rational_literal",
-    "numerator": 2,
-    "denominator": 1,
+    "numerator": "2",
+    "denominator": "1",
     "value_type": {
       "kind": "rational",
-      "numerator_minimum": -10,
-      "numerator_maximum": 10,
-      "maximum_denominator": 10
+      "numerator_minimum": "-10",
+      "numerator_maximum": "10",
+      "maximum_denominator": "10"
     },
     "source": {
       "start": {
@@ -423,9 +423,9 @@
   },
   "expected_type": {
     "kind": "rational",
-    "numerator_minimum": -10,
-    "numerator_maximum": 10,
-    "maximum_denominator": 10
+    "numerator_minimum": "-10",
+    "numerator_maximum": "10",
+    "maximum_denominator": "10"
   },
   "execution_point": {
     "kind": "pre",

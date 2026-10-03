@@ -1,12 +1,27 @@
+//! The canonical bytes and digests of the five closed object kinds (FR-016).
+//!
+//! Every byte comes from `quire-canonical`: each object kind is an [`Encode`]
+//! projection that pushes its members into the encoder, and the digest is
+//! SHA-256 over an explicit domain prefix and the bytes the encoder returns.
+//! This module holds no encoder of its own and no `serde_json` value; a
+//! projection with a fixed depth is a plain walk over the writer, and the
+//! types whose depth follows their input (`ValueType`, `Expression`,
+//! `ReferenceBody`) are walked from an explicit stack, never by recursion.
+
 use std::{cmp::Ordering, fmt};
 
+use quire_canonical::{Encode, Error, Limits, Sink, Writer};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
 
+use crate::SchemaVersion;
 use crate::{
-    Clause, ContractPackage, DeclarationEnvironment, DependencySource, Diagnostic, DiagnosticCode,
-    ReferenceBody, Requirement, RequirementRef, SchemaVersion, SourceSpan, TypedExpression,
+    BooleanOperator, Clause, CollectionType, ComparisonOperator, ContractPackage,
+    DeclarationEnvironment, DependencyIdentity, DependencySource, Diagnostic, DiagnosticCode,
+    EnumDeclaration, Expression, ExpressionKind, FunctionParameter, IntegerType, NumericOperator,
+    PureFunctionDeclaration, QuantifierDomain, QuantifierKind, RationalType, RecordDeclaration,
+    RecordLiteralField, ReferenceBody, Requirement, RequirementRef, SourceSpan, StateObservation,
+    TypeDeclaration, TypedExpression, ValueDeclaration, ValueType,
 };
 
 pub const CANONICAL_PROFILE: &str = "quire.contract.canonical-json/v1";
@@ -153,21 +168,14 @@ impl CanonicalOutput {
     }
 }
 
-pub trait CanonicalBody: Clone + DependencySource + Eq + Serialize {
-    fn canonical_body_value(&self) -> Result<Value, Diagnostic>;
-}
+/// A clause body with a canonical encoding: the `Encode` of the body is its
+/// canonical projection (a `ReferenceBody` as it is, a `TypedExpression` as its
+/// result type and source-free tree).
+pub trait CanonicalBody: Clone + DependencySource + Eq + Serialize + Encode {}
 
-impl CanonicalBody for ReferenceBody {
-    fn canonical_body_value(&self) -> Result<Value, Diagnostic> {
-        semantic_value(self, "clause.body")
-    }
-}
+impl CanonicalBody for ReferenceBody {}
 
-impl CanonicalBody for TypedExpression {
-    fn canonical_body_value(&self) -> Result<Value, Diagnostic> {
-        typed_expression_value(self)
-    }
-}
+impl CanonicalBody for TypedExpression {}
 
 impl<B: CanonicalBody> ContractPackage<B> {
     pub fn canonical_package(
@@ -186,7 +194,7 @@ impl<B: CanonicalBody> ContractPackage<B> {
         ensure_supported(self.schema_version())?;
         canonicalize(
             CanonicalKind::Package,
-            package_value(self)?,
+            &PackageProjection(self),
             maximum_bytes,
             "package",
             None,
@@ -222,7 +230,10 @@ impl<B: CanonicalBody> ContractPackage<B> {
             })?;
         canonicalize(
             CanonicalKind::Requirement,
-            requirement_value(self, requirement)?,
+            &RequirementProjection {
+                package: self,
+                requirement,
+            },
             maximum_bytes,
             "requirement",
             Some(requirement.source()),
@@ -271,7 +282,10 @@ impl<B: CanonicalBody> ContractPackage<B> {
             })?;
         canonicalize(
             CanonicalKind::Clause,
-            clause_value(self.requirement_ref(requirement), clause)?,
+            &ClauseProjection {
+                requirement: self.requirement_ref(requirement),
+                clause,
+            },
             maximum_bytes,
             "clause",
             Some(clause.source()),
@@ -295,7 +309,7 @@ impl DeclarationEnvironment {
         require_profile(profile)?;
         canonicalize(
             CanonicalKind::Declaration,
-            declaration_value(self)?,
+            self,
             maximum_bytes,
             "declaration",
             None,
@@ -319,7 +333,7 @@ impl TypedExpression {
         require_profile(profile)?;
         canonicalize(
             CanonicalKind::Expression,
-            typed_expression_value(self)?,
+            self,
             maximum_bytes,
             "expression",
             Some(self.expression().source()),
@@ -345,242 +359,46 @@ fn require_profile(profile: CanonicalProfile) -> Result<(), Diagnostic> {
     }
 }
 
-fn package_value<B: CanonicalBody>(package: &ContractPackage<B>) -> Result<Value, Diagnostic> {
-    let mut requirements = package.requirements().iter().collect::<Vec<_>>();
-    requirements.sort_by(|left, right| unicode_cmp(left.id().as_str(), right.id().as_str()));
-    let requirements = requirements
-        .into_iter()
-        .map(|requirement| requirement_value(package, requirement))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(object([
-        ("id", Value::String(package.id().as_str().to_owned())),
-        ("requirements", Value::Array(requirements)),
-        (
-            "schema_version",
-            schema_version_value(package.schema_version()),
-        ),
-    ]))
-}
-
-fn requirement_value<B: CanonicalBody>(
-    package: &ContractPackage<B>,
-    requirement: &Requirement<B>,
-) -> Result<Value, Diagnostic> {
-    let reference = package.requirement_ref(requirement);
-    let mut clauses = requirement.clauses().iter().collect::<Vec<_>>();
-    clauses.sort_by(|left, right| unicode_cmp(left.id().as_str(), right.id().as_str()));
-    let clauses = clauses
-        .into_iter()
-        .map(|clause| clause_value(reference.clone(), clause))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(object([
-        ("clauses", Value::Array(clauses)),
-        ("id", Value::String(requirement.id().as_str().to_owned())),
-        ("package", Value::String(package.id().as_str().to_owned())),
-        (
-            "revision",
-            Value::Number(Number::from(requirement.revision().get())),
-        ),
-    ]))
-}
-
-fn clause_value<B: CanonicalBody>(
-    requirement: RequirementRef,
-    clause: &Clause<B>,
-) -> Result<Value, Diagnostic> {
-    let mut body = clause.body().canonical_body_value()?;
-    normalize_semantic_sets(&mut body);
-    let mut members = Map::new();
-    if let Some(anchor) = clause.anchor() {
-        members.insert(
-            "anchor".to_owned(),
-            semantic_value(anchor, "clause.anchor")?,
-        );
-    }
-    members.insert("body".to_owned(), body);
-    members.insert(
-        "id".to_owned(),
-        Value::String(clause.id().as_str().to_owned()),
-    );
-    members.insert(
-        "kind".to_owned(),
-        semantic_value(&clause.kind(), "clause.kind")?,
-    );
-    members.insert(
-        "requirement".to_owned(),
-        semantic_value(&requirement, "clause.requirement")?,
-    );
-    Ok(Value::Object(members))
-}
-
-fn declaration_value(environment: &DeclarationEnvironment) -> Result<Value, Diagnostic> {
-    let mut types = environment
-        .types()
-        .iter()
-        .map(|value| semantic_value(value, "declaration.types"))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut values = environment
-        .values()
-        .iter()
-        .map(|value| semantic_value(value, "declaration.values"))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut functions = environment
-        .functions()
-        .iter()
-        .map(|value| semantic_value(value, "declaration.functions"))
-        .collect::<Result<Vec<_>, _>>()?;
-    for value in types
-        .iter_mut()
-        .chain(values.iter_mut())
-        .chain(functions.iter_mut())
-    {
-        strip_source_metadata(value);
-        normalize_semantic_sets(value);
-    }
-    types.sort_by(|left, right| unicode_cmp(nested_name(left), nested_name(right)));
-    values.sort_by(|left, right| unicode_cmp(direct_name(left), direct_name(right)));
-    functions.sort_by(|left, right| unicode_cmp(direct_name(left), direct_name(right)));
-    Ok(object([
-        ("functions", Value::Array(functions)),
-        (
-            "owner",
-            semantic_value(environment.owner(), "declaration.owner")?,
-        ),
-        ("types", Value::Array(types)),
-        ("values", Value::Array(values)),
-    ]))
-}
-
-fn typed_expression_value(expression: &TypedExpression) -> Result<Value, Diagnostic> {
-    let mut tree = semantic_value(expression.expression(), "expression.tree")?;
-    strip_source_metadata(&mut tree);
-    normalize_semantic_sets(&mut tree);
-    Ok(object([
-        (
-            "result_type",
-            semantic_value(expression.value_type(), "expression.result_type")?,
-        ),
-        ("tree", tree),
-    ]))
-}
-
-fn schema_version_value(version: SchemaVersion) -> Value {
-    object([
-        ("major", Value::Number(Number::from(version.major()))),
-        ("minor", Value::Number(Number::from(version.minor()))),
-    ])
-}
-
-fn semantic_value<T: Serialize>(value: &T, path: &str) -> Result<Value, Diagnostic> {
-    serde_json::to_value(value).map_err(|error| {
-        Diagnostic::error(
-            DiagnosticCode::CanonicalizationResourceExhausted,
-            format!("semantic projection failed: {error}"),
-            path,
-        )
-    })
-}
-
-fn object<const N: usize>(members: [(&str, Value); N]) -> Value {
-    Value::Object(
-        members
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect(),
-    )
-}
-
-fn strip_source_metadata(value: &mut Value) {
-    match value {
-        Value::Array(values) => {
-            for value in values {
-                strip_source_metadata(value);
-            }
-        }
-        Value::Object(members) => {
-            members.remove("source");
-            members.remove("local_source");
-            members.remove("proof_span");
-            members.remove("nodes");
-            members.remove("obligations");
-            members.remove("dependencies");
-            for value in members.values_mut() {
-                strip_source_metadata(value);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn normalize_semantic_sets(value: &mut Value) {
-    match value {
-        Value::Array(values) => {
-            for value in values {
-                normalize_semantic_sets(value);
-            }
-        }
-        Value::Object(members) => {
-            for value in members.values_mut() {
-                normalize_semantic_sets(value);
-            }
-            if members.get("node").and_then(Value::as_str) == Some("record_literal") {
-                sort_named_array(members.get_mut("fields"));
-            }
-            match members.get("kind").and_then(Value::as_str) {
-                Some("enum") => sort_nested_named_array(members, "variants"),
-                Some("record") => sort_nested_named_array(members, "fields"),
-                _ => {}
-            }
-        }
-        _ => {}
-    }
-}
-
-fn sort_nested_named_array(members: &mut Map<String, Value>, key: &str) {
-    let Some(Value::Object(declaration)) = members.get_mut("declaration") else {
-        return;
-    };
-    sort_named_array(declaration.get_mut(key));
-}
-
-fn sort_named_array(value: Option<&mut Value>) {
-    if let Some(Value::Array(values)) = value {
-        values.sort_by(|left, right| unicode_cmp(direct_name(left), direct_name(right)));
-    }
-}
-
-fn direct_name(value: &Value) -> &str {
-    value.get("name").and_then(Value::as_str).unwrap_or("")
-}
-
-fn nested_name(value: &Value) -> &str {
-    value
-        .get("declaration")
-        .and_then(|declaration| declaration.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-}
-
 fn unicode_cmp(left: &str, right: &str) -> Ordering {
     left.chars().cmp(right.chars())
 }
 
-fn canonicalize(
+/// The profile envelope `{"kind", "profile", "value"}` around one projection.
+struct Envelope<'a, V: Encode + ?Sized> {
     kind: CanonicalKind,
-    value: Value,
+    value: &'a V,
+}
+
+impl<V: Encode + ?Sized> Encode for Envelope<'_, V> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("kind")?;
+        writer.string(self.kind.as_str())?;
+        writer.name("profile")?;
+        writer.string(CANONICAL_PROFILE)?;
+        writer.name("value")?;
+        self.value.encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+/// The canonical bytes of `value` under `maximum_bytes` and their digest.
+///
+/// Any refusal of the encoder is a failed canonicalization step. The limit is
+/// the one the caller chose; the other refusals (an allocation that failed,
+/// an integer past 2^53) cannot be reached through the model's own types,
+/// which bound every number they hold, and they are refused the same way
+/// rather than returned as bytes.
+fn canonicalize<V: Encode + ?Sized>(
+    kind: CanonicalKind,
+    value: &V,
     maximum_bytes: u64,
     path: &str,
     span: Option<&SourceSpan>,
 ) -> Result<CanonicalOutput, Diagnostic> {
-    let envelope = object([
-        ("kind", Value::String(kind.as_str().to_owned())),
-        ("profile", Value::String(CANONICAL_PROFILE.to_owned())),
-        ("value", value),
-    ]);
-    let mut writer = CanonicalWriter::new(maximum_bytes, path, span);
-    writer.write_value(&envelope)?;
-    let bytes = CanonicalBytes(writer.finish());
+    let encoded = quire_canonical::to_vec(&Envelope { kind, value }, Limits::new(maximum_bytes))
+        .map_err(|_| resource_error(path, span))?;
+    let bytes = CanonicalBytes(encoded);
     let digest = digest(kind, bytes.as_slice());
     Ok(CanonicalOutput {
         kind,
@@ -589,18 +407,22 @@ fn canonicalize(
     })
 }
 
-/// Serialize a separately versioned envelope without assigning an existing
-/// canonical kind. Key order must not depend on downstream serde_json features.
-pub(crate) fn canonical_envelope_bytes(
-    value: &Value,
-    maximum_bytes: u64,
-    path: &str,
-) -> Result<Vec<u8>, Diagnostic> {
-    let mut writer = CanonicalWriter::new(maximum_bytes, path, None);
-    writer.write_value(value)?;
-    Ok(writer.finish())
+fn resource_error(path: &str, span: Option<&SourceSpan>) -> Diagnostic {
+    let diagnostic = Diagnostic::error(
+        DiagnosticCode::CanonicalizationResourceExhausted,
+        "canonical byte allocation exceeded available resources",
+        path,
+    );
+    match span {
+        Some(span) => diagnostic.at_span(span),
+        None => diagnostic,
+    }
 }
 
+/// SHA-256 over the domain prefix `quire-contract-ir`, a zero byte, the
+/// profile identity, a zero byte, the kind, a zero byte and the canonical
+/// bytes of the envelope (FR-016-AC-8). This is not the encoder crate's own
+/// length-prefixed domain digest, which is a different identity.
 fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -613,117 +435,685 @@ fn digest(kind: CanonicalKind, bytes: &[u8]) -> CanonicalDigest {
     CanonicalDigest(hasher.finalize().into())
 }
 
-struct CanonicalWriter<'a> {
-    bytes: Vec<u8>,
-    maximum_bytes: u64,
-    path: &'a str,
-    span: Option<SourceSpan>,
+/// The package projection: `{"id", "requirements", "schema_version"}` with the
+/// requirements in identifier order.
+struct PackageProjection<'a, B>(&'a ContractPackage<B>);
+
+impl<B: CanonicalBody> Encode for PackageProjection<'_, B> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        let package = self.0;
+        let mut requirements = package.requirements().iter().collect::<Vec<_>>();
+        requirements.sort_by(|left, right| unicode_cmp(left.id().as_str(), right.id().as_str()));
+        writer.begin_object()?;
+        writer.name("id")?;
+        writer.string(package.id().as_str())?;
+        writer.name("requirements")?;
+        writer.begin_array()?;
+        for requirement in requirements {
+            RequirementProjection {
+                package,
+                requirement,
+            }
+            .encode_into(writer)?;
+        }
+        writer.end_array()?;
+        writer.name("schema_version")?;
+        writer.serialize(&package.schema_version())?;
+        writer.end_object()
+    }
 }
 
-impl<'a> CanonicalWriter<'a> {
-    fn new(maximum_bytes: u64, path: &'a str, span: Option<&SourceSpan>) -> Self {
-        Self {
-            bytes: Vec::new(),
-            maximum_bytes,
-            path,
-            span: span.cloned(),
-        }
-    }
+/// The requirement projection: `{"clauses", "id", "package", "revision"}` with
+/// the clauses in identifier order; the revision is a JSON number.
+struct RequirementProjection<'a, B> {
+    package: &'a ContractPackage<B>,
+    requirement: &'a Requirement<B>,
+}
 
-    fn finish(self) -> Vec<u8> {
-        self.bytes
-    }
-
-    fn write_value(&mut self, value: &Value) -> Result<(), Diagnostic> {
-        match value {
-            Value::Null => Err(self.invalid_value("null is not canonical semantic content")),
-            Value::Bool(value) => self.write_raw(if *value { b"true" } else { b"false" }),
-            Value::Number(value) if value.is_i64() || value.is_u64() => {
-                self.write_raw(value.to_string().as_bytes())
+impl<B: CanonicalBody> Encode for RequirementProjection<'_, B> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        let reference = self.package.requirement_ref(self.requirement);
+        let mut clauses = self.requirement.clauses().iter().collect::<Vec<_>>();
+        clauses.sort_by(|left, right| unicode_cmp(left.id().as_str(), right.id().as_str()));
+        writer.begin_object()?;
+        writer.name("clauses")?;
+        writer.begin_array()?;
+        for clause in clauses {
+            ClauseProjection {
+                requirement: reference.clone(),
+                clause,
             }
-            Value::Number(_) => Err(self.invalid_value("floating-point values are not canonical")),
-            Value::String(value) => self.write_string(value),
-            Value::Array(values) => {
-                self.write_raw(b"[")?;
-                for (index, value) in values.iter().enumerate() {
-                    if index != 0 {
-                        self.write_raw(b",")?;
-                    }
-                    self.write_value(value)?;
-                }
-                self.write_raw(b"]")
+            .encode_into(writer)?;
+        }
+        writer.end_array()?;
+        writer.name("id")?;
+        writer.string(self.requirement.id().as_str())?;
+        writer.name("package")?;
+        writer.string(self.package.id().as_str())?;
+        writer.name("revision")?;
+        writer.integer(i128::from(self.requirement.revision().get()))?;
+        writer.end_object()
+    }
+}
+
+/// The clause projection: `{"anchor"?, "body", "id", "kind", "requirement"}`.
+/// An absent anchor is omitted, never a `null`.
+struct ClauseProjection<'a, B> {
+    requirement: RequirementRef,
+    clause: &'a Clause<B>,
+}
+
+impl<B: CanonicalBody> Encode for ClauseProjection<'_, B> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        if let Some(anchor) = self.clause.anchor() {
+            writer.name("anchor")?;
+            writer.serialize(anchor)?;
+        }
+        writer.name("body")?;
+        self.clause.body().encode_into(writer)?;
+        writer.name("id")?;
+        writer.string(self.clause.id().as_str())?;
+        writer.name("kind")?;
+        writer.serialize(&self.clause.kind())?;
+        writer.name("requirement")?;
+        writer.serialize(&self.requirement)?;
+        writer.end_object()
+    }
+}
+
+/// The declaration projection: source spans are excluded, the types, values
+/// and functions are in name order, and an enum's variants and a record's
+/// fields are in name order; a function's parameters keep their sequence.
+impl Encode for DeclarationEnvironment {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        let mut types = self.types().iter().collect::<Vec<_>>();
+        types.sort_by(|left, right| unicode_cmp(left.name().as_str(), right.name().as_str()));
+        let mut values = self.values().iter().collect::<Vec<_>>();
+        values.sort_by(|left, right| unicode_cmp(left.name().as_str(), right.name().as_str()));
+        let mut functions = self.functions().iter().collect::<Vec<_>>();
+        functions.sort_by(|left, right| unicode_cmp(left.name().as_str(), right.name().as_str()));
+        writer.begin_object()?;
+        writer.name("functions")?;
+        writer.begin_array()?;
+        for function in functions {
+            encode_function(writer, function)?;
+        }
+        writer.end_array()?;
+        writer.name("owner")?;
+        writer.serialize(self.owner())?;
+        writer.name("types")?;
+        writer.begin_array()?;
+        for declaration in types {
+            encode_type_declaration(writer, declaration)?;
+        }
+        writer.end_array()?;
+        writer.name("values")?;
+        writer.begin_array()?;
+        for value in values {
+            encode_value_declaration(writer, value)?;
+        }
+        writer.end_array()?;
+        writer.end_object()
+    }
+}
+
+fn encode_function<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    function: &PureFunctionDeclaration,
+) -> Result<(), Error> {
+    writer.begin_object()?;
+    writer.name("name")?;
+    writer.string(function.name().as_str())?;
+    writer.name("parameters")?;
+    writer.begin_array()?;
+    for parameter in function.parameters() {
+        encode_parameter(writer, parameter)?;
+    }
+    writer.end_array()?;
+    writer.name("result_type")?;
+    function.result_type().encode_into(writer)?;
+    writer.end_object()
+}
+
+fn encode_parameter<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    parameter: &FunctionParameter,
+) -> Result<(), Error> {
+    writer.begin_object()?;
+    writer.name("name")?;
+    writer.string(parameter.name().as_str())?;
+    writer.name("value_type")?;
+    parameter.value_type().encode_into(writer)?;
+    writer.end_object()
+}
+
+fn encode_value_declaration<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    value: &ValueDeclaration,
+) -> Result<(), Error> {
+    writer.begin_object()?;
+    writer.name("kind")?;
+    writer.serialize(&value.kind())?;
+    writer.name("name")?;
+    writer.string(value.name().as_str())?;
+    writer.name("value_type")?;
+    value.value_type().encode_into(writer)?;
+    writer.end_object()
+}
+
+fn encode_type_declaration<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    declaration: &TypeDeclaration,
+) -> Result<(), Error> {
+    writer.begin_object()?;
+    writer.name("declaration")?;
+    match declaration {
+        TypeDeclaration::Enum { declaration } => {
+            encode_enum(writer, declaration)?;
+            writer.name("kind")?;
+            writer.string("enum")?;
+        }
+        TypeDeclaration::Record { declaration } => {
+            encode_record(writer, declaration)?;
+            writer.name("kind")?;
+            writer.string("record")?;
+        }
+    }
+    writer.end_object()
+}
+
+fn encode_enum<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    declaration: &EnumDeclaration,
+) -> Result<(), Error> {
+    let mut variants = declaration.variants().iter().collect::<Vec<_>>();
+    variants.sort_by(|left, right| unicode_cmp(left.name().as_str(), right.name().as_str()));
+    writer.begin_object()?;
+    writer.name("name")?;
+    writer.string(declaration.name().as_str())?;
+    writer.name("variants")?;
+    writer.begin_array()?;
+    for variant in variants {
+        writer.begin_object()?;
+        writer.name("name")?;
+        writer.string(variant.name().as_str())?;
+        writer.end_object()?;
+    }
+    writer.end_array()?;
+    writer.end_object()
+}
+
+fn encode_record<S: Sink + ?Sized>(
+    writer: &mut Writer<'_, S>,
+    declaration: &RecordDeclaration,
+) -> Result<(), Error> {
+    let mut fields = declaration.fields().iter().collect::<Vec<_>>();
+    fields.sort_by(|left, right| unicode_cmp(left.name().as_str(), right.name().as_str()));
+    writer.begin_object()?;
+    writer.name("fields")?;
+    writer.begin_array()?;
+    for field in fields {
+        writer.begin_object()?;
+        writer.name("name")?;
+        writer.string(field.name().as_str())?;
+        writer.name("value_type")?;
+        field.value_type().encode_into(writer)?;
+        writer.end_object()?;
+    }
+    writer.end_array()?;
+    writer.name("name")?;
+    writer.string(declaration.name().as_str())?;
+    writer.end_object()
+}
+
+/// The expression projection: `{"result_type", "tree"}`, the tree without
+/// source spans.
+impl Encode for TypedExpression {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("result_type")?;
+        self.value_type().encode_into(writer)?;
+        writer.name("tree")?;
+        self.expression().encode_into(writer)?;
+        writer.end_object()
+    }
+}
+
+/// `{"kind": <node>}`: the expression's node without its source span.
+impl Encode for Expression {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        walk(writer, Step::Expression(self))
+    }
+}
+
+/// `{"kind": ..., ...}` tagged by `kind`, as the type serializes.
+impl Encode for ValueType {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        walk(writer, Step::Type(self))
+    }
+}
+
+/// `{"element": <type>, "maximum_items": <number>}`.
+impl Encode for CollectionType {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        walk(writer, Step::Collection(self))
+    }
+}
+
+/// `{"node": "literal" | "reference" | "composite", ...}`.
+impl Encode for ReferenceBody {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        walk(writer, Step::Body(self))
+    }
+}
+
+/// One pending unit of the explicit-stack walk. A node that has children
+/// pushes its own members back as steps, so the depth of the data costs heap
+/// in the stack and never native stack.
+enum Step<'a> {
+    Type(&'a ValueType),
+    Collection(&'a CollectionType),
+    Expression(&'a Expression),
+    Node(&'a ExpressionKind),
+    Items(&'a [Expression]),
+    Fields(&'a [RecordLiteralField]),
+    Field(&'a RecordLiteralField),
+    Body(&'a ReferenceBody),
+    Bodies(&'a [ReferenceBody]),
+    Leaf(Leaf<'a>),
+    BeginObject,
+    EndObject,
+    BeginArray,
+    EndArray,
+    Name(&'static str),
+    Text(&'a str),
+    Bool(bool),
+    /// An integer member of the eight, spelled as its decimal string.
+    Decimal(i64),
+    /// A count that stays a JSON number (`maximum_items`).
+    Count(u32),
+}
+
+/// A member of bounded depth, written through its `FixedShape` serde encoding.
+enum Leaf<'a> {
+    Integer(&'a IntegerType),
+    Rational(&'a RationalType),
+    Numeric(NumericOperator),
+    Comparison(ComparisonOperator),
+    Boolean(BooleanOperator),
+    Quantifier(QuantifierKind),
+    Domain(QuantifierDomain),
+    Observation(StateObservation),
+    Dependency(&'a DependencyIdentity),
+}
+
+impl Leaf<'_> {
+    fn write<S: Sink + ?Sized>(self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        match self {
+            Self::Integer(value) => writer.serialize(value),
+            Self::Rational(value) => writer.serialize(value),
+            Self::Numeric(value) => writer.serialize(&value),
+            Self::Comparison(value) => writer.serialize(&value),
+            Self::Boolean(value) => writer.serialize(&value),
+            Self::Quantifier(value) => writer.serialize(&value),
+            Self::Domain(value) => writer.serialize(&value),
+            Self::Observation(value) => writer.serialize(&value),
+            Self::Dependency(value) => writer.serialize(value),
+        }
+    }
+}
+
+fn walk<S: Sink + ?Sized>(writer: &mut Writer<'_, S>, root: Step<'_>) -> Result<(), Error> {
+    let mut stack = vec![root];
+    while let Some(step) = stack.pop() {
+        match step {
+            Step::BeginObject => writer.begin_object()?,
+            Step::EndObject => writer.end_object()?,
+            Step::BeginArray => writer.begin_array()?,
+            Step::EndArray => writer.end_array()?,
+            Step::Name(name) => writer.name(name)?,
+            Step::Text(text) => writer.string(text)?,
+            Step::Bool(value) => writer.bool(value)?,
+            Step::Decimal(value) => writer.string(&value.to_string())?,
+            Step::Count(value) => writer.integer(i128::from(value))?,
+            Step::Leaf(leaf) => leaf.write(writer)?,
+            Step::Type(value) => plan_type(&mut stack, value),
+            Step::Collection(value) => plan_collection(&mut stack, value),
+            Step::Expression(value) => {
+                object(&mut stack, [("kind", Step::Node(value.kind()))]);
             }
-            Value::Object(members) => {
-                self.write_raw(b"{")?;
-                let mut members = members.iter().collect::<Vec<_>>();
-                members.sort_by(|(left, _), (right, _)| unicode_cmp(left, right));
-                for (index, (key, value)) in members.into_iter().enumerate() {
-                    if index != 0 {
-                        self.write_raw(b",")?;
-                    }
-                    self.write_string(key)?;
-                    self.write_raw(b":")?;
-                    self.write_value(value)?;
-                }
-                self.write_raw(b"}")
+            Step::Node(kind) => plan_node(&mut stack, kind),
+            Step::Items(items) => array(&mut stack, items.iter().map(Step::Expression)),
+            Step::Fields(fields) => {
+                let mut fields = fields.iter().collect::<Vec<_>>();
+                fields.sort_by(|left, right| {
+                    unicode_cmp(left.name().as_str(), right.name().as_str())
+                });
+                array(&mut stack, fields.into_iter().map(Step::Field));
             }
+            Step::Field(field) => object(
+                &mut stack,
+                [
+                    ("name", Step::Text(field.name().as_str())),
+                    ("value", Step::Expression(field.value())),
+                ],
+            ),
+            Step::Body(body) => plan_body(&mut stack, body),
+            Step::Bodies(bodies) => array(&mut stack, bodies.iter().map(Step::Body)),
         }
     }
+    Ok(())
+}
 
-    fn write_string(&mut self, value: &str) -> Result<(), Diagnostic> {
-        self.write_raw(b"\"")?;
-        for character in value.chars() {
-            match character {
-                '"' => self.write_raw(b"\\\"")?,
-                '\\' => self.write_raw(b"\\\\")?,
-                '\u{08}' => self.write_raw(b"\\b")?,
-                '\t' => self.write_raw(b"\\t")?,
-                '\n' => self.write_raw(b"\\n")?,
-                '\u{0c}' => self.write_raw(b"\\f")?,
-                '\r' => self.write_raw(b"\\r")?,
-                character if character <= '\u{1f}' => {
-                    const HEX: &[u8; 16] = b"0123456789abcdef";
-                    let code = character as usize;
-                    self.write_raw(&[b'\\', b'u', b'0', b'0', HEX[code >> 4], HEX[code & 0x0f]])?;
-                }
-                character => {
-                    let mut encoded = [0_u8; 4];
-                    self.write_raw(character.encode_utf8(&mut encoded).as_bytes())?;
-                }
-            }
-        }
-        self.write_raw(b"\"")
+/// Pushes an object so that its steps pop in the order given: the members'
+/// order does not matter, the writer sorts them.
+fn object<'a, const N: usize>(stack: &mut Vec<Step<'a>>, members: [(&'static str, Step<'a>); N]) {
+    stack.push(Step::EndObject);
+    for (name, value) in members.into_iter().rev() {
+        stack.push(value);
+        stack.push(Step::Name(name));
     }
+    stack.push(Step::BeginObject);
+}
 
-    fn write_raw(&mut self, value: &[u8]) -> Result<(), Diagnostic> {
-        let current = u64::try_from(self.bytes.len()).map_err(|_| self.resource_error())?;
-        let additional = u64::try_from(value.len()).map_err(|_| self.resource_error())?;
-        let required = current
-            .checked_add(additional)
-            .ok_or_else(|| self.resource_error())?;
-        if required > self.maximum_bytes {
-            return Err(self.resource_error());
-        }
-        self.bytes
-            .try_reserve(value.len())
-            .map_err(|_| self.resource_error())?;
-        self.bytes.extend_from_slice(value);
-        Ok(())
+fn array<'a>(stack: &mut Vec<Step<'a>>, items: impl DoubleEndedIterator<Item = Step<'a>>) {
+    stack.push(Step::EndArray);
+    stack.extend(items.rev());
+    stack.push(Step::BeginArray);
+}
+
+fn plan_type<'a>(stack: &mut Vec<Step<'a>>, value: &'a ValueType) {
+    match value {
+        ValueType::Boolean => object(stack, [("kind", Step::Text("boolean"))]),
+        ValueType::Integer { value } => object(
+            stack,
+            [
+                ("kind", Step::Text("integer")),
+                ("value", Step::Leaf(Leaf::Integer(value))),
+            ],
+        ),
+        ValueType::Rational { value } => object(
+            stack,
+            [
+                ("kind", Step::Text("rational")),
+                ("value", Step::Leaf(Leaf::Rational(value))),
+            ],
+        ),
+        ValueType::Text => object(stack, [("kind", Step::Text("text"))]),
+        ValueType::Enum { name } => object(
+            stack,
+            [
+                ("kind", Step::Text("enum")),
+                ("name", Step::Text(name.as_str())),
+            ],
+        ),
+        ValueType::Record { name } => object(
+            stack,
+            [
+                ("kind", Step::Text("record")),
+                ("name", Step::Text(name.as_str())),
+            ],
+        ),
+        ValueType::Option { value } => object(
+            stack,
+            [("kind", Step::Text("option")), ("value", Step::Type(value))],
+        ),
+        ValueType::Collection { value } => object(
+            stack,
+            [
+                ("kind", Step::Text("collection")),
+                ("value", Step::Collection(value)),
+            ],
+        ),
     }
+}
 
-    fn resource_error(&self) -> Diagnostic {
-        let diagnostic = Diagnostic::error(
-            DiagnosticCode::CanonicalizationResourceExhausted,
-            "canonical byte allocation exceeded available resources",
-            self.path,
-        );
-        match &self.span {
-            Some(span) => diagnostic.at_span(span),
-            None => diagnostic,
-        }
+fn plan_collection<'a>(stack: &mut Vec<Step<'a>>, value: &'a CollectionType) {
+    object(
+        stack,
+        [
+            ("element", Step::Type(value.element())),
+            ("maximum_items", Step::Count(value.maximum_items())),
+        ],
+    );
+}
+
+fn plan_body<'a>(stack: &mut Vec<Step<'a>>, body: &'a ReferenceBody) {
+    match body {
+        ReferenceBody::Literal => object(stack, [("node", Step::Text("literal"))]),
+        ReferenceBody::Reference { identity } => object(
+            stack,
+            [
+                ("node", Step::Text("reference")),
+                ("identity", Step::Leaf(Leaf::Dependency(identity))),
+            ],
+        ),
+        ReferenceBody::Composite { children } => object(
+            stack,
+            [
+                ("node", Step::Text("composite")),
+                ("children", Step::Bodies(children)),
+            ],
+        ),
     }
+}
 
-    fn invalid_value(&self, message: &str) -> Diagnostic {
-        Diagnostic::error(DiagnosticCode::InvalidWireFormat, message, self.path)
+/// An expression node without its source span (and a quantifier without its
+/// local's source span).
+fn plan_node<'a>(stack: &mut Vec<Step<'a>>, kind: &'a ExpressionKind) {
+    let expression = |value: &'a Expression| Step::Expression(value);
+    match kind {
+        ExpressionKind::BooleanLiteral { value } => object(
+            stack,
+            [
+                ("node", Step::Text("boolean_literal")),
+                ("value", Step::Bool(*value)),
+            ],
+        ),
+        ExpressionKind::IntegerLiteral { value, value_type } => object(
+            stack,
+            [
+                ("node", Step::Text("integer_literal")),
+                ("value", Step::Decimal(*value)),
+                ("value_type", Step::Leaf(Leaf::Integer(value_type))),
+            ],
+        ),
+        ExpressionKind::RationalLiteral {
+            numerator,
+            denominator,
+            value_type,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("rational_literal")),
+                ("numerator", Step::Decimal(*numerator)),
+                ("denominator", Step::Decimal(*denominator)),
+                ("value_type", Step::Leaf(Leaf::Rational(value_type))),
+            ],
+        ),
+        ExpressionKind::TextLiteral { value } => object(
+            stack,
+            [
+                ("node", Step::Text("text_literal")),
+                ("value", Step::Text(value)),
+            ],
+        ),
+        ExpressionKind::EnumLiteral {
+            enumeration,
+            variant,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("enum_literal")),
+                ("enumeration", Step::Text(enumeration.as_str())),
+                ("variant", Step::Text(variant.as_str())),
+            ],
+        ),
+        ExpressionKind::OptionNone { value_type } => object(
+            stack,
+            [
+                ("node", Step::Text("option_none")),
+                ("value_type", Step::Type(value_type)),
+            ],
+        ),
+        ExpressionKind::OptionSome { value_type, value } => object(
+            stack,
+            [
+                ("node", Step::Text("option_some")),
+                ("value_type", Step::Type(value_type)),
+                ("value", expression(value)),
+            ],
+        ),
+        ExpressionKind::RecordLiteral { record, fields } => object(
+            stack,
+            [
+                ("node", Step::Text("record_literal")),
+                ("record", Step::Text(record.as_str())),
+                ("fields", Step::Fields(fields)),
+            ],
+        ),
+        ExpressionKind::CollectionLiteral { value_type, items } => object(
+            stack,
+            [
+                ("node", Step::Text("collection_literal")),
+                ("value_type", Step::Collection(value_type)),
+                ("items", Step::Items(items)),
+            ],
+        ),
+        ExpressionKind::ValueReference { name, observation } => object(
+            stack,
+            [
+                ("node", Step::Text("value_reference")),
+                ("name", Step::Text(name.as_str())),
+                ("observation", Step::Leaf(Leaf::Observation(*observation))),
+            ],
+        ),
+        ExpressionKind::LocalReference { name } => object(
+            stack,
+            [
+                ("node", Step::Text("local_reference")),
+                ("name", Step::Text(name.as_str())),
+            ],
+        ),
+        ExpressionKind::FieldAccess { base, field } => object(
+            stack,
+            [
+                ("node", Step::Text("field_access")),
+                ("base", expression(base)),
+                ("field", Step::Text(field.as_str())),
+            ],
+        ),
+        ExpressionKind::IsPresent { option } => object(
+            stack,
+            [
+                ("node", Step::Text("is_present")),
+                ("option", expression(option)),
+            ],
+        ),
+        ExpressionKind::Unwrap { option } => object(
+            stack,
+            [
+                ("node", Step::Text("unwrap")),
+                ("option", expression(option)),
+            ],
+        ),
+        ExpressionKind::Length { collection } => object(
+            stack,
+            [
+                ("node", Step::Text("length")),
+                ("collection", expression(collection)),
+            ],
+        ),
+        ExpressionKind::Index { collection, index } => object(
+            stack,
+            [
+                ("node", Step::Text("index")),
+                ("collection", expression(collection)),
+                ("index", expression(index)),
+            ],
+        ),
+        ExpressionKind::Call {
+            function,
+            arguments,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("call")),
+                ("function", Step::Text(function.as_str())),
+                ("arguments", Step::Items(arguments)),
+            ],
+        ),
+        ExpressionKind::Numeric {
+            operator,
+            left,
+            right,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("numeric")),
+                ("operator", Step::Leaf(Leaf::Numeric(*operator))),
+                ("left", expression(left)),
+                ("right", expression(right)),
+            ],
+        ),
+        ExpressionKind::NumericNegate { operand } => object(
+            stack,
+            [
+                ("node", Step::Text("numeric_negate")),
+                ("operand", expression(operand)),
+            ],
+        ),
+        ExpressionKind::Compare {
+            operator,
+            left,
+            right,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("compare")),
+                ("operator", Step::Leaf(Leaf::Comparison(*operator))),
+                ("left", expression(left)),
+                ("right", expression(right)),
+            ],
+        ),
+        ExpressionKind::BooleanNot { operand } => object(
+            stack,
+            [
+                ("node", Step::Text("boolean_not")),
+                ("operand", expression(operand)),
+            ],
+        ),
+        ExpressionKind::Boolean {
+            operator,
+            left,
+            right,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("boolean")),
+                ("operator", Step::Leaf(Leaf::Boolean(*operator))),
+                ("left", expression(left)),
+                ("right", expression(right)),
+            ],
+        ),
+        ExpressionKind::Quantifier {
+            quantifier,
+            domain,
+            collection,
+            local,
+            local_source: _,
+            predicate,
+        } => object(
+            stack,
+            [
+                ("node", Step::Text("quantifier")),
+                ("quantifier", Step::Leaf(Leaf::Quantifier(*quantifier))),
+                ("domain", Step::Leaf(Leaf::Domain(*domain))),
+                ("collection", expression(collection)),
+                ("local", Step::Text(local.as_str())),
+                ("predicate", expression(predicate)),
+            ],
+        ),
     }
 }

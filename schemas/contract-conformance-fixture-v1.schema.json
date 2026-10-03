@@ -18,10 +18,19 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
-    "positiveU64": {
+    "integerString": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]*)$"
+    },
+    "revision": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 18446744073709551615
+      "maximum": 9007199254740992
+    },
+    "byteOffset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740992
     },
     "u64": {
       "type": "integer",
@@ -34,7 +43,7 @@
       "required": ["document", "revision"],
       "properties": {
         "document": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" }
+        "revision": { "$ref": "#/definitions/revision" }
       }
     },
     "sourceLocation": {
@@ -45,7 +54,7 @@
         "source": { "$ref": "#/definitions/sourceIdentity" },
         "line": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "column": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        "byte_offset": { "$ref": "#/definitions/u64" }
+        "byte_offset": { "$ref": "#/definitions/byteOffset" }
       }
     },
     "sourceSpan": {
@@ -73,7 +82,7 @@
       "properties": {
         "package": { "$ref": "#/definitions/packageId" },
         "requirement": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" }
+        "revision": { "$ref": "#/definitions/revision" }
       }
     },
     "clauseRef": {
@@ -175,12 +184,12 @@
       "properties": {
         "kind": { "enum": ["boolean", "integer", "rational", "text", "enum", "record", "option", "collection"] },
         "domain": { "enum": ["signed", "unsigned"] },
-        "minimum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
-        "maximum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "minimum": { "$ref": "#/definitions/integerString" },
+        "maximum": { "$ref": "#/definitions/integerString" },
         "overflow": { "enum": ["reject", "saturate"] },
-        "numerator_minimum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
-        "numerator_maximum": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
-        "maximum_denominator": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "numerator_minimum": { "$ref": "#/definitions/integerString" },
+        "numerator_maximum": { "$ref": "#/definitions/integerString" },
+        "maximum_denominator": { "$ref": "#/definitions/integerString" },
         "name": { "$ref": "#/definitions/identifier" },
         "value": { "$ref": "#/definitions/valueType" },
         "element": { "$ref": "#/definitions/valueType" },
@@ -280,8 +289,8 @@
         "source": { "$ref": "#/definitions/sourceSpan" },
         "value": {},
         "value_type": { "$ref": "#/definitions/valueType" },
-        "numerator": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
-        "denominator": { "type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807 },
+        "numerator": { "$ref": "#/definitions/integerString" },
+        "denominator": { "$ref": "#/definitions/integerString" },
         "enumeration": { "$ref": "#/definitions/identifier" },
         "variant": { "$ref": "#/definitions/identifier" },
         "record": { "$ref": "#/definitions/identifier" },
@@ -308,7 +317,7 @@
       },
       "oneOf": [
         { "properties": { "node": { "const": "boolean_literal" }, "value": { "type": "boolean" } }, "required": ["value"], "minProperties": 3, "maxProperties": 3 },
-        { "properties": { "node": { "const": "integer_literal" }, "value": { "type": "integer" } }, "required": ["value", "value_type"], "minProperties": 4, "maxProperties": 4 },
+        { "properties": { "node": { "const": "integer_literal" }, "value": { "$ref": "#/definitions/integerString" } }, "required": ["value", "value_type"], "minProperties": 4, "maxProperties": 4 },
         { "properties": { "node": { "const": "rational_literal" } }, "required": ["numerator", "denominator", "value_type"], "minProperties": 5, "maxProperties": 5 },
         { "properties": { "node": { "const": "text_literal" }, "value": { "type": "string" } }, "required": ["value"], "minProperties": 3, "maxProperties": 3 },
         { "properties": { "node": { "const": "enum_literal" } }, "required": ["enumeration", "variant"], "minProperties": 4, "maxProperties": 4 },
@@ -361,7 +370,7 @@
       "required": ["id", "revision", "source", "clauses"],
       "properties": {
         "id": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" },
+        "revision": { "$ref": "#/definitions/revision" },
         "source": { "$ref": "#/definitions/sourceSpan" },
         "clauses": { "type": "array", "items": { "$ref": "#/definitions/clause" } }
       }
@@ -413,6 +422,17 @@
         "execution_point": { "$ref": "#/definitions/executionPoint" },
         "clause_root": { "type": "boolean" }
       }
+    },
+    "expressionOperationInput": {
+      "oneOf": [
+        { "$ref": "#/definitions/expressionInput" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_json"],
+          "properties": { "document_json": { "type": "string" } }
+        }
+      ]
     },
     "traceDepth": {
       "type": "object",

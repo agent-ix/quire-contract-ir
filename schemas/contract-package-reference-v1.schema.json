@@ -12,20 +12,20 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
     },
-    "positiveU64": {
+    "revision": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 18446744073709551615
+      "maximum": 9007199254740992
     },
     "u32": {
       "type": "integer",
       "minimum": 0,
       "maximum": 4294967295
     },
-    "u64": {
+    "byteOffset": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 18446744073709551615
+      "maximum": 9007199254740992
     },
     "schemaVersion": {
       "type": "object",
@@ -42,7 +42,7 @@
       "required": ["document", "revision"],
       "properties": {
         "document": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" }
+        "revision": { "$ref": "#/definitions/revision" }
       }
     },
     "sourceLocation": {
@@ -53,7 +53,7 @@
         "source": { "$ref": "#/definitions/sourceIdentity" },
         "line": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
         "column": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
-        "byte_offset": { "$ref": "#/definitions/u64" }
+        "byte_offset": { "$ref": "#/definitions/byteOffset" }
       }
     },
     "sourceSpan": {
@@ -72,7 +72,7 @@
       "properties": {
         "package": { "$ref": "#/definitions/packageId" },
         "requirement": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" }
+        "revision": { "$ref": "#/definitions/revision" }
       }
     },
     "dependency": {
@@ -163,7 +163,7 @@
       "required": ["id", "revision", "source", "clauses"],
       "properties": {
         "id": { "$ref": "#/definitions/identifier" },
-        "revision": { "$ref": "#/definitions/positiveU64" },
+        "revision": { "$ref": "#/definitions/revision" },
         "source": { "$ref": "#/definitions/sourceSpan" },
         "clauses": {
           "type": "array",
