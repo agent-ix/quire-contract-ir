@@ -352,6 +352,51 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
     assert!(line.contains("features = [\"serde_json\"]"), "{line}");
 }
 
+/// IR-274 part C: the output-mapping identity steps encode through
+/// `quire-canonical` under the request byte limit. The production source of
+/// `output_mapping.rs` holds no encoder of its own, no `serde_json` value or
+/// call (so no `to_vec` or `to_value` reaches identity material), no
+/// `u64::MAX` ceiling, and its three identity materials derive `FixedShape`.
+///
+/// Tracing: TC-048
+/// ACs: FR-038-AC-91
+#[trace("TC-048", "FR-038-AC-91")]
+#[test]
+fn tc_048_the_output_mapping_source_holds_no_encoder_and_no_unmetered_ceiling() {
+    let text = fs::read_to_string(repository_path(
+        "crates/quire-contract-model/src/output_mapping.rs",
+    ))
+    .expect("source reads");
+    let production = production_source(&text);
+    assert!(
+        production.contains("fn canonical_identity_bytes"),
+        "the scan reads the production source"
+    );
+    for symbol in [
+        "CanonicalWriter",
+        "canonical_envelope_bytes",
+        "digest_json",
+        "serde_json_canonicalizer",
+        "serde_json",
+        "json!",
+        "u64::MAX",
+    ] {
+        let hits = production.matches(symbol).count();
+        assert_eq!(hits, 0, "output_mapping.rs: `{symbol}` x{hits}");
+    }
+    for material in [
+        "RequestIdentityMaterial<'a>",
+        "GeneratedOutputPackageIdentityMaterial<'a>",
+        "MappingRecordIdentityMaterial<'a>",
+    ] {
+        let derive = format!("#[derive(Serialize, FixedShape)]\nstruct {material}");
+        assert!(
+            production.contains(&derive),
+            "{material} derives FixedShape"
+        );
+    }
+}
+
 /// Tracing: TC-048
 /// ACs: FR-038-AC-90
 #[trace("TC-048", "FR-038-AC-90")]

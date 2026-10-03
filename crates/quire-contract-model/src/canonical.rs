@@ -114,6 +114,11 @@ impl Serialize for CanonicalDigest {
     }
 }
 
+/// A digest serializes as one lowercase-hex string, so its shape has no depth.
+impl quire_canonical::FixedShape for CanonicalDigest {
+    const DEPTH: usize = 0;
+}
+
 impl<'de> Deserialize<'de> for CanonicalDigest {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
