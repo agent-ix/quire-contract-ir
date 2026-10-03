@@ -1,12 +1,14 @@
 ---
-id: SR-624
+id: SR-984
 title: "code review of PR 229 (reaches_field reference_edge constraint)"
 type: SpecReview
 analysis: code-review
 scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; crates/quire-contract-model/src/checked_package/v2/operations.rs, tests/it/checked_package_v2_model_members.rs, spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
 review_set: subset
 ---
-# SR-624: code review of PR 229
+# SR-984: code review of PR 229
+
+Former id: SR-624 (cited by the marker on IR-370).
 
 ## Summary
 

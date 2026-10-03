@@ -1,12 +1,14 @@
 ---
-id: SR-591
+id: SR-978
 title: "base review of PR 203 (ADR-0056, FR-345)"
 type: SpecReview
 analysis: base
 scope: "agent-ix/quire-contract-ir; spec/decisions/ADR-0056-spec-layout-convention.md, spec/functional/FR-345-check-artifact-ids-and-relocation-maps.md, spec/test-matrix.md, spec/index.md"
 review_set: subset
 ---
-# SR-591: base review of PR 203
+# SR-978: base review of PR 203
+
+Former id: SR-591 (cited by the marker on IR-314).
 
 ## Summary
 

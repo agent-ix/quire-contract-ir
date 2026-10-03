@@ -1,12 +1,14 @@
 ---
-id: SR-625
+id: SR-985
 title: "gap analysis of PR 230 (same_type compares resolved operand types)"
 type: SpecReview
 analysis: gap-analysis
 scope: "agent-ix/quire-contract-ir@c24c6a4f2fba713b35ea577969fa0a7c5f3c0082; crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
-# SR-625: gap analysis of PR 230
+# SR-985: gap analysis of PR 230
+
+Former id: SR-625 (cited by the marker on IR-307).
 
 ## Summary
 
@@ -20,7 +22,7 @@ Ticket: IR-307. This is a planless gap analysis, proportional to a one-line fix,
 
 ## Scope
 
-- FR-322 `same_type` row ("The two named operands resolve to the same type node"), examined: the implementation matches it for `reference` operands. The non-reference gap is recorded as SR-624 FND-001.
+- FR-322 `same_type` row ("The two named operands resolve to the same type node"), examined: the implementation matches it for `reference` operands. The non-reference gap is recorded as SR-982 FND-001.
 - The ticket deliverable "two distinct parameters of the same record type admitted", examined: covered.
 - The ticket deliverable "parameters of different record types refused", examined: covered.
 - The catalog `same_type` users (`quantity.*`, `enum.*`, `structural.eq/ne`), context_only.

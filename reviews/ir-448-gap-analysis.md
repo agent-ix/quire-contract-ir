@@ -1,12 +1,14 @@
 ---
-id: SR-626
+id: SR-989
 title: "gap analysis of PR 232 (make ci green by backing FR-344 and removing unbuilt requirements)"
 type: SpecReview
 analysis: gap-analysis
 scope: "agent-ix/quire-contract-ir@122c21f6cacb25222b35b6629d19ed90e541d81a; spec/**, tests/it/checked_package_v2_adr002_members.rs, src/lib.rs, src/kani/, crates/quire-contract-model/src/lib.rs"
 review_set: subset
 ---
-# SR-626: gap analysis of PR 232
+# SR-989: gap analysis of PR 232
+
+Former id: SR-626 (cited by the marker on IR-448).
 
 ## Summary
 
@@ -57,10 +59,10 @@ FR-036 (negotiation) is implemented and owned in agent-ix/quire-contract-codegen
 
 ## Scope
 
-- FR-344-AC-1, spec/contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md, examined: "A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses ..." Backed by a real oracle (SR-625).
+- FR-344-AC-1, spec/contract/FR-344-admit-or-refuse-the-adr-002-2-0-0-members.md, examined: "A `quire.checked-package/v2` document whose semantic graph carries a node attempting to represent a supertype list, an abstractness flag, a subsets edge or a redefines edge, via any `node_tag` outside `CheckedNodeTag::ALL` or any `semantic_form` outside that tag's closed form enum, refuses ..." Backed by a real oracle (SR-987).
 - FR-344-AC-2, examined: "A `relation`/`population` node whose `body` carries content satisfying no branch of the closed `SemanticTerm` grammar refuses `invalid_semantic_graph` ..." Backed by a real oracle.
-- FR-344-AC-3, examined: "... refuses `unknown_member` at the pointer of the extra member ..." Backed, but with a weak locus (SR-625 FND-001).
-- FR-036 (deleted), examined: its negotiation is owned by codegen FR-019 and FR-015. Removal justified; cross-repo links are in SR-628.
+- FR-344-AC-3, examined: "... refuses `unknown_member` at the pointer of the extra member ..." Backed, but with a weak locus (SR-987 FND-001).
+- FR-036 (deleted), examined: its negotiation is owned by codegen FR-019 and FR-015. Removal justified; cross-repo links are in SR-991.
 - FR-037-AC-6 (deleted), examined: "Contract IR's public API names no replay envelope ... the root crate has no `replay` or `witness` module" is false today (src/kani/replay.rs). IR-327 separately asks to retire witness/replay from the spec. Removal justified.
 - FR-039-AC-1 to AC-4 (deleted), examined (FND-001).
 - FR-019-AC-5 (deleted), examined (FND-001).

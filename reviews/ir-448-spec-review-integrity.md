@@ -1,12 +1,14 @@
 ---
-id: SR-628
+id: SR-991
 title: "integrity review of PR 232 (removed requirements and their references)"
 type: SpecReview
 analysis: integrity
 scope: "agent-ix/quire-contract-ir@122c21f6cacb25222b35b6629d19ed90e541d81a; spec/assurance/AD-001-*, spec/contract/FR-028-*, spec/contract/FR-031-*, spec/interface/FR-019-*, spec/decisions/ADR-0056-*; cross-repo citations in agent-ix/quire-specification and agent-ix/quire-contract-codegen origin/main"
 review_set: subset
 ---
-# SR-628: integrity review of PR 232
+# SR-991: integrity review of PR 232
+
+Former id: SR-628 (cited by the marker on IR-448).
 
 ## Summary
 

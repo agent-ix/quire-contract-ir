@@ -1,12 +1,14 @@
 ---
-id: SR-624
+id: SR-983
 title: "code review of PR 228 (lower admitted state frame and state_clause nodes)"
 type: SpecReview
 analysis: code-review
 scope: "agent-ix/quire-contract-ir@7b4ad49ee00ce5537290a5c3cdce6208319623c4; tests/it/checked_package_v2_frame_entries.rs"
 review_set: subset
 ---
-# SR-624: code review of PR 228
+# SR-983: code review of PR 228
+
+Former id: SR-624 (cited by the marker on IR-411).
 
 ## Summary
 

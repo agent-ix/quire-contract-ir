@@ -1,12 +1,14 @@
 ---
-id: SR-625
+id: SR-986
 title: "gap analysis of PR 229 (reaches_field reference_edge constraint)"
 type: SpecReview
 analysis: gap-analysis
 scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md, spec/contract/FR-038-consume-checked-package-v2.md, tests/it/checked_package_v2_model_members.rs, crates/quire-contract-model/src/checked_package/v2/operations.rs"
 review_set: subset
 ---
-# SR-625: gap analysis of PR 229
+# SR-986: gap analysis of PR 229
+
+Former id: SR-625 (cited by the marker on IR-370).
 
 ## Summary
 
@@ -18,7 +20,7 @@ the requirement in this repo, the upstream QSpec acceptance criterion
 tests.
 
 The code decides every RE vector the way TC-281 records it. The one
-exception is direction, which SR-624 FND-001 covers. The tests exercise
+exception is direction, which SR-984 FND-001 covers. The tests exercise
 RE-01..RE-11 and RE-13. RE-12, RE-14 and RE-15 are not exercised.
 
 `quire coverage --strict` reports the same 22 unbacked rows on this head as
@@ -35,7 +37,7 @@ on `origin/main` (3e7935f). The PR changes nothing in that set.
 
 - FND-001: Add a FR-040 AC, for example FR-040-AC-13, that restates the
   FR-322-AC-38 admissions and refusals this reader decides, including the
-  supertype-target refusal from SR-624 FND-001. Retag the two
+  supertype-target refusal from SR-984 FND-001. Retag the two
   `tc_048_reaches_field_*` tests to it. The TC-048/TC-056 matrix row may need
   the new AC id as well. FR-040's ACs are traced to TC-056, so choose the TC
   row that matches.

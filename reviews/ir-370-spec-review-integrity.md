@@ -1,12 +1,14 @@
 ---
-id: SR-626
+id: SR-988
 title: "spec integrity review of PR 229 (FR-040 reaches_field statement)"
 type: SpecReview
 analysis: integrity
 scope: "agent-ix/quire-contract-ir@65d29c5a3bf803c340987fb21eaadb6bd173013b; spec/contract/FR-040-admit-frame-entries-and-state-clauses.md"
 review_set: subset
 ---
-# SR-626: spec integrity review of PR 229
+# SR-988: spec integrity review of PR 229
+
+Former id: SR-626 (cited by the marker on IR-370).
 
 ## Summary
 
@@ -16,8 +18,8 @@ on quire-specification `origin/main`, and against the code in
 `check_reference_edge`.
 
 The four rules match FR-322 in order and wording. The phrase "conforms to
-`T`" has the directional meaning discussed in SR-624 FND-001. The missing AC
-is recorded in SR-625 FND-001.
+`T`" has the directional meaning discussed in SR-984 FND-001. The missing AC
+is recorded in SR-986 FND-001.
 
 ## Findings
 
