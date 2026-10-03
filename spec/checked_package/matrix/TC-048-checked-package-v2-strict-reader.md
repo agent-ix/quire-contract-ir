@@ -40,7 +40,7 @@ and FR-038-AC-89 through FR-038-AC-95 against every identity digest's move to
 `quire-canonical` (node keys, lowered identities, the nominal digest's byte
 limit, the absence of an encoder of this repository's own, a selected model
 document's integer check and byte limit, and the lowering byte ceiling), and
-FR-038-AC-96 through FR-038-AC-107 (QSpec FR-370 and FR-440) against the
+FR-038-AC-96 through FR-038-AC-108 (QSpec FR-370, FR-440 and FR-250) against the
 temporal, fairness, union and `case` nodes of a self-built package, the
 temporal step's placement, clause, profile-fit and interval-bound checks, and
 QSpec's own positive fixtures read from the QSpec checkout. FR-038-AC-66 is
@@ -184,7 +184,7 @@ the formula reference fits the sixth operand and the `any_term` position and not
 the `boolean` one, and the two members refuse `operation-member-mismatch`.
 Compare the whole refusal code, cause and pointer.
 
-## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-107)
+## Temporal, fairness and case admission (FR-038-AC-96 through FR-038-AC-108)
 
 Planned (IR-549 code change); the cases are authored here and have no test yet.
 Build, from this crate's own vocabulary and never from a copy of QSpec's
@@ -270,8 +270,11 @@ operand cases refuse `ill_typed`/`operator-ineligible` at the operation step; th
 `Shape` and `Label` comparisons admit and refuse as AC-106 states; and
 `make conformance-qspec` passes with each QSpec fixture admitted with its recorded
 `package_id` and fails when the variable is unset, empty or names a path without
-the fixtures. `make test` and CI do not run it, so this step is a manual gate until
-a CI job supplies a checkout. Compare the whole
+the fixtures; `make test` does not run it, and wiring it into CI is a separate
+decision. Selecting `quire.fixture.temporal-profile/v1`, an empty identity and a
+differently spelled infinite-trace identity refuses `unknown_profile`/
+`unknown-profile` at the law's `definition`, first among the clause's checks, and
+each of the five known identities admits (AC-108). Compare the whole
 refusal code, cause and pointer.
 
 ## Parameter and compound-unit nodes (FR-038-AC-22, FR-038-AC-23)
