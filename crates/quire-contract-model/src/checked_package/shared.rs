@@ -219,6 +219,14 @@ pub enum CheckedPackageRefusalCause {
     /// identity the package's own lock selects under a role other than
     /// `temporal_profile`; paired with `unknown_profile`.
     WrongSelectionRole,
+    /// `inexact-integer`: a selected model document holds a number whose text
+    /// denotes a whole value past 2^53, however spelled; paired with
+    /// `noncanonical_wire` (QSpec FR-272).
+    InexactInteger,
+    /// `inexact-number`: a selected model document holds a number whose exact
+    /// value its RFC 8785 encoding loses; paired with `noncanonical_wire`
+    /// (QSpec FR-272).
+    InexactNumber,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader

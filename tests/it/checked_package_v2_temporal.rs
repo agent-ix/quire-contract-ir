@@ -1078,6 +1078,8 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::TypeMismatch => "type-mismatch",
         Cause::UnsupportedSelection => "unsupported-selection",
         Cause::WrongSelectionRole => "wrong-selection-role",
+        Cause::InexactInteger => "inexact-integer",
+        Cause::InexactNumber => "inexact-number",
     }
 }
 

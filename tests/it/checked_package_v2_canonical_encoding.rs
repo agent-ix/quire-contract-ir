@@ -680,6 +680,51 @@ fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
     assert_eq!(read_bytes(&canonical(&package), &package), stale());
 }
 
+/// The bytes of a package whose first node body holds the number text
+/// `spelled` at `n`, written exactly as given, and the package.
+fn package_bytes_with_number(spelled: &str) -> (Vec<u8>, Value) {
+    let package = package_with_body(json!({"term": "bogus", "n": 7_777_777}));
+    let text = String::from_utf8(canonical(&package)).expect("UTF-8");
+    assert_eq!(text.matches("\"n\":7777777").count(), 2);
+    let bytes = text.replace("\"n\":7777777", &format!("\"n\":{spelled}"));
+    (bytes.into_bytes(), package)
+}
+
+/// Tracing: TC-048
+/// ACs: FR-038-AC-111
+#[trace("TC-048", "FR-038-AC-111")]
+#[test]
+fn tc_048_a_package_document_number_is_read_exactly_or_refused_without_a_pointer() {
+    // A number whose exact value the document's bytes lose is noncanonical
+    // wire with no pointer and no cause, before the stale package id the
+    // document also earns.
+    for spelled in ["0.1000000000000000000001", "9007199254740993.5"] {
+        let (bytes, package) = package_bytes_with_number(spelled);
+        assert_eq!(read_bytes(&bytes, &package), noncanonical(), "{spelled}");
+    }
+    // Each is its double's shortest round-trip text, which `serde_json` reads
+    // as a neighbouring double without `float_roundtrip` and so would
+    // re-encode to other bytes: with the feature it is not noncanonical, and
+    // the document reaches the package id comparison it also fails.
+    for spelled in [
+        "0.1",
+        "1.2793061557049685",
+        "1.2106592671318679",
+        "1.3567384036451073",
+    ] {
+        let (bytes, package) = package_bytes_with_number(spelled);
+        assert_eq!(read_bytes(&bytes, &package), stale(), "{spelled}");
+    }
+    // The crate that holds the reader declares the feature itself, so the
+    // exact read does not depend on what other crates in the build turn on.
+    let manifest = repository_file("crates/quire-contract-model/Cargo.toml");
+    let line = manifest
+        .lines()
+        .find(|line| line.starts_with("serde_json"))
+        .expect("the manifest declares serde_json");
+    assert!(line.contains("\"float_roundtrip\""), "{line}");
+}
+
 /// Tracing: TC-048
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]

@@ -628,7 +628,11 @@ that a work-budget failure still names `work` (FR-038-AC-95).
 
 ## Inexact numbers (FR-038-AC-109 through FR-038-AC-111)
 
-Planned: no test exists until the IR-542 code change lands. The causes are those
+FR-038-AC-109 and FR-038-AC-111 are implemented and verified in
+`tests/it/checked_package_v2_model_members.rs` and
+`tests/it/checked_package_v2_canonical_encoding.rs`, and the existing FR-038-AC-93
+tests there carry the cause `inexact-integer`; FR-038-AC-110 is planned, because
+its `1e400` and `-1e400` clause waits for a `quire-canonical` change. The causes are those
 of quire-specification:FR-271 and FR-272. Read a package that selects a model
 document holding `0.1000000000000000000001`, `9007199254740993.5`,
 `-0.1000000000000000000001`, `4.9e-324` and `1e-400` at `/package/ratio`, under

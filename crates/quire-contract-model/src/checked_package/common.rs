@@ -48,15 +48,17 @@ impl ValidationFailure {
     }
 
     /// `noncanonical_wire` about the number at `document_pointer` inside a
-    /// supplied model document, located at the selection row's `path`.
+    /// supplied model document, located at the selection row's `path`, with
+    /// the `cause` the number earned.
     pub(super) fn refused_number_in_document(
         path: JsonPointer,
         document_pointer: JsonPointer,
+        cause: CheckedPackageRefusalCause,
     ) -> Self {
         Self::Refused(CheckedPackageRefusal {
             code: CheckedPackageRefusalCode::NoncanonicalWire,
             path: Some(path),
-            cause: None,
+            cause: Some(cause),
             locus: None,
             contract_version: None,
             document_pointer: Some(document_pointer),

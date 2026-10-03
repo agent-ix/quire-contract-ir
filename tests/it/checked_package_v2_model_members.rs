@@ -13,7 +13,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, pointer, rebuild_source_map,
-    refresh_identity, refusal, refusal_bytes, refusal_cause, sha256_hex,
+    refresh_identity, refusal_bytes, refusal_cause, sha256_hex,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -476,12 +476,16 @@ fn read_selecting(digest: &str, bytes: &[u8]) -> CheckedPackageV2ReadResult {
     read(&package, &evidence)
 }
 
-fn number_refusal(document_pointer: &str) -> CheckedPackageRefusal {
+fn number_refusal(
+    document_pointer: &str,
+    cause: CheckedPackageRefusalCause,
+) -> CheckedPackageRefusal {
     CheckedPackageRefusal {
         document_pointer: Some(pointer(document_pointer)),
-        ..refusal(
+        ..refusal_cause(
             CheckedPackageRefusalCode::NoncanonicalWire,
             "/lock/model_selections/0/digest",
+            cause,
         )
     }
 }
@@ -504,7 +508,14 @@ fn tc_048_a_model_document_number_past_2_pow_53_refuses_with_its_document_pointe
         for digest in [sha256_hex(&bytes), other.clone()] {
             match read_selecting(&digest, &bytes) {
                 CheckedPackageV2ReadResult::Refused(refused) => {
-                    assert_eq!(refused, number_refusal("/package/count"), "{text}");
+                    assert_eq!(
+                        refused,
+                        number_refusal(
+                            "/package/count",
+                            CheckedPackageRefusalCause::InexactInteger
+                        ),
+                        "{text}"
+                    );
                 }
                 other => panic!("{text}: expected a refusal, read {other:?}"),
             }
@@ -573,7 +584,10 @@ fn tc_048_an_integer_value_type_bound_past_2_pow_53_is_refused_as_a_number() {
         CheckedPackageV2ReadResult::Refused(refused) => {
             assert_eq!(
                 refused,
-                number_refusal("/types/1/constraints/1/operands/value")
+                number_refusal(
+                    "/types/1/constraints/1/operands/value",
+                    CheckedPackageRefusalCause::InexactInteger
+                )
             );
         }
         other => panic!("expected a refusal, read {other:?}"),
@@ -610,9 +624,119 @@ fn tc_048_the_first_number_in_document_order_past_2_pow_53_is_named() {
     let bytes = spelled.into_bytes();
     match read_selecting(&sha256_hex(&bytes), &bytes) {
         CheckedPackageV2ReadResult::Refused(refused) => {
-            assert_eq!(refused, number_refusal("/b"));
+            assert_eq!(
+                refused,
+                number_refusal("/b", CheckedPackageRefusalCause::InexactInteger)
+            );
         }
         other => panic!("expected a refusal, read {other:?}"),
+    }
+}
+
+/// The JSON object prefix `members` placed before the members of a model
+/// document's canonical text, so the numbers in `members` come first in
+/// document order.
+fn document_bytes_led_by(members: &str) -> Vec<u8> {
+    let document = domain_document(json!({}));
+    let text = String::from_utf8(canonical(&document)).expect("utf-8");
+    format!("{{{members},{}", &text[1..]).into_bytes()
+}
+
+/// Tracing: TC-048, FR-038-AC-109
+#[trace("TC-048", "FR-038-AC-109")]
+#[test]
+fn tc_048_a_model_document_number_with_no_exact_rfc_8785_spelling_refuses_inexact_number() {
+    let other = "ab".repeat(32);
+    for text in [
+        "0.1000000000000000000001",
+        "9007199254740993.5",
+        "-0.1000000000000000000001",
+        "4.9e-324",
+        "1e-400",
+        // The odd-digit spellings of three ties, whose even-digit spellings are
+        // admitted below.
+        "1125899906842624.3",
+        "1500000000000000.3",
+        "2.9802322387695313e-8",
+        // Not whole, so never an integer cause, though its nearest double is 2^53.
+        "9007199254740992.5",
+    ] {
+        let bytes = document_bytes_with_count(text);
+        for digest in [sha256_hex(&bytes), other.clone()] {
+            match read_selecting(&digest, &bytes) {
+                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                    refused,
+                    number_refusal("/package/count", CheckedPackageRefusalCause::InexactNumber),
+                    "{text}"
+                ),
+                other => panic!("{text}: expected a refusal, read {other:?}"),
+            }
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-109
+#[trace("TC-048", "FR-038-AC-109")]
+#[test]
+fn tc_048_a_model_document_number_whose_value_its_encoding_keeps_is_digested() {
+    // Each pair is the number as spelled and the text `quire-canonical` writes
+    // for it: the value is the same, so the spelling does not matter.
+    for (text, canonical_text) in [
+        ("0.1", "0.1"),
+        ("0.5", "0.5"),
+        ("1.5", "1.5"),
+        ("-0.25", "-0.25"),
+        ("5e-324", "5e-324"),
+        ("2.5e-10", "2.5e-10"),
+        ("1.0", "1"),
+        ("-0", "0"),
+        ("1e2", "100"),
+        ("1125899906842624.2", "1125899906842624.2"),
+        ("1500000000000000.2", "1500000000000000.2"),
+        ("2.9802322387695312e-8", "2.9802322387695312e-8"),
+    ] {
+        let bytes = document_bytes_with_count(text);
+        let digest = sha256_hex(&document_bytes_with_count(canonical_text));
+        assert!(
+            matches!(
+                read_selecting(&digest, &bytes),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{text} is digested and admitted"
+        );
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-109
+#[trace("TC-048", "FR-038-AC-109")]
+#[test]
+fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause() {
+    // An inexact number at `/b` before a whole number past 2^53 at `/a/0`
+    // names `/b`; the reverse order names the whole number.
+    for (members, pointer, cause) in [
+        (
+            "\"b\":0.1000000000000000000001,\"a\":[9007199254740993]",
+            "/b",
+            CheckedPackageRefusalCause::InexactNumber,
+        ),
+        (
+            "\"b\":9007199254740993,\"a\":[0.1000000000000000000001]",
+            "/b",
+            CheckedPackageRefusalCause::InexactInteger,
+        ),
+        (
+            "\"a\":[9007199254740993.0],\"b\":0.1000000000000000000001",
+            "/a/0",
+            CheckedPackageRefusalCause::InexactInteger,
+        ),
+    ] {
+        let bytes = document_bytes_led_by(members);
+        match read_selecting(&sha256_hex(&bytes), &bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => {
+                assert_eq!(refused, number_refusal(pointer, cause), "{members}");
+            }
+            other => panic!("{members}: expected a refusal, read {other:?}"),
+        }
     }
 }
 

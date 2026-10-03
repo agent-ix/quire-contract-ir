@@ -1095,12 +1095,14 @@ fn validate_domain_packages(
             let mut budget = Budget::new(meter, index, bytes);
             admit_selection(model, evidence, &mut budget).map_err(|failure| match failure {
                 SelectionFailure::Limit(failure) => failure,
-                SelectionFailure::NumberPast2Pow53 { document_pointer } => {
-                    ValidationFailure::refused_number_in_document(
-                        at(index, "digest"),
-                        document_pointer,
-                    )
-                }
+                SelectionFailure::InexactNumber {
+                    document_pointer,
+                    cause,
+                } => ValidationFailure::refused_number_in_document(
+                    at(index, "digest"),
+                    document_pointer,
+                    cause,
+                ),
                 SelectionFailure::Refused(refused) => {
                     let path = refused
                         .member
