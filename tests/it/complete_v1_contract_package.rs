@@ -11,11 +11,16 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_ir::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    CompleteLoweringResultV2, CONTRACT_PACKAGE_VERSION,
+    CheckedPackageV2ReadResult, CompleteContractPackageV2, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, CompleteLoweringResultV2, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+
+/// The canonical bytes of a package lowered under the default limits.
+fn bytes(package: &CompleteContractPackageV2) -> &[u8] {
+    package.canonical_bytes().expect("the package is encoded")
+}
 
 fn id(prefix: &str) -> CheckedNodeId {
     typed_node_id(&checked_package::family_key(prefix))
@@ -154,31 +159,25 @@ fn tc_047_package_bytes_are_canonical_and_stable_across_identical_calls() {
     let value = mixed_fixture();
     let first = lower_mixed(&value).package;
     let second = lower_mixed(&value).package;
-    assert_eq!(first.canonical_bytes(), second.canonical_bytes());
+    assert_eq!(bytes(&first), bytes(&second));
     assert_eq!(first.package_id(), second.package_id());
 
     // The identity is the digest of exactly these bytes, in its own domain.
-    let identity = first.package_id();
+    let identity = first.package_id().expect("the package is identified");
     assert_eq!(identity.domain.as_ref(), CONTRACT_PACKAGE_VERSION);
     assert_eq!(identity.algorithm.as_ref(), "sha256");
-    assert_eq!(
-        identity.digest.as_ref(),
-        sha256_hex(first.canonical_bytes())
-    );
+    assert_eq!(identity.digest.as_ref(), sha256_hex(bytes(&first)));
 
     // Canonical: re-encoding the decoded bytes reproduces them, and request
     // order or duplication does not reach the package.
-    let decoded: Value = serde_json::from_slice(first.canonical_bytes()).expect("json");
-    assert_eq!(
-        serde_json::to_vec(&decoded).expect("encode"),
-        first.canonical_bytes()
-    );
+    let decoded: Value = serde_json::from_slice(bytes(&first)).expect("json");
+    assert_eq!(serde_json::to_vec(&decoded).expect("encode"), bytes(&first));
     assert_eq!(decoded["version"], json!(CONTRACT_PACKAGE_VERSION));
     let mut reordered = mixed_request();
     reordered.reverse();
     reordered.push(id("dddd"));
     let reordered = admit(&value).lower(&reordered, &mixed_profile()).package;
-    assert_eq!(reordered.canonical_bytes(), first.canonical_bytes());
+    assert_eq!(bytes(&reordered), bytes(&first));
 }
 
 /// Tracing: TC-047, FR-035-AC-5
@@ -200,13 +199,13 @@ fn tc_047_changing_any_represented_node_changes_bytes_and_digest() {
     ] {
         let changed = lower_mixed(&value).package;
         assert_eq!(changed.lowered().len(), 1, "{label}");
-        assert_ne!(changed.canonical_bytes(), base.canonical_bytes(), "{label}");
+        assert_ne!(bytes(&changed), bytes(&base), "{label}");
         assert_ne!(changed.package_id(), base.package_id(), "{label}");
         // The change is carried by the represented node itself, not only by
         // the source package identity the package also records.
         assert_ne!(
-            without_source_identity(changed.canonical_bytes()),
-            without_source_identity(base.canonical_bytes()),
+            without_source_identity(bytes(&changed)),
+            without_source_identity(bytes(&base)),
             "{label}"
         );
     }
@@ -273,7 +272,7 @@ fn tc_047_package_bytes_carry_every_member_of_every_represented_node() {
     let value = mixed_fixture();
     let result = lower_mixed(&value);
     let package = &result.package;
-    let decoded: Value = serde_json::from_slice(package.canonical_bytes()).expect("json");
+    let decoded: Value = serde_json::from_slice(bytes(package)).expect("json");
     let keys = |value: &Value| {
         value
             .as_object()
@@ -333,7 +332,7 @@ fn tc_047_package_bytes_carry_every_member_of_every_represented_node() {
 #[test]
 fn tc_047_package_bytes_are_rfc_8785_key_ordered() {
     let package = lower_mixed(&mixed_fixture()).package;
-    let bytes = std::str::from_utf8(package.canonical_bytes()).expect("utf-8");
+    let bytes = std::str::from_utf8(bytes(&package)).expect("utf-8");
     assert!(bytes.starts_with("{\"dependencies\":["), "{bytes}");
     let positions = ["\"lowered\":", "\"source_package_id\":", "\"version\":"]
         .map(|member| bytes.rfind(member).expect(member));

@@ -2,7 +2,7 @@
 //! dimension, declared unit) and their semantic and cross-field rules.
 //!
 //! The node key of a nominal form is SHA-256 of the RFC 8785 canonical bytes
-//! of its preimage under `quire.checked-semantic-node/v1`. Every violation is
+//! of its preimage, computed by `quire-canonical`. Every violation is
 //! `invalid_semantic_graph`.
 
 use super::natural::coprime;
@@ -12,9 +12,7 @@ use super::{
     CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
     ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{
-    decoder_pointer, digest_json, node_pointer, ValidationFailure,
-};
+use crate::checked_package::common::{decoder_pointer, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -403,11 +401,19 @@ impl NominalIdentityPreimage {
         }
     }
 
-    /// Lowercase SHA-256 of the canonical preimage bytes.
-    pub fn digest(&self) -> Option<String> {
-        serde_json::to_value(self)
-            .ok()
-            .and_then(|value| digest_json(&value).ok())
+    /// Lowercase SHA-256 of the canonical preimage bytes, computed by
+    /// `quire-canonical` under `limit_bytes`, the caller's byte limit. A
+    /// preimage whose canonical bytes are longer than `limit_bytes` returns the
+    /// encoder's byte-limit refusal and no digest; a length equal to it
+    /// digests.
+    ///
+    /// # Errors
+    ///
+    /// The `quire-canonical` refusal: [`quire_canonical::Error::Limit`] when
+    /// the canonical bytes exceed `limit_bytes`.
+    pub fn digest(&self, limit_bytes: u64) -> Result<String, quire_canonical::Error> {
+        quire_canonical::sha256(self, quire_canonical::Limits::new(limit_bytes))
+            .map(|digest| digest.to_string())
     }
 }
 
@@ -446,13 +452,17 @@ impl Site<'_> {
 
 /// Validates every node's nominal binding, key re-derivation, owner join,
 /// semantic rules and cross-field joins. `kinds` holds each node's decoded
-/// kind. Each refusal points at the member it is about.
+/// kind. Each refusal points at the member it is about. Every digest and term
+/// order is computed under `bytes`, the reader's byte limit; a preimage the
+/// encoder refuses is refused at the node's `node_id` (a key) or at the term
+/// (an order), as `invalid_semantic_graph`.
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let graph = NominalGraph { nodes, index };
     let mut roots = BTreeSet::new();
@@ -468,7 +478,9 @@ pub(super) fn validate_nominal_nodes(
         };
         meter.charge(1, || site.preimage(&[]))?;
         require(
-            preimage.digest().as_deref() == Some(node.node_id.digest.as_ref()),
+            preimage
+                .digest(bytes)
+                .is_ok_and(|digest| digest == node.node_id.digest.as_ref()),
             || site.member("node_id"),
         )?;
         match preimage {
@@ -479,7 +491,7 @@ pub(super) fn validate_nominal_nodes(
                 validate_enum_member(&site, member, &graph)?;
             }
             NominalIdentityPreimage::Dimension(dimension) => {
-                validate_dimension(&site, dimension, &graph, lock, meter)?;
+                validate_dimension(&site, dimension, &graph, lock, meter, bytes)?;
             }
             NominalIdentityPreimage::Unit(unit) => {
                 validate_unit(&site, unit, &graph, lock, meter)?;
@@ -686,6 +698,7 @@ fn validate_dimension(
     graph: &NominalGraph<'_>,
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
+    bytes: u64,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     validate_owner(&dimension.owner, lock, || site.preimage(&["owner"]))?;
@@ -711,7 +724,12 @@ fn validate_dimension(
             return Err(invalid(base_at()));
         };
         require(base.terms.is_empty(), base_at)?;
-        keys.push(serde_json::to_vec(term).map_err(|_| invalid(term_at(index)))?);
+        // A term's place in the order is its canonical bytes under
+        // `quire-canonical`, not its `serde_json` bytes.
+        keys.push(
+            quire_canonical::to_vec(term, quire_canonical::Limits::new(bytes))
+                .map_err(|_| invalid(term_at(index)))?,
+        );
     }
     // The later term of the first out-of-order pair is at fault.
     if let Some(pair) = keys

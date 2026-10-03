@@ -40,11 +40,13 @@ use super::{
     member_pointer, CheckedDomainPackageRef, CheckedNodeTag, CheckedSemanticNodeV2,
     ValidationFailure, WorkMeter,
 };
-use crate::checked_package::common::{digest_json, strict_json_value, NODE_DOMAIN};
+use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use quire_canonical::FixedShape;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -195,10 +197,13 @@ pub(super) struct IntegerBounds {
 
 /// The declarations of one admitted domain package document that FR-322's
 /// model-owned member rule consults.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DomainModel {
     pub(super) identity: Box<str>,
     pub(super) version: Box<str>,
+    /// The reader's byte limit, under which every key derived from this
+    /// model's declarations is hashed.
+    pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
     pub(super) object_types: BTreeMap<Box<str>, ObjectTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
@@ -235,31 +240,136 @@ impl DeclarationForm {
 }
 
 /// The `ModelDeclarationNode` key of one declaration: the JCS SHA-256 of
-/// `node-identity-preimage.schema.json`'s closed preimage.
+/// `node-identity-preimage.schema.json`'s closed preimage, computed by
+/// `quire-canonical` under `bytes`, the reader's byte limit.
 ///
 /// The owner is the content-only `ModelOwner` (`kind`, `identity`, `node`):
 /// it carries no package version, so the key is stable across a
 /// version-only change of the domain package (FR-038-AC-45).
-pub(super) fn declaration_key(identity: &str, form: DeclarationForm, node: &str) -> String {
-    structural_key(&json!({
-        "version": STRUCTURAL_NODE,
-        "node_tag": form.tag(),
-        "semantic_form": form.form(),
-        "semantic_type": null,
-        "declaration": null,
-        "recursion": null,
-        "owner": {"kind": "model", "identity": identity, "node": node},
-        "body": {"term": "aggregate", "members": []},
-    }))
+///
+/// # Errors
+///
+/// The encoder's refusal when the preimage's canonical bytes exceed `bytes`.
+pub(super) fn declaration_key(
+    identity: &str,
+    form: DeclarationForm,
+    node: &str,
+    bytes: u64,
+) -> Result<String, quire_canonical::Error> {
+    structural_key(
+        &StructuralPreimage {
+            version: STRUCTURAL_NODE,
+            node_tag: form.tag(),
+            semantic_form: form.form(),
+            semantic_type: None,
+            declaration: (),
+            recursion: (),
+            owner: Some(ModelOwnerPreimage {
+                kind: "model",
+                identity,
+                node,
+            }),
+            body: aggregate(Vec::new()),
+        },
+        bytes,
+    )
 }
 
-fn structural_key(preimage: &Value) -> String {
-    // A `json!` value always serializes.
-    digest_json(preimage).unwrap_or_default()
+/// The SHA-256 of `preimage`'s canonical bytes, by `quire-canonical`.
+fn structural_key(
+    preimage: &StructuralPreimage<'_>,
+    bytes: u64,
+) -> Result<String, quire_canonical::Error> {
+    quire_canonical::sha256(preimage, quire_canonical::Limits::new(bytes))
+        .map(|digest| digest.to_string())
 }
 
-fn node_ref(digest: &str) -> Value {
-    json!({"domain": NODE_DOMAIN, "digest": digest})
+/// `quire.structural-node/v1`'s closed preimage of one node. Its depth is
+/// fixed by its type, so it derives `FixedShape` and holds no `Value`: a member
+/// that later grows a recursive or `Value` member stops compiling.
+#[derive(Serialize, FixedShape)]
+struct StructuralPreimage<'a> {
+    version: &'static str,
+    node_tag: &'a str,
+    semantic_form: &'a str,
+    semantic_type: Option<NodeRef<'a>>,
+    /// Always `null`: no structural node carries a `declaration`.
+    declaration: (),
+    /// Always `null`: no structural node is in a recursion group.
+    recursion: (),
+    /// Present for a model declaration node and absent for an anonymous type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<ModelOwnerPreimage<'a>>,
+    body: AggregateBody<'a>,
+}
+
+/// QSpec's `ModelOwner`: a declaration of a selected domain package.
+#[derive(Serialize, FixedShape)]
+struct ModelOwnerPreimage<'a> {
+    kind: &'static str,
+    identity: &'a str,
+    node: &'a str,
+}
+
+/// A reference to a node by its key.
+#[derive(Serialize, FixedShape)]
+struct NodeRef<'a> {
+    domain: &'static str,
+    digest: &'a str,
+}
+
+fn node_ref(digest: &str) -> NodeRef<'_> {
+    NodeRef {
+        domain: NODE_DOMAIN,
+        digest,
+    }
+}
+
+/// A body: an `aggregate` of members.
+#[derive(Serialize, FixedShape)]
+struct AggregateBody<'a> {
+    term: &'static str,
+    members: Vec<BodyMember<'a>>,
+}
+
+fn aggregate(members: Vec<BodyMember<'_>>) -> AggregateBody<'_> {
+    AggregateBody {
+        term: "aggregate",
+        members,
+    }
+}
+
+/// A member of a structural body: a named integer bound or a reference.
+#[derive(Serialize, FixedShape)]
+#[serde(untagged)]
+enum BodyMember<'a> {
+    Binding(Binding<'a>),
+    Reference(Reference<'a>),
+}
+
+/// A `binding` term of a bound.
+#[derive(Serialize, FixedShape)]
+struct Binding<'a> {
+    term: &'static str,
+    name: &'static str,
+    value: IntegerLiteral<'a>,
+}
+
+/// An `Integer`-typed `literal` term.
+#[derive(Serialize, FixedShape)]
+struct IntegerLiteral<'a> {
+    term: &'static str,
+    #[serde(rename = "type")]
+    type_node: NodeRef<'a>,
+    value: &'a str,
+    value_kind: &'static str,
+}
+
+/// A `reference` term.
+#[derive(Serialize, FixedShape)]
+struct Reference<'a> {
+    term: &'static str,
+    target: NodeRef<'a>,
 }
 
 /// The last `/` segment of an IR node identity: a member's name.
@@ -320,75 +430,111 @@ impl MemberType {
     /// and FR-094 key it (`quire.structural-node/v1`, no `declaration`, no
     /// `owner`, self-typed composite and scalar nodes, bounded domains typed
     /// at the node they bound).
-    pub(super) fn node_key(&self) -> String {
-        let integer_literal = |value: &str| {
-            json!({
-                "term": "literal",
-                "type": node_ref(&Self::Integer.node_key()),
-                "value": value,
-                "value_kind": "integer",
-            })
-        };
-        let bounds = |lower: &str, upper: &str| {
-            json!({"term": "aggregate", "members": [
-                {"term": "binding", "name": "min", "value": integer_literal(lower)},
-                {"term": "binding", "name": "max", "value": integer_literal(upper)},
-            ]})
-        };
-        let over = |inner: &str| json!({"term": "aggregate", "members": [{"term": "reference", "target": node_ref(inner)}]});
-        let node = |tag: &str, form: &str, semantic_type: Value, body: Value| {
-            structural_key(&json!({
-                "version": STRUCTURAL_NODE,
-                "node_tag": tag,
-                "semantic_form": form,
-                "semantic_type": semantic_type,
-                "declaration": null,
-                "recursion": null,
-                "body": body,
-            }))
-        };
-        let empty = json!({"term": "aggregate", "members": []});
+    ///
+    /// Every key is hashed by `quire-canonical` under `bytes`, the reader's
+    /// byte limit.
+    ///
+    /// # Errors
+    ///
+    /// The encoder's refusal when a preimage's canonical bytes exceed `bytes`.
+    pub(super) fn node_key(&self, bytes: u64) -> Result<String, quire_canonical::Error> {
         match self {
-            Self::Boolean => node("scalar_type", "boolean", Value::Null, empty),
-            Self::Integer => node("scalar_type", "integer", Value::Null, empty),
-            Self::IntRange(range) => node(
-                "bounded_domain",
-                "integer_range",
-                node_ref(&Self::Integer.node_key()),
-                bounds(&range.lower.to_string(), &range.upper.to_string()),
-            ),
-            Self::Reference(target) => {
-                node("composite_type", "reference", Value::Null, over(target))
+            Self::Boolean => {
+                anonymous("scalar_type", "boolean", None, aggregate(Vec::new()), bytes)
             }
-            Self::Option(inner) => node(
-                "composite_type",
-                "option",
-                Value::Null,
-                over(&inner.node_key()),
-            ),
+            Self::Integer => {
+                anonymous("scalar_type", "integer", None, aggregate(Vec::new()), bytes)
+            }
+            Self::IntRange(range) => {
+                let integer = Self::Integer.node_key(bytes)?;
+                anonymous(
+                    "bounded_domain",
+                    "integer_range",
+                    Some(&integer),
+                    bounds(&integer, &range.lower.to_string(), &range.upper.to_string()),
+                    bytes,
+                )
+            }
+            Self::Reference(target) => {
+                anonymous("composite_type", "reference", None, over(target), bytes)
+            }
+            Self::Option(inner) => {
+                let inner = inner.node_key(bytes)?;
+                anonymous("composite_type", "option", None, over(&inner), bytes)
+            }
             Self::Collection {
                 kind,
                 element,
                 bounds: collection_bounds,
             } => {
-                let collection = node(
-                    "composite_type",
-                    kind.form(),
-                    Value::Null,
-                    over(&element.node_key()),
-                );
+                let element = element.node_key(bytes)?;
+                let collection =
+                    anonymous("composite_type", kind.form(), None, over(&element), bytes)?;
                 match collection_bounds {
-                    None => collection,
-                    Some((lower, upper)) => node(
-                        "bounded_domain",
-                        "collection_bounds",
-                        node_ref(&collection),
-                        bounds(&lower.to_string(), &upper.to_string()),
-                    ),
+                    None => Ok(collection),
+                    Some((lower, upper)) => {
+                        let integer = Self::Integer.node_key(bytes)?;
+                        anonymous(
+                            "bounded_domain",
+                            "collection_bounds",
+                            Some(&collection),
+                            bounds(&integer, &lower.to_string(), &upper.to_string()),
+                            bytes,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/// The key of an anonymous structural node: no `declaration`, no `owner`.
+fn anonymous(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: Option<&str>,
+    body: AggregateBody<'_>,
+    bytes: u64,
+) -> Result<String, quire_canonical::Error> {
+    structural_key(
+        &StructuralPreimage {
+            version: STRUCTURAL_NODE,
+            node_tag,
+            semantic_form,
+            semantic_type: semantic_type.map(node_ref),
+            declaration: (),
+            recursion: (),
+            owner: None,
+            body,
+        },
+        bytes,
+    )
+}
+
+/// An `aggregate` of one `reference` to `target`.
+fn over(target: &str) -> AggregateBody<'_> {
+    aggregate(vec![BodyMember::Reference(Reference {
+        term: "reference",
+        target: node_ref(target),
+    })])
+}
+
+/// An `aggregate` of the `min` and `max` bindings, each an `Integer` literal
+/// typed at `integer`.
+fn bounds<'a>(integer: &'a str, lower: &'a str, upper: &'a str) -> AggregateBody<'a> {
+    let binding = |name: &'static str, value: &'a str| {
+        BodyMember::Binding(Binding {
+            term: "binding",
+            name,
+            value: IntegerLiteral {
+                term: "literal",
+                type_node: node_ref(integer),
+                value,
+                value_kind: "integer",
+            },
+        })
+    };
+    aggregate(vec![binding("min", lower), binding("max", upper)])
 }
 
 /// The member step 3 resolves.
@@ -440,11 +586,18 @@ impl From<ValidationFailure> for ModelFailure {
 pub(super) struct Budget<'w> {
     meter: &'w mut WorkMeter,
     selection: usize,
+    /// The reader's byte limit: the ceiling of every encode the row's
+    /// document and declarations reach.
+    bytes: u64,
 }
 
 impl<'w> Budget<'w> {
-    pub(super) fn new(meter: &'w mut WorkMeter, selection: usize) -> Self {
-        Self { meter, selection }
+    pub(super) fn new(meter: &'w mut WorkMeter, selection: usize, bytes: u64) -> Self {
+        Self {
+            meter,
+            selection,
+            bytes,
+        }
     }
 
     /// The pointer of the row this budget is charged at.
@@ -611,11 +764,20 @@ impl DomainModel {
             return bounds.map(MemberType::IntRange);
         }
         let object = self.object_types.get(type_ref)?;
-        (!object.interface).then(|| {
-            MemberType::Reference(
-                declaration_key(&self.identity, DeclarationForm::ObjectType, type_ref).into(),
-            )
-        })
+        if object.interface {
+            return None;
+        }
+        // `ModelOwners::new` derives this same key (or a longer one for an
+        // interface) under the same limit and refuses the read when the
+        // encoder refuses it, so no refusal reaches this point.
+        declaration_key(
+            &self.identity,
+            DeclarationForm::ObjectType,
+            type_ref,
+            self.bytes,
+        )
+        .ok()
+        .map(|key| MemberType::Reference(key.into()))
     }
 
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
@@ -671,10 +833,10 @@ pub(super) struct ModelOwners<'m> {
 impl<'m> ModelOwners<'m> {
     /// Recomputes the key of every object type and relationship declaration
     /// of each admitted document; `charge` is called once per key.
-    pub(super) fn new<E>(
+    pub(super) fn new(
         models: &'m [DomainModel],
-        mut charge: impl FnMut(usize) -> Result<(), E>,
-    ) -> Result<Self, E> {
+        mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
+    ) -> Result<Self, ValidationFailure> {
         let mut by_key = BTreeMap::new();
         for (index, package) in models.iter().enumerate() {
             let objects = package.object_types.iter().map(|(node, declared)| {
@@ -691,8 +853,19 @@ impl<'m> ModelOwners<'m> {
                 .map(|node| (node, DeclarationForm::Relationship));
             for (node, form) in objects.chain(relationships) {
                 charge(index)?;
+                // A key the encoder refuses (a preimage past the byte limit)
+                // refuses the read as `invalid_semantic_graph` at the
+                // selection row the declaration belongs to.
+                let key = declaration_key(&package.identity, form, node, package.bytes).map_err(
+                    |_| {
+                        ValidationFailure::refused(
+                            CheckedPackageRefusalCode::InvalidSemanticGraph,
+                            member_pointer(&["lock", "model_selections"]).index(index),
+                        )
+                    },
+                )?;
                 by_key.insert(
-                    declaration_key(&package.identity, form, node),
+                    key,
                     Owner {
                         package,
                         form,
@@ -761,7 +934,7 @@ impl<'m> ModelOwners<'m> {
             Ok(owner) => owner,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let mut budget = Budget::new(meter, owner.selection);
+        let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
         match owner.package.resolve(owner.node, kind, name, &mut budget) {
             Ok(member) => Ok(Ok((owner, member))),
             Err(ModelFailure::Refused(refusal)) => Ok(Err(refusal)),
@@ -809,6 +982,12 @@ impl SelectionRefusal {
 pub(super) enum SelectionFailure {
     Refused(SelectionRefusal),
     Limit(ValidationFailure),
+    /// The document holds a number whose text denotes a magnitude past 2^53:
+    /// `noncanonical_wire` at the row's `digest`, with the pointer of the
+    /// first such number in the document.
+    NumberPast2Pow53 {
+        document_pointer: JsonPointer,
+    },
 }
 
 impl From<SelectionRefusal> for SelectionFailure {
@@ -868,12 +1047,37 @@ pub(super) fn admit_document(
         Cause::ByteDigestMismatch,
         Some("digest"),
     );
-    // Bytes that are not strict JSON have no RFC 8785 form, so no digest of
-    // theirs equals the selected one.
-    let document = strict_json_value(bytes).map_err(|_| mismatch)?;
-    if digest_json(&document).ok().as_deref() != Some(selection.digest.as_ref()) {
+    // The document is read once, by `quire-canonical`, which keeps each
+    // number's text. Bytes that are not strict JSON have no RFC 8785 form, so
+    // no digest of theirs equals the selected one; bytes past the reader's
+    // limit are the read's `incomplete` for `bytes`.
+    let reading = match quire_canonical::read(bytes, budget.bytes) {
+        Ok(reading) => reading,
+        Err(quire_canonical::ReadError::Limit(limit)) => {
+            return Err(bytes_exceeded(limit).into());
+        }
+        Err(_) => return Err(mismatch.into()),
+    };
+    // Decided on the text of each number, before any rounding to a double and
+    // before any digest, so two documents that differ in such a number never
+    // share one.
+    if let Some(document_pointer) = first_number_past_2_pow_53(&reading) {
+        return Err(SelectionFailure::NumberPast2Pow53 { document_pointer });
+    }
+    let digest = match quire_canonical::sha256(&reading, quire_canonical::Limits::new(budget.bytes))
+    {
+        Ok(digest) => digest,
+        Err(quire_canonical::Error::Limit(limit)) => return Err(bytes_exceeded(limit).into()),
+        Err(_) => return Err(mismatch.into()),
+    };
+    if digest.to_string() != selection.digest.as_ref() {
         return Err(mismatch.into());
     }
+    // The declarations are read from the one reading of the document, as a
+    // `Value` view of it: the document is not parsed a second time, so the
+    // number decision above, the digest and the declarations are about the
+    // same reading.
+    let document = document_value(&reading);
     let wrong = |member| {
         SelectionFailure::from(SelectionRefusal::at(
             Code::InvalidModelBinding,
@@ -881,11 +1085,226 @@ pub(super) fn admit_document(
             Some(member),
         ))
     };
-    match identity_of(&document) {
-        Some((identity, _)) if identity != selection.identity.as_ref() => Err(wrong("identity")),
-        Some((_, version)) if version != selection.version.as_ref() => Err(wrong("version")),
-        Some(_) => Ok(document),
-        None => Err(wrong("identity")),
+    let refusal = match identity_of(&document) {
+        Some((identity, _)) if identity != selection.identity.as_ref() => wrong("identity"),
+        Some((_, version)) if version != selection.version.as_ref() => wrong("version"),
+        Some(_) => return Ok(document),
+        None => wrong("identity"),
+    };
+    quire_canonical::drop_value(document);
+    Err(refusal)
+}
+
+/// The `Value` view of one reading of a document, built from an explicit heap
+/// stack so a document of any depth converts on any thread stack. Each number
+/// is the integer its text spells when it spells one that fits an `i64` or
+/// `u64`, and the double its text denotes otherwise. The caller drops the
+/// result through `quire_canonical::drop_value`, as `Value`'s own drop recurses.
+fn document_value(document: &quire_canonical::Document) -> Value {
+    use quire_canonical::{Items, Members, Node};
+    enum Open<'d> {
+        Array(Vec<Value>, Items<'d>),
+        Object(serde_json::Map<String, Value>, Members<'d>, String),
+    }
+    let mut open: Vec<Open<'_>> = Vec::new();
+    let mut pending = Some(document.root());
+    loop {
+        let mut finished = None;
+        if let Some(node) = pending.take() {
+            match node.node() {
+                Node::Null => finished = Some(Value::Null),
+                Node::Bool(flag) => finished = Some(Value::Bool(flag)),
+                Node::Number(number) => {
+                    let text = number.text();
+                    let value = text
+                        .parse::<i64>()
+                        .map(serde_json::Number::from)
+                        .or_else(|_| text.parse::<u64>().map(serde_json::Number::from))
+                        .ok()
+                        .or_else(|| serde_json::Number::from_f64(number.value()));
+                    finished = Some(value.map_or(Value::Null, Value::Number));
+                }
+                Node::String(text) => finished = Some(Value::String(text.to_owned())),
+                Node::Array(items) => open.push(Open::Array(Vec::new(), items)),
+                Node::Object(members) => {
+                    open.push(Open::Object(serde_json::Map::new(), members, String::new()));
+                }
+            }
+        }
+        // Hand each finished value to its container, then move to the next
+        // child, closing every container with none left.
+        loop {
+            if let Some(value) = finished.take() {
+                match open.last_mut() {
+                    None => return value,
+                    Some(Open::Array(elements, _)) => elements.push(value),
+                    Some(Open::Object(members, _, name)) => {
+                        members.insert(std::mem::take(name), value);
+                    }
+                }
+            }
+            match open.last_mut() {
+                None => return Value::Null,
+                Some(Open::Array(_, items)) => match items.next() {
+                    Some(item) => {
+                        pending = Some(item);
+                        break;
+                    }
+                    None => {
+                        if let Some(Open::Array(elements, _)) = open.pop() {
+                            finished = Some(Value::Array(elements));
+                        }
+                    }
+                },
+                Some(Open::Object(_, members, name)) => match members.next() {
+                    Some((key, member)) => {
+                        key.clone_into(name);
+                        pending = Some(member);
+                        break;
+                    }
+                    None => {
+                        if let Some(Open::Object(members, _, _)) = open.pop() {
+                            finished = Some(Value::Object(members));
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// The reader's `incomplete` for `bytes`: the document's length as consumed
+/// and no pointer, as every byte-limit outcome is (FR-038-AC-26).
+fn bytes_exceeded(limit: quire_canonical::LimitExceeded) -> ValidationFailure {
+    ValidationFailure::incomplete(
+        CheckedPackageLimit::Bytes,
+        limit.bound,
+        limit.required,
+        None,
+    )
+}
+
+/// The RFC 6901 pointer of the first number, in document order, whose text
+/// denotes a magnitude greater than 2^53; `None` when there is none. Walks
+/// from an explicit heap stack, so a document of any depth is walked on any
+/// thread stack.
+fn first_number_past_2_pow_53(document: &quire_canonical::Document) -> Option<JsonPointer> {
+    use quire_canonical::{Items, Members, Node};
+    enum Open<'d> {
+        Array(Items<'d>, usize),
+        Object(Members<'d>),
+    }
+    let mut path: Vec<Step<'_>> = Vec::new();
+    let mut open: Vec<Open<'_>> = Vec::new();
+    let mut next = Some(document.root());
+    loop {
+        if let Some(value) = next.take() {
+            match value.node() {
+                Node::Number(number) if exceeds_2_pow_53(number.text()) => {
+                    return Some(pointer_from_steps(path.iter().copied()));
+                }
+                Node::Array(items) => open.push(Open::Array(items, 0)),
+                Node::Object(members) => open.push(Open::Object(members)),
+                Node::Null | Node::Bool(_) | Node::Number(_) | Node::String(_) => {}
+            }
+        }
+        // The path holds one step for each open container but the innermost
+        // child being entered, so it is cut back to the open containers
+        // before the next child's step is pushed.
+        let depth = open.len().saturating_sub(1);
+        match open.last_mut() {
+            None => return None,
+            Some(Open::Array(items, index)) => match items.next() {
+                Some(item) => {
+                    path.truncate(depth);
+                    path.push(Step::Index(*index));
+                    *index = index.saturating_add(1);
+                    next = Some(item);
+                }
+                None => {
+                    open.pop();
+                }
+            },
+            Some(Open::Object(members)) => match members.next() {
+                Some((name, member)) => {
+                    path.truncate(depth);
+                    path.push(Step::Key(name));
+                    next = Some(member);
+                }
+                None => {
+                    open.pop();
+                }
+            },
+        }
+    }
+}
+
+/// The decimal digits of `2^53`, 9007199254740992.
+const MAXIMUM_INTEGER_DIGITS: &str = "9007199254740992";
+
+/// Whether the JSON number written `text` denotes a magnitude greater than
+/// 2^53, decided on the digits and exponent as written and never on a double.
+/// `text` is a number `quire-canonical` read, so it is `-? int frac? exp?`.
+fn exceeds_2_pow_53(text: &str) -> bool {
+    let unsigned = text.strip_prefix('-').unwrap_or(text);
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent),
+        None => (unsigned, "0"),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    // The value is `digits` x 10^scale.
+    let digits = [whole, fraction].concat();
+    let fraction_len = i64::try_from(fraction.len()).unwrap_or(i64::MAX);
+    let exponent_value = parse_exponent(exponent);
+    let trimmed = digits.trim_start_matches('0');
+    let significant = trimmed.trim_end_matches('0');
+    if significant.is_empty() {
+        return false;
+    }
+    let trailing = trimmed.len().saturating_sub(significant.len());
+    let scale = exponent_value
+        .saturating_sub(fraction_len)
+        .saturating_add(i64::try_from(trailing).unwrap_or(i64::MAX));
+    // `significant` has no trailing zero, so a negative `scale` leaves a
+    // nonzero fraction behind its last integer digit.
+    let length = i64::try_from(significant.len()).unwrap_or(i64::MAX);
+    let integer_digits = length.saturating_add(scale);
+    let maximum = i64::try_from(MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(i64::MAX);
+    match integer_digits.cmp(&maximum) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => {
+            // Sixteen integer digits: the first sixteen of `significant`,
+            // zero-padded when `scale` is positive, against 2^53.
+            let value = [
+                significant,
+                &"0".repeat(usize::try_from(scale).unwrap_or(0)),
+            ]
+            .concat();
+            let head = value.get(..MAXIMUM_INTEGER_DIGITS.len()).unwrap_or(&value);
+            match head.cmp(MAXIMUM_INTEGER_DIGITS) {
+                std::cmp::Ordering::Equal => scale < 0,
+                other => other.is_gt(),
+            }
+        }
+    }
+}
+
+/// A JSON exponent, `[+-]?digits`, saturated to an `i64`.
+fn parse_exponent(text: &str) -> i64 {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let magnitude = digits.bytes().fold(0_i64, |total, byte| {
+        total
+            .saturating_mul(10)
+            .saturating_add(i64::from(byte.saturating_sub(b'0')))
+    });
+    if negative {
+        -magnitude
+    } else {
+        magnitude
     }
 }
 
@@ -913,7 +1332,9 @@ pub(super) fn admit_selection(
         semantic_ir_identity,
         budget,
     )?;
-    Ok(read_semantic_ir(&document, budget)?)
+    let model = read_semantic_ir(&document, budget);
+    quire_canonical::drop_value(document);
+    Ok(model?)
 }
 
 /// Whether `text` is an FR-154 object id, `^[A-Za-z][A-Za-z0-9_]*$`.
@@ -1182,7 +1603,11 @@ pub(super) fn read_semantic_ir(
     let mut model = DomainModel {
         identity: identity.into(),
         version: version.into(),
-        ..DomainModel::default()
+        bytes: budget.bytes,
+        object_types: BTreeMap::new(),
+        value_types: BTreeMap::new(),
+        relationships: BTreeSet::new(),
+        other_types: BTreeSet::new(),
     };
     let mut scope = Scope {
         objects: BTreeSet::new(),

@@ -363,6 +363,7 @@ pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRef
         cause: None,
         locus: None,
         contract_version: None,
+        document_pointer: None,
     }
 }
 
@@ -386,6 +387,7 @@ pub fn refusal_bytes(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
         cause: None,
         locus: None,
         contract_version: None,
+        document_pointer: None,
     }
 }
 
@@ -398,6 +400,7 @@ pub fn unknown_version(version: &str) -> CheckedPackageRefusal {
         cause: None,
         locus: None,
         contract_version: Some(version.into()),
+        document_pointer: None,
     }
 }
 
@@ -416,6 +419,7 @@ pub fn refusal_at(
         cause,
         locus: Some(typed_node_id(locus_digest)),
         contract_version: None,
+        document_pointer: None,
     }
 }
 

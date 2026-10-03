@@ -358,8 +358,20 @@ fn check_clause(
         return Err(signature_refusal());
     }
     for (parameter, slot) in bound.iter().zip(expected) {
-        let key = owner.package.slot_type(slot).map(|ty| ty.node_key());
-        if key.as_deref() != Some(&*parameter.semantic_type.digest) {
+        let Some(slot_type) = owner.package.slot_type(slot) else {
+            return Err(signature_refusal());
+        };
+        // A key the encoder refuses (a preimage past the byte limit) is
+        // `invalid_semantic_graph` at the clause, as a refused node key is.
+        let key = slot_type.node_key(owner.package.bytes).map_err(|_| {
+            ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                arguments_at.clone().index(0),
+                None,
+                clause.node_id.clone(),
+            )
+        })?;
+        if key.as_str() != &*parameter.semantic_type.digest {
             return Err(signature_refusal());
         }
     }

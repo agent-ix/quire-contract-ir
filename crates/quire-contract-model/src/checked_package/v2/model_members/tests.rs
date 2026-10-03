@@ -4,11 +4,87 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
+use ix_trace_rs::trace;
+
+/// The byte limit these tests read under: far above any document here.
+const BYTES: u64 = 1 << 20;
+
+/// The lowercase SHA-256 of `text`, the digest of expected canonical bytes
+/// written out in a test.
+fn sha256_of(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
+/// A structural node key is the SHA-256 of the canonical bytes of its
+/// preimage, written out here from the preimage's JSON text with members in
+/// RFC 8785 order, not produced by the code under test.
+///
+/// Tracing: TC-048, FR-038-AC-89
+#[trace("TC-048", "FR-038-AC-89")]
+#[test]
+fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
+    let anonymous = concat!(
+        r#"{"body":{"members":[],"term":"aggregate"},"declaration":null,"#,
+        r#""node_tag":"scalar_type","recursion":null,"semantic_form":"boolean","#,
+        r#""semantic_type":null,"version":"quire.structural-node/v1"}"#,
+    );
+    assert_eq!(
+        MemberType::Boolean.node_key(BYTES).as_deref().ok(),
+        Some(sha256_of(anonymous).as_str())
+    );
+    let declaration = concat!(
+        r#"{"body":{"members":[],"term":"aggregate"},"declaration":null,"#,
+        r#""node_tag":"model","owner":{"identity":"acme/orders","kind":"model","#,
+        r#""node":"ix://acme/orders/Order"},"recursion":null,"#,
+        r#""semantic_form":"object_type","semantic_type":null,"#,
+        r#""version":"quire.structural-node/v1"}"#,
+    );
+    assert_eq!(
+        declaration_key(
+            "acme/orders",
+            DeclarationForm::ObjectType,
+            "ix://acme/orders/Order",
+            BYTES
+        )
+        .as_deref()
+        .ok(),
+        Some(sha256_of(declaration).as_str())
+    );
+    // The byte ceiling is the encoder's: one byte under the preimage refuses.
+    let length = u64::try_from(anonymous.len()).expect("length");
+    assert!(MemberType::Boolean.node_key(length).is_ok());
+    assert!(MemberType::Boolean.node_key(length - 1).is_err());
+}
+
+/// A declaration key the encoder refuses (its preimage is over the byte limit)
+/// refuses the read as `invalid_semantic_graph` at the declaring selection's
+/// row, and is not skipped as though the declaration had no owner. This backs
+/// the refusal-location rule of FR-038 "Every identity digest is computed
+/// through quire-canonical", which no numbered criterion states, so it carries
+/// no criterion tag.
+#[test]
+fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
+    let mut model = read(&document(vec![object_type(WIDGET, &[], vec![])])).expect("reads");
+    let mut charged = |_: usize| Ok(());
+    assert!(ModelOwners::new(std::slice::from_ref(&model), &mut charged).is_ok());
+    model.bytes = 10;
+    match ModelOwners::new(std::slice::from_ref(&model), &mut charged) {
+        Err(ValidationFailure::Refused(refusal)) => {
+            assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+            assert_eq!(
+                refusal.path.map(|path| path.to_string()).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
 
 /// [`read_semantic_ir`] under a work limit nothing reaches.
 fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
-    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0)) {
+    match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES)) {
         Ok(model) => Ok(model),
         Err(ModelFailure::Refused(refusal)) => Err(refusal),
         Err(ModelFailure::Limit(_)) => panic!("no limit is reached"),
@@ -23,7 +99,7 @@ fn resolve<'m>(
     name: &str,
 ) -> Result<Resolved<'m>, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
-    match model.resolve(node, kind, name, &mut Budget::new(&mut meter, 0)) {
+    match model.resolve(node, kind, name, &mut Budget::new(&mut meter, 0, BYTES)) {
         Ok(resolved) => Ok(resolved),
         Err(ModelFailure::Refused(refusal)) => Err(refusal),
         Err(ModelFailure::Limit(_)) => panic!("no limit is reached"),
@@ -99,7 +175,7 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
     let conforms = |a, b| {
         let mut meter = WorkMeter::new(u64::MAX);
         model
-            .conforms(a, b, &mut Budget::new(&mut meter, 0))
+            .conforms(a, b, &mut Budget::new(&mut meter, 0, BYTES))
             .expect("no limit is reached")
     };
     assert!(conforms(GADGET, WIDGET));
@@ -206,7 +282,9 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
     let bytes = serde_json::to_vec(&document).expect("bytes");
-    let digest = digest_json(&document).expect("digest");
+    let digest = quire_canonical::sha256(&document, quire_canonical::Limits::new(BYTES))
+        .expect("digest")
+        .to_string();
     let selection = |version: &str, digest: &str| CheckedDomainPackageRef {
         identity: "acme/orders".into(),
         version: version.into(),
@@ -217,7 +295,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
     evidence.insert_domain_package_document(digest.clone(), bytes.clone());
     let admit = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
         let mut meter = WorkMeter::new(u64::MAX);
-        admit_selection(selection, evidence, &mut Budget::new(&mut meter, 0))
+        admit_selection(selection, evidence, &mut Budget::new(&mut meter, 0, BYTES))
     };
     let admitted = admit(&selection("1.0.0", &digest), &evidence).expect("admitted");
     assert!(admitted.object_types.contains_key(WIDGET));
@@ -415,14 +493,14 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     // The read: exact work admits, one less is incomplete at the row.
     let document = document(types());
     let mut unlimited = WorkMeter::new(u64::MAX);
-    read_semantic_ir(&document, &mut Budget::new(&mut unlimited, 2)).expect("reads");
+    read_semantic_ir(&document, &mut Budget::new(&mut unlimited, 2, BYTES)).expect("reads");
     let used = unlimited.consumed();
     assert!(used > 0, "a read is charged");
     let mut exact = WorkMeter::new(used);
-    read_semantic_ir(&document, &mut Budget::new(&mut exact, 2)).expect("exact work admits");
+    read_semantic_ir(&document, &mut Budget::new(&mut exact, 2, BYTES)).expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
     let Err(ModelFailure::Limit(failure)) =
-        read_semantic_ir(&document, &mut Budget::new(&mut tight, 2))
+        read_semantic_ir(&document, &mut Budget::new(&mut tight, 2, BYTES))
     else {
         panic!("one unit less than the read used is a limit");
     };
@@ -438,7 +516,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
             GADGET,
             MemberKind::Field,
             "code",
-            &mut Budget::new(&mut meter, 1),
+            &mut Budget::new(&mut meter, 1, BYTES),
         )
         .expect("resolves");
     let used = meter.consumed();
@@ -448,7 +526,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
         GADGET,
         MemberKind::Field,
         "code",
-        &mut Budget::new(&mut tight, 1),
+        &mut Budget::new(&mut tight, 1, BYTES),
     ) else {
         panic!("one unit less than the resolution used is a limit");
     };

@@ -327,6 +327,13 @@ pub struct CheckedPackageRefusal {
     /// The `contract_version` string the reader read, present exactly when
     /// `code` is [`CheckedPackageRefusalCode::UnknownContractVersion`].
     pub contract_version: Option<Box<str>>,
+    /// The RFC 6901 pointer into a supplied domain package document of the
+    /// number the refusal is about, present exactly when a selected model
+    /// document holds a number whose text denotes a magnitude past 2^53
+    /// (`noncanonical_wire` at the selection row's `digest`). `path` then
+    /// locates the row; this pointer resolves in the supplied document, not in
+    /// the package.
+    pub document_pointer: Option<JsonPointer>,
 }
 
 /// A typed non-conclusive outcome caused by the first exhausted limit.

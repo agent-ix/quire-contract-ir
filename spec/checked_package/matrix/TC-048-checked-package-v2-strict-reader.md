@@ -579,7 +579,9 @@ is on the stated path; `make deny` passes.
 
 ## Identity digests through quire-canonical (FR-038-AC-89 through FR-038-AC-95)
 
-Planned: no test exists until the code changes of IR-274 land. For each in-repo
+Code change A of IR-274 implements the V2 reader and lowering cases below; the
+v1 and output-mapping parts (code changes B and C) are not implemented, so
+FR-038-AC-91 and FR-038-AC-92 are scanned over `checked_package/` only. For each in-repo
 positive fixture, recompute every nominal, application and structural node key
 and the `package_id`, and compare each with the digest the fixture recorded
 before the move; lower every node and compare each `ir_id`, the lowered package's

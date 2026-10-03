@@ -7,24 +7,93 @@
 //! `details` nest as deep as their input. Each implements
 //! [`quire_canonical::Encode`] by pushing [`Writer`] events in its own field
 //! order, delegating every fixed-depth member to [`Writer::serialize`] and
-//! writing each `Value` from an explicit heap stack ([`write_value`]), so no
-//! native recursion follows the input. [`Writer`] orders object members itself,
-//! so the bytes do not depend on how a `Value`'s map is backed.
+//! every `Value` to `quire-canonical`'s own `Encode` for `serde_json::Value`,
+//! which walks from an explicit heap stack, so no native recursion follows the
+//! input. [`Writer`] orders object members itself, so the bytes do not depend
+//! on how a `Value`'s map is backed.
+//!
+//! The application node preimage, whose body is a `Value`, lives here too, and
+//! so do the helpers the lowering's two preimages share. This module holds no
+//! walker over a `Value` and no drop of one.
 //!
 //! Encoding adds no depth limit. The only refusals an encode returns are the
 //! caller's byte ceiling and a number `quire-canonical` has no encoding for
 //! (FR-038 "Canonical encoding of the wire types").
 
 use super::{
-    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
+    CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
     CheckedPackageIdentityPreimageV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
 };
-use quire_canonical::{Encode, Error, FixedShape, Limits, Sink, Writer};
-use serde_json::{map, Number, Value};
-use std::slice;
+use crate::checked_package::shared::CheckedNodeId;
+use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use serde_json::Value;
+use std::borrow::Cow;
+
+/// `quire.application-node/v1`, the version of the application node preimage.
+pub(super) const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
+
+/// A node's place in its recursion group: the group's size and the node's
+/// ordinal among its members, in graph order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct GroupPlace {
+    pub(super) size: usize,
+    pub(super) ordinal: usize,
+}
+
+/// QSpec FR-322's `application_node_preimage` of one node: `{version,
+/// node_tag, semantic_form, semantic_type, declaration, recursion, body}`,
+/// where `declaration` and `recursion` are `null` when the node has none. The
+/// body is a `Value`, so the type implements [`Encode`] and not `FixedShape`.
+pub(super) struct ApplicationNodePreimage<'a> {
+    pub(super) node_tag: &'a str,
+    pub(super) semantic_form: &'a str,
+    pub(super) semantic_type: &'a CheckedNodeId,
+    pub(super) declaration: Option<&'a CheckedDeclaration>,
+    pub(super) recursion: Option<GroupPlace>,
+    pub(super) body: Cow<'a, Value>,
+}
+
+impl Encode for ApplicationNodePreimage<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("version")?;
+        writer.string(APPLICATION_NODE_VERSION)?;
+        writer.name("node_tag")?;
+        writer.string(self.node_tag)?;
+        writer.name("semantic_form")?;
+        writer.string(self.semantic_form)?;
+        member(writer, "semantic_type", self.semantic_type)?;
+        writer.name("declaration")?;
+        match self.declaration {
+            Some(declaration) => writer.serialize(declaration)?,
+            None => writer.null()?,
+        }
+        writer.name("recursion")?;
+        match self.recursion {
+            Some(place) => {
+                writer.begin_object()?;
+                writer.name("size")?;
+                writer.integer(integer(place.size)?)?;
+                writer.name("ordinal")?;
+                writer.integer(integer(place.ordinal)?)?;
+                writer.end_object()?;
+            }
+            None => writer.null()?,
+        }
+        value(writer, "body", &self.body)?;
+        writer.end_object()
+    }
+}
+
+/// A count as the integer the writer takes.
+fn integer(count: usize) -> Result<i128, Error> {
+    i128::try_from(count).map_err(|_| Error::Internal {
+        invariant: "a count fits i128",
+    })
+}
 
 /// Writes the member `name` whose value has a depth fixed by its type.
-fn member<S, T>(writer: &mut Writer<'_, S>, name: &str, value: &T) -> Result<(), Error>
+pub(super) fn member<S, T>(writer: &mut Writer<'_, S>, name: &str, value: &T) -> Result<(), Error>
 where
     S: Sink + ?Sized,
     T: FixedShape + ?Sized,
@@ -35,7 +104,11 @@ where
 
 /// Writes the member `name` when `value` is present and nothing when it is
 /// absent: the wire omits an absent optional member rather than writing `null`.
-fn present<S, T>(writer: &mut Writer<'_, S>, name: &str, value: &Option<T>) -> Result<(), Error>
+pub(super) fn present<S, T>(
+    writer: &mut Writer<'_, S>,
+    name: &str,
+    value: &Option<T>,
+) -> Result<(), Error>
 where
     S: Sink + ?Sized,
     T: FixedShape,
@@ -47,7 +120,11 @@ where
 }
 
 /// Writes the member `name` as an array of values that encode themselves.
-fn elements<S, T>(writer: &mut Writer<'_, S>, name: &str, items: &[T]) -> Result<(), Error>
+pub(super) fn elements<S, T>(
+    writer: &mut Writer<'_, S>,
+    name: &str,
+    items: &[T],
+) -> Result<(), Error>
 where
     S: Sink + ?Sized,
     T: Encode,
@@ -60,104 +137,24 @@ where
     writer.end_array()
 }
 
-/// Writes the member `name` as `value`, a JSON value of any depth.
-fn body<S>(writer: &mut Writer<'_, S>, name: &str, value: &Value) -> Result<(), Error>
+/// Writes the member `name` as `item`, a value that encodes itself.
+pub(super) fn encoded<S, T>(writer: &mut Writer<'_, S>, name: &str, item: &T) -> Result<(), Error>
+where
+    S: Sink + ?Sized,
+    T: Encode + ?Sized,
+{
+    writer.name(name)?;
+    item.encode_into(writer)
+}
+
+/// Writes the member `name` as `body`, a JSON value of any depth, through
+/// `quire-canonical`'s `Encode` for `serde_json::Value`.
+pub(super) fn value<S>(writer: &mut Writer<'_, S>, name: &str, body: &Value) -> Result<(), Error>
 where
     S: Sink + ?Sized,
 {
     writer.name(name)?;
-    write_value(writer, value)
-}
-
-/// One container of a [`Value`] that is still open, with the members it has
-/// yet to write.
-enum Open<'v> {
-    Array(slice::Iter<'v, Value>),
-    Object(map::Iter<'v>),
-}
-
-/// Writes `root` as one JSON value, from an explicit heap stack of the
-/// containers still open and never by recursion, so a value of any depth
-/// encodes on any thread stack. An array is `begin_array`, its elements and
-/// `end_array`; an object is `begin_object`, a `name` and value per member and
-/// `end_object`; a scalar is the matching scalar event.
-fn write_value<S>(writer: &mut Writer<'_, S>, root: &Value) -> Result<(), Error>
-where
-    S: Sink + ?Sized,
-{
-    let mut open: Vec<Open<'_>> = Vec::new();
-    let mut next = Some(root);
-    loop {
-        if let Some(value) = next.take() {
-            match value {
-                Value::Null => writer.null()?,
-                Value::Bool(flag) => writer.bool(*flag)?,
-                Value::Number(number) => write_number(writer, number)?,
-                Value::String(text) => writer.string(text)?,
-                Value::Array(items) => {
-                    writer.begin_array()?;
-                    open.push(Open::Array(items.iter()));
-                }
-                Value::Object(members) => {
-                    writer.begin_object()?;
-                    open.push(Open::Object(members.iter()));
-                }
-            }
-        }
-        match open.last_mut() {
-            None => return Ok(()),
-            Some(Open::Array(items)) => match items.next() {
-                Some(item) => next = Some(item),
-                None => {
-                    writer.end_array()?;
-                    open.pop();
-                }
-            },
-            Some(Open::Object(members)) => match members.next() {
-                Some((name, member)) => {
-                    writer.name(name)?;
-                    next = Some(member);
-                }
-                None => {
-                    writer.end_object()?;
-                    open.pop();
-                }
-            },
-        }
-    }
-}
-
-/// The canonical bytes of `value`, a JSON value of any depth, under a byte
-/// ceiling of `ceiling`. The reader compares them with the bytes it was given.
-pub(in crate::checked_package) fn value_to_vec(
-    value: &Value,
-    ceiling: u64,
-) -> Result<Vec<u8>, Error> {
-    let mut bytes = Vec::new();
-    let mut writer = Writer::new(&mut bytes, Limits::new(ceiling));
-    write_value(&mut writer, value)?;
-    writer.finish()?;
-    Ok(bytes)
-}
-
-/// Writes a JSON number by its kind: an `i64` or `u64` through
-/// [`Writer::integer`], which refuses a magnitude past 2^53, and any other
-/// number through [`Writer::number`] as the `f64` it denotes.
-fn write_number<S>(writer: &mut Writer<'_, S>, number: &Number) -> Result<(), Error>
-where
-    S: Sink + ?Sized,
-{
-    if let Some(integer) = number.as_i64() {
-        writer.integer(i128::from(integer))
-    } else if let Some(integer) = number.as_u64() {
-        writer.integer(i128::from(integer))
-    } else if let Some(float) = number.as_f64() {
-        writer.number(float)
-    } else {
-        Err(Error::Serialize(String::from(
-            "a JSON number has no integer or f64 value",
-        )))
-    }
+    body.encode_into(writer)
 }
 
 impl Encode for CheckedPackageIdentityPreimageV2 {
@@ -191,7 +188,7 @@ impl Encode for CheckedNodeProjectionV2 {
             &self.nominal_identity_preimage,
         )?;
         present(writer, "declaration", &self.declaration)?;
-        body(writer, "body", &self.body)?;
+        value(writer, "body", &self.body)?;
         writer.end_object()
     }
 }
@@ -222,7 +219,7 @@ impl Encode for CheckedSemanticNodeV2 {
             &self.nominal_identity_preimage,
         )?;
         present(writer, "declaration", &self.declaration)?;
-        body(writer, "body", &self.body)?;
+        value(writer, "body", &self.body)?;
         writer.end_object()
     }
 }
@@ -245,7 +242,7 @@ impl Encode for CheckedDiagnosticV2 {
         writer.name("details")?;
         writer.begin_array()?;
         for detail in &self.details {
-            write_value(writer, detail)?;
+            detail.encode_into(writer)?;
         }
         writer.end_array()?;
         member(writer, "loci", &self.loci)?;
