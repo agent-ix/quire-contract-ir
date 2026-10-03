@@ -162,7 +162,7 @@ fn package_over(
 fn package_selecting(name: &str, digest: &str) -> Value {
     let mut package = nominal_package(&[]);
     package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY, "version": VERSION,
+        "identity": IDENTITY,
         "digest_domain": "sha256-jcs", "digest": digest,
     }]);
 
@@ -293,20 +293,8 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
     assert_eq!(selected["semantic_graph"], digest_only["semantic_graph"]);
 
     // The same declarations in a document whose only difference is its
-    // package version, selected at that version by the lock.
-    let mut document = domain_document(json!({}));
-    document["package"]["version"] = json!("2.0.0");
-    let (mut other, other_evidence) = package_over(&document, "total");
-    other["lock"]["model_selections"][0]["version"] = json!("2.0.0");
-    refresh_identity(&mut other);
-    match read(&other, &other_evidence) {
-        CheckedPackageV2ReadResult::Admitted(_) => {}
-        other => panic!("expected admission at the other version, got {other:?}"),
-    }
-    assert_eq!(
-        selected["semantic_graph"], other["semantic_graph"],
-        "the model declaration node keys, and every key built on them, are version-free"
-    );
+    // package version, which the selection no longer names: the keys are
+    // version-free (`tc_048_a_selected_document_needs_no_package_version`).
     assert_ne!(
         declaration_key_of(ORDER, IDENTITY),
         declaration_key_of(ORDER, OTHER_PACKAGE),
@@ -351,6 +339,61 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
         read(&package, &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+/// A selection binds by identity and content digest: the document's own
+/// `package.version` is neither required nor read, so a matching document
+/// with no version, a non-string one or any string admits, each document
+/// selected under its own digest. The model-owned node keys carry no version
+/// by construction (the owner is `{kind, identity, node}`, pinned by
+/// `tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes`),
+/// so admission per version is the oracle here, not graph equality.
+///
+/// Tracing: TC-048, FR-038-AC-27, FR-038-AC-45, FR-038-AC-64
+#[trace("TC-048", "FR-038-AC-27", "FR-038-AC-45", "FR-038-AC-64")]
+#[test]
+fn tc_048_a_selected_document_needs_no_package_version() {
+    let versioned = |version: Option<Value>| {
+        let mut document = domain_document(json!({}));
+        let package = document["package"].as_object_mut().expect("package");
+        match version {
+            Some(version) => package.insert("version".to_owned(), version),
+            None => package.remove("version"),
+        };
+        document
+    };
+    let mut digests = std::collections::BTreeSet::new();
+    for (case, version) in [
+        ("version 1.0.0", Some(json!("1.0.0"))),
+        ("version 2.0.0", Some(json!("2.0.0"))),
+        ("no version", None),
+        ("a non-string version", Some(json!(7))),
+        ("a null version", Some(Value::Null)),
+    ] {
+        let (package, evidence) = package_over(&versioned(version), "total");
+        match read(&package, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => {}
+            other => panic!("{case}: expected admission, got {other:?}"),
+        }
+        digests.insert(package["lock"]["model_selections"][0]["digest"].to_string());
+    }
+    // Each document differs only in its version, so each is selected under
+    // its own digest: the admissions above are five distinct bindings.
+    assert_eq!(digests.len(), 5, "each version case is its own document");
+
+    // A document naming another identity is refused at the row's identity,
+    // whatever its version.
+    let mut other = versioned(Some(json!("1.0.0")));
+    other["package"]["identity"] = json!("acme/other");
+    let (package, evidence) = package_over(&other, "total");
+    assert_eq!(
+        refused(&package, &evidence),
+        refusal_cause(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "/lock/model_selections/0/identity",
+            CheckedPackageRefusalCause::WrongModelSelection
+        )
+    );
 }
 
 /// Tracing: TC-048, FR-038-AC-29
@@ -784,7 +827,7 @@ fn reaches_package(
     let digest = sha256_hex(&canonical(&document));
     let mut package = nominal_package(&[]);
     package["lock"]["model_selections"] = json!([{
-        "identity": IDENTITY, "version": VERSION,
+        "identity": IDENTITY,
         "digest_domain": "sha256-jcs", "digest": digest,
     }]);
 

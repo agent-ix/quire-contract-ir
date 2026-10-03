@@ -364,7 +364,7 @@ fn at_node(position: usize, tail: &str) -> String {
 fn with_model(package: &mut Value) {
     let document = orders_document();
     package["lock"]["model_selections"] = json!([{
-        "identity": ORDERS, "version": ORDERS_VERSION,
+        "identity": ORDERS,
         "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
     }]);
     for key in [

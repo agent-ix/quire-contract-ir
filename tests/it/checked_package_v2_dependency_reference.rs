@@ -24,7 +24,6 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 
 const LIBRARY: &str = "test/geometry";
-const VERSION: &str = "1";
 /// The `node` a well-formed callee names when no test says otherwise.
 const OTHER_NODE: &str = "5353535353535353535353535353535353535353535353535353535353535353";
 
@@ -126,7 +125,6 @@ fn dependency_term(package_digest: &str, node_digest: &str) -> Value {
 fn selection(digest: &str) -> Value {
     json!({
         "identity": LIBRARY,
-        "version": VERSION,
         "package_id": {
             "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": digest,
         },
@@ -813,7 +811,7 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
     let mut owned = nominal_package(&members);
     let document = domain_package_document("test/orders", "1", Vec::new());
     owned["lock"]["model_selections"] = json!([{
-        "identity": "test/orders", "version": "1",
+        "identity": "test/orders",
         "digest_domain": "sha256-jcs", "digest": domain_package_digest(&document),
     }]);
     refresh_identity(&mut owned);

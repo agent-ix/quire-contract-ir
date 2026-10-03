@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Agent-IX
 
 //! IR-287: `dependency_selections` entries are `DependencySelection`
-//! `{identity, version, package_id}` (QSpec STD-105, FR-322-AC-35), one per
+//! `{identity, package_id}` (QSpec STD-105, FR-322-AC-35), one per
 //! library identity in strictly ascending UTF-8 byte order of `identity`,
 //! identical in the lock and the identity preimage.
 
@@ -20,10 +20,9 @@ use serde_json::{json, Value};
 const DIGEST_A: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 const DIGEST_B: &str = "4444444444444444444444444444444444444444444444444444444444444444";
 
-fn entry(identity: &str, version: &str, digest: &str) -> Value {
+fn entry(identity: &str, digest: &str) -> Value {
     json!({
         "identity": identity,
-        "version": version,
         "package_id": {
             "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": digest,
         },
@@ -72,13 +71,13 @@ fn expect_refusal(
 fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
     let base = v2_all_families();
     // Two distinct admitted dependency packages, supplied under their
-    // entries' identities and versions.
+    // entries' identities.
     let (geometry_id, geometry) = admitted_dependency(&base);
     let (units_id, units) = admitted_dependency(&positive_operation_identities());
     let supplied = [("test/geometry", &geometry), ("test/units", &units)];
     let entries = vec![
-        entry("test/geometry", "1", &geometry_id),
-        entry("test/units", "2", &units_id),
+        entry("test/geometry", &geometry_id),
+        entry("test/units", &units_id),
     ];
     let package = with_selections(base.clone(), entries.clone());
     let CheckedPackageV2ReadResult::Admitted(admitted) = read_with(&package, &supplied) else {
@@ -94,7 +93,7 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
 
     // Changing a dependency's package_id changes the package identity.
     let mut changed = entries;
-    changed[1] = entry("test/units", "2", &geometry_id);
+    changed[1] = entry("test/units", &geometry_id);
     let other = with_selections(base, changed);
     let supplied_again = [("test/geometry", &geometry), ("test/units", &geometry)];
     assert_ne!(package["package_id"], other["package_id"]);
@@ -124,7 +123,7 @@ fn tc_048_ascending_dependency_selections_admit_and_enter_the_package_id() {
 #[trace("TC-048", "FR-038-AC-32")]
 #[test]
 fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
-    let selection = entry("test/a", "1", DIGEST_A);
+    let selection = entry("test/a", DIGEST_A);
     let base = v2_all_families();
     let refuse_with = |mutate: &dyn Fn(&mut Value)| {
         let mut mutated = selection.clone();
@@ -148,12 +147,12 @@ fn tc_048_dependency_selection_shape_and_domain_refuse_at_the_entry() {
             "/identity_preimage/dependency_selections/0/package_id"
         ))
     );
-    let no_version = refuse_with(&|e| {
-        e.as_object_mut().expect("object").remove("version");
+    let no_package_id = refuse_with(&|e| {
+        e.as_object_mut().expect("object").remove("package_id");
     });
-    assert_eq!(no_version.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(no_package_id.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
-        no_version.path,
+        no_package_id.path,
         Some(pointer("/identity_preimage/dependency_selections/0"))
     );
     let empty_identity = refuse_with(&|e| e["identity"] = json!(""));
@@ -227,22 +226,19 @@ fn tc_048_dependency_is_no_longer_a_selection_role() {
 #[trace("TC-048", "FR-038-AC-31")]
 #[test]
 fn tc_048_lock_and_identity_preimage_dependency_selections_must_match() {
-    let valid = vec![
-        entry("test/a", "1", DIGEST_A),
-        entry("test/b", "1", DIGEST_B),
-    ];
+    let valid = vec![entry("test/a", DIGEST_A), entry("test/b", DIGEST_B)];
     let package = with_selections(v2_all_families(), valid.clone());
     // The preimage differs from a valid lock; its package_id is re-derived so
     // the mismatch, not a stale id, is what the reader meets.
     for (label, preimage_entries, at) in [
         (
             "different digest",
-            vec![valid[0].clone(), entry("test/b", "1", DIGEST_A)],
+            vec![valid[0].clone(), entry("test/b", DIGEST_A)],
             "/lock/dependency_selections/1/package_id/digest",
         ),
         (
             "duplicate identity",
-            vec![valid[0].clone(), entry("test/a", "1", DIGEST_A)],
+            vec![valid[0].clone(), entry("test/a", DIGEST_A)],
             "/lock/dependency_selections/1/identity",
         ),
         (
@@ -274,9 +270,9 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
     let duplicate = with_selections(
         base.clone(),
         vec![
-            entry("test/geometry", "1", DIGEST_A),
-            entry("test/geometry", "2", DIGEST_B),
-            entry("test/units", "2", DIGEST_B),
+            entry("test/geometry", DIGEST_A),
+            entry("test/geometry", DIGEST_B),
+            entry("test/units", DIGEST_B),
         ],
     );
     expect_refusal(
@@ -289,9 +285,9 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
     let separated = with_selections(
         base.clone(),
         vec![
-            entry("test/a", "1", DIGEST_A),
-            entry("test/b", "1", DIGEST_A),
-            entry("test/a", "2", DIGEST_B),
+            entry("test/a", DIGEST_A),
+            entry("test/b", DIGEST_A),
+            entry("test/a", DIGEST_B),
         ],
     );
     expect_refusal(
@@ -303,8 +299,8 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
     let misordered = with_selections(
         base.clone(),
         vec![
-            entry("test/units", "2", DIGEST_B),
-            entry("test/geometry", "1", DIGEST_A),
+            entry("test/units", DIGEST_B),
+            entry("test/geometry", DIGEST_A),
         ],
     );
     expect_refusal(
@@ -319,8 +315,8 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
     let byte_order = with_selections(
         base,
         vec![
-            entry("test/\u{ff61}", "1", &dependency_id),
-            entry("test/\u{1f600}", "1", &dependency_id),
+            entry("test/\u{ff61}", &dependency_id),
+            entry("test/\u{1f600}", &dependency_id),
         ],
     );
     assert!(
@@ -335,5 +331,122 @@ fn tc_048_repeated_or_misordered_dependency_identity_refuses() {
             CheckedPackageV2ReadResult::Admitted(_)
         ),
         "entries in UTF-8 byte order admit"
+    );
+}
+
+/// A `dependency_selections` entry is exactly `{identity, package_id}`: one
+/// that also carries `version` refuses as `unknown_member` at that member,
+/// wherever it sits and whatever the other entries are, and an old-shape
+/// `{identity, version}` entry with no `package_id` is `malformed_wire` at
+/// the entry. The reader never reads, drops or compares the `version`.
+///
+/// Tracing: TC-048, FR-038-AC-63
+#[trace("TC-048", "FR-038-AC-63")]
+#[test]
+fn tc_048_a_dependency_entry_carrying_version_is_an_unknown_member() {
+    let base = v2_all_families();
+    let (geometry_id, geometry) = admitted_dependency(&base);
+    let (units_id, units) = admitted_dependency(&positive_operation_identities());
+    let supplied = [("test/geometry", &geometry), ("test/units", &units)];
+    let entries = vec![
+        entry("test/geometry", &geometry_id),
+        entry("test/units", &units_id),
+    ];
+    let package = with_selections(base, entries.clone());
+    assert!(
+        matches!(
+            read_with(&package, &supplied),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "entries of exactly {{identity, package_id}} admit"
+    );
+
+    let refuse_versioned = |package: &Value, at: &str| {
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_with(package, &supplied) else {
+            panic!("an entry carrying `version` refuses ({at})");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::UnknownMember,
+            "{at}"
+        );
+        assert_eq!(refusal.path, Some(pointer(at)), "{at}");
+        assert_eq!(refusal.cause, None, "{at}");
+    };
+    // In the lock only: the preimage mirror is left as it was.
+    let mut lock_only = package.clone();
+    lock_only["lock"]["dependency_selections"][0]["version"] = json!("1");
+    refuse_versioned(&lock_only, "/lock/dependency_selections/0/version");
+    // In the identity preimage only.
+    let mut preimage_only = package.clone();
+    preimage_only["identity_preimage"]["dependency_selections"][0]["version"] = json!("1");
+    refuse_versioned(
+        &preimage_only,
+        "/identity_preimage/dependency_selections/0/version",
+    );
+    // In both, beside an otherwise well-formed entry: the first in document
+    // order, which is the identity preimage's.
+    let mut both = package.clone();
+    both["lock"]["dependency_selections"][1]["version"] = json!("2");
+    refresh_identity(&mut both);
+    refuse_versioned(&both, "/identity_preimage/dependency_selections/1/version");
+
+    // The old shape `{identity, version}` lacks `package_id`: malformed at the
+    // entry, not an unknown member at `version`.
+    let old_shape = with_selections(
+        v2_all_families(),
+        vec![json!({"identity": "test/geometry", "version": "1"})],
+    );
+    expect_refusal(
+        &old_shape,
+        CheckedPackageRefusalCode::MalformedWire,
+        "/identity_preimage/dependency_selections/0",
+        None,
+    );
+}
+
+/// A `dependency_selections` entry binds the package the evidence supplies
+/// under its `identity` when that package's `package_id` is the entry's, with
+/// no version supplied or compared.
+///
+/// Tracing: TC-048, FR-038-AC-64
+#[trace("TC-048", "FR-038-AC-64")]
+#[test]
+fn tc_048_a_dependency_entry_binds_by_identity_and_package_id() {
+    let base = v2_all_families();
+    let (geometry_id, geometry) = admitted_dependency(&base);
+    let (_, units) = admitted_dependency(&positive_operation_identities());
+    let package = with_selections(base, vec![entry("test/geometry", &geometry_id)]);
+    assert!(
+        matches!(
+            read_with(&package, &[("test/geometry", &geometry)]),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the package supplied under the entry's identity, with its package_id, admits"
+    );
+    let CheckedPackageV2ReadResult::Refused(missing) =
+        read_with(&package, &[("test/other", &geometry)])
+    else {
+        panic!("a package supplied under another identity refuses");
+    };
+    assert_eq!(missing.code, CheckedPackageRefusalCode::MissingImport);
+    assert_eq!(
+        missing.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(missing.path, Some(pointer("/lock/dependency_selections/0")));
+    let CheckedPackageV2ReadResult::Refused(stale) =
+        read_with(&package, &[("test/geometry", &units)])
+    else {
+        panic!("a package of another package_id refuses");
+    };
+    assert_eq!(stale.code, CheckedPackageRefusalCode::StaleDependency);
+    assert_eq!(
+        stale.cause,
+        Some(CheckedPackageRefusalCause::ByteDigestMismatch)
+    );
+    assert_eq!(
+        stale.path,
+        Some(pointer("/lock/dependency_selections/0/package_id/digest"))
     );
 }

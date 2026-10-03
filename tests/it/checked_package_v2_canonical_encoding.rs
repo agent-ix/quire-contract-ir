@@ -316,13 +316,13 @@ fn tc_048_graph_bytes_equal_serde_json_for_every_fixture_and_crafted_graph() {
 fn crafted_lock(package: &Value) -> CheckedPackageLockV2 {
     let mut lock = package["lock"].clone();
     lock["model_selections"] = json!([{
-        "identity": "dom\u{e9}ine/\u{1F600}", "version": "1", "digest_domain": "sha256-jcs",
+        "identity": "dom\u{e9}ine/\u{1F600}", "digest_domain": "sha256-jcs",
         "digest": "5".repeat(64),
     }]);
     lock["dependency_selections"] = json!([
-        {"identity": "a/\u{e9}", "version": "1", "package_id": {
+        {"identity": "a/\u{e9}", "package_id": {
             "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "3".repeat(64)}},
-        {"identity": "a/\u{1F600}", "version": "2", "package_id": {
+        {"identity": "a/\u{1F600}", "package_id": {
             "domain": "quire.package.semantic/v2", "algorithm": "sha256", "digest": "4".repeat(64)}},
     ]);
     typed(&lock)
