@@ -1024,7 +1024,11 @@ for a `dependency_reference` callee, stated for every node whose body root is an
 application term. QSpec FR-322 keys every node whose body contains an
 application. The reader re-derives a key only where the body root is the
 application, so a nested application's own node is not re-keyed: a stated
-deviation from QSpec FR-322, not a settled rule. Each criterion below is observed
+deviation from QSpec FR-322, not a settled rule. This section fixes what the
+preimage is (FR-038-AC-88); "Every identity digest is computed through
+quire-canonical" fixes who encodes and hashes it, and FR-038-AC-89 pins that the
+key is the one the reader derived before the move, so the two do not overlap.
+Each criterion below is observed
 at the key check, which the unit tests call directly on a graph of application
 nodes.
 
