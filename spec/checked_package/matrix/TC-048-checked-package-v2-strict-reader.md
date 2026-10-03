@@ -29,7 +29,9 @@ operation catalog's `law_roles` entries, and FR-038-AC-62 through FR-038-AC-64
 (QSpec FR-322 `ModelRef` and `DependencySelection`) against the
 `model_selections` rows and `dependency_selections` entries of a self-built
 package, and FR-038-AC-65 through FR-038-AC-69 against the operation catalog's
-words and the applications of a self-built package that name them.
+words and the applications of a self-built package that name them, and
+FR-038-AC-70 through FR-038-AC-72 against self-built compared types that reach
+themselves.
 
 ## Test Procedure
 
@@ -289,16 +291,17 @@ cause `operation-law-missing` at `operation.leaves`. Apply `collection.flatten`
 from a sequence of sequences of `text` to a sequence of `text` with `leaves`
 empty and check it admits, then to a `set`, `bag` and `ordered_set` of `text`
 and check each refuses `operation-law-missing`; do the same for
-`collection.set` over `text`. Give a record a field that reaches the record
-again through an option, and another naming a node that is not in the graph,
-and check each refuses `ill_typed` with cause `operator-ineligible` at
-`operation.leaves`. Nest `text` under 40 options and check it refuses
+`collection.set` over `text`. Give a record a field naming a node that is not
+in the graph, and a type whose only cycle runs through an option, and check
+each refuses `ill_typed` with cause `operator-ineligible` at
+`operation.leaves`. Give a record a field that reaches the record again
+through an option and check it is no longer refused (FR-038-AC-70). Nest `text` under 40 options and check it refuses
 `operation-law-missing`, and nest integers 2000 deep and check the work budget
 refuses. Chain 12 record levels of 4 fields each naming the next level and
 check it admits within the budget. Put a leaf whose mode disagrees with its
-field's pinned rounding beside too few leaves and beside a cyclic type, and
-check the refusals are `operation-law-missing` and `operator-ineligible`, the
-leaf count settling before any leaf mode.
+field's pinned rounding beside too few leaves and beside a type naming a node
+that is not in the graph, and check the refusals are `operation-law-missing`
+and `operator-ineligible`, the leaf count settling before any leaf mode.
 
 ## Exact operation leaves (FR-038-AC-44)
 
@@ -327,6 +330,35 @@ naming the next over text and supply one leaf, and check
 `operation-law-missing` comes back at once; make nine of the ten fields
 integers and check the one 16-segment path admits and one wrong segment refuses.
 Compare the whole refusal code, cause and pointer with the expected one.
+
+## Recursive compared types (FR-038-AC-70 through FR-038-AC-72)
+
+Declare `Node { label: Text[0, 8; nfc]; next?: Node; }` and apply
+`structural.eq` to two parameters of it with the one `field:label` leaf, and
+again with the recursion leaf `field:next`, `inner`, `recursion:0` after it, and
+check each admits, each node under the key derived from its own leaves and each
+refusing `stale-node-key` under the other's key. Compare `Option<Node>`, the
+mutually recursive `A` and `B` at `A` and at `B` in one package, `Two`,
+`Tree2`, a declared tuple `Pair` and `Wrap` over `X` and `Y` with the leaves
+FR-038-AC-70 lists, each recursion leaf present and absent, and check each
+admits; compare a `List` of integers by `structural.eq` and `collection.contains`
+with `leaves` empty and check both admit. Give `Wrap` its first three leaves and
+then its four and a fifth, and check `operation-law-missing` and
+`operation-law-mismatch` at the fifth. Leave `Node`'s text leaf out, and supply
+the recursion leaf alone, and check `operation-law-missing`; add a second text
+leaf and check `operation-law-mismatch` at it. Supply the recursion leaves
+FR-038-AC-71 lists (a wrong segment, a wrong `d`, a second one, one with a law,
+one with a mode, one at a reentry of the integer `List`) and check the code,
+cause and pointer of each; bind no profile on a text type inside the cycle,
+unselect a leaf law, and use `T` as an `Option` of itself, a `Sequence` of itself
+and a record holding a field of such a type under a work limit of 1000, and check
+`operator-ineligible`, `operation-law-unselected` and `operator-ineligible`
+(never `incomplete`); check `R { x: Option<R> }` admits. Build the 20000-record
+cycle with the byte, node, edge and work limits raised and decide it on a 256 KiB
+thread, build the ten all-referencing records and check `incomplete` for `work`
+under the default limits, and bisect the work limit of a ring of 12 records to the
+exact work (FR-038-AC-72). Compare the whole refusal code, cause and pointer
+with the expected one.
 
 ## Dependency references (FR-038-AC-35 through FR-038-AC-38)
 
