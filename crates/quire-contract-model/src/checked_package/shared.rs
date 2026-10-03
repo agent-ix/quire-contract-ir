@@ -122,6 +122,11 @@ pub enum CheckedPackageRefusalCode {
     /// `model_selections` digest (FR-154 admission, FR-322 "Model-owned
     /// members" step 1).
     MissingImport,
+    /// `unknown_profile`: a temporal clause's `temporal_profile` law names no
+    /// member of QSpec FR-250's Values table (QSpec FR-272). Paired with
+    /// [`CheckedPackageRefusalCause::UnsupportedSelection`] or
+    /// [`CheckedPackageRefusalCause::WrongSelectionRole`].
+    UnknownProfile,
 }
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
@@ -196,6 +201,24 @@ pub enum CheckedPackageRefusalCause {
     /// `invalid-value`: a `dependency_selections` entry's identity is not
     /// strictly after its predecessor's in UTF-8 byte order.
     InvalidValue,
+    /// `duplicate-member`: a `composite_type`/`union` node whose body names
+    /// one member twice (QSpec FR-440 reader join 1); paired with
+    /// `invalid_package`. The wire-level repeated object member is the code
+    /// [`CheckedPackageRefusalCode::DuplicateMember`], not this cause.
+    DuplicateMember,
+    /// `type-mismatch`: a `value`/`union_value` node that is no construction
+    /// of a member of its union type (QSpec FR-440 reader join 2); paired with
+    /// `ill_typed`.
+    TypeMismatch,
+    /// `unsupported-selection`: a clause's `temporal_profile` law names an
+    /// identity that is no member of QSpec FR-250's Values table and that the
+    /// package's own lock selects under no other role; paired with
+    /// `unknown_profile`.
+    UnsupportedSelection,
+    /// `wrong-selection-role`: a clause's `temporal_profile` law names an
+    /// identity the package's own lock selects under a role other than
+    /// `temporal_profile`; paired with `unknown_profile`.
+    WrongSelectionRole,
 }
 
 /// An RFC 6901 JSON pointer into the checked-package document the reader
@@ -329,10 +352,6 @@ pub struct CheckedArtifactLocator {
     pub authority: Box<str>,
     /// Artifact identity.
     pub identity: Box<str>,
-    /// Revision namespace.
-    pub revision_namespace: Box<str>,
-    /// Revision value.
-    pub revision_value: Box<str>,
     /// Identity domain of the bytes.
     pub domain: Box<str>,
 }
@@ -387,33 +406,32 @@ pub struct CheckedOccurrence {
     pub ordinal: u64,
 }
 
-/// A revision in a stable namespace.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
-#[serde(deny_unknown_fields)]
-pub struct CheckedRevision {
-    /// Revision namespace.
-    pub namespace: Box<str>,
-    /// Revision value.
-    pub value: Box<str>,
-}
-
-/// One raw source, definition, or model identity from the package lock.
+/// A definition named by its identity alone: QSpec's `DefinitionRef`, the closed
+/// shape `{authority, identity}`. Two references are equal when both members
+/// are equal; the reader compares nothing else about a definition.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedArtifactRef {
-    /// Artifact authority.
+    /// Definition authority.
     pub authority: Box<str>,
-    /// Artifact identity.
+    /// Definition identity.
     pub identity: Box<str>,
-    /// Artifact revision.
-    pub revision: CheckedRevision,
-    /// Typed byte-digest domain.
+}
+
+/// A raw source document bound to the exact bytes the producer read: QSpec's
+/// `RawSourceRef`, the closed shape `{authority, identity, digest_domain,
+/// digest}`.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedSourceRef {
+    /// Source authority.
+    pub authority: Box<str>,
+    /// Source identity.
+    pub identity: Box<str>,
+    /// Typed byte-digest domain, `quire.source.bytes/v1`.
     pub digest_domain: Box<str>,
-    /// Lowercase SHA-256 digest.
+    /// Lowercase SHA-256 digest of the source bytes.
     pub digest: Box<str>,
-    /// Model export name, present only for compiled-model references.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub export: Option<Box<str>>,
 }
 
 /// A selected definition-role identity.
@@ -431,7 +449,7 @@ pub struct CheckedSelection {
 #[serde(deny_unknown_fields)]
 pub struct CheckedSourceRegion {
     /// Raw source document identity.
-    pub source: CheckedArtifactRef,
+    pub source: CheckedSourceRef,
     /// Inclusive byte start.
     pub start: u64,
     /// Exclusive byte end.

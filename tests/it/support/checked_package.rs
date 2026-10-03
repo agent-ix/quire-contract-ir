@@ -454,20 +454,26 @@ pub fn incomplete(
 
 const FIXTURE_SOURCE_AUTHORITY: &str = "agent-ix";
 const FIXTURE_SOURCE_IDENTITY: &str = "quire.fixture.source/v1";
-const FIXTURE_DEFINITION_DOMAIN: &str = "quire.definition.bytes/v1";
 const FIXTURE_SOURCE_DOMAIN: &str = "quire.source.bytes/v1";
 const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 
-/// A `CheckedArtifactRef`-shaped locked artifact. `digest` need not be a real
-/// content hash: [`evidence_for`] attests whatever digest an artifact records
-/// here directly (it never re-hashes real bytes), so any syntactically valid
-/// 64-hex-digit string proves the lock current against the evidence this
-/// generator's own callers build.
-fn artifact(authority: &str, identity: &str, domain: &str, digest: &str) -> Value {
+/// A `CheckedArtifactRef`-shaped definition reference: exactly `{authority,
+/// identity}` (QSpec `DefinitionRef`).
+pub fn definition_ref(authority: &str, identity: &str) -> Value {
     json!({
         "authority": authority,
         "identity": identity,
-        "revision": {"namespace": "quire-draft", "value": "1"},
+    })
+}
+
+/// A `CheckedSourceRef`-shaped locked source: exactly `{authority, identity,
+/// digest_domain, digest}` (QSpec `RawSourceRef`). `digest` need not be a real
+/// content hash: no evidence is attested for a source's bytes, so any
+/// syntactically valid 64-hex-digit string is a current lock row.
+pub fn source_ref(authority: &str, identity: &str, domain: &str, digest: &str) -> Value {
+    json!({
+        "authority": authority,
+        "identity": identity,
         "digest_domain": domain,
         "digest": digest,
     })
@@ -577,6 +583,18 @@ pub fn family_key(prefix: &str) -> String {
             &node_id(&family_key("aaaa")),
             &temporal_clause_body(),
         ),
+        "a2a2" => application_key(
+            "temporal",
+            "formula",
+            &node_id(&family_key("aaaa")),
+            &eventually_formula_body(),
+        ),
+        "a5a5" => application_key(
+            "temporal",
+            "formula",
+            &node_id(&family_key("aaaa")),
+            &holds_formula_body(),
+        ),
         "5050" => application_key(
             "protocol",
             "protocol_clause",
@@ -614,15 +632,15 @@ fn function_call_body() -> Value {
 /// declares (both are catalogued with that one required role) — the same
 /// `CheckedArtifactRef` value in both places, so the operation-law lock join
 /// (`is_profile_role` → `lock.profile_selections`) is satisfied by
-/// construction rather than by two independently-typed copies.
+/// construction rather than by two independently-typed copies. The profile is
+/// one of QSpec FR-250's five, a bounded one, which fits the fixture's closed
+/// interval `{0, 3}` (FR-038-AC-104, FR-038-AC-108).
 fn temporal_profile_law() -> Value {
     json!({
         "role": "temporal_profile",
-        "definition": artifact(
+        "definition": definition_ref(
             FIXTURE_SOURCE_AUTHORITY,
-            "quire.fixture.temporal-profile/v1",
-            FIXTURE_DEFINITION_DOMAIN,
-            &"2".repeat(64),
+            "quire.temporal.event-position.false-extension/v1",
         ),
     })
 }
@@ -631,15 +649,20 @@ fn temporal_profile_law() -> Value {
 fn protocol_profile_law() -> Value {
     json!({
         "role": "protocol_profile",
-        "definition": artifact(
+        "definition": definition_ref(
             FIXTURE_SOURCE_AUTHORITY,
             "quire.fixture.protocol-profile/v1",
-            FIXTURE_DEFINITION_DOMAIN,
-            &"3".repeat(64),
         ),
     })
 }
 
+/// The shared fixture's `quire.op.temporal.clause` body, in the shape the
+/// catalog fixes (FR-038-AC-68): six arguments and no member. The first is a
+/// `reference` to the `over` `value`/`parameter` node (`a4a4`), the second a
+/// `text` literal, the next three empty aggregates, and the sixth a
+/// `reference` to the `temporal`/`formula` node (`a2a2`) applying
+/// `quire.op.temporal.eventually` with the interval `{0, 3}` over a second
+/// formula node (`a5a5`) applying `quire.op.temporal.holds` (FR-038-AC-96).
 fn temporal_clause_body() -> Value {
     json!({
         "term": "application",
@@ -648,12 +671,70 @@ fn temporal_clause_body() -> Value {
             "identity": "quire.op.temporal.clause",
             "laws": [temporal_profile_law()],
             "mode": Value::Null,
-            "member": {"kind": "profile_operator"},
+            "member": Value::Null,
             "leaves": Value::Array(Vec::new()),
         },
         "result_type": node_id(&family_key("aaaa")),
-        "arguments": Value::Array(Vec::new()),
+        "arguments": [
+            {"term": "reference", "target": node_id(&family_key("a4a4"))},
+            {"term": "literal", "type": node_id(&family_key("a1a1")),
+             "value_kind": "text", "value": "clause"},
+            empty_aggregate(),
+            empty_aggregate(),
+            empty_aggregate(),
+            {"term": "reference", "target": node_id(&family_key("a2a2"))},
+        ],
     })
+}
+
+/// The reference targets of [`temporal_clause_body`], digest-ascending: the
+/// node's wire `dependencies` (FR-322's application-node join).
+fn temporal_clause_dependencies() -> Vec<String> {
+    let mut targets = vec![family_key("a4a4"), family_key("a2a2")];
+    targets.sort();
+    targets
+}
+
+/// A `temporal_formula` application of `identity` over `arguments`, with
+/// `member`, as the body root of a `temporal`/`formula` node.
+fn formula_body(identity: &str, member: Value, arguments: Vec<Value>) -> Value {
+    json!({
+        "term": "application",
+        "operator": "temporal_formula",
+        "operation": {
+            "identity": identity,
+            "laws": Value::Array(Vec::new()),
+            "mode": Value::Null,
+            "member": member,
+            "leaves": Value::Array(Vec::new()),
+        },
+        "result_type": node_id(&family_key("aaaa")),
+        "arguments": arguments,
+    })
+}
+
+/// The fixture's inner formula (`a5a5`): `quire.op.temporal.holds` over a
+/// Boolean literal typed at the fixture's own Boolean node (`a6a6`), which
+/// no test mutates the way `aaaa`, the family nodes' shared type, is.
+fn holds_formula_body() -> Value {
+    formula_body(
+        "quire.op.temporal.holds",
+        Value::Null,
+        vec![
+            json!({"term": "literal", "type": node_id(&family_key("a6a6")),
+                    "value_kind": "boolean", "value": true}),
+        ],
+    )
+}
+
+/// The fixture's root formula (`a2a2`): `quire.op.temporal.eventually` with
+/// the interval `{0, 3}` over the `holds` node.
+fn eventually_formula_body() -> Value {
+    formula_body(
+        "quire.op.temporal.eventually",
+        json!({"kind": "temporal_interval", "interval": {"lower": "0", "upper": "3"}}),
+        vec![json!({"term": "reference", "target": node_id(&family_key("a5a5"))})],
+    )
 }
 
 fn protocol_control_body() -> Value {
@@ -768,7 +849,7 @@ fn application_node(
 }
 
 fn fixture_source() -> Value {
-    artifact(
+    source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         FIXTURE_SOURCE_IDENTITY,
         FIXTURE_SOURCE_DOMAIN,
@@ -784,7 +865,7 @@ fn fixture_source() -> Value {
 /// locked source could never distinguish that from citing the same source
 /// again.
 fn fixture_secondary_source() -> Value {
-    artifact(
+    source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.source.secondary/v1",
         FIXTURE_SOURCE_DOMAIN,
@@ -805,29 +886,20 @@ fn fixture_secondary_source() -> Value {
 /// — has a real join to break; without this second role that mutation would
 /// have nothing in the fixture to affect.
 fn fixture_definition_selection() -> Value {
-    artifact(
+    definition_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.definition.selection/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"a".repeat(64),
     )
 }
 
 fn fixture_edition_definition() -> Value {
-    artifact(
-        FIXTURE_SOURCE_AUTHORITY,
-        "quire.fixture.edition/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"6".repeat(64),
-    )
+    definition_ref(FIXTURE_SOURCE_AUTHORITY, "quire.fixture.edition/v1")
 }
 
 fn fixture_diagnostics_catalog() -> Value {
-    artifact(
+    definition_ref(
         FIXTURE_SOURCE_AUTHORITY,
         "quire.fixture.diagnostics-catalog/v1",
-        FIXTURE_DEFINITION_DOMAIN,
-        &"7".repeat(64),
     )
 }
 
@@ -873,6 +945,93 @@ pub fn rekey_application_node(package: &mut Value, position: usize) {
         .expect("digest")
         .to_owned();
     replace_digest(package, &stale, &fresh);
+}
+
+/// Collects the targets FR-322's application-node dependency join names in
+/// `term` (its `reference` targets and the `declaration` of each application's
+/// operation member) into `out`; whether `term` holds an application.
+fn join_targets(term: &Value, out: &mut std::collections::BTreeSet<String>) -> bool {
+    let mut holds_application = false;
+    match term["term"].as_str() {
+        Some("reference") => {
+            out.insert(
+                term["target"]["digest"]
+                    .as_str()
+                    .expect("digest")
+                    .to_owned(),
+            );
+        }
+        Some("application") => {
+            holds_application = true;
+            if let Some(declaration) = term["operation"]["member"]["declaration"]["digest"].as_str()
+            {
+                out.insert(declaration.to_owned());
+            }
+            for argument in term["arguments"].as_array().into_iter().flatten() {
+                join_targets(argument, out);
+            }
+        }
+        Some("aggregate") => {
+            for member in term["members"].as_array().into_iter().flatten() {
+                holds_application |= join_targets(member, out);
+            }
+        }
+        Some("binding") => holds_application |= join_targets(&term["value"], out),
+        _ => {}
+    }
+    holds_application
+}
+
+/// Gives every node whose body holds an `application` exactly the
+/// `dependencies` FR-322's join names, digest-ascending.
+fn join_application_dependencies(package: &mut Value) {
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        let mut targets = std::collections::BTreeSet::new();
+        if join_targets(&node["body"], &mut targets) {
+            node["dependencies"] =
+                Value::Array(targets.iter().map(|digest| node_id(digest)).collect());
+        }
+    }
+}
+
+/// After a test edited node bodies: re-derives each application node's
+/// dependencies and key, innermost first, renaming each key wherever it is
+/// referenced, then the source map and the package identity. A node keyed by
+/// something other than its application preimage keeps its key.
+pub fn settle(package: &mut Value) {
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    for _ in 0..=count {
+        join_application_dependencies(package);
+        let mut changed = false;
+        for position in 0..count {
+            let node = package["semantic_graph"]["nodes"][position].clone();
+            if node["body"]["term"] != "application" {
+                continue;
+            }
+            let fresh = application_key(
+                node["node_tag"].as_str().expect("tag"),
+                node["semantic_form"].as_str().expect("form"),
+                &node["semantic_type"],
+                &node["body"],
+            );
+            if node["node_id"]["digest"] != fresh.as_str() {
+                rekey_application_node(package, position);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    join_application_dependencies(package);
+    rebuild_source_map(package);
+    refresh_identity(package);
 }
 
 /// One entry per node, sourced from the node's own single occurrence rather
@@ -1149,8 +1308,14 @@ fn build_v2_all_families() -> Value {
             "temporal",
             temporal_clause_body()["operation"].clone(),
             &aaaa,
-            Vec::new(),
-            &[],
+            temporal_clause_body()["arguments"]
+                .as_array()
+                .expect("arguments")
+                .clone(),
+            &temporal_clause_dependencies()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
         ),
         application_node(
             "protocol",
@@ -1221,6 +1386,82 @@ fn build_v2_all_families() -> Value {
                 "deletes": [node_id(&f1616)],
             }),
         ),
+        // The nodes the temporal clause's arguments name: the `text` type of
+        // its name literal, the `temporal`/`formula` node it applies
+        // (`eventually` over `holds`) and its `over` parameter.
+        plain_node(
+            &family_key("a1a1"),
+            "scalar_type",
+            "text",
+            &family_key("a1a1"),
+            &[],
+            empty_aggregate(),
+        ),
+        application_node(
+            "temporal",
+            "formula",
+            "temporal_formula",
+            eventually_formula_body()["operation"].clone(),
+            &aaaa,
+            eventually_formula_body()["arguments"]
+                .as_array()
+                .expect("arguments")
+                .clone(),
+            &[family_key("a5a5").as_str()],
+        ),
+        application_node(
+            "temporal",
+            "formula",
+            "temporal_formula",
+            holds_formula_body()["operation"].clone(),
+            &aaaa,
+            holds_formula_body()["arguments"]
+                .as_array()
+                .expect("arguments")
+                .clone(),
+            // A literal's `type` is no dependency (FR-322).
+            &[],
+        ),
+        plain_node(
+            &family_key("a6a6"),
+            "scalar_type",
+            "boolean",
+            &family_key("a6a6"),
+            &[],
+            empty_aggregate(),
+        ),
+        plain_node(
+            &family_key("a3a3"),
+            "scalar_type",
+            "integer",
+            &family_key("a3a3"),
+            &[],
+            empty_aggregate(),
+        ),
+        // The clause's `over` parameter: QSL FR-092's `{name, level}` body,
+        // typed at the Boolean node, carrying the `expression` role.
+        {
+            let mut parameter = plain_node(
+                &family_key("a4a4"),
+                "value",
+                "parameter",
+                &aaaa,
+                &[],
+                json!({
+                    "term": "aggregate",
+                    "members": [
+                        {"term": "binding", "name": "name", "value": {
+                            "term": "literal", "type": node_id(&family_key("a1a1")),
+                            "value_kind": "text", "value": "over"}},
+                        {"term": "binding", "name": "level", "value": {
+                            "term": "literal", "type": node_id(&family_key("a3a3")),
+                            "value_kind": "integer", "value": "0"}},
+                    ],
+                }),
+            );
+            parameter["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+            parameter
+        },
     ];
 
     let source = fixture_source();

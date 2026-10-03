@@ -367,7 +367,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Depth,
         exact.depth,
-        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/revision/namespace"),
+        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/authority"),
     );
     exact.depth += 1;
 
@@ -378,7 +378,8 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Nodes,
         exact.nodes,
-        Some("/semantic_graph/nodes/16"),
+        // The last node of the graph is the first one past the ceiling.
+        Some(&format!("/semantic_graph/nodes/{}", wire_nodes.len() - 1)),
     );
     exact.nodes += 1;
 
@@ -389,7 +390,8 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &evidence,
         CheckedPackageLimit::Occurrences,
         exact.occurrences,
-        Some("/source_map/16/regions/0"),
+        // The last entry's region is the first one past the ceiling.
+        Some(&format!("/source_map/{}/regions/0", source_map.len() - 1)),
     );
     exact.occurrences += 1;
 
@@ -427,7 +429,7 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         &edge_evidence,
         CheckedPackageLimit::Edges,
         edges_with_one_more - 1,
-        Some("/semantic_graph/nodes/16/dependencies/2"),
+        Some("/semantic_graph/nodes/18/dependencies/0"),
     );
 
     // diagnostics: likewise, the boundary is proven on a variant with exactly

@@ -314,6 +314,8 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
         .position(|node| node["node_tag"] == "temporal" && node["body"]["term"] == "application")
         .expect("the fixture's temporal clause node");
     other_operation["semantic_graph"]["nodes"][temporal]["body"]["arguments"] = json!([term]);
+    // The term is no `reference`, so the clause now has no dependency.
+    other_operation["semantic_graph"]["nodes"][temporal]["dependencies"] = json!([]);
     refresh_identity(&mut other_operation);
     assert_ne!(temporal, position);
     // The temporal clause's key covers its arguments; the stale key is the

@@ -18,6 +18,7 @@ mod operation_catalog;
 mod operations;
 mod state;
 mod structural;
+mod temporal;
 mod vocabulary;
 
 pub use identity::*;
@@ -27,19 +28,21 @@ pub use vocabulary::*;
 use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
+pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
+use temporal::{misplaced_in_details, validate_temporal};
 
 use super::common::{
     count, decode_closed, dismantle, exceeds, first_difference, is_digest, is_nonempty,
-    node_pointer, on_stack_for, read_value, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
-    ValidationFailure, NODE_DOMAIN,
+    node_pointer, on_stack_for, read_value, validate_definition_ref, validate_locked_artifact,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRegion, JsonPointer,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use quire_canonical::FixedShape;
@@ -55,7 +58,6 @@ pub const PACKAGE_DOMAIN_V2: &str = "quire.package.semantic/v2";
 const IDENTITY_PREIMAGE_V2: &str = "quire.checked-package-id/v2";
 const GRAPH_V2: &str = "quire.checked-semantic-graph/v2";
 const SOURCE_BYTES: &str = "quire.source.bytes/v1";
-const DEFINITION_BYTES: &str = "quire.definition.bytes/v1";
 /// The digest domain of a selected domain package.
 pub const DOMAIN_PACKAGE_DIGEST: &str = "sha256-jcs";
 /// A node's declared qualified name (FR-208). Present exactly where the
@@ -178,7 +180,7 @@ pub struct CheckedDependencySelection {
 #[serde(deny_unknown_fields)]
 pub struct CheckedPackageLockV2 {
     /// Locked raw source documents.
-    pub sources: Vec<CheckedArtifactRef>,
+    pub sources: Vec<CheckedSourceRef>,
     /// Selected edition.
     pub edition: CheckedSelection,
     /// Selected profiles.
@@ -876,15 +878,15 @@ fn validate_lock<'a>(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     for (index, source) in lock.sources.iter().enumerate() {
-        validate_unexported(source, SOURCE_BYTES, &|| {
+        validate_locked_artifact(source, SOURCE_BYTES, &|| {
             member_pointer(&["lock", "sources"]).index(index)
         })?;
     }
-    validate_unexported(&lock.edition.definition, DEFINITION_BYTES, &|| {
+    validate_definition_ref(&lock.edition.definition, &|| {
         member_pointer(&["lock", "edition", "definition"])
     })?;
     for (index, selection) in lock.profile_selections.iter().enumerate() {
-        validate_unexported(&selection.definition, DEFINITION_BYTES, &|| {
+        validate_definition_ref(&selection.definition, &|| {
             member_pointer(&["lock", "profile_selections"])
                 .index(index)
                 .key("definition")
@@ -892,7 +894,7 @@ fn validate_lock<'a>(
     }
     validate_dependency_selections(&lock.dependency_selections)?;
     for (index, definition) in lock.definition_selections.iter().enumerate() {
-        validate_unexported(definition, DEFINITION_BYTES, &|| {
+        validate_definition_ref(definition, &|| {
             member_pointer(&["lock", "definition_selections"]).index(index)
         })?;
     }
@@ -970,7 +972,7 @@ fn validate_lock<'a>(
             member_pointer(&["lock", "required_features"]).index(index),
         ));
     }
-    validate_unexported(&wire.diagnostics.catalog, DEFINITION_BYTES, &|| {
+    validate_definition_ref(&wire.diagnostics.catalog, &|| {
         member_pointer(&["diagnostics", "catalog"])
     })?;
     Ok(LockAdmission {
@@ -1038,22 +1040,6 @@ fn validate_dependency_selections(
             CheckedPackageRefusalCode::InvalidPackage,
             at(index + 1),
             CheckedPackageRefusalCause::InvalidValue,
-        ));
-    }
-    Ok(())
-}
-
-/// Checks one locked raw artifact at `at` and that it carries no `export`.
-fn validate_unexported(
-    artifact: &CheckedArtifactRef,
-    domain: &str,
-    at: &dyn Fn() -> JsonPointer,
-) -> Result<(), ValidationFailure> {
-    validate_locked_artifact(artifact, domain, at)?;
-    if artifact.export.is_some() {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            at().key("export"),
         ));
     }
     Ok(())
@@ -1231,6 +1217,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::OrderedSet
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Union
             | CompositeTypeForm::Alias
             | CompositeTypeForm::Reference,
         ) => false,
@@ -1244,8 +1231,9 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | BoundedDomainForm::ModelPopulation,
         ) => false,
         // QSL FR-092: a parameter names its binder's value; it declares no
-        // name of its own.
-        K::Value(ValueForm::EnumValue | ValueForm::Parameter) => true,
+        // name of its own. QSpec FR-440: a union value carries no
+        // `declaration` (its union type node is the source-declared one).
+        K::Value(ValueForm::EnumValue | ValueForm::Parameter | ValueForm::UnionValue) => true,
         K::Value(
             ValueForm::Literal
             | ValueForm::CollectionValue
@@ -1259,6 +1247,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::Unary
             | ExpressionForm::Binary
             | ExpressionForm::Conditional
+            | ExpressionForm::Case
             | ExpressionForm::Let
             | ExpressionForm::Quantify
             | ExpressionForm::Collection
@@ -1306,6 +1295,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
         K::Temporal(
             TemporalForm::TemporalClause
             | TemporalForm::Formula
+            | TemporalForm::Fairness
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
@@ -1384,6 +1374,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::OrderedSet
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Union
             | CompositeTypeForm::Alias
             | CompositeTypeForm::Reference,
         ) => false,
@@ -1402,6 +1393,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
+            | ValueForm::UnionValue
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => false,
@@ -1411,6 +1403,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::Unary
             | ExpressionForm::Binary
             | ExpressionForm::Conditional
+            | ExpressionForm::Case
             | ExpressionForm::Let
             | ExpressionForm::Quantify
             | ExpressionForm::Collection
@@ -1458,6 +1451,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
         K::Temporal(
             TemporalForm::TemporalClause
             | TemporalForm::Formula
+            | TemporalForm::Fairness
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
@@ -1564,6 +1558,32 @@ enum EdgeSite {
 /// One body reference target and the site that carried it. Its pointer is
 /// built only on refusal, by [`body_reference_pointer`].
 type BodyReference = (CheckedNodeId, ReferenceSite);
+
+/// Locates the term walk's two cause-bearing refusals at the node whose body it
+/// walked: a bound outside the interval pattern
+/// (`invalid_package`/`invalid-value`) and a nested `case` application
+/// (`ill_typed`/`operator-ineligible`), each with its path already on the bound
+/// or the nested `operator`. Every other refusal of the walk is left as it is.
+fn with_node_locus(failure: ValidationFailure, node_id: &CheckedNodeId) -> ValidationFailure {
+    match failure {
+        ValidationFailure::Refused(mut refusal)
+            if matches!(
+                (refusal.code, refusal.cause),
+                (
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    Some(CheckedPackageRefusalCause::InvalidValue)
+                ) | (
+                    CheckedPackageRefusalCode::IllTyped,
+                    Some(CheckedPackageRefusalCause::OperatorIneligible)
+                )
+            ) && refusal.locus.is_none() =>
+        {
+            refusal.locus = Some(node_id.clone());
+            ValidationFailure::Refused(refusal)
+        }
+        other => other,
+    }
+}
 
 /// The pointer of the `reference`-th target a node's body walk reports,
 /// found by re-running that same walk and materializing the trail only at
@@ -1723,7 +1743,8 @@ fn validate_graph(
                 &mut |target, site, _target_at| {
                     targets.push((target.clone(), site));
                 },
-            )?
+            )
+            .map_err(|failure| with_node_locus(failure, &node.node_id))?
         };
         meter.charge(work, || at("body"))?;
         references.push(targets);
@@ -1766,6 +1787,7 @@ fn validate_graph(
     })?;
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
+    validate_temporal(&graph.nodes, &kinds, &index, &owners, &wire.lock, meter)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2057,6 +2079,26 @@ fn validate_diagnostics(
         .iter()
         .map(|node| &node.node_id)
         .collect::<BTreeSet<_>>();
+    // The nodes a `details` term may not reference: a formula, a fairness node
+    // and a `case` node (merged FR-370-AC-12; a union or union value node is an
+    // ordinary reference).
+    let never_referenced = wire
+        .semantic_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            CheckedNodeTag::from_wire(&node.node_tag)
+                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        CheckedNodeKind::Temporal(TemporalForm::Formula | TemporalForm::Fairness)
+                            | CheckedNodeKind::Expression(ExpressionForm::Case)
+                    )
+                })
+        })
+        .map(|node| &node.node_id)
+        .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
             let detail_steps = [
@@ -2080,6 +2122,19 @@ fn validate_diagnostics(
                 },
             )?;
             meter.charge(work, || detail_at.pointer())?;
+            // A `details` term is no node's body: an application of a class
+            // that stands only at one node form's body root is misplaced
+            // here, as the root or nested, and a reference to a formula,
+            // fairness or `case` node is refused at the entry.
+            if let Some(path) = misplaced_in_details(detail, detail_at.pointer(), |target| {
+                never_referenced.contains(target)
+            }) {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::IllTyped,
+                    path,
+                    CheckedPackageRefusalCause::OperatorIneligible,
+                ));
+            }
             if let Some(path) = unresolved {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,

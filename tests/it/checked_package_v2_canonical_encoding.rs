@@ -860,10 +860,10 @@ fn implemented_encode(source: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The fixed-depth types FR-038 names, by role: the artifact-reference type is
-/// `CheckedArtifactRef` (and, until the reference shape of FR-038-AC-46
-/// through FR-038-AC-61 lands, `CheckedRevision`, which is not named here).
-const FIXED_DEPTH: [&str; 24] = [
+/// The fixed-depth types FR-038 names, by role: the artifact-reference types
+/// are `CheckedArtifactRef` and `CheckedSourceRef` (FR-038-AC-46 through
+/// FR-038-AC-61).
+const FIXED_DEPTH: [&str; 25] = [
     "CheckedSemanticId",
     "CheckedSourceMapEntry",
     "CheckedCapability",
@@ -872,6 +872,7 @@ const FIXED_DEPTH: [&str; 24] = [
     "CheckedOccurrenceRole",
     "CheckedSourceRegion",
     "CheckedArtifactRef",
+    "CheckedSourceRef",
     "CheckedSelection",
     "CheckedDomainPackageRef",
     "CheckedDependencySelection",

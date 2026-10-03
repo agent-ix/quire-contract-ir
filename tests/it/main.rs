@@ -13,7 +13,9 @@ mod support;
 
 mod canonicalization;
 mod checked_package_v2_adr002_members;
+mod checked_package_v2_artifact_refs;
 mod checked_package_v2_canonical_encoding;
+mod checked_package_v2_catalog_words;
 mod checked_package_v2_dependency_reference;
 mod checked_package_v2_dependency_selections;
 mod checked_package_v2_enum_order;
@@ -25,6 +27,8 @@ mod checked_package_v2_parameters;
 mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_require_bounds;
+mod checked_package_v2_temporal;
+mod checked_package_v2_union;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
 mod conformance;

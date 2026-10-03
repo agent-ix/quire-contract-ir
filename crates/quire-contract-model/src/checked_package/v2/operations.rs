@@ -34,9 +34,11 @@
 //! `type_argument` or `operation` is checked for presence and kind only, not
 //! that its `declaration` resolves to a real, eligible node (`field` is the
 //! one kind an upstream mutation exercises, so it alone is checked in full,
-//! including that the named field is actually declared); a `constraints`
+//! including that the named field is actually declared; the `temporal_interval`
+//! and `fairness` members are checked for their closed shape here and by
+//! [`super::temporal`] for their meaning); a `constraints`
 //! entry other than `same_family`/`same_type`/`conforming_reference`/
-//! `reference_edge` is not enforced; leaf-path
+//! `reference_edge`/`union_arms` is not enforced; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key only for a node whose own
@@ -61,6 +63,10 @@ use super::model_members::{
     ModelOwners, ModelRefusal, Resolved,
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
+use super::structural::{
+    aggregate_members, binding, union_type_body, union_value_body, UnionMember,
+};
+use super::temporal::member_is_well_formed;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
@@ -259,11 +265,11 @@ fn group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OperationWire {
-    identity: Box<str>,
-    laws: Vec<OperationLawWire>,
+pub(super) struct OperationWire {
+    pub(super) identity: Box<str>,
+    pub(super) laws: Vec<OperationLawWire>,
     mode: Option<OperationModeWire>,
-    member: Option<Value>,
+    pub(super) member: Option<Value>,
     leaves: Vec<OperationLeafWire>,
 }
 
@@ -280,15 +286,15 @@ impl OperationWire {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OperationLawWire {
+pub(super) struct OperationLawWire {
     role: Box<str>,
-    definition: CheckedArtifactRef,
+    pub(super) definition: CheckedArtifactRef,
 }
 
 impl OperationLawWire {
     /// The law's decoded role; `None` outside the catalog's vocabulary.
     // Decodes the wire law role.
-    fn role_class(&self) -> Option<LawRole> {
+    pub(super) fn role_class(&self) -> Option<LawRole> {
         LawRole::from_wire(&self.role)
     }
 }
@@ -351,9 +357,16 @@ pub(super) fn validate_operations(
     let references = DependencyReferences::new(dependencies);
     for &position in index.values() {
         let node = &nodes[position];
+        if let Some(failure) = case_placement_defect(position, &graph) {
+            return Err(failure);
+        }
         if !is_application(&node.body) {
-            // No application check applies: the terms of the body are still
-            // walked for `dependency_reference` (FR-322, step 7).
+            // No application check applies, but a union type or union value
+            // node has its own joins (QSpec FR-440), and the terms of the
+            // body are walked for `dependency_reference` (FR-322, step 7).
+            if let Some(failure) = union_defect(position, &graph) {
+                return Err(failure);
+            }
             references.walk_body(Referrer { node, position }, meter)?;
             continue;
         }
@@ -544,9 +557,23 @@ fn operation_defect(
     match (entry.member, wire_member_kind) {
         (None, None) => {}
         (Some(kind), Some(Some(wire_kind))) => {
-            if kind != wire_kind {
+            // The kind agrees; the member must also be the closed shape that
+            // kind has (QSpec FR-370: `temporal_interval`, `fairness`).
+            let shaped = operation
+                .member
+                .as_ref()
+                .is_some_and(|member| member_is_well_formed(wire_kind, member));
+            if kind != wire_kind || !shaped {
                 return member_mismatch();
             }
+        }
+        // A `null` member on an interval-capable operator is refused at the
+        // application, not at `operation.member` (merged QSpec FR-370).
+        (Some(OperationMemberKind::TemporalInterval), None) if operation.member.is_none() => {
+            return refuse(
+                application.body(&[]),
+                CheckedPackageRefusalCause::OperationMemberMismatch,
+            )
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
@@ -595,13 +622,18 @@ fn operation_defect(
         Some(OperationMemberKind::Field) if edge_operation => None,
         Some(OperationMemberKind::Field) => Some(MemberKind::Field),
         Some(OperationMemberKind::Operation) => Some(MemberKind::Operation),
+        // The `temporal_interval` and `fairness` members are checked for their
+        // shape above and by the temporal step (profile fit, bounds, the
+        // fairness operation's resolution); nothing here reads them further.
         Some(
             OperationMemberKind::Position
             | OperationMemberKind::Element
             | OperationMemberKind::RelationshipEnd
             | OperationMemberKind::TypeArgument
             | OperationMemberKind::ProfileOperator
-            | OperationMemberKind::StateClause,
+            | OperationMemberKind::StateClause
+            | OperationMemberKind::TemporalInterval
+            | OperationMemberKind::Fairness,
         )
         | None => None,
     };
@@ -741,6 +773,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | CompositeTypeForm::OrderedSet
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Union
             | CompositeTypeForm::Reference),
         ) => Some(form.as_wire()),
         K::CompositeType(CompositeTypeForm::Alias) => None,
@@ -760,6 +793,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ExpressionForm::Unary
             | ExpressionForm::Binary
             | ExpressionForm::Conditional
+            | ExpressionForm::Case
             | ExpressionForm::Let
             | ExpressionForm::Quantify
             | ExpressionForm::Collection
@@ -786,6 +820,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
+            | ValueForm::UnionValue
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => None,
@@ -815,9 +850,11 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | StateForm::OperationAnchor
             | StateForm::Snapshot,
         ) => None,
+        // The catalog's `temporal` family: a temporal formula (QSpec FR-370).
+        K::Temporal(TemporalForm::Formula) => Some("temporal"),
         K::Temporal(
             TemporalForm::TemporalClause
-            | TemporalForm::Formula
+            | TemporalForm::Fairness
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
@@ -874,6 +911,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::OrderedSet
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
+            | CompositeTypeForm::Union
             | CompositeTypeForm::Alias
             | CompositeTypeForm::Reference,
         ) => true,
@@ -892,6 +930,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
+            | ValueForm::UnionValue
             | ValueForm::OptionValue
             | ValueForm::Parameter,
         ) => false,
@@ -901,6 +940,7 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::Unary
             | ExpressionForm::Binary
             | ExpressionForm::Conditional
+            | ExpressionForm::Case
             | ExpressionForm::Let
             | ExpressionForm::Quantify
             | ExpressionForm::Collection
@@ -945,9 +985,12 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | StateForm::OperationAnchor
             | StateForm::Snapshot,
         ) => false,
+        // A formula is named as a type-like operand of the `temporal` family:
+        // a `reference` to one resolves to that node itself.
+        K::Temporal(TemporalForm::Formula) => true,
         K::Temporal(
             TemporalForm::TemporalClause
-            | TemporalForm::Formula
+            | TemporalForm::Fairness
             | TemporalForm::Clock
             | TemporalForm::Window
             | TemporalForm::Activation
@@ -1043,6 +1086,20 @@ fn check_operands(
         return ineligible(None);
     }
     for (position, expected) in entry.operands.iter().enumerate() {
+        // QSpec FR-370: a temporal clause's first argument is a `reference`
+        // to the `value`/`parameter` node of its `over` parameter. It is not
+        // family-resolved (resolving it would give the parameter's own
+        // family); it fits the `reference` operand exactly when it is a
+        // `reference` term.
+        if entry.operator == ApplicationOperator::Temporal
+            && position == 0
+            && &**expected == "reference"
+        {
+            if body_term(&arguments[0]) != Some(BodyTerm::Reference) {
+                return ineligible(Some(0));
+            }
+            continue;
+        }
         if let Some(actual) = argument_family(&arguments[position], nodes, kinds, index, catalog) {
             if !catalog.family_fits(actual, expected) {
                 return ineligible(Some(position));
@@ -1122,6 +1179,22 @@ fn check_operands(
             | OperationConstraintKind::ScaleReduction
             | OperationConstraintKind::PromotesExact
             | OperationConstraintKind::UniformRest => {}
+            // QSpec FR-440: only `quire.op.control.case` catalogues this. A
+            // constraint that does not hold, or that names anything but one
+            // scrutinee, refuses at the `case` node: it is never skipped.
+            OperationConstraintKind::UnionArms => {
+                let held = matches!(
+                    indices[..],
+                    [scrutinee] if union_arms_hold(application, scrutinee, required, arguments, graph)
+                );
+                if !held {
+                    return Ok(Some(application.refuse(
+                        CheckedPackageRefusalCode::IllTyped,
+                        node_pointer(application.position),
+                        CheckedPackageRefusalCause::OperatorIneligible,
+                    )));
+                }
+            }
             OperationConstraintKind::ReferenceEdge => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_reference_edge(
@@ -1140,6 +1213,204 @@ fn check_operands(
         }
     }
     Ok(None)
+}
+
+/// The members of the union type node `type_id` names, through aliases and
+/// bounded domains; `None` when it names no union type node.
+fn union_type<'g>(type_id: &CheckedNodeId, graph: &Graph<'g>) -> Option<Vec<UnionMember<'g>>> {
+    let (position, kind) = structural_type(type_id, graph.nodes, graph.kinds, graph.index)?;
+    if kind != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+        return None;
+    }
+    union_type_body(&graph.nodes[position].body)
+}
+
+/// QSpec FR-440's `union_arms` constraint: the arguments past the scrutinee
+/// are exactly one arm per member of the scrutinee's union, in member
+/// declaration order, each a `binding` named by its member whose value is an
+/// `aggregate` of a binder aggregate and the arm body; the binder aggregate
+/// holds as many `reference`s to `value`/`parameter` nodes as the member's
+/// payload arity, each binder's `semantic_type` the payload type at its
+/// position; and every arm body has the application's `result_type`.
+fn union_arms_hold(
+    application: Application<'_>,
+    scrutinee: usize,
+    arms_from: usize,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+) -> bool {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
+    let Some(members) = arguments
+        .get(scrutinee)
+        .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
+        .and_then(|type_id| union_type(&type_id, graph))
+    else {
+        return false;
+    };
+    let result_type: Option<CheckedNodeId> = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let arms = arguments.get(arms_from..).unwrap_or_default();
+    arms.len() == members.len()
+        && members.iter().zip(arms).all(|(member, arm)| {
+            let Some([binders, body]) = binding(arm, member.name).and_then(aggregate_members)
+            else {
+                return false;
+            };
+            let binders_hold = aggregate_members(binders).is_some_and(|binders| {
+                binders.len() == member.payload.len()
+                    && binders
+                        .iter()
+                        .zip(&member.payload)
+                        .all(|(binder, payload)| {
+                            reference_term_target(binder)
+                                .and_then(|target| index.get(&target).copied())
+                                .is_some_and(|position| {
+                                    kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
+                                        && nodes[position].semantic_type == *payload
+                                })
+                        })
+            });
+            binders_hold
+                && result_type.as_ref().is_some_and(|result| {
+                    operand_type_node(body, nodes, kinds, index).as_ref() == Some(result)
+                })
+        })
+}
+
+/// Whether a node of this kind is a type node: a `scalar_type`,
+/// `composite_type` or `bounded_domain`.
+fn is_type_node(kind: CheckedNodeKind) -> bool {
+    matches!(
+        kind.tag(),
+        CheckedNodeTag::ScalarType | CheckedNodeTag::CompositeType | CheckedNodeTag::BoundedDomain
+    )
+}
+
+/// Merged QSpec FR-440 join 1, the first check of a node's joins at the
+/// operation step: a `case` application stands only at the body root of an
+/// `expression`/`case` node. An `expression` node whose form contradicts its root
+/// application's operator class (an `expression`/`case` node whose body is no
+/// `case` application, an `expression` node of another form whose body root is
+/// one) is `invalid_semantic_graph` at the node's `body`; a `case` application
+/// as the body root of a node that is no `expression` node is
+/// `ill_typed`/`operator-ineligible` at the node. A `case` nested in another term
+/// was refused by the term walk.
+fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
+    let node = &graph.nodes[position];
+    let kind = graph.kinds[position];
+    let root_is_case = is_application(&node.body)
+        && application_operator(&node.body) == Some(ApplicationOperator::Case);
+    let is_case_node = kind == CheckedNodeKind::Expression(ExpressionForm::Case);
+    let refuse = |code, path, cause| {
+        Some(ValidationFailure::refused_at(
+            code,
+            path,
+            cause,
+            node.node_id.clone(),
+        ))
+    };
+    match (is_case_node, root_is_case) {
+        (true, true) | (false, false) => None,
+        (true, false) => refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(position).key("body"),
+            None,
+        ),
+        (false, true) if kind.tag() == CheckedNodeTag::Expression => refuse(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            node_pointer(position).key("body"),
+            None,
+        ),
+        (false, true) => refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(position),
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+        ),
+    }
+}
+
+/// QSpec FR-440's reader joins 1 and 2, checked at the operation step in
+/// node-id digest order: a union type holds no member name twice
+/// (`invalid_package`/`duplicate-member`) and every payload reference names a
+/// type node (`ill_typed`/`operator-ineligible`); a union value's
+/// `semantic_type` is a union type node, its binding names a member of it, and
+/// its payload terms are that member's payload in count and in type
+/// (`ill_typed`/`type-mismatch`). Each is located at the node. A body that is
+/// not its form's closed shape was refused by the structural stage.
+fn union_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
+    let Graph {
+        nodes,
+        kinds,
+        index,
+    } = *graph;
+    let node = &nodes[position];
+    let refuse = |code, cause| {
+        ValidationFailure::refused_at(
+            code,
+            node_pointer(position),
+            Some(cause),
+            node.node_id.clone(),
+        )
+    };
+    let kind = kinds[position];
+    if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+        let members = union_type_body(&node.body)?;
+        let mut names = BTreeSet::new();
+        if !members.iter().all(|member| names.insert(member.name)) {
+            return Some(refuse(
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::DuplicateMember,
+            ));
+        }
+        let payload_is_type = members
+            .iter()
+            .flat_map(|member| &member.payload)
+            .all(|target| {
+                index
+                    .get(target)
+                    .is_none_or(|&target| is_type_node(kinds[target]))
+            });
+        return (!payload_is_type).then(|| {
+            refuse(
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+            )
+        });
+    }
+    if kind == CheckedNodeKind::Value(ValueForm::UnionValue) {
+        let (name, payload) = union_value_body(&node.body)?;
+        // A `semantic_type` that is no node of the graph is the generic edge
+        // resolution's refusal, later.
+        let declared = *index.get(&node.semantic_type)?;
+        let mismatch = || {
+            refuse(
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::TypeMismatch,
+            )
+        };
+        if kinds[declared] != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
+            return Some(mismatch());
+        }
+        let members = union_type_body(&nodes[declared].body)?;
+        let holds = members
+            .iter()
+            .find(|member| member.name == name)
+            .is_some_and(|member| {
+                member.payload.len() == payload.len()
+                    && payload.iter().zip(&member.payload).all(|(term, expected)| {
+                        operand_type_node(term, nodes, kinds, index).as_ref() == Some(expected)
+                    })
+            });
+        return (!holds).then(mismatch);
+    }
+    None
 }
 
 /// FR-322 "Reaches over a field": the `reference_edge` constraint of
@@ -1810,10 +2081,11 @@ enum Anchor {
     Leaf,
 }
 
-/// One edge of the type (`field:<name>`, `position:<n>` or `inner`) and the
-/// structural node it leads to.
+/// One edge of the type and the structural node it leads to: the path
+/// segments it adds (`field:<name>`, `position:<n>` or `inner`, or, through a
+/// union, `member:<Name>` then `position:<i>`) and where it leads.
 struct LeafChild {
-    segment: Box<str>,
+    segments: Vec<Box<str>>,
     /// The edge's target as the type names it. A text type's profile is read
     /// through it, since the pin lives in a wrapper above the shared `text`
     /// scalar.
@@ -1823,9 +2095,9 @@ struct LeafChild {
     kind: CheckedNodeKind,
 }
 
-/// A type node's edges as its body names them: the segment and the target
+/// A type node's edges as its body names them: the segments and the target
 /// node key, in declaration order.
-type RawEdges = Vec<(Box<str>, CheckedNodeId)>;
+type RawEdges = Vec<(Vec<Box<str>>, CheckedNodeId)>;
 
 /// A type node's anchor and its outgoing edges, in declaration order.
 struct Expansion {
@@ -1844,6 +2116,9 @@ struct LeafFrame {
     /// No composite reachable from the node was open where it was entered, so
     /// its count is its own and is memoised when the frame completes.
     closed: bool,
+    /// How many path segments the path held when the node was entered, so
+    /// leaving one of its edges restores exactly that path.
+    path_len: usize,
 }
 
 /// A node's own contribution: a count, or edges still to walk.
@@ -2011,7 +2286,9 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
 
     /// The anchor and the raw edges of the node at `position`: a `record`'s
     /// fields, a `tuple`'s positions, the inner type of an option or
-    /// collection.
+    /// collection, and a union's payload positions, each under its member.
+    /// A union is an open composite like a record or tuple: a cycle through
+    /// one is a recursion leaf, never a record-free cycle (a relayed ruling).
     fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<(Anchor, RawEdges)> {
         let members = || self.nodes[position].body.get("members")?.as_array();
         match kind {
@@ -2023,7 +2300,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                     }
                     let name = member.get("name")?.as_str()?;
                     Some((
-                        format!("field:{name}").into(),
+                        vec![format!("field:{name}").into()],
                         referenced_type(member.get("value")?)?,
                     ))
                 })
@@ -2033,10 +2310,39 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                 .iter()
                 .enumerate()
                 .map(|(at, member)| {
-                    Some((format!("position:{at}").into(), referenced_type(member)?))
+                    Some((
+                        vec![format!("position:{at}").into()],
+                        referenced_type(member)?,
+                    ))
                 })
                 .collect::<Option<Vec<_>>>()
                 .map(|edges| (Anchor::Composite, edges)),
+            // QSpec FR-322's leaf segments gain `member:<Ident>` (a relayed
+            // owner ruling, pending the QSpec change): a leaf through a union
+            // is `member:<Name>`, `position:<i>` (`i` the index within the
+            // member's payload, even for a single payload), then the segments
+            // into the payload type.
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+                let edges = union_type_body(&self.nodes[position].body)?
+                    .into_iter()
+                    .flat_map(|member| {
+                        member
+                            .payload
+                            .into_iter()
+                            .enumerate()
+                            .map(move |(at, target)| {
+                                (
+                                    vec![
+                                        format!("member:{}", member.name).into(),
+                                        format!("position:{at}").into(),
+                                    ],
+                                    target,
+                                )
+                            })
+                    })
+                    .collect();
+                Some((Anchor::Composite, edges))
+            }
             CheckedNodeKind::CompositeType(
                 CompositeTypeForm::Option
                 | CompositeTypeForm::Sequence
@@ -2045,18 +2351,22 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                 | CompositeTypeForm::OrderedSet,
             ) => Some((
                 Anchor::Wrapper,
-                vec![("inner".into(), referenced_type(members()?.first()?)?)],
+                vec![(vec!["inner".into()], referenced_type(members()?.first()?)?)],
             )),
             _ => Some((Anchor::Leaf, Vec::new())),
         }
     }
 
-    /// The edge named `segment` to `target`, resolved to its structural node.
-    fn edge(&self, segment: Box<str>, target: CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
+    /// The edge adding `segments` to `target`, resolved to its structural node.
+    fn edge(
+        &self,
+        segments: Vec<Box<str>>,
+        target: CheckedNodeId,
+    ) -> Result<LeafChild, LeafWalkEnd> {
         let (position, kind) = structural_type(&target, self.nodes, self.kinds, self.index)
             .ok_or(LeafWalkEnd::Unresolved)?;
         Ok(LeafChild {
-            segment,
+            segments,
             target,
             position,
             kind,
@@ -2195,7 +2505,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
 
     /// The edge from the root of the compared type, which names no segment.
     fn root_edge(&self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
-        self.edge(Box::from(""), root.clone())
+        self.edge(Vec::new(), root.clone())
     }
 
     /// One edge entered while counting: its own contribution, or the frame
@@ -2248,6 +2558,8 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             next: 0,
             total: 0,
             closed,
+            // Counting derives no paths.
+            path_len: 0,
         });
         Ok(LeafEntry::Pushed)
     }
@@ -2332,10 +2644,11 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             match visited {
                 Visited::Fault(fault) => return Ok(Err(fault)),
                 Visited::Done => {
-                    if self.stack.is_empty() {
+                    // Back to the path of the node whose edge was visited.
+                    let Some(frame) = self.stack.last() else {
                         break 'walk;
-                    }
-                    path.pop();
+                    };
+                    path.truncate(frame.path_len);
                 }
                 Visited::Descended => {}
             }
@@ -2346,7 +2659,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                 let expansion = Rc::clone(&frame.expansion);
                 if let Some(child) = expansion.children.get(frame.next) {
                     frame.next += 1;
-                    path.push(child.segment.clone());
+                    path.extend(child.segments.iter().cloned());
                     break self.visit(child, &path, supplied, text_laws, &mut pins)?;
                 }
                 if let Some(frame) = self.stack.pop() {
@@ -2354,8 +2667,8 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         self.open.close(frame.position, frame.component);
                     }
                 }
-                if !self.stack.is_empty() {
-                    path.pop();
+                if let Some(parent) = self.stack.last() {
+                    path.truncate(parent.path_len);
                 }
             };
         }
@@ -2432,6 +2745,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             next: 0,
             total: 0,
             closed,
+            path_len: path.len(),
         });
         Ok(Visited::Descended)
     }
@@ -2625,15 +2939,14 @@ mod tests {
     use super::super::CheckedSelectionRole;
     use super::{
         application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
-        validate_application_keys, Application, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
-        CheckedPackageLockV2, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-        CheckedSemanticNodeV2, DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners,
-        SuppliedDependencies, ValidationFailure, WorkMeter, APPLICATION_NODE_VERSION,
+        validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
+        CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
+        CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
+        Graph, LawRole, ModelOwners, SuppliedDependencies, TemporalForm, ValidationFailure,
+        WorkMeter, APPLICATION_NODE_VERSION,
     };
     use crate::checked_package::common::{digest_json, NODE_DOMAIN};
-    use crate::checked_package::shared::{
-        CheckedArtifactRef, CheckedRevision, CheckedSelection, JsonPointer,
-    };
+    use crate::checked_package::shared::{CheckedArtifactRef, CheckedSelection, JsonPointer};
     use ix_trace_rs::trace;
 
     fn pointer(text: &str) -> JsonPointer {
@@ -2806,25 +3119,19 @@ mod tests {
     fn dummy_law_definition(marker: char) -> Value {
         json!({
             "authority": "test",
-            "identity": "test",
-            "revision": { "namespace": "test", "value": "test" },
-            "digest_domain": "sha256-jcs",
-            "digest": dummy_digest(marker),
+            "identity": format!("test-{marker}"),
         })
     }
 
-    /// The exact bytes of the catalog's own first `integer_division`
-    /// law-role definition (`quire.value.integer-division.truncating/v1`),
-    /// copied from `checked-operation-catalog-v1.json` so `catalog.entry(...)`
-    /// recognizes it as catalogued while the empty lock leaves it
-    /// unselected.
+    /// The `{authority, identity}` of the catalog's own first
+    /// `integer_division` law-role definition
+    /// (`quire.value.integer-division.truncating/v1`), so
+    /// `catalog.entry(...)` recognizes it as catalogued while the empty lock
+    /// leaves it unselected.
     fn real_integer_division_truncating_definition() -> Value {
         json!({
             "authority": "agent-ix",
             "identity": "quire.value.integer-division.truncating/v1",
-            "revision": { "namespace": "quire-draft", "value": "1-draft.1" },
-            "digest_domain": "quire.definition.bytes/v1",
-            "digest": "9998507608e4885b314d5dcc59a88bb3d04ef3c263d2d8ae5810f92ae1893364",
         })
     }
 
@@ -2834,13 +3141,6 @@ mod tests {
         let placeholder = CheckedArtifactRef {
             authority: Box::from("test"),
             identity: Box::from("test"),
-            revision: CheckedRevision {
-                namespace: Box::from("test"),
-                value: Box::from("test"),
-            },
-            digest_domain: Box::from("sha256-jcs"),
-            digest: Box::from(dummy_digest('a').as_str()),
-            export: None,
         };
         CheckedPackageLockV2 {
             sources: Vec::new(),
@@ -3090,6 +3390,9 @@ mod tests {
     /// produce: which catalog family a node denotes directly, and whether an
     /// argument naming it names a type. Pinned whole, so an edit to either
     /// exhaustive table that moves any one form is caught here.
+    ///
+    /// Tracing: TC-048, FR-038-AC-87
+    #[trace("TC-048", "FR-038-AC-87")]
     #[test]
     fn operand_classification_is_exactly_the_catalog_mapping() {
         let families = CheckedNodeKind::all()
@@ -3120,6 +3423,7 @@ mod tests {
                 ("composite_type", "ordered_set", "ordered_set"),
                 ("composite_type", "record", "record"),
                 ("composite_type", "tuple", "tuple"),
+                ("composite_type", "union", "union"),
                 ("composite_type", "reference", "reference"),
                 ("expression", "reference", "reference"),
                 ("function", "pure_function", "function"),
@@ -3128,11 +3432,12 @@ mod tests {
                 ("model", "object_type", "object"),
                 ("model", "systems_interface", "object"),
                 ("relation", "population", "population"),
+                ("temporal", "formula", "temporal"),
             ]
         );
         // Type-shaped is the five type families, every form of each, plus
-        // the `reference` expression; checked for every one of the 100 kinds,
-        // so flipping any single form is caught.
+        // the `reference` expression and the temporal formula; checked for
+        // every kind of the taxonomy, so flipping any single form is caught.
         for kind in CheckedNodeKind::all() {
             let expected = matches!(
                 kind.tag(),
@@ -3141,7 +3446,8 @@ mod tests {
                     | CheckedNodeTag::BoundedDomain
                     | CheckedNodeTag::Relation
                     | CheckedNodeTag::Function
-            ) || kind == CheckedNodeKind::Expression(ExpressionForm::Reference);
+            ) || kind == CheckedNodeKind::Expression(ExpressionForm::Reference)
+                || kind == CheckedNodeKind::Temporal(TemporalForm::Formula);
             assert_eq!(is_type_shaped(kind), expected, "{kind:?}");
         }
     }
@@ -3421,6 +3727,79 @@ mod tests {
             ))),
             "a catalogued law definition absent from the lock's own selections must be \
              refused as operation-law-unselected, got {result:?}"
+        );
+    }
+
+    /// An `integer.div` application whose one law is `definition`.
+    fn integer_division_node(definition: Value) -> CheckedSemanticNodeV2 {
+        let mut operation = plain_operation(INTEGER_DIV_IDENTITY);
+        operation["laws"] = json!([law_json("integer_division", definition)]);
+        custom_application_node(
+            "binary",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        )
+    }
+
+    /// FR-038-AC-56: a value-role law admits only when its `{authority,
+    /// identity}` pair is catalogued for the role and is a
+    /// `lock.definition_selections` row, compared by those two members alone.
+    ///
+    /// Tracing: TC-048, FR-038-AC-56
+    #[trace("TC-048", "FR-038-AC-56")]
+    #[test]
+    fn tc_048_a_value_role_law_joins_the_catalog_and_the_lock_by_authority_and_identity() {
+        let catalogued = real_integer_division_truncating_definition();
+        let mut lock = empty_lock();
+        lock.definition_selections =
+            vec![serde_json::from_value(catalogued.clone()).expect("a definition reference")];
+        let at = "/semantic_graph/nodes/0/body/operation/laws/0/definition";
+
+        // The selected, catalogued pair admits.
+        let node = integer_division_node(catalogued.clone());
+        assert_eq!(defect_for_graph_locked(vec![node], &lock), Ok(None));
+
+        // A pair the role does not catalogue refuses `operation-law-mismatch`,
+        // an empty pair included, and so does the catalogued identity under
+        // another authority: the pair is the whole comparison.
+        for (name, definition) in [
+            ("another pair", dummy_law_definition('c')),
+            ("empty pair", json!({ "authority": "", "identity": "" })),
+            (
+                "another authority",
+                json!({
+                    "authority": "other",
+                    "identity": catalogued["identity"],
+                }),
+            ),
+        ] {
+            let node = integer_division_node(definition);
+            assert_eq!(
+                defect_for_graph_locked(vec![node.clone()], &lock),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at,
+                    Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{name}"
+            );
+        }
+
+        // A catalogued pair the lock does not select refuses
+        // `operation-law-unselected`.
+        let node = integer_division_node(catalogued);
+        assert_eq!(
+            defect_for_graph_locked(vec![node.clone()], &empty_lock()),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at,
+                Some(CheckedPackageRefusalCause::OperationLawUnselected),
+                node.node_id.clone(),
+            )))
         );
     }
 
@@ -5930,6 +6309,455 @@ mod tests {
             ))),
             "an operation member that does not deserialize as OperationWire must be refused \
              as invalid_semantic_graph, got {result:?}"
+        );
+    }
+
+    // ---- FR-038-AC-67 through AC-69, AC-96: the catalog words the reader admits.
+
+    const OPERATOR_PATH: &str = "/semantic_graph/nodes/0/body/operator";
+
+    /// Every catalogued entry of the three operator classes the reader once
+    /// refused, read from the catalog: fifteen `temporal_formula` identities,
+    /// `quire.op.temporal.fair` and `quire.op.control.case`, each with the
+    /// member kind it catalogues and its fixed operand count.
+    fn temporal_and_case_entries() -> Vec<(String, &'static str, Option<&'static str>, usize)> {
+        let mut entries: Vec<_> = operation_catalog()
+            .entries()
+            .filter(|entry| {
+                matches!(
+                    entry.operator,
+                    ApplicationOperator::Case
+                        | ApplicationOperator::TemporalFormula
+                        | ApplicationOperator::TemporalFairness
+                )
+            })
+            .map(|entry| {
+                (
+                    entry.identity.to_string(),
+                    entry.operator.as_wire(),
+                    entry.member.map(|member| member.as_wire()),
+                    entry.operands.len(),
+                )
+            })
+            .collect();
+        entries.sort();
+        entries
+    }
+
+    /// The member a catalogued temporal entry takes, in its closed shape.
+    fn catalogued_member(kind: &str) -> Value {
+        match kind {
+            "temporal_interval" => json!({
+                "kind": "temporal_interval",
+                "interval": {"lower": "0", "upper": "3"},
+            }),
+            _ => json!({
+                "kind": "fairness",
+                "fairness_kind": "weak",
+                "granularity": "whole",
+                "declaration": { "domain": NODE_DOMAIN, "digest": dummy_digest('f') },
+                "name": "Step",
+            }),
+        }
+    }
+
+    /// FR-038-AC-96 (the operation step of the node): each temporal entry
+    /// admits with no law, no mode, no leaves, its catalogued member and its
+    /// catalogued operand count, and refuses `operation-law-mismatch`,
+    /// `operation-mode-mismatch` and `operation-member-mismatch` where one of
+    /// them disagrees with the entry, so no refusal is a refusal of every
+    /// application. `quire.op.control.case` is held to the same rules; its
+    /// `union_arms` constraint needs a union and is checked through a package.
+    ///
+    /// Tracing: TC-048, FR-038-AC-96
+    #[trace("TC-048", "FR-038-AC-96")]
+    #[test]
+    fn tc_048_the_temporal_entries_admit_by_their_catalogued_shape() {
+        let entries = temporal_and_case_entries();
+        let temporal = entries
+            .iter()
+            .filter(|(_, operator, _, _)| *operator == "temporal_formula")
+            .count();
+        assert_eq!(
+            (entries.len(), temporal),
+            (17, 15),
+            "the catalog carries fifteen formula identities, fair and case"
+        );
+        let operands = |count: usize| vec![json!({ "term": "literal", "value": 1 }); count];
+        for (identity, operator, member, operand_count) in entries {
+            let node_with = |edit: &dyn Fn(&mut Value)| {
+                let mut operation = plain_operation(&identity);
+                if let Some(kind) = member {
+                    operation["member"] = catalogued_member(kind);
+                }
+                edit(&mut operation);
+                custom_application_node(operator, operation, operands(operand_count))
+            };
+            if identity != "quire.op.control.case" {
+                assert_eq!(defect_for(&node_with(&|_| {})), Ok(None), "{identity}");
+            }
+            let law = node_with(&|operation| {
+                operation["laws"] = json!([law_json("text_profile", dummy_law_definition('a'))]);
+            });
+            assert_eq!(
+                defect_for(&law),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/laws/0",
+                    Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                    law.node_id.clone(),
+                ))),
+                "{identity} law"
+            );
+            let mode = node_with(&|operation| {
+                operation["mode"] = json!({ "kind": "rounding", "value": "nearest-even" });
+            });
+            assert_eq!(
+                defect_for(&mode),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/mode",
+                    Some(CheckedPackageRefusalCause::OperationModeMismatch),
+                    mode.node_id.clone(),
+                ))),
+                "{identity} mode"
+            );
+            let leaf = node_with(&|operation| {
+                operation["leaves"] = json!([{
+                    "path": ["field:x"],
+                    "laws": [law_json("text_profile", dummy_law_definition('b'))],
+                    "mode": { "kind": "rounding", "value": "nearest-even" },
+                }]);
+            });
+            assert_eq!(
+                defect_for(&leaf),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/leaves/0",
+                    Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                    leaf.node_id.clone(),
+                ))),
+                "{identity} leaf"
+            );
+            let stray_member = node_with(&|operation| {
+                operation["member"] = json!({ "kind": "state_clause" });
+            });
+            assert_eq!(
+                defect_for(&stray_member),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/member",
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    stray_member.node_id.clone(),
+                ))),
+                "{identity} member"
+            );
+        }
+    }
+
+    /// FR-038-AC-67: an unknown identity and a class mismatch refuse ahead of
+    /// every other check of the entry, and of two defective root nodes the
+    /// lower `node_id` digest is reported.
+    ///
+    /// Tracing: TC-048, FR-038-AC-67
+    #[trace("TC-048", "FR-038-AC-67")]
+    #[test]
+    fn tc_048_identity_and_class_refuse_first_and_the_lowest_node_is_reported() {
+        let case_under_unary = custom_application_node(
+            "unary",
+            plain_operation("quire.op.control.case"),
+            Vec::new(),
+        );
+        assert_eq!(
+            defect_for(&case_under_unary),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                OPERATOR_PATH,
+                Some(CheckedPackageRefusalCause::OperationClassMismatch),
+                case_under_unary.node_id.clone(),
+            )))
+        );
+        let unknown = custom_application_node(
+            "case",
+            plain_operation("quire.op.control.not-catalogued"),
+            Vec::new(),
+        );
+        assert_eq!(
+            defect_for(&unknown),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/identity",
+                Some(CheckedPackageRefusalCause::UnknownOperation),
+                unknown.node_id.clone(),
+            )))
+        );
+
+        // Two defective roots, in both digest orders: the lower digest wins,
+        // whichever of the two operation defects it carries.
+        let unknown_identity = |digest: char| {
+            // Under `unary`: a `case` root in an `expression`/`call` node is
+            // the form contradiction, refused ahead of identities.
+            let mut node = custom_application_node(
+                "unary",
+                plain_operation("quire.op.control.not-catalogued"),
+                vec![],
+            );
+            node.node_id = node_id(digest);
+            node
+        };
+        let class_mismatch = |digest: char| {
+            let mut node = custom_application_node(
+                "unary",
+                plain_operation("quire.op.control.case"),
+                Vec::new(),
+            );
+            node.node_id = node_id(digest);
+            node
+        };
+        for (low_is_unknown_identity, expected_cause) in [
+            (true, CheckedPackageRefusalCause::UnknownOperation),
+            (false, CheckedPackageRefusalCause::OperationClassMismatch),
+        ] {
+            let (low, high) = if low_is_unknown_identity {
+                (unknown_identity('1'), class_mismatch('2'))
+            } else {
+                (class_mismatch('1'), unknown_identity('2'))
+            };
+            let nodes = vec![high.clone(), low.clone()];
+            let kinds = kinds_of(&nodes);
+            let index: BTreeMap<&CheckedNodeId, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let result = super::validate_operations(
+                &nodes,
+                &kinds,
+                &index,
+                &empty_lock(),
+                &ModelOwners::default(),
+                &SuppliedDependencies::default(),
+                &mut WorkMeter::new(1_000),
+            );
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("a defective graph refuses, got {result:?}");
+            };
+            assert_eq!(refusal.locus.as_ref(), Some(&low.node_id));
+            assert_eq!(refusal.cause, Some(expected_cause));
+        }
+    }
+
+    /// The `temporal.clause` graph: node 0 is the clause application over its
+    /// `arguments`; nodes 1.. are the nodes those arguments name.
+    fn clause_nodes(arguments: Vec<Value>, member: Option<Value>) -> Vec<CheckedSemanticNodeV2> {
+        let mut operation = plain_operation("quire.op.temporal.clause");
+        operation["laws"] = json!([law_json("temporal_profile", dummy_law_definition('p'))]);
+        if let Some(member) = member {
+            operation["member"] = member;
+        }
+        let boolean_type = node_id('b');
+        vec![
+            custom_application_node("temporal", operation, arguments),
+            graph_node(
+                '1',
+                "value",
+                "parameter",
+                &node_id('2'),
+                json!({"term": "aggregate", "members": []}),
+            ),
+            graph_node(
+                '2',
+                "composite_type",
+                "record",
+                &node_id('2'),
+                json!({"term": "aggregate", "members": []}),
+            ),
+            graph_node(
+                '3',
+                "scalar_type",
+                "text",
+                &node_id('3'),
+                json!({"term": "aggregate", "members": []}),
+            ),
+            graph_node(
+                '4',
+                "temporal",
+                "formula",
+                &boolean_type,
+                json!({"term": "aggregate", "members": []}),
+            ),
+            graph_node(
+                'b',
+                "scalar_type",
+                "boolean",
+                &boolean_type,
+                json!({"term": "aggregate", "members": []}),
+            ),
+        ]
+    }
+
+    fn node_ref_of(digest: char) -> Value {
+        json!({ "domain": NODE_DOMAIN, "digest": dummy_digest(digest) })
+    }
+
+    fn clause_arguments(first: Value, sixth: Value) -> Vec<Value> {
+        let aggregate = json!({ "term": "aggregate", "members": [] });
+        vec![
+            first,
+            json!({ "term": "literal", "type": node_ref_of('3'),
+                    "value_kind": "text", "value": "clause" }),
+            aggregate.clone(),
+            aggregate.clone(),
+            aggregate,
+            sixth,
+        ]
+    }
+
+    fn clause_defect(
+        arguments: Vec<Value>,
+        member: Option<Value>,
+    ) -> (
+        CheckedSemanticNodeV2,
+        Result<Option<ValidationFailure>, ValidationFailure>,
+    ) {
+        let nodes = clause_nodes(arguments, member);
+        let clause = nodes[0].clone();
+        let mut lock = empty_lock();
+        let definition: CheckedArtifactRef =
+            serde_json::from_value(dummy_law_definition('p')).expect("definition");
+        lock.profile_selections = vec![CheckedSelection {
+            role: LawRole::TemporalProfile
+                .selection_role()
+                .expect("a profile role"),
+            definition,
+        }];
+        (clause, defect_for_graph_locked(nodes, &lock))
+    }
+
+    /// FR-038-AC-68: the six fixed operands of `quire.op.temporal.clause`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-68
+    #[trace("TC-048", "FR-038-AC-68")]
+    #[test]
+    fn tc_048_the_temporal_clause_is_checked_as_six_fixed_operands() {
+        let good = || clause_arguments(reference_to('1'), reference_to('4'));
+        let ineligible = |node: &CheckedSemanticNodeV2, path: &str| {
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::IllTyped,
+                path,
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                node.node_id.clone(),
+            )))
+        };
+        let body = "/semantic_graph/nodes/0/body";
+
+        // The one selected law, no member, six arguments: passes, whatever
+        // type the parameter has (here a record).
+        assert_eq!(clause_defect(good(), None).1, Ok(None));
+
+        // Five and seven arguments.
+        let mut five = good();
+        five.pop();
+        let (node, result) = clause_defect(five, None);
+        assert_eq!(result, ineligible(&node, &format!("{body}/arguments")));
+        let mut seven = good();
+        seven.push(json!({ "term": "aggregate", "members": [] }));
+        let (node, result) = clause_defect(seven, None);
+        assert_eq!(result, ineligible(&node, &format!("{body}/arguments")));
+
+        // A first argument that is not a `reference` term, and a sixth that
+        // references a Boolean node.
+        let text_first = clause_arguments(
+            json!({ "term": "literal", "type": node_ref_of('3'),
+                    "value_kind": "text", "value": "x" }),
+            reference_to('4'),
+        );
+        let (node, result) = clause_defect(text_first, None);
+        assert_eq!(result, ineligible(&node, &format!("{body}/arguments/0")));
+        let boolean_sixth = clause_arguments(reference_to('1'), reference_to('b'));
+        let (node, result) = clause_defect(boolean_sixth, None);
+        assert_eq!(result, ineligible(&node, &format!("{body}/arguments/5")));
+
+        // A member of any kind refuses `operation-member-mismatch`.
+        for kind in ["profile_operator", "fairness", "temporal_interval"] {
+            let (node, result) = clause_defect(good(), Some(json!({ "kind": kind })));
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    &format!("{body}/operation/member"),
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{kind}"
+            );
+        }
+
+        // A `reference` to a formula node resolves to `temporal`: it fits
+        // that operand and an `any_term` position, and no `boolean` or
+        // `any_value` one.
+        let nodes = clause_nodes(good(), None);
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let catalog = operation_catalog();
+        let family = super::argument_family(&reference_to('4'), &nodes, &kinds, &index, catalog);
+        assert_eq!(family, Some("temporal"));
+        assert!(catalog.family_fits("temporal", "temporal"));
+        assert!(catalog.family_fits("temporal", "any_term"));
+        assert!(!catalog.family_fits("temporal", "boolean"));
+        assert!(!catalog.family_fits("temporal", "any_value"));
+    }
+
+    /// FR-038-AC-69: a `temporal_interval` or `fairness` member on an entry
+    /// that catalogues none, `quire.op.boolean.not` or a `temporal_formula`
+    /// identity such as `holds`, is a member mismatch at the member, and
+    /// FR-038-AC-98's `fairness` member on `quire.op.boolean.not`.
+    ///
+    /// Tracing: TC-048, FR-038-AC-69, FR-038-AC-98
+    #[trace("TC-048", "FR-038-AC-69", "FR-038-AC-98")]
+    #[test]
+    fn tc_048_a_temporal_member_on_another_entry_is_a_member_mismatch() {
+        for (identity, operator, kind) in [
+            ("quire.op.boolean.not", "unary", "temporal_interval"),
+            ("quire.op.boolean.not", "unary", "fairness"),
+        ] {
+            let mut operation = plain_operation(identity);
+            operation["member"] = json!({ "kind": kind });
+            let node = custom_application_node(
+                operator,
+                operation,
+                vec![json!({ "term": "literal", "value": true })],
+            );
+            assert_eq!(
+                defect_for(&node),
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    "/semantic_graph/nodes/0/body/operation/member",
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    node.node_id.clone(),
+                ))),
+                "{identity} {kind}"
+            );
+        }
+        let mut operation = plain_operation("quire.op.temporal.holds");
+        operation["member"] = json!({ "kind": "fairness" });
+        let node = custom_application_node(
+            "temporal_formula",
+            operation,
+            vec![json!({ "term": "literal", "value": true })],
+        );
+        assert_eq!(
+            defect_for(&node),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/member",
+                Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                node.node_id.clone(),
+            )))
         );
     }
 }
