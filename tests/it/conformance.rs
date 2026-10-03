@@ -1003,3 +1003,68 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
         "47 canonical files hold one of the eight members"
     );
 }
+
+/// A successful expression input that arrives as `document_json` is checked
+/// against the fixture schema like a plain one is on load, as a successful
+/// package document is: the decoder ignores an unknown member of an
+/// expression node, the schema does not.
+///
+/// Tracing: TC-018, FR-020-AC-3.
+/// FR-020-AC-3.
+#[ix_trace_rs::trace("TC-018", "FR-020-AC-3")]
+#[test]
+fn tc_018_a_successful_expression_document_is_checked_against_the_schema() {
+    let scratch = Scratch::corpus("expression-document");
+    let request = read_json(&scratch.0.join("inputs/expression-boolean-literal.json"));
+    let expectation = read_json(
+        &scratch
+            .0
+            .join("expectations/expression-boolean-literal.json"),
+    );
+    for id in ["control", "extra"] {
+        write_json(
+            &scratch
+                .0
+                .join(format!("expectations/expression-document-{id}.json")),
+            &expectation,
+        );
+    }
+    write_json(
+        &scratch.0.join("inputs/expression-document-control.json"),
+        &json!({"document_json": request.to_string()}),
+    );
+    // The inputs directory holds the control only, so its run reaches the
+    // fixtures; the extra expectation is an orphan until its input is written.
+    fs::remove_file(
+        scratch
+            .0
+            .join("expectations/expression-document-extra.json"),
+    )
+    .unwrap();
+    let output = scratch.run();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let control = rows(&output)
+        .into_iter()
+        .find(|row| row["fixture_id"] == "expression-document-control")
+        .expect("the control fixture ran");
+    assert_eq!(control["status"], "match");
+    assert_eq!(control["actual"]["valid"], true);
+
+    let mut extra = request;
+    extra["expression"]["extra"] = json!(1);
+    write_json(
+        &scratch.0.join("inputs/expression-document-extra.json"),
+        &json!({"document_json": extra.to_string()}),
+    );
+    write_json(
+        &scratch
+            .0
+            .join("expectations/expression-document-extra.json"),
+        &expectation,
+    );
+    assert_eq!(error_code(&scratch.run()), "invalid_corpus");
+}

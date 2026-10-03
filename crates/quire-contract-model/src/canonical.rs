@@ -384,11 +384,9 @@ impl<V: Encode + ?Sized> Encode for Envelope<'_, V> {
 
 /// The canonical bytes of `value` under `maximum_bytes` and their digest.
 ///
-/// Any refusal of the encoder is a failed canonicalization step. The limit is
-/// the one the caller chose; the other refusals (an allocation that failed,
-/// an integer past 2^53) cannot be reached through the model's own types,
-/// which bound every number they hold, and they are refused the same way
-/// rather than returned as bytes.
+/// Any refusal of the encoder is a failed canonicalization step, refused with
+/// the one code STD-001 registers for it; see [`encoder_refusal`] for the
+/// message that tells a limit from an encoder fault.
 fn canonicalize<V: Encode + ?Sized>(
     kind: CanonicalKind,
     value: &V,
@@ -397,7 +395,7 @@ fn canonicalize<V: Encode + ?Sized>(
     span: Option<&SourceSpan>,
 ) -> Result<CanonicalOutput, Diagnostic> {
     let encoded = quire_canonical::to_vec(&Envelope { kind, value }, Limits::new(maximum_bytes))
-        .map_err(|_| resource_error(path, span))?;
+        .map_err(|error| encoder_refusal(&error, path, span))?;
     let bytes = CanonicalBytes(encoded);
     let digest = digest(kind, bytes.as_slice());
     Ok(CanonicalOutput {
@@ -407,10 +405,23 @@ fn canonicalize<V: Encode + ?Sized>(
     })
 }
 
-fn resource_error(path: &str, span: Option<&SourceSpan>) -> Diagnostic {
+/// The refusal for an encoder error. STD-001 registers one code for a failed
+/// canonicalization step, so every error carries it; the message says which
+/// it was. A limit or a failed reservation is the resource condition the code
+/// names. Anything else (a protocol violation, an internal fault, an integer
+/// past 2^53) cannot come from the model's own types, which bound every
+/// number they hold, so it is a bug in a walk and says so rather than posing
+/// as exhaustion.
+pub(crate) fn encoder_refusal(error: &Error, path: &str, span: Option<&SourceSpan>) -> Diagnostic {
+    let message = match error {
+        Error::Limit(_) | Error::Allocation { .. } => {
+            "canonical byte allocation exceeded available resources".to_owned()
+        }
+        other => format!("canonical encoder failed unexpectedly: {other}"),
+    };
     let diagnostic = Diagnostic::error(
         DiagnosticCode::CanonicalizationResourceExhausted,
-        "canonical byte allocation exceeded available resources",
+        message,
         path,
     );
     match span {
@@ -1115,5 +1126,42 @@ fn plan_node<'a>(stack: &mut Vec<Step<'a>>, kind: &'a ExpressionKind) {
                 ("predicate", expression(predicate)),
             ],
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use quire_canonical::{LimitExceeded, LimitKind, ProtocolViolation};
+
+    use super::*;
+
+    /// Tracing: TC-017, FR-016-AC-6.
+    #[ix_trace_rs::trace("TC-017", "FR-016-AC-6")]
+    #[test]
+    fn tc_017_a_limit_and_an_encoder_fault_share_the_code_but_not_the_message() {
+        let limit = Error::Limit(LimitExceeded {
+            kind: LimitKind::CanonicalBytes,
+            bound: 1,
+            required: 2,
+        });
+        let fault = Error::Protocol(ProtocolViolation::MismatchedEnd);
+        let refused = encoder_refusal(&limit, "package", None);
+        let faulted = encoder_refusal(&fault, "package", None);
+        assert_eq!(
+            refused.code,
+            DiagnosticCode::CanonicalizationResourceExhausted
+        );
+        assert_eq!(faulted.code, refused.code);
+        assert_eq!(
+            refused.message,
+            "canonical byte allocation exceeded available resources"
+        );
+        assert!(
+            faulted
+                .message
+                .starts_with("canonical encoder failed unexpectedly"),
+            "{}",
+            faulted.message
+        );
     }
 }

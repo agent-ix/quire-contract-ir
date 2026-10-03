@@ -402,12 +402,12 @@ impl BoundPackage {
         // SHA-256 of the envelope's canonical bytes, with no domain prefix:
         // the profile member is the separation.
         let digest = quire_canonical::sha256(&envelope, Limits::new(MAX_CONFORMANCE_FILE_BYTES))
-            .map_err(|_| {
-                failure(
-                    DiagnosticCode::CanonicalizationResourceExhausted,
-                    "canonical byte allocation exceeded available resources",
+            .map_err(|error| {
+                vec![crate::canonical::encoder_refusal(
+                    &error,
                     "projection.identity",
-                )
+                    None,
+                )]
             })
             .and_then(|digest| {
                 CanonicalDigest::parse(&digest.to_string()).map_err(|diagnostic| vec![diagnostic])

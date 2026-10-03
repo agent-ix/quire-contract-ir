@@ -621,6 +621,7 @@ pub fn run_corpus(path: &Path, schemas: &Path) -> Result<Vec<FixtureResult>, Run
                 &loaded.input,
                 &actual,
                 &package_validator,
+                &conformance_validator,
                 &loaded.fixture.id,
             )?;
             let (covers, trace_ids) =
@@ -767,6 +768,7 @@ fn validate_successful_package_schema(
     input: &Value,
     actual: &Value,
     package_validator: &SchemaWorker,
+    conformance_validator: &SchemaWorker,
     fixture_id: &str,
 ) -> Result<(), RunnerError> {
     if !operation_succeeded(operation, actual) {
@@ -794,7 +796,23 @@ fn validate_successful_package_schema(
                 "successful operation has no package input",
             )
         })?,
-        ConformanceOperation::Expression => return Ok(()),
+        ConformanceOperation::Expression => {
+            // A plain input was checked against `expressionInput` on load; a
+            // `document_json` one was not, so its document is checked here.
+            if let Some(document) = input.get("document_json").and_then(Value::as_str) {
+                let document: Value = parse_json(
+                    document.as_bytes(),
+                    format!("fixtures.{fixture_id}.input.document_json"),
+                    "successful raw expression input is malformed",
+                )?;
+                conformance_validator.validate(
+                    "expressionInput",
+                    format!("fixtures.{fixture_id}.input.document_json"),
+                    document,
+                )?;
+            }
+            return Ok(());
+        }
     };
     let path = format!("fixtures.{fixture_id}.input.package");
     package_validator
@@ -918,6 +936,9 @@ fn compile_named_schemas(schema: &Value) -> Result<BTreeMap<String, JSONSchema>,
         names.push(operation.input_definition());
         names.push(operation.expectation_definition());
     }
+    // The strict expression request, which a `document_json` input is checked
+    // against when it succeeds.
+    names.push("expressionInput");
     let mut compiled = BTreeMap::new();
     for name in names {
         let wrapper = json!({
