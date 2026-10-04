@@ -78,8 +78,8 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
   (`checked_package/v2/mod.rs`, after IR-533), after the reader has refused bytes that are not
   `quire_canonical::to_vec`'s. The other identity digests IR computes (a nominal, application
   and structural node key, a lowered node's `ir_id` and the lowered package's id, the selected
-  model document's digest) were still `digest_json` at the time of writing, which is
-  `serde_json::to_vec` followed by SHA-256 (`checked_package/common.rs`); FR-038 ("Every
+  model document's digest) were `digest_json` when this AD was written, which was
+  `serde_json::to_vec` followed by SHA-256 (since removed; see Current state and AD-007); FR-038 ("Every
   identity digest is computed through quire-canonical") states that all of them go through
   `quire-canonical` and that no encoder of IR's own remains, and the check of agreement by
   emission tests (QSL `tc_469_step_6_the_emitted_package_admits_via_i04`, one fixture; D-5)
@@ -179,21 +179,16 @@ What is measured today, what is open and with whom, and what is routed.
   use the bridge; the consumer that does is codegen (AD-006).
 - D-2 has no check. AD-001 says runtime has no dependency in either direction with IR; codegen
   depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
-  is added (`deny.toml` `[bans]` has no `deny` list). The fix is decision D: cargo-deny `bans`
-  entries, a build failure in `make deny`, homed in IR-343. QSL's `arch-lint direction` would also
+  is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or
+  runtime repository already fails `make deny` through `[sources]` `unknown-git = "deny"` and its
+  `allow-git` list (corrected in IR-346, AD-007). Decision D adds name-level `bans` entries, homed in IR-343. QSL's `arch-lint direction` would also
   report a cycle, but only when someone runs it with all three clones.
 - Two encoders: QSL's ADR-013 section 2 and its `arch-lint canonical-encoder` forbid a second
-  canonical encoder beside `quire-canonical`; IR's `digest_json` is that pattern, in a repository
-  the lint does not scan, and the one-encoder rule binds IR (decision C). After IR-533 the
-  `package_id` check is `quire_canonical::sha256`; `digest_json` still has five production call
-  sites: the nominal preimage digest (`v2/identity.rs`), the lowered-node identity
-  (`v2/lower.rs`), the application-node check (`v2/operations.rs`), the model-member preimage
-  and the selected-document check (both `v2/model_members.rs`). Beside them the v1 model has its
-  own writer, `CanonicalWriter` (`canonical.rs`), reached through `canonical_envelope_bytes`
-  from the bound identity (`binding.rs`) and the three output-mapping identity steps
-  (`output_mapping.rs`, each with a `u64::MAX` ceiling, IR-74), and the lowered package's bytes
-  are `serde_json::to_vec`. FR-016, FR-034 and FR-038 state that all of these go through
-  `quire-canonical`; the code removing them is IR-274's. QSL states (not re-measured here)
+  canonical encoder beside `quire-canonical`, in a repository the lint does not scan, and the
+  one-encoder rule binds IR (decision C). Corrected in IR-346 (AD-007): on IR `main` the symbols
+  `digest_json`, `CanonicalWriter` and `canonical_envelope_bytes` no longer occur in `src/` or
+  `crates/`, so the five `digest_json` call sites and the v1 writer this bullet once listed are
+  gone; IR-274's code changes removed them. QSL states (not re-measured here)
   that the serde_json form diverges from RFC 8785 on integers above 2^53, floats, negative
   zero and key order under `preserve_order`; IR's own `serde_json` features do not enable
   `preserve_order` (`Cargo.toml`), but a canonicalizer crate (`serde_json_canonicalizer`) is in
