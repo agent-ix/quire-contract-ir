@@ -2073,8 +2073,9 @@ fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
 fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text() {
     // Every request limit member has a value of its own digit count (1 to 6),
     // so a member copied from another in the request material changes the
-    // length of the material and so `request_bytes`. A swap keeps the length;
-    // the unit tests catch it by comparing bytes.
+    // length of the material and so `request_bytes`. A swap in admission keeps
+    // the length and is not detected here; the unit tests byte-check member
+    // names only for a shape they build.
     let limits = MappingLimits::new(1 << 20, 55, 7_777, 4, 88_888, 666, 999_999)
         .expect("distinct positive limits");
     let package = bound_package();
