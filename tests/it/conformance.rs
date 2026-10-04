@@ -911,62 +911,271 @@ fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
 }
 
 /// Every canonical file of the published corpus whose object holds one of the
-/// eight members equals the bytes written out here, or holds them only as
-/// strings (FR-020-AC-3, FR-016-AC-5).
+/// eight members equals the bytes written out here and holds them only as
+/// strings; the test asserts both for every holding file (FR-020-AC-3,
+/// FR-016-AC-5).
 ///
 /// Tracing: TC-018, FR-020-AC-3.
 /// FR-020-AC-3.
 #[ix_trace_rs::trace("TC-018", "FR-020-AC-3", "FR-016-AC-5")]
 #[test]
 fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
-    const INTEGER: &str =
-        "{\"domain\":\"signed\",\"maximum\":\"10\",\"minimum\":\"-10\",\"overflow\":\"reject\"}";
-    let canonical = corpus().join("canonical");
-    let read = |name: &str| fs::read_to_string(canonical.join(name)).unwrap();
-    assert_eq!(
-        read("expression-integer-literal-1.json"),
-        format!(
-            "{{\"kind\":\"expression\",\"profile\":\"quire.contract.canonical-json/v1\",\
-             \"value\":{{\"result_type\":{{\"kind\":\"integer\",\"value\":{INTEGER}}},\
-             \"tree\":{{\"kind\":{{\"node\":\"integer_literal\",\"value\":\"1\",\
-             \"value_type\":{INTEGER}}}}}}}}}"
+    // The expected bytes are written out here, not produced by the encoder
+    // under test. `<NAME>` is a fragment of them, spelled once below.
+    let fragments = [
+        (
+            "<I>",
+            r#"{"domain":"signed","maximum":"10","minimum":"-10","overflow":"reject"}"#,
+        ),
+        (
+            "<U>",
+            r#"{"domain":"unsigned","maximum":"4","minimum":"0","overflow":"reject"}"#,
+        ),
+        (
+            "<WIDE>",
+            concat!(
+                r#"{"domain":"signed","maximum":"9223372036854775807","#,
+                r#""minimum":"-9223372036854775808","overflow":"reject"}"#
+            ),
+        ),
+        (
+            "<RAT>",
+            r#"{"maximum_denominator":"10","numerator_maximum":"10","numerator_minimum":"-10"}"#,
+        ),
+        ("<INT>", r#"{"kind":"integer","value":<I>}"#),
+        ("<UINT>", r#"{"kind":"integer","value":<U>}"#),
+        ("<OPT>", r#"{"kind":"option","value":<INT>}"#),
+        ("<COLL>", r#"{"element":<INT>,"maximum_items":4}"#),
+        (
+            "<LIT>",
+            r#"{"kind":{"node":"integer_literal","value":"1","value_type":<I>}}"#,
+        ),
+        (
+            "<LITU>",
+            r#"{"kind":{"node":"integer_literal","value":"0","value_type":<U>}}"#,
+        ),
+        (
+            "<ITEMS>",
+            r#"{"kind":{"name":"items","node":"value_reference","observation":"pre"}}"#,
+        ),
+        (
+            "<SOME>",
+            r#"{"kind":{"node":"option_some","value":<LIT>,"value_type":<OPT>}}"#,
+        ),
+        ("<BOOL>", r#"{"kind":"boolean"}"#),
+        (
+            "<EXPRESSION>",
+            concat!(
+                r#"{"kind":"expression","profile":"quire.contract.canonical-json/v1","#,
+                r#""value":{"result_type":<RESULT>,"tree":<TREE>}}"#
+            ),
+        ),
+        (
+            "<DECLARATION>",
+            concat!(
+                r#"{"kind":"declaration","profile":"quire.contract.canonical-json/v1","value":{"#,
+                r#""functions":[{"name":"identity","parameters":[{"name":"argument","#,
+                r#""value_type":<INT>}],"result_type":<INT>}],"#,
+                r#""owner":{"package":"agent-ix/conformance","requirement":"REQ_alpha","revision":1},"#,
+                r#""types":[{"declaration":{"name":"Color","variants":[{"name":"blue"},"#,
+                r#"{"name":"red"}]},"kind":"enum"},{"declaration":{"fields":[{"name":"reading","#,
+                r#""value_type":<INT>}],"name":"Sensor"},"kind":"record"}],"#,
+                r#""values":[{"kind":"input","name":"divisor","value_type":<DIVISOR>},"#,
+                r#"{"kind":"state","name":"items","value_type":<COLLECTION>},"#,
+                r#"{"kind":"state","name":"maybe","value_type":<OPT>},"#,
+                r#"{"kind":"input","name":"position","value_type":<UINT>},"#,
+                r#"{"kind":"state","name":"sensor","value_type":{"kind":"record","name":"Sensor"}},"#,
+                r#"{"kind":"state","name":"state_value","value_type":<INT>}<MORE>]}}"#
+            ),
+        ),
+    ];
+    let spell = |template: &str, slots: &[(&str, &str)]| {
+        let mut text = template.to_owned();
+        for _ in 0..8 {
+            for (name, bytes) in slots.iter().chain(fragments.iter()) {
+                text = text.replace(name, bytes);
+            }
+        }
+        assert!(!text.contains('<'), "every fragment is spelled: {text}");
+        text
+    };
+    let expression =
+        |result: &str, tree: &str| spell("<EXPRESSION>", &[("<RESULT>", result), ("<TREE>", tree)]);
+    let declaration = |divisor: &str, collection: &str, more: &str| {
+        spell(
+            "<DECLARATION>",
+            &[
+                ("<DIVISOR>", divisor),
+                ("<COLLECTION>", collection),
+                ("<MORE>", more),
+            ],
         )
-    );
-    const RATIONAL: &str = concat!(
-        "{\"maximum_denominator\":\"10\",\"numerator_maximum\":\"10\",",
-        "\"numerator_minimum\":\"-10\"}"
-    );
-    assert_eq!(
-        read("expression-rational-literal-1.json"),
-        format!(
-            "{{\"kind\":\"expression\",\"profile\":\"quire.contract.canonical-json/v1\",\
-             \"value\":{{\"result_type\":{{\"kind\":\"rational\",\"value\":{RATIONAL}}},\
-             \"tree\":{{\"kind\":{{\"denominator\":\"1\",\"node\":\"rational_literal\",\
-             \"numerator\":\"2\",\"value_type\":{RATIONAL}}}}}}}}}"
-        )
-    );
-    assert_eq!(
-        read("expression-collection-literal-1.json"),
-        format!(
-            "{{\"kind\":\"expression\",\"profile\":\"quire.contract.canonical-json/v1\",\
-             \"value\":{{\"result_type\":{{\"kind\":\"collection\",\"value\":\
-             {{\"element\":{{\"kind\":\"integer\",\"value\":{INTEGER}}},\"maximum_items\":4}}}},\
-             \"tree\":{{\"kind\":{{\"items\":[{{\"kind\":{{\"node\":\"integer_literal\",\
-             \"value\":\"1\",\"value_type\":{INTEGER}}}}}],\"node\":\"collection_literal\",\
-             \"value_type\":{{\"element\":{{\"kind\":\"integer\",\"value\":{INTEGER}}},\
-             \"maximum_items\":4}}}}}}}}}}"
-        )
-    );
-    // The widest members: an integer type of the full `i64` range and a
-    // rational type whose denominator bound is `i64::MAX`.
-    let edges = read("expression-numeric-edges-0.json");
-    for member in [
-        "\"maximum\":\"9223372036854775807\",\"minimum\":\"-9223372036854775808\"",
-        "\"maximum_denominator\":\"9223372036854775807\",\"numerator_maximum\":\"1\",\
-         \"numerator_minimum\":\"-1\"",
-        "\"maximum_items\":4294967295",
+    };
+
+    let mut expected: Vec<(String, String)> = Vec::new();
+    // Every declaration file of the fixtures that share the one declaration.
+    let plain = declaration("<INT>", r#"{"kind":"collection","value":<COLL>}"#, "");
+    for fixture in [
+        "boolean",
+        "boolean-literal",
+        "boolean-not",
+        "call",
+        "collection-literal",
+        "compare",
+        "depth-maximum",
+        "enum-literal",
+        "execution-handler",
+        "execution-initialization",
+        "execution-post",
+        "field-access",
+        "index",
+        "integer-literal",
+        "is-present",
+        "length",
+        "nodes-maximum",
+        "numeric",
+        "numeric-negate",
+        "option-none",
+        "option-some",
+        "quantifier",
+        "rational-literal",
+        "record-literal",
+        "text-literal",
+        "text-maximum",
+        "unwrap",
+        "value-input",
+        "value-state",
     ] {
-        assert!(edges.contains(member), "numeric edges hold {member}");
+        expected.push((format!("expression-{fixture}-0.json"), plain.clone()));
+    }
+    // The widest members: an integer type of the full `i64` range, a rational
+    // type whose denominator bound is `i64::MAX`, and a collection bound of
+    // `u32::MAX`.
+    expected.push((
+        "expression-numeric-edges-0.json".to_owned(),
+        declaration(
+            "{\"kind\":\"integer\",\"value\":<WIDE>}",
+            r#"{"kind":"collection","value":{"element":<BOOL>,"maximum_items":4294967295}}"#,
+            concat!(
+                r#",{"kind":"input","name":"wide_rational","value_type":{"kind":"rational","#,
+                r#""value":{"maximum_denominator":"9223372036854775807","#,
+                r#""numerator_maximum":"1","numerator_minimum":"-1"}}}"#
+            ),
+        ),
+    ));
+    // The expression file of each fixture that holds one of the members.
+    for (fixture, result, tree) in [
+        (
+            "call",
+            "<INT>",
+            r#"{"kind":{"arguments":[<LIT>],"function":"identity","node":"call"}}"#,
+        ),
+        ("integer-literal", "<INT>", "<LIT>"),
+        (
+            "compare",
+            "<BOOL>",
+            r#"{"kind":{"left":<LIT>,"node":"compare","operator":"equal","right":<LIT>}}"#,
+        ),
+        (
+            "index",
+            "<INT>",
+            concat!(
+                r#"{"kind":{"collection":{"kind":{"items":[<LIT>],"node":"collection_literal","#,
+                r#""value_type":<COLL>}},"index":<LITU>,"node":"index"}}"#
+            ),
+        ),
+        (
+            "numeric-negate",
+            "<INT>",
+            r#"{"kind":{"node":"numeric_negate","operand":<LIT>}}"#,
+        ),
+        (
+            "quantifier",
+            "<BOOL>",
+            concat!(
+                r#"{"kind":{"collection":<ITEMS>,"domain":"elements","local":"element","#,
+                r#""node":"quantifier","predicate":{"kind":{"left":{"kind":{"name":"element","#,
+                r#""node":"local_reference"}},"node":"compare","operator":"equal","right":<LIT>}},"#,
+                r#""quantifier":"for_all"}}"#
+            ),
+        ),
+        ("option-some", "<OPT>", "<SOME>"),
+        (
+            "unwrap",
+            "<INT>",
+            r#"{"kind":{"node":"unwrap","option":<SOME>}}"#,
+        ),
+        (
+            "value-state",
+            "<INT>",
+            r#"{"kind":{"name":"state_value","node":"value_reference","observation":"pre"}}"#,
+        ),
+        (
+            "length",
+            "<UINT>",
+            r#"{"kind":{"collection":<ITEMS>,"node":"length"}}"#,
+        ),
+        (
+            "record-literal",
+            r#"{"kind":"record","name":"Sensor"}"#,
+            concat!(
+                r#"{"kind":{"fields":[{"name":"reading","value":<LIT>}],"node":"record_literal","#,
+                r#""record":"Sensor"}}"#
+            ),
+        ),
+        (
+            "field-access",
+            "<INT>",
+            concat!(
+                r#"{"kind":{"base":{"kind":{"name":"sensor","node":"value_reference","#,
+                r#""observation":"pre"}},"field":"reading","node":"field_access"}}"#
+            ),
+        ),
+        (
+            "numeric",
+            "<INT>",
+            r#"{"kind":{"left":<LIT>,"node":"numeric","operator":"add","right":<LIT>}}"#,
+        ),
+        (
+            "option-none",
+            "<OPT>",
+            r#"{"kind":{"node":"option_none","value_type":<OPT>}}"#,
+        ),
+        (
+            "rational-literal",
+            r#"{"kind":"rational","value":<RAT>}"#,
+            concat!(
+                r#"{"kind":{"denominator":"1","node":"rational_literal","numerator":"2","#,
+                r#""value_type":<RAT>}}"#
+            ),
+        ),
+        (
+            "collection-literal",
+            r#"{"kind":"collection","value":<COLL>}"#,
+            r#"{"kind":{"items":[<LIT>],"node":"collection_literal","value_type":<COLL>}}"#,
+        ),
+        (
+            "value-input",
+            "<INT>",
+            r#"{"kind":{"name":"divisor","node":"value_reference","observation":"current"}}"#,
+        ),
+    ] {
+        expected.push((
+            format!("expression-{fixture}-1.json"),
+            expression(&spell(result, &[]), &spell(tree, &[])),
+        ));
+    }
+    assert_eq!(expected.len(), 47, "one expected file per holding file");
+
+    let canonical = corpus().join("canonical");
+    let mut compared = BTreeSet::new();
+    for (name, bytes) in &expected {
+        assert_eq!(
+            &fs::read_to_string(canonical.join(name)).unwrap_or_else(|e| panic!("{name}: {e}")),
+            bytes,
+            "{name}"
+        );
+        assert!(compared.insert(name.clone()), "{name} is expected once");
     }
 
     let names = [
@@ -995,6 +1204,10 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
                 );
                 holds |= next == '"' && name != "value";
             }
+        }
+        if holds {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(compared.contains(&name), "{name} has no expected bytes");
         }
         holding += usize::from(holds);
     }
