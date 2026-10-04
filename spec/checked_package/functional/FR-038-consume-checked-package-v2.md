@@ -1081,8 +1081,10 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   `release`, `since`, `triggered`) the member is `{kind: temporal_interval,
   interval}`, as QSpec's V2 schema binds it, with `interval` the closed object
   `{lower, upper}` (an interval operator), `{lower, upper: null}` (a
-  lower-bounded operator) or `null` (an unbounded operator); a `null` member is
-  not an interval and refuses `operation-member-mismatch` at the application. Each of `lower` and
+  lower-bounded operator) or `null` (an unbounded operator), or, 🚧 planned
+  (IR-551 code), the timed form of the next member rule; a `null` member is
+  not an interval and refuses `operation-member-mismatch` at the application. In
+  the integer form each of `lower` and
   `upper` is a non-negative integer string, matching `^(0|[1-9][0-9]*)$` exactly:
   `"0"`, `"3"` and `"10"` match; `"-1"`, `"1.5"`, `"01"`, `"+1"`, `""` and `"3x"` do
   not. QSpec FR-370 (merged) makes the integer-form bounds non-negative
@@ -1106,9 +1108,12 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   (`/semantic_graph/nodes/{n}/body/operation/member/interval/lower` or `.../upper`).
   There is no asymmetry between a negative and a malformed bound: both are failures
   of the schema pattern, refused in that early stage, and neither is the shape
-  refusal below. A member of another kind or an `interval` with another member set
-  refuses `invalid_package` with cause `operation-member-mismatch` at
-  `operation.member` (an IR reading, merged text silent), and a `null` member on an
+  refusal below. A member of another kind, or an integer-form `interval` that
+  holds a third member, refuses `invalid_package` with cause
+  `operation-member-mismatch` at `operation.member` (an IR reading: merged text
+  states no cause for it, and the published schema's closed interval `oneOf` fails it
+  at strict wire validation, which this reader reaches at the operation step instead;
+  the timed form's member-set defects are the next member rule's), and a `null` member on an
   interval-capable operator refuses `invalid_package`/`operation-member-mismatch` at
   the application, `/semantic_graph/nodes/{n}/body` (merged FR-370). A closed interval whose
   `lower` is greater than its `upper` refuses `invalid_package` with cause
@@ -1119,6 +1124,75 @@ fixes, with these entry-specific rules and no `unsupported_construct`:
   refuses and a pair beyond 2^64 compares as its value does. On the other seven
   `temporal_formula` entries and on `quire.op.temporal.clause`, any member
   refuses `operation-member-mismatch` at `operation.member`.
+- **The timed interval form** (QSpec FR-370 and FR-370-AC-8, FR-255; 🚧 Planned,
+  IR-551 code). A fourth shape of `interval` is the closed object `{lower, upper,
+  lower_end, upper_end}`, the timed form, which merged FR-370 uses only under
+  `quire.temporal.timed/v1`: `lower` and `upper` are the exact rationals
+  `{numerator, denominator}` of the published schema's `NonNegativeRational`
+  (`numerator` matching `^(0|[1-9][0-9]*)$`, `denominator` matching `^[1-9][0-9]*$`),
+  `lower_end` and `upper_end` each `closed` or `open`, and there is no `null` upper
+  bound. The reader tells the forms apart by the member set of `interval`: exactly
+  `lower` and `upper` is the integer form, exactly `lower`, `upper`, `lower_end` and
+  `upper_end` the timed form; each bound is judged against its own form's pattern,
+  and an interval with any other member set has no form, its bounds judged against
+  the integer pattern (an IR reading, as today's reader judges them). A timed-form
+  interval is read in these stages, in this order across the package:
+  1. **Bound pattern, in the term walk, one stage in effect with strict wire
+     validation** (before every identity check). Merged FR-370 refuses a bound
+     outside its form's pattern `invalid_package`/`invalid-value` "during strict wire
+     validation, before any step of this requirement runs"; here that is `numerator`
+     negative or malformed (`"-1"`, `"01"`), `denominator` zero, negative or
+     malformed (`"0"`, `"-2"`), and a bound that is not the closed object of those
+     two members or is a JSON integer, and, in the four-member form, `null` in place
+     of `upper`, first in member order, `lower` then `upper`, under every profile. A
+     negative bound is merged FR-370-AC-9's case; the others are the same rule applied
+     to the rational pattern, and `null` in the upper position is an IR reading
+     that follows from the member-set rule above. The locus is the bound,
+     `/semantic_graph/nodes/{n}/body/operation/member/interval/lower` or `.../upper`:
+     an IR reading of "that bound's pointer" (a schema validator would name
+     `.../lower/numerator`, and this crate's rational check of a nominal preimage
+     names `.../numerator` today).
+  2. **Lowest terms, a graph check.** A bound that matches the pattern and is not in
+     lowest terms (`{numerator: "2", denominator: "4"}`) refuses
+     `invalid_semantic_graph`, as every non-normalized rational does (merged FR-370
+     and FR-322-AC-10). It runs after the term walk of every node and after the
+     `package_id` and node-key recomputation, as the graph checks do, as the last of
+     the graph checks that run before the frame step, after the application
+     dependency join and every other `invalid_semantic_graph` check of the nodes
+     those checks make, and ahead of the frame and state-clause step and the
+     temporal step, at the first such bound in ascending
+     `node_id` digest order and
+     then member order, located at the bound (the same pointer as stage 1). So a
+     package with a non-reduced bound in one node and another defect of those earlier
+     graph checks in another node refuses at the other defect, while the frame
+     step's own `invalid_semantic_graph` refusals (a frame array out of canonical
+     order, at the frame body, FR-038-AC-14) are later and lose to the bound. So a
+     pattern failure in any node, in any bound, is refused `invalid-value` ahead of a
+     non-reduced bound in any node; the stage, the position among the graph checks and
+     the locus are an IR reading, merged text stating only the code. The GCD work is charged to the work limit at the node's
+     body, as the reduced-rational check of a nominal preimage member charges its
+     own, so a package over the work limit returns `incomplete` naming it
+     (FR-038-AC-3) and not a refusal of the bound.
+  3. **Profile fit** (below, the temporal step): under `quire.temporal.timed/v1` the
+     timed form admits; under every other profile it refuses
+     `operation-member-mismatch` at the operator's application (merged FR-370-AC-8).
+  4. **Interval bounds** (the temporal step, after profile fit, with the integer
+     form's `lower > upper` refusal): merged FR-370 refuses `lower > upper`, and an
+     open end with `lower = upper`, `invalid_package`/`invalid-value` at the
+     application, `/semantic_graph/nodes/{n}/body`. The rationals compare exactly, as
+     integers of unbounded size by cross-multiplication, never through a float or a
+     fixed-width integer, and that work is charged to the work limit as in stage 2.
+     A closed interval with equal bounds, `[3, 3]`, is punctual and admits.
+  5. **Member-set defects, at the operation step.** A four-member interval whose
+     `lower_end` or `upper_end` is neither `closed` nor `open`, and an interval of
+     any other member set whose bounds pass the integer pattern (a missing end, a
+     fifth member), refuse `invalid_package`/`operation-member-mismatch` at
+     `operation.member`. This is an IR reading that diverges from the published
+     schema: its closed interval `oneOf` and its `enum [closed, open]` fail each of
+     these at strict wire validation, and this reader refuses them later, as it does
+     an integer-form interval with a third member. The temporal step skips such an
+     interval, so another interval's profile-fit or bounds defect, in this clause or a
+     later one, is reported before it.
 - **The `fairness` member** (QSpec FR-370). On `quire.op.temporal.fair` the
   member is the closed object `{kind: fairness, fairness_kind, granularity,
   declaration, name}` with `fairness_kind` `weak` or `strong`, `granularity`
@@ -1277,8 +1351,10 @@ defect:
      `invalid_model_binding`/`malformed-declaration` located at the target, as merged
      FR-370 words step 1; it is not `missing-name`.
    - **Profile fit** (below).
-   - **Interval bounds**, the `lower > upper` refusal of the member rule above,
-     which runs after profile fit. The refusal is a property of the member, not of
+   - **Interval bounds**, the `lower > upper` refusal of the member rule above
+     and, for the timed form, its `lower > upper` and open-end-with-equal-bounds
+     refusals (🚧 IR-551 code, "The timed interval form"), which run after
+     profile fit. The refusal is a property of the member, not of
      a clause, so a formula node no clause reaches is checked too, in a sweep after
      every clause has been read, in ascending `node_id` digest order (an IR reading;
      a formula's interval is an interval all the same). A negative bound is not part of this stage: it is
@@ -1315,30 +1391,19 @@ defect:
    - `quire.temporal.infinite-trace/v1` admits `interval: null`, `{lower, upper:
      null}` and `{lower, upper}`, and any number of fairness references.
    - `quire.temporal.timed/v1` admits `interval: null` (an unbounded operator) and
-     the timed form below, and any number of fairness references; `{lower, upper:
+     the timed form above, and any number of fairness references; `{lower, upper:
      null}` and an integer-form `{lower, upper}` refuse `operation-member-mismatch`
      under it (merged FR-370 states a timed interval has a finite upper bound and
-     exact rational bounds). A KNOWN GAP, IR-551: merged FR-370 defines the timed form
-     `{lower, upper, lower_end, upper_end}` with `lower` and `upper` exact non-negative
-     rationals `{numerator, denominator}` in lowest terms, `lower_end` and `upper_end`
-     each `closed` or `open`, used only under this profile, `lower <= upper` and
-     `lower < upper` when an end is open, a bound not in lowest terms refused
-     `invalid_semantic_graph` and an open end with equal bounds refused
-     `invalid-value` (FR-370-AC-8). This change does not read that form and pins no
-     behaviour for it; IR-551 owns it. As what the reader does today, not as a
-     requirement, and whichever of this specification and the held code change lands
-     first: a timed-form interval carries non-string bounds (`lower` and `upper` are
-     `{numerator, denominator}` objects), which are outside the integer bound pattern.
-     Once FR-038-AC-97's rule is implemented (every bound outside the pattern refuses
-     `invalid-value` at the bound in the term walk) the term walk refuses it
-     `invalid-value` at that bound before any temporal or operation step; before that
-     rule is implemented, the reader's negative-bound check catches only negative
-     integer strings, so an object bound passes the term walk, the member does not
-     decode as an interval member, and the operation step refuses it
-     `operation-member-mismatch` at `operation.member`, as it does an interval that
-     is neither `null` nor exactly `{lower, upper}` and fails no bound pattern (a
-     third member, say). Either way, until IR-551 a timed-form interval under
-     `timed/v1`, which merged QSpec admits, is refused by this reader.
+     exact rational bounds). 🚧 Planned (IR-551 code): the timed form of merged
+     FR-370, `{lower, upper, lower_end, upper_end}`, is read as "The timed interval
+     form" in the member rules above states, and under `timed/v1` every timed form
+     whose bounds and ends are well formed admits (`[a, b]`, `(a, b]`, `[a, b)` and
+     `(a, b)`, with the bound checks of that form); it is admitted under no other
+     profile and refuses `operation-member-mismatch` at the operator's application
+     there (merged FR-370-AC-8). FR-038-AC-119 through FR-038-AC-122. Until that code lands this reader
+     does not read the form: a timed-form interval's bounds are objects, outside the
+     integer bound pattern, so it refuses `invalid-value` at the bound in the term
+     walk under every profile, `timed/v1` included.
    - The three bounded profiles (`event-position.false-extension`,
      `fixed-sample.false-extension`, `timestamped-event.finite-window`) admit
      integer `{lower, upper}` only: a `null` interval or a `{lower, upper: null}` interval
@@ -1409,8 +1474,13 @@ otherwise, the locus is the key of the node that path is on.
 | profile fit, fairness argument | `/semantic_graph/nodes/{clause}/body` | the clause's key |
 | `lower > upper` | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
 | a bound outside the non-negative integer pattern, negative or malformed (`invalid-value`, term walk, first in member order) | `/semantic_graph/nodes/{formula node}/body/operation/member/interval/lower` or `.../upper` | the formula node's key |
+| 🚧 a timed bound outside the rational pattern (`invalid-value`, term walk, first in member order; IR-551 code; the pointer is an IR reading, a schema validator naming `.../lower/numerator`) | `/semantic_graph/nodes/{formula node}/body/operation/member/interval/lower` or `.../upper` | the formula node's key |
+| 🚧 a timed bound not in lowest terms (`invalid_semantic_graph`, graph check after the term walk and the identity recomputation; IR-551 code, an IR reading of stage and locus) | `/semantic_graph/nodes/{formula node}/body/operation/member/interval/lower` or `.../upper` | the formula node's key |
+| 🚧 a timed interval under a profile other than `timed/v1` (`operation-member-mismatch`; IR-551 code) | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
+| 🚧 a timed-form member-set defect: an end neither `closed` nor `open`, a missing end, a fifth member (`operation-member-mismatch`, operation step; IR-551 code, an IR reading that diverges from the published schema) | `/semantic_graph/nodes/{formula node}/body/operation/member` | the formula node's key |
+| 🚧 a timed `lower > upper`, or an open end with equal bounds (`invalid-value`; IR-551 code) | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
 
-The paths AC-97, AC-102, AC-103, AC-104 and AC-108 give, and the loci they name,
+The paths AC-97, AC-102, AC-103, AC-104, AC-108 and AC-119 through AC-122 give, and the loci they name,
 are the rows of this table. The table follows the loci merged FR-370 states (the
 target, the referencing node, the clause node for the law); the other pairings are IR
 readings, pending a QSpec ruling.
@@ -2228,7 +2298,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-101 | The reader's refusal types, `CheckedPackageRefusalCode` and `CheckedPackageRefusalCause`, carry neither `unsupported_construct` nor `expression-form`, so no input is refused with either; the diagnostics wire vocabulary `CheckedDiagnosticCode` still carries `unsupported_construct`, so a `diagnostics.entries[]` entry whose `code` is `unsupported_construct` reads as QSpec's schema allows; no application is evaluated by the reader or the lowerer, so an admitted `temporal`/`formula` node and an admitted `expression`/`case` node lower, under a profile that supports their tags, to nodes whose body equals the admitted body and whose `ir_id` is derived from it as for every node, and a profile lacking the tag returns `unsupported` naming it (FR-038-AC-8). | Test (TC-048) |
 | FR-038-AC-102 | The temporal step runs after the frame and state-clause step and before the operation step, placement first: a package holding one node with a placement defect (a `temporal_formula` application as the body root of a `function` node) and a second with a lower `node_id` digest whose operation identity is unknown refuses for the placement defect, and so does the same placement defect beside a lower-digest node whose `operator` differs from its entry's class (`quire.op.control.case` under `unary`), in both digest orders each, the placement defect taken in the shape of a `temporal_formula` application in a `function` node; two placement defects are reported at the lower `node_id` digest; a placement defect is reported ahead of any clause defect in either digest order; within one clause an `over` defect is reported ahead of a fairness-resolution defect, ahead of a profile-fit defect, ahead of an interval-bounds defect, each adjacent pair built as two defects of one clause and in both orders of the two defects' positions; and across two clauses the lower-digest clause's later-stage defect (a profile-fit defect) is reported ahead of the higher-digest clause's earlier-stage defect (an `over` defect), in both digest orders of the two clauses. The temporal step skips a member whose shape the operation step refuses (a wrong-kind member, an interval with a third member), and a `null` member on an interval operator under a bounded profile refuses `invalid_package`/`operation-member-mismatch` at the application. Every bound outside the schema pattern, negative or malformed (`{lower: "1.5", upper: "0"}` included), is a schema-pattern failure, refused `invalid_package`/`invalid-value` at the bound in the term walk of the body, before placement and every temporal step, first in member order, under every profile (merged QSpec FR-370-AC-9; there is no asymmetry between a negative and a malformed bound): `{lower: "0", upper: "-2"}` refuses at `.../interval/upper`, `{lower: "-1", upper: "-3"}` at `.../interval/lower`, and `{lower: "-1", upper: null}` refuses at `.../interval/lower` under a bounded profile, under `quire.temporal.infinite-trace/v1` and under a clause that also holds a placement defect at a lower-digest node, never `operation-member-mismatch`; `lower > upper` stays in the bounds step, after profile fit, so `{lower: "3", upper: "0"}` under a bounded profile in a clause whose profile fit also fails refuses the profile-fit defect first. | Test (TC-048) |
 | FR-038-AC-103 | A clause whose `over` argument is a `reference` to a `value`/`parameter` node among its `dependencies` admits; one whose `over` references a `value`/`parameter` node that is not among its `dependencies` refuses `missing_declaration`/`missing-name`, and one that references a declared dependency that is a `scalar_type` node refuses `invalid_model_binding`/`malformed-declaration`, each with path `/semantic_graph/nodes/{clause}/body/arguments/0` and the locus of the "Path and locus" table; a fairness member whose `declaration` and `name` resolve to an operation of a `model`/`object_type` declaration node admits (FR-370 "Fairness resolution" steps 1 to 3, in that order), one whose `name` is no operation of that node refuses `missing_declaration`/`missing-name` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/name` and the `declaration` target's key as locus, and one whose `declaration` names a node that is not a `model`/`object_type` declaration (a `scalar_type` node, a `model`/`value_type` node, or a key that names no node) refuses `invalid_model_binding`/`malformed-declaration` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and the `declaration` target's key as named as locus; the `over`-not-among-`dependencies` case is observed at the unit level of the temporal step, as AC-68 observes the clause check, because the application-node dependency join refuses a package that names a non-dependency reference first, while the package-level half (an `over` that names no node) is read through the reader; a `name` that matches two exposed operation members of the declaration node refuses `ambiguous_declaration`/`ambiguous-name`, one that the node only inherits admits and resolves to its most-derived redefinition, and a declaring node whose owner is not recovered refuses with that resolution's own refusal (`missing_declaration`/`missing-selection` or `invalid_package`/`stale-node-key`), the ambiguous name with path `.../member/name` and the `declaration` target's key as locus and the unrecovered owner with path `.../member/declaration` and the fairness node's key (merged QSpec FR-370-AC-11 and FR-370 "Fairness resolution" state the ambiguous, inherited-admitted, unrecovered-owner and malformed-declaration outcomes; the loci of the name and owner rows are an IR reading). | Test (TC-048) |
-| FR-038-AC-104 | Under a clause whose `temporal_profile` law names `quire.temporal.event-position.false-extension/v1`, `quire.temporal.fixed-sample.false-extension/v1` or `quire.temporal.timestamped-event.finite-window/v1`, every interval operator of its formula tree with a closed interval admits, and one with a `null` interval or `{lower, upper: null}` refuses `invalid_package`/`operation-member-mismatch` at that operator's application; a non-empty fairness argument refuses `operation-member-mismatch` at the clause's application and an empty one admits; under `quire.temporal.infinite-trace/v1` the same `null` interval, `{lower, upper: null}` and a non-empty fairness argument admit; under `quire.temporal.timed/v1` a `null` interval admits and `{lower, upper: null}` and an integer-form closed `{lower, upper}` each refuse `operation-member-mismatch` at that operator's application (merged QSpec FR-370-AC-3: a timed interval is the timed form; under `timed/v1` only `null` and the timed form are admitted, confirmed by the QSL ruling relayed 2026-10-03), and a non-empty fairness argument admits under it as under infinite-trace (only the three bounded profiles refuse one, as above; merged QSpec FR-370-AC-4); this criterion pins no outcome for the timed form itself, `{lower, upper, lower_end, upper_end}` (merged FR-370-AC-8, a known gap owned by IR-551); and the profile fit reads only the formula nodes reachable from that clause. | Test (TC-048) |
+| FR-038-AC-104 | Under a clause whose `temporal_profile` law names `quire.temporal.event-position.false-extension/v1`, `quire.temporal.fixed-sample.false-extension/v1` or `quire.temporal.timestamped-event.finite-window/v1`, every interval operator of its formula tree with a closed interval admits, and one with a `null` interval or `{lower, upper: null}` refuses `invalid_package`/`operation-member-mismatch` at that operator's application; a non-empty fairness argument refuses `operation-member-mismatch` at the clause's application and an empty one admits; under `quire.temporal.infinite-trace/v1` the same `null` interval, `{lower, upper: null}` and a non-empty fairness argument admit; under `quire.temporal.timed/v1` a `null` interval admits and `{lower, upper: null}` and an integer-form closed `{lower, upper}` each refuse `operation-member-mismatch` at that operator's application (merged QSpec FR-370-AC-3: a timed interval is the timed form; under `timed/v1` only `null` and the timed form are admitted, confirmed by the QSL ruling relayed 2026-10-03), and a non-empty fairness argument admits under it as under infinite-trace (only the three bounded profiles refuse one, as above; merged QSpec FR-370-AC-4); the timed form itself, `{lower, upper, lower_end, upper_end}`, is FR-038-AC-119 through FR-038-AC-122's (merged FR-370-AC-8), and this criterion's fit rows are unchanged by it; and the profile fit reads only the formula nodes reachable from that clause. | Test (TC-048) |
 | FR-038-AC-108 | Each of the five members of QSpec FR-250's Values table admits as a clause's `temporal_profile` law (the lock's `temporal_profile` row naming it). A clause whose `temporal_profile` law `definition` is not one of the five refuses `unknown_profile` at `/semantic_graph/nodes/{n}/body/operation/laws/0/definition`, ahead of the same clause's `over` defect and of any defect of a higher-digest clause, and is not read as bounded (a `null` interval under it refuses `unknown_profile` and not `operation-member-mismatch`). The cause, merged QSpec FR-370 "Profile check" and FR-370-AC-10, is decided from the package alone: `wrong-selection-role` when the same `{authority, identity}` is a row of the package's own `lock.profile_selections` (or the `lock.edition` row) under a `role` other than `temporal_profile`, `unsupported-selection` otherwise. A known profile is matched by identity label alone, `authority` taking no part: a law naming a FR-250 member's identity under a different `authority` is a known profile and refuses `operation-law-unselected` at AC-57's join, not `unknown_profile`. So `quire.fixture.temporal-profile/v1` selected nowhere else, an empty identity and a differently spelled `quire.temporal.infinite-trace/v1` refuse `unsupported-selection`; `quire.package.composed/v1` named by the law and selected in the lock as a `profile_selections` row of role `binding_contract` refuses `wrong-selection-role`, and so does `quire.protocol.complete/v1` selected as a `protocol_profile` row; and the same two identities named by the law with no such row in the lock refuse `unsupported-selection`. A clause whose `laws` is not exactly one law of role `temporal_profile` (none, or two) skips the profile check and its profile fit, and its law defect refuses at the operation step (`operation-law-missing`, `operation-law-mismatch`; merged QSpec FR-370 "Profile check"). The refusal is the reader's `CheckedPackageRefusalCode::UnknownProfile` with the causes `unsupported-selection` and `wrong-selection-role` in `CheckedPackageRefusalCause`, a code and two causes the code change adds. | Test (TC-048) |
 | FR-038-AC-105 | The temporal and case operands are checked at the operation step, after the temporal step: `quire.op.temporal.holds` over a `reference` to a `temporal`/`formula` node, and over a Boolean-family `reference`, admits only the latter, the former refusing `ill_typed`/`operator-ineligible` at the argument; `quire.op.temporal.until` with one argument, `quire.op.temporal.not` with two, `quire.op.temporal.true` with one, and `quire.op.temporal.and` over a Boolean-family `reference` each refuse `ill_typed`/`operator-ineligible` at `arguments` or at the argument; and `quire.op.temporal.not` over a `reference` to a `temporal`/`formula` node admits. | Test (TC-048) |
 | FR-038-AC-106 | `quire.op.structural.eq` over two values of the `Shape` union admits, and over a `Shape` value and a value of another union refuses `ill_typed`/`operator-ineligible` at `arguments/1` by its `same_type` constraint (QSpec FR-440-AC-6); over a union whose payload types reach no `text` type, `leaves` empty admits; and over `union Label { Named(Text[0, 8; nfc]), Tagged(Integer, Text[0, 8; nfc]), Empty }`, a comparison admits with exactly the leaves `["member:Named", "position:0"]` and `["member:Tagged", "position:1"]` in member declaration order, and, following FR-038-AC-70's convention, a list holding only the `Named` leaf, and a list holding only the `Tagged` leaf, each refuse `invalid_package`/`operation-law-missing` at `operation.leaves`, while the list of both leaves followed by the `Named` leaf again, and the list of both followed by a leaf `["member:Empty"]`, each refuse `invalid_package`/`operation-law-mismatch` at `operation.leaves/2` (the `member:<Ident>` segment is merged QSpec FR-322-AC-45); and over the recursive unions `union IntList { Cons(Integer, IntList), Nil }` and `union TextList { Cons(Text[0, 8; nfc], TextList), Nil }`, `structural.eq` admits (a cycle through a union is never refused `ill_typed`/`operator-ineligible`, merged QSpec FR-322-AC-46 and FR-440-AC-8): over `IntList`, which reaches no `text`, with `leaves` empty; over `TextList` with exactly the leaves `["member:Cons", "position:0"]` and the recursion leaf `["member:Cons", "position:1", "recursion:0"]` (`d` is 0, the segments the path held when `TextList` was entered, as for a record's `recursion:<d>`), a list lacking the recursion leaf refusing `operation-law-missing` at `operation.leaves`, one whose recursion leaf reads `recursion:1` refusing `operation-law-mismatch` at that leaf's `path`, and a recursion leaf at a reentry of `IntList` refusing `operation-law-mismatch` at its `path`. | Test (TC-048) |
@@ -2243,6 +2313,10 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-116 | 🚧 A package whose `node_id`s, `identity_preimage` and `package_id` are all stale and whose one node body holds a nested non-`case` application refuses `malformed_wire` at the nested application, and not `stale-node-key`, `stale_dependency` or `invalid_semantic_graph`, and one whose body holds a nested `case` application refuses `ill_typed`/`operator-ineligible` at its `operator` and not at an identity check (an IR reading, as in FR-038-AC-115); the same package with that body flattened and its identities left stale refuses at an identity check and not `malformed_wire`. | Test (TC-048) |
 | FR-038-AC-117 | 🚧 `CheckedPackageReadLimits` has no depth member and `CheckedPackageLimit` has no `Depth` variant, and no source file under `crates/quire-contract-model/src/checked_package/` holds `MAXIMUM_DEPTH`, another `MAX_*DEPTH` constant, `stacker`, `serde_stacker` or `on_stack_for` (the crate's v1 modules, their limits and its manifest are out of this scan: FR-019 and FR-023 keep them); a package holding a chain of 100000 nodes, each referencing the previous (a 100000-deep expression, as merged QSpec FR-322-AC-41 and TC-427 BG-03 build it), read under byte, node, edge, occurrence, diagnostic and work limits all sized so that none decides the outcome, on a thread whose stack is 256 KiB, is admitted and lowered from its last node with no outcome naming a depth and no stack overflow, and has the same JSON nesting depth as a package of one level; and an otherwise canonical document whose node body nests a term 300 levels deep, past the strict parse's recursion limit of 128, read on a thread whose stack is 256 KiB, refuses `malformed_wire` with no pointer at the strict parse, ahead of the canonical-bytes check and the body grammar, and is never `incomplete`, while the same document nested 20 levels deep refuses `malformed_wire` at the first value outside the body grammar (FR-038-AC-114). | Test (TC-048) |
 | FR-038-AC-118 | 🚧 Each of the five `body_grammar_mutations` of QSpec's `adverse.json` (`application-in-application-arguments`, `application-in-aggregate-members`, `application-in-binding-value`, `aggregate-in-group-members` and `binding-as-body-root`) refuses `malformed_wire` as its recorded `outcome` names, through the harness of FR-038-AC-112, whose expected-failure list holds none of them. | Test (TC-048) |
+| FR-038-AC-119 | 🚧 On each of the eight interval operators under a clause whose `temporal_profile` law names `quire.temporal.timed/v1`, the timed form `{lower, upper, lower_end, upper_end}` admits with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` for each of the four end pairs `closed`/`closed`, `closed`/`open`, `open`/`closed` and `open`/`open`; it admits with `lower` `{numerator: "1", denominator: "2"}`, with `lower` and `upper` both `{numerator: "3", denominator: "1"}` and both ends `closed` (a punctual `[3, 3]`), and with `lower` `{numerator: "0", denominator: "1"}`; and a `null` interval on the same operators admits (merged FR-370-AC-3 and FR-370-AC-8). | Test (TC-048) |
+| FR-038-AC-120 | 🚧 Each of these timed-form intervals refuses `invalid_package`/`invalid-value` at the bound, `/semantic_graph/nodes/{n}/body/operation/member/interval/lower` (or `.../upper` where it is the `upper` that fails), in the term walk before any identity check or temporal step, with the bound of the first failing member in member order (`lower` then `upper`) and the same refusal under `quire.temporal.timed/v1`, `quire.temporal.infinite-trace/v1` and each of the three bounded profiles: `lower` with `numerator` `"-1"` (merged FR-370-AC-9's negative numerator), `lower` with `numerator` `"01"`, `upper` with `denominator` `"0"`, `upper` with `denominator` `"-2"`, `lower` a JSON integer `0`, `lower` the string `"3"`, and `upper` `null` with the four members present (an IR reading from the member-set rule: merged FR-370 states the upper bound is always present); a timed form with `lower` numerator `"-1"` and `upper` denominator `"0"` refuses at `lower`; the pointer is an IR reading, the published schema naming `.../lower/numerator` and the crate's rational check of a nominal preimage `.../numerator`; and a package whose first node holds a non-reduced bound and whose later node holds any of these pattern failures refuses `invalid-value` at the later node's bound. | Test (TC-048) |
+| FR-038-AC-121 | 🚧 Under `quire.temporal.timed/v1`, `lower` `{numerator: "2", denominator: "4"}` refuses `invalid_semantic_graph` at `.../interval/lower` (the code is merged FR-370 and FR-322-AC-10's; the stage after the term walk and the identity recomputation and the locus are an IR reading), before the temporal step, so a package holding it beside a profile-fit defect in a lower-digest node refuses `invalid_semantic_graph`; a non-reduced `lower` `{numerator: "2", denominator: "4"}` with `upper` numerator `"-1"` refuses `invalid_package`/`invalid-value` at `.../interval/upper`, a negative `lower` numerator `"-1"` with a non-reduced `upper` refuses `invalid-value` at `.../interval/lower`, and a non-reduced `upper` alone refuses `invalid_semantic_graph` at `.../interval/upper`; `(3, 3]`, `[3, 3)` and `(3, 3)` with both bounds `{numerator: "3", denominator: "1"}`, and `lower` `{numerator: "5", denominator: "2"}` over `upper` `{numerator: "2", denominator: "1"}`, refuse `invalid_package`/`invalid-value` at `/semantic_graph/nodes/{n}/body` (merged FR-370 and FR-370-AC-8), while `[3, 3]` admits; `lower` `{numerator: "1", denominator: "2"}` with `upper` `{numerator: "2", denominator: "3"}` admits and the two swapped refuses; and, both ends `closed`, `lower` `{numerator: "18446744073709551617", denominator: "3"}` with `upper` `{numerator: "18446744073709551616", denominator: "3"}` refuses `invalid-value` at the body, which a float comparison, rounding both numerators to 2^64, gets wrong by admitting it, and the two bounds swapped admit, which a checked parse into 64 bits gets wrong; that beyond-2^64 package, `lower` `{numerator: "18446744073709551617", denominator: "3"}` and `upper` `{numerator: "18446744073709551616", denominator: "3"}`, read with a work limit that the GCD or cross-multiplication of its bounds takes past returns `incomplete` naming the `work` limit (FR-038-AC-3) and no refusal of the interval. | Test (TC-048) |
+| FR-038-AC-122 | 🚧 The timed form `{lower, upper, lower_end, upper_end}` with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` and both ends `closed` refuses `invalid_package`/`operation-member-mismatch` at `/semantic_graph/nodes/{n}/body` under `quire.temporal.infinite-trace/v1` and under each of the three bounded profiles (merged FR-370-AC-8), and admits under `quire.temporal.timed/v1`, whose refusal of an integer-form `{lower, upper}` and of `{lower, upper: null}` is FR-038-AC-104's; four-member intervals with valid rational bounds and `lower_end` `"half"`, or `upper_end` `"half"`, each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`, as do `{lower: "0", upper: "3", lower_end: "closed"}` (a missing end, integer-string bounds), `{lower: "0", upper: "3", lower_end: "closed", upper_end: "closed", extra: "x"}` (a fifth member, integer-string bounds), each an IR reading that diverges from the published schema, whose closed interval `oneOf` and end `enum` fail them at strict wire validation, and each reported at the operation step after the temporal step, so a profile-fit defect in a higher-digest clause is reported first; and the same missing-end and fifth-member intervals with the rational-object bounds of the timed form refuse `invalid-value` at `.../interval/lower` instead, an interval of another member set having no form, its bounds judged against the integer pattern (an IR reading). | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

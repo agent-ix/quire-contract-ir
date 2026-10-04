@@ -53,7 +53,10 @@ identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (pla
 IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
 misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
 the absence of a depth limit and of call-stack recursion, and the five body-grammar
-mutations.
+mutations. FR-038-AC-119 through FR-038-AC-122 (planned, IR-551) are against the timed interval form of
+merged QSpec FR-370 and FR-370-AC-8: the four end variants, rational bounds in lowest
+terms, the refusal of a negative, malformed or non-reduced bound, a null upper bound,
+an open end with equal bounds and a missing or extra member, and the profile fit.
 
 ## Test Procedure
 
@@ -782,3 +785,60 @@ pointer at the strict parse and the 20-level one at the first value outside the 
 grammar; and each of the five
 `body_grammar_mutations` refuses `malformed_wire` with the expected-failure list
 empty of them.
+
+## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
+
+Planned (IR-551 code). Bounds are written `{numerator, denominator}` as `{n, d}`.
+
+Admission (AC-119). Under a clause whose `temporal_profile` law names
+`quire.temporal.timed/v1`, on each of the eight interval operators of a
+self-built package, read the timed form `{lower, upper, lower_end, upper_end}`
+with bounds `{0, 1}` and `{3, 1}` for each of the four end pairs, with `lower`
+`{1, 2}`, as the punctual `[3, 3]` (both bounds `{3, 1}`, both ends `closed`), and
+read the `null` interval.
+
+Pattern refusals (AC-120). Under `timed/v1`, and again under
+`quire.temporal.infinite-trace/v1` and each of the three bounded profiles, read the timed form with
+`lower` numerator `"-1"`, `lower` numerator `"01"`, `upper` denominator `"0"`,
+`upper` denominator `"-2"`, `lower` a JSON integer, `lower` the string `"3"`, and
+`upper` `null`; with `lower` numerator `"-1"` and `upper` denominator `"0"` together;
+and a package with a non-reduced bound `{2, 4}` in the lower-digest node and a
+pattern failure in the higher-digest node.
+
+Lowest terms and bounds (AC-121). Read `lower` `{2, 4}`; `lower` `{2, 4}` with `upper`
+numerator `"-1"`; `lower` numerator `"-1"` with `upper` `{2, 4}`; `upper` `{2, 4}`
+alone; `lower` `{2, 4}` beside a profile-fit defect in a lower-digest node; `(3, 3]`,
+`[3, 3)` and `(3, 3)` with both bounds `{3, 1}`; `lower` `{5, 2}` over `upper` `{2, 1}`;
+`lower` `{1, 2}` with `upper` `{2, 3}` and the two swapped; `lower`
+`{18446744073709551617, 3}` with `upper` `{18446744073709551616, 3}`, both ends
+`closed`, and the two swapped; and that beyond-2^64 package (`lower`
+`{18446744073709551617, 3}`, `upper` `{18446744073709551616, 3}`) under a work limit
+that its GCD or cross-multiplication takes past.
+
+Profile fit and member-set defects (AC-122). Read the timed form with bounds `{0, 1}`
+and `{3, 1}` and both ends `closed` under `infinite-trace` and under each of the three
+bounded profiles and under `timed/v1`; the form with valid rational bounds and
+`lower_end` `"half"`, and with `upper_end` `"half"`; `{lower: "0", upper: "3",
+lower_end: "closed"}` and the same with the four ends and a fifth member `extra`, both
+with integer-string bounds; the same two with the rational-object bounds of the timed
+form; and a clause holding such a member-set defect beside a profile-fit defect in a
+higher-digest clause.
+
+Expected: AC-119's inputs all admit. AC-120's inputs refuse
+`invalid_package`/`invalid-value` at `.../interval/lower` or `.../interval/upper`
+(the failing bound, first in member order, so `lower` for the two-failure input), in
+the term walk and under each profile read, and the package with the later pattern
+failure refuses at that later node. AC-121: `{2, 4}` refuses
+`invalid_semantic_graph` at its bound, including beside the profile-fit defect; the
+`{2, 4}` lower with a negative upper refuses `invalid-value` at `upper`, the negative
+lower with a non-reduced upper `invalid-value` at `lower`, the `{2, 4}` upper alone
+`invalid_semantic_graph` at `upper`; `(3, 3]`, `[3, 3)`, `(3, 3)` and `{5, 2}` over
+`{2, 1}` refuse `invalid-value` at `/semantic_graph/nodes/{n}/body`; the `{1, 2}`
+to `{2, 3}` pair admits and its swap refuses; the beyond-2^64 pair refuses and its swap
+admits; and the work-limited read returns `incomplete` naming the work limit. AC-122:
+the closed `closed` form refuses `operation-member-mismatch` at the application under
+`infinite-trace` and the bounded profiles and admits under `timed/v1`; the two `"half"`
+inputs, the missing-end and fifth-member inputs with integer-string bounds refuse
+`operation-member-mismatch` at `operation.member`, reported after the higher-digest
+clause's profile-fit defect; and the two inputs with rational-object bounds refuse
+`invalid-value` at `.../interval/lower`.
