@@ -60,7 +60,7 @@ either; only the mechanism of AC-1 and AC-4 changes. The check is run by `make d
 | FR-043-AC-1 | `make deny` runs the owned one-copy check over this repository's `Cargo.lock`, and no tracked file in the repository contains the check's logic: `scripts/check_one_copy.awk` does not exist, no tracked file is byte-equal to it, and no `Makefile` or `deny.toml` line names it. PLANNED (IR-581). | Test (TC-441) |
 | FR-043-AC-2 | Each of three fixture locks fails the check and the output names the crate: (a) two entries of one first-party crate at one version from two git revisions; (b) two entries of one first-party crate at two versions; (c) one git entry and one registry entry of one first-party crate name. A tool that compares git revisions alone fails this criterion. PLANNED (IR-581). | Test (TC-441) |
 | FR-043-AC-3 | Given a fixture lock with one entry for each first-party crate and a third-party crate that appears twice, and given this repository's own `Cargo.lock`, the check passes. PLANNED (IR-581). | Test (TC-441) |
-| FR-043-AC-4 | Every exception the check allows (for cargo-deny, each `skip` entry) names a crate whose lock source is not under the agent-ix organisation and carries a reason, and an exception that matches no duplicate in the lock makes the check fail (for cargo-deny, `-D unmatched-skip`). PLANNED (IR-581). | Test (TC-441) |
+| FR-043-AC-4 | Every exception the check allows (for cargo-deny, each `skip` entry) names no first-party crate (as defined above) and carries a reason, and an exception that matches no duplicate in the lock makes the check fail (for cargo-deny, `-D unmatched-skip`). A tool that has no exceptions meets this criterion trivially. PLANNED (IR-581). | Test (TC-441) |
 
 ## Dependencies
 

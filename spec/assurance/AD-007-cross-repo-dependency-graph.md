@@ -289,8 +289,8 @@ repository, a cargo-deny 0.20 fixture, IR's own lock):
 | Option | Owner and how callers invoke it | Cycle risk | Cost | Pin | Callers hold a copy |
 | --- | --- | --- | --- | --- | --- |
 | (a) cargo-deny configuration: `[bans] multiple-versions = "deny"` in each repository's `deny.toml`, run by `cargo deny check bans` (with `-D unmatched-skip`) | the cargo-deny tool, already installed and run by each caller's `make deny`; the policy (the `skip` list) is a separate file kept in each of IR, CG and RT | none: no Cargo edge, no first-party repository involved | no new code or repository; three hand-kept `skip` lists (8 entries in IR, 10 in CG, 0 in RT); the lock-source rule (no `skip` for an agent-ix crate) cannot be expressed in cargo-deny, so each repository either carries its own source-aware guard (check logic copied three times again) or leaves the rule to review; checks the cfg-resolved graph, not the raw lock | none | check logic: none in config, but the first-party guarantee needs a per-repository guard (see cost) |
-| (b) a small tool in an existing repository (quire-canonical, quire-verification-contracts), installed as a binary with `cargo install --git` | that repository's owner; callers run the installed binary, and the check logic lives once | none as a binary (an install is not a lock entry, and the tool has no first-party dependency); a crate dependency would be an edge, and RT has no edge to either repository today | new Rust code that parses `Cargo.lock` (raw lock, source-aware, so it matches the script exactly), its tests and a release path; each caller builds it from the network; it widens a repository whose job is something else | none if installed from the default branch | no |
-| (c) a new tool repository, same shape as (b) | a new owner | none as a binary | everything in (b) plus a new public repository, its CI, `deny` and spec gates; needs the owner's approval to create | none | no |
+| (b) a small tool in an existing repository (quire-canonical, quire-verification-contracts), installed as a binary with `cargo install --git` | that repository's owner; callers run the installed binary, and the check logic lives once | none as a binary (an install is not a lock entry, and the tool has no first-party dependency); a crate dependency would be an edge, and RT has no edge to either repository today | new Rust code that parses `Cargo.lock` (raw lock, source-aware, so it matches the script exactly), its tests and a release path; each caller builds it from the network; version drift: an offline run keeps the last installed revision (measured), so either each `make deny` runs online with a forced reinstall (a fetch and build each run) or machines run different revisions, recorded nowhere in the caller; it widens a repository whose job is something else | none if installed from the default branch | no |
+| (c) a new tool repository, same shape as (b) | a new owner | none as a binary | everything in (b), including the same version drift, plus a new public repository, its CI, `deny` and spec gates; needs the owner's approval to create | none | no |
 
 cargo-deny measurements. A fixture lock holding two entries of one crate at one version from
 two git revisions of one repository (`tag` sources in the fixture) fails `cargo deny check
@@ -329,13 +329,18 @@ check logic held once. Option (a) holds no check logic of its own, which is its 
 but it cannot enforce FR-043's first-party-only exception rule or the raw-lock input without
 a source-aware guard in each of IR, CG and RT, which is the per-repository copy the ruling
 removes, or by leaving both to review; it also leaves three hand-kept `skip` lists that
-drift unless `-D unmatched-skip` is set. Option (c), a new small tool repository whose binary
-reads the raw `Cargo.lock` and applies the script's rule once, is the only option that keeps
-one copy of the logic, matches the script exactly, and creates no cycle (an installed
-binary is not a lock entry, and the tool takes no first-party dependency); its cost is a new
-repository and a binary built by each caller. Option (b) has the same properties in an
-existing repository, at the price of widening a repository whose job is something else;
-neither candidate has a natural home. This AD recommends (c), and (a) only if the owner
+drift unless `-D unmatched-skip` is set. Options (b) and (c) share the properties that keep
+one copy of the logic, match the script exactly (a tool reading the raw `Cargo.lock`) and
+create no cycle (an installed binary is not a lock entry, and the tool takes no first-party
+dependency). They share one cost that (a) does not have: how each caller gets the binary.
+`cargo install --git` on the default branch commits no pin, but once installed, an offline
+run keeps the revision it last installed and prints that the package is already installed;
+only an online run replaces it. So either every `make deny` needs the network, or each
+machine runs whatever revision it last installed, recorded nowhere in the caller. A caller's
+remedy is to reinstall on every run (`--force`), which costs a network fetch and a build each
+time; this AD proposes no pin and no recorded revision. They differ only in home: (c) is a
+new repository (the owner must approve it), and (b) widens an existing repository whose job
+is something else; neither candidate has a natural home. This AD recommends (c), and (a) only if the owner
 accepts that the first-party-only rule rests on review and on `-D unmatched-skip`, with QSL's
 existing `quire-canonical` entry as the model.
 
