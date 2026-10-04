@@ -7,6 +7,7 @@
 //! `sha256-jcs` domain packages, typed separately from the raw source and
 //! definition byte artifacts.
 
+mod abstraction;
 mod dependency_references;
 pub(in crate::checked_package) mod encode;
 mod frame;
@@ -16,6 +17,7 @@ mod model_members;
 mod natural;
 mod operation_catalog;
 mod operations;
+mod rust_spelling;
 mod state;
 mod structural;
 mod temporal;
@@ -1306,17 +1308,22 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
-            | CorrespondenceForm::ProfileCorrespondence,
+            | CorrespondenceForm::ProfileCorrespondence
+            | CorrespondenceForm::AbstractionRelation,
         ) => true,
     }
 }
 
 /// Minimal structural admission for one node body. Every node validates as
 /// the closed `SemanticTerm` grammar, except a `state`/`frame` node, whose
-/// `BodyBindingRules`-selected shape is [`frame::read_frame_body`]'s. A frame
-/// body reports no reference targets to the caller: its entries are joined
-/// to the frame's `dependencies` by the frame step
-/// ([`frame::validate_frame_semantics`]), never through the generic
+/// `BodyBindingRules`-selected shape is [`frame::read_frame_body`]'s, and a
+/// `correspondence`/`abstraction_relation` node, whose body is scanned for
+/// applications by [`abstraction::scan_body`] and read as its flat shape by
+/// the abstraction step. A frame or abstraction relation body reports no
+/// reference targets to the caller: its entries are joined to the node's
+/// `dependencies` by the frame and abstraction steps
+/// ([`frame::validate_frame_semantics`],
+/// [`abstraction::validate_abstraction`]), never through the generic
 /// reference edges `validate_graph` resolves for every other body.
 /// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
 fn validate_body(
@@ -1325,18 +1332,32 @@ fn validate_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    if is_frame(kind) {
-        frame::read_frame_body(body, at).map(|(_, work)| work)
-    } else {
+    match body_grammar(kind) {
+        BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
+        BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
-        validate_term(body, TermGrammar::V2, true, at, visit)
+        BodyGrammar::Term => validate_term(body, TermGrammar::V2, true, at, visit),
     }
 }
 
-/// `BodyBindingRules`: only a `state`/`frame` node's body is the frame
-/// reference triple rather than a `SemanticTerm`.
-fn is_frame(kind: CheckedNodeKind) -> bool {
+/// The grammar a node's `body` is validated against (QSpec FR-322
+/// `BodyBindingRules`): a `state`/`frame` node's body is the frame reference
+/// triple, a `correspondence`/`abstraction_relation` node's body is the flat
+/// shape of FR-346, and every other node's body is a `SemanticTerm`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BodyGrammar {
+    /// The closed `SemanticTerm` grammar.
+    Term,
+    /// The frame body of FR-040.
+    Frame,
+    /// The abstraction relation body of FR-346.
+    AbstractionRelation,
+}
+
+/// Exactly one kind has each of the two flat grammars. Every form is listed,
+/// so a new form is a compile error until its grammar is decided.
+fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;
     match kind {
         K::ScalarType(
@@ -1351,7 +1372,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::CompositeType(
             CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -1363,7 +1384,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::Union
             | CompositeTypeForm::Alias
             | CompositeTypeForm::Reference,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::BoundedDomain(
             BoundedDomainForm::IntegerRange
             | BoundedDomainForm::RationalRange
@@ -1372,7 +1393,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | BoundedDomainForm::TextBounds
             | BoundedDomainForm::CollectionBounds
             | BoundedDomainForm::ModelPopulation,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Value(
             ValueForm::Literal
             | ValueForm::EnumValue
@@ -1382,7 +1403,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ValueForm::UnionValue
             | ValueForm::OptionValue
             | ValueForm::Parameter,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Expression(
             ExpressionForm::Reference
             | ExpressionForm::Call
@@ -1400,10 +1421,10 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ExpressionForm::ValueRead
             | ExpressionForm::Deref
             | ExpressionForm::Reachability,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Function(
             FunctionForm::PureFunction | FunctionForm::Predicate | FunctionForm::RecursiveFunction,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Model(
             ModelForm::ModelImport
             | ModelForm::ObjectType
@@ -1420,20 +1441,20 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ModelForm::SystemsPort
             | ModelForm::SystemsConnection
             | ModelForm::SystemsAllocation,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Relation(
             RelationForm::Relationship
             | RelationForm::Population
             | RelationForm::Membership
             | RelationForm::CausalRelation,
-        ) => false,
-        K::State(StateForm::Frame) => true,
+        ) => BodyGrammar::Term,
+        K::State(StateForm::Frame) => BodyGrammar::Frame,
         K::State(
             StateForm::StateClause
             | StateForm::Transition
             | StateForm::OperationAnchor
             | StateForm::Snapshot,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Temporal(
             TemporalForm::TemporalClause
             | TemporalForm::Formula
@@ -1442,7 +1463,7 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | TemporalForm::Window
             | TemporalForm::Activation
             | TemporalForm::Deadline,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Protocol(
             ProtocolForm::ProtocolClause
             | ProtocolForm::Role
@@ -1451,19 +1472,22 @@ fn is_frame(kind: CheckedNodeKind) -> bool {
             | ProtocolForm::Control
             | ProtocolForm::Obligation
             | ProtocolForm::Compensation,
-        ) => false,
+        ) => BodyGrammar::Term,
         K::Claim(
             ClaimForm::VerificationClaim
             | ClaimForm::AnalysisClaim
             | ClaimForm::Hyperproperty
             | ClaimForm::SynthesisRequest,
-        ) => false,
+        ) => BodyGrammar::Term,
+        K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
+            BodyGrammar::AbstractionRelation
+        }
         K::Correspondence(
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence,
-        ) => false,
+        ) => BodyGrammar::Term,
     }
 }
 
@@ -1717,12 +1741,13 @@ fn validate_graph(
             Step::Index(position),
             Step::Key("body"),
         ];
-        let work = if is_frame(kind) {
-            let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
-            frames.push((&node.node_id, position, body));
-            work
-        } else {
-            validate_body(
+        let work = match body_grammar(kind) {
+            BodyGrammar::Frame => {
+                let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
+                frames.push((&node.node_id, position, body));
+                work
+            }
+            BodyGrammar::Term | BodyGrammar::AbstractionRelation => validate_body(
                 kind,
                 &node.body,
                 &Trail::Base(&body_steps),
@@ -1730,7 +1755,7 @@ fn validate_graph(
                     targets.push((target.clone(), site));
                 },
             )
-            .map_err(|failure| with_node_locus(failure, &node.node_id))?
+            .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
         meter.charge(work, || at("body"))?;
         references.push(targets);
@@ -1781,6 +1806,7 @@ fn validate_graph(
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
     validate_temporal(&graph.nodes, &kinds, &index, &owners, &wire.lock, meter)?;
+    abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
     validate_operations(
         &graph.nodes,
         &kinds,
@@ -2154,8 +2180,8 @@ fn validate_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_frame, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId, StateForm,
-        DEPENDENCY_SELECTION_MEMBERS,
+        body_grammar, BodyGrammar, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId,
+        CorrespondenceForm, StateForm, DEPENDENCY_SELECTION_MEMBERS,
     };
 
     /// The members `classify_dependency_entry_shape` treats as required are
@@ -2189,8 +2215,26 @@ mod tests {
     fn exactly_one_kind_has_a_frame_body() {
         let frames = CheckedNodeKind::all()
             .into_iter()
-            .filter(|kind| is_frame(*kind))
+            .filter(|kind| body_grammar(*kind) == BodyGrammar::Frame)
             .collect::<Vec<_>>();
         assert_eq!(frames, [CheckedNodeKind::State(StateForm::Frame)]);
+    }
+
+    /// FR-346: exactly one kind, `correspondence`/`abstraction_relation`, has
+    /// the abstraction relation body.
+    ///
+    /// Tracing: TC-225, FR-346-AC-2
+    #[test]
+    fn tc_225_exactly_one_kind_has_an_abstraction_relation_body() {
+        let relations = CheckedNodeKind::all()
+            .into_iter()
+            .filter(|kind| body_grammar(*kind) == BodyGrammar::AbstractionRelation)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            relations,
+            [CheckedNodeKind::Correspondence(
+                CorrespondenceForm::AbstractionRelation
+            )]
+        );
     }
 }

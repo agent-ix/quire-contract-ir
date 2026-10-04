@@ -132,7 +132,8 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
                     BodyTerm::Literal
                     | BodyTerm::Reference
                     | BodyTerm::DependencyReference
-                    | BodyTerm::Frame,
+                    | BodyTerm::Frame
+                    | BodyTerm::AbstractionRelation,
                 )
                 | None => &[],
             };
@@ -162,12 +163,13 @@ fn is_object_type(kind: CheckedNodeKind) -> bool {
 /// A resolved operation and its owner, `None` for a context that is not a
 /// model declaration node, or the refusal FR-342's operation check
 /// determines.
-type OperationResolution<'m> = Result<Option<(Owner<'m>, &'m OperationDecl)>, ModelRefusal>;
+pub(super) type OperationResolution<'m> =
+    Result<Option<(Owner<'m>, &'m OperationDecl)>, ModelRefusal>;
 
 /// The operation a model-owned context declares under `name`: `Ok(None)`
 /// when the context is not a model declaration node, else the owner and
 /// the operation, or the refusal FR-342's operation check determines.
-fn resolve_operation<'m>(
+pub(super) fn resolve_operation<'m>(
     context: &CheckedSemanticNodeV2,
     context_kind: CheckedNodeKind,
     name: &str,

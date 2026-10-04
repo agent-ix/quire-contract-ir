@@ -152,6 +152,10 @@ pub(super) struct Multiplicity {
 /// A declared `typeRef` with its multiplicity: a field, parameter or result.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct TypedSlot {
+    /// The declared `name`, when the slot's member carries one: an
+    /// operation parameter's name, which FR-346 compares with a frame entry's
+    /// `parameters`.
+    pub(super) name: Option<Box<str>>,
     pub(super) type_ref: Box<str>,
     pub(super) multiplicity: Multiplicity,
 }
@@ -1850,6 +1854,7 @@ impl References<'_> {
             }
         };
         TypedSlot {
+            name: value.get("name").and_then(Value::as_str).map(Box::from),
             type_ref: type_ref.into(),
             multiplicity,
         }

@@ -48,4 +48,8 @@ two steps or two checks reports the earlier one.
 
 ## Status
 
-Planned (IR-509 code change follows this specification).
+Implemented in `tests/it/checked_package_v2_abstraction_relation.rs`
+(FR-346-AC-1 to AC-10, and one lowering test that asserts no AC) and the
+Rust spelling and body grammar unit tests in
+`crates/quire-contract-model/src/checked_package/v2/rust_spelling.rs` and
+`crates/quire-contract-model/src/checked_package/v2/mod.rs`.

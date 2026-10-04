@@ -211,7 +211,13 @@ impl<'a> DependencyReferences<'a> {
                 Some(value) => self.walk(referrer, value, at.key("value"), false, meter),
                 None => Ok(()),
             },
-            Some(BodyTerm::Literal | BodyTerm::Reference | BodyTerm::Frame) | None => Ok(()),
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::Reference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => Ok(()),
         }
     }
 
@@ -435,7 +441,13 @@ fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) -> u64 {
                 );
             }
             Some(BodyTerm::Binding) => pending.extend(term.get("value")),
-            Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => {}
         }
     }
     walked

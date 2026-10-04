@@ -266,7 +266,13 @@ fn rewrite_group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
         // A dependency reference names a node of another package, never a
         // member of this recursion group, and enters the preimage as it
         // stands on the wire.
-        Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
+        Some(
+            BodyTerm::Literal
+            | BodyTerm::DependencyReference
+            | BodyTerm::Frame
+            | BodyTerm::AbstractionRelation,
+        )
+        | None => {}
     }
     rewritten
 }
@@ -730,7 +736,13 @@ fn argument_family(
         // the dependency-reference walk (step 7), which runs before the
         // operand checks, has already refused it anywhere but a
         // `quire.op.function.call` callee, so no operand check reads it.
-        Some(BodyTerm::Aggregate | BodyTerm::DependencyReference | BodyTerm::Frame) | None => None,
+        Some(
+            BodyTerm::Aggregate
+            | BodyTerm::DependencyReference
+            | BodyTerm::Frame
+            | BodyTerm::AbstractionRelation,
+        )
+        | None => None,
     }
 }
 
@@ -887,7 +899,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
-            | CorrespondenceForm::ProfileCorrespondence,
+            | CorrespondenceForm::ProfileCorrespondence
+            | CorrespondenceForm::AbstractionRelation,
         ) => None,
     }
 }
@@ -1023,7 +1036,8 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
-            | CorrespondenceForm::ProfileCorrespondence,
+            | CorrespondenceForm::ProfileCorrespondence
+            | CorrespondenceForm::AbstractionRelation,
         ) => false,
     }
 }
@@ -1898,7 +1912,8 @@ fn operand_type_node(
         BodyTerm::Binding
         | BodyTerm::Aggregate
         | BodyTerm::DependencyReference
-        | BodyTerm::Frame => return None,
+        | BodyTerm::Frame
+        | BodyTerm::AbstractionRelation => return None,
     }
     let target = reference_term_target(argument)?;
     let position = *index.get(&target)?;

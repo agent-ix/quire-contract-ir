@@ -103,9 +103,13 @@ pub(in crate::checked_package) fn misplaced_in_details(
                 }
                 continue;
             }
-            Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {
-                continue
-            }
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => continue,
         };
         let below = at.key(member);
         for (child_at, child) in children.into_iter().enumerate().rev() {
@@ -441,7 +445,13 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
                     return Some(ineligible(graph, position));
                 }
             }
-            Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => {}
         }
     }
     None

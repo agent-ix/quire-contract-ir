@@ -825,8 +825,9 @@ pub(super) fn validate_term(
             }
             Ok(1)
         }
-        // A frame is a node body of its own, never a nested term.
-        BodyTerm::Frame => Err(invalid(at)),
+        // A frame and an abstraction relation are node bodies of their own,
+        // never a nested term and never the body of a node of another form.
+        BodyTerm::Frame | BodyTerm::AbstractionRelation => Err(invalid(at)),
     }
 }
 

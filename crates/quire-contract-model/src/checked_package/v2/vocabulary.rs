@@ -290,6 +290,7 @@ closed_vocabulary! {
         ModelCorrespondence => "model_correspondence",
         BindingRole => "binding_role",
         ProfileCorrespondence => "profile_correspondence",
+        AbstractionRelation => "abstraction_relation",
     }
 }
 
@@ -318,7 +319,8 @@ closed_vocabulary! {
 // above, but nothing outside the reader names them, so they are not public.
 
 closed_vocabulary! {
-    /// The closed `term` tag of a semantic term or frame body (FR-208).
+    /// The closed `term` tag of a semantic term, a frame body or an
+    /// abstraction relation body (FR-208, FR-346).
     pub(in crate::checked_package) BodyTerm {
         Literal => "literal",
         Reference => "reference",
@@ -327,6 +329,7 @@ closed_vocabulary! {
         Binding => "binding",
         DependencyReference => "dependency_reference",
         Frame => "frame",
+        AbstractionRelation => "abstraction_relation",
     }
 }
 
