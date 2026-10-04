@@ -54,8 +54,10 @@ registered in STD-001 ("Bounded Kani Cause Codes") and spelled by `Std001Code`
 constants, so a consumer matches `Std001Code::KANI_SOLVER_ABSENT` and not a
 literal. The outcome serializes its code as the same JSON string it serialized
 before. A consumer that builds an outcome with a code of its own, as
-codegen's corpus refusals do, builds that code with `Std001Code::new`; the type
-checks its form and not its registration. This replaces the free-string cause
+codegen's corpus refusals do, builds that code with `std001_code!`; the type
+checks its form and not its registration or issuer (FR-044), so `code` alone does
+not say which registry issued a code, and `is_registered()` says only whether
+STD-001 registers it. This replaces the free-string cause
 code: it is a prerelease break with no compatibility layer, and an outcome
 deserialized with a malformed code is refused.
 

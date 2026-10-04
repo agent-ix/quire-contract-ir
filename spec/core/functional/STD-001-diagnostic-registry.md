@@ -134,8 +134,9 @@ The family lowerings for checked arithmetic, collections and objects are
 codegen's (FR-039), and the codes they raise (`kani_dispatch_*`,
 `kani_arithmetic_*`, `kani_definedness_*`, `kani_collection_*`, `kani_graph_*`)
 are not registered here: they leave this repository with those lowerings
-(IR-347), and codegen registers its own refusal codes, such as its
-`kani_corpus_*` codes, in its own registry.
+(IR-347). Codegen's own refusal codes in `KaniOutcome`, such as its
+`kani_corpus_*` codes and `kani_profile_input_mismatch`, are well-formed
+`Std001Code`s that this registry does not list.
 
 ## Bounded Kani Outcome Error Code
 

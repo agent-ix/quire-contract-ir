@@ -89,7 +89,7 @@ including the globs the model crate itself uses (AD-005, Current state).
 - The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
 - A cause string crosses as a free string today. Codegen compares `checks_outcome.code ==
-  "kani_vacuous_proof"` (`src/kani_execution.rs:690`) against a literal that IR builds in
+  "kani_vacuous_proof"` (`src/kani/classify.rs`, in `classify_run`) against a literal that IR builds in
   `proved_from_checks` (`src/kani/outcome.rs`). The target is FR-044: `KaniOutcome.code` is a
   `Std001Code` of `quire-contract-model` and the registered cause codes are its constants
   (IR-605), so codegen compares `Std001Code::KANI_VACUOUS_PROOF`. IR-347 keeps only the
@@ -126,8 +126,9 @@ including the globs the model crate itself uses (AD-005, Current state).
   IR planner's relayed decision). The final form is this one, and CG's ADs agree.
 - C. IR's `KaniOutcome` is built only through its constructors (FR-030-AC-5), and the cause codes
   codegen matches are `Std001Code` constants exported by `quire-contract-model`, not literals on
-  both sides (FR-044, FR-030-AC-6; IR-605). Codegen's own refusal codes (`kani_corpus_*`) are
-  built with `Std001Code::new` and registered in codegen's registry. Neither is built today.
+  both sides (FR-044, FR-030-AC-6; IR-605). Codegen's own refusal codes (`kani_corpus_*` and
+  `kani_profile_input_mismatch`) are built with `std001_code!`; codegen has no registry document
+  for them today, and writing one is codegen's to decide. Neither is built today.
 - D. Order across the two repositories: a consumer first gains what it needs, then IR removes the
   old item. No deprecated item or shim sits between the two steps.
 
