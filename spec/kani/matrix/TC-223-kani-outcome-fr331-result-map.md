@@ -10,7 +10,8 @@ relationships:
 
 ## Description
 
-Verify FR-030-AC-4 and FR-030-AC-5: the two `Unavailable` cause codes, the one
+Verify FR-030-AC-4 through FR-030-AC-6: the typed `Std001Code` every outcome
+and error carries, the two `Unavailable` cause codes, the one
 `Inconclusive` cause, the SUCCESS check count a `proved` outcome carries, and
 the private fields and typed `KaniOutcomeError` that keep those rules from
 being bypassed. The map from a Kani outcome to a QSL `TerminalValue` is not
@@ -28,7 +29,9 @@ and one for an absent backend, and read each cause code. Request an
 cause other than `kani_vacuous_proof`, a `proved` outcome with a count of zero,
 and a `proved` and a `counterexample` outcome through the non-success
 constructor. Compile a probe that builds a `KaniOutcome` with a struct literal
-from outside the `kani` module. Enumerate `KaniOutcomeKind` in an exhaustive
+from outside the `kani` module, and one that passes a string literal as the
+code of the non-success constructor. Serialize the zero-check outcome, and
+deserialize an outcome whose `code` is `"Bad-Code"`. Enumerate `KaniOutcomeKind` in an exhaustive
 `match` with no wildcard.
 
 ## Expected Results
@@ -38,7 +41,10 @@ The three-check proof is `proved` with count three. The zero-check run is
 The two `Unavailable` outcomes carry `kani_solver_absent` and
 `kani_backend_absent`. The five invalid requests each return `KaniOutcomeError`
 with code `kani_outcome_invalid` and no outcome, and the struct-literal probe
-fails to compile. A new outcome kind fails to compile in the test's exhaustive
+fails to compile. The zero-check outcome's code equals
+`Std001Code::KANI_VACUOUS_PROOF` and serializes as `"kani_vacuous_proof"`, the
+error's code equals `Std001Code::KANI_OUTCOME_INVALID`, the string-literal probe
+fails to compile, and the `"Bad-Code"` outcome fails to deserialize. A new outcome kind fails to compile in the test's exhaustive
 `match`.
 
 ## Status

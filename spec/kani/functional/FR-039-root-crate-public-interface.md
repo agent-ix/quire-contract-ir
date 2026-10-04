@@ -97,7 +97,9 @@ the codegen backend adapter's.
 ### Error surface
 
 Every public function over untrusted input returns a typed error rather than
-panicking; `KaniOutcomeError` codes are registered in STD-001.
+panicking; `KaniOutcomeError` codes are registered in STD-001. The `code` of a
+`KaniOutcome` and of a `KaniOutcomeError` is `quire_contract_model::Std001Code`
+(FR-044), which the root crate names but does not re-export.
 
 ## Acceptance Criteria
 

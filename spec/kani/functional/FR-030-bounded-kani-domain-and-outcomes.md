@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-015
     type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-044
+    type: depends_on
 ---
 # FR-030: Bind bounded Kani domains and non-Boolean outcomes
 
@@ -44,6 +46,21 @@ rules:
   `kani_vacuous_proof`.
 - A `proved` outcome carries a SUCCESS check count of at least one.
 
+A `KaniOutcome`'s code, and a `KaniOutcomeError`'s, is a `Std001Code`
+(FR-044), exported by `quire-contract-model`, and not a `String`. The
+non-success constructor takes a `Std001Code`, and a `proved` or `counterexample`
+outcome carries `kani_proved` or `kani_counterexample`. The codes IR raises are
+registered in STD-001 ("Bounded Kani Cause Codes") and spelled by `Std001Code`
+constants, so a consumer matches `Std001Code::KANI_SOLVER_ABSENT` and not a
+literal. The outcome serializes its code as the same JSON string it serialized
+before. A consumer that builds an outcome with a code of its own, as
+codegen's corpus refusals do, builds that code with `std001_code!`; the type
+checks its form and not its registration or issuer (FR-044), so `code` alone does
+not say which registry issued a code, and `is_registered()` says only whether
+STD-001 registers it. This replaces the free-string cause
+code: it is a prerelease break with no compatibility layer, and an outcome
+deserialized with a malformed code is refused.
+
 A constructor asked to build an outcome that breaks one of these rules, or to
 build `proved` or `counterexample` through the non-success constructor,
 returns a typed `KaniOutcomeError` with the code `kani_outcome_invalid`,
@@ -62,17 +79,18 @@ The harness constrains only values after the ABI has established that the finite
 | FR-030-AC-3 | No invalid, refused, incomplete, unavailable, timed-out, exhausted, cancelled, or inconclusive outcome carries Boolean success; earliest failures emit no partial artifact. | Test (TC-042) |
 | FR-030-AC-4 | A `proved` outcome built from a run with three SUCCESS checks carries the count three; a run with zero SUCCESS checks yields `inconclusive` with cause `kani_vacuous_proof`, carries no count and no Boolean claim; and a request for a `proved` outcome with a count of zero returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome. | Test (TC-223) |
 | FR-030-AC-5 | An `unavailable` outcome built for an absent solver carries cause `kani_solver_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
+| FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-223) |
 
 ## Dependencies
 
-FR-015 defines partial-operation semantics. FR-029 selects the capability and ABI revisions that interpret this boundary.
+FR-044 defines `Std001Code`. FR-015 defines partial-operation semantics. FR-029 selects the capability and ABI revisions that interpret this boundary.
 
 ## Status
 
 Implemented through the shared finite ABI/outcome foundation and three semantic
 lanes. Invalid, incomplete, unavailable and over-bound inputs retain typed
 non-Boolean outcomes; this status does not claim an undeclared model or domain.
-AC-4 and AC-5 are planned: today `KaniOutcome`'s fields are public, a `proved`
+AC-4 through AC-6 are planned: today `KaniOutcome.code` is a `String` (AC-6), and `KaniOutcome`'s fields are public, a `proved`
 outcome carries no check count, `non_success` accepts any cause code for
 `unavailable` and `inconclusive`, and it turns a `proved` or `counterexample`
 request into a `refused` outcome rather than an error.
