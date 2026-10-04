@@ -33,7 +33,7 @@ use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
-use temporal::{references_refused_node, validate_temporal};
+use temporal::{references_refused_node, validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
     count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
@@ -1735,6 +1735,9 @@ fn validate_graph(
         limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &index)?;
+    // FR-038 "The timed interval form" stage 2: the last graph check of the
+    // nodes before the frame step.
+    validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {

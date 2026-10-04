@@ -18,19 +18,23 @@
 //! here.
 //!
 //! The module also owns the `temporal_interval` and `fairness` member shapes
-//! ([`member_is_well_formed`]) and the unbounded-integer comparison of interval
-//! bounds ([`IntegerString`]), which the operation step and the term walk read.
+//! ([`member_is_well_formed`]), the unbounded-integer comparison of integer
+//! interval bounds ([`IntegerString`]) and the exact rational comparison of the
+//! timed form's bounds ([`Rational`]), which the operation step and the term
+//! walk read, and the timed form's lowest-terms graph check
+//! ([`validate_timed_bounds_reduced`]), which runs before the frame step.
 
 use super::frame::StepGraph;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
+use super::natural::{compare_rationals, coprime};
 use super::operation_catalog::operation_catalog;
 use super::operations::OperationWire;
 use super::structural::reference_target;
 use super::{
     ApplicationOperator, BodyTerm, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole,
-    CheckedSemanticNodeV2, FairnessGranularity, FairnessKind, IntervalFit, LawRole, ModelForm,
-    OperationMemberKind, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
+    CheckedSemanticNodeV2, FairnessGranularity, FairnessKind, IntervalEnd, IntervalFit, LawRole,
+    ModelForm, OperationMemberKind, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
     application_operator, body_term, node_pointer, ValidationFailure,
@@ -125,6 +129,16 @@ impl IntegerString {
         })
     }
 
+    /// The magnitude's decimal digits.
+    fn digits(&self) -> &str {
+        &self.digits
+    }
+
+    /// Whether this is `0`.
+    fn is_zero(&self) -> bool {
+        self.digits.as_ref() == "0"
+    }
+
     fn magnitude_cmp(&self, other: &Self) -> Ordering {
         self.digits
             .len()
@@ -150,6 +164,48 @@ impl PartialOrd for IntegerString {
     }
 }
 
+/// The exact rational `{numerator, denominator}` of the schema's
+/// `NonNegativeRational`: `numerator` matching `^(0|[1-9][0-9]*)$` and
+/// `denominator` matching `^[1-9][0-9]*$`. Lowest terms is a later, graph check
+/// ([`validate_timed_bounds_reduced`]), not part of the pattern.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::checked_package) struct Rational {
+    numerator: IntegerString,
+    denominator: IntegerString,
+}
+
+impl Rational {
+    /// The rational `value` spells, `None` when it is not the closed object of
+    /// those two members or either member is outside its pattern.
+    fn read(value: &Value) -> Option<Self> {
+        let object = value.as_object()?;
+        if object.len() != 2 {
+            return None;
+        }
+        let numerator = IntegerString::parse(object.get("numerator")?.as_str()?)?;
+        let denominator = IntegerString::parse(object.get("denominator")?.as_str()?)?;
+        (!numerator.negative && !denominator.negative && !denominator.is_zero()).then_some(Self {
+            numerator,
+            denominator,
+        })
+    }
+
+    /// The exact comparison of two rationals, charged to the work limit at `at`.
+    fn compare(
+        &self,
+        other: &Self,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Ordering, ValidationFailure> {
+        compare_rationals(
+            (self.numerator.digits(), self.denominator.digits()),
+            (other.numerator.digits(), other.denominator.digits()),
+            meter,
+            at,
+        )
+    }
+}
+
 /// A well-formed `temporal_interval` member's interval (QSpec FR-370).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::checked_package) enum Interval {
@@ -162,12 +218,46 @@ pub(in crate::checked_package) enum Interval {
         lower: IntegerString,
         upper: IntegerString,
     },
+    /// `{lower, upper, lower_end, upper_end}`: the timed form.
+    Timed {
+        lower: Rational,
+        upper: Rational,
+        lower_end: IntervalEnd,
+        upper_end: IntervalEnd,
+    },
+}
+
+/// The form of a non-`null` `interval` object, told apart by its member set
+/// alone (FR-038 "The timed interval form").
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IntervalForm {
+    /// Exactly `lower` and `upper`.
+    Integer,
+    /// Exactly `lower`, `upper`, `lower_end` and `upper_end`.
+    Timed,
+}
+
+impl IntervalForm {
+    /// The form `interval`'s member set names, `None` for any other member set.
+    fn of(interval: &serde_json::Map<String, Value>) -> Option<Self> {
+        let has = |names: &[&str]| {
+            interval.len() == names.len() && names.iter().all(|name| interval.contains_key(*name))
+        };
+        if has(&["lower", "upper"]) {
+            Some(Self::Integer)
+        } else if has(&["lower", "upper", "lower_end", "upper_end"]) {
+            Some(Self::Timed)
+        } else {
+            None
+        }
+    }
 }
 
 /// The interval of a `{kind: temporal_interval, interval}` member; `None` for
 /// any other shape: a `null` member, another kind, a third member, an
-/// `interval` that is neither `null` nor exactly `{lower, upper}`, or a bound
-/// that is not an integer string.
+/// `interval` that is neither `null` nor of one of the two forms' member sets,
+/// a bound outside its form's pattern, or an end that is neither `closed` nor
+/// `open`.
 fn read_interval_member(member: &Value) -> Option<Interval> {
     let object = member.as_object()?;
     let kind = object.get("kind")?.as_str()?;
@@ -176,9 +266,13 @@ fn read_interval_member(member: &Value) -> Option<Interval> {
     {
         return None;
     }
-    match object.get("interval")? {
-        Value::Null => Some(Interval::Unbounded),
-        Value::Object(interval) if interval.len() == 2 => {
+    let interval = match object.get("interval")? {
+        Value::Null => return Some(Interval::Unbounded),
+        Value::Object(interval) => interval,
+        _ => return None,
+    };
+    match IntervalForm::of(interval)? {
+        IntervalForm::Integer => {
             let lower = IntegerString::parse(interval.get("lower")?.as_str()?)?;
             match interval.get("upper")? {
                 Value::Null => Some(Interval::LowerBounded),
@@ -189,31 +283,51 @@ fn read_interval_member(member: &Value) -> Option<Interval> {
                 _ => None,
             }
         }
-        _ => None,
+        IntervalForm::Timed => Some(Interval::Timed {
+            lower: Rational::read(interval.get("lower")?)?,
+            upper: Rational::read(interval.get("upper")?)?,
+            lower_end: IntervalEnd::from_wire(interval.get("lower_end")?.as_str()?)?,
+            upper_end: IntervalEnd::from_wire(interval.get("upper_end")?.as_str()?)?,
+        }),
     }
 }
 
-/// The name of the first of `lower` and `upper`, in member order, of a
-/// `temporal_interval` member of an application's `operation` that lies outside
-/// the schema's non-negative integer-string pattern `^(0|[1-9][0-9]*)$`: a
-/// negative bound, a malformed one (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`) and a
-/// bound that is no string. An `upper` of `null` is the lower-bounded form, not a
-/// bound. The term walk refuses it `invalid-value` at that bound, in the early
-/// stage, never `operation-member-mismatch` (merged QSpec FR-370).
-pub(in crate::checked_package) fn interval_bound_outside_pattern(
-    operation: &Value,
-) -> Option<&'static str> {
+/// The `interval` object of a `temporal_interval` member of an application's
+/// `operation`; `None` for any other member or a `null` interval.
+fn interval_object(operation: &Value) -> Option<&serde_json::Map<String, Value>> {
     let member = operation.get("member")?;
     let kind = member.get("kind")?.as_str()?;
     if OperationMemberKind::from_wire(kind) != Some(OperationMemberKind::TemporalInterval) {
         return None;
     }
-    let interval = member.get("interval")?.as_object()?;
+    member.get("interval")?.as_object()
+}
+
+/// The name of the first of `lower` and `upper`, in member order, of a
+/// `temporal_interval` member of an application's `operation` that lies outside
+/// its form's pattern: for the timed form (four members) the closed rational
+/// object, so `null` in place of `upper`, a JSON integer or a string, a negative
+/// or malformed `numerator` and a zero, negative or malformed `denominator`
+/// all fail; for every other member set, the integer form's included, the
+/// schema's non-negative integer-string pattern `^(0|[1-9][0-9]*)$`: a negative
+/// bound, a malformed one (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`) and a bound
+/// that is no string. An `upper` of `null` is the lower-bounded form's, not a
+/// bound, outside the timed form. The term walk refuses it `invalid-value` at
+/// that bound, in the early stage, never `operation-member-mismatch` (merged
+/// QSpec FR-370).
+pub(in crate::checked_package) fn interval_bound_outside_pattern(
+    operation: &Value,
+) -> Option<&'static str> {
+    let interval = interval_object(operation)?;
+    let timed = IntervalForm::of(interval) == Some(IntervalForm::Timed);
     ["lower", "upper"].into_iter().find(|bound| {
         let Some(value) = interval.get(*bound) else {
             // A missing bound is a defect of the member's shape.
             return false;
         };
+        if timed {
+            return Rational::read(value).is_none();
+        }
         if *bound == "upper" && value.is_null() {
             return false;
         }
@@ -222,6 +336,53 @@ pub(in crate::checked_package) fn interval_bound_outside_pattern(
             .and_then(IntegerString::parse)
             .is_some_and(|bound| !bound.negative)
     })
+}
+
+/// FR-038 "The timed interval form" stage 2, a graph check: a bound of a
+/// timed-form interval that matches the rational pattern and is not in lowest
+/// terms refuses `invalid_semantic_graph` at that bound, the first in ascending
+/// `node_id` digest order and then member order. The GCD work is charged to the
+/// work limit at the node's body.
+pub(super) fn validate_timed_bounds_reduced(
+    nodes: &[CheckedSemanticNodeV2],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    for &position in index.values() {
+        let Some(node) = nodes.get(position) else {
+            continue;
+        };
+        let Some(interval) = node.body.get("operation").and_then(interval_object) else {
+            continue;
+        };
+        if IntervalForm::of(interval) != Some(IntervalForm::Timed) {
+            continue;
+        }
+        for bound in ["lower", "upper"] {
+            let Some(rational) = interval.get(bound).and_then(Rational::read) else {
+                continue;
+            };
+            let at_body = || node_pointer(position).key("body");
+            if !coprime(
+                rational.numerator.digits(),
+                rational.denominator.digits(),
+                meter,
+                &at_body,
+            )? {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at_body()
+                        .key("operation")
+                        .key("member")
+                        .key("interval")
+                        .key(bound),
+                    None,
+                    node.node_id.clone(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A `{kind: fairness, fairness_kind, granularity, declaration, name}`
@@ -299,10 +460,8 @@ pub(super) fn validate_temporal(
         if graph.kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
             && !covered.contains(&position)
         {
-            if let Some(failure) = interval_of(position, &graph)
-                .and_then(|interval| bounds_defect(position, &interval, &graph))
-            {
-                return Err(failure);
+            if let Some(interval) = interval_of(position, &graph) {
+                check_bounds(position, &interval, &graph, meter)?;
             }
         }
     }
@@ -475,24 +634,41 @@ fn interval_of(position: usize, graph: &StepGraph<'_, '_>) -> Option<Interval> {
     read_interval_member(operation.member.as_ref()?)
 }
 
-/// `invalid_package`/`invalid-value` at the application when a closed interval
-/// has `lower > upper`.
-fn bounds_defect(
+/// `invalid_package`/`invalid-value` at the application when a closed integer
+/// interval has `lower > upper`, or a timed one has `lower > upper` or an open
+/// end with `lower = upper` (merged QSpec FR-370). The timed bounds compare
+/// exactly by cross-multiplication, charged to the work limit at the body.
+fn check_bounds(
     position: usize,
     interval: &Interval,
     graph: &StepGraph<'_, '_>,
-) -> Option<ValidationFailure> {
-    let Interval::Closed { lower, upper } = interval else {
-        return None;
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let at_body = || node_pointer(position).key("body");
+    let defective = match interval {
+        Interval::Unbounded | Interval::LowerBounded => false,
+        Interval::Closed { lower, upper } => lower > upper,
+        Interval::Timed {
+            lower,
+            upper,
+            lower_end,
+            upper_end,
+        } => match lower.compare(upper, meter, &at_body)? {
+            Ordering::Greater => true,
+            Ordering::Equal => *lower_end == IntervalEnd::Open || *upper_end == IntervalEnd::Open,
+            Ordering::Less => false,
+        },
     };
-    (lower > upper).then(|| {
-        ValidationFailure::refused_at(
+    if defective {
+        Err(ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidPackage,
-            node_pointer(position).key("body"),
+            at_body(),
             Some(CheckedPackageRefusalCause::InvalidValue),
             graph.nodes[position].node_id.clone(),
-        )
-    })
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Whether the package's own lock selects `definition` under a role other than
@@ -644,20 +820,25 @@ fn check_clause(
         }
     }
     for (formula, interval) in &intervals {
-        if let Some(failure) = bounds_defect(*formula, interval, graph) {
-            return Err(failure);
-        }
+        check_bounds(*formula, interval, graph, meter)?;
     }
     Ok(())
 }
 
 fn interval_fits(fit: IntervalFit, interval: &Interval) -> bool {
     match (fit, interval) {
-        (IntervalFit::Any, _)
-        | (IntervalFit::NullOnly, Interval::Unbounded)
+        (
+            IntervalFit::IntegerForms,
+            Interval::Unbounded | Interval::LowerBounded | Interval::Closed { .. },
+        )
+        | (IntervalFit::NullOrTimed, Interval::Unbounded | Interval::Timed { .. })
         | (IntervalFit::ClosedOnly, Interval::Closed { .. }) => true,
-        (IntervalFit::NullOnly, Interval::LowerBounded | Interval::Closed { .. })
-        | (IntervalFit::ClosedOnly, Interval::Unbounded | Interval::LowerBounded) => false,
+        (IntervalFit::IntegerForms, Interval::Timed { .. })
+        | (IntervalFit::NullOrTimed, Interval::LowerBounded | Interval::Closed { .. })
+        | (
+            IntervalFit::ClosedOnly,
+            Interval::Unbounded | Interval::LowerBounded | Interval::Timed { .. },
+        ) => false,
     }
 }
 

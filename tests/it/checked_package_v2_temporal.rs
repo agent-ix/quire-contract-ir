@@ -17,9 +17,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,15 +95,15 @@ fn model_key(node: &str) -> String {
 
 /// Reads `package` with [`orders_document`] supplied under its digest.
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
+    read_limited(package, CheckedPackageReadLimits::bounded())
+}
+
+fn read_limited(package: &Value, limits: CheckedPackageReadLimits) -> CheckedPackageV2ReadResult {
     let document = orders_document();
     let mut evidence = evidence_for(package);
     evidence
         .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
-    CheckedPackageV2::read(
-        &canonical(package),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    )
+    CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 
 fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {
@@ -2303,4 +2303,604 @@ fn tc_048_the_lower_digest_clause_is_read_first_whatever_its_defect() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// AC-119 through AC-122: the timed interval form
+// ---------------------------------------------------------------------------
+
+fn rational(numerator: &str, denominator: &str) -> Value {
+    json!({"numerator": numerator, "denominator": denominator})
+}
+
+/// The whole number `n` as a rational.
+fn whole(n: &str) -> Value {
+    rational(n, "1")
+}
+
+/// A timed-form `temporal_interval` member.
+fn timed(lower: Value, upper: Value, lower_end: &str, upper_end: &str) -> Value {
+    json!({"kind": "temporal_interval", "interval": {
+        "lower": lower, "upper": upper, "lower_end": lower_end, "upper_end": upper_end}})
+}
+
+/// A timed-form member with both ends closed.
+fn timed_closed(lower: Value, upper: Value) -> Value {
+    timed(lower, upper, "closed", "closed")
+}
+
+/// Asserts an `invalid_semantic_graph` refusal (it names no cause) at `path`,
+/// located at the key of the node the pointer is on.
+fn expect_graph(case: &str, package: &Value, path: &str) {
+    let position: usize = path
+        .strip_prefix("/semantic_graph/nodes/")
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|node| node.parse().ok())
+        .unwrap_or_else(|| panic!("{case}: {path} is on no node"));
+    assert_eq!(
+        refusal_of(case, package),
+        (
+            (Code::InvalidSemanticGraph, None, Some(path.to_owned())),
+            Some(digest(package, position))
+        ),
+        "{case}"
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-119
+#[trace("TC-048", "FR-038-AC-119")]
+#[test]
+fn tc_048_the_timed_form_admits_under_the_timed_profile_on_each_interval_operator() {
+    let end_pairs = [
+        ("closed", "closed"),
+        ("closed", "open"),
+        ("open", "closed"),
+        ("open", "open"),
+    ];
+    let mut admits = Vec::new();
+    for (lower_end, upper_end) in end_pairs {
+        admits.push((
+            format!("[0, 3] with ends {lower_end}/{upper_end}"),
+            timed(whole("0"), whole("3"), lower_end, upper_end),
+        ));
+    }
+    admits.push((
+        "lower 1/2".to_owned(),
+        timed_closed(rational("1", "2"), whole("3")),
+    ));
+    admits.push((
+        "a punctual [3, 3]".to_owned(),
+        timed_closed(whole("3"), whole("3")),
+    ));
+    admits.push(("a null interval".to_owned(), unbounded()));
+    for (short, arity) in INTERVAL_OPERATORS {
+        for (case, member) in &admits {
+            let (package, _) = with_root(TIMED, short, member.clone(), None, arity);
+            admitted(&format!("{short} {case}"), &package);
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-120
+#[trace("TC-048", "FR-038-AC-120")]
+#[test]
+fn tc_048_a_timed_bound_outside_the_rational_pattern_is_invalid_value_at_the_bound() {
+    let cases = [
+        (
+            "lower numerator -1",
+            timed_closed(rational("-1", "1"), whole("3")),
+            "lower",
+        ),
+        (
+            "lower numerator 01",
+            timed_closed(rational("01", "1"), whole("3")),
+            "lower",
+        ),
+        (
+            "upper denominator 0",
+            timed_closed(whole("0"), rational("3", "0")),
+            "upper",
+        ),
+        (
+            "upper denominator -2",
+            timed_closed(whole("0"), rational("3", "-2")),
+            "upper",
+        ),
+        (
+            "lower a JSON integer",
+            timed_closed(json!(0), whole("3")),
+            "lower",
+        ),
+        (
+            "lower the string 3",
+            timed_closed(json!("3"), whole("3")),
+            "lower",
+        ),
+        (
+            "upper null with four members",
+            timed_closed(whole("0"), Value::Null),
+            "upper",
+        ),
+        (
+            "lower numerator -1 and upper denominator 0",
+            timed_closed(rational("-1", "1"), rational("3", "0")),
+            "lower",
+        ),
+        (
+            "a rational holding a third member",
+            timed_closed(
+                json!({"numerator": "0", "denominator": "1", "extra": 1}),
+                whole("3"),
+            ),
+            "lower",
+        ),
+    ];
+    for profile in FIVE_PROFILES {
+        for (case, member, bound) in &cases {
+            let (package, root) = with_root(profile, "eventually", member.clone(), None, 1);
+            expect(
+                &format!("{case} under {profile}"),
+                &package,
+                Code::InvalidPackage,
+                Cause::InvalidValue,
+                &at_node(root, &format!("/body/operation/member/interval/{bound}")),
+            );
+        }
+    }
+    // On every interval operator, not only `eventually`.
+    for (short, arity) in INTERVAL_OPERATORS {
+        let member = timed_closed(rational("-1", "1"), whole("3"));
+        let (package, root) = with_root(TIMED, short, member, None, arity);
+        expect(
+            short,
+            &package,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            &at_node(root, "/body/operation/member/interval/lower"),
+        );
+    }
+}
+
+/// A pattern failure in any node is refused ahead of a non-reduced bound in any
+/// node, whichever comes first in node order.
+///
+/// Tracing: TC-048, FR-038-AC-120
+#[trace("TC-048", "FR-038-AC-120")]
+#[test]
+fn tc_048_a_pattern_failure_in_a_later_node_precedes_a_non_reduced_bound() {
+    let non_reduced = timed_closed(rational("2", "4"), whole("3"));
+    let pattern_failure = timed_closed(whole("0"), rational("3", "0"));
+    for reduced_node_first in [true, false] {
+        let (first, second) = if reduced_node_first {
+            (non_reduced.clone(), pattern_failure.clone())
+        } else {
+            (pattern_failure.clone(), non_reduced.clone())
+        };
+        let (mut package, _) = with_root(INFINITE, "eventually", first, None, 1);
+        let holds = digest(
+            &package,
+            find_identity(&package, &temporal_identity("holds")),
+        );
+        let added = push(&mut package, formula("once", second, vec![refer(&holds)]));
+        settle(&mut package);
+        let (at, bound) = if reduced_node_first {
+            (added, "upper")
+        } else {
+            (
+                find_identity(&package, &temporal_identity("eventually")),
+                "upper",
+            )
+        };
+        expect(
+            &format!("non-reduced node first: {reduced_node_first}"),
+            &package,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            &at_node(at, &format!("/body/operation/member/interval/{bound}")),
+        );
+    }
+}
+
+/// The smallest work limit at which `package` is decided rather than
+/// `incomplete`.
+fn smallest_deciding_work(package: &Value) -> u64 {
+    let incomplete = |work: u64| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        matches!(
+            read_limited(package, limits),
+            CheckedPackageV2ReadResult::Incomplete(_)
+        )
+    };
+    let (mut low, mut high) = (0_u64, CheckedPackageReadLimits::bounded().work);
+    assert!(incomplete(low), "a zero work limit is incomplete");
+    assert!(!incomplete(high), "the bounded limit decides the package");
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        if incomplete(mid) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    high
+}
+
+/// `package` read with `work`, which must be `incomplete` naming the work limit.
+fn incomplete_work_path(package: &Value, work: u64) -> (u64, Option<String>) {
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    match read_limited(package, limits) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, work);
+            (
+                incomplete.consumed,
+                incomplete.path.map(|path| path.as_str().to_owned()),
+            )
+        }
+        other => panic!("expected incomplete at work {work}, read {other:?}"),
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-121
+#[trace("TC-048", "FR-038-AC-121")]
+#[test]
+fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_temporal_step() {
+    let (package, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(rational("2", "4"), whole("3")),
+        None,
+        1,
+    );
+    expect_graph(
+        "a non-reduced lower",
+        &package,
+        &at_node(root, "/body/operation/member/interval/lower"),
+    );
+    let (package, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(whole("0"), rational("2", "4")),
+        None,
+        1,
+    );
+    expect_graph(
+        "a non-reduced upper alone",
+        &package,
+        &at_node(root, "/body/operation/member/interval/upper"),
+    );
+    // A pattern failure at the other bound is refused first, `invalid-value`.
+    let (package, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(rational("2", "4"), rational("-1", "1")),
+        None,
+        1,
+    );
+    expect(
+        "non-reduced lower, negative upper",
+        &package,
+        Code::InvalidPackage,
+        Cause::InvalidValue,
+        &at_node(root, "/body/operation/member/interval/upper"),
+    );
+    let (package, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(rational("-1", "1"), rational("2", "4")),
+        None,
+        1,
+    );
+    expect(
+        "negative lower, non-reduced upper",
+        &package,
+        Code::InvalidPackage,
+        Cause::InvalidValue,
+        &at_node(root, "/body/operation/member/interval/lower"),
+    );
+
+    // Beside a profile-fit defect (an integer-form interval under `timed/v1`)
+    // in another node, the non-reduced bound is refused: the graph check is
+    // ahead of the temporal step.
+    let beside_fit_defect = |member: Value| {
+        let mut package = v2_all_families();
+        select_profile(&mut package, TIMED);
+        let holds = digest(
+            &package,
+            find_identity(&package, &temporal_identity("holds")),
+        );
+        let fit = push(
+            &mut package,
+            formula("always", closed("0", "3"), vec![refer(&holds)]),
+        );
+        let root = find_identity(&package, &temporal_identity("eventually"));
+        let operand = vec![refer(&digest(&package, fit))];
+        package["semantic_graph"]["nodes"][root]["body"] =
+            formula_body("eventually", member, operand);
+        settle(&mut package);
+        (package, root, fit)
+    };
+    let (package, root, _) = beside_fit_defect(timed_closed(rational("2", "4"), whole("3")));
+    expect_graph(
+        "a non-reduced bound beside a profile-fit defect",
+        &package,
+        &at_node(root, "/body/operation/member/interval/lower"),
+    );
+    let (package, _, fit) = beside_fit_defect(timed_closed(whole("1"), whole("3")));
+    expect(
+        "the same fit defect with reduced bounds",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationMemberMismatch,
+        &at_node(fit, "/body"),
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-121
+#[trace("TC-048", "FR-038-AC-121")]
+#[test]
+fn tc_048_the_timed_bounds_compare_exactly_and_open_ends_refuse_equal_bounds() {
+    let refuses = |case: &str, member: Value| {
+        let (package, root) = with_root(TIMED, "eventually", member, None, 1);
+        expect(
+            case,
+            &package,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            &at_node(root, "/body"),
+        );
+    };
+    let admits = |case: &str, member: Value| {
+        let (package, _) = with_root(TIMED, "eventually", member, None, 1);
+        admitted(case, &package);
+    };
+    refuses("(3, 3]", timed(whole("3"), whole("3"), "open", "closed"));
+    refuses("[3, 3)", timed(whole("3"), whole("3"), "closed", "open"));
+    refuses("(3, 3)", timed(whole("3"), whole("3"), "open", "open"));
+    refuses("5/2 over 2", timed_closed(rational("5", "2"), whole("2")));
+    admits("[3, 3]", timed_closed(whole("3"), whole("3")));
+    admits(
+        "1/2 to 2/3",
+        timed_closed(rational("1", "2"), rational("2", "3")),
+    );
+    refuses(
+        "2/3 to 1/2",
+        timed_closed(rational("2", "3"), rational("1", "2")),
+    );
+    // Open ends do not matter once the bounds differ.
+    admits(
+        "(1/2, 2/3)",
+        timed(rational("1", "2"), rational("2", "3"), "open", "open"),
+    );
+    refuses(
+        "(2/3, 1/2)",
+        timed(rational("2", "3"), rational("1", "2"), "open", "open"),
+    );
+    // Beyond 2^64: a float comparison rounds both numerators to 2^64 and
+    // admits the first; a checked parse into 64 bits refuses the second.
+    let above = rational("18446744073709551617", "3");
+    let below = rational("18446744073709551616", "3");
+    refuses(
+        "2^64+1 over 2^64, both over 3",
+        timed_closed(above.clone(), below.clone()),
+    );
+    admits("2^64 over 2^64+1, both over 3", timed_closed(below, above));
+    // Different denominators cross-multiply: 7/3 against 5/2.
+    admits(
+        "7/3 to 5/2",
+        timed_closed(rational("7", "3"), rational("5", "2")),
+    );
+    refuses(
+        "5/2 to 7/3",
+        timed_closed(rational("5", "2"), rational("7", "3")),
+    );
+}
+
+/// The work limit covers the lowest-terms check and the exact bounds check: a
+/// limit the work goes past is `incomplete` naming `work` at the node's body,
+/// and not a refusal of the interval.
+///
+/// Tracing: TC-048, FR-038-AC-121
+#[trace("TC-048", "FR-038-AC-121")]
+#[test]
+fn tc_048_the_timed_bound_checks_are_charged_to_the_work_limit() {
+    let (bounds, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(
+            rational("18446744073709551617", "3"),
+            rational("18446744073709551616", "3"),
+        ),
+        None,
+        1,
+    );
+    let body = at_node(root, "/body");
+    let needed = smallest_deciding_work(&bounds);
+    let mut exact = CheckedPackageReadLimits::bounded();
+    exact.work = needed;
+    expect(
+        "the exact work decides the refusal",
+        &bounds,
+        Code::InvalidPackage,
+        Cause::InvalidValue,
+        &body,
+    );
+    assert!(matches!(
+        read_limited(&bounds, exact),
+        CheckedPackageV2ReadResult::Refused(_)
+    ));
+    // One under, the cross-multiplication of the bounds is what the limit stops.
+    assert_eq!(
+        incomplete_work_path(&bounds, needed - 1),
+        (needed, Some(body))
+    );
+    // The bounds cost more than a pair of small ones of the same shape.
+    let (small, _) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(whole("0"), whole("1")),
+        None,
+        1,
+    );
+    assert!(needed > smallest_deciding_work(&small));
+
+    // The GCD of a non-reduced bound is charged at the body too.
+    let (non_reduced, root) = with_root(
+        TIMED,
+        "eventually",
+        timed_closed(
+            rational("55340232221128654851", "3"),
+            whole("99999999999999999999999"),
+        ),
+        None,
+        1,
+    );
+    let needed = smallest_deciding_work(&non_reduced);
+    let mut exact = CheckedPackageReadLimits::bounded();
+    exact.work = needed;
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_limited(&non_reduced, exact) else {
+        panic!("the exact work decides the refusal");
+    };
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str().to_owned()),
+        Some(at_node(root, "/body/operation/member/interval/lower"))
+    );
+    assert_eq!(
+        incomplete_work_path(&non_reduced, needed - 1),
+        (needed, Some(at_node(root, "/body")))
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-122
+#[trace("TC-048", "FR-038-AC-122")]
+#[test]
+fn tc_048_the_timed_form_fits_only_the_timed_profile() {
+    let member = || timed_closed(whole("0"), whole("3"));
+    for profile in FIVE_PROFILES {
+        let (package, root) = with_root(profile, "eventually", member(), None, 1);
+        if profile == TIMED {
+            admitted("the timed form under timed/v1", &package);
+        } else {
+            expect(
+                &format!("the timed form under {profile}"),
+                &package,
+                Code::InvalidPackage,
+                Cause::OperationMemberMismatch,
+                &at_node(root, "/body"),
+            );
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-122
+#[trace("TC-048", "FR-038-AC-122")]
+#[test]
+fn tc_048_a_timed_form_member_set_defect_is_a_member_mismatch_at_the_member() {
+    let interval = |members: Value| json!({"kind": "temporal_interval", "interval": members});
+    let mismatches = [
+        (
+            "lower_end half",
+            timed(whole("0"), whole("3"), "half", "closed"),
+        ),
+        (
+            "upper_end half",
+            timed(whole("0"), whole("3"), "closed", "half"),
+        ),
+        (
+            "a missing end with integer-string bounds",
+            interval(json!({"lower": "0", "upper": "3", "lower_end": "closed"})),
+        ),
+        (
+            "a fifth member with integer-string bounds",
+            interval(json!({"lower": "0", "upper": "3", "lower_end": "closed",
+                            "upper_end": "closed", "extra": "x"})),
+        ),
+    ];
+    for profile in [INFINITE, TIMED] {
+        for (case, member) in &mismatches {
+            let (package, root) = with_root(profile, "eventually", member.clone(), None, 1);
+            expect(
+                &format!("{case} under {profile}"),
+                &package,
+                Code::InvalidPackage,
+                Cause::OperationMemberMismatch,
+                &at_node(root, "/body/operation/member"),
+            );
+        }
+        // The same member sets with the timed form's rational-object bounds have
+        // no form, so the integer pattern refuses the object at `lower`.
+        for (case, member) in [
+            (
+                "a missing end",
+                interval(json!({"lower": whole("0"), "upper": whole("3"),
+                                "lower_end": "closed"})),
+            ),
+            (
+                "a fifth member",
+                interval(json!({"lower": whole("0"), "upper": whole("3"),
+                                "lower_end": "closed", "upper_end": "closed", "extra": "x"})),
+            ),
+        ] {
+            let (package, root) = with_root(profile, "eventually", member, None, 1);
+            expect(
+                &format!("{case} with rational bounds under {profile}"),
+                &package,
+                Code::InvalidPackage,
+                Cause::InvalidValue,
+                &at_node(root, "/body/operation/member/interval/lower"),
+            );
+        }
+    }
+}
+
+/// A member-set defect is the operation step's, after the whole temporal step:
+/// a profile-fit defect in a higher-digest clause is reported first.
+///
+/// Tracing: TC-048, FR-038-AC-122
+#[trace("TC-048", "FR-038-AC-122")]
+#[test]
+fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_clause() {
+    let mut found = false;
+    for salt in 0..64 {
+        let mut package = v2_all_families();
+        select_profile(&mut package, TIMED);
+        let root = find_identity(&package, &temporal_identity("eventually"));
+        // The fixture's own clause holds the member-set defect, the added
+        // clause the fit defect (an integer-form interval under `timed/v1`).
+        package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] =
+            timed(whole("0"), whole("3"), "half", "closed");
+        let added = second_clause(
+            &mut package,
+            &format!("other{salt}"),
+            closed("0", "3"),
+            false,
+        );
+        let own = clause(&package);
+        package["semantic_graph"]["nodes"][own]["body"]["arguments"][1]["value"] =
+            json!(format!("own{salt}"));
+        settle(&mut package);
+        let own = clause(&package);
+        if digest(&package, own) > digest(&package, added) {
+            continue;
+        }
+        found = true;
+        let added_root = nodes(&package)
+            .iter()
+            .rposition(|node| {
+                node["body"]["operation"]["identity"] == "quire.op.temporal.eventually"
+            })
+            .expect("the added clause's formula");
+        expect(
+            "the fit defect of the higher-digest clause",
+            &package,
+            Code::InvalidPackage,
+            Cause::OperationMemberMismatch,
+            &at_node(added_root, "/body"),
+        );
+        break;
+    }
+    assert!(found, "a salt orders the two clauses as the case needs");
 }

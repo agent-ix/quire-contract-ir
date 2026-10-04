@@ -52,7 +52,7 @@ against QSpec's own `adverse.json` mutations and `dependency-selection-vectors.j
 identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
 misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
 the absence of a depth limit and of call-stack recursion, and the five body-grammar
-mutations. FR-038-AC-119 through FR-038-AC-122 (planned, IR-551) are against the timed interval form of
+mutations. FR-038-AC-119 through FR-038-AC-122 (IR-551) are against the timed interval form of
 merged QSpec FR-370 and FR-370-AC-8: the four end variants, rational bounds in lowest
 terms, the refusal of a negative, malformed or non-reduced bound, a null upper bound,
 an open end with equal bounds and a missing or extra member, and the profile fit.
@@ -793,7 +793,7 @@ empty of them.
 
 ## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
 
-Planned (IR-551 code). Bounds are written `{numerator, denominator}` as `{n, d}`.
+Implemented (IR-551). Bounds are written `{numerator, denominator}` as `{n, d}`.
 
 Admission (AC-119). Under a clause whose `temporal_profile` law names
 `quire.temporal.timed/v1`, on each of the eight interval operators of a
