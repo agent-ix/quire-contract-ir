@@ -138,12 +138,14 @@ fn tc_035_refuses_invalid_binding_population_and_context() {
 /// A binding expression carrying a source revision or byte offset of exactly
 /// 2^53 is admitted through the public binder. Above 2^53 the projection's
 /// normative schema (FR-023) refuses the whole projection as
-/// `invalid_wire_format` at `projection` before any expression is decoded, so
-/// the registered-code mapping of the binding's expression decoder is
-/// asserted at the decoder (`wire::tests`).
+/// `invalid_wire_format` at `projection` before any expression is decoded.
+/// That pins today's schema-first behaviour; it is not evidence for
+/// FR-011-AC-3 or FR-012-AC-6, whose registered code is unmet on this path
+/// (IR-574). The binding expression decoder's mapping is asserted at the
+/// decoder (`wire::tests`).
 ///
-/// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6
-#[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
+/// Tracing: TC-015
+#[trace("TC-015")]
 #[test]
 fn tc_015_a_binding_expression_admits_a_revision_and_offset_of_exactly_two_to_the_53() {
     const BOUND: u64 = 9_007_199_254_740_992;

@@ -1018,7 +1018,8 @@ mod tests {
                 "source.revision".to_owned()
             )
         );
-        // Every span member of the request goes through the same mapping.
+        // A declaration's span goes through the same mapping; every span member
+        // is covered by the table-driven test below.
         let mut declared = base.clone();
         declared["values"] = json!([{"name": "x", "kind": "input", "value_type": integer_type(),
                                      "source": span()}]);
@@ -1027,6 +1028,125 @@ mod tests {
             operation_refusal(declared),
             ("invalid_source_span".to_owned(), "source_span".to_owned())
         );
+    }
+
+    /// The JSON pointer of every span object under `value`.
+    fn span_pointers(value: &Value, pointer: &str, output: &mut Vec<String>) {
+        match value {
+            Value::Object(members) => {
+                if members.contains_key("start") && members.contains_key("end") {
+                    output.push(pointer.to_owned());
+                    return;
+                }
+                for (key, member) in members {
+                    span_pointers(member, &format!("{pointer}/{key}"), output);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    span_pointers(item, &format!("{pointer}/{index}"), output);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Every span-bearing member of a request (type, enum variant, record
+    /// field, value, function, function parameter, quantifier local and
+    /// expression) goes through the registered mapping: a byte offset of 2^53
+    /// is admitted and one above it is `invalid_source_span`.
+    ///
+    /// Tracing: TC-015, FR-012-AC-6.
+    #[trace("TC-015", "FR-012-AC-6")]
+    #[test]
+    fn tc_015_every_span_member_of_an_expression_request_maps_the_offset_bound() {
+        let base: Value = serde_json::from_str(include_str!(
+            "../../../corpus/contract-v0.1/inputs/expression-quantifier.json"
+        ))
+        .unwrap();
+        assert_eq!(execute_expression(base.clone())["valid"], true);
+        let mut pointers = Vec::new();
+        span_pointers(&base, "", &mut pointers);
+        for site in [
+            "/types/0/source",
+            "/types/0/variants/0/source",
+            "/types/1/source",
+            "/types/1/fields/0/source",
+            "/values/0/source",
+            "/functions/0/source",
+            "/functions/0/parameters/0/source",
+            "/expression/source",
+        ] {
+            assert!(pointers.iter().any(|p| p == site), "{site} is a span site");
+        }
+        assert!(
+            pointers.iter().any(|p| p.ends_with("/local_source")),
+            "a quantifier local_source is a span site"
+        );
+        for pointer in &pointers {
+            let offset = format!("{pointer}/end/byte_offset");
+            let admitted = with_member(&base, &offset, json!(REVISION_BOUND));
+            let output = execute_expression(admitted);
+            assert_eq!(output["valid"], true, "{offset}: {output}");
+            assert_eq!(
+                operation_refusal(with_member(&base, &offset, json!(REVISION_BOUND + 1))),
+                ("invalid_source_span".to_owned(), "source_span".to_owned()),
+                "{offset}"
+            );
+        }
+    }
+
+    /// The other refusals the expression operation now maps to registered
+    /// codes: span structure, a zero source revision, a malformed owner
+    /// identity; and the closed members of `owner` and a span.
+    ///
+    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
+    #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
+    #[test]
+    fn tc_015_the_expression_operation_maps_span_structure_and_owner_identity_codes() {
+        let base = request(integer_literal("0"), integer_type());
+        let refused =
+            |pointer: &str, member: Value| operation_refusal(with_member(&base, pointer, member));
+        let pair = |code: &str, path: &str| (code.to_owned(), path.to_owned());
+        let span_code = pair("invalid_source_span", "source_span");
+        assert_eq!(
+            refused("/expression/source/start/line", json!(0)),
+            span_code
+        );
+        assert_eq!(
+            refused("/expression/source/start/column", json!(0)),
+            span_code
+        );
+        assert_eq!(
+            refused("/expression/source/start/byte_offset", json!(5)),
+            span_code
+        );
+        assert_eq!(
+            refused("/expression/source/end/source/document", json!("other")),
+            span_code
+        );
+        assert_eq!(
+            refused("/expression/source/start/source/revision", json!(0)),
+            pair("invalid_source_revision", "source.revision")
+        );
+        assert_eq!(
+            refused("/owner/package", json!("")),
+            pair("invalid_package_namespace", "reference.package")
+        );
+        assert_eq!(
+            refused("/owner/requirement", json!("")),
+            pair("invalid_identifier", "reference.requirement")
+        );
+        let wire = pair("invalid_wire_format", "expression");
+        for object in ["/owner", "/expression/source", "/expression/source/start"] {
+            let mut extra = base.clone();
+            extra
+                .pointer_mut(object)
+                .and_then(Value::as_object_mut)
+                .expect("the object exists")
+                .insert("extra".to_owned(), json!(1));
+            assert_eq!(operation_refusal(extra), wire, "{object}");
+        }
     }
 
     /// The binding path of the expression decoder (an executable projection's
