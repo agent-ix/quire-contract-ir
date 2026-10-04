@@ -21,8 +21,9 @@ or whose name another entry of that source carries.
 `make deny` SHALL fail when the lock holds a second entry for a first-party crate, whether
 the second entry differs in version, in git revision or in source kind (git or registry).
 
-`make deny` SHALL run that check through one owned tool and SHALL NOT carry a copy of the
-check's logic in this repository.
+`make deny` SHALL run that check through one owned tool.
+
+This repository SHALL NOT carry a copy of the check's logic.
 
 This is AD-007's invariant G-4 for IR, following the owner's ruling on AD-007 O-4
 (first-hand, 2026-10-04, recorded on IR-581: replace the three copies with one owned tool).
