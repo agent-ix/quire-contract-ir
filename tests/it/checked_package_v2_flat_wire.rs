@@ -867,6 +867,50 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
 }
 
+/// FR-038-AC-117: an identity-projection body, which the body grammar does not
+/// check, can nest as deep as the strict parse reads. A stale one, 61 aggregates
+/// (126 JSON levels) and one at the parse's limit of 127 levels, is compared with
+/// its node's body and refused `stale_dependency` at the first member that
+/// differs, on a 256 KiB debug stack, with no abort.
+///
+/// Tracing: TC-048, FR-038-AC-117
+#[trace("TC-048", "FR-038-AC-117")]
+#[test]
+fn tc_048_a_deep_stale_projection_body_is_refused_on_a_small_stack() {
+    let evidence = evidence_for(&v2_all_families());
+    let marker = "\u{1}deep";
+    let quoted = serde_json::to_string(marker).expect("string");
+    let aggregates = |levels: usize, innermost: &str| {
+        format!(
+            "{}{{\"members\":{innermost},\"term\":\"aggregate\"}}{}",
+            "{\"members\":[".repeat(levels - 1),
+            "],\"term\":\"aggregate\"}".repeat(levels - 1)
+        )
+    };
+    for deep in [aggregates(61, "[]"), aggregates(61, "[[]]")] {
+        let mut package = v2_all_families();
+        let host = host_position(&package);
+        package["identity_preimage"]["identity_projection"][host]["body"] = json!(marker);
+        let splice = |text: String| text.replace(&quoted, &deep);
+        let preimage =
+            splice(String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8"));
+        package["package_id"]["digest"] = json!(sha256_hex(preimage.as_bytes()));
+        let text = splice(String::from_utf8(canonical(&package)).expect("utf-8"));
+        let result = read_on_small_stack(text.into_bytes(), evidence.clone());
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("a stale deep projection refuses, read {result:?}");
+        };
+        assert_eq!(
+            outcome(&refusal),
+            (
+                Code::StaleDependency,
+                None,
+                format!("/identity_preimage/identity_projection/{host}/body/members")
+            )
+        );
+    }
+}
+
 /// FR-038-AC-117: a `details` term in the window between the grammar and the
 /// parse limit refuses at the first value outside the grammar too, on a 256 KiB
 /// stack.

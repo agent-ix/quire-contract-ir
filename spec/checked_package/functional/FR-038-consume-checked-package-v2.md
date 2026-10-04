@@ -178,8 +178,13 @@ and put into the decoded wire after it, and the lossless-decode check compares t
 long arrays one element at a time, so a body nested between the grammar and the
 parse's limit (a window of about 90 to 126 JSON levels) refuses at the body grammar on
 a 256 KiB stack in a debug build, and no copy of the whole document is built beside
-it. The recursion over such a value that remains is the strict parse's own, bounded by
-its limit of 128, and its drop. Every value an admitted package holds nests to a
+it. The recursion over such a value that remains is bounded by the strict parse's
+limit of 128 levels: the parse's own, its drop, and the comparison of an
+identity-projection body (which the body grammar does not check) with its node's body
+when the projection is stale, which compares the `Value`s and serializes them with
+`serde_json::to_value` once per level before the iterative `first_difference` locates
+the member; a stale projection body nested at the parse's limit refuses on a 256 KiB
+stack in a debug build. Every value an admitted package holds nests to a
 depth the grammar fixes, so its clone, comparison, `Debug` rendering, lowering and drop
 need no stack that follows the package's size, and the V2 reader has no `stacker`,
 `serde_stacker` or `on_stack_for`. It shall
