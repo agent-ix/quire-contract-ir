@@ -585,7 +585,8 @@ fn tc_048_an_interval_member_admits_and_refuses_on_each_interval_operator() {
         ("{2, null}", lower_bounded("2")),
         ("null interval", unbounded()),
     ];
-    // Negative bounds are refused in the term walk, under every profile.
+    // Negative bounds are refused in strict wire validation
+    // (`flat_wire::check_interval_bounds`), under every profile.
     let negative = [
         ("{-1, 3}", closed("-1", "3"), "lower"),
         ("{0, -2}", closed("0", "-2"), "upper"),
@@ -1543,7 +1544,8 @@ fn tc_048_the_temporal_step_skips_a_member_the_operation_step_refuses() {
         // A wrong-kind member is skipped by the temporal step and refused at
         // `operation.member`; a `null` member at the application; a bound outside
         // the pattern never reaches the step, being `invalid-value` at the bound
-        // in the term walk, never `operation-member-mismatch`.
+        // in strict wire validation (`flat_wire::check_interval_bounds`), never
+        // `operation-member-mismatch`.
         for (case, member, cause, tail) in [
             (
                 "a fairness member",
@@ -1571,7 +1573,8 @@ fn tc_048_the_temporal_step_skips_a_member_the_operation_step_refuses() {
     }
 }
 
-/// A negative bound is refused in the term walk of the body: before placement
+/// A negative bound is refused in strict wire validation
+/// (`flat_wire::check_interval_bounds`): before placement
 /// and every temporal step, so also beside a placement defect at a lower-digest
 /// node and under a profile whose fit it would also fail.
 ///

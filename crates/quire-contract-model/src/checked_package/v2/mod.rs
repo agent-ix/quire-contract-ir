@@ -1506,9 +1506,9 @@ enum EdgeSite {
 /// built only on refusal, by [`body_reference_pointer`].
 type BodyReference = (CheckedNodeId, ReferenceSite);
 
-/// Locates the two cause-bearing refusals of a body walk at the node whose body
-/// it walked: a bound outside the interval pattern
-/// (`invalid_package`/`invalid-value`, the term walk's) and a nested `case`
+/// Locates the two cause-bearing refusals of strict wire validation at the node
+/// whose body it read: a bound outside the interval pattern
+/// (`invalid_package`/`invalid-value`, `flat_wire::check_interval_bounds`'s) and a nested `case`
 /// application (`ill_typed`/`operator-ineligible`, the flat-wire check's), each
 /// with its path already on the bound or the nested `operator`. Every other
 /// refusal of a walk is left as it is.

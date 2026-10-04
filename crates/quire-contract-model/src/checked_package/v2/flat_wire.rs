@@ -111,8 +111,8 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
 /// interval form" stage 1; merged QSpec FR-370: "during strict wire validation,
 /// before any step"), refused `invalid_package`/`invalid-value` at the bound,
 /// first in member order and in node position order, after the nested-application
-/// refusals above (the spec is silent on the order of the two wire checks; this is
-/// the order the term walk had). One flat loop over the nodes: no recursion.
+/// refusals above (the spec is silent on the order of the two wire checks, an IR
+/// reading). One flat loop over the nodes: no recursion.
 fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
