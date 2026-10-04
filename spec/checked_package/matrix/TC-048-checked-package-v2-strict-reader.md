@@ -49,8 +49,7 @@ FR-038-AC-111 are against a number whose exact value its RFC 8785 encoding loses
 (the `inexact-number` and `inexact-integer` causes of a selected model document,
 and the package's own byte-stream refusal). FR-038-AC-112 and FR-038-AC-113 are
 against QSpec's own `adverse.json` mutations and `dependency-selection-vectors.json`
-identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (planned,
-IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
+identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
 misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
 the absence of a depth limit and of call-stack recursion, and the five body-grammar
 mutations. FR-038-AC-119 through FR-038-AC-122 (planned, IR-551) are against the timed interval form of
@@ -744,7 +743,8 @@ whose charge failed, and that pointer resolves; the byte limit names none.
 
 ## Flat wire and no depth limit (FR-038-AC-114 through FR-038-AC-118)
 
-Planned (IR-495 code). In a fresh copy of a self-built package, place each of
+Implemented (IR-495 code) in `tests/it/checked_package_v2_flat_wire.rs`, and AC-118
+in `tests/conformance_qspec/main.rs`. In a fresh copy of a self-built package, place each of
 `quire.op.function.call`, `quire.op.state.clause` and an application of the
 `temporal`, `temporal_formula` and `temporal_fairness` classes inside an
 application's `arguments`, as an `aggregate` member and as a `binding` value of

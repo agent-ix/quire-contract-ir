@@ -882,45 +882,33 @@ fn tc_225_an_application_as_a_member_value_refuses_at_strict_wire_validation() {
     );
 }
 
-/// A member nested thousands of levels deep, under a raised depth limit, is
-/// scanned and refused as a body of the wrong shape on a stack sized for it.
+/// A member nested sixty levels deep, far past the nesting of any in-grammar
+/// body, is scanned and refused as a body of the wrong shape on a 256 KiB
+/// stack.
 ///
 /// Tracing: TC-225
 /// ACs: FR-346-AC-2
 #[trace("TC-225", "FR-346-AC-2")]
 #[test]
 fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
-    // The package is built, and its deep value dropped, on a large stack.
-    let (bytes, evidence, n) = std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
-        .spawn(|| {
-            let minimal = minimal();
-            let value = relations(std::slice::from_ref(&minimal));
-            let n = at(&value, &minimal);
-            let mut nested = json!("leaf");
-            for _ in 0..3000 {
-                nested = json!([nested]);
-            }
-            let deep = mutated(value, n, |node| {
-                node["body"]["objects"][0]["rust_type"] = nested;
-            });
-            let document = domain_document();
-            let mut evidence = evidence_for(&deep);
-            evidence.insert_domain_package_document(
-                sha256_hex(&canonical(&document)),
-                canonical(&document),
-            );
-            (canonical(&deep), evidence, n)
-        })
-        .expect("spawn")
-        .join()
-        .expect("the package was built");
-    let limits = CheckedPackageReadLimits {
-        depth: 4000,
-        ..CheckedPackageReadLimits::bounded()
-    };
-    // The read runs on a stack far smaller than the frames a body this deep
-    // needs, so a walk that does not run on a grown stack aborts the process.
+    let minimal = minimal();
+    let value = relations(std::slice::from_ref(&minimal));
+    let n = at(&value, &minimal);
+    let mut nested = json!("leaf");
+    for _ in 0..60 {
+        nested = json!([nested]);
+    }
+    let deep = mutated(value, n, |node| {
+        node["body"]["objects"][0]["rust_type"] = nested;
+    });
+    let document = domain_document();
+    let mut evidence = evidence_for(&deep);
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+    let bytes = canonical(&deep);
+    let limits = CheckedPackageReadLimits::bounded();
+    // The read runs on a stack far smaller than the frames a native recursion
+    // over a body this deep needs, so a walk that recurses aborts the process.
     std::thread::Builder::new()
         .stack_size(256 * 1024)
         .spawn(

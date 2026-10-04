@@ -42,7 +42,7 @@ use super::{
     CheckedSemanticNodeV2, NominalIdentityPreimage, NominalOwner, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, count, dependency_reference_node, dependency_reference_package, node_pointer,
+    body_term, count, dependency_reference_node, dependency_reference_package, Step, Trail,
     ValidationFailure,
 };
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -50,8 +50,12 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
     JsonPointer,
 };
+use crate::checked_package::terms::{subterms, visit_terms, At, Cursor};
+use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
+use std::ops::ControlFlow;
 
 /// The operation whose callee (argument 0) a `dependency_reference` may be.
 const FUNCTION_CALL_OPERATION: &str = "quire.op.function.call";
@@ -139,10 +143,6 @@ pub(super) struct Referrer<'a> {
 }
 
 impl Referrer<'_> {
-    fn body(self) -> JsonPointer {
-        node_pointer(self.position).key("body")
-    }
-
     fn refuse(
         self,
         code: CheckedPackageRefusalCode,
@@ -172,70 +172,48 @@ impl<'a> DependencyReferences<'a> {
         referrer: Referrer<'_>,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        self.walk(referrer, &referrer.node.body, referrer.body(), false, meter)
+        self.walk_terms(referrer, meter)
     }
 
     /// Checks every `dependency_reference` under the arguments of the
     /// application that is `referrer`'s body root, in pre-order. The
-    /// application's own checks are the caller's.
+    /// application's own checks are the caller's. An application's own term is
+    /// no `dependency_reference`, so this is the whole-body walk of an
+    /// application body.
     pub(super) fn walk_arguments(
         self,
         referrer: Referrer<'_>,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        self.walk_application(referrer, &referrer.node.body, referrer.body(), meter)
+        self.walk_terms(referrer, meter)
     }
 
-    fn walk(
+    /// Enters the terms of `referrer`'s body in document pre-order on
+    /// `quire-walk`'s heap stack, checking each `dependency_reference`. The
+    /// first argument of a `quire.op.function.call` application is its callee.
+    fn walk_terms(
         self,
         referrer: Referrer<'_>,
-        term: &Value,
-        at: JsonPointer,
-        is_callee: bool,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        match body_term(term) {
-            Some(BodyTerm::DependencyReference) => {
-                self.check(referrer, term, &at, is_callee, meter)
-            }
-            Some(BodyTerm::Application) => self.walk_application(referrer, term, at, meter),
-            Some(BodyTerm::Aggregate) => {
-                let members = term.get("members").and_then(Value::as_array);
-                for (index, member) in members.into_iter().flatten().enumerate() {
-                    let member_at = at.clone().key("members").index(index);
-                    self.walk(referrer, member, member_at, false, meter)?;
-                }
-                Ok(())
-            }
-            Some(BodyTerm::Binding) => match term.get("value") {
-                Some(value) => self.walk(referrer, value, at.key("value"), false, meter),
-                None => Ok(()),
-            },
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::Reference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => Ok(()),
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(referrer.position),
+            Step::Key("body"),
+        ];
+        let cursor = Cursor::at(&Trail::Base(&steps));
+        let root = cursor.root(&referrer.node.body, false);
+        let mut references = Dependencies {
+            references: self,
+            referrer,
+            meter,
+            cursor,
+        };
+        match walk(&mut references, root) {
+            ControlFlow::Continue(()) => Ok(()),
+            ControlFlow::Break(failure) => Err(failure),
         }
-    }
-
-    fn walk_application(
-        self,
-        referrer: Referrer<'_>,
-        application: &Value,
-        at: JsonPointer,
-        meter: &mut WorkMeter,
-    ) -> Result<(), ValidationFailure> {
-        let calls_function = is_function_call(application);
-        let arguments = application.get("arguments").and_then(Value::as_array);
-        for (index, argument) in arguments.into_iter().flatten().enumerate() {
-            let argument_at = at.clone().key("arguments").index(index);
-            let is_callee = index == 0 && calls_function;
-            self.walk(referrer, argument, argument_at, is_callee, meter)?;
-        }
-        Ok(())
     }
 
     /// One `dependency_reference` term at `at`: `missing-selection`, then
@@ -299,6 +277,64 @@ impl<'a> DependencyReferences<'a> {
             CheckedPackageRefusalCause::OperatorIneligible,
             at.clone(),
         ))
+    }
+}
+
+/// The walk of [`DependencyReferences::walk_terms`]: each term with whether it
+/// is the callee of a function call.
+struct Dependencies<'r, 'a, 'm> {
+    references: DependencyReferences<'r>,
+    referrer: Referrer<'a>,
+    meter: &'m mut WorkMeter,
+    cursor: Cursor<'a>,
+}
+
+impl<'a> Walk for Dependencies<'_, 'a, '_> {
+    type Node = At<'a, bool>;
+    type Frame = ();
+    type Stop = ValidationFailure;
+
+    fn enter(
+        &mut self,
+        node: At<'a, bool>,
+        children: &mut Children<'_, At<'a, bool>>,
+    ) -> ControlFlow<ValidationFailure> {
+        self.cursor.enter(&node);
+        match body_term(node.value) {
+            Some(BodyTerm::DependencyReference) => {
+                let at = self.cursor.trail().pointer();
+                if let Err(failure) =
+                    self.references
+                        .check(self.referrer, node.value, &at, node.extra, self.meter)
+                {
+                    return ControlFlow::Break(failure);
+                }
+            }
+            Some(BodyTerm::Application) => {
+                let calls_function = is_function_call(node.value);
+                children.extend(subterms(node.value).map(|subterm| {
+                    let is_callee = subterm.index == Some(0) && calls_function;
+                    self.cursor.subterm(subterm, is_callee)
+                }));
+            }
+            Some(BodyTerm::Aggregate | BodyTerm::Binding) => {
+                children.extend(
+                    subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)),
+                );
+            }
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::Reference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => {}
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
+        ControlFlow::Continue(())
     }
 }
 
@@ -414,41 +450,16 @@ fn carries_declaration_or_owner(node: &CheckedSemanticNodeV2, kind: CheckedNodeK
 /// terms walked.
 fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) -> u64 {
     let mut walked = 0_u64;
-    let mut pending = vec![body];
-    while let Some(term) = pending.pop() {
+    let walked_all = visit_terms(body, |term| -> ControlFlow<Infallible> {
         walked = walked.saturating_add(1);
-        match body_term(term) {
-            Some(BodyTerm::Reference) => {
-                let target = term
-                    .get("target")
-                    .and_then(|target| serde_json::from_value(target.clone()).ok());
-                out.extend(target);
-            }
-            Some(BodyTerm::Application) => {
-                pending.extend(
-                    term.get("arguments")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten(),
-                );
-            }
-            Some(BodyTerm::Aggregate) => {
-                pending.extend(
-                    term.get("members")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten(),
-                );
-            }
-            Some(BodyTerm::Binding) => pending.extend(term.get("value")),
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
+        if body_term(term) == Some(BodyTerm::Reference) {
+            out.extend(
+                term.get("target")
+                    .and_then(|target| serde_json::from_value(target.clone()).ok()),
+            );
         }
-    }
+        ControlFlow::Continue(())
+    });
+    let ControlFlow::Continue(()) = walked_all;
     walked
 }

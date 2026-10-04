@@ -204,37 +204,12 @@ struct ExpectedFailure {
     ticket: &'static str,
 }
 
-/// FR-038-AC-112's expected-failure list: the body-grammar mutations the reader
-/// accepts as wire today and refuses at a later identity check. IR-495 makes the
-/// reader enforce the flat v2 wire (nested inline terms refused `malformed_wire`),
-/// and deletes these entries.
-const EXPECTED_FAILURES: &[ExpectedFailure] = &[
-    ExpectedFailure {
-        id: "application-in-application-arguments",
-        refusal: "refused:invalid_package/stale-node-key",
-        ticket: "IR-495",
-    },
-    ExpectedFailure {
-        id: "application-in-aggregate-members",
-        refusal: "refused:invalid_semantic_graph",
-        ticket: "IR-495",
-    },
-    ExpectedFailure {
-        id: "application-in-binding-value",
-        refusal: "refused:invalid_semantic_graph",
-        ticket: "IR-495",
-    },
-    ExpectedFailure {
-        id: "aggregate-in-group-members",
-        refusal: "refused:stale_dependency",
-        ticket: "IR-495",
-    },
-    ExpectedFailure {
-        id: "binding-as-body-root",
-        refusal: "refused:stale_dependency",
-        ticket: "IR-495",
-    },
-];
+/// FR-038-AC-112's expected-failure list: the mutations the reader does not yet
+/// refuse as recorded. It is empty: the reader enforces the flat v2 wire, so each
+/// body-grammar mutation refuses `malformed_wire` as recorded (FR-038-AC-118). A
+/// mutation that regresses is a failure of the run; an entry added here for it
+/// must name the open ticket that owns the missing refusal.
+const EXPECTED_FAILURES: &[ExpectedFailure] = &[];
 
 /// The replacement of `package` at `pointer`, or why it cannot be made.
 fn replace_at(package: &mut Value, pointer: &str, replacement: &Value) -> Result<(), String> {
@@ -452,12 +427,38 @@ fn assert_no_problems(problems: &[String]) {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
-/// Tracing: TC-048, FR-038-AC-112
-#[trace("TC-048", "FR-038-AC-112")]
+/// Every mutation refuses as recorded, with the expected-failure list empty
+/// (FR-038-AC-118): each of the five `body_grammar_mutations` refuses
+/// `malformed_wire`, with no identity refreshed.
+///
+/// Tracing: TC-048, FR-038-AC-112, FR-038-AC-118
+#[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118")]
 #[test]
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
+    assert!(
+        EXPECTED_FAILURES.is_empty(),
+        "no mutation is listed as an expected failure"
+    );
     let (base, adverse) = adverse_inputs();
     assert_no_problems(&adverse_problems(&base, &adverse, EXPECTED_FAILURES));
+    let grammar = adverse["body_grammar_mutations"].as_array().expect("list");
+    let ids = grammar
+        .iter()
+        .map(|entry| entry["id"].as_str().expect("id"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        [
+            "application-in-application-arguments",
+            "application-in-aggregate-members",
+            "application-in-binding-value",
+            "aggregate-in-group-members",
+            "binding-as-body-root",
+        ]
+    );
+    for entry in grammar {
+        assert_eq!(entry["outcome"], "refused:malformed_wire", "{entry}");
+    }
 }
 
 /// Whether some problem contains `text`.

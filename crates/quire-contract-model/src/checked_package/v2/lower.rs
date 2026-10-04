@@ -16,9 +16,7 @@ use super::{
     ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
     ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{
-    on_stack_for, ReferenceMember, Step, Trail, ValidationFailure,
-};
+use crate::checked_package::common::{ReferenceMember, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
     CheckedSemanticId, CheckedSourceMapEntry,
@@ -369,22 +367,45 @@ impl Encode for ContractPackageDependencyV2 {
     }
 }
 
+/// The source map's entries grouped by node, once per lowering call, so the
+/// entries of one node are found without scanning the whole map for it: a
+/// lowering that reaches every node of a package visits each node's entries
+/// once, not once per node of the package.
+struct NodeSourceMaps<'a>(BTreeMap<&'a CheckedNodeId, Vec<&'a CheckedSourceMapEntry>>);
+
+impl<'a> NodeSourceMaps<'a> {
+    fn new(source_map: &'a [CheckedSourceMapEntry]) -> Self {
+        let mut grouped: BTreeMap<&CheckedNodeId, Vec<&CheckedSourceMapEntry>> = BTreeMap::new();
+        for entry in source_map {
+            grouped.entry(&entry.node_id).or_default().push(entry);
+        }
+        Self(grouped)
+    }
+
+    /// The entries of `node_id`, in source-map order.
+    fn of(&self, node_id: &CheckedNodeId) -> Vec<CheckedSourceMapEntry> {
+        self.0
+            .get(node_id)
+            .into_iter()
+            .flatten()
+            .map(|entry| (*entry).clone())
+            .collect()
+    }
+}
+
 impl CheckedPackageV2 {
-    /// Lowers each requested key independently, on a stack sized for the depth
-    /// this package was admitted at. Dropping the result is safe at that depth;
-    /// its derived `Clone`, `Debug` and `PartialEq` recurse on the caller's
-    /// stack.
+    /// Lowers each requested key independently. The walk over the closure of a
+    /// request is iterative, so a chain of nodes of any length lowers on the
+    /// caller's stack.
     pub fn lower(
         &self,
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
     ) -> CompleteLoweringResultV2 {
-        on_stack_for(self.depth, || {
-            self.lower_on_stack(requested, profile, self.bytes)
-        })
+        self.lower_requests(requested, profile, self.bytes)
     }
 
-    fn lower_on_stack(
+    fn lower_requests(
         &self,
         requested: &[CheckedNodeId],
         profile: &CompleteLoweringProfileV2,
@@ -397,11 +418,12 @@ impl CheckedPackageV2 {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect::<BTreeMap<_, _>>();
+        let source_maps = NodeSourceMaps::new(self.source_map());
         let records = requested
             .iter()
-            .map(|request| self.lower_one(request, profile, &index, ceiling))
+            .map(|request| self.lower_one(request, profile, &index, &source_maps, ceiling))
             .collect::<Vec<_>>();
-        match self.assemble(&records, &index, ceiling) {
+        match self.assemble(&records, &index, &source_maps, ceiling) {
             Ok(package) => CompleteLoweringResultV2 { records, package },
             // The package is over the ceiling: no package exists, so no
             // lowered node, dependency node, bytes or id is returned and every
@@ -425,6 +447,7 @@ impl CheckedPackageV2 {
         &self,
         records: &[CompleteLoweringRecordV2],
         index: &BTreeMap<&CheckedNodeId, usize>,
+        source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> Result<CompleteContractPackageV2, u64> {
         let mut lowered = BTreeMap::new();
@@ -450,7 +473,7 @@ impl CheckedPackageV2 {
                 Some(ContractPackageDependencyV2 {
                     node: node.clone(),
                     node_tag: kinds.get(position)?.tag(),
-                    source_map: self.node_source_map(&node.node_id),
+                    source_map: source_maps.of(&node.node_id),
                 })
             })
             .collect::<Vec<_>>();
@@ -470,19 +493,12 @@ impl CheckedPackageV2 {
         })
     }
 
-    fn node_source_map(&self, node_id: &CheckedNodeId) -> Vec<CheckedSourceMapEntry> {
-        self.source_map()
-            .iter()
-            .filter(|entry| &entry.node_id == node_id)
-            .cloned()
-            .collect()
-    }
-
     fn lower_one(
         &self,
         request: &CheckedNodeId,
         profile: &CompleteLoweringProfileV2,
         index: &BTreeMap<&CheckedNodeId, usize>,
+        source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> CompleteLoweringRecordV2 {
         let failed = |consumed| CompleteLoweringRecordV2::Failed {
@@ -675,7 +691,7 @@ impl CheckedPackageV2 {
             node: Box::new(CompleteContractNodeV2 {
                 node: node.clone(),
                 node_tag: kind.tag(),
-                source_map: self.node_source_map(&node.node_id),
+                source_map: source_maps.of(&node.node_id),
                 semantic_type: node.semantic_type.clone(),
                 dependencies,
                 bounds,

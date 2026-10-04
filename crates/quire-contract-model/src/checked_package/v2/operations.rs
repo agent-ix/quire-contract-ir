@@ -41,19 +41,16 @@
 //! `reference_edge`/`union_arms` is not enforced; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
-//! [`validate_application_keys`] re-derives a key only for a node whose own
-//! `body` is an application term at its root, never for a nested
-//! `application` term inside `body.arguments[*]` — the upstream description
-//! instead says
-//! every node whose body *contains* an application gets a re-derived key, so
-//! a nested application's own key is never checked here, and its own
-//! `operation` is never validated by [`validate_operations`] either, since
-//! that stage only visits root-bodied application nodes too; `operation.mode`
+//! [`validate_application_keys`] re-derives a key for a node whose own
+//! `body` is an application term at its root. An application stands nowhere
+//! else: the flat wire refuses one nested in another term, ahead of every
+//! identity check (`flat_wire`), so every application's key and its own
+//! `operation` are checked here; `operation.mode`
 //! is checked for `kind` only — its `value` is never checked against the
 //! catalog's closed `modes` vocabulary; a catalogued entry's `result` is
 //! never checked against the catalog's `result_forms`; `argument_family`
-//! resolves only `reference` and `binding` argument terms, so a `literal`,
-//! `aggregate` or nested `application` argument resolves to no family and
+//! resolves only `reference` and `binding` argument terms, so a `literal` or
+//! `aggregate` argument resolves to no family and
 //! silently bypasses every operand-family check ([`check_operands`],
 //! [`check_mode_type`], [`check_leaf_count`]) that consults it.
 
@@ -64,6 +61,7 @@ use super::model_members::{
     ModelOwners, ModelRefusal, Resolved,
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
+use super::structural;
 use super::structural::{
     aggregate_members, binding, union_type_body, union_value_body, UnionMember,
 };
@@ -82,10 +80,13 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
+use std::ops::ControlFlow;
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -220,61 +221,68 @@ fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Va
     if group.is_empty() {
         return Cow::Borrowed(term);
     }
-    Cow::Owned(rewrite_group_references(term, group))
+    // One copy of the body, rewritten in place by one visit of each of its
+    // terms: no enclosing term is copied again at any level.
+    let mut rewritten = term.clone();
+    let ControlFlow::Continue(()) = walk(&mut GroupRewrite { group }, &mut rewritten);
+    Cow::Owned(rewritten)
 }
 
-/// [`group_references`] for a node inside a recursion group: a rewritten copy
-/// of `term`.
-fn rewrite_group_references(term: &Value, group: &[&CheckedNodeId]) -> Value {
-    let mut rewritten = term.clone();
-    match body_term(term) {
-        Some(BodyTerm::Reference) => {
-            let target = term
-                .get("target")
-                .and_then(|target| serde_json::from_value::<CheckedNodeId>(target.clone()).ok());
-            if let Some(ordinal) =
-                target.and_then(|target| group.iter().position(|member| **member == target))
-            {
-                return json!({ "term": "group_reference", "ordinal": ordinal });
+/// The walk of [`group_references`], over the terms of a copy of the body: each
+/// `reference` to a member of the recursion group becomes
+/// `{term: "group_reference", ordinal}`, in the application arguments,
+/// aggregate members and binding values that hold terms. A dependency reference
+/// names a node of another package, never a member of this recursion group,
+/// and enters the preimage as it stands on the wire.
+struct GroupRewrite<'t> {
+    group: &'t [&'t CheckedNodeId],
+}
+
+impl<'t> Walk for GroupRewrite<'t> {
+    type Node = &'t mut Value;
+    type Frame = ();
+    type Stop = Infallible;
+
+    fn enter(
+        &mut self,
+        term: &'t mut Value,
+        children: &mut Children<'_, &'t mut Value>,
+    ) -> ControlFlow<Infallible> {
+        match body_term(term) {
+            Some(BodyTerm::Reference) => {
+                let ordinal = structural::reference_target(term)
+                    .and_then(|target| self.group.iter().position(|member| **member == target));
+                if let Some(ordinal) = ordinal {
+                    *term = json!({ "term": "group_reference", "ordinal": ordinal });
+                }
             }
-        }
-        Some(BodyTerm::Application) => {
-            if let Some(arguments) = term.get("arguments").and_then(Value::as_array) {
-                rewritten["arguments"] = Value::Array(
-                    arguments
-                        .iter()
-                        .map(|argument| rewrite_group_references(argument, group))
-                        .collect(),
-                );
+            Some(BodyTerm::Application) => {
+                if let Some(Value::Array(arguments)) = term.get_mut("arguments") {
+                    children.extend(arguments.iter_mut());
+                }
             }
-        }
-        Some(BodyTerm::Aggregate) => {
-            if let Some(members) = term.get("members").and_then(Value::as_array) {
-                rewritten["members"] = Value::Array(
-                    members
-                        .iter()
-                        .map(|member| rewrite_group_references(member, group))
-                        .collect(),
-                );
+            Some(BodyTerm::Aggregate) => {
+                if let Some(Value::Array(members)) = term.get_mut("members") {
+                    children.extend(members.iter_mut());
+                }
             }
-        }
-        Some(BodyTerm::Binding) => {
-            if let Some(value) = term.get("value") {
-                rewritten["value"] = rewrite_group_references(value, group);
+            Some(BodyTerm::Binding) => {
+                children.extend(term.get_mut("value"));
             }
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => {}
         }
-        // A dependency reference names a node of another package, never a
-        // member of this recursion group, and enters the preimage as it
-        // stands on the wire.
-        Some(
-            BodyTerm::Literal
-            | BodyTerm::DependencyReference
-            | BodyTerm::Frame
-            | BodyTerm::AbstractionRelation,
-        )
-        | None => {}
+        ControlFlow::Continue(())
     }
-    rewritten
+
+    fn exit(&mut self, (): ()) -> ControlFlow<Infallible> {
+        ControlFlow::Continue(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -1323,7 +1331,8 @@ fn is_type_node(kind: CheckedNodeKind) -> bool {
 /// one) is `invalid_semantic_graph` at the node's `body`; a `case` application
 /// as the body root of a node that is no `expression` node is
 /// `ill_typed`/`operator-ineligible` at the node. A `case` nested in another term
-/// was refused by the term walk.
+/// was refused ahead of every identity check, with every other nested
+/// application (`flat_wire`).
 fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
     let node = &graph.nodes[position];
     let kind = graph.kinds[position];

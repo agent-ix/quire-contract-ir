@@ -72,6 +72,38 @@ pub fn v2_nominal() -> Value {
     nominal_package(&nominal_fixture_members())
 }
 
+/// [`v2_all_families`] with a chain of `length` further `expression`/`reference`
+/// nodes, each referencing the one before it: the first the family's own
+/// reference node, and the last, whose key is returned, the end of an
+/// expression `length` nodes deep. Each node costs one node, one edge and one
+/// occurrence, so a limit sized for the node count decides nothing else, and the
+/// body grammar keeps the document's JSON depth at that of a one-node chain
+/// (FR-038-AC-117, merged QSpec FR-322-AC-41).
+pub fn v2_reference_chain(length: usize) -> (Value, String) {
+    let boolean = family_key("aaaa");
+    let mut previous = family_key("eeee");
+    let mut package = v2_all_families();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.reserve(length);
+    for index in 0..length {
+        let key = format!("{:064x}", index + 1);
+        nodes.push(plain_node(
+            &key,
+            "expression",
+            "reference",
+            &boolean,
+            &[previous.as_str()],
+            json!({"term": "reference", "target": node_id(&previous)}),
+        ));
+        previous = key;
+    }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    (package, previous)
+}
+
 /// A `quire.checked-package/v2` document exercising `declaration`,
 /// `literal.type` and `application.operation`/`application.result_type` —
 /// the shape `tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare`

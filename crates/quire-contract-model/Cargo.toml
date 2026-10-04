@@ -39,9 +39,14 @@ serde_json = { version = "=1.0.151", features = ["unbounded_depth", "float_round
 # Locates a closed-schema decode failure at the member the decoder reached,
 # so a checked-package refusal carries the RFC 6901 pointer of that value.
 serde_path_to_error = "=0.1.20"
+# The v1 modules (FR-019, FR-023) keep `serde_stacker` and `stacker`; the V2
+# reader (`checked_package/`) uses neither.
 serde_stacker = "=0.1.11"
 sha2 = "=0.10.9"
 stacker = "=0.1.15"
+# The shared iterative walk (`Walk` and `walk`): every walk of the V2 reader
+# over a term runs on its explicit heap stack, never on the call stack.
+quire-walk = { git = "https://github.com/agent-ix/quire-walk", branch = "main" }
 # The Rust identifier syntax of an abstraction relation body (FR-346): the
 # Unicode identifier tables and the NFC check FR-450's "Rust spellings" name.
 unicode-ident = "=1.0.24"

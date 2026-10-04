@@ -75,8 +75,11 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde_json::{Map, Value};
+use crate::checked_package::terms::visit_terms;
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
+use std::ops::ControlFlow;
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -583,11 +586,7 @@ pub(super) fn union_value_body(body: &Value) -> Option<(&str, &[Value])> {
 fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
     let mut contains_application = false;
     let mut join = BTreeSet::new();
-    let mut pending = vec![body];
-    while let Some(term) = pending.pop() {
-        let Some(object) = term.as_object() else {
-            continue;
-        };
+    let walked = visit_terms(body, |term| -> ControlFlow<Infallible> {
         match body_term(term) {
             Some(BodyTerm::Reference) => {
                 if let Some(target) = reference_target(term) {
@@ -596,7 +595,7 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
             }
             Some(BodyTerm::Application) => {
                 contains_application = true;
-                let declaration = object
+                let declaration = term
                     .get("operation")
                     .and_then(|operation| operation.get("member"))
                     .and_then(|member| member.get("declaration"))
@@ -604,33 +603,26 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
                         serde_json::from_value::<CheckedNodeId>(declaration.clone()).ok()
                     });
                 join.extend(declaration);
-                pending.extend(terms(object, "arguments"));
             }
-            Some(BodyTerm::Aggregate) => pending.extend(terms(object, "members")),
-            Some(BodyTerm::Binding) => pending.extend(object.get("value")),
             // A literal names only its type annotation, which is not a
             // dependency; a `dependency_reference` names a node of another
-            // package and is never listed in `dependencies`; a frame is
-            // never a nested term; a tag outside the vocabulary is refused
-            // before this stage.
+            // package and is never listed in `dependencies`; an aggregate and
+            // a binding hold terms the walk enters; a frame is never a nested
+            // term; a tag outside the vocabulary is refused before this stage.
             Some(
                 BodyTerm::Literal
                 | BodyTerm::DependencyReference
+                | BodyTerm::Aggregate
+                | BodyTerm::Binding
                 | BodyTerm::Frame
                 | BodyTerm::AbstractionRelation,
             )
             | None => {}
         }
-    }
+        ControlFlow::Continue(())
+    });
+    let ControlFlow::Continue(()) = walked;
     contains_application.then_some(join)
-}
-
-fn terms<'a>(object: &'a Map<String, Value>, key: &str) -> impl Iterator<Item = &'a Value> {
-    object
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
 }
 
 /// An `aggregate` term's members.

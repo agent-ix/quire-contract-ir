@@ -12,19 +12,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CheckedPackageReadLimits {
     /// Maximum canonical wire bytes.
+    ///
+    /// There is no depth limit: the closed body grammar fixes the JSON depth
+    /// of every package whatever its node count (FR-038-AC-117).
     pub bytes: u64,
-    /// Maximum JSON nesting depth, counting each container as one level and
-    /// a scalar value as one level below its container: `[]` is depth 1,
-    /// `[1]` and `{"a":1}` are depth 2. The reader charges this limit
-    /// exactly up to [`Self::MAXIMUM_DEPTH`]; a larger value reads as that
-    /// maximum. A package admitted at a depth past the default of 128 is
-    /// recursed over by every clone, comparison, `Debug` rendering and
-    /// lowering of it, and by the derived traits of the graph, lock and
-    /// diagnostics its accessors return: [`crate::checked_package::CheckedPackageV2`]
-    /// runs its own operations on a stack sized for the depth it was admitted
-    /// at, but a caller who raises this limit owns the stack those accessors'
-    /// traits need.
-    pub depth: u64,
     /// Maximum semantic graph nodes.
     pub nodes: u64,
     /// Maximum graph dependency edges.
@@ -38,16 +29,10 @@ pub struct CheckedPackageReadLimits {
 }
 
 impl CheckedPackageReadLimits {
-    /// The deepest nesting the reader reads whatever `depth` a caller
-    /// supplies. Reading and lowering a document run on a stack sized from its
-    /// depth, and this ceiling keeps that one allocation bounded.
-    pub const MAXIMUM_DEPTH: u64 = 16_384;
-
     /// A finite default appropriate for one local request.
     pub const fn bounded() -> Self {
         Self {
             bytes: 1 << 20,
-            depth: 128,
             nodes: 10_000,
             edges: 100_000,
             occurrences: 100_000,
@@ -62,8 +47,6 @@ impl CheckedPackageReadLimits {
 pub enum CheckedPackageLimit {
     /// Wire byte budget.
     Bytes,
-    /// JSON nesting budget.
-    Depth,
     /// Graph node budget.
     Nodes,
     /// Graph edge budget.

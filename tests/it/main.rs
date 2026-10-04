@@ -21,6 +21,7 @@ mod checked_package_v2_catalog_words;
 mod checked_package_v2_dependency_reference;
 mod checked_package_v2_dependency_selections;
 mod checked_package_v2_enum_order;
+mod checked_package_v2_flat_wire;
 mod checked_package_v2_frame_bodies;
 mod checked_package_v2_frame_entries;
 mod checked_package_v2_identity_digests;

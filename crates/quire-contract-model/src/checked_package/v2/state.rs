@@ -32,14 +32,17 @@ use super::structural::{
     anchor_body, clause_body, is_state_clause_application, reference_type_target, AnchorBody,
 };
 use super::{
-    BodyTerm, CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm, ModelForm,
-    StateClauseKind, StateForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm, ModelForm, StateClauseKind,
+    StateForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use crate::checked_package::terms::{subterms, At, Cursor};
+use quire_walk::{walk, Children, Walk};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::ControlFlow;
 
 /// The state step. See the module documentation for the order.
 pub(super) fn validate_state(
@@ -117,43 +120,57 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
         else {
             continue;
         };
-        let body_at = node_pointer(position).key("body");
-        let root_admitted = kind == CheckedNodeKind::State(StateForm::StateClause);
-        let mut pending = vec![(&node.body, body_at, true)];
-        while let Some((term, at, is_root)) = pending.pop() {
-            if is_state_clause_application(term) && !(is_root && root_admitted) {
-                return Err(ineligible(node, at));
-            }
-            let children: &[(&str, bool)] = match body_term(term) {
-                Some(BodyTerm::Application) => &[("arguments", true)],
-                Some(BodyTerm::Aggregate) => &[("members", true)],
-                Some(BodyTerm::Binding) => &[("value", false)],
-                Some(
-                    BodyTerm::Literal
-                    | BodyTerm::Reference
-                    | BodyTerm::DependencyReference
-                    | BodyTerm::Frame
-                    | BodyTerm::AbstractionRelation,
-                )
-                | None => &[],
-            };
-            for &(member, is_array) in children {
-                let Some(value) = term.get(member) else {
-                    continue;
-                };
-                if is_array {
-                    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
-                    // Pushed in reverse so the walk visits terms in order.
-                    for (item, child) in items.iter().enumerate().rev() {
-                        pending.push((child, at.clone().key(member).index(item), false));
-                    }
-                } else {
-                    pending.push((value, at.clone().key(member), false));
-                }
-            }
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(position),
+            Step::Key("body"),
+        ];
+        let cursor = Cursor::at(&Trail::Base(&steps));
+        let root = cursor.root(&node.body, true);
+        let mut placement = StateClausePlacement {
+            node,
+            root_admitted: kind == CheckedNodeKind::State(StateForm::StateClause),
+            cursor,
+        };
+        if let ControlFlow::Break(failure) = walk(&mut placement, root) {
+            return Err(failure);
         }
     }
     Ok(())
+}
+
+/// The walk of [`validate_placement`] over one node's body: each term with
+/// whether it is the body root. A state clause application nested in a body is
+/// refused `malformed_wire` ahead of this step (`flat_wire`); the check here is
+/// the body root's.
+struct StateClausePlacement<'a> {
+    node: &'a CheckedSemanticNodeV2,
+    root_admitted: bool,
+    cursor: Cursor<'a>,
+}
+
+impl<'a> Walk for StateClausePlacement<'a> {
+    type Node = At<'a, bool>;
+    type Frame = ();
+    type Stop = ValidationFailure;
+
+    fn enter(
+        &mut self,
+        node: At<'a, bool>,
+        children: &mut Children<'_, At<'a, bool>>,
+    ) -> ControlFlow<ValidationFailure> {
+        self.cursor.enter(&node);
+        if is_state_clause_application(node.value) && !(node.extra && self.root_admitted) {
+            return ControlFlow::Break(ineligible(self.node, self.cursor.trail().pointer()));
+        }
+        children.extend(subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)));
+        ControlFlow::Continue(())
+    }
+
+    fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
+        ControlFlow::Continue(())
+    }
 }
 
 fn is_object_type(kind: CheckedNodeKind) -> bool {

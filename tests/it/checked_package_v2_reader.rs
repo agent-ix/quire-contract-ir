@@ -6,17 +6,17 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, domain_package_digest, domain_package_document,
-    evidence_for, incomplete, json_depth, nominal_fixture_members, nominal_package,
-    pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
-    refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
-    v2_nominal, COMPLETE_VALUE_FEATURE,
+    evidence_for, incomplete, nominal_fixture_members, nominal_package, pointer as support_pointer,
+    positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes,
+    refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families, v2_nominal,
+    COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    read_checked_package, CheckedNodeTag, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ExpressionForm, NominalIdentityPreimage,
+    CheckedPackageV2ReadResult, ExpressionForm, NominalIdentityPreimage,
 };
 use serde_json::{json, Value};
 
@@ -656,7 +656,6 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
     let bytes = canonical(&value);
     let exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("length"),
-        depth: json_depth(&value),
         nodes: 4,
         edges: 2,
         occurrences: 8,
@@ -674,13 +673,13 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
         other => panic!("exact limits must admit, got {other:?}"),
     }
     // Each one-over limit names the value whose charge failed: the byte limit
-    // is charged before any value exists; depth, at the first value nested one
-    // level too deep; nodes, at the first node past the ceiling; edges and
-    // occurrences, at the first dependency or source-map region past it;
-    // diagnostics, at the first entry past it; work, at the value whose
-    // validation took the meter over.
+    // is charged before any value exists; nodes, at the first node past the
+    // ceiling; edges and occurrences, at the first dependency or source-map
+    // region past it; diagnostics, at the first entry past it; work, at the
+    // value whose validation took the meter over. There is no depth limit
+    // (FR-038-AC-117).
     type Narrow = fn(&mut CheckedPackageReadLimits) -> u64;
-    let narrowings: [(CheckedPackageLimit, Narrow, Option<&str>); 7] = [
+    let narrowings: [(CheckedPackageLimit, Narrow, Option<&str>); 6] = [
         (
             CheckedPackageLimit::Bytes,
             |l| {
@@ -688,14 +687,6 @@ fn tc_048_v2_reader_reports_exact_and_one_over_limits() {
                 l.bytes
             },
             None,
-        ),
-        (
-            CheckedPackageLimit::Depth,
-            |l| {
-                l.depth -= 1;
-                l.depth
-            },
-            Some("/diagnostics/entries/0/details/0/target/digest"),
         ),
         (
             CheckedPackageLimit::Nodes,
@@ -1936,10 +1927,10 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
 #[trace("TC-048", "FR-038-AC-9", "FR-038-AC-26")]
 #[test]
 fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
-    // FR-038-AC-9: the shipped default policy is exactly these seven values.
+    // FR-038-AC-9: the shipped default policy is exactly these six values.
+    // There is no depth member (FR-038-AC-117).
     let bounded = CheckedPackageReadLimits::bounded();
     assert_eq!(bounded.bytes, 1_048_576);
-    assert_eq!(bounded.depth, 128);
     assert_eq!(bounded.nodes, 10_000);
     assert_eq!(bounded.edges, 100_000);
     assert_eq!(bounded.occurrences, 100_000);
@@ -1950,7 +1941,6 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     // default admits no unbounded read on any axis.
     for (name, value) in [
         ("bytes", bounded.bytes),
-        ("depth", bounded.depth),
         ("nodes", bounded.nodes),
         ("edges", bounded.edges),
         ("occurrences", bounded.occurrences),
@@ -1971,7 +1961,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     // refuses as `incomplete`, naming that meter and reporting the true
     // consumption.
     let mut value = v2_all_families();
-    // Give the graph a real dependency edge so every one of the seven meters
+    // Give the graph a real dependency edge so every one of the six meters
     // is charged by this package and the axis check below is not vacuous.
     let bound_key = value["semantic_graph"]["nodes"][2]["node_id"].clone();
     value["semantic_graph"]["nodes"][3]["dependencies"] = json!([bound_key]);
@@ -1990,16 +1980,11 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     type NarrowLimit = fn(&mut CheckedPackageReadLimits, u64);
-    let narrowed: [(CheckedPackageLimit, NarrowLimit, u64); 7] = [
+    let narrowed: [(CheckedPackageLimit, NarrowLimit, u64); 6] = [
         (
             CheckedPackageLimit::Bytes,
             |limits, value| limits.bytes = value,
             bounded.bytes,
-        ),
-        (
-            CheckedPackageLimit::Depth,
-            |limits, value| limits.depth = value,
-            bounded.depth,
         ),
         (
             CheckedPackageLimit::Nodes,
@@ -2163,12 +2148,16 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
         recursion_group_refusal.clone(),
     );
 
-    // Negative: the same self-reference nested inside a `binding` value.
+    // Negative: the same self-reference nested inside a `binding` value. A
+    // `binding` is no body root (FR-038-AC-114), so it is an aggregate's member.
     assert_self_cycle_refused(
         json!({
-            "term": "binding",
-            "name": "x",
-            "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+            "term": "aggregate",
+            "members": [{
+                "term": "binding",
+                "name": "x",
+                "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+            }]
         }),
         recursion_group_refusal.clone(),
     );
@@ -2748,255 +2737,4 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             &checked_package::family_key("ffff"),
         )
     );
-}
-
-/// Tracing: TC-048, FR-038-AC-3
-#[trace("TC-048", "FR-038-AC-3")]
-#[test]
-fn tc_048_nesting_is_charged_against_the_callers_limit_after_syntax_and_members_pass() {
-    let evidence = evidence_for(&v2_all_families());
-    let with_depth = |depth: u64| CheckedPackageReadLimits {
-        bytes: 1 << 24,
-        depth,
-        ..CheckedPackageReadLimits::bounded()
-    };
-    let incomplete_depth =
-        |bytes: &[u8], limits| match CheckedPackageV2::read(bytes, limits, &evidence) {
-            CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
-            other => panic!("expected depth incompleteness, got {other:?}"),
-        };
-    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
-    // Past serde_json's own nesting cap of 128, the caller's limit decides:
-    // the document is charged at the first value one level past it, and what
-    // is reported is the caller's limit, not the parser's.
-    let deep = nested(200);
-    for limit in [128_u64, 199] {
-        let past_limit = "/0".repeat(usize::try_from(limit).expect("small"));
-        assert_eq!(
-            incomplete_depth(deep.as_bytes(), with_depth(limit)),
-            crate::support::checked_package::incomplete(
-                CheckedPackageLimit::Depth,
-                limit,
-                200,
-                Some(&past_limit),
-            ),
-            "limit {limit}"
-        );
-    }
-    // A limit that admits the document reads it as the package it is not: it
-    // is refused as a malformed wire, not stopped for its depth.
-    for limit in [200_u64, 300, u64::MAX] {
-        assert_eq!(
-            refused_with(deep.as_bytes(), with_depth(limit), &evidence),
-            refusal(CheckedPackageRefusalCode::MalformedWire, ""),
-            "limit {limit}"
-        );
-    }
-    // Within the ceiling, a V2 document whose unknown member holds deep
-    // nesting is refused by the decoder, not stopped for its depth.
-    let hidden = format!(
-        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(10_000)
-    );
-    assert!(matches!(
-        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageV2ReadResult::Refused(_)
-    ));
-    assert!(matches!(
-        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageDispatchResult::Refused(_)
-    ));
-    // Syntax and member validation run before depth is charged: a syntax
-    // error or a duplicate member anywhere in an over-deep document refuses.
-    let malformed = format!("{}x{}", "[".repeat(200), "]".repeat(200));
-    assert_eq!(
-        refused_with(malformed.as_bytes(), with_depth(128), &evidence),
-        refusal_bytes(CheckedPackageRefusalCode::MalformedWire)
-    );
-    let duplicate = format!("{{\"a\":{deep},\"a\":1}}");
-    assert_eq!(
-        refused_with(duplicate.as_bytes(), with_depth(128), &evidence),
-        refusal(CheckedPackageRefusalCode::DuplicateMember, "/a")
-    );
-}
-
-fn refused_with(
-    bytes: &[u8],
-    limits: CheckedPackageReadLimits,
-    evidence: &CheckedPackageEvidence,
-) -> CheckedPackageRefusal {
-    match CheckedPackageV2::read(bytes, limits, evidence) {
-        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
-        other => panic!("expected V2 refusal, got {other:?}"),
-    }
-}
-
-/// Tracing: TC-048
-#[trace("TC-048")]
-#[test]
-fn tc_048_nesting_past_the_reader_ceiling_is_charged_at_the_ceiling() {
-    let evidence = evidence_for(&v2_all_families());
-    let with_depth = |depth: u64| CheckedPackageReadLimits {
-        bytes: 1 << 24,
-        depth,
-        ..CheckedPackageReadLimits::bounded()
-    };
-    let incomplete_depth =
-        |bytes: &[u8], limits| match CheckedPackageV2::read(bytes, limits, &evidence) {
-            CheckedPackageV2ReadResult::Incomplete(incomplete) => incomplete,
-            other => panic!("expected depth incompleteness, got {other:?}"),
-        };
-    let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
-    // Nesting past the reader's ceiling is reported at the ceiling, whatever
-    // the caller's limit, without the stack reserved growing with it; the same
-    // holds when the nesting hides under an unknown member of a V2 document
-    // and through the version dispatch.
-    let ceiling = CheckedPackageReadLimits::MAXIMUM_DEPTH;
-    let past_ceiling = "/0".repeat(usize::try_from(ceiling).expect("small"));
-    let very_deep = nested(100_000);
-    assert_eq!(
-        incomplete_depth(very_deep.as_bytes(), with_depth(u64::MAX)),
-        crate::support::checked_package::incomplete(
-            CheckedPackageLimit::Depth,
-            ceiling,
-            100_000,
-            Some(&past_ceiling),
-        )
-    );
-    let hidden = format!(
-        "{{\"contract_version\":\"quire.checked-package/v2\",\"x\":{}}}",
-        nested(200_000)
-    );
-    assert!(matches!(
-        CheckedPackageV2::read(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageV2ReadResult::Incomplete(_)
-    ));
-    assert!(matches!(
-        read_checked_package(hidden.as_bytes(), with_depth(u64::MAX), &evidence),
-        CheckedPackageDispatchResult::Incomplete(_)
-    ));
-}
-
-/// Where [`package_with_deep_aggregate`] puts its nesting.
-#[derive(Clone, Copy)]
-enum Nesting {
-    /// The first empty-`aggregate` node's body and its identity-projection copy.
-    NodeBody,
-    /// The one detail of a diagnostic entry.
-    DiagnosticDetail,
-}
-
-/// A canonical V2 package with `depth` nested `aggregate` terms at
-/// `nesting`, the package id re-derived. Built as text, so the test's own
-/// stack never recurses over the nesting.
-fn package_with_deep_aggregate(depth: usize, nesting: Nesting) -> Vec<u8> {
-    use crate::support::checked_package::{canonical, refresh_identity, sha256_hex};
-    let marker = "\u{1}deep";
-    let quoted = serde_json::to_string(marker).expect("string");
-    let deep = format!(
-        "{}{{\"members\":[],\"term\":\"aggregate\"}}{}",
-        "{\"members\":[".repeat(depth),
-        "],\"term\":\"aggregate\"}".repeat(depth)
-    );
-    let splice = |bytes: Vec<u8>| {
-        String::from_utf8(bytes)
-            .expect("utf-8")
-            .replace(&quoted, &deep)
-            .into_bytes()
-    };
-    let mut package = v2_all_families();
-    match nesting {
-        Nesting::NodeBody => {
-            let empty = json!({"term": "aggregate", "members": []});
-            let nodes = package["semantic_graph"]["nodes"]
-                .as_array_mut()
-                .expect("nodes");
-            let node = nodes
-                .iter_mut()
-                .find(|node| node["body"] == empty)
-                .expect("an empty aggregate node");
-            node["body"] = json!(marker);
-        }
-        Nesting::DiagnosticDetail => {
-            package["diagnostics"]["entries"] = json!([{
-                "stage": "type_checking",
-                "code": "ill_typed",
-                "cause_tag": "invalid-value",
-                "details": [marker],
-                "loci": [{"source": package["lock"]["sources"][0], "start": 0, "end": 1}],
-            }]);
-        }
-    }
-    refresh_identity(&mut package);
-    let digest = sha256_hex(&splice(canonical(&package["identity_preimage"])));
-    package["package_id"]["digest"] = json!(digest);
-    splice(canonical(&package))
-}
-
-/// Runs `check` on a thread whose stack is 256 KiB, far fewer frames than a
-/// package this deep has levels, so any recursion over its `Value`s that is
-/// not run on a grown stack aborts the process.
-fn on_small_stack(check: impl FnOnce() + Send + 'static) {
-    std::thread::Builder::new()
-        .stack_size(256 * 1024)
-        .spawn(check)
-        .expect("spawn")
-        .join()
-        .expect("the check ran to completion");
-}
-
-fn deep_limits() -> CheckedPackageReadLimits {
-    CheckedPackageReadLimits {
-        bytes: 1 << 26,
-        depth: u64::MAX,
-        ..CheckedPackageReadLimits::bounded()
-    }
-}
-
-/// Tracing: TC-048, FR-038-AC-3
-#[trace("TC-048", "FR-038-AC-3")]
-#[test]
-fn tc_048_a_deep_admitted_package_drops_on_a_small_stack() {
-    let evidence = evidence_for(&v2_all_families());
-    for nesting in [Nesting::NodeBody, Nesting::DiagnosticDetail] {
-        let bytes = package_with_deep_aggregate(6_000, nesting);
-        let evidence = evidence.clone();
-        on_small_stack(
-            move || match CheckedPackageV2::read(&bytes, deep_limits(), &evidence) {
-                CheckedPackageV2ReadResult::Admitted(package) => drop(package),
-                other => panic!("expected the deep package to be admitted: {other:?}"),
-            },
-        );
-    }
-}
-
-/// Tracing: TC-048, FR-038-AC-3
-#[trace("TC-048", "FR-038-AC-3")]
-#[test]
-fn tc_048_a_deep_admitted_package_clones_compares_renders_and_lowers_on_a_small_stack() {
-    let evidence = evidence_for(&v2_all_families());
-    let bytes = package_with_deep_aggregate(6_000, Nesting::NodeBody);
-    let profile = CompleteLoweringProfileV2 {
-        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
-        require_bounds: false,
-        work_limit: 1_000_000,
-    };
-    on_small_stack(move || {
-        let CheckedPackageV2ReadResult::Admitted(package) =
-            CheckedPackageV2::read(&bytes, deep_limits(), &evidence)
-        else {
-            panic!("expected the deep package to be admitted");
-        };
-        let copy = (*package).clone();
-        assert!(copy == *package);
-        assert!(format!("{package:?}").len() > 10_000);
-        let requested = package
-            .graph()
-            .nodes
-            .iter()
-            .map(|node| node.node_id.clone())
-            .collect::<Vec<_>>();
-        let lowered = package.lower(&requested, &profile);
-        assert_eq!(lowered.records.len(), requested.len());
-    });
 }

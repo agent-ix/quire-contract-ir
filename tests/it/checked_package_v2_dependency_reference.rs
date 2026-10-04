@@ -833,11 +833,15 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
     );
 }
 
+/// A binding's value is no callee, and a call nested in another term, which
+/// would have its own callee, is outside the body grammar: an application
+/// stands only at a body root (FR-038-AC-114).
+///
 /// Tracing: TC-048
-/// ACs: FR-038-AC-36
-#[trace("TC-048", "FR-038-AC-36")]
+/// ACs: FR-038-AC-36, FR-038-AC-114
+#[trace("TC-048", "FR-038-AC-36", "FR-038-AC-114")]
 #[test]
-fn tc_048_a_binding_value_refuses_and_a_nested_call_callee_admits() {
+fn tc_048_a_binding_value_refuses_and_a_nested_call_is_outside_the_grammar() {
     let dependency = build_dependency(|_| {});
     let term = dependency_term(&dependency.digest, &function_key());
     let entries = || vec![selection(&dependency.digest)];
@@ -852,7 +856,8 @@ fn tc_048_a_binding_value_refuses_and_a_nested_call_callee_admits() {
         Some(CheckedPackageRefusalCause::OperatorIneligible),
         &call_path(&bound, "/arguments/1/value"),
     );
-    // A nested `function.call` takes the callee at its own argument 0.
+    // A nested `function.call` is no callee position at all: it is refused
+    // `malformed_wire` at the nested application, whatever its arguments.
     let nested_call = |arguments: Vec<Value>| {
         json!({
             "term": "application", "operator": "call",
@@ -868,22 +873,20 @@ fn tc_048_a_binding_value_refuses_and_a_nested_call_callee_admits() {
         arguments[0] = term.clone();
         arguments.push(nested_call(vec![term.clone()]));
     });
-    assert!(
-        matches!(
-            read(&nested, &dependency),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ),
-        "a nested function.call callee admits"
+    expect_refusal(
+        &refused(read(&nested, &dependency)),
+        CheckedPackageRefusalCode::MalformedWire,
+        None,
+        &call_path(&nested, "/arguments/1"),
     );
-    // The same term as the nested call's second argument is no callee.
     let misplaced = importing_with(entries(), |arguments| {
         arguments[0] = term.clone();
         arguments.push(nested_call(vec![term.clone(), term.clone()]));
     });
     expect_refusal(
         &refused(read(&misplaced, &dependency)),
-        CheckedPackageRefusalCode::IllTyped,
-        Some(CheckedPackageRefusalCause::OperatorIneligible),
-        &call_path(&misplaced, "/arguments/1/arguments/1"),
+        CheckedPackageRefusalCode::MalformedWire,
+        None,
+        &call_path(&misplaced, "/arguments/1"),
     );
 }

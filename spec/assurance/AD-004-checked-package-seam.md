@@ -49,7 +49,7 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | `quire.checked-package/v2` bytes: `contract_version`, `package_id`, `identity_preimage`, `lock`, `semantic_graph`, `source_map`, `diagnostics` | QSL (producer) to IR | QSpec FR-322 and FR-340 to FR-342 define the wire | IR holds no copy of QSpec files; it states the shape it admits in its own reader (`crates/quire-contract-model/src/checked_package/`) |
 | `CheckedPackageEvidence`: selected domain package documents (supplied under their `sha256-jcs` digest), dependency packages (already admitted), supported features | caller to IR | IR defines the type | only `lock.sources` rows carry a raw-source byte digest (`quire.source.bytes/v1`), which is not checked against evidence (the `sha256-jcs` digest of a `model_selections` row and the `package_id` of a dependency row are); definition references (`lock` selections, `diagnostics.catalog`, operation laws) are `{authority, identity}` with no revision or digest (FR-038 "Artifact references"); `package_id` is the content identity (`evidence.rs` doc) |
 | `quire.checked-operation-catalog/v1`: the closed catalog every V2 `application` term's `operation` is validated against | `quire-verification-contracts` (owner) to IR | `quire-verification-contracts` | IR depends on that crate and owns only the reader; it holds no copy of the catalog (`v2/operation_catalog.rs`) |
-| `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; 🚧 planned: today the default also holds 128 depth, and the depth member and `CheckedPackageLimit::Depth` go with FR-038-AC-117, a breaking change for a consumer across this seam that builds either) | caller to IR | IR | every member finite |
+| `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
 | `CheckedPackageV2` and its accessors | IR to codegen and QSL | IR | only the reader can build one |
 | Lowering records (seven kinds) and `ContractPackage` (`quire.contract-ir.contract-package/v1`) | IR to backends | IR (FR-035) | one record per requested node |
@@ -167,8 +167,8 @@ What is measured today, what is open and with whom, and what is routed.
   has no AC-16 or AC-34, a numbering hole and not a gap in behaviour.
 - Merged QSpec FR-322 settles STD-125: the reader has no depth limit, because the body grammar
   fixes the JSON depth of every package. FR-038 states the flat wire and no depth limit
-  (FR-038-AC-114 through FR-038-AC-118); the reader still charges a capped caller depth limit and
-  admits nested applications until IR-495's code lands.
+  (FR-038-AC-114 through FR-038-AC-118); the reader (IR-495's code) has no depth limit, refuses a
+  nested application and decides the body grammar ahead of every identity check.
 - FR-040 states a known deviation: a field entry on a `model`/`record_value_type` node is joined
   and ordered but its name is not resolved, because QSpec's `ModelDeclarationNode` has no such
   form while FR-340 says the name matches a declared field. Pending a QSpec ruling.
