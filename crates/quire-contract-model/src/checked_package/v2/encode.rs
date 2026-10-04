@@ -85,6 +85,27 @@ impl Encode for ApplicationNodePreimage<'_> {
     }
 }
 
+/// `quire.abstraction-relation-node/v1`, the version of the abstraction
+/// relation node preimage (QSpec FR-451, FR-346).
+pub(super) const ABSTRACTION_NODE_VERSION: &str = "quire.abstraction-relation-node/v1";
+
+/// QSpec FR-451's preimage of a `correspondence`/`abstraction_relation`
+/// node: `{version, body}`. The node key is the SHA-256 of its canonical
+/// bytes, so every binding of the body is part of the key.
+pub(super) struct AbstractionNodePreimage<'a> {
+    pub(super) body: &'a Value,
+}
+
+impl Encode for AbstractionNodePreimage<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        writer.name("version")?;
+        writer.string(ABSTRACTION_NODE_VERSION)?;
+        value(writer, "body", self.body)?;
+        writer.end_object()
+    }
+}
+
 /// A count as the integer the writer takes.
 fn integer(count: usize) -> Result<i128, Error> {
     i128::try_from(count).map_err(|_| Error::Internal {

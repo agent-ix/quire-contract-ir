@@ -42,6 +42,10 @@ serde_path_to_error = "=0.1.20"
 serde_stacker = "=0.1.11"
 sha2 = "=0.10.9"
 stacker = "=0.1.15"
+# The Rust identifier syntax of an abstraction relation body (FR-346): the
+# Unicode identifier tables and the NFC check FR-450's "Rust spellings" name.
+unicode-ident = "=1.0.24"
+unicode-normalization = "=0.1.25"
 
 [dev-dependencies]
 ix-trace-rs = { version = "=0.1.0", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }

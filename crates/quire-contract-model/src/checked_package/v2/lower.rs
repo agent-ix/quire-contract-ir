@@ -937,7 +937,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
-            | CorrespondenceForm::ProfileCorrespondence,
+            | CorrespondenceForm::ProfileCorrespondence
+            | CorrespondenceForm::AbstractionRelation,
         ) => false,
     }
 }

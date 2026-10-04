@@ -362,7 +362,8 @@ impl NominalKind {
                 CorrespondenceForm::SourceLocus
                 | CorrespondenceForm::ModelCorrespondence
                 | CorrespondenceForm::BindingRole
-                | CorrespondenceForm::ProfileCorrespondence,
+                | CorrespondenceForm::ProfileCorrespondence
+                | CorrespondenceForm::AbstractionRelation,
             ) => None,
         }
     }

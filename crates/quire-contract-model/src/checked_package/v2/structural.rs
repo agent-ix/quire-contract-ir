@@ -132,6 +132,7 @@ enum StructuralForm {
     StateClause,
     UnionType,
     UnionValue,
+    AbstractionRelation,
 }
 
 impl StructuralForm {
@@ -143,6 +144,7 @@ impl StructuralForm {
             Self::Frame => Some(CheckedOccurrenceRole::Generated),
             Self::OperationAnchor => Some(CheckedOccurrenceRole::Anchor),
             Self::StateClause => Some(CheckedOccurrenceRole::Claim),
+            Self::AbstractionRelation => Some(CheckedOccurrenceRole::Declaration),
             Self::CompoundUnit | Self::UnionType | Self::UnionValue => None,
         }
     }
@@ -270,6 +272,9 @@ impl StructuralForm {
                 | ClaimForm::Hyperproperty
                 | ClaimForm::SynthesisRequest,
             ) => None,
+            K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
+                Some(Self::AbstractionRelation)
+            }
             K::Correspondence(
                 CorrespondenceForm::SourceLocus
                 | CorrespondenceForm::ModelCorrespondence
@@ -321,8 +326,10 @@ pub(super) fn validate_structural_nodes(
             Some(StructuralForm::UnionValue) => union_value_body(&node.body)
                 .is_none()
                 .then_some(Defect::Body),
-            // The per-node body loop already read the frame body.
-            Some(StructuralForm::Frame) | None => None,
+            // The per-node body loop already read the frame body; the
+            // abstraction step (FR-346) reads its own, so only the role is
+            // this stage's.
+            Some(StructuralForm::Frame | StructuralForm::AbstractionRelation) | None => None,
         };
         let role = form.and_then(StructuralForm::role).and_then(|role| {
             node.occurrences
@@ -606,7 +613,13 @@ fn application_dependencies(body: &Value) -> Option<BTreeSet<CheckedNodeId>> {
             // package and is never listed in `dependencies`; a frame is
             // never a nested term; a tag outside the vocabulary is refused
             // before this stage.
-            Some(BodyTerm::Literal | BodyTerm::DependencyReference | BodyTerm::Frame) | None => {}
+            Some(
+                BodyTerm::Literal
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
+            )
+            | None => {}
         }
     }
     contains_application.then_some(join)

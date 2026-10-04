@@ -13,6 +13,7 @@ mod support;
 
 mod canonical_v1_quire_canonical;
 mod canonicalization;
+mod checked_package_v2_abstraction_relation;
 mod checked_package_v2_adr002_members;
 mod checked_package_v2_artifact_refs;
 mod checked_package_v2_canonical_encoding;
