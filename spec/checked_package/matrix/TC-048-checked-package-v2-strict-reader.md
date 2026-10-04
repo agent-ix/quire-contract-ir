@@ -798,7 +798,7 @@ with bounds `{0, 1}` and `{3, 1}` for each of the four end pairs, with `lower`
 read the `null` interval.
 
 Pattern refusals (AC-120). Under `timed/v1`, and again under
-`quire.temporal.infinite-trace/v1` and one bounded profile, read the timed form with
+`quire.temporal.infinite-trace/v1` and each of the three bounded profiles, read the timed form with
 `lower` numerator `"-1"`, `lower` numerator `"01"`, `upper` denominator `"0"`,
 `upper` denominator `"-2"`, `lower` a JSON integer, `lower` the string `"3"`, and
 `upper` `null`; with `lower` numerator `"-1"` and `upper` denominator `"0"` together;
@@ -810,9 +810,10 @@ numerator `"-1"`; `lower` numerator `"-1"` with `upper` `{2, 4}`; `upper` `{2, 4
 alone; `lower` `{2, 4}` beside a profile-fit defect in a lower-digest node; `(3, 3]`,
 `[3, 3)` and `(3, 3)` with both bounds `{3, 1}`; `lower` `{5, 2}` over `upper` `{2, 1}`;
 `lower` `{1, 2}` with `upper` `{2, 3}` and the two swapped; `lower`
-`{18446744073709551617, 3}` with `upper` `{18446744073709551616, 3}` and the two
-swapped; and the same package under a work limit that the cross-multiplication
-takes past.
+`{18446744073709551617, 3}` with `upper` `{18446744073709551616, 3}`, both ends
+`closed`, and the two swapped; and that beyond-2^64 package (`lower`
+`{18446744073709551617, 3}`, `upper` `{18446744073709551616, 3}`) under a work limit
+that its GCD or cross-multiplication takes past.
 
 Profile fit and member-set defects (AC-122). Read the timed form with bounds `{0, 1}`
 and `{3, 1}` and both ends `closed` under `infinite-trace` and under each of the three
