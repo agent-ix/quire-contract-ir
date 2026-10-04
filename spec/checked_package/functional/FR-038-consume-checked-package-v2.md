@@ -574,8 +574,10 @@ that requires of this reader without copying the grammar. Where the reader and
 that text differ, the text is this reader's requirement; a reading of today's
 reader (the nested-application readings in "Operation identity", "Application
 node keys" and the temporal and state-clause sections) is superseded by it. The
-grammar covers every node `body` and every diagnostic `details` term, and is
-strict wire validation: it is decided over the decoded document, in document
+grammar covers every node `body` and every diagnostic `details` term, though a
+`state`/`frame` body and a `correspondence`/`abstraction_relation` body are
+validated against flat shapes of their own (FR-040, FR-346) and an application
+standing in either is refused as below. It is strict wire validation: it is decided over the decoded document, in document
 pre-order, after the closed-schema decode and before any identity is recomputed
 (the order of checks above).
 
@@ -1953,8 +1955,10 @@ frame body: `{"term": "frame", "modifies": [...], "creates": [...],
 `uniqueItems` array per the wire schema: `creates` and `deletes` of node
 keys, and `modifies` of the `FrameModifiesEntry` values
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) defines. The reader shall validate a
-`state`/`frame` node's `body` against this shape alone and every other node's
-`body` against the semantic-term grammar alone. A frame body that omits one of
+`state`/`frame` node's `body` against this shape alone, a
+`correspondence`/`abstraction_relation` node's `body` against the shape of
+[FR-346](./FR-346-admit-abstraction-relation-body.md) alone, and every other
+node's `body` against the semantic-term grammar alone. A frame body that omits one of
 the three members, carries any further member, or does not carry this closed
 shape refuses as `invalid_semantic_graph` at the frame body; so does a node of
 any other tag or form whose body carries the frame shape. Within one member

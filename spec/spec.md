@@ -87,7 +87,7 @@ strict reader that parses `contract_version` once, admits only
 identity, and lowers admitted items independently per request. FR-040 admits
 QSpec FR-340's frame `modifies` entries, FR-342's operation anchors and
 FR-341's state clause and parameter bodies in that reader, and FR-344 refuses
-the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-345 admits
+the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-346 admits
 QSpec FR-451's abstraction relation body in that reader. FR-019 lists the
 model crate's public items and FR-039 the root crate's; the root crate
 re-exports no model item, so each public item has one import path. AD-001 is the repository architecture and
