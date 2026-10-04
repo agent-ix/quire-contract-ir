@@ -13,9 +13,7 @@ use super::shared::{
     CheckedSourceMapEntry, CheckedSourceRef, JsonPointer,
 };
 use super::terms::{subterms, At, Cursor};
-use super::v2::{
-    interval_bound_outside_pattern, ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2,
-};
+use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use quire_walk::{walk, Children, Walk};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -789,25 +787,6 @@ fn validate_one(
             ) && application_operator(value).is_some())
             {
                 return Err(invalid(at));
-            }
-            // An interval bound outside the schema's non-negative
-            // integer-string pattern, negative or malformed, is a failure of
-            // that pattern, not of any later check of the member, so it is
-            // refused here, first in member order and under every profile
-            // (merged QSpec FR-370).
-            if let Some(bound) = object
-                .get("operation")
-                .and_then(interval_bound_outside_pattern)
-            {
-                return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    at.key("operation")
-                        .key("member")
-                        .key("interval")
-                        .key(bound)
-                        .pointer(),
-                    CheckedPackageRefusalCause::InvalidValue,
-                ));
             }
             // The `operation` member's presence is checked here; its own
             // closed shape and catalog-law validation is

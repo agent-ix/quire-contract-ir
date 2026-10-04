@@ -32,8 +32,7 @@ pub use vocabulary::*;
 use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
-pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
-use temporal::{references_refused_node, validate_temporal};
+use temporal::{references_refused_node, validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
     count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
@@ -1507,9 +1506,9 @@ enum EdgeSite {
 /// built only on refusal, by [`body_reference_pointer`].
 type BodyReference = (CheckedNodeId, ReferenceSite);
 
-/// Locates the two cause-bearing refusals of a body walk at the node whose body
-/// it walked: a bound outside the interval pattern
-/// (`invalid_package`/`invalid-value`, the term walk's) and a nested `case`
+/// Locates the two cause-bearing refusals of strict wire validation at the node
+/// whose body it read: a bound outside the interval pattern
+/// (`invalid_package`/`invalid-value`, `flat_wire::check_interval_bounds`'s) and a nested `case`
 /// application (`ill_typed`/`operator-ineligible`, the flat-wire check's), each
 /// with its path already on the bound or the nested `operator`. Every other
 /// refusal of a walk is left as it is.
@@ -1735,6 +1734,9 @@ fn validate_graph(
         limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &index)?;
+    // FR-038 "The timed interval form" stage 2: the last graph check of the
+    // nodes before the frame step.
+    validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
     let owners = ModelOwners::new(models, |selection| {

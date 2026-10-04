@@ -84,6 +84,57 @@ impl Natural {
             self.0.pop();
         }
     }
+
+    /// The product of two numbers, schoolbook: every limb pair is one unit, all
+    /// charged at `at` before the product is formed.
+    fn multiply(
+        &self,
+        other: &Self,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Self, ValidationFailure> {
+        meter.charge(self.work().saturating_mul(other.work()), at)?;
+        let mut limbs = vec![0_u32; self.0.len().saturating_add(other.0.len())];
+        for (left_at, left) in self.0.iter().enumerate() {
+            let mut carry = 0_u64;
+            for (right_at, right) in other.0.iter().enumerate() {
+                let slot = left_at.saturating_add(right_at);
+                let current = limbs.get(slot).copied().unwrap_or(0);
+                // At most (2^32 - 1)^2 + 2 * (2^32 - 1), which fits 64 bits.
+                let product = u64::from(*left) * u64::from(*right) + u64::from(current) + carry;
+                if let Some(limb) = limbs.get_mut(slot) {
+                    *limb = low32(product);
+                }
+                carry = product >> 32;
+            }
+            if let Some(limb) = limbs.get_mut(left_at.saturating_add(other.0.len())) {
+                *limb = low32(carry);
+            }
+        }
+        let mut product = Self(limbs);
+        product.normalize();
+        Ok(product)
+    }
+}
+
+/// Compares the exact rationals `left` and `right`, each a canonical decimal
+/// `(numerator, denominator)` pair of magnitudes, by cross-multiplication
+/// (`a/b` against `c/d` is `a*d` against `c*b`): exact at any size, never
+/// through a float or a fixed-width integer. Parsing and both products are
+/// charged to `meter` at `at`.
+pub(super) fn compare_rationals(
+    left: (&str, &str),
+    right: (&str, &str),
+    meter: &mut WorkMeter,
+    at: &dyn Fn() -> JsonPointer,
+) -> Result<Ordering, ValidationFailure> {
+    let left_numerator = Natural::parse(left.0, meter, at)?;
+    let left_denominator = Natural::parse(left.1, meter, at)?;
+    let right_numerator = Natural::parse(right.0, meter, at)?;
+    let right_denominator = Natural::parse(right.1, meter, at)?;
+    let scaled_left = left_numerator.multiply(&right_denominator, meter, at)?;
+    let scaled_right = right_numerator.multiply(&left_denominator, meter, at)?;
+    Ok(scaled_left.cmp(&scaled_right))
 }
 
 /// One unit per limb touched, and at least one unit per operation.
@@ -246,6 +297,57 @@ mod tests {
             Err(ValidationFailure::Incomplete(incomplete))
                 if incomplete.limit_kind == CheckedPackageLimit::Work
                     && incomplete.limit == 1_000_000
+                    && incomplete.path == Some(at())
+        ));
+    }
+
+    fn compare(left: (&str, &str), right: (&str, &str)) -> Ordering {
+        let mut meter = WorkMeter::new(u64::MAX);
+        compare_rationals(left, right, &mut meter, &at).expect("unbounded work")
+    }
+
+    /// The cross-multiplied comparison is exact beyond 64 bits and orders
+    /// rationals, equal ones included, as their values do.
+    ///
+    /// Tracing: TC-048, FR-038-AC-121
+    #[test]
+    fn tc_048_compares_rationals_exactly_beyond_2_pow_64() {
+        let above = ("18446744073709551617", "3");
+        let below = ("18446744073709551616", "3");
+        assert_eq!(compare(above, below), Ordering::Greater);
+        assert_eq!(compare(below, above), Ordering::Less);
+        assert_eq!(compare(above, above), Ordering::Equal);
+        assert_eq!(compare(("1", "2"), ("2", "3")), Ordering::Less);
+        assert_eq!(compare(("2", "4"), ("1", "2")), Ordering::Equal);
+        assert_eq!(compare(("0", "1"), ("0", "7")), Ordering::Equal);
+        assert_eq!(compare(("0", "1"), ("1", "99")), Ordering::Less);
+        // 2^32 * 2^32 carries across limbs: (2^32 / 1) against (2^64 / 2^32).
+        assert_eq!(
+            compare(("4294967296", "1"), ("18446744073709551616", "4294967296")),
+            Ordering::Equal
+        );
+    }
+
+    /// The comparison charges its parses and products to the meter and stops
+    /// at the limit.
+    ///
+    /// Tracing: TC-048, FR-038-AC-3
+    #[test]
+    fn tc_048_comparison_work_is_charged_and_stops_at_the_limit() {
+        let left = ("18446744073709551617", "3");
+        let right = ("18446744073709551616", "3");
+        let mut meter = WorkMeter::new(u64::MAX);
+        assert_eq!(
+            compare_rationals(left, right, &mut meter, &at),
+            Ok(Ordering::Greater)
+        );
+        let exact = meter.consumed();
+        assert!(exact > 0);
+        let mut meter = WorkMeter::new(exact - 1);
+        assert!(matches!(
+            compare_rationals(left, right, &mut meter, &at),
+            Err(ValidationFailure::Incomplete(incomplete))
+                if incomplete.limit_kind == CheckedPackageLimit::Work
                     && incomplete.path == Some(at())
         ));
     }

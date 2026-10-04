@@ -22,9 +22,12 @@
 //! recomputed, so a body outside the grammar refuses at the term itself and
 //! never at a stale identity (FR-038-AC-116).
 //!
-//! This module decides where an application may stand; the term's own closed
-//! shape is [`crate::checked_package::common::validate_term`]'s, later.
+//! This module decides where an application may stand, and, after those
+//! refusals, whether a `temporal_interval` bound is outside its form's pattern
+//! (FR-038 "The timed interval form" stage 1); the term's own closed shape is
+//! [`crate::checked_package::common::validate_term`]'s, later.
 
+use super::temporal::interval_bound_outside_pattern;
 use super::{body_grammar, BodyGrammar, CheckedNodeKind, CheckedNodeTag};
 use super::{ApplicationOperator, BodyTerm, CheckedPackageWireV2};
 use crate::checked_package::common::{
@@ -99,6 +102,51 @@ pub(super) fn check(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure
                 Step::Index(detail_index),
             ];
             check_term(detail, &Trail::Base(&steps), Place::Member, true)?;
+        }
+    }
+    check_interval_bounds(wire)
+}
+
+/// A `temporal_interval` bound outside its form's pattern (FR-038 "The timed
+/// interval form" stage 1; merged QSpec FR-370: "during strict wire validation,
+/// before any step"), refused `invalid_package`/`invalid-value` at the bound,
+/// first in member order and in node position order, after the nested-application
+/// refusals above (the spec is silent on the order of the two wire checks, an IR
+/// reading). One flat loop over the nodes: no recursion.
+fn check_interval_bounds(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+    for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
+        let Some(kind) = CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+        else {
+            continue;
+        };
+        if matches!(body_grammar(kind), BodyGrammar::Frame)
+            || body_term(&node.body) != Some(BodyTerm::Application)
+        {
+            continue;
+        }
+        if let Some(bound) = node
+            .body
+            .get("operation")
+            .and_then(interval_bound_outside_pattern)
+        {
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(position),
+                Step::Key("body"),
+            ];
+            let failure = ValidationFailure::refused_because(
+                CheckedPackageRefusalCode::InvalidPackage,
+                Trail::Base(&steps)
+                    .key("operation")
+                    .key("member")
+                    .key("interval")
+                    .key(bound)
+                    .pointer(),
+                CheckedPackageRefusalCause::InvalidValue,
+            );
+            return Err(super::with_node_locus(failure, &node.node_id));
         }
     }
     Ok(())

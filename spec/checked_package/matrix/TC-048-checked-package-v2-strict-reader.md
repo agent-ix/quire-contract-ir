@@ -52,7 +52,7 @@ against QSpec's own `adverse.json` mutations and `dependency-selection-vectors.j
 identity, read from the QSpec checkout. FR-038-AC-114 through FR-038-AC-118 (IR-495) are against the flat wire of merged QSpec FR-322 "Body grammar": nested and
 misplaced applications, the pre-order pointer, the order ahead of identity recomputation,
 the absence of a depth limit and of call-stack recursion, and the five body-grammar
-mutations. FR-038-AC-119 through FR-038-AC-122 (planned, IR-551) are against the timed interval form of
+mutations. FR-038-AC-119 through FR-038-AC-122 (IR-551) are against the timed interval form of
 merged QSpec FR-370 and FR-370-AC-8: the four end variants, rational bounds in lowest
 terms, the refusal of a negative, malformed or non-reduced bound, a null upper bound,
 an open end with equal bounds and a missing or extra member, and the profile fit.
@@ -254,7 +254,7 @@ one an `over` defect, in both digest orders; and a member `{lower: "1.5", upper:
 "0"}` and a wrong-kind member under a bounded and the infinite-trace profile;
 `{0, -2}` and `{-1, -3}`, and `{-1, null}` under a bounded profile, under
 infinite-trace and beside a placement defect at a lower-digest node, each
-refused at the negative bound at schema validation (the term walk of the node body),
+refused at the negative bound at schema validation (strict wire validation, the flat wire pass),
 as is `{"1.5", "0"}` at its malformed bound, none of them `operation-member-mismatch`
 (AC-102). Give a clause's
 `over` a `value`/`parameter` dependency, one that is no dependency and a
@@ -793,7 +793,7 @@ empty of them.
 
 ## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
 
-Planned (IR-551 code). Bounds are written `{numerator, denominator}` as `{n, d}`.
+Implemented (IR-551). Bounds are written `{numerator, denominator}` as `{n, d}`.
 
 Admission (AC-119). Under a clause whose `temporal_profile` law names
 `quire.temporal.timed/v1`, on each of the eight interval operators of a
@@ -807,8 +807,10 @@ Pattern refusals (AC-120). Under `timed/v1`, and again under
 `lower` numerator `"-1"`, `lower` numerator `"01"`, `upper` denominator `"0"`,
 `upper` denominator `"-2"`, `lower` a JSON integer, `lower` the string `"3"`, and
 `upper` `null`; with `lower` numerator `"-1"` and `upper` denominator `"0"` together;
-and a package with a non-reduced bound `{2, 4}` in the lower-digest node and a
-pattern failure in the higher-digest node.
+a package with a non-reduced bound `{2, 4}` in the first node and a pattern
+failure in a later node, and the two swapped; and a package whose node ids and
+`package_id` are all stale, and one whose `package_id` alone is stale, holding a timed
+or an integer bound outside its pattern.
 
 Lowest terms and bounds (AC-121). Read `lower` `{2, 4}`; `lower` `{2, 4}` with `upper`
 numerator `"-1"`; `lower` numerator `"-1"` with `upper` `{2, 4}`; `upper` `{2, 4}`
@@ -832,8 +834,9 @@ higher-digest clause.
 Expected: AC-119's inputs all admit. AC-120's inputs refuse
 `invalid_package`/`invalid-value` at `.../interval/lower` or `.../interval/upper`
 (the failing bound, first in member order, so `lower` for the two-failure input), in
-the term walk and under each profile read, and the package with the later pattern
-failure refuses at that later node. AC-121: `{2, 4}` refuses
+strict wire validation and under each profile read, the package with the later pattern
+failure refuses at that later node, and the stale-identity packages refuse
+`invalid-value` at the bound and not at an identity check. AC-121: `{2, 4}` refuses
 `invalid_semantic_graph` at its bound, including beside the profile-fit defect; the
 `{2, 4}` lower with a negative upper refuses `invalid-value` at `upper`, the negative
 lower with a non-reduced upper `invalid-value` at `lower`, the `{2, 4}` upper alone

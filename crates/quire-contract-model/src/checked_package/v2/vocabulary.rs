@@ -483,17 +483,26 @@ closed_vocabulary! {
     }
 }
 
+closed_vocabulary! {
+    /// The closed `lower_end` and `upper_end` words of the timed interval form
+    /// (QSpec FR-370).
+    pub(in crate::checked_package) IntervalEnd {
+        Closed => "closed",
+        Open => "open",
+    }
+}
+
 /// Which `temporal_interval` shapes a profile admits on an interval operator.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::checked_package) enum IntervalFit {
-    /// Only a closed `{lower, upper}` interval.
+    /// Only a closed integer `{lower, upper}` interval.
     ClosedOnly,
-    /// Only an unbounded (`null`) interval: a timed interval is the timed form
-    /// (merged QSpec FR-370-AC-3), which this reader does not yet decode
-    /// (IR-551), and an integer-form interval is not one.
-    NullOnly,
-    /// A `null`, a lower-bounded or a closed interval.
-    Any,
+    /// Only an unbounded (`null`) interval or the timed form (merged QSpec
+    /// FR-370-AC-3 and FR-370-AC-8): an integer-form interval is neither.
+    NullOrTimed,
+    /// A `null`, a lower-bounded or a closed integer interval, never the timed
+    /// form (merged QSpec FR-370-AC-8).
+    IntegerForms,
 }
 
 impl TemporalProfile {
@@ -504,8 +513,8 @@ impl TemporalProfile {
             Self::EventPositionFalseExtension
             | Self::FixedSampleFalseExtension
             | Self::TimestampedEventFiniteWindow => IntervalFit::ClosedOnly,
-            Self::Timed => IntervalFit::NullOnly,
-            Self::InfiniteTrace => IntervalFit::Any,
+            Self::Timed => IntervalFit::NullOrTimed,
+            Self::InfiniteTrace => IntervalFit::IntegerForms,
         }
     }
 
