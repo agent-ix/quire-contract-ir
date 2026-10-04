@@ -51,8 +51,8 @@ Measured at the commits of QSL and IR this AD was written against.
 
 | Item | Direction | Owner | Where QSL uses it |
 | --- | --- | --- | --- |
-| The `read_checked_package` reader, `CheckedPackageEvidence`, `CheckedPackageReadLimits`, `CheckedPackageDispatchResult`, `CheckedPackageV2`, the refusal and limit types | IR to QSL | IR (the wire is QSpec's) | the I2 byte reader, `qsl-package/src/checked_v2.rs:94-98`, and its tests |
-| The identity-preimage and wire-envelope Rust types of the v2 package | IR to QSL | IR types, QSpec wire | the emitter builds the wire as a `Serialize` struct over them (`qsl-package/Cargo.toml` comment on the model dependency; `checked_v2.rs:595`) |
+| The `read_checked_package` reader, `CheckedPackageEvidence`, `CheckedPackageReadLimits`, `CheckedPackageDispatchResult`, `CheckedPackageV2`, the refusal and limit types | IR to QSL | IR (the wire is QSpec's) | the I2 byte reader, the `use` of the model crate's reader in `qsl-package/src/checked_v2.rs`, and its tests |
+| The identity-preimage and wire-envelope Rust types of the v2 package | IR to QSL | IR types, QSpec wire | the emitter builds the wire as a `Serialize` struct over them (`qsl-package/Cargo.toml` comment on the model dependency; the wire-building code in `qsl-package/src/checked_v2.rs`) |
 | `quire.checked-package/v2` bytes | QSL to IR | QSpec | AD-004 |
 | The authored-contract and expression model: `ValueType`, `Expression` and `ExpressionKind`, `StateObservation`, `RequirementRef`, `ExecutionPoint`, `TypeDeclaration`, `Diagnostic`, `SourceSpan`, `DeclarationEnvironment` and its `check_expression`, among others | IR to QSL | IR | 57 files across QSL's root crate and `qsl-package` name the model crate; `ValueType` alone is named 212 times through the `ir::` alias (checking, linking, lowering, `model_source`, `native_model`, `command`) |
 
@@ -88,15 +88,15 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
   64-bit integers as decimal strings (a public v1 wire change that QSL's lowering wire emitted
   as numbers when this AD was written; whether QSL has followed is QSL's to say).
 - IR states no pin, commit id or tool version about QSL, and QSL's references to "the pinned IR
-  revision" in comments (for example `qsl-package/src/emit.rs:961`) name its Cargo lock, which
+  revision" in comments (for example the comment in `qsl-package/src/emit.rs` that says "pinned IR revision") name its Cargo lock, which
   is not an identity this seam asserts.
 
 ### Dependency direction and what enforces it
 
 | Edge | Allowed | Held by | Gap |
 | --- | --- | --- | --- |
-| IR model to QSL | no | `tests/it/cycle_free_model.rs`: the model's production dependency names are checked against a forbidden list (`:45-53`) and every one must be non-optional | by name only; no source check for the model package in `tc_041` (a git edge to the QSL repository is caught by `unknown-git`, not by this test) |
-| IR root to QSL | no | the same file, root package checked by name prefix `qsl-` and by git source of the QSL repository (`:78-85`) | none for QSL |
+| IR model to QSL | no | `tests/it/cycle_free_model.rs`: the model's production dependency names are checked against the `forbidden` list in that test and every one must be non-optional | by name only; no source check for the model package in `tc_041` (a git edge to the QSL repository is caught by `unknown-git`, not by this test) |
+| IR root to QSL | no | the same file, root package checked by name prefix `qsl-` and by git source of the QSL repository (the loop over the root package's dependencies) | none for QSL |
 | QSL to the model crate | yes | QSL ADR-011 section 6.1 lists it as an external edge of layer 4 beside `quire-canonical` (`qsl-package/Cargo.toml` comment); QSL TC-390 pins that layer's other workspace edges | none |
 | QSL to the IR root crate | no | nothing in IR; QSL's manifests name the model package | none: QSL's manifests now key the dependency as `quire-contract-model` (R3-Q1 done); it was once aliased `quire-contract-ir`, which read as the root crate |
 | IR to codegen, IR to runtime | no | a git edge to either repository fails `make deny` today: `[sources]` `unknown-git = "deny"` with an `allow-git` list that names neither (IR-346, AD-007); decision D adds name-level `bans` (IR-343) | no check by crate name, and the forbidden list in `tc_041` names neither `quire-contract-codegen` nor `quire-contract-runtime` (D-2) |
@@ -108,7 +108,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | Condition | Reported by | Outcome |
 | --- | --- | --- |
 | QSL's emission is refused by the reader | IR reports (AD-004 codes); QSL owns the producer defect | a failing QSL test, never a widened reader (AD-004 precedence) |
-| A reader limit is reached | IR (`Incomplete` with limit, consumed, pointer) | QSL converts to its own `V2ReadIncomplete::Limit` (`V2ReadIncomplete`, documented at `checked_v2.rs:53`) and its own limits struct is converted into IR's (`for_ir`, `:223`) |
+| A reader limit is reached | IR (`Incomplete` with limit, consumed, pointer) | QSL converts to its own `V2ReadIncomplete::Limit` (`V2ReadIncomplete` in `qsl-package/src/checked_v2.rs`) and its own limits struct is converted into IR's (`for_ir`, same file) |
 | QSL's extent classification and IR's `requires_bound` disagree | QSL's agreement test (TC-440, test-only: `qsl-package/src/emit/extent_agreement.rs`, mounted under `cfg(test)`) | a failing QSL test; one fixture (a quantity) is an ignored test because the emitter omits the record |
 | QSL and IR compute different `package_id` for one package | IR refuses `stale_dependency` | QSL's emission test fails |
 | A QSL crate appears in IR's graph | IR's `tc_041` (root package by name and source, model package by a name list) and `make deny` `unknown-git` | IR test or `make deny` fails |
@@ -152,7 +152,7 @@ Local labels; the repository assigns requirement ids when one is authored.
   to name both crates.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
   obligation-identity type. Current: not true. The root crate exports `KaniProviderResult` and
-  `KaniProviderRecord` (`src/kani/outcome.rs:56-89`, re-exported at `src/kani/mod.rs:23`; the
+  `KaniProviderRecord` (defined in `src/kani/outcome.rs`, re-exported by `src/kani/mod.rs`; the
   record's doc calls itself an FR-331 terminal record), which FR-039 assigns to QSL. Target:
   removed from IR under IR-347 (FR-039-AC-3, planned in TC-055).
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
@@ -169,13 +169,13 @@ What is measured today, what is open and with whom, and what is routed.
 ### Current state and gaps
 
 - The model crate's own root uses glob re-exports for seven modules
-  (`crates/quire-contract-model/src/lib.rs:31-47`), against AD-001 and FR-019 ("by name, no
+  (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no
   glob"). The set of items a consumer such as QSL may rely on is therefore whatever the globs
   expose, not FR-019's table. IR-347 (reopened) carries glob removal; not restated here.
-- The IR root crate is a re-export bridge: `src/lib.rs:12` is `pub use quire_contract_model::*;`
+- The IR root crate is a re-export bridge: `src/lib.rs` holds `pub use quire_contract_model::*;`
   and its crate doc calls it a "compatibility bridge", although AD-001 and FR-039 say it re-exports
   nothing. `tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single`
-  (`tests/it/cycle_free_model.rs:98-107`) asserts the bridge, the opposite of FR-039-AC-1, whose
+  (in `tests/it/cycle_free_model.rs`) asserts the bridge, the opposite of FR-039-AC-1, whose
   test (TC-055) is planned and does not exist. The decision is that the test goes with the
   IR-347 work (retag or remove `tc_041`'s bridge test); FR-039-AC-1 is not changed. QSL does not
   use the bridge; the consumer that does is codegen (AD-006).
