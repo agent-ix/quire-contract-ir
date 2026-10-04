@@ -150,7 +150,7 @@ owners or a copy is a finding.
 | Crate, QSL workspace | none | the crate-level table is a DAG over normal and dev edges; `quire-exact`, `qsl-attrs`, `qsl-walk-grow` and `tools/arch-lint` have no workspace dependency |
 | IR root to QSL (ADR-011 T-5 row) | not present | neither IR manifest names QSL; `tc_041` checks it by name and by git source |
 | QSL dev edges to CG and a historical IR | not present | no QSL manifest or lock entry; routed as R-2 for QSL to restate |
-| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and IR's `scripts/check_one_copy.awk` make the lock hold one entry per repo |
+| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and each repository's own copy of `scripts/check_one_copy.awk` (IR, CG and RT each run one over their own lock) make each lock hold one entry per repo |
 
 A cycle is one `dev` edge away in two places: QSL depending on RT or CG for fixtures, and any
 RT or CG crate depending on a QSL crate other than the shared kernel. The second is guarded in
@@ -195,8 +195,8 @@ Targets proposed to each owning repository; only G-1 and G-4's IR halves are IR'
   other repositories).
 - G-3. Every first-party git edge is `branch = "main"` with no `rev` (holds for IR, CG and RT;
   proposed to QSL, R-1).
-- G-4. Each lock holds one entry per first-party crate (existing: IR `check_one_copy.awk`; QSL
-  `arch-lint duplicate-revisions`).
+- G-4. Each lock holds one entry per first-party crate (existing: each of IR, CG and RT runs its own copy of
+  `check_one_copy.awk` over its own lock; QSL `arch-lint duplicate-revisions`).
 - G-5. No public type is defined in two first-party crates (proposed target; RT `src/exact`
   fails it, IR-349).
 
@@ -212,7 +212,7 @@ What is measured today, what is open and with whom, and what is routed.
 | IR root exports `KaniProviderResult` and `KaniProviderRecord` | IR | IR-347 |
 | IR `deny.toml` has no name-level `bans` for CG, RT or QSL crates, and `tc_041` does not check the model crate by `qsl-*` name or source; a git edge to those repositories already fails `unknown-git` (decision B) | IR | IR-343 |
 | QVC has a second RFC 8785 path (`jcs_canonicalize`, `jcs_equal`, `jcs_sha256`) | QVC, quire-canonical | R-3 |
-| CG's `Cargo.lock` still resolves `quire-walk` from the QSL repository, which `main` of QSL no longer contains | CG | the lock move of IR-565 (CG's next lock bump) |
+| CG's `Cargo.lock` still resolves `quire-walk` from the QSL repository, which `main` of QSL no longer contains | CG | resolves on CG's next full lock refresh, which also updates the QSL source; IR-565 is CG's adaptation to IR-495 on its next bump and does not itself cover this |
 | AD-005's text on IR's own digest encoder (`digest_json`, `CanonicalWriter`) and on the absence of any IR guard was out of date | IR | corrected in this change (AD-005 Current state and Identity bullets) |
 
 ### Open questions
@@ -230,20 +230,21 @@ O-1 is an owner decision. This AD recommends; it does not decide.
 | What RT takes from it | one package (`quire-exact`) and the cost of banning 14 other crates by name; taking `quire-semantic-value` also gives RT an edge to quire-canonical (that crate depends on it), under every option |
 | What CG takes from it | 8 QSL crates, 2 `filament-core-data` crates and `quire-rs` through `qsl-replay`, plus `quire-exact` and `quire-semantic-value`; under every option the `qsl-replay` edge stays |
 | What IR takes from it | nothing (no edge) |
-| Spec and trace footprint in QSL | 74 files under QSL `spec/` name `quire-exact` (129 Markdown files repository-wide) and 41 Markdown files name `quire-semantic-value`; 11 files in `quire-exact` carry trace tags against QSL requirements |
+| Spec and trace footprint in QSL | under QSL `spec/`, 74 files name `quire-exact` and 22 name `quire-semantic-value`; 11 files in `quire-exact` carry trace tags against QSL requirements |
 | Repo-level cycle risk of extracting | none: both crates would be leaves below QSL; the new repository would depend only on quire-canonical (and, for `quire-semantic-value`, on `quire-exact`) |
 | Repo-level cycle risk of staying | RT takes a normal edge into the repository that also holds the producer crates; a later QSL dev edge to RT for fixtures would close a cycle; CG's is the same under every option (`qsl-replay`) |
 
 | Option | What it costs | What it gives |
 | --- | --- | --- |
 | 1. Both stay in QSL | nothing now; RT's heavy fetch and 14-name ban snapshot stay and each new QSL crate widens it; RT is one QSL dev edge from a cycle; RT still gains the quire-canonical edge later | no QSL change, no new repository to gate |
-| 2. Extract `quire-exact` only | a QSL change (path to git edge in 12 crates, `test-support` dev edges, arch-lint and TC-390 amendments); the spec and trace move or cross-repo trace for the requirements that name it; a new repository with its own CI, `deny` and spec gates; a second extraction later for `quire-semantic-value`, which RT needs next | RT's one edge becomes light |
+| 2. Extract `quire-exact` only | a QSL change (path to git edge in 12 crates, `test-support` dev edges, arch-lint and TC-390 amendments); the spec and trace move or cross-repo trace for the requirements that name it; a new repository with its own CI, `deny` and spec gates; a second extraction later for `quire-semantic-value`, which RT needs next, either into the same new repository (its gates are then not paid twice, the QSL change and trace move are) or into another (gates paid twice) | RT's one edge becomes light |
 | 3. Extract both, one repository (two crates) or two | the QSL change of option 2 once, with ADR-011's shared-leaf row amended; the same spec and trace move for both crates; the new repository's CI, `deny` and spec gates (for one repository, once); QSL's two `no_std` make gates move; `test-support` becomes a git-sourced feature | RT depends on leaf repositories as it would on quire-walk; RT's 14 bans and the QSL `allow-git` entry go; a QSL dev edge to RT no longer closes a cycle; CG's `qsl-replay` edge is unchanged |
 
 Recommendation, re-derived with the costs above: option 3 still holds, but its margin is
 smaller than the first draft claimed. Options 2 and 3 pay the same fixed costs (the QSL change,
 the spec and trace footprint, a new repository's gates); option 3 pays them once, option 2 pays
-them again when RT takes `quire-semantic-value`, and only option 1 avoids them. The deciding
+the QSL change and trace move again when RT takes `quire-semantic-value` (and the gates again if
+it goes to a second repository), and only option 1 avoids them. The deciding
 question is therefore whether RT will take `quire-semantic-value` (QSL-358 plans that): if so,
 option 3; if the owner expects RT to stay on `quire-exact` alone, option 1 or 2 is cheaper. The
 benefit is RT's alone; CG's edge to QSL stays. The risk is that extraction before RT's
@@ -279,7 +280,7 @@ To RT: delete `src/exact` and the same-named semantic-value copies in favour of 
 `qsl-walk-grow`, which the 14 do not name.
 
 To CG: the root-crate edge (O-2, AD-006); the lock refresh that moves `quire-walk` off the QSL
-repository is the lock move of IR-565.
+repository comes with CG's next full lock refresh (not covered by IR-565, which is CG's adaptation to IR-495).
 
 IR-owned (no routing): removal of `KaniProvider*` (IR-347), the name-level `bans` entries and the
 model-crate check (IR-343). The AD-005 correction (`digest_json` and `CanonicalWriter` gone, and
