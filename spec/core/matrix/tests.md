@@ -10,7 +10,7 @@ type: TestMatrix
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
 | StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-344, FR-346 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223, TC-225 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the proof check count, the `Unavailable` cause split, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
-| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | 🚧 implemented except one clause of FR-020-AC-3 (IR-274, IR-568): the corpus's canonical files holding one of the eight integer members are checked for strings-only spelling in full and four of them equal bytes written out in the test, not all 47 |
+| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-058 | 🚧 implemented except FR-019-AC-5, the model crate's explicit public item list (TC-058, planned; FR-019-AC-6, the artifact-reference member sets, is implemented) |
 
 ## Functional Requirement Coverage
