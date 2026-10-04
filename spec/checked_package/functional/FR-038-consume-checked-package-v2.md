@@ -1482,7 +1482,7 @@ otherwise, the locus is the key of the node that path is on.
 | an application of the `temporal_formula`, `temporal_fairness` or `case` class in a `details` term (merged QSpec FR-370 and FR-322 "Body grammar", #182 and #183); an application of any other class there is `malformed_wire` at that application ("The flat wire") | `/diagnostics/entries/{e}/details/{d}/operator` (and below for a nested one) | no node key; the entry's pointer is the locus |
 | an application of any class other than `case` nested in a node body or another term, an `aggregate` inside a Group's members, a `binding` as a body root (`malformed_wire`, strict wire validation, merged QSpec FR-322 "Body grammar", FR-341-AC-6, FR-370-AC-5) | the nested value, `/semantic_graph/nodes/{holder}/body/...` | the holder's key |
 | an `expression` node whose `semantic_form` contradicts its root application's operator class (`invalid_semantic_graph`) | `/semantic_graph/nodes/{n}/body` | the node's key |
-| a `case` application nested in another term (merged QSpec FR-440 and FR-322 "Body grammar", #182; refused in the term walk) | `/semantic_graph/nodes/{holder}/body/.../operator` of the nested application | the holder's key |
+| a `case` application nested in another term (merged QSpec FR-440 and FR-322 "Body grammar", #182; refused in strict wire validation, `flat_wire`) | `/semantic_graph/nodes/{holder}/body/.../operator` of the nested application | the holder's key |
 | a `case` application as the body root of a node that is not an `expression` node (merged FR-440 join 1; the operation step, not the temporal step) | `/semantic_graph/nodes/{holder}` | the holder's key |
 | a `null` member on an interval-capable operator (`operation-member-mismatch`, merged FR-370) | `/semantic_graph/nodes/{n}/body` | the node's key |
 | profile fit, interval | `/semantic_graph/nodes/{formula node}/body` | the formula node's key |
@@ -1551,8 +1551,9 @@ whatever the digest order, so it is reported before a `case` placement defect; a
 operation-step defects the lowest `node_id` digest is reported, and case placement is
 the first check of its node's joins. This replaces the earlier IR reading that put
 `case` in the one placement pass. Two further outcomes, merged QSpec text (#182 and
-#183: FR-322 "Body grammar" and FR-440; the nested case is refused in the term walk of
-the body, where nested applications are refused, and not by the operation step): a
+#183: FR-322 "Body grammar" and FR-440; the nested case is refused in strict wire
+validation (`flat_wire`), where nested applications are refused, ahead of every
+identity check (FR-038-AC-116), and not by the operation step): a
 `case` application nested inside another term refuses `ill_typed`/`operator-ineligible`
 at the nested application's `operator`, FR-322's named exception to `malformed_wire`
 (a nested application of any other class is `malformed_wire`, not placement, which

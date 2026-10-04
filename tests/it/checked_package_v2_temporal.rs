@@ -956,8 +956,8 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
         .expect("arguments")
         .push(case_body());
     settle(&mut package);
-    // A nested `case` is refused in the term walk at its own `operator`, with
-    // the holder as locus; the fixture's call holds one argument already.
+    // A nested `case` is refused in strict wire validation at its own
+    // `operator`, with the holder as locus; the fixture's call holds one argument already.
     expect(
         "a nested case application",
         &package,
