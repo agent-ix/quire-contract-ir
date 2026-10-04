@@ -92,10 +92,16 @@ fn ineligible(
     )
 }
 
-/// Tracing: TC-048, FR-038-AC-100
-#[trace("TC-048", "FR-038-AC-100")]
+/// A nested application is outside the body grammar, whatever its class: a
+/// `case` one refuses `ill_typed`/`operator-ineligible` at its own `operator`
+/// with the holder as locus, and one of the temporal classes `malformed_wire`
+/// at the nested application with no locus, at strict wire validation and so
+/// whatever the identities of the package are (FR-038-AC-114, FR-038-AC-115).
+///
+/// Tracing: TC-048, FR-038-AC-100, FR-038-AC-114, FR-038-AC-115
+#[trace("TC-048", "FR-038-AC-100", "FR-038-AC-114", "FR-038-AC-115")]
 #[test]
-fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_node_that_holds_it() {
+fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_nested_application() {
     for (operator, identity) in OPERATORS {
         type Build = Box<dyn Fn(&Value) -> Value>;
         // Where the nested application sits, below the holder's body.
@@ -121,19 +127,29 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_node_that_holds_
                 "arguments/1/members/0",
             ),
         ];
-        // A nested `case` is refused at its own `operator`, in the term walk; the
-        // temporal classes at the node that holds them. The locus is the holder.
+        // A nested `case` is refused at its own `operator`, the temporal classes
+        // at the nested application itself.
         let expected = |position: usize, below: &str| {
             if operator == "case" {
                 ineligible(&format!(
                     "/semantic_graph/nodes/{position}/body/{below}/operator"
                 ))
             } else {
-                ineligible(&format!("/semantic_graph/nodes/{position}"))
+                (
+                    CheckedPackageRefusalCode::MalformedWire,
+                    None,
+                    Some(pointer(&format!(
+                        "/semantic_graph/nodes/{position}/body/{below}"
+                    ))),
+                )
             }
         };
         let holder = |package: &Value, position: usize| {
-            package["semantic_graph"]["nodes"][position]["node_id"].clone()
+            if operator == "case" {
+                package["semantic_graph"]["nodes"][position]["node_id"].clone()
+            } else {
+                Value::Null
+            }
         };
         for (name, build, below) in cases {
             let (package, position) = with_second_argument(build);
@@ -146,7 +162,7 @@ fn tc_048_a_nested_application_of_a_placed_class_refuses_at_the_node_that_holds_
             assert_eq!(
                 serde_json::to_value(refusal.locus).expect("locus"),
                 holder(&package, position),
-                "{operator} {name}: the locus is the holder"
+                "{operator} {name}: the locus"
             );
         }
         // The refusal is of the operator class, whatever identity it names.
@@ -230,12 +246,33 @@ fn tc_048_a_diagnostic_detail_of_a_placed_class_refuses_at_its_operator() {
 #[trace("TC-048", "FR-038-AC-65")]
 #[test]
 fn tc_048_an_operator_outside_the_closed_vocabulary_refuses_at_the_term() {
-    let (package, position) = with_second_argument(|t| nested("bogus", "quire.op.boolean.not", t));
+    let mut package = v2_all_families();
+    let position = call_position(&package);
+    package["semantic_graph"]["nodes"][position]["body"]["operator"] = json!("bogus");
+    rekey_application_node(&mut package, position);
+    refresh_identity(&mut package);
     let refusal = refused(&package);
     assert_eq!(
         refusal.code,
         CheckedPackageRefusalCode::InvalidSemanticGraph
     );
+    assert_eq!(
+        refusal.path,
+        Some(pointer(&format!("/semantic_graph/nodes/{position}/body")))
+    );
+}
+
+/// An application stands only at a body root, so one nested in another term is
+/// outside the grammar whatever it names, an operator outside the closed
+/// vocabulary included (FR-038-AC-114).
+///
+/// Tracing: TC-048, FR-038-AC-114
+#[trace("TC-048", "FR-038-AC-114")]
+#[test]
+fn tc_048_a_nested_application_with_an_unknown_operator_is_outside_the_grammar() {
+    let (package, position) = with_second_argument(|t| nested("bogus", "quire.op.boolean.not", t));
+    let refusal = refused(&package);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
     assert_eq!(
         refusal.path,
         Some(pointer(&format!(

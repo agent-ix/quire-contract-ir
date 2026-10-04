@@ -10,8 +10,10 @@
 mod abstraction;
 mod dependency_references;
 pub(in crate::checked_package) mod encode;
+mod flat_wire;
 mod frame;
 mod identity;
+mod intake;
 mod lower;
 mod model_members;
 mod natural;
@@ -31,13 +33,13 @@ use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
 pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
-use temporal::{misplaced_in_details, validate_temporal};
+use temporal::{references_refused_node, validate_temporal};
 
 use super::common::{
     count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
-    on_stack_for, read_value, validate_definition_ref, validate_locked_artifact,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    read_value, validate_definition_ref, validate_locked_artifact, validate_source_map_entries,
+    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -51,7 +53,6 @@ use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 /// The I04 transport version admitted by the V2 reader.
 pub const CHECKED_PACKAGE_V2: &str = "quire.checked-package/v2";
@@ -375,33 +376,17 @@ pub enum CheckedPackageV2ReadResult {
 
 /// Immutable, admitted `quire.checked-package/v2` data.
 ///
-/// A caller's depth limit past the default of 128 can admit a package nested
-/// far deeper than an ordinary stack recurses over. Cloning, comparing,
-/// rendering with `Debug` and lowering a package run on a stack sized for the
-/// depth it was admitted at, and dropping any node, projection or diagnostic
-/// takes its `Value`s apart iteratively. The graph, lock and diagnostics the
-/// accessors return are plain data whose derived traits recurse on the
-/// caller's own stack: a caller who raises the depth limit past the default
-/// owns that.
+/// Every value an admitted package holds nests to a depth the closed body
+/// grammar fixes, whatever the package's node count, so its clone,
+/// comparison, `Debug` rendering, lowering and drop need no stack that follows
+/// the package's size.
+#[derive(Clone, Debug)]
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
-    /// The nesting depth this package was admitted at.
-    depth: u64,
     /// The byte limit this package was read under: the ceiling of every
     /// encode its lowering makes.
     bytes: u64,
-}
-
-impl Clone for CheckedPackageV2 {
-    fn clone(&self) -> Self {
-        on_stack_for(self.depth, || Self {
-            wire: self.wire.clone(),
-            kinds: self.kinds.clone(),
-            depth: self.depth,
-            bytes: self.bytes,
-        })
-    }
 }
 
 /// Equality is the equality of the admitted content. The read limit a package
@@ -409,51 +394,11 @@ impl Clone for CheckedPackageV2 {
 /// under different limits are equal.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
-        on_stack_for(self.depth.max(other.depth), || {
-            self.wire == other.wire && self.kinds == other.kinds
-        })
+        self.wire == other.wire && self.kinds == other.kinds
     }
 }
 
 impl Eq for CheckedPackageV2 {}
-
-impl fmt::Debug for CheckedPackageV2 {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        on_stack_for(self.depth, || {
-            formatter
-                .debug_struct("CheckedPackageV2")
-                .field("wire", &self.wire)
-                .field("kinds", &self.kinds)
-                .field("bytes", &self.bytes)
-                .finish()
-        })
-    }
-}
-
-/// A node's body is a `Value` nested as deep as a caller's depth limit
-/// admitted, so it is dropped through `quire-canonical`'s non-recursive
-/// `drop_value` rather than by `Value`'s recursive drop.
-impl Drop for CheckedSemanticNodeV2 {
-    fn drop(&mut self) {
-        quire_canonical::drop_value(std::mem::take(&mut self.body));
-    }
-}
-
-/// See [`CheckedSemanticNodeV2`]'s `Drop`.
-impl Drop for CheckedNodeProjectionV2 {
-    fn drop(&mut self) {
-        quire_canonical::drop_value(std::mem::take(&mut self.body));
-    }
-}
-
-/// See [`CheckedSemanticNodeV2`]'s `Drop`.
-impl Drop for CheckedDiagnosticV2 {
-    fn drop(&mut self) {
-        for detail in &mut self.details {
-            quire_canonical::drop_value(std::mem::take(detail));
-        }
-    }
-}
 
 /// Cumulative validation work against one caller limit.
 #[derive(Clone, Copy, Debug)]
@@ -617,8 +562,8 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        match read_value(bytes, limits, |value, depth| {
-            Self::admit_value(value, depth, limits, evidence)
+        match read_value(bytes, limits, |value| {
+            Self::admit_value(value, limits, evidence)
         }) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(
@@ -631,8 +576,7 @@ impl CheckedPackageV2 {
     /// Selects V2 exactly, decodes the closed wire, and validates it.
     // Intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
-        value: Value,
-        depth: u64,
+        mut value: Value,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> Result<Self, ValidationFailure> {
@@ -656,30 +600,21 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let wire = decode_closed::<CheckedPackageWireV2>(&value)
+        // The bodies and `details` terms, which a closed decode reads as
+        // `Value`s of any shape, are not read by it: they are taken out, and
+        // put into the wire after it (see `intake`).
+        let terms = intake::detach_terms(&mut value);
+        let mut wire = decode_closed::<CheckedPackageWireV2>(&value)
             .map_err(|failure| locate_in_preimage(failure, &value))
             .map_err(|failure| classify_dependency_entry_shape(failure, &value))?;
         // A lossless decode: no member was defaulted, nulled or dropped.
-        match serde_json::to_value(&wire) {
-            Ok(decoded) if decoded == value => {}
-            Ok(decoded) => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    first_difference(JsonPointer::root(), &value, &decoded),
-                ))
-            }
-            Err(_) => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    JsonPointer::root(),
-                ))
-            }
-        }
+        intake::check_lossless(&mut value, &mut wire)?;
+        drop(value);
+        intake::attach_terms(&mut wire, terms);
         let kinds = validate(&wire, limits, evidence)?;
         Ok(Self {
             wire,
             kinds,
-            depth,
             bytes: limits.bytes,
         })
     }
@@ -767,6 +702,9 @@ fn validate(
     evidence: &CheckedPackageEvidence,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     check_package_header(wire)?;
+    // The body grammar is strict wire validation: a body outside it refuses
+    // here, before any identity is recomputed (FR-038-AC-116).
+    flat_wire::check(wire)?;
     // The package id is the SHA-256 of the preimage's canonical bytes with no
     // domain label hashed in. A document that passed intake holds only numbers
     // `quire-canonical` encodes and a preimage no longer than the byte limit,
@@ -1569,11 +1507,12 @@ enum EdgeSite {
 /// built only on refusal, by [`body_reference_pointer`].
 type BodyReference = (CheckedNodeId, ReferenceSite);
 
-/// Locates the term walk's two cause-bearing refusals at the node whose body it
-/// walked: a bound outside the interval pattern
-/// (`invalid_package`/`invalid-value`) and a nested `case` application
-/// (`ill_typed`/`operator-ineligible`), each with its path already on the bound
-/// or the nested `operator`. Every other refusal of the walk is left as it is.
+/// Locates the two cause-bearing refusals of a body walk at the node whose body
+/// it walked: a bound outside the interval pattern
+/// (`invalid_package`/`invalid-value`, the term walk's) and a nested `case`
+/// application (`ill_typed`/`operator-ineligible`, the flat-wire check's), each
+/// with its path already on the bound or the nested `operator`. Every other
+/// refusal of a walk is left as it is.
 fn with_node_locus(failure: ValidationFailure, node_id: &CheckedNodeId) -> ValidationFailure {
     match failure {
         ValidationFailure::Refused(mut refusal)
@@ -1875,12 +1814,21 @@ fn validate_graph(
         EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
-    let projection = graph
-        .nodes
-        .iter()
-        .map(CheckedNodeProjectionV2::from)
-        .collect::<Vec<_>>();
-    if projection != wire.identity_preimage.identity_projection {
+    // Each node's projection is built and compared one at a time, so no copy
+    // of every node is held beside the graph.
+    let retained = &wire.identity_preimage.identity_projection;
+    if retained.len() != graph.nodes.len()
+        || graph
+            .nodes
+            .iter()
+            .zip(retained)
+            .any(|(node, retained)| CheckedNodeProjectionV2::from(node) != *retained)
+    {
+        let projection = graph
+            .nodes
+            .iter()
+            .map(CheckedNodeProjectionV2::from)
+            .collect::<Vec<_>>();
         let at = member_pointer(&["identity_preimage", "identity_projection"]);
         let path = match (
             serde_json::to_value(&wire.identity_preimage.identity_projection),
@@ -2141,16 +2089,13 @@ fn validate_diagnostics(
                 },
             )?;
             meter.charge(work, || detail_at.pointer())?;
-            // A `details` term is no node's body: an application of a class
-            // that stands only at one node form's body root is misplaced
-            // here, as the root or nested, and a reference to a formula,
-            // fairness or `case` node is refused at the entry.
-            if let Some(path) = misplaced_in_details(detail, detail_at.pointer(), |target| {
-                never_referenced.contains(target)
-            }) {
+            // A `details` term is no node's body: a reference to a formula,
+            // fairness or `case` node is refused at the entry. An application
+            // in it was refused ahead of every identity check (`flat_wire`).
+            if references_refused_node(detail, |target| never_referenced.contains(target)) {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,
-                    path,
+                    detail_at.pointer(),
                     CheckedPackageRefusalCause::OperatorIneligible,
                 ));
             }

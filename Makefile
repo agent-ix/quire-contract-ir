@@ -122,7 +122,7 @@ audit-unsafe:
 # =============================================================================
 
 SIBLINGS ?= $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir)/../..)
-LOCAL_PATCHES ?= quire-verification-contracts:quire-verification-contracts:. ix-trace-rs:ix-trace-rs:. quire-canonical:quire-canonical:. quire-canonical:quire-canonical-derive:quire-canonical-derive
+LOCAL_PATCHES ?= quire-verification-contracts:quire-verification-contracts:. ix-trace-rs:ix-trace-rs:. quire-canonical:quire-canonical:. quire-canonical:quire-canonical-derive:quire-canonical-derive quire-walk:quire-walk:.
 
 .PHONY: use-local
 use-local:

@@ -10,8 +10,8 @@
 //! only the current `CheckedPackageV2` reader and lowerer.
 
 use crate::support::checked_package::{
-    all_families_read_work, canonical, evidence_for, incomplete, json_depth, refresh_identity,
-    refusal, refusal_bytes, typed_node_id, unknown_version, v2_all_families, NODE_DOMAIN,
+    all_families_read_work, canonical, evidence_for, incomplete, refresh_identity, refusal,
+    refusal_bytes, typed_node_id, unknown_version, v2_all_families, NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -342,7 +342,6 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
             .sum::<usize>();
     let mut exact = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("fixture length"),
-        depth: json_depth(&value),
         nodes: u64::try_from(wire_nodes.len()).expect("node count"),
         edges: u64::try_from(total_edges).expect("edge count"),
         occurrences: u64::try_from(total_occurrences).expect("occurrence count"),
@@ -364,17 +363,6 @@ fn tc_044_reader_reports_exact_and_one_over_resource_accounting() {
         None,
     );
     exact.bytes += 1;
-
-    exact.depth -= 1;
-    assert_incomplete(
-        &bytes,
-        exact,
-        &evidence,
-        CheckedPackageLimit::Depth,
-        exact.depth,
-        Some("/identity_preimage/identity_projection/9/body/operation/laws/0/definition/authority"),
-    );
-    exact.depth += 1;
 
     exact.nodes -= 1;
     assert_incomplete(

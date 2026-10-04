@@ -39,10 +39,13 @@ use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     JsonPointer,
 };
+use crate::checked_package::terms::visit_terms;
+use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::ControlFlow;
 
 /// The three temporal operator classes whose applications stand only at the
 /// body root of one node form, and that form (QSpec FR-370 "Placement and
@@ -65,65 +68,31 @@ const PLACED: [(ApplicationOperator, CheckedNodeKind); 3] = [
 
 /// Whether an application of this temporal operator class stands only at the
 /// body root of its node form.
-pub(in crate::checked_package) fn is_placed_class(operator: ApplicationOperator) -> bool {
+fn is_placed_class(operator: ApplicationOperator) -> bool {
     PLACED.iter().any(|(class, _)| *class == operator)
 }
 
-/// The pointer a diagnostics entry's `details` term is refused at, or `None`
-/// when it is admitted. A `details` term is no node's body, so an application
-/// of a temporal class in it, as its root or nested, is refused at that
-/// application's `operator`, the first in pre-order (a `case` application there
-/// was refused earlier, by the term walk, at the same pointer: it is no body
-/// root); and a `reference` to a
-/// node `refused_target` names (a `temporal`/`formula`, `temporal`/`fairness`
-/// or `expression`/`case` node) is refused at the entry, `at`, the pointer of
-/// `term` itself. A reference to a union or union value node is an ordinary one
-/// (merged QSpec FR-370 and FR-440: a `details` term may reference a
-/// `composite_type`/`union` or `value`/`union_value` node).
-pub(in crate::checked_package) fn misplaced_in_details(
+/// Whether a diagnostics entry's `details` term holds a `reference` to a node
+/// `refused_target` names (a `temporal`/`formula`, `temporal`/`fairness` or
+/// `expression`/`case` node), which is refused at the `details` term. A
+/// reference to a union or union value node is an ordinary one (merged QSpec
+/// FR-370 and FR-440: a `details` term may reference a `composite_type`/`union`
+/// or `value`/`union_value` node). An application in a `details` term is
+/// outside the body grammar and is refused ahead of this check (`flat_wire`).
+pub(in crate::checked_package) fn references_refused_node(
     term: &Value,
-    at: JsonPointer,
     refused_target: impl Fn(&CheckedNodeId) -> bool,
-) -> Option<JsonPointer> {
-    let entry = at.clone();
-    let mut pending = vec![(term, at)];
-    while let Some((term, at)) = pending.pop() {
-        let (member, children): (&str, Vec<&Value>) = match body_term(term) {
-            Some(BodyTerm::Application) => {
-                if application_operator(term).is_some_and(is_placed_class) {
-                    return Some(at.key("operator"));
-                }
-                ("arguments", terms(term, "arguments").collect())
-            }
-            Some(BodyTerm::Aggregate) => ("members", terms(term, "members").collect()),
-            Some(BodyTerm::Binding) => ("value", term.get("value").into_iter().collect()),
-            Some(BodyTerm::Reference) => {
-                if reference_target(term).is_some_and(|target| refused_target(&target)) {
-                    return Some(entry);
-                }
-                continue;
-            }
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => continue,
-        };
-        let below = at.key(member);
-        for (child_at, child) in children.into_iter().enumerate().rev() {
-            // A binding's one value sits directly under `value`; the others
-            // are array elements.
-            let pointer = if member == "value" {
-                below.clone()
-            } else {
-                below.clone().index(child_at)
-            };
-            pending.push((child, pointer));
+) -> bool {
+    visit_terms(term, |term| {
+        let refused = body_term(term) == Some(BodyTerm::Reference)
+            && reference_target(term).is_some_and(|target| refused_target(&target));
+        if refused {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-    None
+    })
+    .is_break()
 }
 
 /// An integer string: the schema's `IntegerString`, `^(0|-?[1-9][0-9]*)$`.
@@ -382,9 +351,9 @@ fn terms<'a>(term: &'a Value, member: &str) -> impl Iterator<Item = &'a Value> {
         .flatten()
 }
 
-/// The placement defect of one node: its body root against its form, any
-/// application of a placed class nested in its body, and any `reference` to a
-/// formula or fairness node from a place that may not name one.
+/// The placement defect of one node: its body root against its form, and any
+/// `reference` to a formula or fairness node from a place that may not name one.
+/// An application nested in the body was refused ahead of every identity check.
 fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<ValidationFailure> {
     let node = graph.nodes.get(position)?;
     let kind = *graph.kinds.get(position)?;
@@ -401,22 +370,49 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
         (None, Some(root)) if is_placed_class(root) => return Some(ineligible(graph, position)),
         (None, _) => {}
     }
-    let mut pending = vec![(&node.body, true, Slot::Other)];
-    while let Some((term, is_root, slot)) = pending.pop() {
+    match walk(
+        &mut Placement {
+            graph,
+            position,
+            kind,
+        },
+        (&node.body, true, Slot::Other),
+    ) {
+        ControlFlow::Continue(()) => None,
+        ControlFlow::Break(failure) => Some(failure),
+    }
+}
+
+/// The walk of [`placement_defect`] over a node's body: each term with whether
+/// it is the body root and the slot it stands in.
+struct Placement<'g, 'a, 'm> {
+    graph: &'g StepGraph<'a, 'm>,
+    position: usize,
+    kind: CheckedNodeKind,
+}
+
+impl<'a> Walk for Placement<'_, 'a, '_> {
+    type Node = (&'a Value, bool, Slot);
+    type Frame = ();
+    type Stop = ValidationFailure;
+
+    fn enter(
+        &mut self,
+        (term, is_root, slot): (&'a Value, bool, Slot),
+        children: &mut Children<'_, (&'a Value, bool, Slot)>,
+    ) -> ControlFlow<ValidationFailure> {
         match body_term(term) {
+            // Only the body root is an application: a nested one is refused
+            // `malformed_wire` ahead of this step (`flat_wire`).
             Some(BodyTerm::Application) => {
-                if !is_root && application_operator(term).is_some_and(is_placed_class) {
-                    return Some(ineligible(graph, position));
-                }
-                let arguments: Vec<&Value> = terms(term, "arguments").collect();
-                for (at, argument) in arguments.into_iter().enumerate().rev() {
+                children.extend(terms(term, "arguments").enumerate().map(|(at, argument)| {
                     let slot = if is_root {
-                        argument_slot(kind, at)
+                        argument_slot(self.kind, at)
                     } else {
                         Slot::Other
                     };
-                    pending.push((argument, false, slot));
-                }
+                    (argument, false, slot)
+                }));
             }
             Some(BodyTerm::Aggregate) => {
                 let member = if slot == Slot::FairnessList {
@@ -424,14 +420,14 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
                 } else {
                     Slot::Other
                 };
-                pending
+                children
                     .extend(terms(term, "members").map(|member_term| (member_term, false, member)));
             }
             Some(BodyTerm::Binding) => {
-                pending.extend(term.get("value").map(|value| (value, false, Slot::Other)));
+                children.extend(term.get("value").map(|value| (value, false, Slot::Other)));
             }
             Some(BodyTerm::Reference) => {
-                let target = reference_target(term).and_then(|target| graph.node(&target));
+                let target = reference_target(term).and_then(|target| self.graph.node(&target));
                 let misplaced = match target {
                     Some((_, CheckedNodeKind::Temporal(TemporalForm::Formula))) => {
                         slot != Slot::Formula
@@ -442,7 +438,7 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
                     _ => false,
                 };
                 if misplaced {
-                    return Some(ineligible(graph, position));
+                    return ControlFlow::Break(ineligible(self.graph, self.position));
                 }
             }
             Some(
@@ -453,8 +449,12 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
             )
             | None => {}
         }
+        ControlFlow::Continue(())
     }
-    None
+
+    fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
+        ControlFlow::Continue(())
+    }
 }
 
 /// The wire `operation` of the application at the root of `node`'s body.

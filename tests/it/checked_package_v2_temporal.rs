@@ -1175,7 +1175,7 @@ fn tc_048_a_diagnostics_entry_may_carry_the_unsupported_construct_code() {
     settle(&mut package);
     let reader = admitted("unsupported_construct entry", &package);
     assert_eq!(
-        serde_json::to_value(&reader.diagnostics().entries[0].code).expect("code"),
+        serde_json::to_value(reader.diagnostics().entries[0].code).expect("code"),
         "unsupported_construct"
     );
 }

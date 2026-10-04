@@ -72,6 +72,84 @@ pub fn v2_nominal() -> Value {
     nominal_package(&nominal_fixture_members())
 }
 
+/// [`v2_all_families`] with a chain of `length` further `expression`/`reference`
+/// nodes, each referencing the one before it: the first the family's own
+/// reference node, and the last, whose key is returned, the end of an
+/// expression `length` nodes deep. Each node costs one node, one edge and one
+/// occurrence, so a limit sized for the node count decides nothing else, and the
+/// body grammar keeps the document's JSON depth at that of a one-node chain
+/// (FR-038-AC-117, merged QSpec FR-322-AC-41).
+///
+/// Returned as the canonical document's bytes, built as text one node at a time
+/// and spliced into the family's document at three markers, with `package_id`
+/// derived over the spliced identity preimage: no tree of the whole document is
+/// ever held, which would be many times the size of its text.
+pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
+    const NODES: &str = "\u{1}nodes";
+    const PROJECTION: &str = "\u{1}projection";
+    const SOURCE_MAP: &str = "\u{1}source_map";
+    let boolean = family_key("aaaa");
+    let mut previous = family_key("eeee");
+    let mut package = v2_all_families();
+    let base = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let source = fixture_source();
+    let (mut nodes, mut projection, mut source_map) = (Vec::new(), Vec::new(), Vec::new());
+    for index in 0..length {
+        let key = format!("{:064x}", index + 1);
+        let mut node = plain_node(
+            &key,
+            "expression",
+            "reference",
+            &boolean,
+            &[previous.as_str()],
+            json!({"term": "reference", "target": node_id(&previous)}),
+        );
+        nodes.push(serde_json::to_string(&node).expect("node"));
+        node.as_object_mut()
+            .expect("node object")
+            .remove("occurrences");
+        projection.push(serde_json::to_string(&node).expect("projection"));
+        let position = base + index;
+        source_map.push(
+            serde_json::to_string(&json!({
+                "node_id": node_id(&key), "role": "generated", "ordinal": 0,
+                "regions": [{"source": source, "start": position, "end": position + 1}],
+            }))
+            .expect("source map entry"),
+        );
+        previous = key;
+    }
+    let marker = |package: &mut Value, pointer: &str, text: &str| {
+        package
+            .pointer_mut(pointer)
+            .and_then(Value::as_array_mut)
+            .expect("an array")
+            .push(json!(text));
+    };
+    marker(&mut package, "/semantic_graph/nodes", NODES);
+    marker(
+        &mut package,
+        "/identity_preimage/identity_projection",
+        PROJECTION,
+    );
+    marker(&mut package, "/source_map", SOURCE_MAP);
+    let splice = |text: String, marker: &str, entries: &[String]| {
+        let quoted = serde_json::to_string(marker).expect("marker");
+        text.replace(&quoted, &entries.join(","))
+    };
+    let preimage = String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8");
+    let preimage = splice(preimage, PROJECTION, &projection);
+    package["package_id"]["digest"] = json!(sha256_hex(preimage.as_bytes()));
+    let text = String::from_utf8(canonical(&package)).expect("utf-8");
+    let text = splice(text, NODES, &nodes);
+    let text = splice(text, PROJECTION, &projection);
+    let text = splice(text, SOURCE_MAP, &source_map);
+    (text.into_bytes(), previous)
+}
+
 /// A `quire.checked-package/v2` document exercising `declaration`,
 /// `literal.type` and `application.operation`/`application.result_type` —
 /// the shape `tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare`

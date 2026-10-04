@@ -1003,13 +1003,14 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
 }
 
 /// Tracing: TC-056
-/// ACs: FR-040-AC-10
-#[trace("TC-056", "FR-040-AC-10")]
+/// ACs: FR-040-AC-10, FR-038-AC-114
+#[trace("TC-056", "FR-040-AC-10", "FR-038-AC-114")]
 #[test]
 fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
     let package = StatePackage::new();
     let invariant = package.clause("invariant");
-    // Nested inside the invariant's own condition position.
+    // Nested inside the invariant's own condition position: an application
+    // outside the body grammar, `malformed_wire` at the nested application.
     let nested = StatePackage::new()
         .edit(invariant, |node| {
             let inner = node["body"].clone();
@@ -1023,8 +1024,8 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
     expect(
         "a nested clause application",
         &nested,
-        Code::IllTyped,
-        Some(Cause::OperatorIneligible),
+        Code::MalformedWire,
+        None,
         &format!("/semantic_graph/nodes/{clause}/body/arguments/2"),
         None,
     );

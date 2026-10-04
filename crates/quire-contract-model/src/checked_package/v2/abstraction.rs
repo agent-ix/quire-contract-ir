@@ -46,6 +46,7 @@
 //! this package's source and is joined by kind alone.
 
 use super::encode::AbstractionNodePreimage;
+use super::flat_wire::scan_members;
 use super::frame::{join, StepGraph};
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
@@ -56,7 +57,7 @@ use super::{
     WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor, Step,
+    body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor,
     TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
@@ -129,7 +130,8 @@ impl AbstractionBody {
 /// per-node body loop: an application standing as a member value refuses, a
 /// `case` application as `ill_typed`/`operator-ineligible` at its `operator`
 /// and every other as `malformed_wire` at the application (FR-038 "The flat
-/// wire"). An application at the body root is a term of the closed grammar and
+/// wire"; the same refusal [`super::flat_wire`] makes ahead of every identity
+/// check). An application at the body root is a term of the closed grammar and
 /// is validated as one: the step that places it refuses it. Returns the work
 /// done, one unit per value walked.
 ///
@@ -142,66 +144,7 @@ pub(super) fn scan_body(
     if body_term(body) == Some(BodyTerm::Application) {
         return validate_term(body, TermGrammar::V2, true, at, visit);
     }
-    scan_members(body, at, visit)
-}
-
-/// Walks the values below the body root in document pre-order, outermost
-/// first, from an explicit stack, and refuses the first application. The path
-/// of each pending value is a chain of steps in an arena, so a pointer is
-/// built only for the application that refuses.
-fn scan_members(
-    body: &Value,
-    at: &Trail<'_>,
-    visit: &mut ReferenceVisitor<'_>,
-) -> Result<u64, ValidationFailure> {
-    /// The path of the body root: no step below it.
-    const ROOT: usize = usize::MAX;
-    let mut arena: Vec<(usize, Step<'_>)> = Vec::new();
-    let mut pending: Vec<(&Value, usize)> = vec![(body, ROOT)];
-    let mut work = 0_u64;
-    while let Some((value, path)) = pending.pop() {
-        work = work.saturating_add(1);
-        if path != ROOT && body_term(value) == Some(BodyTerm::Application) {
-            let mut below = Vec::new();
-            let mut cursor = path;
-            while let Some(&(parent, step)) = arena.get(cursor) {
-                below.push(step);
-                cursor = parent;
-            }
-            let steps = at
-                .steps()
-                .into_iter()
-                .chain(below.into_iter().rev())
-                .collect::<Vec<_>>();
-            let here = Trail::Base(&steps);
-            // A malformed application, or a `case` one, is refused by the term
-            // walk with its own code; any other nested application is outside
-            // the body.
-            validate_term(value, TermGrammar::V2, false, &here, visit)?;
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                here.pointer(),
-            ));
-        }
-        let children: Vec<(Step<'_>, &Value)> = match value {
-            Value::Object(members) => members
-                .iter()
-                .map(|(key, member)| (Step::Key(key), member))
-                .collect(),
-            Value::Array(items) => items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| (Step::Index(index), item))
-                .collect(),
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => continue,
-        };
-        // Pushed in reverse so the walk visits values in document order.
-        for (step, child) in children.into_iter().rev() {
-            arena.push((path, step));
-            pending.push((child, arena.len() - 1));
-        }
-    }
-    Ok(work)
+    scan_members(body, at)
 }
 
 /// A shape defect of the body: the code it refuses with and the path of the
