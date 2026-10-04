@@ -1057,11 +1057,29 @@ pub(super) fn admit_document(
     // The document is read once, by `quire-canonical`, which keeps each
     // number's text. Bytes that are not strict JSON have no RFC 8785 form, so
     // no digest of theirs equals the selected one; bytes past the reader's
-    // limit are the read's `incomplete` for `bytes`.
+    // limit are the read's `incomplete` for `bytes`; a number past the double
+    // range has no exact RFC 8785 spelling, so the read names it by pointer
+    // and text and it is refused as any other inexact number is.
     let reading = match quire_canonical::read(bytes, budget.bytes) {
         Ok(reading) => reading,
         Err(quire_canonical::ReadError::Limit(limit)) => {
             return Err(bytes_exceeded(limit).into());
+        }
+        Err(quire_canonical::ReadError::NumberOutOfRange {
+            pointer, lexeme, ..
+        }) => {
+            // The reader's pointer is RFC 6901 by its contract, so it is
+            // taken as the escaped text it is.
+            let document_pointer = JsonPointer::from_escaped(pointer);
+            let cause = if Spelling::of(&lexeme).is_whole_past_2_pow_53() {
+                Cause::InexactInteger
+            } else {
+                Cause::InexactNumber
+            };
+            return Err(SelectionFailure::InexactNumber {
+                document_pointer,
+                cause,
+            });
         }
         Err(_) => return Err(mismatch.into()),
     };

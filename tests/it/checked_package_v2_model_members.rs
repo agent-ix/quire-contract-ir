@@ -713,7 +713,7 @@ fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause
     // An inexact number at `/b` before a whole number past 2^53 at `/a/0`
     // names `/b`; the reverse order names the whole number. `9007199254740992.5`
     // is not whole, so it is never an integer cause though its nearest double
-    // is 2^53. (The `1e400` and `-1e400` clause of AC-110 is not asserted.)
+    // is 2^53.
     for (members, pointer, cause) in [
         (
             "\"b\":9007199254740992.5",
@@ -742,6 +742,89 @@ fn tc_048_the_first_inexact_number_in_document_order_is_named_with_its_own_cause
                 assert_eq!(refused, number_refusal(pointer, cause), "{members}");
             }
             other => panic!("{members}: expected a refusal, read {other:?}"),
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-110
+#[trace("TC-048", "FR-038-AC-110")]
+#[test]
+fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointer() {
+    let other = "ab".repeat(32);
+    for text in ["1e400", "-1e400", "1e309"] {
+        // Nested: at a member of the model document, under its own digest and
+        // another, so the refusal precedes `byte-digest-mismatch`.
+        let bytes = document_bytes_with_number("ratio", text);
+        for digest in [sha256_hex(&bytes), other.clone()] {
+            match read_selecting(&digest, &bytes) {
+                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                    refused,
+                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactInteger),
+                    "{text}"
+                ),
+                other => panic!("{text}: expected a refusal, read {other:?}"),
+            }
+        }
+        // In an array, so the pointer carries an index.
+        let bytes = document_bytes_led_by(&format!("\"a\":[0,{text}]"));
+        match read_selecting(&sha256_hex(&bytes), &bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/a/1", CheckedPackageRefusalCause::InexactInteger),
+                "{text}"
+            ),
+            other => panic!("{text}: expected a refusal, read {other:?}"),
+        }
+        // At the top level the document is the number and the pointer is empty.
+        let bytes = text.as_bytes().to_vec();
+        match read_selecting(&sha256_hex(&bytes), &bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("", CheckedPackageRefusalCause::InexactInteger),
+                "{text}"
+            ),
+            other => panic!("{text}: expected a refusal, read {other:?}"),
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-110
+#[trace("TC-048", "FR-038-AC-110")]
+#[test]
+fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
+    // 400 nines then `.5`: past the double range, but not a whole value, so
+    // the cause is `inexact-number`, never `inexact-integer`.
+    let text = format!("{}.5", "9".repeat(400));
+    for number in [text.clone(), format!("-{text}")] {
+        let bytes = document_bytes_with_number("ratio", &number);
+        match read_selecting(&sha256_hex(&bytes), &bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
+            ),
+            other => panic!("expected a refusal, read {other:?}"),
+        }
+    }
+}
+
+/// Tracing: TC-048, FR-038-AC-109
+#[trace("TC-048", "FR-038-AC-109")]
+#[test]
+fn tc_048_a_number_below_the_double_range_refuses_inexact_number_on_its_text() {
+    // These read as zero with their text kept, so the rule is IR's own, on
+    // the text: zero is not their exact value.
+    let other = "ab".repeat(32);
+    for text in ["1e-400", "-1e-400"] {
+        let bytes = document_bytes_with_number("ratio", text);
+        for digest in [sha256_hex(&bytes), other.clone()] {
+            match read_selecting(&digest, &bytes) {
+                CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                    refused,
+                    number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
+                    "{text}"
+                ),
+                other => panic!("{text}: expected a refusal, read {other:?}"),
+            }
         }
     }
 }
