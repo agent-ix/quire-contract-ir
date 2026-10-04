@@ -9,7 +9,7 @@ type: TestMatrix
 
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
-| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-344, FR-346 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223, TC-225 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the proof check count, the `Unavailable` cause split, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
+| StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-043, FR-344, FR-346 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223, TC-225, TC-441 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the proof check count, the `Unavailable` cause split, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
 | StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
 | StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-058 | 🚧 implemented except FR-019-AC-5, the model crate's explicit public item list (TC-058, planned; FR-019-AC-6, the artifact-reference member sets, is implemented) |
 
@@ -19,6 +19,8 @@ type: TestMatrix
 |---|---|---|---|
 | FR-011 | FR-011-AC-1 through FR-011-AC-3 | TC-015 | 🚧 implemented, including the clause of AC-3 that refuses a zero source or requirement revision and one above 9007199254740992 (2^53) as `invalid_source_revision` or `invalid_requirement_revision`, through the constructors, the package decoder (`tc_015_a_revision_or_byte_offset_above_two_to_the_53_is_refused`), the expression operation and the binding expression decoder (`wire::tests::tc_015_*`, IR-569). Unmet (IR-574): a whole executable projection carrying one is refused `invalid_wire_format` at `projection` because its normative schema (FR-023) is checked first; a clause reference's revision in a binding (`Binding.clause`), the package probe's `clause_resolutions` and the coverage artifact traces are still decoded by serde and give `invalid_wire_format`. STD-001's rows do not list the over-2^53 condition (IR-574) |
 | FR-012 | FR-012-AC-1 through FR-012-AC-6 | TC-015, TC-016 | 🚧 implemented, including the clause of AC-6 that refuses a byte offset above 9007199254740992 (2^53) as `invalid_source_span`, through the constructors, the package decoder (`tc_015_a_revision_or_byte_offset_above_two_to_the_53_is_refused`), the expression operation and the binding expression decoder (`wire::tests::tc_015_*`, IR-569). Unmet (IR-574): a whole executable projection carrying one is refused `invalid_wire_format` at `projection` because its normative schema (FR-023) is checked first; the coverage operation's artifact-trace spans (`WireArtifactTrace` source and target spans, `WireTraceDepth` digest span) are still decoded by serde and give `invalid_wire_format` rather than `invalid_source_span` |
+
+| FR-043 | FR-043-AC-1 through FR-043-AC-4 | TC-441 | 🚧 planned (IR-581): no code has landed; the one owned one-copy check, the failing fixture lock with two entries of one first-party crate at different revisions, the passing lock and the third-party-only exception rule have no test |
 
 ## Non-Functional Requirement Coverage
 
@@ -40,4 +42,5 @@ type: TestMatrix
 |---|---|---|---|---|---|
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
+| TC-441 | The owned one-copy check refuses a lock holding two entries of one first-party crate at different revisions, passes a one-entry lock and this repository's lock, and the repository holds no copy of it | Integration | P0 | FR-043-AC-1, FR-043-AC-2, FR-043-AC-3, FR-043-AC-4 | 🚧 planned (IR-581): no code has landed |
 

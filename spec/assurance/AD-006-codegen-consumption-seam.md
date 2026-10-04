@@ -97,7 +97,7 @@ including the globs the model crate itself uses (AD-005, Current state).
 
 | Edge | Allowed | Held by | Gap |
 | --- | --- | --- | --- |
-| codegen to IR | yes, root crate only today | codegen `Cargo.toml`; codegen `make deny` runs `scripts/check_one_copy.awk` over codegen's lock (one `quire-contract-ir`, one `quire-contract-model`) | the root crate is the wrong path for model items (above) |
+| codegen to IR | yes, root crate only today | codegen `Cargo.toml`; codegen `make deny` runs `scripts/check_one_copy.awk` over codegen's lock (one `quire-contract-ir`, one `quire-contract-model`); the owner has ruled that the copied script is replaced by one owned tool (IR-581, AD-007 O-4) | the root crate is the wrong path for model items (above) |
 | IR to codegen | no | nothing in IR yet; AD-005 decision D makes it a cargo-deny `bans` failure (IR-343) | the forbidden list in `tests/it/cycle_free_model.rs` does not name `quire-contract-codegen` |
 | IR to QSL | no | `tc_041` today; target: cargo-deny `bans` entries as well (AD-005 decision D) | no deny entry exists yet |
 | codegen to QSL | only `qsl-replay` | codegen `deny.toml` exceptions and QSL's `arch-lint api-surface` T12-A | not an IR concern |

@@ -20,6 +20,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-039
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-043
+    type: references
   - target: ix://agent-ix/quire-spec-language/ADR-011
     type: references
 ---
@@ -132,7 +134,7 @@ owners or a copy is a finding.
 | Stack growth | no owner named | `qsl-walk-grow` (QSL, depended on by no one) and a direct `stacker` and `serde_stacker` in IR model | two sites, no shared type; recorded, not a copy (O-3) |
 | Exact scalar, text, composite kernel, `Meter`, `Outcome` | `quire-exact` | RT `src/exact` (23 files, 12,080 lines) is a second implementation | two owners; 124 `pub struct` or `enum` names are shared between RT `src/exact` and `quire-exact` plus `quire-semantic-value` (same-named, not proven identical), among them `Meter`, `Integer`, `Decimal`, `Text`, `Outcome`, `ScalarLimits`; RT's own edge to `quire-exact` is declared and unused (IR-349) |
 | Semantic value (declaration, containment, unit, quantity, enumeration, origin and location, checking limits) | `quire-semantic-value` | RT holds same-named copies; no RT edge to it | two owners, as above: RT's copies are defects to delete under IR-349 (with QSL-358); no exception exists (decision A) |
-| One-copy lock check (`scripts/check_one_copy.awk`) | none named | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL has no equivalent: no `duplicate-revisions` check exists on QSL `main`; its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone) | a copy between repositories, which this AD treats as a finding, not as the design; no owner is named and none is decided here (O-4) |
+| One-copy lock check (`scripts/check_one_copy.awk`) | one owned tool that IR, CG and RT call, with no copy in any caller (owner's ruling, O-4); which tool is the remaining question, with a recommendation (O-4, FR-043) | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL has no equivalent: no `duplicate-revisions` check exists on QSL `main`; its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone) | a copy between repositories, which this AD treats as a finding, not as the design; the owner has ruled that the three copies are deleted in favour of one owned tool (IR-581, FR-043) |
 | Replay, witness, envelope, terminal record, obligation identity | `qsl-replay` | IR root still exports `KaniProviderResult` and `KaniProviderRecord` | two owners until IR-347 removes them (FR-039, AD-005 D-3) |
 | Kani outcome type (`KaniOutcome`) | IR root crate | one owner | none |
 | Checked-package wire types, strict reader, lowering | IR model (wire contract is QSpec's) | one owner | none |
@@ -151,7 +153,7 @@ owners or a copy is a finding.
 | Crate, QSL workspace | none | the crate-level table is a DAG over normal and dev edges; `quire-exact`, `qsl-attrs`, `qsl-walk-grow` and `tools/arch-lint` have no workspace dependency |
 | IR root to QSL (ADR-011 T-5 row) | not present | neither IR manifest names QSL; `tc_041` checks it by name and by git source |
 | QSL dev edges to CG and a historical IR | not present | no QSL manifest or lock entry; routed as R-2 for QSL to restate |
-| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and the one-copy lock check make each lock hold one entry per repo; that check is today a script copied into IR, CG and RT (a finding, O-4), and QSL has no general one, only `deny-multiple-versions` on `quire-canonical` (routed, R-1) |
+| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and the one-copy lock check make each lock hold one entry per repo; that check is today a script copied into IR, CG and RT, to be replaced by one owned tool (O-4, IR-581, FR-043), and QSL has no general one, only `deny-multiple-versions` on `quire-canonical` (routed, R-1) |
 
 A cycle is one `dev` edge away in two places: QSL depending on RT or CG for fixtures, and any
 RT or CG crate depending on a QSL crate other than the shared kernel. The second is guarded in
@@ -196,10 +198,12 @@ Targets proposed to each owning repository; only G-1 and G-4's IR halves are IR'
   other repositories).
 - G-3. Every first-party git edge is `branch = "main"` with no `rev` (holds for IR, CG and RT;
   proposed to QSL, R-1).
-- G-4. Each lock holds one entry per first-party crate (existing: IR, CG and RT run `check_one_copy.awk` over
-  their own lock, a script copied into each repository, which O-4 treats as a finding; QSL
-  has no general check, only `deny-multiple-versions` on `quire-canonical`, so for QSL this
-  invariant is a target, routed in R-1).
+- G-4. Each lock holds one entry per first-party crate, at one git revision, and no repository
+  carries a copy of the check (existing: IR, CG and RT run `check_one_copy.awk` over their own
+  lock, a script copied into each repository; the owner has ruled that the three copies are
+  replaced by one owned tool, O-4, and IR's half is FR-043; QSL has no general check, only
+  `deny-multiple-versions` on `quire-canonical`, so for QSL this invariant is a target,
+  routed in R-1).
 - G-5. No public type is defined in two first-party crates (proposed target; RT `src/exact`
   fails it, IR-349).
 
@@ -215,7 +219,7 @@ What is measured today, what is open and with whom, and what is routed.
 | IR root exports `KaniProviderResult` and `KaniProviderRecord` | IR | IR-347 |
 | IR `deny.toml` has no name-level `bans` for CG, RT or QSL crates, and `tc_041` does not check the model crate by `qsl-*` name or source; a git edge to those repositories already fails `unknown-git` (decision B) | IR | IR-343 |
 | QVC has a second RFC 8785 path (`jcs_canonicalize`, `jcs_equal`, `jcs_sha256`) | QVC, quire-canonical | R-3, VER-52 (Backlog) |
-| `check_one_copy.awk` is copied, byte-identical, into IR, CG and RT | no owner named | O-4 |
+| `check_one_copy.awk` is copied, byte-identical, into IR, CG and RT | the owner has ruled one owned tool replaces the three copies; IR carries the spec and its own deletion, CG and RT delete theirs | O-4, IR-581, FR-043 |
 | CG's `Cargo.lock` still resolves `quire-walk` from the QSL repository, which `main` of QSL no longer contains | CG | resolves on CG's next full lock refresh, which also updates the QSL source; IR-565 is CG's adaptation to IR-495 on its next bump and does not itself cover this |
 | AD-005's text on IR's own digest encoder (`digest_json`, `CanonicalWriter`) and on the absence of any IR guard was out of date | IR | corrected in this change (AD-005 Current state and Identity bullets) |
 
@@ -263,12 +267,72 @@ O-3. Is stack growth one concept? `qsl-walk-grow` is depended on by nothing and 
 (accept two call sites). Low priority; no recommendation beyond not adding a dependency from IR
 to QSL.
 
-O-4. Who owns the one-copy lock check? The same script is committed in IR, CG and RT, and a
-copy between repositories is a finding under this AD's own rule. The question for the owners
-of IR, CG and RT and for the owner of the ecosystem's tooling is which repository or crate
-should own the check so the others reference it rather than carry it. This AD proposes no
-exception, no shared copy placed in another repository, and no answer; until it is answered
-the three copies are a recorded finding, not the intended design.
+**O-4. Who owns the one-copy lock check? Decided in part.** The same script is committed in
+IR, CG and RT, and a copy between repositories is a finding under this AD's own rule. The
+owner, first-hand, 2026-10-04, recorded on IR-581, ruled: the three byte-identical copies
+are replaced by one owned tool that IR, CG and RT call, and the three copies are deleted;
+the tool creates no dependency cycle and is not vendored into any caller; QSL is offered the
+same check. IR owns the requirement (FR-043). This AD proposes no exception and no shared
+copy placed in another repository.
+
+What the ruling leaves open is which tool. Measured on 2026-10-04 (origin/main of each
+repository, a cargo-deny 0.20 fixture, IR's own lock):
+
+| What the script checks | Value |
+| --- | --- |
+| File | the `Cargo.lock` it is given (RT runs it over every tracked `Cargo.lock`; RT has one) |
+| Crates | every package whose lock source is under the agent-ix GitHub organisation, no name list: 5 crate names in IR's lock, 20 in CG's, 1 in RT's |
+| Rule | more than one `[[package]]` entry for one name, of any version or source, fails; the message is `one-copy: NAME has N entries in Cargo.lock` |
+
+| Option | Owner and how callers invoke it | Cycle risk | Cost | Pin | Callers hold a copy |
+| --- | --- | --- | --- | --- | --- |
+| (a) cargo-deny configuration: `[bans] multiple-versions = "deny"` in each repository's `deny.toml`, run by `cargo deny check bans` | owner is the cargo-deny tool, already installed and run by every caller's `make deny`; each repository holds only its own policy file | none: no Cargo edge, no first-party repository involved | no new code or repository; per-repository `skip` entries for third-party duplicates (measured below: 8 in IR, 10 in CG, 1 in RT) | none | no: configuration, not a script |
+| (b) a small tool in an existing repository (quire-canonical, quire-verification-contracts) installed as a binary with `cargo install --git` | that repository's owner; callers run the installed binary | none as a binary (an install is not a lock entry); a crate dependency would be an edge: RT has no edge to either repository today, so it would be a new one | new Rust code that parses `Cargo.lock`, its tests and a release path; each caller builds it from the network; it widens a repository whose job is something else | none if installed from the default branch | no |
+| (c) a new tool repository, same shape as (b) | a new owner | none as a binary | everything in (b) plus a new public repository, its CI, `deny` and spec gates | none | no |
+
+cargo-deny measurements. A fixture lock holding two entries of one crate at one version from
+two git revisions of one repository (`tag` sources in the fixture) fails `cargo deny check
+bans` with `found 2 duplicate entries for crate`, both with a global
+`multiple-versions = "deny"` and with a per-crate `{ name, deny-multiple-versions = true }`
+entry, so the failure the script exists for is caught by either form; with
+`multiple-versions = "allow"` and no entry the same fixture passes. A per-crate entry takes an
+exact name: the glob `first*` matched nothing and the fixture passed, and `bans` carries no
+source condition, so "every crate from the agent-ix organisation" cannot be expressed
+without listing names, which is the drift trap IR-358's review removed (a first-party crate
+added later is unchecked until listed). The global form needs no first-party names. Run on
+IR's lock it fails on 8 third-party crates (`bit-set`, `bit-vec`, `fancy-regex`, `fraction`,
+`getrandom`, `hashbrown`, `jsonschema`, `syn`), and by name count the other locks hold 10 in CG
+and 1 in RT, so the global form is a superset of the script and each repository records its
+third-party duplicates as `skip` entries (a new duplicate then fails loudly, where a new
+first-party crate under the per-crate form would pass silently). Not measured: a `skip` list's
+behaviour on a crate that leaves the lock (cargo-deny's own warning for an unused entry).
+CG and RT run `cargo deny check licenses` alone in CI, so adopting the global form needs their
+CI to run `bans` as well (their own repositories' change); IR's CI already runs `cargo deny
+check`, which the awk never was part of.
+
+Recommendation: option (a), the global form. The measured result is that cargo-deny
+configuration is equivalent on the rule the script enforces (one lock entry per crate name,
+whatever the version or revision) and stricter on its crate set (every crate, not only
+agent-ix ones), at the price of per-repository `skip` entries; it adds no code, no repository,
+no pin and no edge, and a configuration file is not a copy of a script. It is also the
+mechanism QSL already uses for `quire-canonical`, so QSL's offer reduces to widening it.
+Options (b) and (c) are the fallback only if the owner wants a check that is source-aware
+(agent-ix crates only, no `skip` lists) or decides that `skip` entries are too costly; (c)
+needs the owner to approve a new repository.
+
+Questions for the owner (not decided here):
+
+- O-4a. Is cargo-deny configuration, per-repository `deny.toml` policy over the third-party
+  tool, "one owned tool" in the sense of the ruling? Recommendation: yes.
+- O-4b. If not, may a new tool repository be created (option c), or should the tool live in an
+  existing repository (option b)? Recommendation: neither unless O-4a is no.
+
+The migration is: IR deletes `scripts/check_one_copy.awk`, its `make deny` line and the comment
+lines in `Makefile` and `deny.toml` that cite it; CG and RT delete their copies and the same
+lines in their own repositories; QSL decides whether to widen its entry. No compatibility
+layer: the three copies are deleted in the same change that adds the check, not kept beside
+it. Code and the other repositories' changes are separate tickets; this AD and FR-043 are
+the spec.
 
 ### Routed gaps
 
@@ -278,7 +342,7 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4); nothing in QSL would catch that, because QSL's `arch-lint duplicate-revisions` was removed (QSL-477) and its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone. Justify the `rev` for both, or move both together (`filament-core-data` first). Separately, QSL has no general one-entry-per-first-party-crate lock check; whether to add one is QSL's call. |
+| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4); nothing in QSL would catch that, because QSL's `arch-lint duplicate-revisions` was removed (QSL-477) and its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone. Justify the `rev` for both, or move both together (`filament-core-data` first). Separately, QSL has no general one-entry-per-first-party-crate lock check; the owner's ruling on O-4 offers QSL the same owned check, and whether to adopt it is QSL's call. |
 | R-2 | The QSL dev edges to CG and a historical IR, and ADR-011's "QSL tests to RT" row, are not in any QSL manifest or lock; restate those three "Differences from today" rows and AD-016 WP9 as done or still open. |
 | R-4 | Carry the extraction of `quire-exact` and `quire-semantic-value` if the owner accepts O-1 option 3, including the ADR-011 shared-leaf row and the arch-lint and TC-390 edits. |
 
