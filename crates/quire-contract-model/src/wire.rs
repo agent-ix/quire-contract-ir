@@ -5,12 +5,13 @@ use crate::decimal::IntegerString;
 use crate::expression::{INTEGER_BOUNDS_PATH, RATIONAL_BOUNDS_PATH};
 use crate::{
     conformance::{canonical_value, diagnostics_value},
+    identity::{WireRequirementRef, WireSourceSpan},
     limits::{MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES},
     BooleanOperator, CanonicalProfile, CollectionType, ComparisonOperator, DeclarationEnvironment,
     Diagnostic, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration, ExecutionPoint,
     Expression, ExpressionKind, FunctionParameter, IntegerDomain, IntegerType, NumericOperator,
     OverflowPolicy, PureFunctionDeclaration, QuantifierDomain, QuantifierKind, RationalType,
-    RecordDeclaration, RecordFieldDeclaration, RecordLiteralField, RequirementRef, SourceSpan,
+    RecordDeclaration, RecordFieldDeclaration, RecordLiteralField, RequirementRef,
     StateObservation, SymbolName, TypeDeclaration, ValueDeclaration, ValueDeclarationKind,
     ValueType,
 };
@@ -18,7 +19,7 @@ use crate::{
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExpressionInput {
-    owner: RequirementRef,
+    owner: WireRequirementRef,
     #[serde(default)]
     types: Vec<WireTypeDeclaration>,
     #[serde(default)]
@@ -118,12 +119,12 @@ impl WireValueType {
 enum WireTypeDeclaration {
     Enum {
         name: String,
-        source: SourceSpan,
+        source: WireSourceSpan,
         variants: Vec<WireEnumVariant>,
     },
     Record {
         name: String,
-        source: SourceSpan,
+        source: WireSourceSpan,
         fields: Vec<WireRecordField>,
     },
 }
@@ -132,7 +133,7 @@ enum WireTypeDeclaration {
 #[serde(deny_unknown_fields)]
 struct WireEnumVariant {
     name: String,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 #[derive(Deserialize)]
@@ -140,7 +141,7 @@ struct WireEnumVariant {
 struct WireRecordField {
     name: String,
     value_type: WireValueType,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 impl WireTypeDeclaration {
@@ -152,13 +153,13 @@ impl WireTypeDeclaration {
                 variants,
             } => EnumDeclaration::new(
                 one(SymbolName::new(name))?,
-                source,
+                one(source.validate())?,
                 variants
                     .into_iter()
                     .map(|variant| {
                         Ok(EnumVariantDeclaration::new(
                             SymbolName::new(variant.name)?,
-                            variant.source,
+                            variant.source.validate()?,
                         ))
                     })
                     .collect::<Result<Vec<_>, Diagnostic>>()
@@ -171,14 +172,14 @@ impl WireTypeDeclaration {
                 fields,
             } => RecordDeclaration::new(
                 one(SymbolName::new(name))?,
-                source,
+                one(source.validate())?,
                 fields
                     .into_iter()
                     .map(|field| {
                         Ok(RecordFieldDeclaration::new(
                             SymbolName::new(field.name)?,
                             field.value_type.validate()?,
-                            field.source,
+                            field.source.validate()?,
                         ))
                     })
                     .collect::<Result<Vec<_>, Diagnostic>>()
@@ -195,7 +196,7 @@ struct WireValueDeclaration {
     name: String,
     kind: ValueDeclarationKind,
     value_type: WireValueType,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 impl WireValueDeclaration {
@@ -204,7 +205,7 @@ impl WireValueDeclaration {
             SymbolName::new(self.name)?,
             self.kind,
             self.value_type.validate()?,
-            self.source,
+            self.source.validate()?,
         ))
     }
 }
@@ -214,7 +215,7 @@ impl WireValueDeclaration {
 struct WireFunctionParameter {
     name: String,
     value_type: WireValueType,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 #[derive(Deserialize)]
@@ -223,7 +224,7 @@ struct WireFunctionDeclaration {
     name: String,
     parameters: Vec<WireFunctionParameter>,
     result_type: WireValueType,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 impl WireFunctionDeclaration {
@@ -235,7 +236,7 @@ impl WireFunctionDeclaration {
                 Ok(FunctionParameter::new(
                     SymbolName::new(parameter.name)?,
                     parameter.value_type.validate()?,
-                    parameter.source,
+                    parameter.source.validate()?,
                 ))
             })
             .collect::<Result<Vec<_>, Diagnostic>>()
@@ -244,7 +245,7 @@ impl WireFunctionDeclaration {
             one(SymbolName::new(self.name))?,
             parameters,
             one(self.result_type.validate())?,
-            self.source,
+            one(self.source.validate())?,
         )
     }
 }
@@ -347,7 +348,7 @@ enum WireExpressionKind {
         domain: QuantifierDomain,
         collection: Box<WireExpression>,
         local: String,
-        local_source: SourceSpan,
+        local_source: WireSourceSpan,
         predicate: Box<WireExpression>,
     },
 }
@@ -356,7 +357,7 @@ enum WireExpressionKind {
 struct WireExpression {
     #[serde(flatten)]
     kind: WireExpressionKind,
-    source: SourceSpan,
+    source: WireSourceSpan,
 }
 
 impl WireExpression {
@@ -508,11 +509,11 @@ impl WireExpression {
                 domain,
                 collection: Box::new(collection.validate()?),
                 local: SymbolName::new(local)?,
-                local_source,
+                local_source: local_source.validate()?,
                 predicate: Box::new(predicate.validate()?),
             },
         };
-        Ok(Expression::new(kind, self.source))
+        Ok(Expression::new(kind, self.source.validate()?))
     }
 
     fn children<'a>(
@@ -600,8 +601,9 @@ pub(crate) fn check_expression_input(
     let request: ExpressionInput =
         serde_json::from_value(input).map_err(|_| vec![wire_type_error("expression")])?;
     let semantic_nodes = one(preflight(&request))?;
+    let request_owner = one(request.owner.validate())?;
     if let Some((owner, anchor)) = binding {
-        if &request.owner != owner {
+        if &request_owner != owner {
             return Err(vec![Diagnostic::error(
                 DiagnosticCode::MalformedReference,
                 "expression declaration owner differs from the bound clause owner",
@@ -638,7 +640,7 @@ pub(crate) fn check_expression_input(
         .into_iter()
         .map(WireFunctionDeclaration::validate)
         .collect::<Result<Vec<_>, _>>()?;
-    let environment = DeclarationEnvironment::new(request.owner, types, values, functions)?;
+    let environment = DeclarationEnvironment::new(request_owner, types, values, functions)?;
     let expression = one(request.expression.validate())?;
     let expected = one(request.expected_type.validate())?;
     let expression = environment.check_expression(
@@ -944,6 +946,134 @@ mod tests {
         };
         assert_eq!(diagnostics.len(), 1);
         diagnostics.remove(0)
+    }
+
+    const REVISION_BOUND: u64 = 9_007_199_254_740_992;
+
+    /// The expression operation's output for `input`: validity, then the code
+    /// and path of its one diagnostic when refused.
+    fn operation_refusal(input: Value) -> (String, String) {
+        let output = execute_expression(input);
+        assert_eq!(output["valid"], false);
+        let diagnostics = output["diagnostics"].as_array().expect("diagnostics");
+        assert_eq!(diagnostics.len(), 1);
+        (
+            diagnostics[0]["code"].as_str().expect("code").to_owned(),
+            diagnostics[0]["path"].as_str().expect("path").to_owned(),
+        )
+    }
+
+    /// A revision or byte offset above 2^53 (and a zero revision) in the
+    /// owner or in any span member reaches the expression operation as the
+    /// constructor's registered code and path, not `invalid_wire_format`;
+    /// 2^53 itself is admitted.
+    ///
+    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
+    #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
+    #[test]
+    fn tc_015_the_expression_operation_refuses_a_revision_or_offset_above_two_to_the_53_with_its_registered_code(
+    ) {
+        let base = request(integer_literal("0"), integer_type());
+        let refused =
+            |pointer: &str, member: Value| operation_refusal(with_member(&base, pointer, member));
+        let admitted = |pointer: &str, member: Value| {
+            let output = execute_expression(with_member(&base, pointer, member));
+            assert_eq!(output["valid"], true, "{pointer}: {output}");
+        };
+        admitted("/owner/revision", json!(REVISION_BOUND));
+        admitted("/expression/source/end/byte_offset", json!(REVISION_BOUND));
+        let mut both_ends = base.clone();
+        for end in ["start", "end"] {
+            both_ends["expression"]["source"][end]["source"]["revision"] = json!(REVISION_BOUND);
+        }
+        assert_eq!(execute_expression(both_ends)["valid"], true);
+        assert_eq!(
+            refused("/owner/revision", json!(REVISION_BOUND + 1)),
+            (
+                "invalid_requirement_revision".to_owned(),
+                "reference.revision".to_owned()
+            )
+        );
+        assert_eq!(
+            refused("/owner/revision", json!(0)),
+            (
+                "invalid_requirement_revision".to_owned(),
+                "reference.revision".to_owned()
+            )
+        );
+        assert_eq!(
+            refused(
+                "/expression/source/end/byte_offset",
+                json!(REVISION_BOUND + 1)
+            ),
+            ("invalid_source_span".to_owned(), "source_span".to_owned())
+        );
+        assert_eq!(
+            refused(
+                "/expression/source/start/source/revision",
+                json!(REVISION_BOUND + 1)
+            ),
+            (
+                "invalid_source_revision".to_owned(),
+                "source.revision".to_owned()
+            )
+        );
+        // Every span member of the request goes through the same mapping.
+        let mut declared = base.clone();
+        declared["values"] = json!([{"name": "x", "kind": "input", "value_type": integer_type(),
+                                     "source": span()}]);
+        declared["values"][0]["source"]["end"]["byte_offset"] = json!(REVISION_BOUND + 1);
+        assert_eq!(
+            operation_refusal(declared),
+            ("invalid_source_span".to_owned(), "source_span".to_owned())
+        );
+    }
+
+    /// The binding path of the expression decoder (an executable projection's
+    /// binding) maps the same registered codes, ahead of the owner and anchor
+    /// comparisons; 2^53 is admitted.
+    ///
+    /// Tracing: TC-015, FR-011-AC-3, FR-012-AC-6.
+    #[trace("TC-015", "FR-011-AC-3", "FR-012-AC-6")]
+    #[test]
+    fn tc_015_a_binding_expression_refuses_a_revision_or_offset_above_two_to_the_53_with_its_registered_code(
+    ) {
+        let owner = RequirementRef::parse("agent-ix/pkg", "REQ_a", 1).unwrap();
+        let anchor = ExecutionPoint::Pre {
+            operation: crate::AnchorName::new("check").unwrap(),
+        };
+        let mut base = request(
+            json!({"node": "boolean_literal", "value": true, "source": span()}),
+            json!({"kind": "boolean"}),
+        );
+        base["clause_root"] = json!(true);
+        let decode = |pointer: &str, member: u64| {
+            check_expression_input(
+                with_member(&base, pointer, json!(member)),
+                Some((&owner, &anchor)),
+            )
+        };
+        let code_and_path = |result: Result<CheckedExpression, Vec<Diagnostic>>| {
+            let diagnostics = result.err().expect("the input must be refused");
+            assert_eq!(diagnostics.len(), 1);
+            (diagnostics[0].code, diagnostics[0].path.clone())
+        };
+        assert!(decode("/owner/revision", 1).is_ok());
+        assert!(decode("/expression/source/end/byte_offset", REVISION_BOUND).is_ok());
+        assert_eq!(
+            code_and_path(decode("/owner/revision", REVISION_BOUND + 1)),
+            (
+                DiagnosticCode::InvalidRequirementRevision,
+                "reference.revision".to_owned()
+            )
+        );
+        assert_eq!(
+            code_and_path(decode(
+                "/expression/source/end/byte_offset",
+                REVISION_BOUND + 1
+            )),
+            (DiagnosticCode::InvalidSourceSpan, "source_span".to_owned())
+        );
     }
 
     /// Tracing: TC-016, FR-013-AC-5.
