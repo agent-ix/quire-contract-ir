@@ -1068,11 +1068,9 @@ pub(super) fn admit_document(
         Err(quire_canonical::ReadError::NumberOutOfRange {
             pointer, lexeme, ..
         }) => {
-            // The reader's pointer is RFC 6901 by its contract; one that is
-            // not parses to nothing and the document is then not admitted.
-            let Some(document_pointer) = JsonPointer::parse(&pointer) else {
-                return Err(mismatch.into());
-            };
+            // The reader's pointer is RFC 6901 by its contract, so it is
+            // taken as the escaped text it is.
+            let document_pointer = JsonPointer::from_escaped(pointer);
             let cause = if Spelling::of(&lexeme).is_whole_past_2_pow_53() {
                 Cause::InexactInteger
             } else {

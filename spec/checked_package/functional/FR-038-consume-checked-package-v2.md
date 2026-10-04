@@ -684,13 +684,19 @@ text is not the exact spelling of its double's value, two model documents that
 differ only in such a number (`0.1000000000000000000001` and `0.1`,
 `9007199254740993.5` and `9007199254740994.0`) no longer share one digest: the
 first of each pair is refused. A
-number past the double range (`1e400`, `-1e400`) denotes a whole value past
-2^53, so it is an `inexact-integer` (FR-038-AC-110; see the QSL ruling below).
-`quire_canonical::read` refuses such a number with
-`ReadError::NumberOutOfRange`, which carries the number's RFC 6901 pointer and
-source text, and `admit_document` maps it to that refusal; every other read
-failure but the byte limit is `stale_dependency`/`byte-digest-mismatch` at the
-row's `digest`. A number below the double range (`1e-400`) reads as zero with
+number past the double range (`1e400`, `-1e400`) is an `inexact-integer`
+(FR-038-AC-110; see the QSL ruling below). `quire_canonical::read` refuses such
+a number with `ReadError::NumberOutOfRange`, which carries the number's RFC 6901
+pointer and source text, and `admit_document` maps it to that refusal, with the
+cause `inexact-integer` when the text denotes a whole value past 2^53 and
+`inexact-number` otherwise (a literal such as 400 nines followed by `.5`);
+every other read failure but the byte limit is
+`stale_dependency`/`byte-digest-mismatch` at the row's `digest`. The read stops
+at the first number past the double range, so an inexact number written before
+it is not named (the "first in document order" clause of FR-038-AC-110 is unmet
+for such a document), and a document that is malformed after such a number
+refuses as that number does where one malformed before it refuses
+`byte-digest-mismatch`: both are today's behaviour, not requirements. A number below the double range (`1e-400`) reads as zero with
 its text kept, so it is an `inexact-number` through the rule above. The reader decides each number of a model document from
 its text, through no `serde_json` value. The package document is a different
 read: it is parsed through `serde_json` and its bytes compared with the
@@ -715,7 +721,7 @@ such as `1e400` and `-1e400`, QSL's merged FR-056 (AC-2 and TC-145, at the SHA
 above) says it does not parse and refuses `stale_dependency`/`byte-digest-mismatch`.
 IR's FR-038-AC-110 and QSpec FR-272 (`inexact-integer`, "however spelled") say it
 refuses `noncanonical_wire`/`inexact-integer` with a `document_pointer`. The two
-differ: QSL-219 (reopened, Specced) records the FR-056 amendment, and
+differ: the FR-056 amendment is recorded under QSL-219, and
 `quire-canonical` #9 (5dc4e12db63b8fae647825b4e4b78df9b6dcadfe) is merged, so
 `read` carries the number's pointer and lexeme and IR maps it (IR-555). AC-110
 does not depend on QSL's text being amended. QSL's rule also checks the members of an invocation or snapshot

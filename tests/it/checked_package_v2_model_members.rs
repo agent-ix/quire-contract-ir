@@ -788,6 +788,25 @@ fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointe
     }
 }
 
+/// Tracing: TC-048, FR-038-AC-110
+#[trace("TC-048", "FR-038-AC-110")]
+#[test]
+fn tc_048_a_non_whole_number_past_the_double_range_refuses_inexact_number() {
+    // 400 nines then `.5`: past the double range, but not a whole value, so
+    // the cause is `inexact-number`, never `inexact-integer`.
+    let text = format!("{}.5", "9".repeat(400));
+    for number in [text.clone(), format!("-{text}")] {
+        let bytes = document_bytes_with_number("ratio", &number);
+        match read_selecting(&sha256_hex(&bytes), &bytes) {
+            CheckedPackageV2ReadResult::Refused(refused) => assert_eq!(
+                refused,
+                number_refusal("/package/ratio", CheckedPackageRefusalCause::InexactNumber),
+            ),
+            other => panic!("expected a refusal, read {other:?}"),
+        }
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-109
 #[trace("TC-048", "FR-038-AC-109")]
 #[test]
