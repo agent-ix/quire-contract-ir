@@ -122,6 +122,60 @@ impl KaniOutcomeError {
     }
 }
 
+/// The outcome kinds that carry no Boolean claim: every [`KaniOutcomeKind`]
+/// except `Proved` and `Counterexample`.
+///
+/// It is the one place that rule is written. `TryFrom<KaniOutcomeKind>` is the
+/// validation [`KaniOutcome::non_success`] applies to a request, and the raise
+/// sites inside the `kani` module name a variant here, so none of them can
+/// express a `proved` or `counterexample` outcome.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum NonSuccessKind {
+    Refused,
+    InvalidInput,
+    IncompleteInput,
+    Unavailable,
+    TimedOut,
+    ResourceExhausted,
+    Cancelled,
+    Inconclusive,
+}
+
+impl NonSuccessKind {
+    /// The outcome kind this variant stands for.
+    const fn kind(self) -> KaniOutcomeKind {
+        match self {
+            Self::Refused => KaniOutcomeKind::Refused,
+            Self::InvalidInput => KaniOutcomeKind::InvalidInput,
+            Self::IncompleteInput => KaniOutcomeKind::IncompleteInput,
+            Self::Unavailable => KaniOutcomeKind::Unavailable,
+            Self::TimedOut => KaniOutcomeKind::TimedOut,
+            Self::ResourceExhausted => KaniOutcomeKind::ResourceExhausted,
+            Self::Cancelled => KaniOutcomeKind::Cancelled,
+            Self::Inconclusive => KaniOutcomeKind::Inconclusive,
+        }
+    }
+}
+
+impl TryFrom<KaniOutcomeKind> for NonSuccessKind {
+    /// The refused kind, handed back.
+    type Error = KaniOutcomeKind;
+
+    fn try_from(kind: KaniOutcomeKind) -> Result<Self, Self::Error> {
+        match kind {
+            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Err(kind),
+            KaniOutcomeKind::Refused => Ok(Self::Refused),
+            KaniOutcomeKind::InvalidInput => Ok(Self::InvalidInput),
+            KaniOutcomeKind::IncompleteInput => Ok(Self::IncompleteInput),
+            KaniOutcomeKind::Unavailable => Ok(Self::Unavailable),
+            KaniOutcomeKind::TimedOut => Ok(Self::TimedOut),
+            KaniOutcomeKind::ResourceExhausted => Ok(Self::ResourceExhausted),
+            KaniOutcomeKind::Cancelled => Ok(Self::Cancelled),
+            KaniOutcomeKind::Inconclusive => Ok(Self::Inconclusive),
+        }
+    }
+}
+
 /// Typed output which cannot manufacture a Boolean for a non-success state.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct KaniOutcome {
@@ -188,7 +242,7 @@ impl KaniOutcome {
     ) -> Self {
         if success_checks == 0 {
             return Self::raise(
-                KaniOutcomeKind::Inconclusive,
+                NonSuccessKind::Inconclusive,
                 Std001Code::KANI_VACUOUS_PROOF,
                 source_id,
                 context,
@@ -240,45 +294,26 @@ impl KaniOutcome {
         source_id: impl Into<String>,
         context: impl Into<String>,
     ) -> Result<Self, KaniOutcomeError> {
-        match kind {
-            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Err(KaniOutcomeError {
-                requested_kind: kind,
+        match NonSuccessKind::try_from(kind) {
+            Ok(kind) => Ok(Self::raise(kind, code, source_id, context)),
+            Err(requested_kind) => Err(KaniOutcomeError {
+                requested_kind,
                 requested_code: code,
             }),
-            KaniOutcomeKind::Refused
-            | KaniOutcomeKind::InvalidInput
-            | KaniOutcomeKind::IncompleteInput
-            | KaniOutcomeKind::Unavailable
-            | KaniOutcomeKind::TimedOut
-            | KaniOutcomeKind::ResourceExhausted
-            | KaniOutcomeKind::Cancelled
-            | KaniOutcomeKind::Inconclusive => Ok(Self::new(kind, code, source_id, context)),
         }
     }
 
-    /// The raise sites of the `kani` module's lowerings and input checks: builds
-    /// through [`KaniOutcome::non_success`], the one validating path. A request
-    /// that path refuses cannot be returned as an error from a lowering, so it is
-    /// returned as a `refused` outcome that carries the registered
-    /// `kani_outcome_invalid` code and the request's source and context: the
-    /// refusal stays visible and no `proved` or `counterexample` outcome is built.
+    /// The raise sites of the `kani` module's lowerings and input checks, and the
+    /// build step of [`KaniOutcome::non_success`]. It takes a [`NonSuccessKind`],
+    /// so a `proved` or `counterexample` request cannot be written at a raise
+    /// site and the call has no error path.
     pub(super) fn raise(
-        kind: KaniOutcomeKind,
+        kind: NonSuccessKind,
         code: Std001Code,
         source_id: impl Into<String>,
         context: impl Into<String>,
     ) -> Self {
-        let source_id = source_id.into();
-        let context = context.into();
-        match Self::non_success(kind, code, source_id.clone(), context.clone()) {
-            Ok(outcome) => outcome,
-            Err(rejected) => Self::new(
-                KaniOutcomeKind::Refused,
-                rejected.code(),
-                source_id,
-                context,
-            ),
-        }
+        Self::new(kind.kind(), code, source_id, context)
     }
 
     /// Builds the outcome after the caller has chosen a kind and code that agree.

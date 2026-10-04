@@ -3,8 +3,8 @@
 use quire_contract_model::std001_code;
 
 use super::{
-    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    SemanticFamily, ValidatedFiniteInput,
+    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniProfile, NonSuccessKind, SemanticFamily,
+    ValidatedFiniteInput,
 };
 
 /// Supported query form over one ordered finite sequence.
@@ -43,7 +43,7 @@ pub fn lower_query(
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("bounded-collection-query").map_err(|_| {
                 KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     &query.source_id,
                     profile.selection().revision.clone(),
@@ -53,7 +53,7 @@ pub fn lower_query(
                 || descriptor.module_id != *module
             {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     &query.source_id,
                     profile.selection().revision.clone(),
@@ -62,7 +62,7 @@ pub fn lower_query(
         }
         CapabilityDisposition::Refused { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Refused,
+                NonSuccessKind::Refused,
                 *code,
                 &query.source_id,
                 profile.selection().revision.clone(),
@@ -70,7 +70,7 @@ pub fn lower_query(
         }
         CapabilityDisposition::Inconclusive { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Inconclusive,
+                NonSuccessKind::Inconclusive,
                 *code,
                 &query.source_id,
                 profile.selection().revision.clone(),
@@ -79,7 +79,7 @@ pub fn lower_query(
     }
     if query.values.len() > query.max_items {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::ResourceExhausted,
+            NonSuccessKind::ResourceExhausted,
             std001_code!("kani_collection_bound_exhausted"),
             &query.source_id,
             profile.selection().revision.clone(),

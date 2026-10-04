@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use quire_contract_model::std001_code;
 
 use super::{
-    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    SemanticFamily, ValidatedFiniteInput,
+    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniProfile, NonSuccessKind, SemanticFamily,
+    ValidatedFiniteInput,
 };
 
 /// One positive-length reachability request over the validated finite universe.
@@ -47,7 +47,7 @@ pub fn lower_reaches(
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("finite-reference-graph").map_err(|_| {
                 KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     &request.source_id,
                     profile.selection().revision.clone(),
@@ -57,7 +57,7 @@ pub fn lower_reaches(
                 || descriptor.module_id != *module
             {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     &request.source_id,
                     profile.selection().revision.clone(),
@@ -66,7 +66,7 @@ pub fn lower_reaches(
         }
         CapabilityDisposition::Refused { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Refused,
+                NonSuccessKind::Refused,
                 *code,
                 &request.source_id,
                 profile.selection().revision.clone(),
@@ -74,7 +74,7 @@ pub fn lower_reaches(
         }
         CapabilityDisposition::Inconclusive { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Inconclusive,
+                NonSuccessKind::Inconclusive,
                 *code,
                 &request.source_id,
                 profile.selection().revision.clone(),
@@ -83,7 +83,7 @@ pub fn lower_reaches(
     }
     if request.max_expansions == 0 {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::InvalidInput,
+            NonSuccessKind::InvalidInput,
             std001_code!("kani_graph_bound_invalid"),
             &request.source_id,
             profile.selection().revision.clone(),
@@ -98,7 +98,7 @@ pub fn lower_reaches(
     if !objects.contains(request.start_id.as_str()) || !objects.contains(request.target_id.as_str())
     {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::InvalidInput,
+            NonSuccessKind::InvalidInput,
             std001_code!("kani_graph_identity_invalid"),
             &request.source_id,
             profile.selection().revision.clone(),
@@ -125,7 +125,7 @@ pub fn lower_reaches(
         }
         if expanded.len() == request.max_expansions {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::ResourceExhausted,
+                NonSuccessKind::ResourceExhausted,
                 std001_code!("kani_graph_expansion_exhausted"),
                 &request.source_id,
                 profile.selection().revision.clone(),

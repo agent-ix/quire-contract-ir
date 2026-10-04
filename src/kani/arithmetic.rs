@@ -5,8 +5,8 @@ use quire_contract_model::std001_code;
 use crate::NumericOperator;
 
 use super::{
-    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    SemanticFamily, ValidatedFiniteInput,
+    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniProfile, NonSuccessKind, SemanticFamily,
+    ValidatedFiniteInput,
 };
 
 /// A statically admitted concrete arithmetic operation and its exact named range.
@@ -50,7 +50,7 @@ pub fn lower_checked_arithmetic(
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("checked-arithmetic").map_err(|_| {
                 KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     request.source_id,
                     profile.selection().revision.clone(),
@@ -60,7 +60,7 @@ pub fn lower_checked_arithmetic(
                 || descriptor.module_id != *module
             {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     request.source_id,
                     profile.selection().revision.clone(),
@@ -69,7 +69,7 @@ pub fn lower_checked_arithmetic(
         }
         CapabilityDisposition::Refused { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Refused,
+                NonSuccessKind::Refused,
                 *code,
                 request.source_id,
                 profile.selection().revision.clone(),
@@ -77,7 +77,7 @@ pub fn lower_checked_arithmetic(
         }
         CapabilityDisposition::Inconclusive { code } => {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::Inconclusive,
+                NonSuccessKind::Inconclusive,
                 *code,
                 request.source_id,
                 profile.selection().revision.clone(),
@@ -86,7 +86,7 @@ pub fn lower_checked_arithmetic(
     }
     if request.minimum > request.maximum {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::InvalidInput,
+            NonSuccessKind::InvalidInput,
             std001_code!("kani_arithmetic_range_invalid"),
             request.source_id,
             profile.selection().revision.clone(),
@@ -99,7 +99,7 @@ pub fn lower_checked_arithmetic(
         NumericOperator::Divide => {
             if request.right == 0 {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
                     profile.selection().revision.clone(),
@@ -110,7 +110,7 @@ pub fn lower_checked_arithmetic(
         NumericOperator::Remainder => {
             if request.right == 0 {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
                     profile.selection().revision.clone(),
@@ -121,7 +121,7 @@ pub fn lower_checked_arithmetic(
     };
     let Some(value) = value else {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::Refused,
+            NonSuccessKind::Refused,
             std001_code!("kani_definedness_checked_range"),
             request.source_id,
             profile.selection().revision.clone(),
@@ -129,7 +129,7 @@ pub fn lower_checked_arithmetic(
     };
     if value < request.minimum || value > request.maximum {
         return Err(KaniOutcome::raise(
-            KaniOutcomeKind::Refused,
+            NonSuccessKind::Refused,
             std001_code!("kani_definedness_checked_range"),
             request.source_id,
             profile.selection().revision.clone(),

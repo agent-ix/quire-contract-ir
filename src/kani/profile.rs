@@ -6,7 +6,7 @@ use quire_contract_model::Std001Code;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{KaniOutcome, KaniOutcomeKind, PROFILE};
+use super::{KaniOutcome, NonSuccessKind, PROFILE};
 
 /// One construct's selected bounded-Kani disposition.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -137,7 +137,7 @@ impl KaniProfile {
         for construct in constructs {
             if construct.trim().is_empty() || !encountered.insert(construct.as_str()) {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
                     source_id,
                     self.selection.revision.clone(),
@@ -149,7 +149,7 @@ impl KaniProfile {
                 .find(|entry| entry.construct == *construct)
             else {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::Refused,
+                    NonSuccessKind::Refused,
                     Std001Code::KANI_CAPABILITY_MISSING,
                     source_id,
                     construct.clone(),

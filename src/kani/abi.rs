@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use quire_contract_model::Std001Code;
 
-use super::{KaniOutcome, KaniOutcomeKind, ProfileSelection};
+use super::{KaniOutcome, NonSuccessKind, ProfileSelection};
 
 /// Explicit population completeness state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ impl FiniteInput {
         let context = self.profile.revision.clone();
         if self.model_id.trim().is_empty() || self.source_id.trim().is_empty() {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::InvalidInput,
+                NonSuccessKind::InvalidInput,
                 Std001Code::KANI_IDENTITY_INVALID,
                 self.source_id,
                 context,
@@ -98,7 +98,7 @@ impl FiniteInput {
         }
         if self.completeness == PopulationCompleteness::Incomplete {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::IncompleteInput,
+                NonSuccessKind::IncompleteInput,
                 Std001Code::KANI_POPULATION_INCOMPLETE,
                 self.source_id,
                 context,
@@ -106,7 +106,7 @@ impl FiniteInput {
         }
         if self.bounds.max_objects == 0 || self.bounds.max_input_bytes == 0 {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::InvalidInput,
+                NonSuccessKind::InvalidInput,
                 Std001Code::KANI_BOUND_INVALID,
                 self.source_id,
                 context,
@@ -117,7 +117,7 @@ impl FiniteInput {
             || self.references.len() > self.bounds.max_references
         {
             return Err(KaniOutcome::raise(
-                KaniOutcomeKind::ResourceExhausted,
+                NonSuccessKind::ResourceExhausted,
                 Std001Code::KANI_BOUND_EXHAUSTED,
                 self.source_id,
                 context,
@@ -131,7 +131,7 @@ impl FiniteInput {
                 || objects.insert(object.identity.as_str(), object).is_some()
             {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::InvalidInput,
+                    NonSuccessKind::InvalidInput,
                     Std001Code::KANI_POPULATION_INVALID,
                     self.source_id,
                     context,
@@ -150,7 +150,7 @@ impl FiniteInput {
                 ))
             {
                 return Err(KaniOutcome::raise(
-                    KaniOutcomeKind::InvalidInput,
+                    NonSuccessKind::InvalidInput,
                     Std001Code::KANI_REFERENCE_INVALID,
                     self.source_id,
                     context,
