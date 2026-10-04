@@ -205,10 +205,12 @@ struct ExpectedFailure {
 }
 
 /// FR-038-AC-112's expected-failure list: the mutations the reader does not yet
-/// refuse as recorded. It is empty: the reader enforces the flat v2 wire, so each
-/// body-grammar mutation refuses `malformed_wire` as recorded (FR-038-AC-118). A
-/// mutation that regresses is a failure of the run; an entry added here for it
-/// must name the open ticket that owns the missing refusal.
+/// refuse as recorded, each with the refusal it gives and the open ticket that
+/// owns the missing one. It is empty today: the reader enforces the flat v2
+/// wire, so each of the five body-grammar mutations refuses `malformed_wire` as
+/// recorded and none may be listed (FR-038-AC-118, checked by the test of the
+/// result). A new exception for another mutation is an entry here; the stale-entry
+/// rule of AC-112 holds for it.
 const EXPECTED_FAILURES: &[ExpectedFailure] = &[];
 
 /// The replacement of `package` at `pointer`, or why it cannot be made.
@@ -435,10 +437,6 @@ fn assert_no_problems(problems: &[String]) {
 #[trace("TC-048", "FR-038-AC-112", "FR-038-AC-118")]
 #[test]
 fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
-    assert!(
-        EXPECTED_FAILURES.is_empty(),
-        "no mutation is listed as an expected failure"
-    );
     let (base, adverse) = adverse_inputs();
     assert_no_problems(&adverse_problems(&base, &adverse, EXPECTED_FAILURES));
     let grammar = adverse["body_grammar_mutations"].as_array().expect("list");
@@ -458,6 +456,15 @@ fn tc_048_qspec_adverse_mutations_refuse_as_recorded() {
     );
     for entry in grammar {
         assert_eq!(entry["outcome"], "refused:malformed_wire", "{entry}");
+    }
+    // FR-038-AC-118: none of the five is a listed exception, so each refuses as
+    // recorded, which `adverse_problems` has just checked of every unlisted one.
+    for listed in EXPECTED_FAILURES {
+        assert!(
+            !ids.contains(&listed.id),
+            "{} is a body-grammar mutation, which refuses as recorded",
+            listed.id
+        );
     }
 }
 

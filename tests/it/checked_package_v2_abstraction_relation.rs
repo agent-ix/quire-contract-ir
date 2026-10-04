@@ -882,9 +882,10 @@ fn tc_225_an_application_as_a_member_value_refuses_at_strict_wire_validation() {
     );
 }
 
-/// A member nested sixty levels deep, far past the nesting of any in-grammar
-/// body, is scanned and refused as a body of the wrong shape on a 256 KiB
-/// stack.
+/// A member nested to within a few levels of the strict parse's recursion limit
+/// (110 arrays, 117 JSON levels of the 127 the parse reads), far past the nesting
+/// of any in-grammar body, is scanned and refused as a body of the wrong shape on
+/// a 256 KiB stack, in a debug build too.
 ///
 /// Tracing: TC-225
 /// ACs: FR-346-AC-2
@@ -895,7 +896,7 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
     let value = relations(std::slice::from_ref(&minimal));
     let n = at(&value, &minimal);
     let mut nested = json!("leaf");
-    for _ in 0..60 {
+    for _ in 0..110 {
         nested = json!([nested]);
     }
     let deep = mutated(value, n, |node| {

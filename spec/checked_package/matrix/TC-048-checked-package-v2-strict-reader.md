@@ -770,7 +770,9 @@ previous, read it on a thread whose stack is 256 KiB under every limit sized so
 that none decides the outcome, lower its last node, and compare its JSON nesting
 depth with that of a one-level package; read an otherwise canonical document whose
 node body nests a term 300 levels deep on a 256 KiB thread, and the same document
-nested 20 levels deep (AC-117). Run `make conformance-qspec` and read the harness's
+nested 20 levels deep and nested 41 to 61 aggregates deep (up to 126 JSON levels,
+within the parse's limit; a `details` term nested 50 deep too) in a debug build
+(AC-117). Run `make conformance-qspec` and read the harness's
 expected-failure list (AC-118).
 
 Expected: each nested non-`case` application refuses `malformed_wire` at the
@@ -784,8 +786,8 @@ stale non-`case` package refuses `malformed_wire`, the stale nested-`case` packa
 at an identity check; the scan finds none of the names and no depth member or
 variant, and the 100000-node chain is admitted and lowered with no outcome naming a
 depth and no stack overflow; the 300-level document refuses `malformed_wire` with no
-pointer at the strict parse and the 20-level one at the first value outside the body
-grammar; and each of the five
+pointer at the strict parse and the 20-level one, and each one within the parse's
+limit, at the first value outside the body grammar, with no stack overflow; and each of the five
 `body_grammar_mutations` refuses `malformed_wire` with the expected-failure list
 empty of them.
 

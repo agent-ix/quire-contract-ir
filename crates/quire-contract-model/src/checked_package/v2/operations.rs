@@ -737,7 +737,7 @@ fn argument_family(
         Some(BodyTerm::Application) if is_clause_application(argument, catalog) => Some("clause"),
         Some(BodyTerm::Reference | BodyTerm::Literal | BodyTerm::Application) => {
             let type_node = operand_type_node(argument, nodes, kinds, index)?;
-            resolve_family(&type_node, nodes, kinds, index, 0)
+            resolve_family(&type_node, nodes, kinds, index)
         }
         Some(BodyTerm::Binding) => Some("binder"),
         // A `dependency_reference` callee has family `function` (FR-322), and
@@ -1050,36 +1050,44 @@ fn is_type_shaped(kind: CheckedNodeKind) -> bool {
     }
 }
 
+/// The operand family of the type `type_id` names: its own, or, for a
+/// `bounded_domain`, that of the type its `semantic_type` names, however long
+/// the chain of bounded domains is. The walk is iterative and follows each node
+/// once, so a chain has no length limit and a cycle of bounded domains, which
+/// ends at no type, names no family (`None`), as an unresolved type does.
 fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    depth: u8,
 ) -> Option<&'static str> {
-    if depth > 8 {
-        return None;
+    let mut seen = BTreeSet::new();
+    let mut current = type_id;
+    loop {
+        let position = *index.get(current)?;
+        if !seen.insert(position) {
+            return None;
+        }
+        let node = &nodes[position];
+        let kind = *kinds.get(position)?;
+        // An enum is `ordered_enum` when its nominal preimage is ordered and
+        // `enum` otherwise (QSpec FR-322), which the node's kind alone cannot say.
+        if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
+            let ordered = matches!(
+                &node.nominal_identity_preimage,
+                Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
+            );
+            return Some(if ordered { "ordered_enum" } else { "enum" });
+        }
+        let direct = operand_family(kind);
+        if direct.is_some() {
+            return direct;
+        }
+        if kind.tag() != CheckedNodeTag::BoundedDomain {
+            return None;
+        }
+        current = &node.semantic_type;
     }
-    let position = *index.get(type_id)?;
-    let node = &nodes[position];
-    let kind = *kinds.get(position)?;
-    // An enum is `ordered_enum` when its nominal preimage is ordered and
-    // `enum` otherwise (QSpec FR-322), which the node's kind alone cannot say.
-    if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
-        let ordered = matches!(
-            &node.nominal_identity_preimage,
-            Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
-        );
-        return Some(if ordered { "ordered_enum" } else { "enum" });
-    }
-    let direct = operand_family(kind);
-    if direct.is_some() {
-        return direct;
-    }
-    if kind.tag() == CheckedNodeTag::BoundedDomain {
-        return resolve_family(&node.semantic_type, nodes, kinds, index, depth + 1);
-    }
-    None
 }
 
 fn check_operands(
@@ -1717,7 +1725,7 @@ fn check_inner_result(
         .get("result_type")
         .and_then(|value| serde_json::from_value(value.clone()).ok());
     let typed = result_type.as_ref() == Some(&inner)
-        && resolve_family(&inner, graph.nodes, graph.kinds, graph.index, 0).is_some();
+        && resolve_family(&inner, graph.nodes, graph.kinds, graph.index).is_some();
     (!typed).then(|| {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -1974,7 +1982,7 @@ fn check_mode_type(
         let Some(type_id) = operand_type_node(argument, nodes, kinds, index) else {
             continue;
         };
-        let Some(actual_family) = resolve_family(&type_id, nodes, kinds, index, 0) else {
+        let Some(actual_family) = resolve_family(&type_id, nodes, kinds, index) else {
             continue;
         };
         if !catalog.family_fits(actual_family, expected) {
@@ -3458,6 +3466,92 @@ mod tests {
             "digest": digest
         }))
         .expect("node id")
+    }
+
+    /// The family of a type reached through a chain of `bounded_domain` nodes
+    /// does not depend on the chain's length: one of 300 resolves to the family
+    /// at its end, as one of 1 does; a cycle of bounded domains and a chain that
+    /// ends at a node of no family name none; and a type outside the graph names
+    /// none. The walk is iterative and follows each node once.
+    ///
+    /// Tracing: TC-048, FR-038-AC-117
+    #[trace("TC-048", "FR-038-AC-117")]
+    #[test]
+    fn tc_048_a_bounded_domain_chain_resolves_whatever_its_length() {
+        const CHAIN: usize = 300;
+        let digest = |position: usize| format!("{position:064x}");
+        let id = |position: usize| json!({"domain": NODE_DOMAIN, "digest": digest(position)});
+        let node = |position: usize,
+                    tag: &str,
+                    form: &str,
+                    semantic_type: usize|
+         -> CheckedSemanticNodeV2 {
+            serde_json::from_value(json!({
+                "node_id": id(position),
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": tag,
+                "semantic_form": form,
+                "semantic_type": id(semantic_type),
+                "dependencies": [],
+                "occurrences": [],
+                "body": {"term": "aggregate", "members": []},
+            }))
+            .expect("node")
+        };
+        // Node 0 is an integer; nodes 1..=CHAIN are bounded domains, each over
+        // the one before it; nodes CHAIN+1 and CHAIN+2 are a cycle of bounded
+        // domains; node CHAIN+3 is a bounded domain over a `claim`, which has
+        // no operand family.
+        let mut nodes = vec![node(0, "scalar_type", "integer", 0)];
+        nodes.extend(
+            (1..=CHAIN)
+                .map(|position| node(position, "bounded_domain", "integer_range", position - 1)),
+        );
+        nodes.push(node(
+            CHAIN + 1,
+            "bounded_domain",
+            "integer_range",
+            CHAIN + 2,
+        ));
+        nodes.push(node(
+            CHAIN + 2,
+            "bounded_domain",
+            "integer_range",
+            CHAIN + 1,
+        ));
+        nodes.push(node(
+            CHAIN + 3,
+            "bounded_domain",
+            "integer_range",
+            CHAIN + 4,
+        ));
+        nodes.push(node(CHAIN + 4, "claim", "verification_claim", CHAIN + 4));
+        let kinds = nodes
+            .iter()
+            .map(|node| {
+                CheckedNodeKind::decode(
+                    CheckedNodeTag::from_wire(&node.node_tag).expect("tag"),
+                    &node.semantic_form,
+                )
+                .expect("kind")
+            })
+            .collect::<Vec<_>>();
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        let family = |position: usize| {
+            let at: CheckedNodeId = serde_json::from_value(id(position)).expect("id");
+            super::resolve_family(&at, &nodes, &kinds, &index)
+        };
+        assert_eq!(family(0), Some("integer"));
+        assert_eq!(family(1), Some("integer"));
+        assert_eq!(family(CHAIN), Some("integer"));
+        assert_eq!(family(CHAIN + 1), None, "a cycle ends at no type");
+        assert_eq!(family(CHAIN + 2), None);
+        assert_eq!(family(CHAIN + 3), None, "a chain ending at no family");
+        assert_eq!(family(CHAIN + 100), None, "a type outside the graph");
     }
 
     /// The operand classification over every kind the closed vocabularies

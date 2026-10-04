@@ -335,6 +335,60 @@ fn tc_048_a_body_inside_the_strata_is_admitted() {
     admitted(&v2_all_families());
 }
 
+/// FR-038-AC-114: the same meaning written with each composite subterm as its own
+/// node, reached by `reference`, is not refused `malformed_wire`: for each nested
+/// application in each position and each body outside the strata above, the
+/// flattened form (the subterm's place held by a `reference` to a node that holds
+/// it) is admitted.
+///
+/// Tracing: TC-048, FR-038-AC-114
+#[trace("TC-048", "FR-038-AC-114")]
+#[test]
+fn tc_048_the_flattened_form_of_each_refused_body_is_admitted() {
+    let node = || json!({"term": "reference", "target": node_id(&family_key("aaaa"))});
+    // The nested application of each position, as its own node.
+    for (position, second) in [
+        ("an argument element", node()),
+        ("a member of an aggregate argument", aggregate(vec![node()])),
+        ("a binding value", binding(node())),
+    ] {
+        let (package, _) = call_with_second_argument(second);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{position}"
+        );
+    }
+    // Each stratum shape of the test above, its composite subterm a node.
+    for (name, body) in [
+        (
+            "an aggregate inside a Group's members",
+            aggregate(vec![aggregate(vec![node()])]),
+        ),
+        (
+            "a binding whose value is an aggregate where only a Leaf stands",
+            aggregate(vec![aggregate(vec![binding(node())])]),
+        ),
+        (
+            "a binding whose value is a binding",
+            aggregate(vec![binding(node())]),
+        ),
+        (
+            "a binding inside a Tuple's members",
+            aggregate(vec![binding(aggregate(vec![
+                aggregate(vec![node()]),
+                node(),
+            ]))]),
+        ),
+        ("a binding as a body root", aggregate(vec![binding(leaf())])),
+    ] {
+        let (package, _) = settled(host_position, |holder| holder["body"] = body);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{name}"
+        );
+    }
+}
+
 /// A `details` term in `package`, as the one detail of the one entry.
 fn with_detail(detail: Value) -> Value {
     let mut package = v2_all_families();
@@ -543,20 +597,22 @@ fn generous_limits(nodes: usize) -> CheckedPackageReadLimits {
 fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack() {
     const LENGTH: usize = 100_000;
     let (one_level, _) = v2_reference_chain(1);
-    let (package, last) = v2_reference_chain(LENGTH);
+    let (bytes, last) = v2_reference_chain(LENGTH);
     assert_eq!(
-        json_depth(&package),
-        json_depth(&one_level),
+        nesting(&bytes),
+        nesting(&one_level),
         "a chain of any length has the JSON depth of a chain of one"
     );
-    let evidence = evidence_for(&package);
-    let bytes = canonical(&package);
+    drop(one_level);
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    let total = LENGTH
+        + base["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .len();
+    drop(base);
     let last = typed(&last);
-    let total = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .len();
-    drop(package);
     on_small_stack(move || {
         let read = CheckedPackageV2::read(&bytes, generous_limits(total), &evidence);
         let CheckedPackageV2ReadResult::Admitted(package) = read else {
@@ -579,6 +635,34 @@ fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack
         assert!(!node.dependencies.contains(&last));
         assert!(lowered.package.canonical_bytes().is_some());
     });
+}
+
+/// The deepest nesting of arrays and objects in the JSON text `bytes`, counted
+/// without building the document: a scan over its brackets that leaves strings
+/// alone.
+fn nesting(bytes: &[u8]) -> usize {
+    let (mut depth, mut deepest, mut in_string, mut escaped) = (0_usize, 0_usize, false, false);
+    for byte in bytes {
+        if in_string {
+            match (escaped, byte) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_string = false,
+                (false, _) => {}
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
 }
 
 fn typed(digest: &str) -> CheckedNodeId {
@@ -743,7 +827,7 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
     // the body is an aggregate whose member is a Group, so that Group's own
     // aggregate member is the first value outside it.
     let shallow = package_with_body_text(&nested_aggregates(20));
-    let result = read_on_small_stack(shallow, evidence);
+    let result = read_on_small_stack(shallow, evidence.clone());
     let CheckedPackageV2ReadResult::Refused(refusal) = result else {
         panic!("20 levels refuse, read {result:?}");
     };
@@ -752,6 +836,64 @@ fn tc_048_a_document_nested_past_the_parse_limit_refuses_at_the_parse() {
         malformed(&format!(
             "/semantic_graph/nodes/{host}/body/members/0/members/0"
         ))
+    );
+
+    // The window between the grammar and the parse limit: a body of 43 to 61
+    // aggregates is 91 to 126 JSON levels deep, within the parse's limit of 128
+    // levels and far past the grammar. It refuses at the same value as the
+    // 20-level one, and never aborts the read on a 256 KiB stack, in a debug
+    // build too: the closed decode takes the bodies out before it reads the
+    // document (`intake`).
+    for levels in [41, 42, 43, 45, 50, 55, 58, 61] {
+        let window = package_with_body_text(&nested_aggregates(levels));
+        let result = read_on_small_stack(window, evidence.clone());
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{levels} levels refuse, read {result:?}");
+        };
+        assert_eq!(
+            outcome(&refusal),
+            malformed(&format!(
+                "/semantic_graph/nodes/{host}/body/members/0/members/0"
+            )),
+            "{levels} levels"
+        );
+    }
+    // The first depth past the parse's limit refuses at the parse.
+    let past = package_with_body_text(&nested_aggregates(62));
+    let result = read_on_small_stack(past, evidence);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("62 levels refuse, read {result:?}");
+    };
+    assert_eq!((refusal.code, refusal.path), (Code::MalformedWire, None));
+}
+
+/// FR-038-AC-117: a `details` term in the window between the grammar and the
+/// parse limit refuses at the first value outside the grammar too, on a 256 KiB
+/// stack.
+///
+/// Tracing: TC-048, FR-038-AC-117
+#[trace("TC-048", "FR-038-AC-117")]
+#[test]
+fn tc_048_a_deep_details_term_within_the_parse_limit_refuses_at_the_grammar() {
+    let evidence = evidence_for(&v2_all_families());
+    let marker = "\u{1}deep";
+    let quoted = serde_json::to_string(marker).expect("string");
+    let mut package = with_detail(json!(marker));
+    refresh_identity(&mut package);
+    let digest_of =
+        |text: &str| sha256_hex(text.replace(&quoted, &nested_aggregates(50)).as_bytes());
+    let preimage = String::from_utf8(canonical(&package["identity_preimage"])).expect("utf-8");
+    package["package_id"]["digest"] = json!(digest_of(&preimage));
+    let text = String::from_utf8(canonical(&package))
+        .expect("utf-8")
+        .replace(&quoted, &nested_aggregates(50));
+    let result = read_on_small_stack(text.into_bytes(), evidence);
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("a deep detail refuses, read {result:?}");
+    };
+    assert_eq!(
+        outcome(&refusal),
+        malformed("/diagnostics/entries/0/details/0/members/0")
     );
 }
 

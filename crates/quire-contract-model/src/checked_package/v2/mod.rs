@@ -13,6 +13,7 @@ pub(in crate::checked_package) mod encode;
 mod flat_wire;
 mod frame;
 mod identity;
+mod intake;
 mod lower;
 mod model_members;
 mod natural;
@@ -575,7 +576,7 @@ impl CheckedPackageV2 {
     /// Selects V2 exactly, decodes the closed wire, and validates it.
     // Intake: reads `contract_version` before any decode.
     pub(in crate::checked_package) fn admit_value(
-        value: Value,
+        mut value: Value,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> Result<Self, ValidationFailure> {
@@ -599,25 +600,17 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let wire = decode_closed::<CheckedPackageWireV2>(&value)
+        // The bodies and `details` terms, which a closed decode reads as
+        // `Value`s of any shape, are not read by it: they are taken out, and
+        // put into the wire after it (see `intake`).
+        let terms = intake::detach_terms(&mut value);
+        let mut wire = decode_closed::<CheckedPackageWireV2>(&value)
             .map_err(|failure| locate_in_preimage(failure, &value))
             .map_err(|failure| classify_dependency_entry_shape(failure, &value))?;
         // A lossless decode: no member was defaulted, nulled or dropped.
-        match serde_json::to_value(&wire) {
-            Ok(decoded) if decoded == value => {}
-            Ok(decoded) => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    first_difference(JsonPointer::root(), &value, &decoded),
-                ))
-            }
-            Err(_) => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    JsonPointer::root(),
-                ))
-            }
-        }
+        intake::check_lossless(&mut value, &mut wire)?;
+        drop(value);
+        intake::attach_terms(&mut wire, terms);
         let kinds = validate(&wire, limits, evidence)?;
         Ok(Self {
             wire,
@@ -1821,12 +1814,21 @@ fn validate_graph(
         EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
-    let projection = graph
-        .nodes
-        .iter()
-        .map(CheckedNodeProjectionV2::from)
-        .collect::<Vec<_>>();
-    if projection != wire.identity_preimage.identity_projection {
+    // Each node's projection is built and compared one at a time, so no copy
+    // of every node is held beside the graph.
+    let retained = &wire.identity_preimage.identity_projection;
+    if retained.len() != graph.nodes.len()
+        || graph
+            .nodes
+            .iter()
+            .zip(retained)
+            .any(|(node, retained)| CheckedNodeProjectionV2::from(node) != *retained)
+    {
+        let projection = graph
+            .nodes
+            .iter()
+            .map(CheckedNodeProjectionV2::from)
+            .collect::<Vec<_>>();
         let at = member_pointer(&["identity_preimage", "identity_projection"]);
         let path = match (
             serde_json::to_value(&wire.identity_preimage.identity_projection),
