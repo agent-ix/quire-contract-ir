@@ -32,7 +32,6 @@ pub use vocabulary::*;
 use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
 use structural::validate_structural_nodes;
-pub(in crate::checked_package) use temporal::interval_bound_outside_pattern;
 use temporal::{references_refused_node, validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{

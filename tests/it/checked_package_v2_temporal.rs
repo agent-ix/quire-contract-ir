@@ -2483,13 +2483,13 @@ fn tc_048_a_pattern_failure_in_a_later_node_precedes_a_non_reduced_bound() {
         );
         let added = push(&mut package, formula("once", second, vec![refer(&holds)]));
         settle(&mut package);
+        // The arrangement is by node position, first and later node.
+        let root = find_identity(&package, &temporal_identity("eventually"));
+        assert!(root < added, "the pushed node is the later one");
         let (at, bound) = if reduced_node_first {
             (added, "upper")
         } else {
-            (
-                find_identity(&package, &temporal_identity("eventually")),
-                "upper",
-            )
+            (root, "upper")
         };
         expect(
             &format!("non-reduced node first: {reduced_node_first}"),
@@ -2604,7 +2604,7 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
     // Beside a profile-fit defect (an integer-form interval under `timed/v1`)
     // in another node, the non-reduced bound is refused: the graph check is
     // ahead of the temporal step.
-    let beside_fit_defect = |member: Value| {
+    let beside_fit_defect = |member: Value, fit_upper: u32| {
         let mut package = v2_all_families();
         select_profile(&mut package, TIMED);
         let holds = digest(
@@ -2613,7 +2613,11 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
         );
         let fit = push(
             &mut package,
-            formula("always", closed("0", "3"), vec![refer(&holds)]),
+            formula(
+                "always",
+                closed("0", &fit_upper.to_string()),
+                vec![refer(&holds)],
+            ),
         );
         let root = find_identity(&package, &temporal_identity("eventually"));
         let operand = vec![refer(&digest(&package, fit))];
@@ -2622,13 +2626,31 @@ fn tc_048_a_bound_not_in_lowest_terms_is_refused_at_the_bound_before_the_tempora
         settle(&mut package);
         (package, root, fit)
     };
-    let (package, root, _) = beside_fit_defect(timed_closed(rational("2", "4"), whole("3")));
-    expect_graph(
-        "a non-reduced bound beside a profile-fit defect",
-        &package,
-        &at_node(root, "/body/operation/member/interval/lower"),
-    );
-    let (package, _, fit) = beside_fit_defect(timed_closed(whole("1"), whole("3")));
+    // Whichever of the two nodes has the lower digest: a multiple of 2/4 as the
+    // bound and the fit node's upper bound move the two digests until the
+    // arrangement holds, and the test asserts the arrangement it is about.
+    for fit_is_lower in [true, false] {
+        let mut found = false;
+        for (multiple, fit_upper) in (1..16_u32).flat_map(|m| (1..16_u32).map(move |u| (m, u))) {
+            let bound = rational(&(2 * multiple).to_string(), &(4 * multiple).to_string());
+            let (package, root, fit) =
+                beside_fit_defect(timed_closed(bound, whole("3")), fit_upper);
+            if (digest(&package, fit) < digest(&package, root)) != fit_is_lower {
+                continue;
+            }
+            found = true;
+            expect_graph(
+                &format!(
+                    "a non-reduced bound beside a profile-fit defect, fit lower: {fit_is_lower}"
+                ),
+                &package,
+                &at_node(root, "/body/operation/member/interval/lower"),
+            );
+            break;
+        }
+        assert!(found, "a multiple orders the two nodes as the case needs");
+    }
+    let (package, _, fit) = beside_fit_defect(timed_closed(whole("1"), whole("3")), 3);
     expect(
         "the same fit defect with reduced bounds",
         &package,
@@ -2903,4 +2925,134 @@ fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_
         break;
     }
     assert!(found, "a salt orders the two clauses as the case needs");
+}
+
+/// The bound pattern is strict wire validation, ahead of every identity check:
+/// in a package whose node ids and `package_id` are all stale, a bound outside
+/// its form's pattern, timed or integer, refuses `invalid-value` at the bound
+/// and not at an identity check; the same package with a good bound refuses at
+/// the identity check.
+///
+/// Tracing: TC-048, FR-038-AC-120
+#[trace("TC-048", "FR-038-AC-120")]
+#[test]
+fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check() {
+    let stale_with = |member: Value| {
+        let (mut package, root) = with_root(INFINITE, "eventually", closed("0", "3"), None, 1);
+        // Not settled again: the application key, every dependent node id and the
+        // `package_id` no longer match the body.
+        package["semantic_graph"]["nodes"][root]["body"]["operation"]["member"] = member;
+        (package, root)
+    };
+    // With a good bound the stale identities refuse at the first identity check.
+    let (good, good_root) = stale_with(timed_closed(whole("0"), whole("3")));
+    let ((code, cause, path), _) = refusal_of("a stale package with a good bound", &good);
+    assert_eq!(
+        (code, cause, path),
+        (
+            Code::InvalidPackage,
+            Some(Cause::StaleNodeKey),
+            Some(at_node(good_root, "/node_id"))
+        )
+    );
+    // The `package_id` alone stale (every node key settled) with a bad bound.
+    let stale_package_id = |member: Value| {
+        let (mut package, _) = with_root(INFINITE, "eventually", member, None, 1);
+        package["package_id"]["digest"] = json!("0".repeat(64));
+        package
+    };
+    let ((code, cause, path), _) = refusal_of(
+        "a stale package_id with a good bound",
+        &stale_package_id(timed_closed(whole("0"), whole("3"))),
+    );
+    assert_eq!(
+        (code, cause, path.as_deref()),
+        (Code::StaleDependency, None, Some("/package_id/digest"))
+    );
+    for (case, member, bound) in [
+        (
+            "a timed negative numerator",
+            timed_closed(rational("-1", "1"), whole("3")),
+            "lower",
+        ),
+        (
+            "a timed zero denominator",
+            timed_closed(whole("0"), rational("3", "0")),
+            "upper",
+        ),
+        ("an integer bound", closed("1.5", "0"), "lower"),
+        ("a negative integer bound", closed("0", "-2"), "upper"),
+    ] {
+        let (package, root) = stale_with(member.clone());
+        expect(
+            case,
+            &package,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            &at_node(root, &format!("/body/operation/member/interval/{bound}")),
+        );
+        let package = stale_package_id(member);
+        let root = find_identity(&package, &temporal_identity("eventually"));
+        expect(
+            &format!("{case}, a stale package_id alone"),
+            &package,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            &at_node(root, &format!("/body/operation/member/interval/{bound}")),
+        );
+    }
+}
+
+/// The lowest-terms check reads nodes in ascending `node_id` digest order, not
+/// position order: of two non-reduced nodes, the refusal is at the one with the
+/// lower digest, whichever is first in the package.
+///
+/// Tracing: TC-048, FR-038-AC-121
+#[trace("TC-048", "FR-038-AC-121")]
+#[test]
+fn tc_048_the_first_non_reduced_bound_is_the_lower_digest_nodes() {
+    for added_is_lower in [true, false] {
+        let mut found = false;
+        for multiple in 1..64_u32 {
+            let (mut package, root) = with_root(
+                TIMED,
+                "eventually",
+                timed_closed(rational("2", "4"), whole("3")),
+                None,
+                1,
+            );
+            let holds = digest(
+                &package,
+                find_identity(&package, &temporal_identity("holds")),
+            );
+            let second = timed_closed(
+                whole("0"),
+                rational(&(2 * multiple).to_string(), &(4 * multiple).to_string()),
+            );
+            let added = push(&mut package, formula("once", second, vec![refer(&holds)]));
+            settle(&mut package);
+            assert!(root < added, "the pushed node is the later one");
+            if (digest(&package, added) < digest(&package, root)) != added_is_lower {
+                continue;
+            }
+            found = true;
+            // The arrangement asserted: the refused node is the lower digest one,
+            // at a position that is after or before the other.
+            let (lower_digest, bound) = if added_is_lower {
+                (added, "upper")
+            } else {
+                (root, "lower")
+            };
+            expect_graph(
+                &format!("added node has the lower digest: {added_is_lower}"),
+                &package,
+                &at_node(
+                    lower_digest,
+                    &format!("/body/operation/member/interval/{bound}"),
+                ),
+            );
+            break;
+        }
+        assert!(found, "a multiple orders the two nodes as the case needs");
+    }
 }

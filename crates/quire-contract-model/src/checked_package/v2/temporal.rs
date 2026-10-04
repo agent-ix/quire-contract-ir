@@ -313,11 +313,9 @@ fn interval_object(operation: &Value) -> Option<&serde_json::Map<String, Value>>
 /// bound, a malformed one (`"1.5"`, `"01"`, `"+1"`, `""`, `"3x"`) and a bound
 /// that is no string. An `upper` of `null` is the lower-bounded form's, not a
 /// bound, outside the timed form. The term walk refuses it `invalid-value` at
-/// that bound, in the early stage, never `operation-member-mismatch` (merged
-/// QSpec FR-370).
-pub(in crate::checked_package) fn interval_bound_outside_pattern(
-    operation: &Value,
-) -> Option<&'static str> {
+/// that bound, in strict wire validation (`flat_wire`), ahead of every identity
+/// check and never `operation-member-mismatch` (merged QSpec FR-370).
+pub(super) fn interval_bound_outside_pattern(operation: &Value) -> Option<&'static str> {
     let interval = interval_object(operation)?;
     let timed = IntervalForm::of(interval) == Some(IntervalForm::Timed);
     ["lower", "upper"].into_iter().find(|bound| {
