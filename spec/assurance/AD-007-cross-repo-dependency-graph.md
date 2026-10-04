@@ -132,7 +132,7 @@ owners or a copy is a finding.
 | Stack growth | no owner named | `qsl-walk-grow` (QSL, depended on by no one) and a direct `stacker` and `serde_stacker` in IR model | two sites, no shared type; recorded, not a copy (O-3) |
 | Exact scalar, text, composite kernel, `Meter`, `Outcome` | `quire-exact` | RT `src/exact` (23 files, 12,080 lines) is a second implementation | two owners; 124 `pub struct` or `enum` names are shared between RT `src/exact` and `quire-exact` plus `quire-semantic-value` (same-named, not proven identical), among them `Meter`, `Integer`, `Decimal`, `Text`, `Outcome`, `ScalarLimits`; RT's own edge to `quire-exact` is declared and unused (IR-349) |
 | Semantic value (declaration, containment, unit, quantity, enumeration, origin and location, checking limits) | `quire-semantic-value` | RT holds same-named copies; no RT edge to it | two owners, as above: RT's copies are defects to delete under IR-349 (with QSL-358); no exception exists (decision A) |
-| One-copy lock check (`scripts/check_one_copy.awk`) | none named | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL uses a different check, `arch-lint duplicate-revisions`) | a copy between repositories, which this AD treats as a finding, not as the design; no owner is named and none is decided here (O-4) |
+| One-copy lock check (`scripts/check_one_copy.awk`) | none named | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL has no equivalent: no `duplicate-revisions` check exists on QSL `main`; its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone) | a copy between repositories, which this AD treats as a finding, not as the design; no owner is named and none is decided here (O-4) |
 | Replay, witness, envelope, terminal record, obligation identity | `qsl-replay` | IR root still exports `KaniProviderResult` and `KaniProviderRecord` | two owners until IR-347 removes them (FR-039, AD-005 D-3) |
 | Kani outcome type (`KaniOutcome`) | IR root crate | one owner | none |
 | Checked-package wire types, strict reader, lowering | IR model (wire contract is QSpec's) | one owner | none |
@@ -151,7 +151,7 @@ owners or a copy is a finding.
 | Crate, QSL workspace | none | the crate-level table is a DAG over normal and dev edges; `quire-exact`, `qsl-attrs`, `qsl-walk-grow` and `tools/arch-lint` have no workspace dependency |
 | IR root to QSL (ADR-011 T-5 row) | not present | neither IR manifest names QSL; `tc_041` checks it by name and by git source |
 | QSL dev edges to CG and a historical IR | not present | no QSL manifest or lock entry; routed as R-2 for QSL to restate |
-| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and the one-copy lock check make each lock hold one entry per repo; that check is today a script copied into IR, CG and RT (a finding, O-4), and QSL has its own |
+| Diamond (not a cycle) | CG reaches IR directly and through QSL `qsl-package`; CG reaches `quire-exact` through RT and through `qsl-replay` | one copy per repo is required: the `branch = "main"` rule and the one-copy lock check make each lock hold one entry per repo; that check is today a script copied into IR, CG and RT (a finding, O-4), and QSL has no general one, only `deny-multiple-versions` on `quire-canonical` (routed, R-1) |
 
 A cycle is one `dev` edge away in two places: QSL depending on RT or CG for fixtures, and any
 RT or CG crate depending on a QSL crate other than the shared kernel. The second is guarded in
@@ -198,7 +198,8 @@ Targets proposed to each owning repository; only G-1 and G-4's IR halves are IR'
   proposed to QSL, R-1).
 - G-4. Each lock holds one entry per first-party crate (existing: IR, CG and RT run `check_one_copy.awk` over
   their own lock, a script copied into each repository, which O-4 treats as a finding; QSL
-  `arch-lint duplicate-revisions`).
+  has no general check, only `deny-multiple-versions` on `quire-canonical`, so for QSL this
+  invariant is a target, routed in R-1).
 - G-5. No public type is defined in two first-party crates (proposed target; RT `src/exact`
   fails it, IR-349).
 
@@ -277,7 +278,7 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4). Justify the `rev` for both, or move both together (`filament-core-data` first). QSL's call. |
+| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4); nothing in QSL would catch that, because QSL's `arch-lint duplicate-revisions` was removed (QSL-477) and its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone. Justify the `rev` for both, or move both together (`filament-core-data` first). Separately, QSL has no general one-entry-per-first-party-crate lock check; whether to add one is QSL's call. |
 | R-2 | The QSL dev edges to CG and a historical IR, and ADR-011's "QSL tests to RT" row, are not in any QSL manifest or lock; restate those three "Differences from today" rows and AD-016 WP9 as done or still open. |
 | R-4 | Carry the extraction of `quire-exact` and `quire-semantic-value` if the owner accepts O-1 option 3, including the ADR-011 shared-leaf row and the arch-lint and TC-390 edits. |
 

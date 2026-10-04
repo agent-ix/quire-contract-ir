@@ -101,7 +101,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | QSL to the IR root crate | no | nothing in IR; QSL's manifests name the model package | none: QSL's manifests now key the dependency as `quire-contract-model` (R3-Q1 done); it was once aliased `quire-contract-ir`, which read as the root crate |
 | IR to codegen, IR to runtime | no | a git edge to either repository fails `make deny` today: `[sources]` `unknown-git = "deny"` with an `allow-git` list that names neither (IR-346, AD-007); decision D adds name-level `bans` (IR-343) | no check by crate name, and the forbidden list in `tc_041` names neither `quire-contract-codegen` nor `quire-contract-runtime` (D-2) |
 | any cycle among QSL, IR, runtime, codegen | no | QSL's `arch-lint direction` (FB-05, FB-11) over local checkouts, run on request and not part of QSL's `make ci` (QSL `Makefile`, `arch-lint-direction`) | runs only when someone supplies the clones |
-| two copies of one first-party crate | no | IR `scripts/check_one_copy.awk` over IR's lock via `make deny`; QSL `arch-lint duplicate-revisions` over QSL's lock | each guards its own lock only |
+| two copies of one first-party crate | no | IR `scripts/check_one_copy.awk` over IR's lock via `make deny`. QSL has no general check: its `arch-lint duplicate-revisions` no longer exists on QSL `main`, and `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone (IR-346, AD-007) | each guards its own lock only; QSL's lock has no one-entry-per-first-party-crate check (routed to QSL, AD-007 R-1) |
 
 ### Failure outcomes and who reports them
 
