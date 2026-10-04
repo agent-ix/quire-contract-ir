@@ -179,7 +179,7 @@ What is measured today, what is open and with whom, and what is routed.
   test (TC-055) is planned and does not exist. The decision is that the test goes with the
   IR-347 work (retag or remove `tc_041`'s bridge test); FR-039-AC-1 is not changed. QSL does not
   use the bridge; the consumer that does is codegen (AD-006).
-- D-2 has no check. AD-001 says runtime has no dependency in either direction with IR; codegen
+- D-2 has no by-name check. AD-001 says runtime has no dependency in either direction with IR; codegen
   depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
   is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or
   runtime repository already fails `make deny` through `[sources]` `unknown-git = "deny"` and its
