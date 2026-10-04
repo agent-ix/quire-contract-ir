@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::{KaniOutcome, KaniOutcomeKind, ProfileSelection};
+use quire_contract_model::Std001Code;
+
+use super::{KaniOutcome, NonSuccessKind, ProfileSelection};
 
 /// Explicit population completeness state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -87,25 +89,25 @@ impl FiniteInput {
     pub fn validate(self) -> Result<ValidatedFiniteInput, KaniOutcome> {
         let context = self.profile.revision.clone();
         if self.model_id.trim().is_empty() || self.source_id.trim().is_empty() {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::InvalidInput,
-                "kani_identity_invalid",
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::InvalidInput,
+                Std001Code::KANI_IDENTITY_INVALID,
                 self.source_id,
                 context,
             ));
         }
         if self.completeness == PopulationCompleteness::Incomplete {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::IncompleteInput,
-                "kani_population_incomplete",
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::IncompleteInput,
+                Std001Code::KANI_POPULATION_INCOMPLETE,
                 self.source_id,
                 context,
             ));
         }
         if self.bounds.max_objects == 0 || self.bounds.max_input_bytes == 0 {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::InvalidInput,
-                "kani_bound_invalid",
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::InvalidInput,
+                Std001Code::KANI_BOUND_INVALID,
                 self.source_id,
                 context,
             ));
@@ -114,9 +116,9 @@ impl FiniteInput {
             || self.objects.len() > self.bounds.max_objects
             || self.references.len() > self.bounds.max_references
         {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::ResourceExhausted,
-                "kani_bound_exhausted",
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::ResourceExhausted,
+                Std001Code::KANI_BOUND_EXHAUSTED,
                 self.source_id,
                 context,
             ));
@@ -128,9 +130,9 @@ impl FiniteInput {
                 || object.snapshot_id.trim().is_empty()
                 || objects.insert(object.identity.as_str(), object).is_some()
             {
-                return Err(KaniOutcome::non_success(
-                    KaniOutcomeKind::InvalidInput,
-                    "kani_population_invalid",
+                return Err(KaniOutcome::raise(
+                    NonSuccessKind::InvalidInput,
+                    Std001Code::KANI_POPULATION_INVALID,
                     self.source_id,
                     context,
                 ));
@@ -147,9 +149,9 @@ impl FiniteInput {
                     reference.target_id.as_str(),
                 ))
             {
-                return Err(KaniOutcome::non_success(
-                    KaniOutcomeKind::InvalidInput,
-                    "kani_reference_invalid",
+                return Err(KaniOutcome::raise(
+                    NonSuccessKind::InvalidInput,
+                    Std001Code::KANI_REFERENCE_INVALID,
                     self.source_id,
                     context,
                 ));

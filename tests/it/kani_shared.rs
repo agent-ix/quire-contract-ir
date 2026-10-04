@@ -5,6 +5,7 @@ use quire_contract_ir::kani::{
     ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
     PROFILE,
 };
+use quire_contract_model::{std001_code, Std001Code};
 
 fn selection() -> ProfileSelection {
     ProfileSelection {
@@ -27,7 +28,7 @@ fn profile() -> KaniProfile {
             CapabilityEntry {
                 construct: "object-reference".into(),
                 disposition: CapabilityDisposition::Refused {
-                    code: "kani_object_module_unavailable".into(),
+                    code: std001_code!("kani_object_module_unavailable"),
                 },
             },
         ],
@@ -82,7 +83,7 @@ fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
         .classify(&["unbounded-quantifier".into()], "clause:demo")
         .expect_err("unknown construct refuses before lowering");
     assert_eq!(refusal.kind, KaniOutcomeKind::Refused);
-    assert_eq!(refusal.code, "kani_capability_missing");
+    assert_eq!(refusal.code, Std001Code::KANI_CAPABILITY_MISSING);
     assert_eq!(refusal.boolean_claim(), None);
 }
 
@@ -91,7 +92,9 @@ fn tc_042_profile_requires_one_known_entry_per_encountered_construct() {
 fn tc_042_an_invalid_profile_is_refused_on_every_construction_path() {
     let entry = |construct: &str| CapabilityEntry {
         construct: construct.into(),
-        disposition: CapabilityDisposition::Refused { code: "c".into() },
+        disposition: CapabilityDisposition::Refused {
+            code: std001_code!("c"),
+        },
     };
     let wrong_family = ProfileSelection {
         profile: "kani-bounded/2".into(),
@@ -184,7 +187,9 @@ fn tc_042_only_proof_and_counterexample_have_boolean_claims() {
         KaniOutcomeKind::Inconclusive,
     ] {
         assert_eq!(
-            KaniOutcome::non_success(kind, "typed", "clause:demo", "profile").boolean_claim(),
+            KaniOutcome::non_success(kind, std001_code!("typed"), "clause:demo", "profile")
+                .expect("a non-success kind")
+                .boolean_claim(),
             None
         );
     }
@@ -222,7 +227,7 @@ fn tc_042_dispatch_rejects_cross_family_or_duplicate_ownership() {
 fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
     let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
     assert_eq!(vacuous.kind, KaniOutcomeKind::Inconclusive);
-    assert_eq!(vacuous.code, "kani_vacuous_proof");
+    assert_eq!(vacuous.code, Std001Code::KANI_VACUOUS_PROOF);
     assert_eq!(vacuous.boolean_claim(), None);
 
     let genuine = KaniOutcome::proved_from_checks(1, "clause:demo", "profile");
@@ -263,6 +268,56 @@ fn every_kind() -> [KaniOutcomeKind; 10] {
     ]
 }
 
+/// FR-030-AC-6: the outcome's code is the typed `Std001Code`. The string-argument
+/// probes of the non-success constructor, which must fail to compile, are
+/// `compile_fail` doctests on `KaniOutcome::non_success`.
+///
+/// The AC's `KaniOutcomeError` clause, for a `proved` request with a count of
+/// zero, is not delivered here: that request is FR-030-AC-4's and is not built.
+/// This test asserts what the error type does carry today, through the
+/// non-success constructor asked for a `proved` and for a `counterexample`
+/// outcome (an FR-030-AC-5 clause, not claimed): its registered code and the
+/// requested kind and cause.
+///
+/// Tracing: TC-443, FR-030-AC-6
+#[trace("TC-443", "FR-030-AC-6")]
+#[test]
+fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
+    let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
+    assert_eq!(vacuous.code, Std001Code::KANI_VACUOUS_PROOF);
+    let text = serde_json::to_string(&vacuous).expect("an outcome serializes");
+    assert!(
+        text.contains("\"code\":\"kani_vacuous_proof\""),
+        "the code serializes as the bare string: {text}"
+    );
+
+    for (kind, code) in [
+        (KaniOutcomeKind::Proved, Std001Code::KANI_PROVED),
+        (
+            KaniOutcomeKind::Counterexample,
+            Std001Code::KANI_COUNTEREXAMPLE,
+        ),
+    ] {
+        let error = KaniOutcome::non_success(kind.clone(), code, "clause:demo", "profile")
+            .expect_err("a Boolean-claim outcome is not a non-success outcome");
+        assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
+        assert_eq!(error.requested_kind(), &kind);
+        assert_eq!(error.requested_code(), code);
+        assert!(error.to_string().contains("kani_outcome_invalid"));
+    }
+
+    let malformed = text.replace("kani_vacuous_proof", "Bad-Code");
+    assert!(malformed.contains("\"code\":\"Bad-Code\""));
+    assert!(
+        serde_json::from_str::<KaniOutcome>(&malformed).is_err(),
+        "a malformed code is refused on read"
+    );
+    assert_eq!(
+        serde_json::from_str::<KaniOutcome>(&text).expect("a well-formed outcome reads"),
+        vacuous
+    );
+}
+
 // Not a TC-223 test: it verifies the retired `KaniProviderResult` map, and the
 // TC-223 matrix row stays planned until the SUCCESS count and cause codes land.
 #[test]
@@ -278,13 +333,23 @@ fn kani_outcome_kinds_map_to_their_one_fr331_result() {
     // The record keeps each outcome's cause, so kinds sharing a result stay
     // apart.
     let declined = [
-        KaniOutcomeKind::Refused,
-        KaniOutcomeKind::InvalidInput,
-        KaniOutcomeKind::IncompleteInput,
+        (
+            KaniOutcomeKind::Refused,
+            Std001Code::KANI_CAPABILITY_MISSING,
+        ),
+        (
+            KaniOutcomeKind::InvalidInput,
+            Std001Code::KANI_IDENTITY_INVALID,
+        ),
+        (
+            KaniOutcomeKind::IncompleteInput,
+            Std001Code::KANI_POPULATION_INCOMPLETE,
+        ),
     ]
-    .map(|kind| {
-        let code = format!("{kind:?}");
-        KaniOutcome::non_success(kind, code, "source", "context").provider_record()
+    .map(|(kind, code)| {
+        KaniOutcome::non_success(kind, code, "source", "context")
+            .expect("a non-success kind")
+            .provider_record()
     });
     assert!(declined
         .iter()
@@ -298,5 +363,5 @@ fn kani_outcome_kinds_map_to_their_one_fr331_result() {
     // `Inconclusive`, so it records `inconclusive` with its vacuity cause.
     let vacuous = KaniOutcome::proved_from_checks(0, "source", "context").provider_record();
     assert_eq!(vacuous.result, KaniProviderResult::Inconclusive);
-    assert_eq!(vacuous.cause, "kani_vacuous_proof");
+    assert_eq!(vacuous.cause, Std001Code::KANI_VACUOUS_PROOF);
 }

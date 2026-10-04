@@ -79,7 +79,7 @@ The harness constrains only values after the ABI has established that the finite
 | FR-030-AC-3 | No invalid, refused, incomplete, unavailable, timed-out, exhausted, cancelled, or inconclusive outcome carries Boolean success; earliest failures emit no partial artifact. | Test (TC-042) |
 | FR-030-AC-4 | A `proved` outcome built from a run with three SUCCESS checks carries the count three; a run with zero SUCCESS checks yields `inconclusive` with cause `kani_vacuous_proof`, carries no count and no Boolean claim; and a request for a `proved` outcome with a count of zero returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome. | Test (TC-223) |
 | FR-030-AC-5 | An `unavailable` outcome built for an absent solver carries cause `kani_solver_absent` and one built for an absent backend carries `kani_backend_absent`, each with no Boolean claim; a request for an `unavailable` outcome with any other cause code, an `inconclusive` outcome with a cause other than `kani_vacuous_proof`, or a `proved` or `counterexample` outcome through the non-success constructor returns `KaniOutcomeError` with code `kani_outcome_invalid` and no outcome; and a struct-literal `KaniOutcome` outside the `kani` module fails to compile. | Test (TC-223) |
-| FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-223) |
+| FR-030-AC-6 | The `code` of the outcome built for a zero-check proof equals `Std001Code::KANI_VACUOUS_PROOF` and its serialization holds the member `"code":"kani_vacuous_proof"`; the `code` of the `KaniOutcomeError` for a `proved` outcome with a count of zero equals `Std001Code::KANI_OUTCOME_INVALID`; a call that passes a `&str` or a `String` as the code of the non-success constructor fails to compile; and a serialized `KaniOutcome` whose `code` is `"Bad-Code"` fails to deserialize. | Test (TC-443) |
 
 ## Dependencies
 
@@ -90,7 +90,15 @@ FR-044 defines `Std001Code`. FR-015 defines partial-operation semantics. FR-029 
 Implemented through the shared finite ABI/outcome foundation and three semantic
 lanes. Invalid, incomplete, unavailable and over-bound inputs retain typed
 non-Boolean outcomes; this status does not claim an undeclared model or domain.
-AC-4 through AC-6 are planned: today `KaniOutcome.code` is a `String` (AC-6), and `KaniOutcome`'s fields are public, a `proved`
-outcome carries no check count, `non_success` accepts any cause code for
-`unavailable` and `inconclusive`, and it turns a `proved` or `counterexample`
-request into a `refused` outcome rather than an error.
+AC-6 is partly implemented (TC-443, IR-605): `KaniOutcome.code` is a `Std001Code`
+that serializes as the bare string and is checked on read, `non_success` takes
+one (a string does not compile), and it returns `KaniOutcomeError` (code
+`kani_outcome_invalid`, naming the requested kind and cause) for a `proved` or
+`counterexample` request. Its clause that reads the error's code for a `proved`
+request with a count of zero is planned with AC-4, because no such request
+exists; the TC-443 test reads the error through the non-success request instead.
+AC-4 and AC-5 are planned (TC-223, no test): `KaniOutcome`'s fields are public, a
+`proved` outcome carries no check count and no `proved` request takes one, and
+`non_success` accepts any cause code for `unavailable` and `inconclusive`, so the
+`CapabilityDisposition::Inconclusive` arm of the lowerings, which carries the
+profile's own code, still builds an `inconclusive` outcome that AC-5 will forbid.

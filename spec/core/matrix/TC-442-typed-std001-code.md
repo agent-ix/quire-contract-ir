@@ -14,7 +14,7 @@ Verify FR-044-AC-1 through FR-044-AC-5: the form `Std001Code::new` accepts and
 refuses, the bare-string wire form and its validating deserialization, the
 registered code set, and the compile-time path (`std001_code!` and
 `Std001Code::from_static`). The `KaniOutcome` side of the type is FR-030-AC-6, verified
-under TC-223.
+under TC-443.
 
 ## Test Procedure
 
@@ -47,4 +47,6 @@ and `Err` with code `invalid_code_form` for the three others, with no panic.
 
 ## Status
 
-Planned. No test is tagged for this case and no `code` module exists.
+Implemented: `tests/it/std001_code.rs` holds one test per acceptance criterion
+(`tc_442_*`). The two compile probes are `compile_fail` doctests on the `code`
+module of `quire-contract-model`, each paired with the passing `const` form.

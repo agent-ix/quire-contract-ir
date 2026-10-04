@@ -1,8 +1,10 @@
 //! Ordered duplicate-preserving bounded collection/query lowering.
 
+use quire_contract_model::std001_code;
+
 use super::{
-    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniOutcomeKind, KaniProfile,
-    SemanticFamily, ValidatedFiniteInput,
+    CapabilityDisposition, DispatchIndex, KaniOutcome, KaniProfile, NonSuccessKind, SemanticFamily,
+    ValidatedFiniteInput,
 };
 
 /// Supported query form over one ordered finite sequence.
@@ -40,9 +42,9 @@ pub fn lower_query(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("bounded-collection-query").map_err(|_| {
-                KaniOutcome::non_success(
-                    KaniOutcomeKind::Refused,
-                    "kani_dispatch_unowned",
+                KaniOutcome::raise(
+                    NonSuccessKind::Refused,
+                    std001_code!("kani_dispatch_unowned"),
                     &query.source_id,
                     profile.selection().revision.clone(),
                 )
@@ -50,35 +52,35 @@ pub fn lower_query(
             if descriptor.family != SemanticFamily::CollectionsQueries
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::non_success(
-                    KaniOutcomeKind::Refused,
-                    "kani_dispatch_profile_mismatch",
+                return Err(KaniOutcome::raise(
+                    NonSuccessKind::Refused,
+                    std001_code!("kani_dispatch_profile_mismatch"),
                     &query.source_id,
                     profile.selection().revision.clone(),
                 ));
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::Refused,
-                code.clone(),
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::Refused,
+                *code,
                 &query.source_id,
                 profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::non_success(
-                KaniOutcomeKind::Inconclusive,
-                code.clone(),
+            return Err(KaniOutcome::raise(
+                NonSuccessKind::Inconclusive,
+                *code,
                 &query.source_id,
                 profile.selection().revision.clone(),
             ))
         }
     }
     if query.values.len() > query.max_items {
-        return Err(KaniOutcome::non_success(
-            KaniOutcomeKind::ResourceExhausted,
-            "kani_collection_bound_exhausted",
+        return Err(KaniOutcome::raise(
+            NonSuccessKind::ResourceExhausted,
+            std001_code!("kani_collection_bound_exhausted"),
             &query.source_id,
             profile.selection().revision.clone(),
         ));
