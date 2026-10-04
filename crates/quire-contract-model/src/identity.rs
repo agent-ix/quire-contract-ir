@@ -1570,27 +1570,31 @@ impl WireSourceLocation {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireSourceSpan {
+pub(crate) struct WireSourceSpan {
     start: WireSourceLocation,
     end: WireSourceLocation,
 }
 
 impl WireSourceSpan {
-    fn validate(self) -> Result<SourceSpan, Diagnostic> {
+    /// Builds the span through the constructors, so a revision or offset the
+    /// constructors refuse reaches the caller as their registered diagnostic.
+    pub(crate) fn validate(self) -> Result<SourceSpan, Diagnostic> {
         SourceSpan::new(self.start.validate()?, self.end.validate()?)
     }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireRequirementRef {
+pub(crate) struct WireRequirementRef {
     package: String,
     requirement: String,
     revision: u64,
 }
 
 impl WireRequirementRef {
-    fn validate(self) -> Result<RequirementRef, Diagnostic> {
+    /// Builds the reference through [`RequirementRef::parse`], so a revision
+    /// the constructor refuses reaches the caller as its registered diagnostic.
+    pub(crate) fn validate(self) -> Result<RequirementRef, Diagnostic> {
         RequirementRef::parse(&self.package, &self.requirement, self.revision)
     }
 }
