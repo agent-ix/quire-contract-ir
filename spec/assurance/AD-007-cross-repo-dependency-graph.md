@@ -269,11 +269,13 @@ to QSL.
 
 **O-4. Who owns the one-copy lock check? Decided in part.** The same script is committed in
 IR, CG and RT, and a copy between repositories is a finding under this AD's own rule. The
-owner, first-hand, 2026-10-04, recorded on IR-581, ruled: the three byte-identical copies
-are replaced by one owned tool that IR, CG and RT call, and the three copies are deleted;
-the tool creates no dependency cycle and is not vendored into any caller; QSL is offered the
-same check. IR owns the requirement (FR-043). This AD proposes no exception and no shared
-copy placed in another repository.
+owner, first-hand, 2026-10-04, recorded on IR-581, ruled: replace the three byte-identical
+copies with one owned tool (the option the planner's question labelled "Replace with one
+owned tool"). The ticket's work text adds three constraints, which this AD observes as
+constraints and does not attribute to the owner's words: the tool creates no dependency
+cycle, it is not vendored into any caller, and QSL is offered the same check. IR owns the
+requirement (FR-043). This AD proposes no exception and no shared copy placed in another
+repository.
 
 What the ruling leaves open is which tool. Measured on 2026-10-04 (origin/main of each
 repository, a cargo-deny 0.20 fixture, IR's own lock):
@@ -286,9 +288,9 @@ repository, a cargo-deny 0.20 fixture, IR's own lock):
 
 | Option | Owner and how callers invoke it | Cycle risk | Cost | Pin | Callers hold a copy |
 | --- | --- | --- | --- | --- | --- |
-| (a) cargo-deny configuration: `[bans] multiple-versions = "deny"` in each repository's `deny.toml`, run by `cargo deny check bans` | owner is the cargo-deny tool, already installed and run by every caller's `make deny`; each repository holds only its own policy file | none: no Cargo edge, no first-party repository involved | no new code or repository; per-repository `skip` entries for third-party duplicates (measured below: 8 in IR, 10 in CG, 1 in RT) | none | no: configuration, not a script |
-| (b) a small tool in an existing repository (quire-canonical, quire-verification-contracts) installed as a binary with `cargo install --git` | that repository's owner; callers run the installed binary | none as a binary (an install is not a lock entry); a crate dependency would be an edge: RT has no edge to either repository today, so it would be a new one | new Rust code that parses `Cargo.lock`, its tests and a release path; each caller builds it from the network; it widens a repository whose job is something else | none if installed from the default branch | no |
-| (c) a new tool repository, same shape as (b) | a new owner | none as a binary | everything in (b) plus a new public repository, its CI, `deny` and spec gates | none | no |
+| (a) cargo-deny configuration: `[bans] multiple-versions = "deny"` in each repository's `deny.toml`, run by `cargo deny check bans` (with `-D unmatched-skip`) | the cargo-deny tool, already installed and run by each caller's `make deny`; the policy (the `skip` list) is a separate file kept in each of IR, CG and RT | none: no Cargo edge, no first-party repository involved | no new code or repository; three hand-kept `skip` lists (8 entries in IR, 10 in CG, 0 in RT); the lock-source rule (no `skip` for an agent-ix crate) cannot be expressed in cargo-deny, so each repository either carries its own source-aware guard (check logic copied three times again) or leaves the rule to review; checks the cfg-resolved graph, not the raw lock | none | check logic: none in config, but the first-party guarantee needs a per-repository guard (see cost) |
+| (b) a small tool in an existing repository (quire-canonical, quire-verification-contracts), installed as a binary with `cargo install --git` | that repository's owner; callers run the installed binary, and the check logic lives once | none as a binary (an install is not a lock entry, and the tool has no first-party dependency); a crate dependency would be an edge, and RT has no edge to either repository today | new Rust code that parses `Cargo.lock` (raw lock, source-aware, so it matches the script exactly), its tests and a release path; each caller builds it from the network; it widens a repository whose job is something else | none if installed from the default branch | no |
+| (c) a new tool repository, same shape as (b) | a new owner | none as a binary | everything in (b) plus a new public repository, its CI, `deny` and spec gates; needs the owner's approval to create | none | no |
 
 cargo-deny measurements. A fixture lock holding two entries of one crate at one version from
 two git revisions of one repository (`tag` sources in the fixture) fails `cargo deny check
@@ -299,40 +301,59 @@ entry, so the failure the script exists for is caught by either form; with
 exact name: the glob `first*` matched nothing and the fixture passed, and `bans` carries no
 source condition, so "every crate from the agent-ix organisation" cannot be expressed
 without listing names, which is the drift trap IR-358's review removed (a first-party crate
-added later is unchecked until listed). The global form needs no first-party names. Run on
-IR's lock it fails on 8 third-party crates (`bit-set`, `bit-vec`, `fancy-regex`, `fraction`,
-`getrandom`, `hashbrown`, `jsonschema`, `syn`), and by name count the other locks hold 10 in CG
-and 1 in RT, so the global form is a superset of the script and each repository records its
-third-party duplicates as `skip` entries (a new duplicate then fails loudly, where a new
-first-party crate under the per-crate form would pass silently). Not measured: a `skip` list's
-behaviour on a crate that leaves the lock (cargo-deny's own warning for an unused entry).
-CG and RT run `cargo deny check licenses` alone in CI, so adopting the global form needs their
-CI to run `bans` as well (their own repositories' change); IR's CI already runs `cargo deny
-check`, which the awk never was part of.
+added later is unchecked until listed). The global form needs no first-party names, but it
+applies to every crate, so each repository must record its third-party duplicates as `skip`
+entries: IR's lock fails on 8 third-party crates (`bit-set`, `bit-vec`, `fancy-regex`,
+`fraction`, `getrandom`, `hashbrown`, `jsonschema`, `syn`), CG's needs 10, and RT's needs
+none (its lock holds two `syn` entries and `cargo deny check bans` still reports ok, because
+cargo-deny judges the dependency graph resolved for the build, not the raw lock).
 
-Recommendation: option (a), the global form. The measured result is that cargo-deny
-configuration is equivalent on the rule the script enforces (one lock entry per crate name,
-whatever the version or revision) and stricter on its crate set (every crate, not only
-agent-ix ones), at the price of per-repository `skip` entries; it adds no code, no repository,
-no pin and no edge, and a configuration file is not a copy of a script. It is also the
-mechanism QSL already uses for `quire-canonical`, so QSL's offer reduces to widening it.
-Options (b) and (c) are the fallback only if the owner wants a check that is source-aware
-(agent-ix crates only, no `skip` lists) or decides that `skip` entries are too costly; (c)
-needs the owner to approve a new repository.
+The relationship to the script is therefore not equivalence, and not a superset. On the
+rule (more than one entry per crate name, whatever version or revision) cargo-deny
+agrees where the duplicate is in the resolved graph. On the input it differs both ways: a
+duplicate reachable only through a never-true `cfg` (a `cfg(any())` dependency, measured on
+a fixture, with all features on) makes the script fail and cargo-deny report `bans ok`, while
+a `cfg(windows)`-gated duplicate fails both; and cargo-deny fails on third-party duplicates
+the script ignores. Stale exceptions are silent by default: a `skip` entry that matches no
+crate gives `warning[unmatched-skip]` and `bans ok` (exit 0), and fails (exit 2) only under
+`-D unmatched-skip`.
+
+CI today: IR's CI runs `cargo deny check`, CG's `make deny` runs a full `cargo deny check`
+and RT's `make deny` runs `licenses bans sources`, so under (a) the `bans` rule would be
+enforced by each repository's existing `make deny` with no CI change. The script itself ran in
+no repository's CI (CG's and RT's CI run `cargo deny check licenses` alone, and RT's workflow
+is manual-only and has never been dispatched); local `make deny` and `make ci` are the gates.
+
+Recommendation, re-derived from the costs above. The owner ruled one owned tool, with the
+check logic held once. Option (a) holds no check logic of its own, which is its attraction,
+but it cannot enforce FR-043's first-party-only exception rule or the raw-lock input without
+a source-aware guard in each of IR, CG and RT, which is the per-repository copy the ruling
+removes, or by leaving both to review; it also leaves three hand-kept `skip` lists that
+drift unless `-D unmatched-skip` is set. Option (c), a new small tool repository whose binary
+reads the raw `Cargo.lock` and applies the script's rule once, is the only option that keeps
+one copy of the logic, matches the script exactly, and creates no cycle (an installed
+binary is not a lock entry, and the tool takes no first-party dependency); its cost is a new
+repository and a binary built by each caller. Option (b) has the same properties in an
+existing repository, at the price of widening a repository whose job is something else;
+neither candidate has a natural home. This AD recommends (c), and (a) only if the owner
+accepts that the first-party-only rule rests on review and on `-D unmatched-skip`, with QSL's
+existing `quire-canonical` entry as the model.
 
 Questions for the owner (not decided here):
 
-- O-4a. Is cargo-deny configuration, per-repository `deny.toml` policy over the third-party
-  tool, "one owned tool" in the sense of the ruling? Recommendation: yes.
-- O-4b. If not, may a new tool repository be created (option c), or should the tool live in an
-  existing repository (option b)? Recommendation: neither unless O-4a is no.
+- O-4a. Is cargo-deny configuration, a per-repository `skip` policy over the third-party
+  tool, acceptable as "one owned tool" given the costs in the table (three hand-kept policies,
+  the cfg-resolved graph, no source condition)? This AD recommends no.
+- O-4b. If not, may a new small tool repository be created (option c), or should the tool
+  live in an existing repository (option b)? This AD recommends a new repository.
 
-The migration is: IR deletes `scripts/check_one_copy.awk`, its `make deny` line and the comment
-lines in `Makefile` and `deny.toml` that cite it; CG and RT delete their copies and the same
-lines in their own repositories; QSL decides whether to widen its entry. No compatibility
-layer: the three copies are deleted in the same change that adds the check, not kept beside
-it. Code and the other repositories' changes are separate tickets; this AD and FR-043 are
-the spec.
+The migration is per repository and does not presume the answer. Whatever the tool, each of
+IR, CG and RT deletes its own `scripts/check_one_copy.awk`, the `make deny` line that runs it
+and the comment lines in `Makefile` and `deny.toml` that cite it, in its own change, after
+the owned check exists and is invoked there; the copies are not kept beside the new check. QSL
+decides whether to adopt the same check. No compatibility layer. IR's deletion is FR-043's
+code change; the other repositories' changes are separate tickets, and this AD and FR-043
+are the spec.
 
 ### Routed gaps
 
@@ -342,7 +363,7 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4); nothing in QSL would catch that, because QSL's `arch-lint duplicate-revisions` was removed (QSL-477) and its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone. Justify the `rev` for both, or move both together (`filament-core-data` first). Separately, QSL has no general one-entry-per-first-party-crate lock check; the owner's ruling on O-4 offers QSL the same owned check, and whether to adopt it is QSL's call. |
+| R-1 | The two `rev` edges (`filament-core-data` from `qsl-semantics`, `quire-rs` from `qsl-source`) are outside the `branch = "main"` convention IR, CG and RT follow. They are linked: `filament-core-data` itself depends on `quire-rs` at the same `rev`, so moving only `qsl-source`'s edge leaves two `quire-rs` lock entries (G-4); nothing in QSL would catch that, because QSL's `arch-lint duplicate-revisions` was removed (QSL-477) and its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone. Justify the `rev` for both, or move both together (`filament-core-data` first). Separately, QSL has no general one-entry-per-first-party-crate lock check; IR-581's work text offers QSL the same owned check (O-4), and whether to adopt it is QSL's call. |
 | R-2 | The QSL dev edges to CG and a historical IR, and ADR-011's "QSL tests to RT" row, are not in any QSL manifest or lock; restate those three "Differences from today" rows and AD-016 WP9 as done or still open. |
 | R-4 | Carry the extraction of `quire-exact` and `quire-semantic-value` if the owner accepts O-1 option 3, including the ADR-011 shared-leaf row and the arch-lint and TC-390 edits. |
 

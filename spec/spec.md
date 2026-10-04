@@ -102,7 +102,7 @@ The subsystem matrices, indexed by [tests.md](tests.md), map the substrate to
 staged verification.
 
 FR-028 makes the model/owner/root dependency graph implementable without a
-Cargo cycle. FR-043 requires one lock entry per crate, checked by one owned tool
+Cargo cycle. FR-043 requires one lock entry per first-party crate, checked by one owned tool
 that is not a copy in this repository (AD-007 O-4).
 
 ## Subsystems
