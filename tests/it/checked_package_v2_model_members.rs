@@ -807,7 +807,16 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
     // member name only when its object closes. Hand-written expectations.
     let number = |pointer: &str, cause| number_refusal(pointer, cause);
     let led = |members: &str| document_bytes_led_by(members);
-    let cases: [(Vec<u8>, CheckedPackageRefusal); 9] = [
+    let cases: [(Vec<u8>, CheckedPackageRefusal); 11] = [
+        // The reader checks that the whole input is UTF-8 before it reads any
+        // value, so invalid UTF-8 after the number is the first fault.
+        (b"[1e400,\"\xFF\"]".to_vec(), raw_digest_refusal()),
+        // A lone surrogate escape is found when the string is read, after the
+        // number.
+        (
+            b"[1e400,\"\\ud800\"]".to_vec(),
+            number("/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
         // The out-of-range number is read before the object closes, so it is
         // named ahead of the earlier repeated name.
         (
@@ -859,7 +868,16 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
             .chars()
             .take(60)
             .collect::<String>();
-        for digest in [sha256_hex(&bytes), other.clone()] {
+        // The raw-path outcome is pinned under a foreign digest only: under the
+        // document's own raw digest QSL FR-056 says `wrong-model-selection`,
+        // which this reader does not yet do (IR-578).
+        let own = sha256_hex(&bytes);
+        let digests = if expected == raw_digest_refusal() {
+            vec![other.clone()]
+        } else {
+            vec![own, other.clone()]
+        };
+        for digest in digests {
             match read_selecting(&digest, &bytes) {
                 CheckedPackageV2ReadResult::Refused(refused) => {
                     assert_eq!(refused, expected, "{shown}");

@@ -679,8 +679,11 @@ double range after an inexact number (`{"b":0.1000000000000000000001,"a":[1e400]
 `{"b":9007199254740993,"a":[1e400]}`) and check the out-of-range number is named
 (`/a/0`, `inexact-integer`); read `{"a":1,"a":2,"n":1e400}` and `[1e400` and
 check `/n` and `/0` are named, and `[{"a":1,"a":2},1e400]` and
-`{"a":1,"a":2,"n":1e-400}` and check `stale_dependency`/`byte-digest-mismatch`,
-the first fault `read` returns deciding (FR-038-AC-110). Read a
+`{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` under a digest that is not
+their raw digest and check `stale_dependency`/`byte-digest-mismatch`, and
+`[1e400,"\ud800"]` and check `/0`, the first fault `read` returns deciding
+(FR-038-AC-110; the outcome under a raw-path document's own raw digest is not
+pinned, IR-578). Read a
 package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
 node body and check `noncanonical_wire` with no pointer, no `document_pointer`
 and no cause, and `0.1`, `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` not refused for it; read the manifest of the crate that holds the
