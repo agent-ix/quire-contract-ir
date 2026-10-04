@@ -272,14 +272,17 @@ fn every_kind() -> [KaniOutcomeKind; 10] {
 /// probes of the non-success constructor, which must fail to compile, are
 /// `compile_fail` doctests on `KaniOutcome::non_success`.
 ///
-/// The `KaniOutcomeError` clause is read through the non-success constructor
-/// asked for a `proved` outcome: the count-bearing `proved` request FR-030-AC-4
-/// names is not built yet, and both raise the same registered code.
+/// The AC's `KaniOutcomeError` clause, for a `proved` request with a count of
+/// zero, is not delivered here: that request is FR-030-AC-4's and is not built.
+/// This test asserts what the error type does carry today, through the
+/// non-success constructor asked for a `proved` and for a `counterexample`
+/// outcome (an FR-030-AC-5 clause, not claimed): its registered code and the
+/// requested kind and cause.
 ///
-/// Tracing: TC-223, FR-030-AC-6
-#[trace("TC-223", "FR-030-AC-6")]
+/// Tracing: TC-443, FR-030-AC-6
+#[trace("TC-443", "FR-030-AC-6")]
 #[test]
-fn tc_223_the_outcome_and_its_error_carry_a_typed_std001_code() {
+fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
     let vacuous = KaniOutcome::proved_from_checks(0, "clause:demo", "profile");
     assert_eq!(vacuous.code, Std001Code::KANI_VACUOUS_PROOF);
     let text = serde_json::to_string(&vacuous).expect("an outcome serializes");
@@ -288,14 +291,20 @@ fn tc_223_the_outcome_and_its_error_carry_a_typed_std001_code() {
         "the code serializes as the bare string: {text}"
     );
 
-    let error = KaniOutcome::non_success(
-        KaniOutcomeKind::Proved,
-        Std001Code::KANI_PROVED,
-        "clause:demo",
-        "profile",
-    )
-    .expect_err("a proved outcome is not a non-success outcome");
-    assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
+    for (kind, code) in [
+        (KaniOutcomeKind::Proved, Std001Code::KANI_PROVED),
+        (
+            KaniOutcomeKind::Counterexample,
+            Std001Code::KANI_COUNTEREXAMPLE,
+        ),
+    ] {
+        let error = KaniOutcome::non_success(kind.clone(), code, "clause:demo", "profile")
+            .expect_err("a Boolean-claim outcome is not a non-success outcome");
+        assert_eq!(error.code(), Std001Code::KANI_OUTCOME_INVALID);
+        assert_eq!(error.requested_kind(), &kind);
+        assert_eq!(error.requested_code(), code);
+        assert!(error.to_string().contains("kani_outcome_invalid"));
+    }
 
     let malformed = text.replace("kani_vacuous_proof", "Bad-Code");
     assert!(malformed.contains("\"code\":\"Bad-Code\""));

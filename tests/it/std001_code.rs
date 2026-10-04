@@ -50,6 +50,7 @@ fn tc_442_new_accepts_the_form_and_refuses_everything_else() {
         let code = Std001Code::new(valid).expect("a well-formed code");
         assert_eq!(code.as_str(), valid);
         assert_eq!(code.to_string(), valid);
+        assert_eq!(format!("{code:?}"), format!("Std001Code({valid:?})"));
     }
     let invalid = [
         String::new(),

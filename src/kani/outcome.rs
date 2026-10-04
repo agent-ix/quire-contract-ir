@@ -92,17 +92,33 @@ pub struct KaniProviderRecord {
 
 /// A request to build an outcome that breaks a constructor rule.
 ///
-/// Its [`code`](Self::code) is `kani_outcome_invalid` (STD-001). No outcome is
-/// built and no other kind or cause is substituted.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
-#[error("kani_outcome_invalid: a `proved` or `counterexample` outcome is not built as a non-success outcome")]
-pub struct KaniOutcomeError(());
+/// Its [`code`](Self::code) is `kani_outcome_invalid` (STD-001), and it names the
+/// kind and cause code that were requested. No outcome is built and no other kind
+/// or cause is substituted.
+#[derive(Clone, Debug, Eq, PartialEq, Error)]
+#[error("kani_outcome_invalid: a {requested_kind:?} outcome with cause {requested_code} is not a non-success outcome")]
+pub struct KaniOutcomeError {
+    requested_kind: KaniOutcomeKind,
+    requested_code: Std001Code,
+}
 
 impl KaniOutcomeError {
     /// The code of this error: `kani_outcome_invalid`.
     #[must_use]
     pub const fn code(&self) -> Std001Code {
         Std001Code::KANI_OUTCOME_INVALID
+    }
+
+    /// The outcome kind that was requested and refused.
+    #[must_use]
+    pub const fn requested_kind(&self) -> &KaniOutcomeKind {
+        &self.requested_kind
+    }
+
+    /// The cause code that was requested with it.
+    #[must_use]
+    pub const fn requested_code(&self) -> Std001Code {
+        self.requested_code
     }
 }
 
@@ -171,7 +187,7 @@ impl KaniOutcome {
         context: impl Into<String>,
     ) -> Self {
         if success_checks == 0 {
-            return Self::new(
+            return Self::raise(
                 KaniOutcomeKind::Inconclusive,
                 Std001Code::KANI_VACUOUS_PROOF,
                 source_id,
@@ -225,7 +241,10 @@ impl KaniOutcome {
         context: impl Into<String>,
     ) -> Result<Self, KaniOutcomeError> {
         match kind {
-            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Err(KaniOutcomeError(())),
+            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Err(KaniOutcomeError {
+                requested_kind: kind,
+                requested_code: code,
+            }),
             KaniOutcomeKind::Refused
             | KaniOutcomeKind::InvalidInput
             | KaniOutcomeKind::IncompleteInput
@@ -237,9 +256,33 @@ impl KaniOutcome {
         }
     }
 
-    /// Builds an outcome without checking `kind`: for the `kani` module's own
-    /// raise sites, whose kind is a literal non-success kind.
-    pub(super) fn new(
+    /// The raise sites of the `kani` module's lowerings and input checks: builds
+    /// through [`KaniOutcome::non_success`], the one validating path. A request
+    /// that path refuses cannot be returned as an error from a lowering, so it is
+    /// returned as a `refused` outcome that carries the registered
+    /// `kani_outcome_invalid` code and the request's source and context: the
+    /// refusal stays visible and no `proved` or `counterexample` outcome is built.
+    pub(super) fn raise(
+        kind: KaniOutcomeKind,
+        code: Std001Code,
+        source_id: impl Into<String>,
+        context: impl Into<String>,
+    ) -> Self {
+        let source_id = source_id.into();
+        let context = context.into();
+        match Self::non_success(kind, code, source_id.clone(), context.clone()) {
+            Ok(outcome) => outcome,
+            Err(rejected) => Self::new(
+                KaniOutcomeKind::Refused,
+                rejected.code(),
+                source_id,
+                context,
+            ),
+        }
+    }
+
+    /// Builds the outcome after the caller has chosen a kind and code that agree.
+    fn new(
         kind: KaniOutcomeKind,
         code: Std001Code,
         source_id: impl Into<String>,

@@ -94,7 +94,7 @@ const fn well_formed(bytes: &[u8]) -> bool {
 /// no destructor: a `const` item, which the compile-time constructors fill,
 /// cannot evaluate the destructor of an owning string. The buffer is exactly the
 /// longest code, so a value stays small enough to sit in a `Result` error arm.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Std001Code {
     /// The code, then zero padding. A code holds no zero byte, so its length is
     /// the offset of the first zero, or the whole buffer.
@@ -223,15 +223,34 @@ registered_codes! {
     KANI_VACUOUS_PROOF => "kani_vacuous_proof",
 }
 
+/// Every `DiagnosticCode` spelling is a well-formed code. A variant whose
+/// spelling is not fails the build here, which is what makes the `Err` arm of
+/// `From<DiagnosticCode>` dead.
+const _: () = {
+    let mut index = 0;
+    while index < DiagnosticCode::ALL.len() {
+        assert!(well_formed(DiagnosticCode::ALL[index].as_str().as_bytes()));
+        index += 1;
+    }
+};
+
 impl From<DiagnosticCode> for Std001Code {
     fn from(code: DiagnosticCode) -> Self {
-        // Every `DiagnosticCode` spelling is a well-formed code, so the `Err` arm
-        // is unreachable; TC-442 converts every `DiagnosticCode::ALL` entry and
-        // asserts the text is unchanged, which fails if that ever stops holding.
+        // The `Err` arm is unreachable by the const assertion above; TC-442 also
+        // converts every `DiagnosticCode::ALL` entry and asserts the text is
+        // unchanged.
         match Self::pack(code.as_str()) {
             Ok(code) => code,
             Err(_) => Self::INVALID_CODE_FORM,
         }
+    }
+}
+
+/// Prints the code, not the buffer, so a failed assertion on an outcome that holds
+/// one reads `Std001Code("kani_proved")`.
+impl fmt::Debug for Std001Code {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Std001Code").field(&self.as_str()).finish()
     }
 }
 

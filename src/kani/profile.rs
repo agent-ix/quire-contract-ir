@@ -136,7 +136,7 @@ impl KaniProfile {
         let mut selected = Vec::with_capacity(constructs.len());
         for construct in constructs {
             if construct.trim().is_empty() || !encountered.insert(construct.as_str()) {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
                     source_id,
@@ -148,7 +148,7 @@ impl KaniProfile {
                 .iter()
                 .find(|entry| entry.construct == *construct)
             else {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     Std001Code::KANI_CAPABILITY_MISSING,
                     source_id,

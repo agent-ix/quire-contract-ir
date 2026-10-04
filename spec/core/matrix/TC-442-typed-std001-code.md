@@ -14,7 +14,7 @@ Verify FR-044-AC-1 through FR-044-AC-5: the form `Std001Code::new` accepts and
 refuses, the bare-string wire form and its validating deserialization, the
 registered code set, and the compile-time path (`std001_code!` and
 `Std001Code::from_static`). The `KaniOutcome` side of the type is FR-030-AC-6, verified
-under TC-223.
+under TC-443.
 
 ## Test Procedure
 

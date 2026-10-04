@@ -69,6 +69,9 @@ test:
 	# The model's own doctests with its test-only fault-injection feature off:
 	# they prove a default build does not export that surface (FR-019-AC-4).
 	$(CARGO) test $(LOCKED) -p quire-contract-model --doc
+	# The root crate's doctests, which `--all-targets` leaves out: the
+	# `compile_fail` probes of the non-success constructor (FR-030-AC-6).
+	$(CARGO) test $(LOCKED) -p quire-contract-ir --doc
 
 # FR-038-AC-107: QSpec's positive CheckedPackage V2 fixtures admit. Reads the
 # checkout named by QUIRE_SPECIFICATION_DIR and fails, never skips, when it is

@@ -143,8 +143,9 @@ Local labels; the repository assigns requirement ids when one is authored.
 - G-3. A struct-literal `KaniOutcome` outside the `kani` module does not compile (FR-030-AC-5;
   not true today: all four fields are `pub`, `src/kani/outcome.rs`).
 - G-4. `Proved` carries a check count and a request with count zero returns `KaniOutcomeError`
-  (FR-030-AC-4; not built: `proved` takes no count and `non_success` turns `Proved` into a
-  `Refused` outcome with code `kani_outcome_kind_invalid`).
+  (FR-030-AC-4; not built: `proved` takes no count and no `proved` request can be refused for
+  a zero count; `non_success` already returns `KaniOutcomeError` for a `Proved` or
+  `Counterexample` request).
 - G-5. Target: neither IR package depends on the codegen or runtime packages, as a cargo-deny `bans` build failure in `make deny` (AD-005 D-2; IR-343); no such entry exists today.
 - G-6. Codegen's lock holds one `quire-contract-model` and one `quire-contract-ir` (existing
   gate).

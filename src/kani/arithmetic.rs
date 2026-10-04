@@ -49,7 +49,7 @@ pub fn lower_checked_arithmetic(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("checked-arithmetic").map_err(|_| {
-                KaniOutcome::new(
+                KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     request.source_id,
@@ -59,7 +59,7 @@ pub fn lower_checked_arithmetic(
             if descriptor.family != SemanticFamily::DefinednessArithmetic
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     request.source_id,
@@ -68,7 +68,7 @@ pub fn lower_checked_arithmetic(
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Refused,
                 *code,
                 request.source_id,
@@ -76,7 +76,7 @@ pub fn lower_checked_arithmetic(
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Inconclusive,
                 *code,
                 request.source_id,
@@ -85,7 +85,7 @@ pub fn lower_checked_arithmetic(
         }
     }
     if request.minimum > request.maximum {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::InvalidInput,
             std001_code!("kani_arithmetic_range_invalid"),
             request.source_id,
@@ -98,7 +98,7 @@ pub fn lower_checked_arithmetic(
         NumericOperator::Multiply => request.left.checked_mul(request.right),
         NumericOperator::Divide => {
             if request.right == 0 {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
@@ -109,7 +109,7 @@ pub fn lower_checked_arithmetic(
         }
         NumericOperator::Remainder => {
             if request.right == 0 {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
@@ -120,7 +120,7 @@ pub fn lower_checked_arithmetic(
         }
     };
     let Some(value) = value else {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::Refused,
             std001_code!("kani_definedness_checked_range"),
             request.source_id,
@@ -128,7 +128,7 @@ pub fn lower_checked_arithmetic(
         ));
     };
     if value < request.minimum || value > request.maximum {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::Refused,
             std001_code!("kani_definedness_checked_range"),
             request.source_id,

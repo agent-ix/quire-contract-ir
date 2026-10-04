@@ -42,7 +42,7 @@ pub fn lower_query(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("bounded-collection-query").map_err(|_| {
-                KaniOutcome::new(
+                KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     &query.source_id,
@@ -52,7 +52,7 @@ pub fn lower_query(
             if descriptor.family != SemanticFamily::CollectionsQueries
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     &query.source_id,
@@ -61,7 +61,7 @@ pub fn lower_query(
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Refused,
                 *code,
                 &query.source_id,
@@ -69,7 +69,7 @@ pub fn lower_query(
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Inconclusive,
                 *code,
                 &query.source_id,
@@ -78,7 +78,7 @@ pub fn lower_query(
         }
     }
     if query.values.len() > query.max_items {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::ResourceExhausted,
             std001_code!("kani_collection_bound_exhausted"),
             &query.source_id,

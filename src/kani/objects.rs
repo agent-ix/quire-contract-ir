@@ -46,7 +46,7 @@ pub fn lower_reaches(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("finite-reference-graph").map_err(|_| {
-                KaniOutcome::new(
+                KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_unowned"),
                     &request.source_id,
@@ -56,7 +56,7 @@ pub fn lower_reaches(
             if descriptor.family != SemanticFamily::ObjectsReferencesGraphs
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::new(
+                return Err(KaniOutcome::raise(
                     KaniOutcomeKind::Refused,
                     std001_code!("kani_dispatch_profile_mismatch"),
                     &request.source_id,
@@ -65,7 +65,7 @@ pub fn lower_reaches(
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Refused,
                 *code,
                 &request.source_id,
@@ -73,7 +73,7 @@ pub fn lower_reaches(
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::Inconclusive,
                 *code,
                 &request.source_id,
@@ -82,7 +82,7 @@ pub fn lower_reaches(
         }
     }
     if request.max_expansions == 0 {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::InvalidInput,
             std001_code!("kani_graph_bound_invalid"),
             &request.source_id,
@@ -97,7 +97,7 @@ pub fn lower_reaches(
         .collect();
     if !objects.contains(request.start_id.as_str()) || !objects.contains(request.target_id.as_str())
     {
-        return Err(KaniOutcome::new(
+        return Err(KaniOutcome::raise(
             KaniOutcomeKind::InvalidInput,
             std001_code!("kani_graph_identity_invalid"),
             &request.source_id,
@@ -124,7 +124,7 @@ pub fn lower_reaches(
             continue;
         }
         if expanded.len() == request.max_expansions {
-            return Err(KaniOutcome::new(
+            return Err(KaniOutcome::raise(
                 KaniOutcomeKind::ResourceExhausted,
                 std001_code!("kani_graph_expansion_exhausted"),
                 &request.source_id,
