@@ -16,14 +16,19 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-030
     type: references
+  - target: ix://agent-ix/quire-contract-ir/FR-044
+    type: references
 ---
 # STD-001: Contract IR diagnostic code registry
 
 ## Description
 
 This registry owns the stable machine-readable diagnostic codes of FR-011
-through FR-019 and the bounded-Kani outcome error code FR-030 raises. Implementations may add human context but shall not parse
-or synthesize codes from messages. Codes are lowercase ASCII snake case.
+through FR-019, the bounded-Kani cause and outcome error codes FR-030 raises and
+the code-form code FR-044 raises. Implementations may add human context but shall not parse
+or synthesize codes from messages. Codes are lowercase ASCII snake case, and a
+code is carried as a `Std001Code` (FR-044). A registered code is never renamed,
+reused for another condition or removed while a release names it.
 
 ## Identity and Reference Codes
 
@@ -90,7 +95,49 @@ or synthesize codes from messages. Codes are lowercase ASCII snake case.
 |---|---|---|
 | `semantic_input_too_large` | A complete operation exceeds 25000 semantic nodes, recursive semantic depth 256, or 10000 entries in any semantic collection | first node, depth, or collection path crossing the limit; source span when present |
 
-## Bounded Kani Outcome Codes
+## Typed Code Form
+
+Every registered code is carried as a `Std001Code` (FR-044), a type of
+`quire-contract-model` that is a validated lowercase-ASCII-snake-case string and
+not a membership claim: the registered codes outside `DiagnosticCode` are
+constants of that type. The code below is the `code` of a `Std001CodeError`.
+
+| Code | Condition | Required location |
+| --- | --- | --- |
+| `invalid_code_form` | A candidate code is empty, longer than 64 bytes, begins with other than `a` to `z`, holds a byte other than `a` to `z`, `0` to `9` and `_`, ends in `_` or holds two adjacent `_` | none; the error holds no copy of the input |
+
+## Bounded Kani Cause Codes
+
+These codes are the stable cause codes of the `KaniOutcome` the root crate's
+`kani` module returns, typed as `Std001Code` (FR-030, FR-044). A code of an
+outcome kind other than `proved` and `counterexample` is the outcome's cause.
+The map from an outcome to a QSL terminal value reads a code only where its
+requirement says so, and no code becomes a QSL `TerminalValue`.
+
+| Code | Condition | Required location |
+| --- | --- | --- |
+| `kani_proved` | The code every `proved` outcome carries | outcome source identity |
+| `kani_counterexample` | The code every `counterexample` outcome carries | outcome source identity |
+| `kani_identity_invalid` | A finite input has an empty model or source identity (`invalid_input`) | outcome source identity |
+| `kani_population_incomplete` | A finite input declares an incomplete population (`incomplete_input`); this is not a missing replay input, which QSpec owns | outcome source identity |
+| `kani_bound_invalid` | A finite input has a zero object or byte bound (`invalid_input`) | outcome source identity |
+| `kani_bound_exhausted` | A finite input exceeds a selected byte, object or reference bound (`resource_exhausted`) | outcome source identity |
+| `kani_population_invalid` | A finite input holds an object with an empty identity, type or snapshot, or a duplicate object identity (`invalid_input`) | outcome source identity |
+| `kani_reference_invalid` | A finite input holds a reference with an empty field, a dangling or foreign endpoint, or a duplicate reference (`invalid_input`) | outcome source identity |
+| `kani_capability_request_invalid` | A capability request names an empty or repeated construct (`refused`) | outcome source identity |
+| `kani_capability_missing` | A capability request names a construct the profile's matrix does not hold (`refused`) | the requested construct |
+| `kani_solver_absent` | An `unavailable` outcome: the run finds no solver satisfying the selected profile's capability negotiation | outcome source identity |
+| `kani_backend_absent` | An `unavailable` outcome: the run finds no Kani backend satisfying it | outcome source identity |
+| `kani_vacuous_proof` | An `inconclusive` outcome: a proof whose obligation completed with zero SUCCESS checks | outcome source identity |
+
+The family lowerings for checked arithmetic, collections and objects are
+codegen's (FR-039), and the codes they raise (`kani_dispatch_*`,
+`kani_arithmetic_*`, `kani_definedness_*`, `kani_collection_*`, `kani_graph_*`)
+are not registered here: they leave this repository with those lowerings
+(IR-347), and codegen registers its own refusal codes, such as its
+`kani_corpus_*` codes, in its own registry.
+
+## Bounded Kani Outcome Error Code
 
 This code is the `code` of the `KaniOutcomeError` the root crate's `kani`
 module returns. It is raised only by the validated `KaniOutcome` constructors

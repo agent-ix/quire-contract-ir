@@ -92,7 +92,9 @@ QSpec FR-451's abstraction relation body in that reader. FR-019 lists the
 model crate's public items and FR-039 the root crate's; the root crate
 re-exports no model item, so each public item has one import path. AD-001 is the repository architecture and
 versioning description; AD-002 and AD-003 are views inside it.
-STD-001 is the stable diagnostic code registry and STD-003 the closed
+STD-001 is the stable diagnostic code registry, and FR-044 exports its code as
+the typed `Std001Code` of the model crate, which `KaniOutcome.code` carries;
+STD-003 the closed
 output-mapping refusal registry. ADR-0053 fixes the formal clause source
 profiles. ADR-0054 separates archetype
 datatype generation from optional formal type projection. ADR-0056
