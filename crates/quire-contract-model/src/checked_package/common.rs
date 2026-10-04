@@ -193,6 +193,23 @@ impl<'a> Trail<'a> {
         Trail::Child(self, Step::Index(index))
     }
 
+    /// The steps from the document root to this position, in order. Walks the
+    /// chain iteratively.
+    pub(super) fn steps(&self) -> Vec<Step<'a>> {
+        let mut below = Vec::new();
+        let mut current = self;
+        let base = loop {
+            match current {
+                Trail::Base(steps) => break *steps,
+                Trail::Child(parent, step) => {
+                    below.push(*step);
+                    current = parent;
+                }
+            }
+        };
+        base.iter().chain(below.iter().rev()).copied().collect()
+    }
+
     /// The RFC 6901 pointer of this position. Walks the chain iteratively.
     pub(super) fn pointer(&self) -> JsonPointer {
         let mut below = Vec::new();

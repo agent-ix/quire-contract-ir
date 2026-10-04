@@ -188,11 +188,15 @@ fn object_types() -> Vec<String> {
 /// and the graph holds the object type, population and scalar nodes the
 /// relation nodes name.
 fn base() -> Value {
+    base_over(&domain_document())
+}
+
+/// [`base`] over a lock that selects `document`.
+fn base_over(document: &Value) -> Value {
     let mut package = nominal_package(&[]);
-    let document = domain_document();
     package["lock"]["model_selections"] = json!([{
         "identity": IDENTITY, "digest_domain": "sha256-jcs",
-        "digest": sha256_hex(&canonical(&document)),
+        "digest": sha256_hex(&canonical(document)),
     }]);
     let mut nodes = vec![
         plain(
@@ -450,10 +454,13 @@ fn rebodied(package: Value, position: usize, new_body: Value) -> Value {
 // Reading.
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
-    let document = domain_document();
+    read_over(value, &domain_document())
+}
+
+/// Reads `value` with `document` supplied as the selected domain package.
+fn read_over(value: &Value, document: &Value) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(value);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
@@ -933,6 +940,136 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
         .expect("the read ran to completion");
 }
 
+/// A member-defective relation body whose node key sorts below (`lower`) or
+/// above the node key `than`.
+fn member_defect_keyed(than: &str, lower: bool) -> Value {
+    (0..256)
+        .map(|index| member_defect(&format!("missing{index}")))
+        .find(|candidate| (digest_of(candidate).as_str() < than) == lower)
+        .expect("a candidate on that side of the key")
+}
+
+/// The step that refuses a root application is told apart by node-id order:
+/// the temporal step runs before the abstraction step over every node, so a
+/// temporal-class root is reported ahead of a member defect of a lower node
+/// key; an ordinary-class root is the abstraction step's own, and is reported
+/// in node-key order with that defect.
+///
+/// Tracing: TC-225
+/// ACs: FR-346-AC-2
+#[trace("TC-225", "FR-346-AC-2")]
+#[test]
+fn tc_225_a_root_application_is_refused_by_the_step_that_places_it() {
+    let temporal = application("temporal_formula", "quire.op.temporal.holds");
+    let ordinary = application("call", "quire.op.function.call");
+    let root_refusal = |case: &str, value: &Value, rooted_at: usize, root_key: &str| {
+        expect(
+            case,
+            value,
+            Code::IllTyped,
+            Some(Cause::OperatorIneligible),
+            &at_node(rooted_at, ""),
+            Some(root_key),
+        );
+    };
+    // The temporal class: the root is reported though a member defect sits on
+    // a node of a lower key, which the abstraction step would reach first.
+    let (rooted, rooted_at) = rooted_in(temporal);
+    let root_key = nodes(&rooted)[rooted_at]["node_id"]["digest"]
+        .as_str()
+        .expect("key")
+        .to_owned();
+    let defect = member_defect_keyed(&root_key, true);
+    let value = with_nodes(rooted, vec![relation_node(&defect)]);
+    root_refusal(
+        "a temporal root and a lower defect",
+        &value,
+        rooted_at,
+        &root_key,
+    );
+    // The ordinary class: the abstraction step reports the two nodes in key
+    // order, the lower first.
+    let (rooted, rooted_at) = rooted_in(ordinary);
+    let root_key = nodes(&rooted)[rooted_at]["node_id"]["digest"]
+        .as_str()
+        .expect("key")
+        .to_owned();
+    let below = member_defect_keyed(&root_key, true);
+    let value = with_nodes(rooted.clone(), vec![relation_node(&below)]);
+    assert_eq!(
+        refusal_path("an ordinary root and a lower defect", &value),
+        at_node(at(&value, &below), "/body/objects/0/fields/0")
+    );
+    let above = member_defect_keyed(&root_key, false);
+    let value = with_nodes(rooted, vec![relation_node(&above)]);
+    root_refusal(
+        "an ordinary root and a higher defect",
+        &value,
+        rooted_at,
+        &root_key,
+    );
+}
+
+/// A node key outside the node-identity domain, or whose digest is not
+/// lowercase hex, is `digest_domain_mismatch` at the key, as every other node
+/// reference the reader reads; a value that is no node key is an entry of the
+/// wrong shape.
+///
+/// Tracing: TC-225
+/// ACs: FR-346-AC-2
+#[trace("TC-225", "FR-346-AC-2")]
+#[test]
+fn tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch() {
+    let rich = rich();
+    let value = relations(std::slice::from_ref(&rich));
+    let n = at(&value, &rich);
+    let keys = [
+        (
+            "another digest domain",
+            json!({"domain": "quire.other-node/v1", "digest": config_version()}),
+        ),
+        (
+            "a digest that is not hex",
+            json!({"domain": "quire.checked-semantic-node/v1", "digest": "z".repeat(64)}),
+        ),
+        (
+            "an uppercase digest",
+            json!({"domain": "quire.checked-semantic-node/v1", "digest": config_version().to_uppercase()}),
+        ),
+        (
+            "a short digest",
+            json!({"domain": "quire.checked-semantic-node/v1", "digest": "ab"}),
+        ),
+    ];
+    for (case, bad) in keys {
+        for (member_at, set) in [
+            (
+                "/body/objects/0/type",
+                (|node: &mut Value, key: Value| node["body"]["objects"][0]["type"] = key)
+                    as fn(&mut Value, Value),
+            ),
+            ("/body/populations/0/population", |node, key| {
+                node["body"]["populations"][0]["population"] = key;
+            }),
+            ("/body/frames/0/context", |node, key| {
+                node["body"]["frames"][0]["context"] = key;
+            }),
+        ] {
+            let case = format!("{case} at {member_at}");
+            let bad = bad.clone();
+            let value = mutated(value.clone(), n, |node| set(node, bad));
+            expect(
+                &case,
+                &value,
+                Code::DigestDomainMismatch,
+                None,
+                &at_node(n, member_at),
+                None,
+            );
+        }
+    }
+}
+
 // AC-3.
 
 fn state_frame(context: &str) -> Value {
@@ -989,11 +1126,41 @@ fn tc_225_a_frame_entry_binds_its_pair_with_or_without_a_frame_node() {
             operation_anchor(&context, "attemptUpdate"),
         ],
     );
-    admitted("a state/frame node and its anchor for the pair", &with);
-    let anchor = &nodes(&with)[position(&with, ANCHOR)]["body"];
-    let entry = &minimal["frames"][0];
-    assert_eq!(anchor["members"][0]["value"]["target"], entry["context"]);
-    assert_eq!(anchor["members"][1]["value"]["value"], entry["operation"]);
+    let package = admitted("a state/frame node and its anchor for the pair", &with);
+    // The pairs are read back from the admitted graph: the relation node's
+    // frame entry and the anchor's body.
+    let pair_of = |package: &CheckedPackageV2| {
+        let graph = &package.graph().nodes;
+        let entry = graph
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == "abstraction_relation")
+            .map(|node| &node.body["frames"][0])
+            .expect("the relation node");
+        let anchor = graph
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == "operation_anchor")
+            .map(|node| &node.body["members"])
+            .expect("the anchor node");
+        (
+            (entry["context"].clone(), entry["operation"].clone()),
+            (
+                anchor[0]["value"]["target"].clone(),
+                anchor[1]["value"]["value"].clone(),
+            ),
+        )
+    };
+    let (entry_pair, anchor_pair) = pair_of(&package);
+    assert_eq!(entry_pair, anchor_pair);
+    // The comparison can fail: an anchor for another operation does not match
+    // the entry (and the package still admits, as the entry binds its pair
+    // whether or not a frame node holds it).
+    let other = with_nodes(
+        relations(std::slice::from_ref(&minimal)),
+        vec![state_frame(&context), operation_anchor(&context, "rebase")],
+    );
+    let other = admitted("an anchor for another operation", &other);
+    let (entry_pair, anchor_pair) = pair_of(&other);
+    assert_ne!(entry_pair, anchor_pair);
 }
 
 // AC-4.
@@ -1445,6 +1612,79 @@ fn tc_225_a_frame_operation_resolves_as_an_anchor_does_and_binds_its_parameters(
     }
 }
 
+/// IR reading (FR-346): a frame entry over an operation whose declared
+/// parameter names are not all present and unique cannot match, and refuses
+/// `invalid_model_binding`/`malformed-declaration` at the entry. The domain
+/// document is admitted as it is.
+///
+/// Tracing: TC-225
+/// ACs: FR-346-AC-7
+#[trace("TC-225", "FR-346-AC-7")]
+#[test]
+fn tc_225_an_operation_without_distinct_parameter_names_cannot_be_bound() {
+    let rebase = |parameters: &[(&str, &str)]| {
+        body(
+            vec![],
+            vec![],
+            vec![frame(
+                &config_version(),
+                "rebase",
+                &["f"],
+                "self",
+                parameters,
+            )],
+        )
+    };
+    let undeclared = |edit: fn(&mut Value)| {
+        let mut document = domain_document();
+        edit(&mut document["types"][0]["operations"][1]["params"]);
+        document
+    };
+    let cases: [(&str, Value, Value); 4] = [
+        (
+            "a parameter with no name",
+            undeclared(|params| {
+                params[1].as_object_mut().expect("parameter").remove("name");
+            }),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+        ),
+        (
+            "a parameter whose name is not a string",
+            undeclared(|params| params[1]["name"] = json!(5)),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+        ),
+        (
+            "two parameters of one name",
+            undeclared(|params| params[1]["name"] = json!("from")),
+            ordered(rebase(&[("from", "a"), ("to", "b")])),
+        ),
+        (
+            "two parameters of one name bound twice",
+            undeclared(|params| params[1]["name"] = json!("from")),
+            ordered(rebase(&[("from", "a"), ("from", "b")])),
+        ),
+    ];
+    for (case, document, relation) in cases {
+        let value = with_nodes(base_over(&document), vec![relation_node(&relation)]);
+        let refusal = match read_over(&value, &document) {
+            CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+            other => panic!("{case}: expected a refusal, read {other:?}"),
+        };
+        assert_eq!(refusal.code, Code::InvalidModelBinding, "{case}");
+        assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{case}");
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(at_node(at(&value, &relation), "/body/frames/0").as_str()),
+            "{case}"
+        );
+        assert_eq!(
+            refusal.locus.as_ref().map(|id| &*id.digest),
+            Some(config_version().as_str()),
+            "{case}"
+        );
+    }
+}
+
 // AC-8.
 
 /// Tracing: TC-225
@@ -1788,16 +2028,22 @@ fn tc_225_the_checks_of_one_node_run_in_identity_order_target_member_order() {
 #[test]
 fn tc_225_nodes_report_in_node_id_order_and_collisions_only_after_every_node() {
     // Two defective nodes: the lower node_id node's own defect.
+    // The nodes are placed in the graph in descending node-key order, so the
+    // lower key is the later position and a walk in position order differs.
     let (one, other) = (member_defect("missingOne"), member_defect("missingTwo"));
-    let value = relations(&[one.clone(), other.clone()]);
-    let lower = if digest_of(&one) < digest_of(&other) {
-        &one
+    let (lower, higher) = if digest_of(&one) < digest_of(&other) {
+        (one, other)
     } else {
-        &other
+        (other, one)
     };
+    let value = relations(&[higher.clone(), lower.clone()]);
+    assert!(
+        at(&value, &lower) > at(&value, &higher),
+        "the lower key is the later position"
+    );
     assert_eq!(
         refusal_path("two defective nodes", &value),
-        at_node(at(&value, lower), "/body/objects/0/fields/0")
+        at_node(at(&value, &lower), "/body/objects/0/fields/0")
     );
     // Two nodes that collide on an object key, and a third carrying a member
     // defect: the member defect, wherever the defective node sorts.

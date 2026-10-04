@@ -56,7 +56,7 @@ use super::{
     WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor,
+    body_term, exact_members, is_digest, node_pointer, validate_term, ReferenceVisitor, Step,
     TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
@@ -145,53 +145,104 @@ pub(super) fn scan_body(
     scan_members(body, at, visit)
 }
 
-/// Walks the values below `value` in document pre-order, refusing the first
-/// application.
+/// Walks the values below the body root in document pre-order, outermost
+/// first, from an explicit stack, and refuses the first application. The path
+/// of each pending value is a chain of steps in an arena, so a pointer is
+/// built only for the application that refuses.
 fn scan_members(
-    value: &Value,
+    body: &Value,
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    let mut work = 1_u64;
-    match value {
-        Value::Object(members) => {
-            for (key, member) in members {
-                work = work.saturating_add(scan_member(member, &at.key(key), visit)?);
+    /// The path of the body root: no step below it.
+    const ROOT: usize = usize::MAX;
+    let mut arena: Vec<(usize, Step<'_>)> = Vec::new();
+    let mut pending: Vec<(&Value, usize)> = vec![(body, ROOT)];
+    let mut work = 0_u64;
+    while let Some((value, path)) = pending.pop() {
+        work = work.saturating_add(1);
+        if path != ROOT && body_term(value) == Some(BodyTerm::Application) {
+            let mut below = Vec::new();
+            let mut cursor = path;
+            while let Some(&(parent, step)) = arena.get(cursor) {
+                below.push(step);
+                cursor = parent;
             }
+            let steps = at
+                .steps()
+                .into_iter()
+                .chain(below.into_iter().rev())
+                .collect::<Vec<_>>();
+            let here = Trail::Base(&steps);
+            // A malformed application, or a `case` one, is refused by the term
+            // walk with its own code; any other nested application is outside
+            // the body.
+            validate_term(value, TermGrammar::V2, false, &here, visit)?;
+            return Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                here.pointer(),
+            ));
         }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                work = work.saturating_add(scan_member(item, &at.index(index), visit)?);
-            }
+        let children: Vec<(Step<'_>, &Value)> = match value {
+            Value::Object(members) => members
+                .iter()
+                .map(|(key, member)| (Step::Key(key), member))
+                .collect(),
+            Value::Array(items) => items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| (Step::Index(index), item))
+                .collect(),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => continue,
+        };
+        // Pushed in reverse so the walk visits values in document order.
+        for (step, child) in children.into_iter().rev() {
+            arena.push((path, step));
+            pending.push((child, arena.len() - 1));
         }
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
     Ok(work)
 }
 
-/// One member value: an application refuses, anything else is walked.
-fn scan_member(
-    value: &Value,
-    at: &Trail<'_>,
-    visit: &mut ReferenceVisitor<'_>,
-) -> Result<u64, ValidationFailure> {
-    if body_term(value) != Some(BodyTerm::Application) {
-        return scan_members(value, at, visit);
-    }
-    // A malformed application, or a `case` one, is refused by the term walk
-    // with its own code; any other nested application is outside the body.
-    validate_term(value, TermGrammar::V2, false, at, visit)?;
-    Err(ValidationFailure::refused(
-        CheckedPackageRefusalCode::MalformedWire,
-        at.pointer(),
-    ))
+/// A shape defect of the body: the code it refuses with and the path of the
+/// value at fault.
+struct Defect {
+    code: CheckedPackageRefusalCode,
+    path: JsonPointer,
 }
 
-/// A node key: in the node domain, with a lowercase digest. Any other value
-/// is a body of the wrong shape, whatever the wire said about the domain.
-fn node_key(value: &Value) -> Option<CheckedNodeId> {
-    let id = CheckedNodeId::deserialize(value).ok()?;
-    (id.domain.as_ref() == NODE_DOMAIN && is_digest(&id.digest)).then_some(id)
+impl Defect {
+    /// `invalid_semantic_graph` at `path`.
+    fn invalid(path: &JsonPointer) -> Self {
+        Self {
+            code: CheckedPackageRefusalCode::InvalidSemanticGraph,
+            path: path.clone(),
+        }
+    }
+}
+
+/// The node key held in `object[key]` of the entry at `at`. A value that is
+/// not a node key at all is an entry of the wrong shape; a node key outside
+/// the reader's node-identity domain, or with a digest that is not lowercase
+/// hex, is `digest_domain_mismatch` at the key itself, as every other node
+/// reference the reader reads (FR-038 "Frame bodies").
+fn node_key(
+    object: &Map<String, Value>,
+    key: &str,
+    at: &JsonPointer,
+) -> Result<CheckedNodeId, Defect> {
+    let id = object
+        .get(key)
+        .and_then(|value| CheckedNodeId::deserialize(value).ok())
+        .ok_or_else(|| Defect::invalid(at))?;
+    if id.domain.as_ref() == NODE_DOMAIN && is_digest(&id.digest) {
+        Ok(id)
+    } else {
+        Err(Defect {
+            code: CheckedPackageRefusalCode::DigestDomainMismatch,
+            path: at.clone().key(key),
+        })
+    }
 }
 
 /// A non-empty string member.
@@ -230,10 +281,10 @@ fn closed<'v>(
     value: &'v Value,
     members: &[&str],
     at: &JsonPointer,
-) -> Result<&'v Map<String, Value>, JsonPointer> {
+) -> Result<&'v Map<String, Value>, Defect> {
     match value {
         Value::Object(object) if exact_members(object, members) => Ok(object),
-        _ => Err(at.clone()),
+        _ => Err(Defect::invalid(at)),
     }
 }
 
@@ -242,10 +293,10 @@ fn array<'v>(
     object: &'v Map<String, Value>,
     key: &str,
     at: &JsonPointer,
-) -> Result<&'v [Value], JsonPointer> {
+) -> Result<&'v [Value], Defect> {
     match object.get(key) {
         Some(Value::Array(items)) => Ok(items.as_slice()),
-        _ => Err(at.clone()),
+        _ => Err(Defect::invalid(at)),
     }
 }
 
@@ -254,8 +305,8 @@ fn entries<'v, T>(
     object: &'v Map<String, Value>,
     key: &str,
     at: &JsonPointer,
-    read: impl Fn(&'v Value, &JsonPointer) -> Result<T, JsonPointer>,
-) -> Result<Vec<T>, JsonPointer> {
+    read: impl Fn(&'v Value, &JsonPointer) -> Result<T, Defect>,
+) -> Result<Vec<T>, Defect> {
     let items = array(object, key, at)?;
     let at = at.clone().key(key);
     items
@@ -266,19 +317,19 @@ fn entries<'v, T>(
 }
 
 /// One `{name, <rust>}` entry of `fields` or `parameters`.
-fn read_binding(value: &Value, rust: &str, at: &JsonPointer) -> Result<Binding, JsonPointer> {
+fn read_binding(value: &Value, rust: &str, at: &JsonPointer) -> Result<Binding, Defect> {
     let object = closed(value, &["name", rust], at)?;
     match (identifier(object, "name"), text(object, rust)) {
         (Some(name), Some(rust)) => Ok(Binding { name, rust }),
-        _ => Err(at.clone()),
+        _ => Err(Defect::invalid(at)),
     }
 }
 
-fn read_object(value: &Value, at: &JsonPointer) -> Result<ObjectEntry, JsonPointer> {
+fn read_object(value: &Value, at: &JsonPointer) -> Result<ObjectEntry, Defect> {
     let object = closed(value, &["type", "rust_type", "fields"], at)?;
-    let fail = || at.clone();
+    let fail = || Defect::invalid(at);
     Ok(ObjectEntry {
-        type_id: object.get("type").and_then(node_key).ok_or_else(fail)?,
+        type_id: node_key(object, "type", at)?,
         rust_type: path(object, "rust_type").ok_or_else(fail)?,
         fields: entries(object, "fields", at, |field, field_at| {
             read_binding(field, "rust_field", field_at)
@@ -286,27 +337,24 @@ fn read_object(value: &Value, at: &JsonPointer) -> Result<ObjectEntry, JsonPoint
     })
 }
 
-fn read_population(value: &Value, at: &JsonPointer) -> Result<PopulationEntry, JsonPointer> {
+fn read_population(value: &Value, at: &JsonPointer) -> Result<PopulationEntry, Defect> {
     let object = closed(value, &["population", "collection"], at)?;
-    let fail = || at.clone();
+    let fail = || Defect::invalid(at);
     Ok(PopulationEntry {
-        population: object
-            .get("population")
-            .and_then(node_key)
-            .ok_or_else(fail)?,
+        population: node_key(object, "population", at)?,
         collection: path(object, "collection").ok_or_else(fail)?,
     })
 }
 
-fn read_frame(value: &Value, at: &JsonPointer) -> Result<FrameEntry, JsonPointer> {
+fn read_frame(value: &Value, at: &JsonPointer) -> Result<FrameEntry, Defect> {
     let object = closed(
         value,
         &["context", "operation", "function", "receiver", "parameters"],
         at,
     )?;
-    let fail = || at.clone();
+    let fail = || Defect::invalid(at);
     Ok(FrameEntry {
-        context: object.get("context").and_then(node_key).ok_or_else(fail)?,
+        context: node_key(object, "context", at)?,
         operation: identifier(object, "operation").ok_or_else(fail)?,
         function: path(object, "function").ok_or_else(fail)?,
         receiver: text(object, "receiver").ok_or_else(fail)?,
@@ -316,13 +364,14 @@ fn read_frame(value: &Value, at: &JsonPointer) -> Result<FrameEntry, JsonPointer
     })
 }
 
-/// Reads the closed body shape of FR-346 at `at`; an `Err` is the path of the
-/// value at fault: the array element of `objects`, `fields`, `populations`,
-/// `frames` or `parameters`, else the body.
-fn read_body(body: &Value, at: &JsonPointer) -> Result<AbstractionBody, JsonPointer> {
+/// Reads the closed body shape of FR-346 at `at`; an `Err` is the defect and
+/// the path of the value at fault: the array element of `objects`, `fields`,
+/// `populations`, `frames` or `parameters`, else the body, or a node key
+/// outside the node-identity domain at the key.
+fn read_body(body: &Value, at: &JsonPointer) -> Result<AbstractionBody, Defect> {
     let object = closed(body, &["term", "objects", "populations", "frames"], at)?;
     if body_term(body) != Some(BodyTerm::AbstractionRelation) {
-        return Err(at.clone());
+        return Err(Defect::invalid(at));
     }
     Ok(AbstractionBody {
         objects: entries(object, "objects", at, read_object)?,
@@ -424,7 +473,9 @@ fn check_node(
             node.node_id.clone(),
         ));
     }
-    let body = read_body(&node.body, &site.body_at()).map_err(|path| site.invalid(path))?;
+    let body = read_body(&node.body, &site.body_at()).map_err(|defect| {
+        ValidationFailure::refused_at(defect.code, defect.path, None, node.node_id.clone())
+    })?;
     check_identity(site, &body, bytes)?;
     check_order(site, &body)?;
     check_targets(site, &body, graph)?;
@@ -655,19 +706,24 @@ fn check_frame(
         match resolve_operation(context, kind, &entry.operation, graph, meter)? {
             Err(refusal) => return Err(model_refusal(refusal, at.clone(), &entry.context)),
             Ok(Some((_, operation))) => {
-                let mut declared = operation
+                // IR reading (FR-346): a list can match only an operation
+                // whose declared parameter names are all present and unique,
+                // so an operation whose names are not cannot be bound.
+                let declared = operation
                     .parameters
                     .iter()
                     .map(|slot| slot.name.as_deref())
-                    .collect::<Option<Vec<_>>>()
-                    .unwrap_or_default();
-                declared.sort_unstable();
-                let every_name = operation.parameters.iter().all(|slot| slot.name.is_some());
+                    .collect::<Option<Vec<_>>>();
                 let bound = entry
                     .parameters
                     .iter()
                     .map(|parameter| parameter.name.as_ref());
-                if !(every_name && declared.iter().copied().eq(bound)) {
+                let exact = declared.is_some_and(|mut declared| {
+                    declared.sort_unstable();
+                    declared.windows(2).all(|pair| pair[0] != pair[1])
+                        && declared.iter().copied().eq(bound)
+                });
+                if !exact {
                     return Err(malformed(at.clone()));
                 }
             }
