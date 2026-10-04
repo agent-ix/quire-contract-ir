@@ -911,8 +911,9 @@ fn tc_018_a_decoder_fixture_reaches_the_decoder_and_a_schema_input_does_not() {
 }
 
 /// Every canonical file of the published corpus whose object holds one of the
-/// eight members equals the bytes written out here, or holds them only as
-/// strings (FR-020-AC-3, FR-016-AC-5).
+/// eight members equals the bytes written out here and holds them only as
+/// strings; the test asserts both for every holding file (FR-020-AC-3,
+/// FR-016-AC-5).
 ///
 /// Tracing: TC-018, FR-020-AC-3.
 /// FR-020-AC-3.
@@ -1170,7 +1171,7 @@ fn tc_018_the_recorded_canonical_files_spell_the_eight_members_as_strings() {
     let mut compared = BTreeSet::new();
     for (name, bytes) in &expected {
         assert_eq!(
-            &fs::read_to_string(canonical.join(name)).unwrap(),
+            &fs::read_to_string(canonical.join(name)).unwrap_or_else(|e| panic!("{name}: {e}")),
             bytes,
             "{name}"
         );
