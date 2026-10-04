@@ -108,12 +108,19 @@ cases, with the path of the offending entry (an array element of `objects`,
 `/semantic_graph/nodes/{n}/body`. An occurrence whose role is not
 `declaration` refuses the same way at that occurrence's `role`. An
 `application` term standing as the body root of this node refuses
-`ill_typed`/`operator-ineligible` at the node, as FR-038-AC-115 refuses a
-non-`case` application at the body root of a node its class does not place
-there; an `application` standing as a member value inside the body refuses
-`malformed_wire` at that application, as FR-038-AC-114 refuses a nested
-application in any node body. Both run in the strict wire stage of FR-038 "The
-flat wire", before this step. A node of any other `semantic_form` whose body
+`ill_typed`/`operator-ineligible` at the node, as FR-038-AC-115 refuses an
+application at the body root of a node its class does not place there. FR-038
+decides body-root placement in several steps (the temporal classes in the
+temporal step, `quire.op.state.clause` in the state step, the other classes in
+the operation step), and the abstraction step runs before the operation step,
+so this requirement states the stage: for any class, the root is refused in the
+first of those steps that reaches it, and otherwise by the shape check that
+opens the abstraction step, before its identity check, with the same code and
+locus (IR reading). A non-`case` `application` standing as a member value inside the body
+refuses `malformed_wire` at that application at strict wire validation, as
+FR-038-AC-114 refuses a nested application in any node body, and a nested `case`
+application refuses `ill_typed`/`operator-ineligible` at its `operator`, as
+FR-038-AC-115 states. A node of any other `semantic_form` whose body
 carries this shape refuses `invalid_semantic_graph` at its `body`, as FR-038
 does for a frame body (IR reading, pending a QSpec ruling: merged FR-451 states
 no refusal for it).
@@ -160,8 +167,9 @@ are in order and the member and uniqueness checks below refuse them.
 ### Reader order
 
 IR reading (FR-451 says "after the state step" only): the abstraction step runs
-after the state step of FR-040 and before the operation step, so the steps run
-in the order frame, state, abstraction, operation. It runs over every
+after the state step of FR-040 and after the temporal step of FR-038-AC-102
+and before the operation step, so the steps run in the order frame, state,
+temporal, abstraction, operation. It runs over every
 `correspondence`/`abstraction_relation` node in ascending `node_id` digest
 order. For one node the checks run in this order and the first failing check
 is its defect:
@@ -182,9 +190,9 @@ is its defect:
    `invalid_package`/`stale-node-key`). IR reading: step 1 requires
    `dependencies` to equal the body's targets, so after step 1 every target is
    a declared dependency and the missing-name branch has no input; FR-451-AC-3
-   (`missing_declaration`/`missing-name` for a target missing from
-   `dependencies`) and FR-451-AC-4 (`invalid_semantic_graph` for `dependencies`
-   that omit a body target) name the two outcomes for one input, and this
+   (`invalid_semantic_graph` for `dependencies` that omit a body target) and
+   FR-451-AC-4 (`missing_declaration`/`missing-name` for a target missing from
+   `dependencies`) name the two outcomes for one input, and this
    reader follows the reader order: the identity step refuses it.
 4. **Members**, entry by entry in the same order. The entry of a refusal is
    the innermost array element holding the offending member (an `objects`,
@@ -243,14 +251,14 @@ reader does not do.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-346-AC-1 | 🚧 A package holding one `correspondence`/`abstraction_relation` node over a domain package built here (`ConfigVersion` with the field `version`, the operation `attemptUpdate(next: Integer)` and the operation `rebase(from: Integer, to: Integer)`, and a subtype `ConfigVersionDraft` that only inherits `attemptUpdate`) admits, for the body `{term: "abstraction_relation", objects: [{type: ConfigVersion, rust_type: ["config_store", "ConfigVersion"], fields: [{name: "version", rust_field: "version"}]}], populations: [], frames: [{context: ConfigVersion, operation: "attemptUpdate", function: ["config_store", "attempt_update"], receiver: "self", parameters: [{name: "next", rust_parameter: "next"}]}]}`; the body with all three arrays empty admits; a tuple-field `rust_field` of `"0"` and a raw identifier `r#type` admit. An unrecognized `correspondence` form still refuses `invalid_semantic_graph` at `semantic_form`. | Test (TC-225) |
-| FR-346-AC-2 | 🚧 IR reading: a body missing `frames` (path `/semantic_graph/nodes/{n}/body`), a body with a fourth member (same path), an `objects` entry missing `fields` (`.../body/objects/0`), a frame entry missing `receiver` (`.../body/frames/0`), a `function` that is an empty array (`.../body/frames/0`), a `type` that is not a node key (`.../body/objects/0`) and a `term` of `"aggregate"` each refuse as `invalid_semantic_graph` with no cause; an occurrence of role `anchor` refuses the same way at `/semantic_graph/nodes/{n}/occurrences/{o}/role`; a node of another `semantic_form` carrying this body refuses the same way at its `body`. An `application` body root refuses `ill_typed`/`operator-ineligible` at the node `/semantic_graph/nodes/{n}`, and an `application` standing as a `type` value refuses `malformed_wire` at that application. | Test (TC-225) |
+| FR-346-AC-2 | 🚧 IR reading: a body missing `frames` (path `/semantic_graph/nodes/{n}/body`), a body with a fourth member (same path), an `objects` entry missing `fields` (`.../body/objects/0`), a frame entry missing `receiver` (`.../body/frames/0`), a `function` that is an empty array (`.../body/frames/0`), a `type` that is not a node key (`.../body/objects/0`) and a `term` of `"aggregate"` each refuse as `invalid_semantic_graph` with no cause; an occurrence of role `anchor` refuses the same way at `/semantic_graph/nodes/{n}/occurrences/{o}/role`; a node of another `semantic_form` carrying this body refuses the same way at its `body`. An `application` body root of an ordinary class refuses `ill_typed`/`operator-ineligible` at the node `/semantic_graph/nodes/{n}` from the shape check that opens the abstraction step, a `temporal_formula` application as the root refuses the same way from the temporal step, and a `quire.op.state.clause` application as the root refuses the same way from the state step; a non-`case` `application` standing as a `type` value refuses `malformed_wire` at that application, and a `case` application standing there refuses `ill_typed`/`operator-ineligible` at its `operator`. | Test (TC-225) |
 | FR-346-AC-3 | 🚧 A frame entry for (`ConfigVersion`, `attemptUpdate`) admits in a package that holds no `state`/`frame` node for that operation; in a package that holds one, the entry's pair equals that frame's `operation_anchor` pair. | Test (TC-225) |
 | FR-346-AC-4 | 🚧 A node whose `node_id` is not the digest of `{version: "quire.abstraction-relation-node/v1", body}`, a node whose `semantic_type` is not its `node_id`, and a node whose `dependencies` omit a body target or hold a target the body does not each refuse as `invalid_semantic_graph` at the node `/semantic_graph/nodes/{n}` (IR reading); the dependency case is the identity step's, and no `missing_declaration`/`missing-name` reaches it (FR-451-AC-3 against FR-451-AC-4, IR reading). A stale `node_id` refuses in this step and not as `invalid_package`/`stale-node-key`. A node whose `objects` array is out of `type` digest order refuses as `invalid_semantic_graph` at `/semantic_graph/nodes/{n}/body/objects` (IR reading); so do `frames` holding two entries of one `context` in descending `operation` order, `fields` out of `name` order and `parameters` out of `name` order, at their arrays. | Test (TC-225) |
 | FR-346-AC-5 | 🚧 A `type` target naming a `relation`/`population` node and a `population` target naming an object type each refuse as `invalid_model_binding`/`malformed-declaration` at the target's node key; a `context` naming a `state`/`frame` node refuses the same way; a `context` keyed under an unselected domain package refuses as `missing_declaration`/`missing-selection`. | Test (TC-225) |
 | FR-346-AC-6 | 🚧 A `fields` name `ConfigVersion` does not expose, a `rust_field` of `"not a name"`, a `function` segment `"crate"` and a `rust_type` segment `"9lives"` each refuse as `invalid_model_binding`/`malformed-declaration` at the entry; two `fields` entries named `version`, bound to different Rust fields, refuse as `invalid_model_binding`/`conflicting-binding` at the second `fields` entry; a `fields` name two supertypes both expose refuses as `ambiguous_declaration`/`ambiguous-name` (IR reading). | Test (TC-225) |
 | FR-346-AC-7 | 🚧 A frame entry for (`ConfigVersion`, `noSuchOperation`) and one for (`ConfigVersion`, `version`) refuse as `missing_declaration`/`missing-name`; an operation name two supertypes of the `context` both carry refuses as `ambiguous_declaration`/`ambiguous-name`; (`ConfigVersionDraft`, `attemptUpdate`), an operation the context only inherits, refuses as `invalid_model_binding`/`malformed-declaration`; a `parameters` list missing `next` for `attemptUpdate` refuses as `invalid_model_binding`/`malformed-declaration` at the frame entry. For `rebase(from, to)`, a `parameters` list that is exactly `from` and `to` with `rust_parameter` values `"a"` and `"a"` refuses `invalid_model_binding`/`malformed-declaration` at the second `parameters` entry, and for `attemptUpdate` a `receiver` of `"next"` with `rust_parameter` `"next"` refuses the same way, each case holding the declared parameters exactly. | Test (TC-225) |
 | FR-346-AC-8 | 🚧 Two entries that bind the object key `ConfigVersion`, in one node or in two, refuse as `invalid_model_binding`/`conflicting-binding` at the second entry in ascending `node_id` digest order and body order, with the key's node key as locus and the first entry not carried (IR reading; FR-451-AC-5 says both entries); the same holds for two entries on one population key and two frame entries on one (`context`, `operation`) pair. | Test (TC-225) |
-| FR-346-AC-9 | 🚧 A package carrying a state-step defect and an abstraction defect reports the state defect; one carrying an abstraction defect and an operation-step defect reports the abstraction defect (IR reading); one carrying a stale abstraction `node_id` and a frame defect reports the frame defect; one node carrying an identity defect and a target defect reports the identity defect, a target defect and a member defect the target defect, and an order defect and a target defect the order defect; two defective nodes report the lower `node_id` node's own defect; nodes that each hold only a key collision with another report it only after every node's own checks held. | Test (TC-225) |
+| FR-346-AC-9 | 🚧 A package carrying a state-step defect and an abstraction defect reports the state defect; one carrying an abstraction defect and an operation-step defect reports the abstraction defect (IR reading); one carrying a temporal placement defect and an abstraction defect reports the temporal defect, and one carrying an ordinary-class application as an abstraction node's body root and an operation-step defect reports the body-root refusal (IR reading); one carrying a stale abstraction `node_id` and a frame defect reports the frame defect; one node carrying an identity defect and a target defect reports the identity defect, a target defect and a member defect the target defect, and an order defect and a target defect the order defect; two defective nodes report the lower `node_id` node's own defect; nodes that each hold only a key collision with another report it only after every node's own checks held. | Test (TC-225) |
 | FR-346-AC-10 | 🚧 Changing one `rust_field` in an admitted body and recomputing `node_id` gives another `node_id` and, through the `identity_projection`, another `package_id`; the same body gives the same `node_id` on every read; the same change without recomputing `node_id` refuses as in FR-346-AC-4. | Test (TC-225) |
 
 ## Dependencies
