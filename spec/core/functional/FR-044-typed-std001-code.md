@@ -26,7 +26,7 @@ macros: [std001_code]
 invariants:
   - a Std001Code guarantees the STD-001 code form and nothing else
   - a Std001Code does not name the registry that issued it
-  - a Std001Code is built only by a validating constructor, a registered constant or std001_code!
+  - a Std001Code is built only by a validating constructor, a registered constant, std001_code! or the infallible conversion from a DiagnosticCode
   - an invalid code form from a runtime string is refused with a typed error and never panics
   - an invalid literal given to std001_code! is a compile error and has no runtime path
   - the serialized form is the bare code string
@@ -94,7 +94,8 @@ on an invalid form, so a literal that is not a well-formed code is a compile
 error, and the macro leaves no error path and no panic at run time. A consumer
 declares each code it mints from a literal with `std001_code!` and needs no
 `.expect()` or unreachable error arm. No other public constructor takes a
-string, the type has no `From<String>` or `From<&str>`, and the representation
+string, the only other ways to obtain a code are a registered constant and
+`From<DiagnosticCode>` (below), the type has no `From<String>` or `From<&str>`, and the representation
 is private. `as_str` returns the code, `Display` prints it unchanged, and
 equality, hashing and ordering are those of `as_str` bytes.
 `Std001CodeError` carries the code `invalid_code_form`, a `Std001Code` itself,

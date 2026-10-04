@@ -1,12 +1,12 @@
 ---
 id: TC-442
-title: "Std001Code is built only by validation or a checked literal, serializes as the bare string and spells every registered code once"
+title: "Std001Code is built only by validation, a checked literal, a registered constant or a DiagnosticCode, serializes as the bare string and spells every registered code once"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-044
     type: verifies
 ---
-# TC-442: Std001Code is built only by validation or a checked literal, serializes as the bare string and spells every registered code once
+# TC-442: Std001Code is built only by validation, a checked literal, a registered constant or a DiagnosticCode, serializes as the bare string and spells every registered code once
 
 ## Description
 

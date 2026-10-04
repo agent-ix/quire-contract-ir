@@ -40,6 +40,6 @@ type: TestMatrix
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
-| TC-442 | `Std001Code` is built only by validation or a checked literal, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | 🚧 planned: no test is tagged for it |
+| TC-442 | `Std001Code` is built only by validation, a checked literal, a registered constant or a `DiagnosticCode`, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | 🚧 planned: no test is tagged for it |
 | TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
 

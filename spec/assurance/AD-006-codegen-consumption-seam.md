@@ -89,7 +89,7 @@ including the globs the model crate itself uses (AD-005, Current state).
 - The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
 - A cause string crosses as a free string today. Codegen compares `checks_outcome.code ==
-  "kani_vacuous_proof"` (`src/kani/classify.rs`, in `classify_run`) against a literal that IR builds in
+  "kani_vacuous_proof"` (`src/kani/classify.rs`) against a literal that IR builds in
   `proved_from_checks` (`src/kani/outcome.rs`). The target is FR-044: `KaniOutcome.code` is a
   `Std001Code` of `quire-contract-model` and the registered cause codes are its constants
   (IR-605), so codegen compares `Std001Code::KANI_VACUOUS_PROOF`. IR-347 keeps only the
