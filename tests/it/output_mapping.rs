@@ -2027,8 +2027,8 @@ fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
     );
 }
 
-/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-9.
-#[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-9")]
+/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-9.
+#[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-9")]
 #[test]
 fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
     let package = bound_package();
@@ -2067,13 +2067,14 @@ fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
     }
 }
 
-/// Tracing: TC-043, FR-034-AC-7, FR-034-AC-8.
-#[trace("TC-043", "FR-034-AC-7", "FR-034-AC-8")]
+/// Tracing: TC-043, FR-034-AC-7.
+#[trace("TC-043", "FR-034-AC-7")]
 #[test]
 fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text() {
-    // A different value per limit member, so a member wired into the wrong
-    // slot of the request material changes the length or fails to admit.
-    let limits = MappingLimits::new(1 << 20, 40, 1_100, 130, 4_200, 36, 77_777)
+    // Every request limit member has a value of its own digit count (1 to 6),
+    // so a member swapped with, or copied from, another in the request material
+    // changes the length of the material and so `request_bytes`.
+    let limits = MappingLimits::new(1 << 20, 55, 7_777, 4, 88_888, 666, 999_999)
         .expect("distinct positive limits");
     let package = bound_package();
     let obligations = requested(&package);
@@ -2105,10 +2106,10 @@ fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text
         "{{\"identity_version\":\"quire.output.mapping-request-identity/v1-draft.1\",\
          \"model_selection\":{model},\"native_selection\":{native},\
          \"obligations\":[{obligations}],\
-         \"resource_shape\":{{\"maximum_emitted_bytes\":\"77777\",\
-         \"maximum_expression_nodes\":\"1100\",\"maximum_mapping_work\":\"4200\",\
-         \"maximum_nesting_depth\":\"130\",\"maximum_obligations\":\"40\",\
-         \"maximum_records\":\"36\"}},\
+         \"resource_shape\":{{\"maximum_emitted_bytes\":\"999999\",\
+         \"maximum_expression_nodes\":\"7777\",\"maximum_mapping_work\":\"88888\",\
+         \"maximum_nesting_depth\":\"4\",\"maximum_obligations\":\"55\",\
+         \"maximum_records\":\"666\"}},\
          \"semantic_selection\":{semantic},\
          \"source_package\":{{\"digest\":\"{package_digest}\",\"package\":\"{package_id}\",\
          \"schema_version\":{{\"major\":1,\"minor\":1}}}},\
