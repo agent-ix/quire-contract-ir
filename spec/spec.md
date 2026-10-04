@@ -128,3 +128,4 @@ Cargo cycle.
 - [Subsystem spec layout and registry format](decisions/ADR-0056-spec-layout-convention.md).
 - [IR to QSL seam: what QSL takes from the model crate](assurance/AD-005-qsl-consumption-seam.md).
 - [IR to codegen seam: what codegen consumes](assurance/AD-006-codegen-consumption-seam.md).
+- [Cross-repo dependency graph](assurance/AD-007-cross-repo-dependency-graph.md).
