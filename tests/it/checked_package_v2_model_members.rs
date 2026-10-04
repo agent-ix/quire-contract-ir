@@ -788,6 +788,106 @@ fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointe
     }
 }
 
+/// The refusal of a model document the reader does not parse: the digest is
+/// taken over the raw bytes, so it matches no `sha256-jcs` digest.
+fn raw_digest_refusal() -> CheckedPackageRefusal {
+    refusal_cause(
+        CheckedPackageRefusalCode::StaleDependency,
+        "/lock/model_selections/0/digest",
+        CheckedPackageRefusalCause::ByteDigestMismatch,
+    )
+}
+
+/// Tracing: TC-048, FR-038-AC-110
+#[trace("TC-048", "FR-038-AC-110")]
+#[test]
+fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
+    // QSL FR-056: the first fault `quire_canonical::read` returns decides. A
+    // number with no finite double is raised when it is read; a repeated
+    // member name only when its object closes. Hand-written expectations.
+    let number = |pointer: &str, cause| number_refusal(pointer, cause);
+    let led = |members: &str| document_bytes_led_by(members);
+    let cases: [(Vec<u8>, CheckedPackageRefusal); 11] = [
+        // The reader checks that the whole input is UTF-8 before it reads any
+        // value, so invalid UTF-8 after the number is the first fault.
+        (b"[1e400,\"\xFF\"]".to_vec(), raw_digest_refusal()),
+        // A lone surrogate escape is found when the string is read, after the
+        // number.
+        (
+            b"[1e400,\"\\ud800\"]".to_vec(),
+            number("/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        // The out-of-range number is read before the object closes, so it is
+        // named ahead of the earlier repeated name.
+        (
+            led("\"a\":1,\"a\":2,\"n\":1e400"),
+            number("/n", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        // The repeated name is in an object that closes before `1e400`, so it
+        // is the first fault and the bytes take the raw-digest path.
+        (b"[{\"a\":1,\"a\":2},1e400]".to_vec(), raw_digest_refusal()),
+        // An inexact-number-to-be (`1e-400` reads as zero) is no reader
+        // fault, so the repeated name is the first fault.
+        (led("\"a\":1,\"a\":2,\"n\":1e-400"), raw_digest_refusal()),
+        // Truncation after the number: the number is read first.
+        (
+            b"[1e400".to_vec(),
+            number("/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        // The number before the repeated name, in the same object.
+        (
+            led("\"n\":1e400,\"a\":1,\"a\":2"),
+            number("/n", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        // An out-of-range number is named ahead of an earlier inexact number
+        // (a reader-decided one is refused only after the read succeeds).
+        (
+            led("\"b\":0.1000000000000000000001,\"a\":[1e400]"),
+            number("/a/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        (
+            led("\"b\":9007199254740993,\"a\":[1e400]"),
+            number("/a/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        (
+            led("\"b\":9007199254740993,\"a\":[-1e400]"),
+            number("/a/0", CheckedPackageRefusalCause::InexactInteger),
+        ),
+        // An out-of-range number that is not whole is an inexact number.
+        (
+            led(&format!(
+                "\"b\":9007199254740993,\"a\":[{}.5]",
+                "9".repeat(400)
+            )),
+            number("/a/0", CheckedPackageRefusalCause::InexactNumber),
+        ),
+    ];
+    let other = "ab".repeat(32);
+    for (bytes, expected) in cases {
+        let shown = String::from_utf8_lossy(&bytes)
+            .chars()
+            .take(60)
+            .collect::<String>();
+        // The raw-path outcome is pinned under a foreign digest only: under the
+        // document's own raw digest QSL FR-056 says `wrong-model-selection`,
+        // which this reader does not yet do (IR-578).
+        let own = sha256_hex(&bytes);
+        let digests = if expected == raw_digest_refusal() {
+            vec![other.clone()]
+        } else {
+            vec![own, other.clone()]
+        };
+        for digest in digests {
+            match read_selecting(&digest, &bytes) {
+                CheckedPackageV2ReadResult::Refused(refused) => {
+                    assert_eq!(refused, expected, "{shown}");
+                }
+                other => panic!("{shown}: expected a refusal, read {other:?}"),
+            }
+        }
+    }
+}
+
 /// Tracing: TC-048, FR-038-AC-110
 #[trace("TC-048", "FR-038-AC-110")]
 #[test]

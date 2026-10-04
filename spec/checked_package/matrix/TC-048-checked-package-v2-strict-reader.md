@@ -652,15 +652,15 @@ that a work-budget failure still names `work` (FR-038-AC-95).
 
 ## Inexact numbers (FR-038-AC-109 through FR-038-AC-111)
 
-FR-038-AC-109 and FR-038-AC-111 are implemented and verified in
+FR-038-AC-109 through FR-038-AC-111 are implemented and verified in
 `tests/it/checked_package_v2_model_members.rs` and
 `tests/it/checked_package_v2_canonical_encoding.rs`, and the existing FR-038-AC-93
-tests there carry the cause `inexact-integer`; FR-038-AC-110 is partial: its
-`1e400` and `-1e400` mapping (IR-555) is verified through `quire-canonical`'s
-`NumberOutOfRange`, and `1e-400` and `-1e-400`, which read as zero with their
-text kept, through the rule on that text, but its "first in document order"
-clause is unmet when the out-of-range number follows an inexact one, because
-`read` stops at the first such number (IR-573). The causes are those
+tests there carry the cause `inexact-integer`; the `1e400` and `-1e400` mapping
+of FR-038-AC-110 (IR-555) is verified through `quire-canonical`'s
+`NumberOutOfRange`, `1e-400` and `-1e-400`, which read as zero with their
+text kept, through the rule on that text, and the first-fault rule (QSL
+FR-056, QSL #625) in `tc_048_the_first_reader_fault_decides_when_faults_coexist`
+(IR-573). The causes are those
 of quire-specification:FR-271 and FR-272. Read a package that selects a model
 document holding `0.1000000000000000000001`, `9007199254740993.5`,
 `-0.1000000000000000000001`, `4.9e-324` and `1e-400` at `/package/ratio`, under
@@ -674,7 +674,16 @@ upper bound), `9007199254740993.0`, `1e400` and `-1e400` and check cause
 `inexact-integer` and `noncanonical_wire`, not `byte-digest-mismatch`; check `9007199254740992.5` refuses
 `inexact-number` and the admitted whole numbers still admit; put an inexact
 number and a whole number past 2^53 in one document in both orders and check the
-first in document order is named with its own cause (FR-038-AC-110). Read a
+first in document order is named with its own cause; put a number past the
+double range after an inexact number (`{"b":0.1000000000000000000001,"a":[1e400]}`,
+`{"b":9007199254740993,"a":[1e400]}`) and check the out-of-range number is named
+(`/a/0`, `inexact-integer`); read `{"a":1,"a":2,"n":1e400}` and `[1e400` and
+check `/n` and `/0` are named, and `[{"a":1,"a":2},1e400]` and
+`{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` under a digest that is not
+their raw digest and check `stale_dependency`/`byte-digest-mismatch`, and
+`[1e400,"\ud800"]` and check `/0`, the first fault `read` returns deciding
+(FR-038-AC-110; the outcome under a raw-path document's own raw digest is not
+pinned, IR-578). Read a
 package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
 node body and check `noncanonical_wire` with no pointer, no `document_pointer`
 and no cause, and `0.1`, `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` not refused for it; read the manifest of the crate that holds the
