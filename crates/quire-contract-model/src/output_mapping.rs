@@ -2784,7 +2784,7 @@ mod tests {
 
     /// Limits whose `maximum_request_bytes` is `ceiling`.
     fn limits_with(ceiling: u64, maximum_emitted_bytes: u64) -> MappingLimits {
-        MappingLimits::new(ceiling, 32, 1_024, 128, 4_096, 32, maximum_emitted_bytes)
+        MappingLimits::new(ceiling, 40, 1_100, 130, 4_200, 36, maximum_emitted_bytes)
             .expect("positive limits")
     }
 
@@ -2827,11 +2827,11 @@ mod tests {
 
     fn shape(maximum_emitted_bytes: u64) -> RequestResourceShape {
         RequestResourceShape {
-            maximum_obligations: 32,
-            maximum_expression_nodes: 1_024,
-            maximum_mapping_work: 4_096,
-            maximum_nesting_depth: 128,
-            maximum_records: 32,
+            maximum_obligations: 40,
+            maximum_expression_nodes: 1_100,
+            maximum_mapping_work: 4_200,
+            maximum_nesting_depth: 130,
+            maximum_records: 36,
             maximum_emitted_bytes,
         }
     }
@@ -2891,9 +2891,9 @@ mod tests {
              \"model_selection\":{model},\"native_selection\":{native},\
              \"obligations\":[{{\"identity\":{CLAUSE_TEXT},\"source_state\":\"ready\"}}],\
              \"resource_shape\":{{\"maximum_emitted_bytes\":\"{emitted}\",\
-             \"maximum_expression_nodes\":\"1024\",\"maximum_mapping_work\":\"4096\",\
-             \"maximum_nesting_depth\":\"128\",\"maximum_obligations\":\"32\",\
-             \"maximum_records\":\"32\"}},\
+             \"maximum_expression_nodes\":\"1100\",\"maximum_mapping_work\":\"4200\",\
+             \"maximum_nesting_depth\":\"130\",\"maximum_obligations\":\"40\",\
+             \"maximum_records\":\"36\"}},\
              \"semantic_selection\":{semantic},\"source_package\":{package},\
              \"target_profile\":{profile}}}",
             model = selection_text(3, "quire.model/v1", "rev-model"),
@@ -2916,8 +2916,8 @@ mod tests {
             .collect()
     }
 
-    /// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7.
-    #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+    /// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
+    #[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_request_identity_is_the_hand_written_text_under_its_ceiling() {
         let expected = request_text("18446744073709551615");
@@ -2932,8 +2932,8 @@ mod tests {
         assert_eq!(refusal.path(), "request");
     }
 
-    /// Tracing: TC-043, FR-034-AC-7.
-    #[trace("TC-043", "FR-034-AC-7")]
+    /// Tracing: TC-043, FR-034-AC-8, FR-034-AC-9.
+    #[trace("TC-043", "FR-034-AC-8", "FR-034-AC-9")]
     #[test]
     fn tc_043_request_limits_at_two_to_the_64_enter_the_material_as_distinct_decimal_strings() {
         let high = request_text("18446744073709551615");
@@ -3066,8 +3066,8 @@ mod tests {
         )
     }
 
-    /// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7.
-    #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+    /// Tracing: TC-043, FR-033-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
+    #[trace("TC-043", "FR-033-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_record_identity_is_the_hand_written_text_under_its_ceiling() {
         let expected = record_text();
@@ -3235,9 +3235,9 @@ mod tests {
             "{{\"generator\":{{\"owner\":\"agent-ix/quire-contract-ir\"}},\
              \"identity_version\":\"quire.output.package-identity/v1-draft.1\",\
              \"limits\":{{\"maximum_emitted_bytes\":\"9007199254740993\",\
-             \"maximum_expression_nodes\":\"1024\",\"maximum_mapping_work\":\"4096\",\
-             \"maximum_nesting_depth\":\"128\",\"maximum_obligations\":\"32\",\
-             \"maximum_records\":\"32\",\
+             \"maximum_expression_nodes\":\"1100\",\"maximum_mapping_work\":\"4200\",\
+             \"maximum_nesting_depth\":\"130\",\"maximum_obligations\":\"40\",\
+             \"maximum_records\":\"36\",\
              \"maximum_request_bytes\":\"{maximum_request_bytes}\"}},\
              \"record_ids\":[\"{r}\"],\"source_package\":{package},\
              \"target_bytes_digest\":\"{t}\",\"target_profile\":{profile}}}",
@@ -3248,8 +3248,8 @@ mod tests {
         )
     }
 
-    /// Tracing: TC-043, FR-034-AC-6, FR-034-AC-7.
-    #[trace("TC-043", "FR-034-AC-6", "FR-034-AC-7")]
+    /// Tracing: TC-043, FR-034-AC-6, FR-034-AC-7, FR-034-AC-8.
+    #[trace("TC-043", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-8")]
     #[test]
     fn tc_043_package_identity_is_the_hand_written_text_under_its_ceiling() {
         let ceiling = package_ceiling();
