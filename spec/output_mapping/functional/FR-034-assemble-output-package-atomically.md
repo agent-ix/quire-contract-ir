@@ -58,6 +58,11 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 - Every canonical identity this pipeline computes (the request's, each
   record's and the package's) shall be encoded by `quire-canonical` under the
   request's own byte limit, `maximum_request_bytes`.
+- The admission step shall encode the request identity material only to meter
+  it, keep its length as `request_bytes`, and retain neither the bytes nor a
+  digest of them.
+- The assembler shall derive each record identity and the package identity as
+  the SHA-256 digest of its canonical bytes.
 - Identity material whose canonical bytes exceed that ceiling shall refuse
   `request_limit_exceeded` at `request`, `record.identity` or `package.identity`
   and yield no record, identity or package; material of exactly the ceiling
@@ -69,7 +74,9 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 - The identity material shall spell every `u64` as a decimal string of its
   minimal base-ten digits (QSpec `IntegerString`, as FR-016 does for the model's
   integers): the members of `MappingLimits` and the `start` and `end` of an
-  `OutputByteRegion`.
+  `OutputByteRegion`. A `MappingLimits` member is never zero (FR-032-AC-2
+  refuses it), so only a nonzero limit reaches the material; a region `start`
+  of zero is admitted and is spelled `"0"`.
 - Every other integer of the identity material (a requirement revision, a source
   revision, a byte offset, a line, a column, a schema version) shall be a JSON
   number, which FR-011 and FR-012 hold at or below 2^53, so no encode of
@@ -96,7 +103,9 @@ and the complete `sha256-jcs` package identity preimage have been verified.
 | FR-034-AC-4 | Mutating source/profile/generator owner/record/limit/target-byte identity inputs changes or invalidates package identity, while path/time/locale/display/observer changes do not. | Test (TC-043) |
 | FR-034-AC-5 | Structural observer acceptance, refusal, absence, and observer owner remain downstream references and cannot establish native truth or mapping preservation. | Test (TC-043) |
 | FR-034-AC-6 | Identity material is canonicalized under `maximum_request_bytes` and never without a ceiling: through the public admission and mapping calls, request material whose canonical length equals the limit admits and one byte over refuses `request_limit_exceeded` at `request`, and a record whose material is one byte over refuses at `record.identity`, each with no record, identity or package and not `allocation_failed`; and the package identity step, called with a ceiling equal to the measured length of its material, encodes, and with a ceiling one byte lower refuses `request_limit_exceeded` at `package.identity` with no package. | Test (TC-043) |
-| FR-034-AC-7 | The request, record and package identities are the SHA-256 digests of an expected canonical byte string written out in the test for a fixed request, record and package (members in UTF-16 order), not computed by a call into the code under test; `MappingLimits` members, including `18446744073709551615` and `0`, and the `start` and `end` of an `OutputByteRegion`, including `9007199254740993` and `18446744073709551615`, appear in the material as the strings `"18446744073709551615"`, `"0"`, `"9007199254740993"` and `"18446744073709551615"`; and a request whose `maximum_emitted_bytes` is `18446744073709551615` and one whose is `18446744073709551614` both admit and have distinct request identities. | Test (TC-043) |
+| FR-034-AC-7 | The record identity and the package identity are the SHA-256 digests of the canonical byte strings written out in the test for a fixed record and a fixed package; the request identity material, built at the request identity step, equals the canonical byte string written out in the test for a fixed request, and the length admission keeps as `request_bytes` for a request whose `MappingLimits` members each have a value of a different digit count (so a member copied from another member or from the request byte limit changes the length; a swap of two members' values keeps the length and is caught only at the encoding step, by the byte-equality unit tests whose values 40, 1100, 130, 4200 and 36 are pairwise distinct) equals the byte length of the request text written out in the test (members in UTF-16 order); none of these strings is computed by a call into the code under test. | Test (TC-043) |
+| FR-034-AC-8 | In the written-out material each `MappingLimits` member and each `OutputByteRegion` bound is the decimal string of its value, under its own member name. Request material with `maximum_obligations` 40, `maximum_expression_nodes` 1100, `maximum_nesting_depth` 130, `maximum_mapping_work` 4200, `maximum_records` 36 and `maximum_emitted_bytes` 18446744073709551615 carries `"40"`, `"1100"`, `"130"`, `"4200"`, `"36"` and `"18446744073709551615"` respectively. Package material with `maximum_emitted_bytes` 9007199254740993, the same other six values and the ceiling it was encoded under as `maximum_request_bytes` carries `"9007199254740993"`, `"40"`, `"1100"`, `"130"`, `"4200"`, `"36"` and that ceiling as a string respectively. Record material carries a region of `start` 0 and `end` 1 as `"0"` and `"1"`, and a region of `start` 9007199254740993 and `end` 18446744073709551615 as `"9007199254740993"` and `"18446744073709551615"`. | Test (TC-043) |
+| FR-034-AC-9 | A request whose `maximum_emitted_bytes` is `18446744073709551615` and one whose is `18446744073709551614` both admit, and their request identity material differs. | Test (TC-043) |
 
 ## Dependencies
 
