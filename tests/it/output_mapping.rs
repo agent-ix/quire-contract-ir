@@ -2027,8 +2027,8 @@ fn tc_043_package_identity_material_is_metered_by_the_request_byte_limit() {
     );
 }
 
-/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7.
-#[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7")]
+/// Tracing: TC-043, FR-032-AC-6, FR-034-AC-6, FR-034-AC-7, FR-034-AC-9.
+#[trace("TC-043", "FR-032-AC-6", "FR-034-AC-6", "FR-034-AC-7", "FR-034-AC-9")]
 #[test]
 fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
     let package = bound_package();
@@ -2065,6 +2065,67 @@ fn tc_043_request_material_is_metered_and_admits_a_two_to_the_64_limit() {
             .expect("limit near 2^64");
         assert!(admit(&package, obligations.clone(), ocl_profile(), limits).is_ok());
     }
+}
+
+/// Tracing: TC-043, FR-034-AC-7, FR-034-AC-8.
+#[trace("TC-043", "FR-034-AC-7", "FR-034-AC-8")]
+#[test]
+fn tc_043_admitted_request_bytes_are_the_length_of_the_hand_written_request_text() {
+    // A different value per limit member, so a member wired into the wrong
+    // slot of the request material changes the length or fails to admit.
+    let limits = MappingLimits::new(1 << 20, 40, 1_100, 130, 4_200, 36, 77_777)
+        .expect("distinct positive limits");
+    let package = bound_package();
+    let obligations = requested(&package);
+    let admitted = admit(&package, obligations.clone(), ocl_profile(), limits)
+        .expect("request with distinct limits admits");
+
+    let obligation_texts: Vec<String> = obligations
+        .iter()
+        .map(|obligation| {
+            let identity = obligation.identity();
+            let requirement = identity.requirement();
+            format!(
+                "{{\"identity\":{{\"clause\":\"{}\",\"requirement\":{{\"package\":\"{}\",\
+                 \"requirement\":\"{}\",\"revision\":{}}}}},\"source_state\":\"ready\"}}",
+                identity.clause().as_str(),
+                requirement.package().as_str(),
+                requirement.requirement().as_str(),
+                requirement.revision().get(),
+            )
+        })
+        .collect();
+    let selection = |seed: u8, identity: &str, revision: &str| {
+        format!(
+            "{{\"digest\":\"{}\",\"identity\":\"{identity}\",\"revision\":\"{revision}\"}}",
+            hex_of(&digest(seed))
+        )
+    };
+    let expected = format!(
+        "{{\"identity_version\":\"quire.output.mapping-request-identity/v1-draft.1\",\
+         \"model_selection\":{model},\"native_selection\":{native},\
+         \"obligations\":[{obligations}],\
+         \"resource_shape\":{{\"maximum_emitted_bytes\":\"77777\",\
+         \"maximum_expression_nodes\":\"1100\",\"maximum_mapping_work\":\"4200\",\
+         \"maximum_nesting_depth\":\"130\",\"maximum_obligations\":\"40\",\
+         \"maximum_records\":\"36\"}},\
+         \"semantic_selection\":{semantic},\
+         \"source_package\":{{\"digest\":\"{package_digest}\",\"package\":\"{package_id}\",\
+         \"schema_version\":{{\"major\":1,\"minor\":1}}}},\
+         \"target_profile\":{profile}}}",
+        model = selection(3, "quire.model/v1", "rev-model"),
+        native = selection(2, "quire.native/v1", "rev-native"),
+        semantic = selection(4, "quire.semantic/v1", "rev-semantic"),
+        obligations = obligation_texts.join(","),
+        package_digest = package.digest(),
+        package_id = package.package().id().as_str(),
+        profile = expected_ocl_profile(),
+    );
+    assert_eq!(
+        admitted.request_bytes(),
+        u64::try_from(expected.len()).expect("text length fits u64"),
+        "admission keeps the length of the written-out request material"
+    );
 }
 
 /// The fixture clause `identity` as written in the shared input, so the
@@ -2118,8 +2179,8 @@ fn expected_ocl_profile() -> String {
     )
 }
 
-/// Tracing: TC-043, FR-034-AC-7.
-#[trace("TC-043", "FR-034-AC-7")]
+/// Tracing: TC-043, FR-034-AC-7, FR-034-AC-8.
+#[trace("TC-043", "FR-034-AC-7", "FR-034-AC-8")]
 #[test]
 fn tc_043_record_and_package_identities_are_the_digests_of_hand_written_text() {
     use sha2::{Digest, Sha256};
