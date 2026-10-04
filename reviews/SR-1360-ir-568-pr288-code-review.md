@@ -77,3 +77,27 @@ when a file is added, removed or changed, or when an expectation or fragment cha
 The composition cannot mask a mismatch. The gate is honest.
 
 Verdict: mergeable. The two low findings can be fixed in this PR or accepted.
+
+## Dispositions
+
+Round 1 at 94ff9d809ad6acffd938b5f7b16796357040e4f4. Only the fix-round delta
+9adfb5a..94ff9d8 was reviewed:
+
+- Fix commit 2d9d525: `tests/it/conformance.rs`, 4 insertions and 3 deletions.
+- Trailing commit 94ff9d8: adds SR-1360, SR-1361 and SR-1362 under `reviews/`.
+  Their sha256 matched the reviewer's files before this section was added.
+
+Checks at the new head:
+
+- fmt-check and clippy (`-D warnings`) pass.
+- The 10 `conformance::` integration tests pass.
+- With `expression-index-1.json` removed, the test now panics with
+  "expression-index-1.json: No such file or directory (os error 2)". The file was
+  restored afterwards, leaving a clean tree.
+
+No new findings.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2d9d525ccfd0ce65726c02dcab2eaa755cebdf02 |
+| FND-002 | fixed | 2d9d525ccfd0ce65726c02dcab2eaa755cebdf02 |
