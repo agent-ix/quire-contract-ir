@@ -2933,8 +2933,8 @@ fn tc_048_a_member_set_defect_is_reported_after_a_profile_fit_defect_of_a_later_
 /// and not at an identity check; the same package with a good bound refuses at
 /// the identity check.
 ///
-/// Tracing: TC-048, FR-038-AC-120
-#[trace("TC-048", "FR-038-AC-120")]
+/// Tracing: TC-048, FR-038-AC-97, FR-038-AC-120
+#[trace("TC-048", "FR-038-AC-97", "FR-038-AC-120")]
 #[test]
 fn tc_048_a_bound_outside_the_pattern_is_refused_ahead_of_every_identity_check() {
     let stale_with = |member: Value| {

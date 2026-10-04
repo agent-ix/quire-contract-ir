@@ -1295,8 +1295,8 @@ node carries.
 the state step (FR-040) and before any operation refusal, and this reader runs it
 there, replacing the earlier placement of these applications in the operation
 step and the term walk. Merged QSpec FR-370 and FR-440 state the rules this section cites unless a
-sentence says it is an IR reading or pending. Strict wire validation (here the term
-walk's negative-bound refusal) precedes the step. The step reports the first defect
+sentence says it is an IR reading or pending. Strict wire validation (here the
+interval bound-pattern refusal, `flat_wire::check_interval_bounds`) precedes the step. The step reports the first defect
 of this order: placement of every temporal application and of every reference to a
 `temporal`/`formula` or `temporal`/`fairness` node (1), then every diagnostic
 `details` term in entry order and then `details` order, then the clause checks (2).
