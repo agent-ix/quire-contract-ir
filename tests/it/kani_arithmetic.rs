@@ -7,6 +7,7 @@ use quire_contract_ir::{
     },
     NumericOperator,
 };
+use quire_contract_model::std001_code;
 
 fn selection() -> ProfileSelection {
     ProfileSelection {
@@ -80,7 +81,7 @@ fn tc_042_checked_arithmetic_refuses_undefined_and_out_of_range_lowerings() {
     )
     .expect_err("zero divisor refuses before a harness");
     assert_eq!(zero.kind, KaniOutcomeKind::Refused);
-    assert_eq!(zero.code, "kani_definedness_nonzero_divisor");
+    assert_eq!(zero.code, std001_code!("kani_definedness_nonzero_divisor"));
     assert_eq!(zero.boolean_claim(), None);
 
     let out_of_range = lower_checked_arithmetic(
@@ -97,7 +98,10 @@ fn tc_042_checked_arithmetic_refuses_undefined_and_out_of_range_lowerings() {
         },
     )
     .expect_err("range overflow refuses before a harness");
-    assert_eq!(out_of_range.code, "kani_definedness_checked_range");
+    assert_eq!(
+        out_of_range.code,
+        std001_code!("kani_definedness_checked_range")
+    );
     assert_eq!(out_of_range.boolean_claim(), None);
 }
 

@@ -1,5 +1,7 @@
 //! Definedness-preserving checked-arithmetic lowering preparation.
 
+use quire_contract_model::std001_code;
+
 use crate::NumericOperator;
 
 use super::{
@@ -47,9 +49,9 @@ pub fn lower_checked_arithmetic(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("checked-arithmetic").map_err(|_| {
-                KaniOutcome::non_success(
+                KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_dispatch_unowned",
+                    std001_code!("kani_dispatch_unowned"),
                     request.source_id,
                     profile.selection().revision.clone(),
                 )
@@ -57,35 +59,35 @@ pub fn lower_checked_arithmetic(
             if descriptor.family != SemanticFamily::DefinednessArithmetic
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_dispatch_profile_mismatch",
+                    std001_code!("kani_dispatch_profile_mismatch"),
                     request.source_id,
                     profile.selection().revision.clone(),
                 ));
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::non_success(
+            return Err(KaniOutcome::new(
                 KaniOutcomeKind::Refused,
-                code.clone(),
+                *code,
                 request.source_id,
                 profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::non_success(
+            return Err(KaniOutcome::new(
                 KaniOutcomeKind::Inconclusive,
-                code.clone(),
+                *code,
                 request.source_id,
                 profile.selection().revision.clone(),
             ))
         }
     }
     if request.minimum > request.maximum {
-        return Err(KaniOutcome::non_success(
+        return Err(KaniOutcome::new(
             KaniOutcomeKind::InvalidInput,
-            "kani_arithmetic_range_invalid",
+            std001_code!("kani_arithmetic_range_invalid"),
             request.source_id,
             profile.selection().revision.clone(),
         ));
@@ -96,9 +98,9 @@ pub fn lower_checked_arithmetic(
         NumericOperator::Multiply => request.left.checked_mul(request.right),
         NumericOperator::Divide => {
             if request.right == 0 {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_definedness_nonzero_divisor",
+                    std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
                     profile.selection().revision.clone(),
                 ));
@@ -107,9 +109,9 @@ pub fn lower_checked_arithmetic(
         }
         NumericOperator::Remainder => {
             if request.right == 0 {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_definedness_nonzero_divisor",
+                    std001_code!("kani_definedness_nonzero_divisor"),
                     request.source_id,
                     profile.selection().revision.clone(),
                 ));
@@ -118,17 +120,17 @@ pub fn lower_checked_arithmetic(
         }
     };
     let Some(value) = value else {
-        return Err(KaniOutcome::non_success(
+        return Err(KaniOutcome::new(
             KaniOutcomeKind::Refused,
-            "kani_definedness_checked_range",
+            std001_code!("kani_definedness_checked_range"),
             request.source_id,
             profile.selection().revision.clone(),
         ));
     };
     if value < request.minimum || value > request.maximum {
-        return Err(KaniOutcome::non_success(
+        return Err(KaniOutcome::new(
             KaniOutcomeKind::Refused,
-            "kani_definedness_checked_range",
+            std001_code!("kani_definedness_checked_range"),
             request.source_id,
             profile.selection().revision.clone(),
         ));

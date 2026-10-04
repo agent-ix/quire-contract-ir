@@ -90,7 +90,11 @@ FR-044 defines `Std001Code`. FR-015 defines partial-operation semantics. FR-029 
 Implemented through the shared finite ABI/outcome foundation and three semantic
 lanes. Invalid, incomplete, unavailable and over-bound inputs retain typed
 non-Boolean outcomes; this status does not claim an undeclared model or domain.
-AC-4 through AC-6 are planned: today `KaniOutcome.code` is a `String` (AC-6), and `KaniOutcome`'s fields are public, a `proved`
-outcome carries no check count, `non_success` accepts any cause code for
-`unavailable` and `inconclusive`, and it turns a `proved` or `counterexample`
-request into a `refused` outcome rather than an error.
+AC-6 is implemented (TC-223, IR-605): `KaniOutcome.code` is a `Std001Code`,
+`non_success` takes one and returns `KaniOutcomeError` (code `kani_outcome_invalid`)
+for a `proved` or `counterexample` request, and a malformed `code` fails to
+deserialize. AC-6's `KaniOutcomeError` clause is verified through that
+non-success request, because the count-bearing `proved` request it names is
+AC-4's. AC-4 and AC-5 are planned: `KaniOutcome`'s fields are public, a `proved`
+outcome carries no check count and no `proved` request takes one, and
+`non_success` accepts any cause code for `unavailable` and `inconclusive`.

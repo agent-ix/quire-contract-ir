@@ -1,6 +1,8 @@
 //! Closed outcomes at the bounded-Kani boundary.
 
+use quire_contract_model::Std001Code;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Every terminal bounded-Kani outcome.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -85,7 +87,23 @@ pub struct KaniProviderRecord {
     /// The terminal result.
     pub result: KaniProviderResult,
     /// The outcome's stable machine-readable cause code, unchanged.
-    pub cause: String,
+    pub cause: Std001Code,
+}
+
+/// A request to build an outcome that breaks a constructor rule.
+///
+/// Its [`code`](Self::code) is `kani_outcome_invalid` (STD-001). No outcome is
+/// built and no other kind or cause is substituted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+#[error("kani_outcome_invalid: a `proved` or `counterexample` outcome is not built as a non-success outcome")]
+pub struct KaniOutcomeError(());
+
+impl KaniOutcomeError {
+    /// The code of this error: `kani_outcome_invalid`.
+    #[must_use]
+    pub const fn code(&self) -> Std001Code {
+        Std001Code::KANI_OUTCOME_INVALID
+    }
 }
 
 /// Typed output which cannot manufacture a Boolean for a non-success state.
@@ -93,8 +111,9 @@ pub struct KaniProviderRecord {
 pub struct KaniOutcome {
     /// Closed outcome kind.
     pub kind: KaniOutcomeKind,
-    /// Stable machine-readable cause code.
-    pub code: String,
+    /// Stable machine-readable cause code, in the STD-001 form (FR-044). The form
+    /// is checked, not the registration or the issuing registry.
+    pub code: Std001Code,
     /// Exact source or input identity that first caused the result.
     pub source_id: String,
     /// Profile and bound context selected for the result.
@@ -107,20 +126,25 @@ impl KaniOutcome {
     pub fn provider_record(&self) -> KaniProviderRecord {
         KaniProviderRecord {
             result: self.kind.provider_result(),
-            cause: self.code.clone(),
+            cause: self.code,
         }
     }
 
     /// Constructs a proof result.
     pub fn proved(source_id: impl Into<String>, context: impl Into<String>) -> Self {
-        Self::new(KaniOutcomeKind::Proved, "kani_proved", source_id, context)
+        Self::new(
+            KaniOutcomeKind::Proved,
+            Std001Code::KANI_PROVED,
+            source_id,
+            context,
+        )
     }
 
     /// Constructs a concrete counterexample result.
     pub fn counterexample(source_id: impl Into<String>, context: impl Into<String>) -> Self {
         Self::new(
             KaniOutcomeKind::Counterexample,
-            "kani_counterexample",
+            Std001Code::KANI_COUNTEREXAMPLE,
             source_id,
             context,
         )
@@ -147,9 +171,9 @@ impl KaniOutcome {
         context: impl Into<String>,
     ) -> Self {
         if success_checks == 0 {
-            return Self::non_success(
+            return Self::new(
                 KaniOutcomeKind::Inconclusive,
-                "kani_vacuous_proof",
+                Std001Code::KANI_VACUOUS_PROOF,
                 source_id,
                 context,
             );
@@ -157,33 +181,73 @@ impl KaniOutcome {
         Self::proved(source_id, context)
     }
 
-    /// Constructs a typed non-success result.
+    /// Constructs a typed non-success result carrying `code`.
+    ///
+    /// The code is a [`Std001Code`], so a string cannot be passed: a code known at
+    /// compile time is a registered constant or `std001_code!`, and one known
+    /// at run time is checked by [`Std001Code::new`] first.
+    ///
+    /// ```compile_fail
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+    /// let _ = KaniOutcome::non_success(KaniOutcomeKind::Refused, "kani_x", "source", "context");
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+    /// let code = String::from("kani_x");
+    /// let _ = KaniOutcome::non_success(KaniOutcomeKind::Refused, code, "source", "context");
+    /// ```
+    ///
+    /// Each probe is paired with the passing call, which names the same
+    /// arguments with a `Std001Code`:
+    ///
+    /// ```
+    /// use quire_contract_ir::kani::{KaniOutcome, KaniOutcomeKind};
+    /// use quire_contract_model::std001_code;
+    /// let outcome = KaniOutcome::non_success(
+    ///     KaniOutcomeKind::Refused,
+    ///     std001_code!("kani_x"),
+    ///     "source",
+    ///     "context",
+    /// );
+    /// assert!(outcome.is_ok());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KaniOutcomeError`] when `kind` is `Proved` or `Counterexample`,
+    /// which carry a Boolean claim and are built by [`KaniOutcome::proved`] and
+    /// [`KaniOutcome::counterexample`] only.
     pub fn non_success(
         kind: KaniOutcomeKind,
-        code: impl Into<String>,
+        code: Std001Code,
         source_id: impl Into<String>,
         context: impl Into<String>,
-    ) -> Self {
+    ) -> Result<Self, KaniOutcomeError> {
         match kind {
-            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Self::new(
-                KaniOutcomeKind::Refused,
-                "kani_outcome_kind_invalid",
-                source_id,
-                context,
-            ),
-            _ => Self::new(kind, code, source_id, context),
+            KaniOutcomeKind::Proved | KaniOutcomeKind::Counterexample => Err(KaniOutcomeError(())),
+            KaniOutcomeKind::Refused
+            | KaniOutcomeKind::InvalidInput
+            | KaniOutcomeKind::IncompleteInput
+            | KaniOutcomeKind::Unavailable
+            | KaniOutcomeKind::TimedOut
+            | KaniOutcomeKind::ResourceExhausted
+            | KaniOutcomeKind::Cancelled
+            | KaniOutcomeKind::Inconclusive => Ok(Self::new(kind, code, source_id, context)),
         }
     }
 
-    fn new(
+    /// Builds an outcome without checking `kind`: for the `kani` module's own
+    /// raise sites, whose kind is a literal non-success kind.
+    pub(super) fn new(
         kind: KaniOutcomeKind,
-        code: impl Into<String>,
+        code: Std001Code,
         source_id: impl Into<String>,
         context: impl Into<String>,
     ) -> Self {
         Self {
             kind,
-            code: code.into(),
+            code,
             source_id: source_id.into(),
             context: context.into(),
         }

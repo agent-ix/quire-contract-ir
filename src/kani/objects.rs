@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use quire_contract_model::std001_code;
+
 use super::{
     CapabilityDisposition, DispatchIndex, KaniOutcome, KaniOutcomeKind, KaniProfile,
     SemanticFamily, ValidatedFiniteInput,
@@ -44,9 +46,9 @@ pub fn lower_reaches(
     match &entries[0].disposition {
         CapabilityDisposition::Supported { module } => {
             let descriptor = dispatch.resolve("finite-reference-graph").map_err(|_| {
-                KaniOutcome::non_success(
+                KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_dispatch_unowned",
+                    std001_code!("kani_dispatch_unowned"),
                     &request.source_id,
                     profile.selection().revision.clone(),
                 )
@@ -54,35 +56,35 @@ pub fn lower_reaches(
             if descriptor.family != SemanticFamily::ObjectsReferencesGraphs
                 || descriptor.module_id != *module
             {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_dispatch_profile_mismatch",
+                    std001_code!("kani_dispatch_profile_mismatch"),
                     &request.source_id,
                     profile.selection().revision.clone(),
                 ));
             }
         }
         CapabilityDisposition::Refused { code } => {
-            return Err(KaniOutcome::non_success(
+            return Err(KaniOutcome::new(
                 KaniOutcomeKind::Refused,
-                code.clone(),
+                *code,
                 &request.source_id,
                 profile.selection().revision.clone(),
             ))
         }
         CapabilityDisposition::Inconclusive { code } => {
-            return Err(KaniOutcome::non_success(
+            return Err(KaniOutcome::new(
                 KaniOutcomeKind::Inconclusive,
-                code.clone(),
+                *code,
                 &request.source_id,
                 profile.selection().revision.clone(),
             ))
         }
     }
     if request.max_expansions == 0 {
-        return Err(KaniOutcome::non_success(
+        return Err(KaniOutcome::new(
             KaniOutcomeKind::InvalidInput,
-            "kani_graph_bound_invalid",
+            std001_code!("kani_graph_bound_invalid"),
             &request.source_id,
             profile.selection().revision.clone(),
         ));
@@ -95,9 +97,9 @@ pub fn lower_reaches(
         .collect();
     if !objects.contains(request.start_id.as_str()) || !objects.contains(request.target_id.as_str())
     {
-        return Err(KaniOutcome::non_success(
+        return Err(KaniOutcome::new(
             KaniOutcomeKind::InvalidInput,
-            "kani_graph_identity_invalid",
+            std001_code!("kani_graph_identity_invalid"),
             &request.source_id,
             profile.selection().revision.clone(),
         ));
@@ -122,9 +124,9 @@ pub fn lower_reaches(
             continue;
         }
         if expanded.len() == request.max_expansions {
-            return Err(KaniOutcome::non_success(
+            return Err(KaniOutcome::new(
                 KaniOutcomeKind::ResourceExhausted,
-                "kani_graph_expansion_exhausted",
+                std001_code!("kani_graph_expansion_exhausted"),
                 &request.source_id,
                 profile.selection().revision.clone(),
             ));

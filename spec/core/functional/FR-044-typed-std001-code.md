@@ -172,5 +172,10 @@ guarantees".
 
 ## Status
 
-Planned (Linear IR-605). No `code` module exists: `KaniOutcome.code` is a
-`String` and `DiagnosticCode` has no `Deserialize`.
+Implemented through AC-1 to AC-5, verified by TC-442. The `code` module of
+`quire-contract-model` exports `Std001Code`, `Std001CodeError` and `std001_code!`;
+`KaniOutcome.code`, `KaniOutcomeError.code`, `KaniProviderRecord.cause` and the
+`CapabilityDisposition` codes are `Std001Code`, and the family lowerings build
+their unregistered codes with `std001_code!` (IR-347 removes them). The
+`compile_fail` probes of AC-4 are doctests on the `code` module, paired with the
+passing `const` form.

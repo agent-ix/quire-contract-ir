@@ -47,4 +47,6 @@ and `Err` with code `invalid_code_form` for the three others, with no panic.
 
 ## Status
 
-Planned. No test is tagged for this case and no `code` module exists.
+Implemented: `tests/it/std001_code.rs` holds one test per acceptance criterion
+(`tc_442_*`). The two compile probes are `compile_fail` doctests on the `code`
+module of `quire-contract-model`, each paired with the passing `const` form.

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use quire_contract_model::Std001Code;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -14,9 +15,9 @@ pub enum CapabilityDisposition {
     /// A named shared or semantic-family module owns exact lowering.
     Supported { module: String },
     /// The selected profile refuses the construct at the source boundary.
-    Refused { code: String },
+    Refused { code: Std001Code },
     /// A bounded cause prevents a qualified result.
-    Inconclusive { code: String },
+    Inconclusive { code: Std001Code },
 }
 
 /// One unique construct entry in a capability matrix.
@@ -135,9 +136,9 @@ impl KaniProfile {
         let mut selected = Vec::with_capacity(constructs.len());
         for construct in constructs {
             if construct.trim().is_empty() || !encountered.insert(construct.as_str()) {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_capability_request_invalid",
+                    Std001Code::KANI_CAPABILITY_REQUEST_INVALID,
                     source_id,
                     self.selection.revision.clone(),
                 ));
@@ -147,9 +148,9 @@ impl KaniProfile {
                 .iter()
                 .find(|entry| entry.construct == *construct)
             else {
-                return Err(KaniOutcome::non_success(
+                return Err(KaniOutcome::new(
                     KaniOutcomeKind::Refused,
-                    "kani_capability_missing",
+                    Std001Code::KANI_CAPABILITY_MISSING,
                     source_id,
                     construct.clone(),
                 ));

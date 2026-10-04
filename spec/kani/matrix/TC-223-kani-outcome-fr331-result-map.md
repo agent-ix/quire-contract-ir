@@ -49,5 +49,13 @@ fails to compile, and the `"Bad-Code"` outcome fails to deserialize. A new outco
 
 ## Status
 
-Planned. The test at `tests/it/kani_shared.rs:250` carries the TC-223 tag but
-verifies the retired `KaniProviderResult` map, so it does not back this case.
+Partly implemented. FR-030-AC-6 is verified by
+`tc_223_the_outcome_and_its_error_carry_a_typed_std001_code` in
+`tests/it/kani_shared.rs`: the zero-check outcome's code and serialization, the
+`"Bad-Code"` refusal on read, and the error's code, read through the non-success
+request for a `proved` outcome. The string-argument probes are `compile_fail`
+doctests on `KaniOutcome::non_success`. The count-bearing `proved` request, the
+`Unavailable` and `Inconclusive` cause rules and the struct-literal probe
+(FR-030-AC-4, AC-5) are planned and no test is tagged for them. The test
+`kani_outcome_kinds_map_to_their_one_fr331_result` verifies the retired
+`KaniProviderResult` map and does not back this case.

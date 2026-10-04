@@ -81,6 +81,7 @@
 mod binding;
 mod canonical;
 mod checked_package;
+mod code;
 mod conformance;
 mod coverage;
 mod decimal;
@@ -93,6 +94,7 @@ mod wire;
 pub use binding::*;
 pub use canonical::*;
 pub use checked_package::*;
+pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
     expected_inventory, run_corpus, ConformanceOperation, FixtureResult, FixtureStatus,
     RunnerError, RunnerErrorCode, ToolIdentity, ValidationOptions, CONFORMANCE_BOUNDARIES,
