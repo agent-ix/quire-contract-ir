@@ -298,14 +298,14 @@ mod tests {
     #[trace("TC-048", "FR-038-AC-117")]
     #[test]
     fn tc_048_a_deep_term_is_visited_on_a_small_stack() {
-        const DEPTH: usize = 200_000;
+        const LEVELS: usize = 200_000;
         let visited = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(|| {
                 // Built by moving each level into the next: `json!` would copy
                 // the term below it, recursively.
                 let mut term = leaf("bottom");
-                for _ in 0..DEPTH {
+                for _ in 0..LEVELS {
                     let mut aggregate = serde_json::Map::new();
                     aggregate.insert("term".to_owned(), Value::String("aggregate".to_owned()));
                     aggregate.insert("members".to_owned(), Value::Array(vec![term]));
@@ -325,6 +325,6 @@ mod tests {
             .expect("spawns")
             .join()
             .expect("the visit ran to completion");
-        assert_eq!(visited, DEPTH + 1);
+        assert_eq!(visited, LEVELS + 1);
     }
 }

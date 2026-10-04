@@ -1506,7 +1506,7 @@ mod tests {
     /// Tracing: TC-048, FR-038-AC-117
     #[test]
     fn tc_048_the_term_walk_validates_a_deep_term_on_a_small_stack() {
-        const DEPTH: usize = 200_000;
+        const LEVELS: usize = 200_000;
         let outcome = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(|| {
@@ -1519,7 +1519,7 @@ mod tests {
                 });
                 // Built by moving each level into the next: `json!` would copy
                 // the term below it, recursively.
-                for _ in 0..DEPTH {
+                for _ in 0..LEVELS {
                     let mut aggregate = serde_json::Map::new();
                     aggregate.insert("term".to_owned(), Value::String("aggregate".to_owned()));
                     aggregate.insert("members".to_owned(), Value::Array(vec![term]));

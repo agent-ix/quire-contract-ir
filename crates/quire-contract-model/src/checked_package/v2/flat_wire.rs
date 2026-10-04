@@ -366,18 +366,21 @@ mod tests {
     /// Tracing: TC-048, FR-038-AC-117
     #[test]
     fn tc_048_the_member_scan_reaches_a_deep_application_on_a_small_stack() {
-        const DEPTH: usize = 200_000;
+        const LEVELS: usize = 200_000;
         let outcome = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(|| {
                 let mut body = Map::new();
                 body.insert("term".to_owned(), json!("frame"));
-                body.insert("creates".to_owned(), nested_in_arrays(application(), DEPTH));
+                body.insert(
+                    "creates".to_owned(),
+                    nested_in_arrays(application(), LEVELS),
+                );
                 let body = Value::Object(body);
                 let found = scan_members(&body, &Trail::Base(&[]));
                 let mut clean = Map::new();
                 clean.insert("term".to_owned(), json!("frame"));
-                clean.insert("creates".to_owned(), nested_in_arrays(json!(1), DEPTH));
+                clean.insert("creates".to_owned(), nested_in_arrays(json!(1), LEVELS));
                 let clean = Value::Object(clean);
                 let worked = scan_members(&clean, &Trail::Base(&[]));
                 quire_canonical::drop_value(body);
@@ -394,11 +397,11 @@ mod tests {
             panic!("a refusal");
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
-        let expected = format!("/creates{}", "/0".repeat(DEPTH));
+        let expected = format!("/creates{}", "/0".repeat(LEVELS));
         assert_eq!(refusal.path, JsonPointer::parse(&expected));
         // The frame object, its `creates` array levels and the scalar at the
-        // bottom, and the `term` member: DEPTH + 3 values.
-        assert_eq!(worked, Ok(u64::try_from(DEPTH + 3).expect("count")));
+        // bottom, and the `term` member: LEVELS + 3 values.
+        assert_eq!(worked, Ok(u64::try_from(LEVELS + 3).expect("count")));
     }
 
     /// A term's stratum is the place it stands in: a binding stands at no body
