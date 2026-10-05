@@ -1909,7 +1909,7 @@ requirement below is its own statement:
    the key the reader derives for it (FR-038-AC-133).
 2. The in-repo fixtures are owned by this repository's code change, which shall
    regenerate their derived-shape keys (FR-038-AC-134).
-3. The QSpec fixtures are owned by the QSpec owner (IR-627-Q5); the code change
+3. The QSpec fixtures are owned by the QSpec owner (QSL-635, IR-627-Q5); the code change
    for FR-038-AC-123 through FR-038-AC-130 shall land after those fixtures
    carry derived keys, because its stage would otherwise make
    `make conformance-qspec` fail on AC-107, and this repository does not copy
@@ -1945,14 +1945,23 @@ for the QSpec owner of FR-322:
    two nodes of the package carry one key; if not, which refusal is it? The
    decided rule hashes a preimage with `recursion` `null`, so it refuses a
    derived-shape node that has one, as an IR reading until Q4 is answered.
-5. **Q5.** QSpec's `positive-all-families.json`, `positive-clause-operations.json`
-   and `positive-union-nodes.json` (the fixtures FR-038-AC-107 reads) hold
-   derived-shape nodes under placeholder keys (`aaaa...` boolean, `7f7f...`
-   integer, `b2b2...` reference, and the `integer_range`), which QSL FR-092's
-   preimage does not produce. Will QSpec regenerate them with derived keys, and
-   before which IR release? `positive-control-operations.json` and
-   `positive-operation-identities.json` hold derived shapes too and are not read
-   by IR today.
+5. **Q5.** QSpec's checkout holds derived-shape nodes under placeholder keys
+   (`aaaa...` boolean, `7f7f...` integer, `b2b2...` reference, `a1a1...` integer
+   in the union fixture), which QSL FR-092's preimage does not produce, in these
+   files under `proposals/checked-package-v2/`, measured. IR reads three:
+   `fixtures/positive-all-families.json`, `fixtures/positive-clause-operations.json`
+   and `fixtures/positive-union-nodes.json` (FR-038-AC-107), and applies
+   `fixtures/adverse.json` to the first (FR-038-AC-112). IR reads none of
+   `fixtures/positive-control-operations.json`,
+   `fixtures/positive-operation-identities.json` and `node-identity-vectors.json`
+   (the in-repo tests that read the vectors were removed, AGE-1961), which also
+   carry placeholders (`b2b2...` in the vectors). The QSpec-side ticket is
+   QSL-635 (QSL lane): regenerate every positive fixture and the vectors with
+   keys from QSL's own derivation, recompute each projection and `package_id`,
+   and add a negative fixture. Which IR release waits on it is Q5's question:
+   the IR code change for FR-038-AC-123 through FR-038-AC-130 does not merge
+   before QSL-635's fixtures, or a conformance lane is held citing QSL-635. This
+   specification change does not wait.
 
 IR-628 (a typed accessor for a model object type's effective fields) is
 related and is not decided here: it would let a consumer read a declared range
@@ -2582,7 +2591,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-130 | One derivation (IR-627; planned, ungated). For each of the ten derived shapes the key the admission stage derives from a node's own body equals the key `MemberType::node_key` derives from the matching member type, and a node whose body is built from the derived key's own preimage admits. A test derives both for each shape over the bounds of AC-128 and compares them. | Test (TC-226) |
 | FR-038-AC-131 | Gated forms (IR-627; planned and GATED on IR-627-Q1 to Q4). When QSL's preimage for the gated forms is available to the reader without copying, a stored `node_id` that differs from the derived key refuses `invalid_package`/`stale-node-key` at that node's `node_id` for each gated form: `rational_range`, `decimal_range`, `float_rounding`, `text_bounds`, `model_population`, `compound_unit`, `parameter`, `union`, `record`, `tuple`, the value forms, and a declared (`declaration`-carrying) node of each derived shape. Mutation rows, one per form: change one body value and keep the node id. A reader that derives only the ten decided shapes admits every row and fails. Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 | FR-038-AC-132 | No copy (IR-627; planned and GATED as AC-131). The vectors or types the reader is checked against for the gated forms come from the source IR-627-Q2 names, are not copied into this repository, and a test that reads them fails closed when the source is absent, as FR-038-AC-112 does. | Test (TC-226) |
-| FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with any one derived-shape node's key replaced by a placeholder (`7f7f...` on the `integer` node, `aaaa...` on the `boolean` node, `b2b2...` on a `reference` node) and every reference to it left in place refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures (IR-627-Q5); `make conformance-qspec` fails on them until they conform, which is why the code change is ordered after them. | Test (TC-226) |
+| FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with any one derived-shape node's key replaced by a placeholder (`7f7f...` on the `integer` node, `aaaa...` on the `boolean` node, `b2b2...` on a `reference` node) and every reference to it left in place refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures (QSL-635, IR-627-Q5; QSL-635 also covers `positive-control-operations.json`, `positive-operation-identities.json` and `node-identity-vectors.json`, which IR does not read); `make conformance-qspec` fails on the three until they conform, so the IR code change merges after QSL-635's regenerated fixtures or a conformance lane is held citing QSL-635. QSpec also owns the conformance counterpart of the tamper regression row of TC-226: a negative fixture whose `integer_range` node keeps its id under a changed bound, patched `identity_projection` and recomputed `package_id`, which the reader refuses `stale-node-key` at that node (read from the checkout, never copied here). | Test (TC-226) |
 | FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`, including the self-typed `aaaa` scalar) carries the derived key on each node of the ten shapes and admits; the same package with the `aaaa` placeholder restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`. Owned by this repository's code change. | Test (TC-226) |
 | FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph` and the four `malformed_wire` body-grammar entries, and none is refused `stale-node-key`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
 
