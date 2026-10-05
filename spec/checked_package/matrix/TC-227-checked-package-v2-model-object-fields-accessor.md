@@ -38,8 +38,12 @@ each returned type, admit a read keyed from it and a read keyed from its
 perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
 struct literal that must fail to compile). For AC-144, read the table-building
 counter (13 for 4 types, 43 for 8), find the smallest admitting `work` limit and
-test one below it, read the 1000 and 1500 chains under `bounded()`, and run the
-two precedence packages.
+test one below it, read the 1000 and 1500 chains under `bounded()`, run the
+two precedence packages, read a field and an operation of the 4-chain for the
+read charges, and admit the cyclic documents (a self-cycle, a two-cycle, a
+self-cycle with a redefinition, a type extending a cycle), comparing each table
+and charge with the values recorded from the pre-change `resolve` and with
+items 4 to 9.
 
 ## Expected Results
 
