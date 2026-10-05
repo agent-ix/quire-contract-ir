@@ -38,9 +38,15 @@ without the other document in the evidence. Read the in-repo fixture packages
 with their derived keys (admit) and with one placeholder key restored on an
 undeclared derived-shape node (`stale-node-key`); read the in-repo `aaaa` and
 `bbbb` nodes with keys regenerated but bodies and `semantic_type` unmigrated
-(`stale-node-key`). A node of the ten shapes that carries a `recursion_group` is
-skipped by the stage, not refused (the recursive packages of FR-038-AC-70 and
-AC-72 admit); the reading of IR-627-Q4 is recorded in the amendment IR #298.
+(`stale-node-key`). A node of a real recursion group (an `option`, collection
+or `collection_bounds` on a names-graph cycle whose component's members all
+carry its label) is skipped by the stage, not refused, and the
+recursive packages of FR-038-AC-70 and AC-72 admit; any other labelled node, and
+every `integer_range`, is verified. The stated limits (an in-group key is not
+verified, a forged names cycle through a collection and its
+`collection_bounds` is skipped too, and a range retagged `collection_bounds` on
+such a cycle is skipped) are recorded as tests; the rule is specified
+by the amendment IR #298.
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.

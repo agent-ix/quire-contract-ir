@@ -469,7 +469,20 @@ fn tc_050_a_recursive_record_requires_a_bound() {
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        in_recursion_group(composite("tree", "record", &["kids03", "int09"])),
+        // The record names its fields in its body, so the cycle is one of QSL
+        // FR-092's names graph and not only of `dependencies`.
+        in_recursion_group(node(
+            "tree",
+            "composite_type",
+            "record",
+            "tree",
+            &["kids03", "int09"],
+            "type",
+            json!({"term": "aggregate", "members": [
+                binding("kids", reference("kids03")),
+                binding("k", reference("int09")),
+            ]}),
+        )),
         in_recursion_group(composite("kids", "sequence", &["tree"])),
         in_recursion_group(bounded_collection("kids03", "kids")),
     ]);

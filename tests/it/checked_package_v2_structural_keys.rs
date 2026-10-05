@@ -1123,26 +1123,14 @@ fn tc_226_a_derived_shape_node_in_a_recursion_group_is_skipped_and_one_outside_i
     let ungrouped = tampered(package, &recursive.bounds, |n| {
         n.as_object_mut().expect("node").remove("recursion_group");
     });
+    // With the label gone from one member the component is no longer exactly
+    // the labelled set, so the others are verified as ungrouped too (their
+    // keys are the QSL group keys, not ungrouped ones) and the package is
+    // never admitted: the key stage refuses before the cycle rule would.
     let refusal = refusal_of("the group removed", &ungrouped, &evidence_for(&ungrouped));
-    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
     assert_eq!(
-        refusal.path,
-        Some(crate::support::checked_package::pointer(&format!(
-            "/semantic_graph/nodes/{}",
-            at(&ungrouped, &recursive.bounds)
-        )))
-    );
-
-    // With the group removed and a body that is not the node's key's, the key
-    // stage refuses first: it runs before the cycle rule.
-    let ungrouped_tampered = tampered(package, &recursive.bounds, |n| {
-        n.as_object_mut().expect("node").remove("recursion_group");
-        set_bound(n, "max", "5");
-    });
-    assert_stale(
-        "the group removed and the bound changed",
-        &ungrouped_tampered,
-        &recursive.bounds,
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
     );
 }
 
@@ -1159,7 +1147,7 @@ fn tc_226_a_derived_shape_node_in_a_recursion_group_is_skipped_and_one_outside_i
 #[test]
 fn tc_226_an_in_group_tamper_is_admitted_under_the_skip_the_recorded_limit() {
     let recursive = recursive();
-    let rows: [(&str, String, Edit); 3] = [
+    let rows: [(&str, String, Edit); 2] = [
         (
             "bounds max changed to 5",
             recursive.bounds.clone(),
@@ -1170,20 +1158,48 @@ fn tc_226_an_in_group_tamper_is_admitted_under_the_skip_the_recorded_limit() {
             recursive.bounds.clone(),
             Box::new(|n| set_bound(n, "min", "1")),
         ),
-        (
-            "the sequence's reference re-pointed at the bounds",
-            recursive.sequence.clone(),
-            Box::new({
-                let bounds = recursive.bounds.clone();
-                move |n| n["body"]["members"][0]["target"] = node_id(&bounds)
-            }),
-        ),
     ];
     for (row, key, edit) in rows {
         let package = tampered(&recursive.package, &key, edit);
         admitted(row, &package);
     }
+    // Re-pointing the sequence's body reference at the bounds leaves a names
+    // cycle of the sequence and the bounds alone, every member of it carrying
+    // the one label: skipped too, and admitted.
+    let bounds = recursive.bounds.clone();
+    let package = tampered(&recursive.package, &recursive.sequence, move |n| {
+        n["body"]["members"][0]["target"] = node_id(&bounds);
+    });
+    admitted("the sequence re-pointed at the bounds", &package);
     let _ = &recursive.tree;
+}
+
+/// A second recorded limit: the stage does not cross-check a node's wire tag
+/// and form against the type its key was minted for. A node keyed
+/// `Int[0, 1000]` retagged `collection_bounds` (its body unchanged), typed at a
+/// collection whose body names it, with both labelled, forges a names cycle of
+/// two skippable shapes and is skipped, so it is admitted. Whether a
+/// cross-check is added is open in the amendment IR #298; when it lands this
+/// row moves to a refusal.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_range_retagged_collection_bounds_on_a_forged_cycle_is_admitted_the_recorded_limit() {
+    let base = base();
+    // `Int[0, 0]`, which no application reads, so that only the key stage
+    // could have refused it.
+    let package = tampered(&base.package, &base.zero, |n| {
+        n["semantic_form"] = json!("collection_bounds");
+        n["semantic_type"] = node_id(&base.set);
+        n["recursion_group"] = json!("forged");
+        set_bound(n, "max", "10");
+    });
+    let package = tampered(&package, &base.set, |n| {
+        n["recursion_group"] = json!("forged");
+        n["body"]["members"][0]["target"] = node_id(&base.zero);
+    });
+    admitted("the retagged range", &package);
 }
 
 /// A `recursion_group` label added to a node that is on no cycle is not a
@@ -1211,4 +1227,79 @@ fn tc_226_a_lone_group_label_does_not_exempt_a_tampered_range() {
         });
         assert_stale(&format!("a labelled acyclic {what}"), &package, &key);
     }
+}
+
+/// The skip reads the names graph, not `dependencies`: a collection that
+/// lists itself as a dependency, or two that list each other, and carries a
+/// group label is on no names cycle and is verified. And an `integer_range`
+/// is verified whatever label it carries, inside a package whose real groups
+/// are still skipped.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_only_a_names_cycle_that_is_exactly_the_group_exempts_a_node() {
+    let base = base();
+    let repoint = |n: &mut Value| n["body"]["members"][0]["target"] = node_id(&base.narrow);
+    // A dependency on itself.
+    let package = tampered(&base.package, &base.set, |n| {
+        n["recursion_group"] = json!("forged");
+        n["dependencies"] = json!([node_id(&base.set)]);
+        repoint(n);
+    });
+    assert_stale("a self-dependency", &package, &base.set);
+    // Two collections naming each other through `dependencies` only.
+    let package = tampered(&base.package, &base.set, |n| {
+        n["recursion_group"] = json!("forged");
+        n["dependencies"] = json!([node_id(&base.option)]);
+        repoint(n);
+    });
+    let package = tampered(&package, &base.option, |n| {
+        n["recursion_group"] = json!("forged");
+        n["dependencies"] = json!([node_id(&base.set)]);
+    });
+    let refusal = refusal_of("a dependency cycle", &package, &evidence_for(&package));
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey), "{refusal:?}");
+
+    // A label on an `integer_range` beside a real group: still verified.
+    let recursive = recursive();
+    let package = tampered(&recursive.package, &base.wide, |n| {
+        n["recursion_group"] = json!("other");
+        set_bound(n, "max", "10");
+    });
+    assert_stale("a labelled integer_range", &package, &base.wide);
+}
+
+/// The stated limit, recorded as a test: a tamperer who re-points a
+/// collection's body `reference` at a `collection_bounds` node that names the
+/// collection at its `semantic_type`, and labels both, forges a names cycle
+/// whose component is exactly the labelled set, so the stage skips both and
+/// the package is admitted with the collection's element type and the count
+/// unverified. They rest on the package producer until the in-group
+/// re-derivation lands (IR-630). A range read from an `integer_range` node is
+/// never reached this way.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_forged_names_cycle_through_collection_bounds_is_admitted_the_recorded_limit() {
+    let base = base();
+    let (bounds, bounds_node) = bounded_collection(&base.set, "0", "3");
+    let package = with_nodes(base.package.clone(), vec![bounds_node]);
+    admitted("the collection and its bounds", &package);
+    let forged = tampered(&package, &base.set, |n| {
+        n["recursion_group"] = json!("forged");
+        n["body"]["members"][0]["target"] = node_id(&bounds);
+    });
+    let forged = tampered(&forged, &bounds, |n| {
+        n["recursion_group"] = json!("forged");
+        set_bound(n, "max", "5000");
+    });
+    admitted("the forged group", &forged);
+    // The same forgery over an `integer_range` is refused.
+    let range = tampered(&package, &base.wide, |n| {
+        n["recursion_group"] = json!("forged");
+        set_bound(n, "max", "10");
+    });
+    assert_stale("a labelled integer_range", &range, &base.wide);
 }

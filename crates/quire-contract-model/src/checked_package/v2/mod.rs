@@ -1729,7 +1729,14 @@ fn validate_graph(
     validate_application_keys(&graph.nodes, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
-    validate_derived_keys(&graph.nodes, &kinds, &index, meter, limits.bytes)?;
+    validate_derived_keys(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &references,
+        meter,
+        limits.bytes,
+    )?;
     validate_nominal_nodes(
         &graph.nodes,
         &kinds,
