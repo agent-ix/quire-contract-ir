@@ -1579,6 +1579,60 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
     }
 }
 
+/// A frame entry naming an inherited field is charged for the selected
+/// subtype's whole field table by the package reader. `Sub` has two effective
+/// fields here and `Order` has one. The subtype variant adds one graph
+/// dependency edge as well; after that edge's unit is subtracted, its
+/// admission budget differs by one field-table entry.
+///
+/// Trace: FR-038-AC-144
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
+    let mut document = orders_document();
+    document["types"][1]["fields"] = json!([domain_field(SUB_NODE, "extra")]);
+    let digest = sha256_hex(&canonical(&document));
+    let smallest = |declaring: &str| {
+        let mut value = ModelPackage::new().modifying(declaring, "total").value;
+        let frame = position(&value, "state", "frame");
+        let dependencies = value["semantic_graph"]["nodes"][frame]["dependencies"]
+            .as_array()
+            .expect("frame dependencies")
+            .len();
+        value["lock"]["model_selections"][0]["digest"] = json!(digest);
+        refresh_identity(&mut value);
+        let mut evidence = evidence_for(&value);
+        evidence.insert_domain_package_document(digest.clone(), canonical(&document));
+        let read = |work| {
+            let mut limits = CheckedPackageReadLimits::bounded();
+            limits.work = work;
+            CheckedPackageV2::read(&canonical(&value), limits, &evidence)
+        };
+        let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+        assert!(matches!(
+            read(high),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match read(middle) {
+                CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+                CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+                other => panic!("expected admission or work limit, got {other:?}"),
+            }
+        }
+        assert!(matches!(
+            read(low - 1),
+            CheckedPackageV2ReadResult::Incomplete(_)
+        ));
+        (low, dependencies)
+    };
+    let (sub_work, sub_edges) = smallest(&model_key(SUB_NODE));
+    let (order_work, order_edges) = smallest(&model_key(ORDER_NODE));
+    assert_eq!(sub_edges, order_edges + 1);
+    assert_eq!(sub_work - order_work - 1, 1, "one extra table entry");
+}
+
 /// Tracing: TC-056
 /// ACs: FR-040-AC-7
 #[trace("TC-056", "FR-040-AC-7")]

@@ -1,3 +1,4 @@
+use super::super::model_fields::build_field_tables;
 use super::*;
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -7,7 +8,7 @@ use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 use ix_trace_rs::trace;
 
 /// The byte limit these tests read under: far above any document here.
-const BYTES: u64 = 1 << 20;
+pub(in crate::checked_package::v2) const BYTES: u64 = 1 << 20;
 
 /// The lowercase SHA-256 of `text`, the digest of expected canonical bytes
 /// written out in a test.
@@ -20,7 +21,7 @@ fn sha256_of(text: &str) -> String {
 /// preimage, written out here from the preimage's JSON text with members in
 /// RFC 8785 order, not produced by the code under test.
 ///
-/// Tracing: TC-048, FR-038-AC-89
+/// Trace: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
@@ -81,11 +82,17 @@ fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
     }
 }
 
-/// [`read_semantic_ir`] under a work limit nothing reaches.
-fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
+/// [`read_semantic_ir`] under a work limit nothing reaches, with the field
+/// tables the lock stage builds.
+pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(document, &mut Budget::new(&mut meter, 0, BYTES)) {
-        Ok(model) => Ok(model),
+        Ok(model) => {
+            let mut models = [model];
+            build_field_tables(&mut models, &mut meter).expect("no limit is reached");
+            let [model] = models;
+            Ok(model)
+        }
         Err(ModelFailure::Refused(refusal)) => Err(refusal),
         Err(ModelFailure::Limit(_)) => panic!("no limit is reached"),
     }
@@ -108,7 +115,7 @@ fn resolve<'m>(
 
 const DIGIT: IntegerBounds = IntegerBounds { lower: 0, upper: 9 };
 
-fn multiplicity(lower: u64, upper: Option<u64>) -> Value {
+pub(in crate::checked_package::v2) fn multiplicity(lower: u64, upper: Option<u64>) -> Value {
     let mut value = json!({"lower": lower, "ordered": false, "unique": true});
     if let Some(upper) = upper {
         value["upper"] = json!(upper);
@@ -116,7 +123,7 @@ fn multiplicity(lower: u64, upper: Option<u64>) -> Value {
     value
 }
 
-fn field(owner: &str, name: &str, type_ref: &str) -> Value {
+pub(in crate::checked_package::v2) fn field(owner: &str, name: &str, type_ref: &str) -> Value {
     json!({
         "identity": format!("{owner}/{name}"), "name": name, "typeRef": type_ref,
         "presence": "required", "nullable": false, "defaultKind": "none",
@@ -124,7 +131,11 @@ fn field(owner: &str, name: &str, type_ref: &str) -> Value {
     })
 }
 
-fn object_type(node: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
+pub(in crate::checked_package::v2) fn object_type(
+    node: &str,
+    supertypes: &[&str],
+    fields: Vec<Value>,
+) -> Value {
     json!({
         "identity": node, "displayName": node, "kind": {"module": "acme/orders", "name": "entity"},
         "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
@@ -133,7 +144,7 @@ fn object_type(node: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
 }
 
 /// A Semantic IR 2.0.0 document of `acme/orders` `1.0.0` declaring `types`.
-fn document(types: Vec<Value>) -> Value {
+pub(in crate::checked_package::v2) fn document(types: Vec<Value>) -> Value {
     json!({
         "contractVersion": "2.0.0",
         "package": {"identity": "acme/orders", "version": "1.0.0"},
@@ -153,7 +164,7 @@ const GADGET: &str = "ix://acme/orders/Gadget";
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
 /// subtype and a subtype conforms to its supertype, decided in either order.
 ///
-/// Tracing: TC-048, FR-038-AC-29
+/// Trace: FR-038-AC-29
 #[test]
 fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
     let model = read(&document(vec![
@@ -192,7 +203,7 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
 /// An FCD value type `scalar: integer` with `min` and `max` constraints is
 /// the element type `Int[lo, hi]`.
 ///
-/// Tracing: TC-048, FR-038-AC-29
+/// Trace: FR-038-AC-29
 #[test]
 fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
     let digit = json!({
@@ -223,7 +234,7 @@ fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
 
 /// FR-154's declaration refusals the reader draws, each for one defect.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
     let refused = |types| read(&document(types)).map(|_| ()).expect_err("refused");
@@ -278,7 +289,7 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 /// the bytes and the document's own `package` identity compared; no version
 /// is read.
 ///
-/// Tracing: TC-048, FR-038-AC-27
+/// Trace: FR-038-AC-27
 #[test]
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
@@ -337,7 +348,7 @@ const BAD_ID: &str = "ix://acme/orders/bad-id";
 /// reported again as `missing-name`; the refused node's own refusal stands,
 /// whether the referencing node is read before or after it.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
@@ -374,7 +385,7 @@ fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
 /// multiplicity with `lower > upper` (`unpreserved-model-meaning`), and a
 /// malformed member before either, wherever each sits in the node.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_one_nodes_failures_report_in_table_order() {
     let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
@@ -427,7 +438,7 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// meaning, whether the object type declaring the relationship is read before
 /// or after the one naming it.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
     let owns = "ix://acme/orders/Widget/owns";
@@ -452,7 +463,7 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
 /// QSpec FR-154: two nodes that carry no identity share none; each is
 /// malformed, not a `conflicting-binding`.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
     let mut nameless = object_type(WIDGET, &[], vec![]);
@@ -473,7 +484,7 @@ fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
 /// the reader's `work` limit at the document's `model_selections` row; a
 /// limit one below what a read used is `incomplete` there.
 ///
-/// Tracing: TC-048, FR-038-AC-30
+/// Trace: FR-038-AC-30
 #[test]
 fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let types = || {
@@ -534,4 +545,200 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
         incomplete_at(failure).as_deref(),
         Some("/lock/model_selections/1")
     );
+}
+
+/// One object type of a differential document: its short name, the short
+/// names of its supertypes, and its fields as `(name, redefined member)`.
+pub(in crate::checked_package::v2) type Declared<'a> =
+    (&'a str, &'a [&'a str], &'a [(&'a str, Option<&'a str>)]);
+
+pub(in crate::checked_package::v2) const ORDERS: &str = "ix://acme/orders/";
+
+/// A document declaring `types`; a redefined member is written `Owner/name`.
+pub(in crate::checked_package::v2) fn differential_document(types: &[Declared<'_>]) -> Value {
+    document(
+        types
+            .iter()
+            .map(|(short, supertypes, fields)| {
+                let node = format!("{ORDERS}{short}");
+                let supertypes: Vec<String> = supertypes
+                    .iter()
+                    .map(|supertype| format!("{ORDERS}{supertype}"))
+                    .collect();
+                let supertypes: Vec<&str> = supertypes.iter().map(String::as_str).collect();
+                let fields = fields
+                    .iter()
+                    .map(|(name, redefines)| {
+                        let mut declared = field(&node, name, "ix://quire/native/Integer");
+                        if let Some(target) = redefines {
+                            declared["redefines"] = json!(format!("{ORDERS}{target}"));
+                        }
+                        declared
+                    })
+                    .collect();
+                object_type(&node, &supertypes, fields)
+            })
+            .collect(),
+    )
+}
+
+/// For each type of `types`, the field names that resolve on it (and to
+/// which member), or are ambiguous, in name order, as `resolve` answers them:
+/// `Type: name=Owner/name name=ambiguous`.
+fn resolutions(label: &str, types: &[Declared<'_>]) -> Vec<String> {
+    let model = read(&differential_document(types)).expect("the document reads");
+    let names: BTreeSet<&str> = types
+        .iter()
+        .flat_map(|(_, _, fields)| fields.iter().map(|(name, _)| *name))
+        .collect();
+    types
+        .iter()
+        .map(|(short, _, _)| {
+            let node = format!("{ORDERS}{short}");
+            let answers: Vec<String> = names
+                .iter()
+                .filter_map(
+                    |name| match resolve(&model, &node, MemberKind::Field, name) {
+                        Ok(resolved) => Some(format!(
+                            "{name}={}",
+                            resolved.identity().trim_start_matches(ORDERS)
+                        )),
+                        Err(refusal) if refusal == ModelRefusal::ambiguous() => {
+                            Some(format!("{name}=ambiguous"))
+                        }
+                        Err(_) => None,
+                    },
+                )
+                .collect();
+            format!("{label}/{short}: {}", answers.join(" "))
+        })
+        .collect()
+}
+
+/// The documents whose resolutions are recorded below, each with cyclic or
+/// redefining declarations.
+pub(in crate::checked_package::v2) fn differential_documents(
+) -> Vec<(&'static str, Vec<Declared<'static>>)> {
+    vec![
+        ("self_cycle", vec![("A", &["A"], &[("f", None)])]),
+        (
+            "two_cycle",
+            vec![("A", &["B"], &[("a", None)]), ("B", &["A"], &[("b", None)])],
+        ),
+        (
+            "self_cycle_redefinition",
+            vec![("A", &["A"], &[("f", None), ("g", Some("A/f"))])],
+        ),
+        (
+            "extends_cycle",
+            vec![("A", &["A"], &[("f", None)]), ("C", &["A"], &[("c", None)])],
+        ),
+        (
+            "cycle_over_base",
+            vec![
+                ("P", &[], &[("x", None)]),
+                ("A", &["A", "P"], &[("f", Some("P/x")), ("h", None)]),
+                ("C", &["A"], &[("c", None)]),
+            ],
+        ),
+        (
+            "two_cycle_shared_target",
+            vec![
+                ("P", &[], &[("x", None)]),
+                ("A", &["B"], &[("a", Some("P/x"))]),
+                ("B", &["A", "P"], &[("b", Some("P/x"))]),
+                ("C", &["A"], &[("c", None)]),
+            ],
+        ),
+        (
+            "diamond",
+            vec![
+                ("Base", &[], &[("x", None), ("z", None)]),
+                ("L", &["Base"], &[("x", Some("Base/x"))]),
+                ("R", &["Base"], &[("x", Some("Base/x"))]),
+                ("M", &["L"], &[("x", Some("L/x"))]),
+                ("Bottom", &["M", "R"], &[("y", None)]),
+                ("Both", &["L", "R"], &[]),
+            ],
+        ),
+        (
+            "ambiguity",
+            vec![
+                ("T1", &[], &[("x", None)]),
+                ("T2", &[], &[("x", None)]),
+                ("T3", &["T1", "T2"], &[("y", None)]),
+            ],
+        ),
+        (
+            "redefining_chain",
+            vec![
+                ("C0", &[], &[("f", None), ("g", None)]),
+                ("C1", &["C0"], &[("f", Some("C0/f"))]),
+                ("C2", &["C1"], &[("f", Some("C1/f"))]),
+                ("C3", &["C2"], &[]),
+            ],
+        ),
+        (
+            "branch_dominance",
+            vec![
+                ("Base", &[], &[("x", None)]),
+                ("L", &["Base"], &[("x", Some("Base/x"))]),
+                ("M", &["L"], &[("x2", Some("Base/x"))]),
+                ("X", &["M", "L"], &[]),
+                ("Y", &["L", "M"], &[("y", None)]),
+            ],
+        ),
+    ]
+}
+
+/// The values `DomainModel::resolve` returned for each document of
+/// [`differential_documents`] before IR-628 changed it, recorded by running
+/// that function and pasted here; the field tables of IR-628 are compared
+/// with them, not with a reading of the code.
+pub(in crate::checked_package::v2) const RECORDED: [&str; 31] = [
+    "self_cycle/A: f=A/f",
+    "two_cycle/A: a=A/a b=B/b",
+    "two_cycle/B: a=A/a b=B/b",
+    "self_cycle_redefinition/A: ",
+    "extends_cycle/A: f=A/f",
+    "extends_cycle/C: c=C/c f=A/f",
+    "cycle_over_base/P: x=P/x",
+    "cycle_over_base/A: h=A/h",
+    "cycle_over_base/C: c=C/c h=A/h",
+    "two_cycle_shared_target/P: x=P/x",
+    "two_cycle_shared_target/A: ",
+    "two_cycle_shared_target/B: ",
+    "two_cycle_shared_target/C: c=C/c",
+    "diamond/Base: x=Base/x z=Base/z",
+    "diamond/L: x=L/x z=Base/z",
+    "diamond/R: x=R/x z=Base/z",
+    "diamond/M: x=M/x z=Base/z",
+    "diamond/Bottom: x=ambiguous y=Bottom/y z=Base/z",
+    "diamond/Both: x=ambiguous z=Base/z",
+    "ambiguity/T1: x=T1/x",
+    "ambiguity/T2: x=T2/x",
+    "ambiguity/T3: x=ambiguous y=T3/y",
+    "redefining_chain/C0: f=C0/f g=C0/g",
+    "redefining_chain/C1: f=C1/f g=C0/g",
+    "redefining_chain/C2: f=C2/f g=C0/g",
+    "redefining_chain/C3: f=C2/f g=C0/g",
+    "branch_dominance/Base: x=Base/x",
+    "branch_dominance/L: x=L/x",
+    "branch_dominance/M: x2=M/x2",
+    "branch_dominance/X: x2=M/x2",
+    "branch_dominance/Y: x2=M/x2 y=Y/y",
+];
+
+/// `resolve` over the field tables answers as the pre-change `resolve` did,
+/// for supertype cycles, redefinitions, a diamond and an ambiguous name.
+///
+/// Trace: FR-038-AC-144
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
+    let actual: Vec<String> = differential_documents()
+        .iter()
+        .flat_map(|(label, types)| resolutions(label, types))
+        .collect();
+    assert_eq!(actual, RECORDED);
 }

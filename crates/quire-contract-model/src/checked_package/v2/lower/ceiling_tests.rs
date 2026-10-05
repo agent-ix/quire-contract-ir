@@ -308,7 +308,12 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     }))
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
-    CheckedPackageV2 { wire, kinds, bytes }
+    CheckedPackageV2 {
+        wire,
+        kinds,
+        bytes,
+        models: Default::default(),
+    }
 }
 
 fn profile() -> CompleteLoweringProfileV2 {

@@ -1298,6 +1298,43 @@ fn tc_056_reaches_field_admits_each_reference_edge_shape() {
     }
 }
 
+/// The package reader's relationship-edge check resolves `parent` on each
+/// declaring type. `Sub` inherits `Order`'s seven fields and declares `child`,
+/// so its field table has one more entry than `Order`'s table.
+///
+/// Trace: FR-038-AC-144
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
+    let smallest = |declaring, source| {
+        let (package, evidence, _) = reaches(declaring, "parent", source, ORDER);
+        let read = |work| {
+            let mut limits = CheckedPackageReadLimits::bounded();
+            limits.work = work;
+            CheckedPackageV2::read(&canonical(&package), limits, &evidence)
+        };
+        let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+        assert!(matches!(
+            read(high),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match read(middle) {
+                CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+                CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+                other => panic!("expected admission or work limit, got {other:?}"),
+            }
+        }
+        assert!(matches!(
+            read(low - 1),
+            CheckedPackageV2ReadResult::Incomplete(_)
+        ));
+        low
+    };
+    assert_eq!(smallest(SUB, SUB), smallest(ORDER, ORDER) + 1);
+}
+
 /// FR-322 "Reaches over a field": a field that is not a reference edge to
 /// its owner, an operand that does not name the declaring node, a target
 /// that is not a subtype of the edge's owner (a supertype included), an

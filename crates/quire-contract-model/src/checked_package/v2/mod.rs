@@ -15,6 +15,7 @@ mod frame;
 mod identity;
 mod intake;
 mod lower;
+mod model_fields;
 mod model_members;
 mod natural;
 mod operation_catalog;
@@ -27,6 +28,10 @@ mod vocabulary;
 
 pub use identity::*;
 pub use lower::*;
+pub use model_fields::{
+    CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
+    CheckedModelObjectFields,
+};
 pub use vocabulary::*;
 
 use dependency_references::{admit_dependencies, SuppliedDependencies};
@@ -47,6 +52,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSemanticId,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
+use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure};
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
@@ -386,11 +392,16 @@ pub struct CheckedPackageV2 {
     /// The byte limit this package was read under: the ceiling of every
     /// encode its lowering makes.
     bytes: u64,
+    /// What the reader derived from the selected domain package documents and
+    /// keeps: the declaration index and the field tables (IR-628).
+    models: RetainedModels,
 }
 
 /// Equality is the equality of the admitted content. The read limit a package
 /// retains for its lowering is not content, so two admissions of the same bytes
-/// under different limits are equal.
+/// under different limits are equal; nor are the retained field tables and
+/// declaration index, which are derived from the documents the content's
+/// digests fix.
 impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
         self.wire == other.wire && self.kinds == other.kinds
@@ -610,11 +621,12 @@ impl CheckedPackageV2 {
         intake::check_lossless(&mut value, &mut wire)?;
         drop(value);
         intake::attach_terms(&mut wire, terms);
-        let kinds = validate(&wire, limits, evidence)?;
+        let (kinds, models) = validate(&wire, limits, evidence)?;
         Ok(Self {
             wire,
             kinds,
             bytes: limits.bytes,
+            models,
         })
     }
 
@@ -699,7 +711,7 @@ fn validate(
     wire: &CheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
-) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
+) -> Result<(Vec<CheckedNodeKind>, RetainedModels), ValidationFailure> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
@@ -729,7 +741,7 @@ fn validate(
         models,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    let kinds = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
+    let (kinds, index) = validate_graph(wire, limits, &mut meter, &models, &dependencies)?;
     validate_source_map_entries(
         wire.semantic_graph
             .nodes
@@ -741,7 +753,7 @@ fn validate(
     )?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    Ok(kinds)
+    Ok((kinds, RetainedModels::new(index, models)))
 }
 
 /// The pointer of the first lock value that differs from its mirror in the
@@ -879,7 +891,7 @@ fn validate_lock<'a>(
             models_pointer().index(repeat),
         ));
     }
-    let models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
+    let mut models = validate_domain_packages(&lock.model_selections, evidence, meter, bytes)?;
     // Implements: FR-322. Every selected dependency's admitted package is supplied and
     // binds to its entry, before any `dependency_reference` is read.
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
@@ -897,6 +909,11 @@ fn validate_lock<'a>(
     validate_definition_ref(&wire.diagnostics.catalog, &|| {
         member_pointer(&["diagnostics", "catalog"])
     })?;
+    // IR-628: the last act of the lock stage. Every row's step 1 has admitted,
+    // so a step 1 refusal at any row outranks a table charge at an earlier one;
+    // the tables precede the graph stage, so an exhausted limit outranks a
+    // graph refusal.
+    build_field_tables(&mut models, meter)?;
     Ok(LockAdmission {
         models,
         dependencies,
@@ -1610,7 +1627,7 @@ fn validate_graph(
     meter: &mut WorkMeter,
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
-) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
+) -> Result<(Vec<CheckedNodeKind>, DeclarationIndex), ValidationFailure> {
     let graph = &wire.semantic_graph;
     check_graph_version(graph)?;
     if graph.nodes.is_empty() {
@@ -1744,6 +1761,7 @@ fn validate_graph(
             member_pointer(&["lock", "model_selections"]).index(selection)
         })
     })?;
+    let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
     validate_temporal(&graph.nodes, &kinds, &index, &owners, &wire.lock, meter)?;
@@ -1841,7 +1859,7 @@ fn validate_graph(
         };
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
-    Ok(kinds)
+    Ok((kinds, declarations))
 }
 
 /// Every strongly connected component that forms a cycle must share one
