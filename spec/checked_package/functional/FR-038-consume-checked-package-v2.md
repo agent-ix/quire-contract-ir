@@ -25,6 +25,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/FR-040
     type: references
+  - target: ix://agent-ix/quire-contract-ir/AD-006
+    type: references
 ---
 # FR-038: Consume the CheckedPackage V2 contract and refuse every other version
 
@@ -83,6 +85,10 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   `ContractPackage`, which records the admitted package's `package_id` as its
   source identity; see
   [FR-035](./FR-035-complete-v1-contract-package-lowering.md).
+- A typed accessor on the admitted package, `model_object_fields`, returning a
+  model object type's effective fields with their derived member types, integer
+  bounds as values; see "Typed accessor for a model object type's fields"
+  (FR-038-AC-136 through FR-038-AC-143, IR-628).
 
 ## Behavior
 
@@ -1981,10 +1987,177 @@ for the QSpec owner of FR-322:
    before QSL-635's fixtures, or a conformance lane is held citing QSL-635. This
    specification change does not wait.
 
-IR-628 (a typed accessor for a model object type's effective fields) is
-related and is not decided here: it would let a consumer read a declared range
-without trusting any `result_type`, and it does not remove the need for the
-re-derivation above, because any node a consumer reads can be tampered.
+IR-628 (a typed accessor for a model object type's effective fields) is decided
+in "Typed accessor for a model object type's fields" below. It does not remove
+the need for the re-derivation above, because any node a consumer reads can be
+tampered; it removes the need to read the model declaration path's range from a
+node at all.
+
+### Typed accessor for a model object type's fields
+
+Measured at `origin/main` (IR-628, whose own text is a claim and was
+re-measured). A model declaration node's body is `aggregate{[]}` and carries no
+member (QSpec FR-322 "Model-owned members"), so an admitted
+`CheckedPackageV2` holds no field of a model object type in any node. The field
+set and each field's declared type are in the selected domain package document,
+which the reader parses into a `DomainModel` (`model_members.rs`) while it
+admits the package and then drops: `CheckedPackageV2` keeps only `wire`, `kinds`
+and the byte limit. The resolution (`DomainModel::resolve`, `field_type`,
+`slot_type`, `MemberType`, `MemberType::node_key`, `ModelOwners::recover`) is
+`pub(super)` or private, so the admitted package exports no function that
+returns a field, a member type or an integer bound as a value. The only place a
+consumer finds a field's range is the `result_type` of an
+`expression`/`query` node that reads the field (`check_model_member` in
+`operations.rs` compares that node's key with the derived member type's key),
+which gives no range to a field no clause reads and no list of fields. The
+derivation already exists and is already the one admission checks; the missing
+piece is a typed way out of it and the package keeping what it derives from.
+
+**Decided: one accessor on the admitted package, over the retained derivation.**
+Each of the following is its own requirement:
+
+1. The reader shall retain in each admitted `CheckedPackageV2` the
+   `DomainModel` of every `lock.model_selections` row that admission resolved,
+   so the accessor reads the same document admission did and takes no evidence
+   argument.
+2. `CheckedPackageV2` shall export `model_object_fields(&self, node:
+   &CheckedNodeId) -> Result<CheckedModelObjectFields,
+   CheckedModelFieldsError>`.
+3. When the graph holds no node whose `node_id` equals `node`, the accessor
+   shall return `CheckedModelFieldsError::UnknownNode`.
+4. When the node exists and `ModelOwners::recover` (FR-322 step 2, the function
+   admission uses, and no second function) does not recover it as an object
+   type's model declaration node, the accessor shall return
+   `CheckedModelFieldsError::NotModelObjectType`. That covers a node of any
+   other tag or form, a `systems_interface` or `relationship` declaration, and a
+   `model`/`object_type` node that carries a `declaration` or whose key matches
+   no selected declaration.
+5. When the node is recovered, the accessor shall return its effective fields:
+   the members `DomainModel::resolve` selects for `MemberKind::Field` (the
+   object type's own and inherited fields, less every field a redefinition hides
+   and every redefining field of a less derived owner), produced by that
+   selection and by no second implementation of it.
+6. When two effective fields of the node share a name, the accessor shall return
+   `CheckedModelFieldsError::AmbiguousField` carrying that name, for the whole
+   call, because a field list with two entries for one name has no defined
+   lookup; admission refuses the same condition at a read as
+   `ambiguous_declaration`/`ambiguous-name` (step 3).
+7. The accessor shall return the fields in ascending order of field name
+   (bytewise UTF-8), each name once.
+8. The accessor shall derive each field's `member_type` by
+   `DomainModel::field_type`, the function `check_model_member` calls, and by no
+   second function, so a field's reported type is the type whose node key admission
+   compares with a read's `result_type`.
+9. The member type shall be the closed enum `CheckedMemberType` with the variants
+   `Boolean`, `Integer`, `IntRange` carrying `lower` and `upper` as `i128`
+   values, `Reference` carrying the `CheckedNodeId` of the referenced object
+   type's model declaration node, `Option` carrying its element type, and
+   `Collection` carrying the closed enum `CheckedCollectionKind` (`Set`, `Bag`,
+   `Sequence`, `OrderedSet`), its element type and its bounds as
+   `Option<(u64, u64)>`; it mirrors `MemberType` variant for variant.
+10. When the tables of FR-322 step 4 give a field no type (a declared type that
+    is a rational, decimal, float, text, relationship or systems interface, a
+    value type not bound as `Int[lo, hi]`, a type of another FR-208 meaning, or
+    a collection with a positive lower bound and no upper bound), the field
+    shall be present with `member_type` `None`, and shall not make the call
+    refuse.
+11. The accessor shall read only the retained model: it shall read no node body
+    and no `result_type`, and shall return the same fields for two packages that
+    differ only in a node body that admission accepts.
+12. `CheckedModelObjectFields` shall expose `fields()` (a slice of
+    `CheckedModelField` in the order of item 7) and `field(&str) ->
+    Option<&CheckedModelField>`; an absent field is `None`, not an error.
+    `CheckedModelField` shall expose `name()` and `member_type()`
+    (`Option<&CheckedMemberType>`).
+13. The public enums `CheckedMemberType`, `CheckedCollectionKind` and
+    `CheckedModelFieldsError` shall be closed, with no `#[non_exhaustive]`, as
+    every public enum of the crate is (AD-006): a variant added later stops a
+    consumer's exhaustive match from compiling, which is intended. The structs
+    `CheckedModelObjectFields` and `CheckedModelField` shall keep their fields
+    private and expose the immutable accessors of item 12, as validated types of
+    the crate do (FR-019).
+14. The code change shall add the five new type names to FR-019's Public items
+    table, row `checked_package` (V2 reader), in the same change.
+15. The accessor shall be pure and total: it shall not panic, shall charge no
+    work limit (admission's limits bound the retained model, which was read
+    under the byte limit), and shall return equal results for equal calls and
+    for a clone of the package. Retained models shall not take part in
+    `PartialEq` for `CheckedPackageV2`: equality stays the equality of the
+    admitted content, which fixes the document through its digest.
+
+**Why a typed enum with `None` and not a refusal for other kinds.** A model
+object with one `Text` field and one `Int[0, 1000]` field is common. A refusal
+for the whole object would hide the range of the `Int` field from a consumer
+that wants only the ranges, and the consumer would still have to re-derive the
+field set to find out which field refused. Returning every effective field, with
+`None` where the tables derive no type, gives the consumer the field set (which
+no read gives) and lets it decide per field (quire-contract-codegen records a
+field with no range and its reason). The accessor invents no type for a form the
+reader derives none for: a rational, text or compound-unit field has no
+`MemberType` and no preimage here (the gated forms of "Anonymous structural node
+bodies and keys"), so it is `None` and not a guessed variant. A variant per
+unsupported FR-208 meaning would copy the document's type system into the public
+surface and break on every new meaning; the closed enum holds exactly what
+`MemberType` holds. `UnknownNode` and `NotModelObjectType` are separate because a
+caller that holds an id from outside the package (a mistyped id) and a caller
+that holds a node that is not a model object type (a fixture-built object
+carrying body members, which the consumer reads from the body) take different
+paths.
+
+**What the accessor guarantees, stated exactly.** The bounds it returns are the
+bounds of the type `field_type` derives from the selected document, and admission
+checks every read of that field against the key of that same type. The accessor
+therefore depends on no node body: the IR-627 tamper (an `Int[0, 1000]`-keyed
+node with body bounds 0 and 10) does not reach it, and it is sound on a reader
+without IR-627's stage. For a field no read names, admission checked only the
+selected document's digest, identity and declarations (step 1), not that
+field's type against a node, because no node names it; the accessor's answer for
+that field is the document's, derived by the same function. This accessor does
+not make a node body trustworthy and does not close any gated route of IR-627
+(a state field's body target, a scalar operand's bound, a declared
+`bounded_domain`): a consumer that reads those routes from a node body is still
+bound by IR-627's gate. It also does not extend to an object that is not a model
+declaration node, whose members are in its body and are checked by
+`check_field_member` by name only.
+
+**What quire-contract-codegen can then retire.** Measured in CG's `origin/main`
+(FR-015 "IR-624 (planned)" section, FR-024 Q-5), which this repository does not
+edit. For the model declaration path only: the read of a field's range from the
+`result_type` of a read (`field_range` over an empty-bodied model declaration
+node), with the three causes it adds for that read (`FieldNotRead`,
+`ConflictingFieldReads`, and `MemberDisagreesWithRead` for that path); the
+`NoRead` record reason of FR-015-AC-81 (every field of a model declaration has a
+declared type, so a field is `None` or has a range, never "no read"); and the
+state-field list from the request alone, since the accessor supplies the field
+set. The criteria of CG FR-015-AC-77 through FR-015-AC-81 and FR-024-AC-31
+through FR-024-AC-35 that its text marks GATED on "IR-627 or IR-628" are
+satisfied for the model declaration path by this accessor alone, with no
+dependency on IR-627's stage. CG keeps the body path for objects that are not
+model declaration nodes, and keeps its gate on IR-627 for any range it reads from
+a node body (the scalar operand route, a state field's body target, a declared
+`bounded_domain`). This specification does not edit CG's text. The downstream
+ticket to file at merge (the lead files it, in the CG team): "CG: read a model
+declaration object's field set and ranges from
+`CheckedPackageV2::model_object_fields`; retire the `result_type` route and its
+three causes and the `NoRead` reason for that path; lift the IR-628 arm of the
+GATED label on FR-015-AC-77 through AC-81 and FR-024-AC-31 through AC-35; keep
+the IR-627 gate on every route that reads a node body", blocked by the IR-628
+code change.
+
+Open questions, for the owner of IR (decided here on the merits and not
+settled until the owner confirms):
+
+1. **IR-628-Q1.** Should each field also carry the node key of its member type
+   (`CheckedNodeId`), so a consumer can join a field to the node a read names?
+   Decided no: the key derivation can be refused by the encoder at the byte
+   limit, which would make the accessor fallible per field; the consumer needs
+   the value, which it has.
+2. **IR-628-Q2.** Should the accessor charge a work limit? Decided no (item 15):
+   the work is bounded by the retained model; a caller that wants a bound has
+   the byte limit it read under.
+3. **IR-628-Q3.** Should `systems_interface` and `relationship` declarations
+   have an accessor? Decided no: no consumer reads them (CG's frame object is an
+   object type); they return `NotModelObjectType`.
 
 ### Application node keys
 
@@ -2612,6 +2785,14 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with the key of any one undeclared derived-shape node replaced by a placeholder, and every reference to it left in place, refuses; the nodes are `positive-all-families.json` nodes 24 (`integer`, `7f7f...`) and 26 (`reference`, `b2b2...`), `positive-clause-operations.json` nodes 0 (`boolean`, `aaaa...`), 7 (`integer`, `7f7f...`) and 12 (`reference`, `b2b2...`), and `positive-union-nodes.json` node 0 (`integer`, `a1a1...`), and `positive-all-families.json` nodes 0 (`boolean`, declared `Example::Flag`) and 2 (`integer_range`, declared `Example::Small`) are gated forms this row does not use. The refusal is `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures and for the recorded `package_id` of `dependency-selection-vectors.json` (AC-113), which IR reads and whose base is `positive-all-families.json` (QSL-635, IR-627-Q5; QSL-635 also covers `positive-control-operations.json`, `positive-operation-identities.json` and `node-identity-vectors.json`, which IR does not read); `make conformance-qspec` fails on the three until they conform, so the IR code change merges after QSL-635's regenerated fixtures or a conformance lane is held citing QSL-635. QSpec also owns the conformance counterpart of the tamper regression row of TC-226: a negative fixture whose `integer_range` node keeps its id under a changed bound, patched `identity_projection` and recomputed `package_id`, which the reader refuses `stale-node-key` at that node (read from the checkout, never copied here). | Test (TC-226) |
 | FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`) carries on each undeclared node of the ten shapes the closed body of its form, its own key as `semantic_type` for a `scalar_type` or `composite_type`, and the derived key, and admits. The migration changes more than keys: the `aaaa` boolean's `literal` body becomes `aggregate{[]}`, and the `bbbb` option, typed at `aaaa` with an empty aggregate body, becomes self-typed with a body of one `reference`. The same package with the `aaaa` placeholder key restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and with the `bbbb` body or `semantic_type` left unmigrated refuses the same way. Owned by this repository's code change. | Test (TC-226) |
 | FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph`, `negative-temporal-interval-bound` as `invalid_package` and the five `malformed_wire` body-grammar entries (eleven entries in all: six `structural_mutations`, five `body_grammar_mutations`), and none is refused `stale-node-key`; `dependency-selection-vectors.json` over the regenerated base carries its regenerated `package_id`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
+| FR-038-AC-136 | Fields as values (IR-628; planned, ungated). Over an admitted package whose `model`/`object_type` node is a model declaration node with the empty body (the shape QSL emits), selected from a domain document declaring `balance: Int[0, 1000]` and `audit: Int[0, 1000]`, with a read of `balance` only, `model_object_fields` returns exactly two fields, `audit` then `balance`, each with `member_type` `Some(IntRange { lower: 0, upper: 1000 })` as `i128` values; `field("audit")` is `Some` although no read names it, and `field("missing")` is `None`. Mutation rows: a reader that takes the fields from the node body returns none; one that takes them from reads' `result_type` omits `audit`; one that returns the order of the document's declaration or of a hash map breaks the ascending-name row (a document declaring `zeta` before `alpha`). | Test (TC-227) |
+| FR-038-AC-137 | Effective set is the one admission resolves (IR-628; planned, ungated). Over a document with a supertype chain, an inherited field, a field redefined by a subtype with a narrower `Int[lo, hi]`, a most-derived redefiner two owners deep and an own field, the accessor returns each exposed name once, with the most-derived redefiner's type, and no hidden field; for every returned field, a package whose read of it is keyed by the independent recomputation of the returned type's key admits, and the same read keyed by the hidden base field's type refuses `ill_typed`/`operator-ineligible` (step 4). Mutation rows: inherited fields omitted; a redefined base field returned beside its redefiner; the base type returned for a redefined field; a less derived redefiner returned. | Test (TC-227) |
+| FR-038-AC-138 | Every member kind (IR-628; planned, ungated). Fields declared `Boolean`, `Integer`, `Int[0, 0]`, `Int[-5, 5]`, the `i128` extremes as `Int[lo, hi]`, a `Reference` to another object type, an optional `Int[0, 1000]`, a `Set`, `Bag`, `Sequence` and `OrderedSet` of `Int[0, 1000]`, a bounded collection `Set<Int[0, 1000]>[1, 4]` and an optional `Set` return `Boolean`, `Integer`, `IntRange` with the exact `i128` values, `Reference` carrying the key of the referenced model declaration node, `Option`, `Collection` with the matching `CheckedCollectionKind`, element and `Some((1, 4))`. Fields declared `Text`, `Rational`, `Decimal`, a relationship type, a systems interface type, a value type not bound as `Int[lo, hi]`, and a collection of lower bound 1 with no upper bound are present with `member_type` `None`, and the call returns the other fields. Mutation rows: bounds narrowed through `i64` or `f64` (the `i128` extremes differ); `Option` dropped; a `Collection` kind swapped; a `None` field omitted; a `None` field refusing the call. | Test (TC-227) |
+| FR-038-AC-139 | Absence and refusal semantics (IR-628; planned, ungated). `UnknownNode` for an id whose digest is no node of the graph; `NotModelObjectType` for a `scalar_type` node, a `systems_interface` declaration node, a `relationship` declaration node, a `model`/`object_type` node with a `declaration`, one whose key matches no selected declaration, and one whose key matches but whose body is not `aggregate{[]}`; `AmbiguousField` carrying `x` for a document where two unhidden effective fields are named `x` (own and inherited, no redefinition), in a package where a read of `x` is refused `ambiguous_declaration`/`ambiguous-name` and no read of the other fields is; `field("absent")` is `None` and the call is `Ok`. Mutation rows: `UnknownNode` and `NotModelObjectType` collapsed into one; ambiguity resolved by returning the first or last field; an absent field returned as an error. | Test (TC-227) |
+| FR-038-AC-140 | Independent of any node body (IR-628; planned, ungated). Over the AC-123 package whose `Int[0, 1000]` node is tampered to `max` `10` (and separately `5000`), keyed unchanged with `identity_projection` and `package_id` recomputed, and admitted by a reader without IR-627's stage, the accessor returns `IntRange { lower: 0, upper: 1000 }` for the field, equal to its result over the unmutated package. Mutation row: a reader that returns the bounds of the node a read names returns `10` or `5000`. Once IR-627's stage has landed the tampered package is refused (AC-123) and the unmutated package's result is unchanged. | Test (TC-227) |
+| FR-038-AC-141 | One derivation with admission (IR-628; planned, ungated). For each field of AC-138 whose type is a range, `Reference`, `Option` or collection, a read keyed by the key the test recomputes through `quire-canonical` from the accessor's returned type admits, and the same read keyed from that type with `upper` increased by one (or a collection's bounds changed by one) refuses `ill_typed`/`operator-ineligible` at the read. Mutation rows: an accessor that derives types by its own copy of `field_type` which differs in the optional wrapper, a collection's bounds, or a `Reference` target. | Test (TC-227) |
+| FR-038-AC-142 | Public shape and stability (IR-628; planned, ungated). A compile-time API fixture shows `model_object_fields` takes `&self` and one `&CheckedNodeId` and no evidence; an exhaustive match over `CheckedMemberType`, `CheckedCollectionKind` and `CheckedModelFieldsError` with no wildcard arm compiles; code constructing `CheckedModelObjectFields` or `CheckedModelField` by struct literal fails to compile; a source scan finds no `#[non_exhaustive]` among the new items; the five names appear in FR-019's Public items table row `checked_package` (V2 reader) and in the public-item inventory of FR-019-AC-5. Mutation rows: `#[non_exhaustive]` added; a public field; an `Other` or `Unsupported` variant catch-all; a name missing from the table. | Test (TC-227) |
+| FR-038-AC-143 | Pure, total, bounded (IR-628; planned, ungated). Two calls on one package return equal results; a clone of the package returns an equal result; two admissions of the same bytes under different byte limits (both admitting) are equal as packages and return equal results; a document with an inheritance chain of 10000 object types and 1000 redefinitions of one field returns without panic, stack overflow or any limit result; a node of AC-139's refusal cases returns its error and never panics. Mutation rows: the accessor panics on an unwrap of a missing owner; it recurses over the chain; it charges a work limit that makes a valid call `incomplete`; equality of packages gains the retained models. | Test (TC-227) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
