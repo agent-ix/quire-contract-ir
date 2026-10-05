@@ -66,3 +66,4 @@ main's baseline.
 | FND-003 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
 | FND-004 | still-open | AC-144 still calls for frame, abstraction and relationship-edge field charge observations. The only checks remain at ModelOwners::resolve_member and DomainModel::resolve; TC-227 still discloses that end-to-end cases are unexercised. |
 | FND-005 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-004 | fixed | e48401f |
