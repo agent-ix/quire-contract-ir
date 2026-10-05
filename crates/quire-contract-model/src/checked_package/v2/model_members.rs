@@ -16,12 +16,14 @@
 //!    declaration whose key, tag and form all equal the node's, and the node's
 //!    fixed members (`semantic_type` is itself, no `declaration`, no
 //!    `recursion_group`, an empty body) must hold.
-//! 3. **Resolution** ([`DomainModel::resolve`]), every ancestor edge, member
-//!    and redefinition pair of which is charged to the reader's `work` limit
-//!    at the selection's row ([`Budget`]). The member name resolves
-//!    among the declaring type's exposed effective members, own and
-//!    inherited, less every member a redefinition hides and every redefining
-//!    member of a less derived owner (the most-derived-redefiner rule).
+//! 3. **Resolution** ([`DomainModel::resolve`]), charged to the reader's
+//!    `work` limit at the selection's row ([`Budget`]): an operation by
+//!    every ancestor edge, member and redefinition pair it walks, a field by
+//!    one unit per entry of the field table built once at admission
+//!    (`model_fields`). The member name resolves among the declaring type's
+//!    exposed effective members, own and inherited, less every member a
+//!    redefinition hides and every redefining member of a less derived owner
+//!    (the most-derived-redefiner rule).
 //! 4. **Member type** ([`DomainModel::slot_type`]). The element-type,
 //!    multiplicity and presence tables give a [`MemberType`], whose node key
 //!    ([`MemberType::node_key`]) is the anonymous `quire.structural-node/v1`
@@ -37,6 +39,7 @@
 //! `redefines`, so every operation a document declares is its own effective
 //! member.
 
+use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
     member_pointer, CheckedDomainPackageRef, CheckedNodeTag, CheckedSemanticNodeV2,
     ValidationFailure, WorkMeter,
@@ -216,6 +219,9 @@ pub(super) struct DomainModel {
     pub(super) relationships: BTreeSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
     pub(super) other_types: BTreeSet<Box<str>>,
+    /// The field tables of [`Self::object_types`], empty until the lock stage
+    /// builds them (`build_field_tables`).
+    pub(super) fields: FieldTables,
 }
 
 /// A model declaration node's `(node_tag, semantic_form)`.
@@ -227,14 +233,14 @@ pub(super) enum DeclarationForm {
 }
 
 impl DeclarationForm {
-    const fn tag(self) -> &'static str {
+    pub(super) const fn tag(self) -> &'static str {
         match self {
             Self::ObjectType | Self::SystemsInterface => "model",
             Self::Relationship => "relation",
         }
     }
 
-    const fn form(self) -> &'static str {
+    pub(super) const fn form(self) -> &'static str {
         match self {
             Self::ObjectType => "object_type",
             Self::SystemsInterface => "systems_interface",
@@ -615,8 +621,27 @@ impl<'w> Budget<'w> {
     }
 }
 
-fn units(len: usize) -> u64 {
+pub(super) fn units(len: usize) -> u64 {
     u64::try_from(len).unwrap_or(u64::MAX)
+}
+
+/// Test probes: how many ancestor walks ran on this thread.
+#[cfg(test)]
+pub(super) mod probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static WALKS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn walked() {
+        WALKS.with(|walks| walks.set(walks.get().saturating_add(1)));
+    }
+
+    /// The ancestor walks run on this thread so far.
+    pub(in crate::checked_package::v2) fn ancestor_walks() -> u64 {
+        WALKS.with(Cell::get)
+    }
 }
 
 impl DomainModel {
@@ -627,6 +652,8 @@ impl DomainModel {
         node: &str,
         budget: &mut Budget<'_>,
     ) -> Result<BTreeSet<&str>, ValidationFailure> {
+        #[cfg(test)]
+        probe::walked();
         let mut reached = BTreeSet::new();
         let mut pending: Vec<&str> = self
             .object_types
@@ -669,8 +696,10 @@ impl DomainModel {
     }
 
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
-    /// effective members of the object type `node`. Every ancestor edge,
-    /// member and redefinition pair visited is one work unit.
+    /// effective members of the object type `node`. A field is selected from
+    /// the field table built at admission, one work unit per exposed or hidden
+    /// entry of that table; an operation walks the ancestors, and every
+    /// ancestor edge, member and redefinition pair visited is one work unit.
     pub(super) fn resolve(
         &self,
         node: &str,
@@ -681,6 +710,17 @@ impl DomainModel {
         let Some((owner_node, declared)) = self.object_types.get_key_value(node) else {
             return Err(ModelRefusal::ineligible().into());
         };
+        if kind == MemberKind::Field {
+            let Some(table) = self.fields.of(node) else {
+                return Err(ModelRefusal::ineligible().into());
+            };
+            budget.charge(units(table.entries()))?;
+            return match table.select(name) {
+                Selected::One(field) => Ok(Resolved::Field(field)),
+                Selected::Ambiguous => Err(ModelRefusal::ambiguous().into()),
+                Selected::Absent => Err(ModelRefusal::ineligible().into()),
+            };
+        }
         let ancestors = self.ancestors(node, budget)?;
         let owners = std::iter::once((owner_node.as_ref(), declared)).chain(
             ancestors
@@ -900,24 +940,58 @@ impl<'m> ModelOwners<'m> {
         let owner = self
             .by_key
             .get(node.node_id.digest.as_ref())
-            .filter(|owner| {
-                owner.form.tag() == node.node_tag.as_ref()
-                    && owner.form.form() == node.semantic_form.as_ref()
-            })
             .copied()
             .ok_or_else(ModelRefusal::unselected)?;
-        let fixed = node.semantic_type == node.node_id
-            && node.declaration.is_none()
-            && node.recursion_group.is_none()
-            && node.body == json!({"term": "aggregate", "members": []});
-        if fixed {
-            Ok(owner)
-        } else {
-            Err(ModelRefusal::new(
-                CheckedPackageRefusalCode::InvalidPackage,
-                CheckedPackageRefusalCause::StaleNodeKey,
-            ))
-        }
+        check_declaration_node(owner.form, node)?;
+        Ok(owner)
+    }
+
+    /// An owned copy of the key index, which an admitted package retains
+    /// after the documents it borrows are gone.
+    pub(super) fn index(&self) -> DeclarationIndex {
+        DeclarationIndex(
+            self.by_key
+                .iter()
+                .map(|(key, owner)| {
+                    (
+                        key.clone(),
+                        DeclaredNode {
+                            form: owner.form,
+                            selection: owner.selection,
+                            node: owner.node.into(),
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+}
+
+/// FR-322 step 2 over one wire node whose key names a declaration of `form`:
+/// the node's tag and form are the declaration's (`missing_declaration`/
+/// `missing-selection` otherwise), and its fixed members hold, `semantic_type`
+/// itself, no `declaration`, no `recursion_group`, an empty body
+/// (`invalid_package`/`stale-node-key` otherwise). The one statement of the
+/// rule: [`ModelOwners::recover`] at admission and the field accessor of an
+/// admitted package both apply it.
+pub(super) fn check_declaration_node(
+    form: DeclarationForm,
+    node: &CheckedSemanticNodeV2,
+) -> Result<(), ModelRefusal> {
+    if form.tag() != node.node_tag.as_ref() || form.form() != node.semantic_form.as_ref() {
+        return Err(ModelRefusal::unselected());
+    }
+    let fixed = node.semantic_type == node.node_id
+        && node.declaration.is_none()
+        && node.recursion_group.is_none()
+        && node.body == json!({"term": "aggregate", "members": []});
+    if fixed {
+        Ok(())
+    } else {
+        Err(ModelRefusal::new(
+            CheckedPackageRefusalCode::InvalidPackage,
+            CheckedPackageRefusalCause::StaleNodeKey,
+        ))
     }
 }
 
@@ -1686,6 +1760,7 @@ pub(super) fn read_semantic_ir(
         value_types: BTreeMap::new(),
         relationships: BTreeSet::new(),
         other_types: BTreeSet::new(),
+        fields: FieldTables::default(),
     };
     let mut scope = Scope {
         objects: BTreeSet::new(),

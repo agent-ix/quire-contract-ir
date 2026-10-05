@@ -56,5 +56,14 @@ precedence, and the call does no resolution.
 
 ## Status
 
-PLANNED: no test exists. The code change adds the admission-time field tables,
-the accessor and the five public types.
+Implemented (IR-628) in `tests/it/checked_package_v2_model_fields.rs` (AC-136 to
+AC-139, AC-141 to AC-144 over packages the reader admits, each type node keyed
+from an independent recomputation through `quire-canonical`) and the unit tests
+of `crates/quire-contract-model/src/checked_package/v2/model_fields.rs` (the
+tables, charges, cycles, read charges, node-body independence) and
+`model_members.rs` (the `resolve` answers recorded before the change, run
+against the field tables). Not exercised: a relationship-typed field (the
+document reader refuses it as `malformed-declaration`, so no admitted package
+holds one); an end-to-end frame entry, abstraction field entry and relationship
+edge read charge (verified at the two functions those readers call); the
+mutation rows, which were not run as mutations.
