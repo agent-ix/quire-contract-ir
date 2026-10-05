@@ -15,7 +15,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    settle, sha256_hex, typed_node_id,
+    settle, sha256_hex, typed_node_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -39,7 +39,8 @@ const RIGHT: &str = "ix://acme/config/Right";
 const BOTH: &str = "ix://acme/config/Both";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
 
-const INTEGER: &str = "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f";
+/// The derived key of the anonymous `Integer` node (FR-038-AC-134).
+const INTEGER: &str = INTEGER_KEY;
 const TEXT: &str = "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e";
 const POPULATION_A: &str = "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a";
 const POPULATION_B: &str = "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b";

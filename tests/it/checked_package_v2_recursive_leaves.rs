@@ -8,12 +8,12 @@
 //!
 //! Every package below is built here, node by node, from this crate's own
 //! vocabulary: a record type node names each field's type by a `reference`
-//! term, an option node its inner type, and the cycle's members share one
-//! `recursion_group`.
+//! term, an optional field is a one-member union over its inner type, and the
+//! cycle's members share one `recursion_group`.
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, pointer, rebuild_source_map,
-    refresh_identity, refusal_at, sha256_hex,
+    refresh_identity, refusal_at, sha256_hex, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -25,8 +25,15 @@ use std::collections::BTreeSet;
 
 type Typed = (String, Value);
 
+/// The key of the node called `name`: the derived key (FR-038-AC-134) for
+/// the anonymous `integer` and `boolean` nodes, the digest of the name
+/// otherwise.
 fn key(name: &str) -> String {
-    sha256_hex(name.as_bytes())
+    match name {
+        "integer" => INTEGER_KEY.to_owned(),
+        "boolean" => BOOLEAN_KEY.to_owned(),
+        _ => sha256_hex(name.as_bytes()),
+    }
 }
 
 fn node<S: AsRef<str>>(
@@ -131,17 +138,28 @@ fn record(name: &str, fields: &[(&str, &str)]) -> Typed {
     )
 }
 
-/// `Option<inner>` named `name`.
-fn option_of(name: &str, inner: &str) -> Typed {
+/// The optional `inner` named `name`, as a union of one member `Some` over
+/// `inner`. A derived-shape `option` node cannot sit in a recursion group (its
+/// key hashes a preimage with a `null` recursion: FR-038, IR-627-Q4), so the
+/// cycles these tests build pass through a union, whose leaves read
+/// `member:Some`, `position:0`.
+fn some_of(name: &str, inner: &str) -> Typed {
     node(
         name,
         "composite_type",
-        "option",
+        "union",
         name,
         [inner],
         "type",
-        json!({"term": "aggregate", "members": [reference(inner)]}),
+        json!({"term": "aggregate", "members": [
+            binding("Some", json!({"term": "aggregate", "members": [reference(inner)]})),
+        ]}),
     )
+}
+
+/// The leaf segments from a `some_of` node into its payload.
+fn some_segments() -> [String; 2] {
+    ["member:Some".to_owned(), "position:0".to_owned()]
 }
 
 /// A member of the one recursion group the cycle shares.
@@ -255,7 +273,7 @@ fn leaves_pointer(package: &Value, id: &str) -> String {
 fn node_types() -> Vec<Typed> {
     vec![
         in_group(record("node", &[("label", "nfc"), ("next", "node_next")])),
-        in_group(option_of("node_next", "node")),
+        in_group(some_of("node_next", "node")),
     ]
 }
 
@@ -273,7 +291,8 @@ fn field(name: &str) -> String {
 #[test]
 fn tc_048_the_reader_admits_equality_over_a_recursive_record() {
     let label = text_leaf(&[field("label")]);
-    let recursion = recursion_leaf(&[field("next"), "inner".into(), "recursion:0".into()]);
+    let [some, payload] = some_segments();
+    let recursion = recursion_leaf(&[field("next"), some, payload, "recursion:0".into()]);
     let limits = CheckedPackageReadLimits::bounded();
 
     let (package, _) =
@@ -337,7 +356,7 @@ fn tc_048_the_reader_admits_equality_over_a_record_cycling_through_a_tuple() {
         vec![
             in_group(record("cell", &[("item", "cell_item")])),
             in_group(tuple_of("cell_item", &["nfc", "cell_next"])),
-            in_group(option_of("cell_next", "cell")),
+            in_group(some_of("cell_next", "cell")),
         ]
     };
     let item = |last: &[&str]| -> Vec<String> {
@@ -347,7 +366,8 @@ fn tc_048_the_reader_admits_equality_over_a_record_cycling_through_a_tuple() {
             .collect()
     };
     let text = text_leaf(&item(&["position:0"]));
-    let recursion = |depth: &str| recursion_leaf(&item(&["position:1", "inner", depth]));
+    let recursion =
+        |depth: &str| recursion_leaf(&item(&["position:1", "member:Some", "position:0", depth]));
     let limits = CheckedPackageReadLimits::bounded();
 
     let (package, _) = equality_package(
@@ -399,11 +419,14 @@ fn ring_of_text_records(size: usize) -> (Value, String) {
             &names[at],
             &[("t", "nfc"), ("next", &optionals[at])],
         )));
-        types.push(in_group(option_of(&optionals[at], &names[following])));
+        types.push(in_group(some_of(&optionals[at], &names[following])));
     }
     let step = |times: usize| -> Vec<String> {
         (0..times)
-            .flat_map(|_| [field("next"), "inner".to_owned()])
+            .flat_map(|_| {
+                let [some, payload] = some_segments();
+                [field("next"), some, payload]
+            })
             .collect()
     };
     let mut leaves: Vec<Value> = (0..size)
@@ -486,7 +509,7 @@ fn tc_048_ten_records_naming_each_other_exhaust_the_work_budget() {
                 .map(|other| (optionals[other].as_str(), optionals[other].as_str())),
         );
         types.push(in_group(record(&names[at], &fields)));
-        types.push(in_group(option_of(&optionals[at], &names[at])));
+        types.push(in_group(some_of(&optionals[at], &names[at])));
     }
     let (package, id) = equality_package(types, &names[0], Vec::new());
     let limits = CheckedPackageReadLimits::bounded();

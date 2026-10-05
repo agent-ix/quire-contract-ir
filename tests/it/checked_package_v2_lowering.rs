@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     self, canonical, evidence_for, refresh_identity, sha256_hex, typed_node_id, v2_all_families,
-    v2_nominal,
+    v2_nominal, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -93,9 +93,21 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         assert_eq!(node.node_tag, *tag, "{prefix}");
         assert_eq!(node.node.node_id, id(prefix));
         assert_eq!(serde_json::to_value(&node.node).expect("node"), *wire);
-        assert_eq!(node.semantic_type, id("aaaa"));
+        // The `option` is its own type and the `integer_range` is typed at
+        // the `Integer` node (FR-038-AC-134); every other family is typed at
+        // `aaaa`.
+        let expected_type = match *prefix {
+            "bbbb" => id("bbbb"),
+            "cccc" => id("a3a3"),
+            _ => id("aaaa"),
+        };
+        assert_eq!(node.semantic_type, expected_type, "{prefix}");
         let expected_dependencies = match *prefix {
             "aaaa" => vec![],
+            // The self-typed `option`'s body references `aaaa`.
+            "bbbb" => vec![id("aaaa")],
+            // The range's `Integer` type, which also types its two bounds.
+            "cccc" => vec![id("a3a3")],
             "eeee" | "7070" => vec![id("aaaa"), id("dddd")],
             // The function node's real `application` body also argues over
             // the second function node ("8080"), so its own one-hop
@@ -106,8 +118,9 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
             // that parameter's `integer` level type ("a3a3"), the `text`
             // type of its name literal ("a1a1"), its formula ("a2a2"), the
             // formula's `holds` operand ("a5a5") and that operand's Boolean
-            // literal type ("a6a6") beside its `result_type`, in digest
-            // order (two of them are application keys).
+            // literal type (the one Boolean node, "aaaa", which is also its
+            // `result_type`), in digest order (two of them are application
+            // keys).
             "4040" => {
                 let mut reached = vec![
                     id("a1a1"),
@@ -115,7 +128,6 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
                     id("a3a3"),
                     id("a4a4"),
                     id("a5a5"),
-                    id("a6a6"),
                     id("aaaa"),
                 ];
                 reached.sort();
@@ -236,48 +248,48 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     // One for the request, then per visited node one plus its body terms plus
     // its successor edges: eeee (1 + 1 reference term + 4 edges: its own
     // semantic_type `aaaa`, its two wire `dependencies` `aaaa`/`dddd`, and its
-    // `reference` body's own target `dddd`), aaaa (1 + 1 literal term + 2
-    // edges: its own semantic_type and its literal's own `type`, both self),
+    // `reference` body's own target `dddd`), aaaa (1 + 1 aggregate term + 1
+    // edge: its own semantic_type, self),
     // dddd (1 + 1 aggregate term + 2 edges: semantic_type `aaaa` appearing
     // once via the successor list's own leading entry and once via its one
-    // wire dependency) makes 1 + 6 + 4 + 4 = 15.
-    let exact = package.lower(&[id("eeee")], &profile(15));
+    // wire dependency) makes 1 + 6 + 3 + 4 = 14.
+    let exact = package.lower(&[id("eeee")], &profile(14));
     assert_eq!(
         lowered(&exact.records[0]).dependencies,
         vec![id("aaaa"), id("dddd")]
     );
-    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(14));
+    let result = package.lower(&[id("eeee"), id("aaaa"), id("eeee")], &profile(13));
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("eeee"),
             limit_kind: CheckedPackageLimit::Work,
-            limit: 14,
-            consumed: 15,
+            limit: 13,
+            consumed: 14,
         }
     );
     assert_eq!(
         result.records[1],
-        package.lower(&[id("aaaa")], &profile(14)).records[0]
+        package.lower(&[id("aaaa")], &profile(13)).records[0]
     );
     assert_eq!(lowered(&result.records[1]).node.node_id, id("aaaa"));
     assert_eq!(result.records[2], result.records[0]);
-    // aaaa costs 1 + (1 + 1 literal + 2 edges: semantic_type and the
-    // literal's own `type`, both self) = 5: the node charge fails at a
-    // limit of 1 and the term-and-edge charge fails at a limit of 4.
+    // aaaa costs 1 + (1 + 1 aggregate term + 1 edge: its own semantic_type,
+    // self) = 4: the node charge fails at a limit of 1 and the term-and-edge
+    // charge fails at a limit of 3.
     assert_eq!(
-        lowered(&package.lower(&[id("aaaa")], &profile(5)).records[0])
+        lowered(&package.lower(&[id("aaaa")], &profile(4)).records[0])
             .node
             .node_id,
         id("aaaa")
     );
     assert_eq!(
-        package.lower(&[id("aaaa")], &profile(4)).records[0],
+        package.lower(&[id("aaaa")], &profile(3)).records[0],
         CompleteLoweringRecordV2::Failed {
             node_id: id("aaaa"),
             limit_kind: CheckedPackageLimit::Work,
-            limit: 4,
-            consumed: 5,
+            limit: 3,
+            consumed: 4,
         }
     );
     assert_eq!(
@@ -304,35 +316,54 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
 #[trace("TC-050", "FR-038-AC-6")]
 #[test]
 fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
-    let mut value = v2_all_families();
-    value["semantic_graph"]["nodes"][0]["semantic_form"] = json!("integer");
-    value["semantic_graph"]["nodes"][3]["dependencies"] =
-        json!([value["semantic_graph"]["nodes"][2]["node_id"]]);
-    refresh_identity(&mut value);
+    let value = integer_typed();
     let package = admit(&value);
     let mut bounded = profile(u64::MAX);
     bounded.require_bounds = true;
 
-    let result = package.lower(&[id("bbbb"), id("dddd"), id("cccc")], &bounded);
+    let result = package.lower(&[id("1010"), id("dddd"), id("cccc")], &bounded);
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id("bbbb"),
-            unbounded_type: id("aaaa"),
+            node_id: id("1010"),
+            unbounded_type: id("a3a3"),
         }
     );
     let value_node = lowered(&result.records[1]);
-    assert_eq!(value_node.dependencies, vec![id("aaaa"), id("cccc")]);
+    let mut reached = vec![id("a3a3"), id("cccc")];
+    reached.sort();
+    assert_eq!(value_node.dependencies, reached);
     assert_eq!(value_node.bounds, vec![id("cccc")]);
     // Requesting the bounded_domain node itself excludes it from its own
-    // `bounds`: the only other reachable node ("aaaa") is not a bounded
-    // domain.
+    // `bounds`: the only other reachable node (`a3a3`, the `Integer` node) is
+    // not a bounded domain.
     assert!(lowered(&result.records[2]).bounds.is_empty());
 
     // Without the bound requirement the same request lowers.
-    let unbounded = package.lower(&[id("bbbb")], &profile(u64::MAX));
+    let unbounded = package.lower(&[id("1010")], &profile(u64::MAX));
     assert!(unbounded.records[0] != result.records[0]);
     assert!(lowered(&unbounded.records[0]).bounds.is_empty());
+}
+
+/// The all-families fixture with the namespace node `1010` and the value
+/// node `dddd` typed at the unbounded `Integer` node (`a3a3`): `1010` reaches
+/// no bounded domain and `dddd` reaches the `integer_range` node `cccc`.
+fn integer_typed() -> Value {
+    let mut value = v2_all_families();
+    let nodes = value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    for node in nodes.iter_mut() {
+        if node["node_id"] == json!(checked_package::node_id(&key("1010"))) {
+            node["semantic_type"] = checked_package::node_id(&key("a3a3"));
+            node["dependencies"] = json!([checked_package::node_id(&key("a3a3"))]);
+        } else if node["node_id"] == json!(checked_package::node_id(&key("dddd"))) {
+            node["semantic_type"] = checked_package::node_id(&key("a3a3"));
+            node["dependencies"] = json!([checked_package::node_id(&key("cccc"))]);
+        }
+    }
+    refresh_identity(&mut value);
+    value
 }
 
 /// The closed FR-038 lowering record vocabulary. The match has no wildcard
@@ -413,14 +444,11 @@ fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
     narrow.supported_tags.remove(&CheckedNodeTag::Value);
     let mut bounded = profile(u64::MAX);
     bounded.require_bounds = true;
-    let mut integer = v2_all_families();
-    integer["semantic_graph"]["nodes"][0]["semantic_form"] = json!("integer");
-    refresh_identity(&mut integer);
-    let integer_package = admit(&integer);
+    let integer_package = admit(&integer_typed());
     let observed = [
         record_kind(&package.lower(&[id("aaaa")], &profile(u64::MAX)).records[0]),
         record_kind(&package.lower(&[id("dddd")], &narrow).records[0]),
-        record_kind(&integer_package.lower(&[id("bbbb")], &bounded).records[0]),
+        record_kind(&integer_package.lower(&[id("1010")], &bounded).records[0]),
         record_kind(
             &package
                 .lower(
@@ -447,25 +475,27 @@ fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
 #[trace("TC-052", "FR-038-AC-8")]
 #[test]
 fn tc_052_lowering_outcome_selection_is_a_total_order() {
-    let mut value = v2_all_families();
-    // aaaa becomes an unbounded integer and bbbb an unbounded sequence, so a
-    // closure can hold an unsupported tag and an unbounded type at once.
-    value["semantic_graph"]["nodes"][0]["semantic_form"] = json!("integer");
-    value["semantic_graph"]["nodes"][1]["semantic_form"] = json!("sequence");
-    refresh_identity(&mut value);
-    let package = admit(&value);
+    // `scalar` is an unbounded `rational` and `composite` an unbounded
+    // `sequence` over it, so a closure can hold an unsupported tag and an
+    // unbounded type at once. `value` is a node typed at the scalar.
+    let forms = forms_package("rational", "sequence");
+    let package = admit(&forms.value);
+    let (scalar, composite, value) = (&forms.scalar, &forms.composite, &forms.value_node);
 
     // FR-038-AC-8: unsupported is decided before requires_bound and wins
-    // outright. bbbb's closure is {bbbb, aaaa}; both are unbounded, and with
-    // scalar_type out of profile aaaa is also unsupported.
+    // outright. The composite's closure is {composite, scalar}; both are
+    // unbounded, and with scalar_type out of profile the scalar is also
+    // unsupported.
     let mut both = profile(u64::MAX);
     both.require_bounds = true;
     both.supported_tags.remove(&CheckedNodeTag::ScalarType);
     assert_eq!(
-        package.lower(&[id("bbbb")], &both).records[0],
+        package
+            .lower(std::slice::from_ref(composite), &both)
+            .records[0],
         CompleteLoweringRecordV2::Unsupported {
-            node_id: id("bbbb"),
-            unsupported_node_id: id("aaaa"),
+            node_id: composite.clone(),
+            unsupported_node_id: scalar.clone(),
             node_tag: CheckedNodeTag::ScalarType,
         }
     );
@@ -493,9 +523,9 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
     );
 
     // FR-038-AC-8: "first" is the least key in ascending order over the whole
-    // closure, not the first node the traversal reached. dddd is the requested
-    // node and therefore the first visited; aaaa is the lesser key. Both are
-    // out of profile, and the record names aaaa.
+    // closure, not the first node the traversal reached. The value node is
+    // the requested node and therefore the first visited; the scalar is the
+    // lesser key. Both are out of profile, and the record names the scalar.
     let mut two_unsupported = profile(u64::MAX);
     two_unsupported
         .supported_tags
@@ -503,28 +533,125 @@ fn tc_052_lowering_outcome_selection_is_a_total_order() {
     two_unsupported
         .supported_tags
         .remove(&CheckedNodeTag::ScalarType);
-    assert!(id("aaaa") < id("dddd"));
+    assert!(scalar < value);
     assert_eq!(
-        package.lower(&[id("dddd")], &two_unsupported).records[0],
+        package
+            .lower(std::slice::from_ref(value), &two_unsupported)
+            .records[0],
         CompleteLoweringRecordV2::Unsupported {
-            node_id: id("dddd"),
-            unsupported_node_id: id("aaaa"),
+            node_id: value.clone(),
+            unsupported_node_id: scalar.clone(),
             node_tag: CheckedNodeTag::ScalarType,
         }
     );
 
-    // The same tie-break governs requires_bound: bbbb is visited first and
-    // aaaa is the lesser key, and both are unbounded.
-    assert!(id("aaaa") < id("bbbb"));
+    // The same tie-break governs requires_bound: the composite is visited
+    // first and the scalar is the lesser key, and both are unbounded.
+    assert!(scalar < composite);
     let mut bounded = profile(u64::MAX);
     bounded.require_bounds = true;
     assert_eq!(
-        package.lower(&[id("bbbb")], &bounded).records[0],
+        package
+            .lower(std::slice::from_ref(composite), &bounded)
+            .records[0],
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id("bbbb"),
-            unbounded_type: id("aaaa"),
+            node_id: composite.clone(),
+            unbounded_type: scalar.clone(),
         }
     );
+}
+
+/// A package of one scalar node of `scalar_form`, one composite node of
+/// `composite_form` over it and one value node typed at the scalar, in place
+/// of the all-families graph. The undeclared nodes of the ten derived shapes
+/// carry their derived key and closed body (FR-038-AC-134); a form the reader
+/// does not derive carries a placeholder key.
+struct Forms {
+    value: Value,
+    scalar: CheckedNodeId,
+    composite: CheckedNodeId,
+    value_node: CheckedNodeId,
+}
+
+fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
+    let node = |key: &str, tag: &str, form: &str, ty: &str, dependencies: &[&str], body: Value| {
+        json!({
+            "node_id": checked_package::node_id(key),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": tag,
+            "semantic_form": form,
+            "semantic_type": checked_package::node_id(ty),
+            "dependencies": dependencies
+                .iter()
+                .map(|key| checked_package::node_id(key))
+                .collect::<Vec<_>>(),
+            "occurrences": [{"role": "generated", "ordinal": 0}],
+            "body": body,
+        })
+    };
+    let empty = || json!({"term": "aggregate", "members": []});
+    let scalar_key = match scalar_form {
+        "boolean" => BOOLEAN_KEY.to_owned(),
+        "integer" => INTEGER_KEY.to_owned(),
+        _ => "00".repeat(32),
+    };
+    let value_key = "dd".repeat(32);
+    let derived = matches!(
+        composite_form,
+        "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
+    );
+    let (composite_key, composite) = if derived {
+        let body = checked_package::over_body(&scalar_key);
+        let key = checked_package::structural_key("composite_type", composite_form, None, &body);
+        let composite = node(
+            &key,
+            "composite_type",
+            composite_form,
+            &key,
+            &[&scalar_key],
+            body,
+        );
+        (key, composite)
+    } else {
+        let key = "bb".repeat(32);
+        let composite = node(
+            &key,
+            "composite_type",
+            composite_form,
+            &scalar_key,
+            &[],
+            empty(),
+        );
+        (key, composite)
+    };
+    let mut value = v2_all_families();
+    value["semantic_graph"]["nodes"] = json!([
+        node(
+            &scalar_key,
+            "scalar_type",
+            scalar_form,
+            &scalar_key,
+            &[],
+            empty()
+        ),
+        composite,
+        node(
+            &value_key,
+            "value",
+            "literal",
+            &scalar_key,
+            &[&scalar_key],
+            empty()
+        ),
+    ]);
+    checked_package::rebuild_source_map(&mut value);
+    refresh_identity(&mut value);
+    Forms {
+        value,
+        scalar: typed_node_id(&scalar_key),
+        composite: typed_node_id(&composite_key),
+        value_node: typed_node_id(&value_key),
+    }
 }
 
 /// Tracing: TC-052, FR-038-AC-8
@@ -561,37 +688,49 @@ fn tc_052_unbounded_forms_are_exactly_the_eight_declared_forms() {
         );
     }
 
-    for (scalar_form, composite_form, expect_unbounded, expected_key) in scalar_unbounded
+    // Which node is the unbounded type: the scalar, the composite or neither.
+    #[derive(Clone, Copy)]
+    enum Unbounded {
+        Scalar,
+        Composite,
+        Neither,
+    }
+    for (scalar_form, composite_form, unbounded) in scalar_unbounded
         .iter()
-        .map(|form| (*form, "record", true, "aaaa"))
+        .map(|form| (*form, "record", Unbounded::Scalar))
         .chain(
             scalar_bounded
                 .iter()
-                .map(|form| (*form, "record", false, "")),
+                .map(|form| (*form, "record", Unbounded::Neither)),
         )
         .chain(
             composite_unbounded
                 .iter()
-                .map(|form| ("boolean", *form, true, "bbbb")),
+                .map(|form| ("boolean", *form, Unbounded::Composite)),
         )
         .chain(
             composite_bounded
                 .iter()
-                .map(|form| ("boolean", *form, false, "")),
+                .map(|form| ("boolean", *form, Unbounded::Neither)),
         )
     {
-        let mut value = v2_all_families();
-        value["semantic_graph"]["nodes"][0]["semantic_form"] = json!(scalar_form);
-        value["semantic_graph"]["nodes"][1]["semantic_form"] = json!(composite_form);
-        refresh_identity(&mut value);
-        let package = admit(&value);
-        let record = package.lower(&[id("bbbb")], &bounded_profile).records[0].clone();
+        let forms = forms_package(scalar_form, composite_form);
+        let package = admit(&forms.value);
+        let record = package
+            .lower(std::slice::from_ref(&forms.composite), &bounded_profile)
+            .records[0]
+            .clone();
+        let expect_unbounded = !matches!(unbounded, Unbounded::Neither);
         if expect_unbounded {
+            let unbounded_type = match unbounded {
+                Unbounded::Scalar => forms.scalar.clone(),
+                _ => forms.composite.clone(),
+            };
             assert_eq!(
                 record,
                 CompleteLoweringRecordV2::RequiresBound {
-                    node_id: id("bbbb"),
-                    unbounded_type: id(expected_key),
+                    node_id: forms.composite.clone(),
+                    unbounded_type,
                 },
                 "scalar {scalar_form} / composite {composite_form} must require a bound"
             );

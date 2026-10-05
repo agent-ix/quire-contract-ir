@@ -10,8 +10,8 @@
 //! (they are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, node_id, nominal_package, settle, sha256_hex,
-    typed_node_id, v2_all_families,
+    canonical, evidence_for, family_key, node_id, nominal_package, over_body, settle, sha256_hex,
+    structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -22,8 +22,18 @@ use quire_contract_ir::{
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+/// The key of the node called `name`: the derived key (FR-038-AC-134) for
+/// the anonymous `integer` and `boolean` nodes and the `Option<Chain>` node,
+/// the digest of the name otherwise.
 fn key(name: &str) -> String {
-    sha256_hex(name.as_bytes())
+    match name {
+        "integer" => INTEGER_KEY.to_owned(),
+        "boolean" => BOOLEAN_KEY.to_owned(),
+        "chain_option" => {
+            structural_key("composite_type", "option", None, &over_body(&key("chain")))
+        }
+        _ => sha256_hex(name.as_bytes()),
+    }
 }
 
 fn node(

@@ -762,7 +762,9 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         json!(2),
     ] {
         let mut package = base.clone();
-        package["semantic_graph"]["nodes"][0]["body"] = json!({
+        // Node 2 is the `value`/`literal` node: not a node of the ten derived
+        // shapes, so its body is not part of a key the reader re-derives.
+        package["semantic_graph"]["nodes"][2]["body"] = json!({
             "term": "literal", "type": self_type, "value_kind": "integer", "value": literal
         });
         refresh_identity(&mut package);

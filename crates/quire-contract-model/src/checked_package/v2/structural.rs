@@ -51,7 +51,8 @@
 //! Neither structural form's node key is re-derived here: QSL keys both by
 //! its proposed `quire.structural-node/v1` preimage, which QSpec does not
 //! publish, and this reader re-derives only the published nominal and
-//! application preimages.
+//! application preimages, and the anonymous type shapes `derived_keys`
+//! derives (FR-038-AC-123).
 //!
 //! Every violation refuses as `invalid_semantic_graph` with no cause, at the
 //! member it breaks (the node's `body` for a body or binding shape, the
@@ -671,8 +672,14 @@ fn literal<'a>(
 }
 
 /// `^(0|[1-9][0-9]*)$`.
-fn is_non_negative_integer(value: &str) -> bool {
+pub(super) fn is_non_negative_integer(value: &str) -> bool {
     value == "0" || is_positive_integer(value)
+}
+
+/// `^(0|-?[1-9][0-9]*)$`: an `integer_range` bound. No leading zero, no `+`,
+/// and `-0` is refused.
+pub(super) fn is_integer_bound(value: &str) -> bool {
+    value == "0" || is_nonzero_integer(value)
 }
 
 /// `^-?[1-9][0-9]*$`.

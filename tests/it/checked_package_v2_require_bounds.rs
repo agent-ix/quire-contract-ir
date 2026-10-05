@@ -6,8 +6,9 @@
 //! one on every literal, including the name literal of every parameter).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, rebuild_source_map,
-    refresh_identity, sha256_hex, typed_node_id,
+    bounds_body, canonical, evidence_for, integer_range_key, node_id, nominal_fixture_members,
+    nominal_package, over_body, rebuild_source_map, refresh_identity, sha256_hex, structural_key,
+    typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -21,11 +22,41 @@ use std::sync::LazyLock;
 /// `metre`; its node comes from [`quantity_package`], not from [`node`].
 static METRE: LazyLock<String> = LazyLock::new(|| nominal_fixture_members()[2].1.clone());
 
+/// The key of the node called `name`: the derived key (FR-038-AC-134) for
+/// each anonymous node of the ten derived shapes this file builds, the key
+/// of the nominal unit for `metre`, and the digest of the name otherwise.
 fn key(name: &str) -> String {
-    if name == "metre" {
-        return METRE.clone();
+    match name {
+        "metre" => METRE.clone(),
+        "integer" => INTEGER_KEY.to_owned(),
+        "boolean" => BOOLEAN_KEY.to_owned(),
+        "int09" => integer_range_key("0", "9"),
+        "bools" => collection_key("sequence", "boolean"),
+        "ints" => collection_key("sequence", "int09"),
+        "plain_ints" => collection_key("sequence", "integer"),
+        "seq" => collection_key("sequence", "metre"),
+        "opt" => collection_key("option", "metre"),
+        "bools03" => bounded_key("bools"),
+        "ints03" => bounded_key("ints"),
+        "plain_ints03" => bounded_key("plain_ints"),
+        "seq03" => bounded_key("seq"),
+        _ => sha256_hex(name.as_bytes()),
     }
-    sha256_hex(name.as_bytes())
+}
+
+/// The derived key of the self-typed `form` node over the node `element`.
+fn collection_key(form: &str, element: &str) -> String {
+    structural_key("composite_type", form, None, &over_body(&key(element)))
+}
+
+/// The derived key of the `collection_bounds` `[0, 3]` over the node `over`.
+fn bounded_key(over: &str) -> String {
+    structural_key(
+        "bounded_domain",
+        "collection_bounds",
+        Some(&key(over)),
+        &bounds_body("0", "3"),
+    )
 }
 
 fn node(
@@ -181,7 +212,7 @@ fn int_0_9() -> (String, Value) {
         "integer",
         &["integer"],
         "type",
-        empty(),
+        bounds_body("0", "9"),
     )
 }
 
@@ -316,16 +347,23 @@ fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
 /// A composite type node named `name`, self-typed, naming each of `over` as
 /// an element or field type.
 fn composite(name: &str, form: &str, over: &[&str]) -> (String, Value) {
-    node(name, "composite_type", form, name, over, "type", empty())
+    // A node of a derived shape holds the closed body of its form: one
+    // `reference` to its element (FR-038-AC-134).
+    let body = if matches!(
+        form,
+        "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
+    ) {
+        over_body(&key(over[0]))
+    } else {
+        empty()
+    };
+    node(name, "composite_type", form, name, over, "type", body)
 }
 
 /// `K<E>[0, 3]` over the composite `seq`: a `collection_bounds` domain whose
 /// min and max literals are annotated with the unbounded `integer` type.
 fn bounded_collection(name: &str, seq: &str) -> (String, Value) {
-    let body = json!({"term": "aggregate", "members": [
-        binding("min", literal("integer", "integer", "0")),
-        binding("max", literal("integer", "integer", "3")),
-    ]});
+    let body = bounds_body("0", "3");
     node(
         name,
         "bounded_domain",
@@ -406,9 +444,9 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        composite("ints", "sequence", &["integer"]),
-        bounded_collection("ints03", "ints"),
-        composite("holder", "record", &["ints03", "int09"]),
+        composite("plain_ints", "sequence", &["integer"]),
+        bounded_collection("plain_ints03", "plain_ints"),
+        composite("holder", "record", &["plain_ints03", "int09"]),
     ]);
     assert_eq!(
         only_record(&value, &id_of("holder")),
@@ -423,15 +461,16 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
 #[trace("TC-050", "FR-038-AC-41")]
 #[test]
 fn tc_050_a_recursive_record_requires_a_bound() {
-    // `{kids: Sequence<Tree>[0,3], k: Int[0,9]}` where `Tree` is the record:
-    // the cycle shares one `recursion_group`, and depth has no domain.
+    // `{kids: Kids, k: Int[0,9]}` where `Tree` is the record and `Kids` an
+    // alias of it: the cycle shares one `recursion_group`, and depth has no
+    // domain. The cycle names no node of a derived shape: such a node in a
+    // recursion group has no derivable key (FR-038, IR-627-Q4).
     let value = package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        in_recursion_group(composite("tree", "record", &["kids03", "int09"])),
-        in_recursion_group(composite("kids", "sequence", &["tree"])),
-        in_recursion_group(bounded_collection("kids03", "kids")),
+        in_recursion_group(composite("tree", "record", &["kids", "int09"])),
+        in_recursion_group(composite("kids", "alias", &["tree"])),
     ]);
     let least = std::cmp::min(id_of("tree"), id_of("kids"));
     assert_eq!(

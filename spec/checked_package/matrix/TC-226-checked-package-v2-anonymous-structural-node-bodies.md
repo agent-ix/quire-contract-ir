@@ -58,8 +58,12 @@ and AC-132 cases do not exist until the gate lifts.
 
 ## Status
 
-Planned. No test is written. AC-123 through AC-130 await the code change that
-adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
-AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
-await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code
-change is ordered after them.
+Partly implemented (IR-627 code). AC-123 through AC-130 and AC-134 are tested in
+`tests/it/checked_package_v2_structural_keys.rs` (every package built in-repo
+over the all-families fixture, tampered keys kept, identity patched and
+`package_id` recomputed in the test) and, for AC-130, in the unit test of
+`crates/quire-contract-model/src/checked_package/v2/derived_keys.rs`. The
+state-field row of AC-123 and the QSpec-read cases below have no test. AC-131
+and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135 await
+QSpec's three fixtures carrying derived keys (IR-627-Q5, QSL-635): until they
+do, `make conformance-qspec` fails against QSpec's placeholder keys.

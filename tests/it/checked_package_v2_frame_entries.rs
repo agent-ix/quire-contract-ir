@@ -10,8 +10,9 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    sha256_hex, typed_node_id, v2_all_families,
+    canonical, evidence_for, node_id, over_body, rebuild_source_map, refresh_identity,
+    rekey_application_node, rename_node, sha256_hex, structural_key, typed_node_id,
+    v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -458,8 +459,13 @@ struct StatePackage {
 }
 
 const TEXT: &str = "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e";
-const INTEGER: &str = "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f";
-const REFERENCE: &str = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
+/// The derived key of the anonymous `Integer` node the fixture already holds.
+const INTEGER: &str = INTEGER_KEY;
+
+/// The derived key of the anonymous `Reference<target>` node (FR-038-AC-134).
+fn reference_key(target: &str) -> String {
+    structural_key("composite_type", "reference", None, &over_body(target))
+}
 const SELF: &str = "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3";
 const ANCHOR: &str = "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5";
 
@@ -521,7 +527,7 @@ fn clause_body(clause: &str, parameters: &[&str], anchor: &str, condition: &str)
 }
 
 fn boolean() -> String {
-    "a".repeat(64)
+    BOOLEAN_KEY.to_owned()
 }
 
 fn condition() -> String {
@@ -564,6 +570,7 @@ impl StatePackage {
         let mut value = v2_all_families();
         let frame = position(&value, "state", "frame");
         let frame_key = digest(&value, frame);
+        let reference_type = reference_key(OBJECT);
         let added = [
             plain(
                 TEXT,
@@ -575,19 +582,10 @@ impl StatePackage {
                 json!({"term": "aggregate", "members": []}),
             ),
             plain(
-                INTEGER,
-                "scalar_type",
-                "integer",
-                INTEGER,
-                &[],
-                "type",
-                json!({"term": "aggregate", "members": []}),
-            ),
-            plain(
-                REFERENCE,
+                &reference_type,
                 "composite_type",
                 "reference",
-                REFERENCE,
+                &reference_type,
                 &[OBJECT],
                 "type",
                 json!({"term": "aggregate", "members": [reference(OBJECT)]}),
@@ -596,7 +594,7 @@ impl StatePackage {
                 SELF,
                 "value",
                 "parameter",
-                REFERENCE,
+                &reference_type,
                 &[],
                 "expression",
                 json!({"term": "aggregate", "members": [
@@ -949,7 +947,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     // Signature: `self` of another object type, and an invariant binding a
     // second parameter, refuse at the clause.
     let mut other_self = StatePackage::new();
-    let other_reference = "b7".repeat(32);
+    let other_reference = reference_key(PROCESS);
     let other_self_key = "b8".repeat(32);
     let reference_node =
         nodes(&other_self.value)[other_self.at("composite_type", "reference")].clone();
@@ -1361,7 +1359,8 @@ fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
 impl ModelPackage {
     fn new() -> Self {
         let order = model_key(ORDER_NODE);
-        let integer = structural("scalar_type", "integer", None);
+        // The fixture already holds the one anonymous `Integer` node.
+        let integer = INTEGER_KEY.to_owned();
         let mut state = StatePackage::new();
         let frame = state.at("state", "frame");
         let frame_key = state.digest(frame);
@@ -1372,15 +1371,7 @@ impl ModelPackage {
             "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
         }]);
         let empty = || json!({"term": "aggregate", "members": []});
-        let mut added = vec![plain(
-            &integer,
-            "scalar_type",
-            "integer",
-            &integer,
-            &[],
-            "type",
-            empty(),
-        )];
+        let mut added = Vec::new();
         for key in [
             model_key(ORDER_NODE),
             model_key(SUB_NODE),
@@ -1417,7 +1408,7 @@ impl ModelPackage {
             .expect("nodes");
         for node in nodes.iter_mut() {
             let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
-            if key == REFERENCE {
+            if key == reference_key(OBJECT) {
                 node["dependencies"] = json!([node_id(&order)]);
                 node["body"] = json!({"term": "aggregate", "members": [reference(&order)]});
             } else if key == frame_key {
@@ -1439,6 +1430,13 @@ impl ModelPackage {
             }
         }
         nodes.extend(added);
+        // The `Reference` node now names the selected object type, so its
+        // derived key changes with its body.
+        rename_node(
+            &mut state.value,
+            &reference_key(OBJECT),
+            &reference_key(&order),
+        );
         state.refresh();
         Self { value: state.value }
     }
