@@ -10,10 +10,11 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-131, FR-038-AC-132, FR-038-AC-133 and FR-038-AC-135 (IR-627):
-the criteria of the anonymous structural node key rule (TC-226) that no test
-can discharge yet. AC-131 and AC-132 (the forms with no preimage the reader
-derives, and declared nodes) are gated on IR-627-Q1 to Q4; AC-133 and AC-135
+Verify FR-038-AC-131, FR-038-AC-132, FR-038-AC-133, FR-038-AC-135 and
+FR-038-AC-150 (IR-627): the criteria of the anonymous structural node key rule
+(TC-226) that no test can discharge yet. AC-131 and AC-132 (the forms with no
+preimage the reader derives, and declared nodes) are gated on IR-627-Q1 to Q4,
+and AC-150 (in-group re-derivation) on IR-630 and QSL-638; AC-133 and AC-135
 read QSpec's three positive fixtures, `adverse.json` and
 `dependency-selection-vectors.json` carrying derived keys, which QSpec owns
 (IR-627-Q5, QSL-635).

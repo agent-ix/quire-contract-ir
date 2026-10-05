@@ -10,14 +10,21 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-123 through FR-038-AC-130 and FR-038-AC-134 (IR-627): the reader re-derives the
+Verify FR-038-AC-123 through FR-038-AC-130, FR-038-AC-134 and FR-038-AC-145
+through FR-038-AC-149 (IR-627): the reader re-derives the
 node key of the ten anonymous node shapes `MemberType::node_key` already
 derives (`scalar_type` `boolean` and `integer`, `composite_type` `reference`,
 `option`, `set`, `bag`, `sequence` and `ordered_set`, `bounded_domain`
 `integer_range` and `collection_bounds`) from each node's own body, and refuses
 a node whose key differs at its `node_id`, wherever the node is reached from.
-AC-131, AC-132, AC-133 and AC-135 (the gated forms and the QSpec fixtures) are
-verified by TC-228.
+AC-131, AC-132, AC-133, AC-135 and AC-150 (the gated forms, QSpec's fixtures
+and in-group re-derivation) are verified by TC-228. AC-145 through AC-149 verify that a
+node of a skippable shape inside a real recursion group is skipped, not
+refused, that `integer_range`, `boolean`, `integer` and `reference` nodes are
+re-derived whatever label they carry, that a label or a dependency makes no
+cycle, that the limit is recorded and that a skipped node is charged, and
+AC-150 (gated on the declared member's `SourceOwner`) verifies the in-group keys
+of QSL FR-092.
 
 ## Test Procedure
 
@@ -38,15 +45,16 @@ without the other document in the evidence. Read the in-repo fixture packages
 with their derived keys (admit) and with one placeholder key restored on an
 undeclared derived-shape node (`stale-node-key`); read the in-repo `aaaa` and
 `bbbb` nodes with keys regenerated but bodies and `semantic_type` unmigrated
-(`stale-node-key`). A node of a real recursion group (an `option`, collection
-or `collection_bounds` on a names-graph cycle whose component's members all
-carry its label) is skipped by the stage, not refused, and the
-recursive packages of FR-038-AC-70 and AC-72 admit; any other labelled node, and
-every `integer_range`, is verified. The stated limits (an in-group key is not
-verified, a forged names cycle through a collection and its
-`collection_bounds` is skipped too, and a range retagged `collection_bounds` on
-such a cycle is skipped) are recorded as tests; the rule is specified
-by the amendment IR #298.
+(`stale-node-key`). Reading QSpec's three positive fixtures, `adverse.json` and
+`dependency-selection-vectors.json` with derived keys (AC-133, AC-135) is
+TC-228's.
+
+Build the recursive packages `record List { next?: List; }` and
+`record Tree { kids: Sequence<Tree>[0, 3]; }`, each under one `recursion_group`
+with members in QSL's group order, and read them unmutated and with the
+single in-group mutations of AC-148, the label, dependency and forged-group
+mutations of AC-146 and AC-147, and the work limits of AC-149 (no in-group key
+is verified until AC-150's gate lifts).
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.
@@ -57,7 +65,11 @@ The unmutated packages admit. Each mutation refuses
 `invalid_package`/`stale-node-key` at the tampered node's `node_id` with no
 package; the stage order and ascending node-id order decide which node is
 reported (AC-127). The re-pointed selection refuses `missing_import`/
-`missing-selection` without the other document and admits with it.
+`missing-selection` without the other document and admits with it. The recursive
+packages admit, and a skipped node of a real group is never refused
+`stale-node-key` by this stage, while a labelled `integer_range`, `boolean`,
+`integer` or `reference` node, and a labelled node off a names cycle, is. The
+AC-131, AC-132 and AC-150 cases do not exist until the gate lifts.
 
 ## Status
 
@@ -67,7 +79,13 @@ over the all-families fixture, tampered keys kept, identity patched and
 `package_id` recomputed in the test) and, for AC-130, in the unit test of
 `crates/quire-contract-model/src/checked_package/v2/derived_keys.rs`. AC-123's
 state route is tested over a `state`/`snapshot` node whose body names the
-range, not a `state_clause` or frame node. AC-131, AC-132, AC-133 and AC-135
-are verified by TC-228, which has no test: until QSpec's fixtures carry derived
-keys (IR-627-Q5, QSL-635), `make conformance-qspec` fails against QSpec's
-placeholder keys.
+range, not a `state_clause` or frame node. AC-145 through AC-149 are
+implemented in the code and partly tested, their rows still planned: the
+recursive `List`, `Tree` and one-member (G1) packages admit, the lone-label,
+self-dependency, off-cycle, labelled-range, forged-group and retag rows and the
+open-body refusal of a skipped node are tests, and the work charge of one
+skipped node is a unit test; AC-149's counter over the `Tree` package and
+in-group keys as QSL FR-092 mints them are not tested. AC-131, AC-132, AC-133
+and AC-135 are verified by TC-228 and AC-150 is gated on IR-630: none has a
+test. Until QSpec's fixtures carry derived keys (IR-627-Q5, QSL-635),
+`make conformance-qspec` fails against QSpec's placeholder keys.

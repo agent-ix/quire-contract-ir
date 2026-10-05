@@ -1270,6 +1270,168 @@ fn tc_226_only_a_names_cycle_that_is_exactly_the_group_exempts_a_node() {
     assert_stale("a labelled integer_range", &package, &base.wide);
 }
 
+/// The shapes that can never be in a group are verified whatever label they
+/// carry, including the label of a genuine group beside which they sit: a
+/// `boolean`, `integer`, `reference` or `integer_range` node with a label and
+/// a body that is not its key's refuses at itself alone, the group's own nodes
+/// being skipped.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_the_four_shapes_that_cannot_be_in_a_group_are_verified_whatever_their_label() {
+    let recursive = recursive();
+    let package = &recursive.package;
+    let base = base();
+    for (what, key) in [
+        ("boolean", BOOLEAN_KEY.to_owned()),
+        ("integer", INTEGER_KEY.to_owned()),
+        ("reference", base.reference.clone()),
+    ] {
+        for label in ["x", "tree"] {
+            let package = tampered(package, &key, |n| {
+                n["recursion_group"] = json!(label);
+                n["body"] = over_body(&family_key("a1a1"));
+            });
+            assert_stale(&format!("a {label}-labelled {what}"), &package, &key);
+        }
+    }
+    // The label of the genuine `Tree` group on the range, `max` changed.
+    let package = tampered(package, &base.wide, |n| {
+        n["recursion_group"] = json!("tree");
+        set_bound(n, "max", "10");
+    });
+    assert_stale("the range with the group's label", &package, &base.wide);
+    // A range that holds its derived key admits whatever it carries.
+    let labelled = tampered(&recursive.package, &base.wide, |n| {
+        n["recursion_group"] = json!("x");
+    });
+    admitted("a labelled range with its own key", &labelled);
+}
+
+/// A label or a dependency does not make a cycle: an acyclic bounded
+/// collection's `collection_bounds` with a label and `max` 5 refuses; with a
+/// self-dependency added (outside the names graph) and the label it refuses
+/// identically, and without the label the graph-shape stage refuses first. A
+/// labelled node off a real group's cycle is verified as ungrouped: it admits
+/// under its ungrouped key and refuses when its body is redirected.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_label_or_a_dependency_does_not_make_a_names_cycle() {
+    let base = base();
+    let bounds = base.sequence_bounds.clone();
+    let labelled = tampered(&base.package, &bounds, |n| {
+        n["recursion_group"] = json!("x");
+        set_bound(n, "max", "5");
+    });
+    assert_stale("a labelled acyclic bounds", &labelled, &bounds);
+    let self_dependent = tampered(&base.package, &bounds, |n| {
+        n["recursion_group"] = json!("x");
+        n["dependencies"] = json!([node_id(&bounds)]);
+        set_bound(n, "max", "5");
+    });
+    assert_stale("a labelled self-dependency", &self_dependent, &bounds);
+    // Without the label and with the key still its own, the cycle rule
+    // refuses (it runs after this stage, so a changed bound would refuse at the
+    // key first).
+    let unlabelled = tampered(&base.package, &bounds, |n| {
+        n["dependencies"] = json!([node_id(&bounds)]);
+    });
+    let refusal = refusal_of("a self-dependency", &unlabelled, &evidence_for(&unlabelled));
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+
+    let recursive = recursive();
+    let extra = tampered(&recursive.package, &base.set, |n| {
+        n["recursion_group"] = json!("tree");
+    });
+    admitted(
+        "a node off the group's cycle under its ungrouped key",
+        &extra,
+    );
+    let redirected = tampered(&extra, &base.set, |n| {
+        n["body"]["members"][0]["target"] = node_id(&base.narrow);
+    });
+    assert_stale("the same node redirected", &redirected, &base.set);
+}
+
+/// A range on a labelled names cycle is still re-derived: the `Int[0, 1000]`
+/// node with its `semantic_type` re-pointed at the `set` that names it, both
+/// labelled and `max` changed to 10, refuses at the range. (A stage that made
+/// `integer_range` skippable would admit it.)
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_range_on_a_labelled_names_cycle_is_still_re_derived() {
+    let base = base();
+    let package = tampered(&base.package, &base.wide, |n| {
+        n["semantic_type"] = node_id(&base.set);
+        n["recursion_group"] = json!("x");
+        set_bound(n, "max", "10");
+    });
+    let package = tampered(&package, &base.set, |n| n["recursion_group"] = json!("x"));
+    assert_stale("a range on a labelled names cycle", &package, &base.wide);
+}
+
+/// A skipped node still holds the closed body of its form, so a labelled
+/// one-node cycle cannot hide a redirected element type: `Option<Int[0, 1000]>`
+/// labelled alone with a body of a reference to `Int[0, 10]` and a reference to
+/// itself has no derivable key, and with only the reference to `Int[0, 10]` is
+/// on no cycle and is verified. A real one-member group, G1 of QSL FR-092 (an
+/// `option` over itself, no declared member), admits.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_skipped_node_keeps_its_closed_body_and_a_one_member_group_admits() {
+    let base = base();
+    let own = node_id(&base.option);
+    let redirect = |extra_self: bool| {
+        let (narrow, own) = (node_id(&base.narrow), own.clone());
+        move |n: &mut Value| {
+            n["recursion_group"] = json!("solo");
+            let mut members = vec![json!({"term": "reference", "target": narrow})];
+            if extra_self {
+                members.push(json!({"term": "reference", "target": own}));
+            }
+            n["body"]["members"] = Value::Array(members);
+        }
+    };
+    let package = tampered(&base.package, &base.option, redirect(true));
+    assert_stale("a self-cycle with a redirect", &package, &base.option);
+    let package = tampered(&base.package, &base.option, redirect(false));
+    assert_stale("a lone label and a redirect", &package, &base.option);
+
+    // G1: an `option` over itself, in a group of one.
+    let g1 = tampered(&base.package, &base.option, |n| {
+        n["recursion_group"] = json!("g1");
+        n["body"]["members"][0]["target"] = node_id(&base.option);
+        n["dependencies"] = json!([]);
+    });
+    admitted("G1, an option over itself", &g1);
+
+    // The recorded limit: that same one-member group stands in for a genuine
+    // `Option<Int[0, 1000]>` with its key kept, because the reader cannot
+    // compute a group key without the declared member's owner (IR-630).
+    // Nothing is redirected to another range, but the element type is lost.
+    // An open body in a real group is refused all the same.
+    let recursive = recursive();
+    let open = tampered(&recursive.package, &recursive.bounds, |n| {
+        let third = n["body"]["members"][1].clone();
+        n["body"]["members"]
+            .as_array_mut()
+            .expect("members")
+            .push(third);
+    });
+    let refusal = refusal_of("an open in-group body", &open, &evidence_for(&open));
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+    );
+}
+
 /// The stated limit, recorded as a test: a tamperer who re-points a
 /// collection's body `reference` at a `collection_bounds` node that names the
 /// collection at its `semantic_type`, and labels both, forges a names cycle

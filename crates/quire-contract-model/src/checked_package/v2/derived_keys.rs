@@ -23,7 +23,10 @@
 //! not edges) and every member of its component in that graph carries the same
 //! label. Any other labelled node is verified as an ungrouped
 //! node, and `boolean`, `integer`, `integer_range` and `reference` nodes are
-//! verified whatever they carry. A skipped node is still charged one work unit.
+//! verified whatever they carry. A skipped node is still charged one work unit
+//! and must still hold the closed body of its form: an `option` or collection
+//! has exactly one body reference, which on a cycle is the cycle, so a labelled
+//! one-node self-cycle cannot also carry a redirected element type.
 //!
 //! Stated soundness limit: the key, and so the body, of a skipped node is NOT
 //! verified, and a tamperer who forges a names cycle through a collection and a
@@ -342,16 +345,21 @@ pub(super) fn validate_derived_keys(
         }
         let at = || node_pointer(position).key("node_id");
         meter.charge(1, at)?;
-        // A node of a real recursion group is keyed under a group digest the
-        // reader cannot compute: skipped, and still charged (see the module
-        // docs for the soundness limit).
-        if grouped.skips(position, shape) {
-            continue;
-        }
         let derived = derived_key(node, shape, bytes).map_err(|_| {
             ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at())
         })?;
-        if derived.as_deref() != Some(node_id.digest.as_ref()) {
+        // A node of a real recursion group is keyed under a group digest the
+        // reader cannot compute, so its key is not compared (see the module
+        // docs for the soundness limit). It must still hold the closed body of
+        // its form, which is what leaves a one-node cycle no room to redirect
+        // an element type: an `option` or collection has exactly one body
+        // reference, and on a cycle that reference is the cycle.
+        let sound = if grouped.skips(position, shape) {
+            derived.is_some()
+        } else {
+            derived.as_deref() == Some(node_id.digest.as_ref())
+        };
+        if !sound {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
                 at(),
@@ -420,6 +428,12 @@ impl GroupedNodes {
                 *count = count.saturating_add(1);
             }
         }
+        // One pass over the nodes settles, for every component, whether all
+        // its members carry one label: each candidate is then a lookup.
+        let shared = shared_labels(
+            &component,
+            nodes.iter().map(|node| node.recursion_group.as_deref()),
+        );
         for position in (0..nodes.len()).filter(|position| candidate(*position)) {
             let (Some(node), Some(&id)) = (nodes.get(position), component.get(position)) else {
                 continue;
@@ -430,12 +444,8 @@ impl GroupedNodes {
                     .get(position)
                     .is_some_and(|edges| edges.contains(&position));
             let label = node.recursion_group.as_deref();
-            let component_is_the_group = on_cycle
-                && component
-                    .iter()
-                    .zip(nodes)
-                    .filter(|(other, _)| **other == id)
-                    .all(|(_, member)| member.recursion_group.as_deref() == label);
+            let component_is_the_group =
+                on_cycle && shared.get(id) == Some(&SharedLabel::Label(label));
             if let Some(slot) = skipped.get_mut(position) {
                 *slot = component_is_the_group;
             }
@@ -446,6 +456,41 @@ impl GroupedNodes {
     fn skips(&self, position: usize, shape: Shape) -> bool {
         shape.can_sit_in_group() && self.skipped.get(position).copied().unwrap_or(false)
     }
+}
+
+/// What the members of one component carry as a `recursion_group` label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SharedLabel<'a> {
+    /// No member seen yet.
+    Unseen,
+    /// Every member seen so far carries this label (`None`: none does).
+    Label(Option<&'a str>),
+    /// Two members differ.
+    Mixed,
+}
+
+/// For each component, the one label all its members carry, in a single pass
+/// over the members' labels (`labels[i]` belongs to the vertex whose component
+/// is `component[i]`), not a scan of the graph per candidate.
+fn shared_labels<'a>(
+    component: &[usize],
+    labels: impl IntoIterator<Item = Option<&'a str>>,
+) -> Vec<SharedLabel<'a>> {
+    let count = component
+        .iter()
+        .max()
+        .map_or(0, |last| last.saturating_add(1));
+    let mut shared = vec![SharedLabel::Unseen; count];
+    for (id, label) in component.iter().zip(labels) {
+        if let Some(slot) = shared.get_mut(*id) {
+            *slot = match *slot {
+                SharedLabel::Unseen => SharedLabel::Label(label),
+                SharedLabel::Label(seen) if seen == label => SharedLabel::Label(seen),
+                SharedLabel::Label(_) | SharedLabel::Mixed => SharedLabel::Mixed,
+            };
+        }
+    }
+    shared
 }
 
 /// Whether a body reference of the node names the node itself (a self-typed
@@ -766,6 +811,35 @@ mod tests {
                 is_body_root: false,
             },
         )]]
+    }
+
+    /// The uniform-label pass reads each node's label once, however many
+    /// candidates share a component: its cost grows with the nodes, not with
+    /// candidates times nodes. Counted by the iterator it pulls from.
+    ///
+    /// Tracing: TC-226
+    #[trace("TC-226")]
+    #[test]
+    fn tc_226_the_group_label_pass_reads_each_label_once() {
+        for size in [100_usize, 400, 1600] {
+            let pulled = std::cell::Cell::new(0_usize);
+            // One component of every node, every node a candidate.
+            let component = vec![0_usize; size];
+            let labels = (0..size).map(|_| {
+                pulled.set(pulled.get() + 1);
+                Some("g")
+            });
+            let shared = shared_labels(&component, labels);
+            assert_eq!(pulled.get(), size, "one read per node");
+            assert_eq!(shared, vec![SharedLabel::Label(Some("g"))]);
+        }
+        let mixed = shared_labels(&[0, 0, 1], [Some("a"), Some("b"), Some("c")]);
+        assert_eq!(
+            mixed,
+            vec![SharedLabel::Mixed, SharedLabel::Label(Some("c"))]
+        );
+        let unlabelled = shared_labels(&[0, 0], [Some("a"), None]);
+        assert_eq!(unlabelled, vec![SharedLabel::Mixed]);
     }
 
     /// A node of a real group is skipped, and a skipped node is still charged
