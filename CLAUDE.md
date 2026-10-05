@@ -9,7 +9,9 @@ tools are an antipattern, and they have been removed from this repository. Do no
 introduce any new use of them. If you find one, remove it as part of the change. The
 only hash that stays is a canonical identity digest that binds a proof to the exact
 content it proved. Package versions live in Cargo.toml / package.json and their lockfiles only;
-reports name the app version they ran.
+reports name the app version they ran. Library crates must not exact-pin (`=`) shared
+ecosystem crates such as serde and serde_json: an exact pin propagates to every consumer and a
+lockfile cannot override it.
 
 ## Commands
 
