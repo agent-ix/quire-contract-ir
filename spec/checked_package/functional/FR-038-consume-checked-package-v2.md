@@ -1889,17 +1889,24 @@ inside the operation step, a tampered node is reported at itself and never at
 an application that reads it, and ahead of any `ill_typed` defect of such an
 application.
 
-**Fixtures carry derived keys.** Measured: the fixtures FR-038-AC-107 reads
+**Fixtures carry derived keys.** Measured against QSpec's `origin/main`
+(2b2dd28; a stale local checkout differs): the fixtures FR-038-AC-107 reads
 live in QSpec's checkout (`proposals/checked-package-v2/fixtures/`), not in this
-repository, and carry derived-shape nodes under placeholder keys: in
-`positive-all-families.json` the `scalar_type`/`boolean` node is keyed
-`aaaa...`, the `scalar_type`/`integer` node `7f7f...`, and it holds an
-`integer_range` and `composite_type`/`reference` nodes; `positive-clause-operations.json`
-holds the boolean, integer and `reference` shapes; `positive-union-nodes.json`
-holds the integer shape (its other nodes are gated forms). None of those keys is
-the key QSL FR-092 gives the shape. The in-repo fixtures
-(`tests/it/support/checked_package.rs`, the self-typed `aaaa` scalar) are
-the same. The decided stage refuses all of them `stale-node-key`, and no
+repository. The undeclared nodes of a derived shape, each under a placeholder
+key, are: in `positive-all-families.json`, node 24 (`scalar_type`/`integer`,
+`7f7f...`) and node 26 (`composite_type`/`reference`, `b2b2...`); in
+`positive-clause-operations.json`, node 0 (`boolean`, `aaaa...`), node 7
+(`integer`, `7f7f...`) and node 12 (`reference`, `b2b2...`); in
+`positive-union-nodes.json`, node 0 (`integer`, `a1a1...`). Two nodes of
+`positive-all-families.json` carry a `declaration` and are therefore gated
+forms, not decided shapes: node 0 (`boolean`, `aaaa...`, `Example::Flag`) and
+node 2 (`integer_range`, `cccc...`, `Example::Small`). None of those keys is the
+key QSL FR-092 gives the shape. The in-repo fixtures
+(`tests/it/support/checked_package.rs`) are not the same fixtures but fail the
+same rule: their `aaaa` boolean has a `literal` body, not `aggregate{[]}`, and
+their `bbbb` option is typed at `aaaa` with an empty aggregate body, so items 1
+to 5 of the decided rule refuse them whatever their key. The decided stage
+refuses each undeclared derived-shape node `stale-node-key`, and no
 tolerance for a placeholder key is specified: a placeholder key is the broken
 state the check exists to catch. FR-038-AC-107 and FR-038-AC-112 describe what
 the reader does today and stay as they are until the code lands. Each
@@ -1908,7 +1915,8 @@ requirement below is its own statement:
 1. A conformant positive fixture shall carry, on every node of the ten shapes,
    the key the reader derives for it (FR-038-AC-133).
 2. The in-repo fixtures are owned by this repository's code change, which shall
-   regenerate their derived-shape keys (FR-038-AC-134).
+   regenerate their derived-shape keys and also change their bodies and
+   `semantic_type` to the closed forms (FR-038-AC-134).
 3. The QSpec fixtures are owned by the QSpec owner (QSL-635, IR-627-Q5); the code change
    for FR-038-AC-123 through FR-038-AC-130 shall land after those fixtures
    carry derived keys, because its stage would otherwise make
@@ -1916,16 +1924,23 @@ requirement below is its own statement:
    or locally regenerate them.
 4. The `adverse.json` mutations of AC-112 shall reach their recorded refusals
    with derived keys on the base package (FR-038-AC-135). Measured over the
-   current list: its pointers are `/contract_version`, `/lock/sources/0/digest_domain`,
-   `/package_id/domain`, `/semantic_graph/nodes/0/node_tag` and `.../semantic_form`
-   (node 0 is the derived boolean scalar; `unknown-semantic-node-tag` is refused
-   at the node-tag decode, and `wrong-node-family-form` replaces the form with
-   `protocol_clause`, which leaves the ten shapes, so the new stage does not
-   take the node), `/semantic_graph/nodes/1/body[/members]` (a `record`, a
-   gated form) and `/semantic_graph/nodes/5/body/arguments/0` (a function), so
-   no listed mutation lies inside a derived-shape body; with real keys on the
-   base each keeps its recorded stage, and one the new stage pre-empts as
-   `stale-node-key` fails the harness as AC-112 already says.
+   eleven entries of `adverse.json` (six `structural_mutations`, five
+   `body_grammar_mutations`): the pointers are `/contract_version`,
+   `/lock/sources/0/digest_domain`, `/package_id/domain`,
+   `/semantic_graph/nodes/0/node_tag` and `.../semantic_form` (node 0 is the
+   declared boolean `Example::Flag`, a gated form the stage does not take;
+   `unknown-semantic-node-tag` is refused at the node-tag decode, and
+   `wrong-node-family-form` replaces the form with `protocol_clause`),
+   `/semantic_graph/nodes/29/body/operation/member/interval/lower` (a temporal
+   formula, `negative-temporal-interval-bound`), `/semantic_graph/nodes/1/body[/members]`
+   (a `record`, a gated form; four entries) and
+   `/semantic_graph/nodes/5/body/arguments/0` (a function), so no listed
+   mutation lies inside the body of a node of the ten shapes; with real keys on
+   the base each keeps its recorded stage, and one the new stage pre-empts as
+   `stale-node-key` fails the harness as AC-112 already says. The package that
+   AC-113's `dependency-selection-vectors.json` names as its base is the same
+   `positive-all-families.json`, so its recorded `package_id` changes when
+   QSL-635 regenerates the base.
 
 Open questions (IR-627-Q1 to Q5), for the owner of QSL FR-092 and FR-094 and
 for the QSpec owner of FR-322:
@@ -1948,10 +1963,13 @@ for the QSpec owner of FR-322:
 5. **Q5.** QSpec's checkout holds derived-shape nodes under placeholder keys
    (`aaaa...` boolean, `7f7f...` integer, `b2b2...` reference, `a1a1...` integer
    in the union fixture), which QSL FR-092's preimage does not produce, in these
-   files under `proposals/checked-package-v2/`, measured. IR reads three:
-   `fixtures/positive-all-families.json`, `fixtures/positive-clause-operations.json`
-   and `fixtures/positive-union-nodes.json` (FR-038-AC-107), and applies
-   `fixtures/adverse.json` to the first (FR-038-AC-112). IR reads none of
+   files under `proposals/checked-package-v2/`, measured on `origin/main`
+   2b2dd28. IR reads three: `fixtures/positive-all-families.json`,
+   `fixtures/positive-clause-operations.json` and `fixtures/positive-union-nodes.json`
+   (FR-038-AC-107), applies `fixtures/adverse.json` to the first
+   (FR-038-AC-112), and reads `dependency-selection-vectors.json`
+   (FR-038-AC-113), whose base is the first and whose recorded `package_id`
+   changes when the base is regenerated. IR reads none of
    `fixtures/positive-control-operations.json`,
    `fixtures/positive-operation-identities.json` and `node-identity-vectors.json`
    (the in-repo tests that read the vectors were removed, AGE-1961), which also
@@ -2591,9 +2609,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-130 | One derivation (IR-627; planned, ungated). For each of the ten derived shapes the key the admission stage derives from a node's own body equals the key `MemberType::node_key` derives from the matching member type, and a node whose body is built from the derived key's own preimage admits. A test derives both for each shape over the bounds of AC-128 and compares them. | Test (TC-226) |
 | FR-038-AC-131 | Gated forms (IR-627; planned and GATED on IR-627-Q1 to Q4). When QSL's preimage for the gated forms is available to the reader without copying, a stored `node_id` that differs from the derived key refuses `invalid_package`/`stale-node-key` at that node's `node_id` for each gated form: `rational_range`, `decimal_range`, `float_rounding`, `text_bounds`, `model_population`, `compound_unit`, `parameter`, `union`, `record`, `tuple`, the value forms, and a declared (`declaration`-carrying) node of each derived shape. Mutation rows, one per form: change one body value and keep the node id. A reader that derives only the ten decided shapes admits every row and fails. Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 | FR-038-AC-132 | No copy (IR-627; planned and GATED as AC-131). The vectors or types the reader is checked against for the gated forms come from the source IR-627-Q2 names, are not copied into this repository, and a test that reads them fails closed when the source is absent, as FR-038-AC-112 does. | Test (TC-226) |
-| FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with any one derived-shape node's key replaced by a placeholder (`7f7f...` on the `integer` node, `aaaa...` on the `boolean` node, `b2b2...` on a `reference` node) and every reference to it left in place refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures (QSL-635, IR-627-Q5; QSL-635 also covers `positive-control-operations.json`, `positive-operation-identities.json` and `node-identity-vectors.json`, which IR does not read); `make conformance-qspec` fails on the three until they conform, so the IR code change merges after QSL-635's regenerated fixtures or a conformance lane is held citing QSL-635. QSpec also owns the conformance counterpart of the tamper regression row of TC-226: a negative fixture whose `integer_range` node keeps its id under a changed bound, patched `identity_projection` and recomputed `package_id`, which the reader refuses `stale-node-key` at that node (read from the checkout, never copied here). | Test (TC-226) |
-| FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`, including the self-typed `aaaa` scalar) carries the derived key on each node of the ten shapes and admits; the same package with the `aaaa` placeholder restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`. Owned by this repository's code change. | Test (TC-226) |
-| FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph` and the four `malformed_wire` body-grammar entries, and none is refused `stale-node-key`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
+| FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with the key of any one undeclared derived-shape node replaced by a placeholder, and every reference to it left in place, refuses; the nodes are `positive-all-families.json` nodes 24 (`integer`, `7f7f...`) and 26 (`reference`, `b2b2...`), `positive-clause-operations.json` nodes 0 (`boolean`, `aaaa...`), 7 (`integer`, `7f7f...`) and 12 (`reference`, `b2b2...`), and `positive-union-nodes.json` node 0 (`integer`, `a1a1...`), and `positive-all-families.json` nodes 0 (`boolean`, declared `Example::Flag`) and 2 (`integer_range`, declared `Example::Small`) are gated forms this row does not use. The refusal is `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures and for the recorded `package_id` of `dependency-selection-vectors.json` (AC-113), which IR reads and whose base is `positive-all-families.json` (QSL-635, IR-627-Q5; QSL-635 also covers `positive-control-operations.json`, `positive-operation-identities.json` and `node-identity-vectors.json`, which IR does not read); `make conformance-qspec` fails on the three until they conform, so the IR code change merges after QSL-635's regenerated fixtures or a conformance lane is held citing QSL-635. QSpec also owns the conformance counterpart of the tamper regression row of TC-226: a negative fixture whose `integer_range` node keeps its id under a changed bound, patched `identity_projection` and recomputed `package_id`, which the reader refuses `stale-node-key` at that node (read from the checkout, never copied here). | Test (TC-226) |
+| FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`) carries on each undeclared node of the ten shapes the closed body of its form, its own key as `semantic_type` for a `scalar_type` or `composite_type`, and the derived key, and admits. The migration changes more than keys: the `aaaa` boolean's `literal` body becomes `aggregate{[]}`, and the `bbbb` option, typed at `aaaa` with an empty aggregate body, becomes self-typed with a body of one `reference`. The same package with the `aaaa` placeholder key restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and with the `bbbb` body or `semantic_type` left unmigrated refuses the same way. Owned by this repository's code change. | Test (TC-226) |
+| FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph`, `negative-temporal-interval-bound` as `invalid_package` and the five `malformed_wire` body-grammar entries (eleven entries in all: six `structural_mutations`, five `body_grammar_mutations`), and none is refused `stale-node-key`; `dependency-selection-vectors.json` over the regenerated base carries its regenerated `package_id`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

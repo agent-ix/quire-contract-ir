@@ -36,9 +36,12 @@ read the packages of AC-127 that pair a tampered node with another defect, and
 the AC-129 package whose `model_selections` row is re-pointed, with and
 without the other document in the evidence. Read the three QSpec positive
 fixtures of FR-038-AC-107 and the in-repo fixture packages with their derived
-keys (admit) and with one placeholder key restored on a derived-shape node
-(`stale-node-key`), and apply `adverse.json` over `positive-all-families.json`
-carrying derived keys (AC-133 through AC-135). The QSpec fixtures are read
+keys (admit) and with one placeholder key restored on an undeclared
+derived-shape node (`stale-node-key`); read the in-repo `aaaa` and `bbbb`
+nodes with keys regenerated but bodies and `semantic_type` unmigrated
+(`stale-node-key`); and apply `adverse.json` (eleven entries) and
+`dependency-selection-vectors.json` over `positive-all-families.json` carrying
+derived keys (AC-133 through AC-135). The QSpec fixtures are read
 from the checkout `QUIRE_SPECIFICATION_DIR` names, never copied.
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
