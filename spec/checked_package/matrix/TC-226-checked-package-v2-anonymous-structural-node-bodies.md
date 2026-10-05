@@ -10,7 +10,7 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-123 through FR-038-AC-132 (IR-627): the reader re-derives the
+Verify FR-038-AC-123 through FR-038-AC-135 (IR-627): the reader re-derives the
 node key of the ten anonymous node shapes `MemberType::node_key` already
 derives (`scalar_type` `boolean` and `integer`, `composite_type` `reference`,
 `option`, `set`, `bag`, `sequence` and `ordered_set`, `bounded_domain`
@@ -34,7 +34,12 @@ patch `identity_projection`, recompute `package_id` through `quire-canonical`
 in the test and not through the reader, and read each mutated package. Also
 read the packages of AC-127 that pair a tampered node with another defect, and
 the AC-129 package whose `model_selections` row is re-pointed, with and
-without the other document in the evidence.
+without the other document in the evidence. Read the three QSpec positive
+fixtures of FR-038-AC-107 and the in-repo fixture packages with their derived
+keys (admit) and with one placeholder key restored on a derived-shape node
+(`stale-node-key`), and apply `adverse.json` over `positive-all-families.json`
+carrying derived keys (AC-133 through AC-135). The QSpec fixtures are read
+from the checkout `QUIRE_SPECIFICATION_DIR` names, never copied.
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.
@@ -51,5 +56,7 @@ and AC-132 cases do not exist until the gate lifts.
 ## Status
 
 Planned. No test is written. AC-123 through AC-130 await the code change that
-adds the re-derivation stage; AC-131 and AC-132 await the answers to
-IR-627-Q1 to Q4.
+adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
+AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
+await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code
+change is ordered after them.

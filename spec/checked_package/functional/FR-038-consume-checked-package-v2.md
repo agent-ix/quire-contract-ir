@@ -1806,24 +1806,45 @@ The closed bodies are: `scalar_type` `aggregate{[]}`; `reference`, `option` and
 the four collections an `aggregate` of exactly one `reference`; `integer_range`
 and `collection_bounds` an `aggregate` of exactly the bindings `min` then `max`,
 each an `integer` literal typed at the node keyed as the `scalar_type`/`integer`
-node and valued by a canonical decimal string. The bounds are not parsed to a
-fixed-width integer or a float: they enter the preimage as their canonical
-strings, so an `i128`-wide bound and one past it are compared exactly. The
+node and valued by a decimal string of the grammar of its form: for
+`integer_range`, `^(0|-?[1-9][0-9]*)$` (an optional minus sign, no leading
+zero, no `+`, and `-0` refused), and for `collection_bounds`,
+`^(0|[1-9][0-9]*)$` (non-negative, since a collection bound is a count). The
+reader's existing non-negative grammar (`is_non_negative_integer`) is the second;
+the first is a new grammar and is not `is_nonzero_integer`. A string outside its
+form's grammar leaves the body not closed, so the node has no derivable key.
+The bounds are not parsed to a fixed-width integer or a float: they enter the
+preimage as their strings, so there is no range limit other than the reader's
+byte limit, a preimage past which refuses `invalid_semantic_graph` at the node
+as an encoder refusal does today, and an `i128`-wide bound and one past it are
+compared exactly. This requirement does not order `min` against `max`. The
 literal `type` is part of the preimage, so a literal typed at any node other
 than the derived `Integer` key changes the key.
 
-This one rule closes every route to a tampered range, and why it replaces an
-arithmetic comparison of body bounds against the member type, on the merits.
-The comparison would reach only the node a model-owned member read names, and
-would leave open a range reached through an `Option`, a collection, an
-operation parameter's argument key, a state field's body target, or a scalar
-operand's bound, each of which the consumer reads without passing through
-that member read. Re-derivation checks the body of every such node against its
-own key, so a node whose key equals a declared key holds exactly the range that
-key denotes; a node re-pointed at another node changes its own key; and the
-existing digest comparisons of "Model-owned members" step 4 and of operand and
-parameter types then compare keys that are true. A separate arithmetic check
-would restate a subset of this and is not specified.
+This rule replaces an arithmetic comparison of body bounds against the member
+type, on the merits. The comparison would reach only the node a model-owned
+member read names, and would leave open a range reached through an `Option`, a
+collection, an operation parameter's argument key, a state field's body target,
+or a scalar operand's bound, each of which the consumer reads without passing
+through that member read. Re-derivation checks the body of every node of the
+ten shapes against its own key, so a node whose key equals a declared key holds
+exactly the range that key denotes; a node of those shapes re-pointed at
+another node changes its own key; and the existing digest comparisons of
+"Model-owned members" step 4 and of operand and parameter types then compare
+keys that are true. A separate arithmetic check would restate a subset of this
+and is not specified.
+
+What closes, and what stays open. The rule closes every route to a tampered
+range whose referrers are all of the ten shapes. It does not close a route
+through a gated form: a referrer that is not of the ten shapes can still be
+re-pointed at a genuinely keyed narrower node. The cases are a `value`/
+`parameter` node's `semantic_type`, which quire-contract-codegen's scalar
+operand route reads (`operand_type_node`, `check_parameters`, `checked_bounds`);
+an `alias`, `record`, `tuple` or `union` composite over a range; and a declared,
+named `bounded_domain` (`type Small = Int[0, 9]`), which a state field's domain
+reads. Those routes stay open until the gate of FR-038-AC-131 lifts, and
+FR-038-AC-131 and FR-038-AC-132 are the planned closure, so the decided rule is
+a partial defence and not a complete one.
 
 **Trust root.** The member type step 4 derives comes from the domain document
 that the caller's evidence supplies under the `model_selections` digest, whose
@@ -1868,7 +1889,45 @@ inside the operation step, a tampered node is reported at itself and never at
 an application that reads it, and ahead of any `ill_typed` defect of such an
 application.
 
-Open questions (IR-627-Q1 to Q4), for the owner of QSL FR-092 and FR-094 and
+**Fixtures carry derived keys.** Measured: the fixtures FR-038-AC-107 reads
+live in QSpec's checkout (`proposals/checked-package-v2/fixtures/`), not in this
+repository, and carry derived-shape nodes under placeholder keys: in
+`positive-all-families.json` the `scalar_type`/`boolean` node is keyed
+`aaaa...`, the `scalar_type`/`integer` node `7f7f...`, and it holds an
+`integer_range` and `composite_type`/`reference` nodes; `positive-clause-operations.json`
+holds the boolean, integer and `reference` shapes; `positive-union-nodes.json`
+holds the integer shape (its other nodes are gated forms). None of those keys is
+the key QSL FR-092 gives the shape. The in-repo fixtures
+(`tests/it/support/checked_package.rs`, the self-typed `aaaa` scalar) are
+the same. The decided stage refuses all of them `stale-node-key`, and no
+tolerance for a placeholder key is specified: a placeholder key is the broken
+state the check exists to catch. FR-038-AC-107 and FR-038-AC-112 describe what
+the reader does today and stay as they are until the code lands. Each
+requirement below is its own statement:
+
+1. A conformant positive fixture shall carry, on every node of the ten shapes,
+   the key the reader derives for it (FR-038-AC-133).
+2. The in-repo fixtures are owned by this repository's code change, which shall
+   regenerate their derived-shape keys (FR-038-AC-134).
+3. The QSpec fixtures are owned by the QSpec owner (IR-627-Q5); the code change
+   for FR-038-AC-123 through FR-038-AC-130 shall land after those fixtures
+   carry derived keys, because its stage would otherwise make
+   `make conformance-qspec` fail on AC-107, and this repository does not copy
+   or locally regenerate them.
+4. The `adverse.json` mutations of AC-112 shall reach their recorded refusals
+   with derived keys on the base package (FR-038-AC-135). Measured over the
+   current list: its pointers are `/contract_version`, `/lock/sources/0/digest_domain`,
+   `/package_id/domain`, `/semantic_graph/nodes/0/node_tag` and `.../semantic_form`
+   (node 0 is the derived boolean scalar; `unknown-semantic-node-tag` is refused
+   at the node-tag decode, and `wrong-node-family-form` replaces the form with
+   `protocol_clause`, which leaves the ten shapes, so the new stage does not
+   take the node), `/semantic_graph/nodes/1/body[/members]` (a `record`, a
+   gated form) and `/semantic_graph/nodes/5/body/arguments/0` (a function), so
+   no listed mutation lies inside a derived-shape body; with real keys on the
+   base each keeps its recorded stage, and one the new stage pre-empts as
+   `stale-node-key` fails the harness as AC-112 already says.
+
+Open questions (IR-627-Q1 to Q5), for the owner of QSL FR-092 and FR-094 and
 for the QSpec owner of FR-322:
 
 1. **Q1.** Is `quire.structural-node/v1`, as QSL FR-092 and FR-094 publish it,
@@ -1886,6 +1945,14 @@ for the QSpec owner of FR-322:
    two nodes of the package carry one key; if not, which refusal is it? The
    decided rule hashes a preimage with `recursion` `null`, so it refuses a
    derived-shape node that has one, as an IR reading until Q4 is answered.
+5. **Q5.** QSpec's `positive-all-families.json`, `positive-clause-operations.json`
+   and `positive-union-nodes.json` (the fixtures FR-038-AC-107 reads) hold
+   derived-shape nodes under placeholder keys (`aaaa...` boolean, `7f7f...`
+   integer, `b2b2...` reference, and the `integer_range`), which QSL FR-092's
+   preimage does not produce. Will QSpec regenerate them with derived keys, and
+   before which IR release? `positive-control-operations.json` and
+   `positive-operation-identities.json` hold derived shapes too and are not read
+   by IR today.
 
 IR-628 (a typed accessor for a model object type's effective fields) is
 related and is not decided here: it would let a consumer read a declared range
@@ -2506,15 +2573,18 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-121 | Under `quire.temporal.timed/v1`, `lower` `{numerator: "2", denominator: "4"}` refuses `invalid_semantic_graph` at `.../interval/lower` (the code is merged FR-370 and FR-322-AC-10's; the stage after strict wire validation and the identity recomputation, before the model-selection owners step, and the locus are an IR reading), before the temporal step, so a package holding it beside a profile-fit defect in a lower-digest node refuses `invalid_semantic_graph`; a non-reduced `lower` `{numerator: "2", denominator: "4"}` with `upper` numerator `"-1"` refuses `invalid_package`/`invalid-value` at `.../interval/upper`, a negative `lower` numerator `"-1"` with a non-reduced `upper` refuses `invalid-value` at `.../interval/lower`, and a non-reduced `upper` alone refuses `invalid_semantic_graph` at `.../interval/upper`; `(3, 3]`, `[3, 3)` and `(3, 3)` with both bounds `{numerator: "3", denominator: "1"}`, and `lower` `{numerator: "5", denominator: "2"}` over `upper` `{numerator: "2", denominator: "1"}`, refuse `invalid_package`/`invalid-value` at `/semantic_graph/nodes/{n}/body` (merged FR-370 and FR-370-AC-8), while `[3, 3]` admits; `lower` `{numerator: "1", denominator: "2"}` with `upper` `{numerator: "2", denominator: "3"}` admits and the two swapped refuses; and, both ends `closed`, `lower` `{numerator: "18446744073709551617", denominator: "3"}` with `upper` `{numerator: "18446744073709551616", denominator: "3"}` refuses `invalid-value` at the body, which a float comparison, rounding both numerators to 2^64, gets wrong by admitting it, and the two bounds swapped admit, which a checked parse into 64 bits gets wrong; that beyond-2^64 package, `lower` `{numerator: "18446744073709551617", denominator: "3"}` and `upper` `{numerator: "18446744073709551616", denominator: "3"}`, read with a work limit that the GCD or cross-multiplication of its bounds takes past returns `incomplete` naming the `work` limit (FR-038-AC-3) and no refusal of the interval. | Test (TC-048) |
 | FR-038-AC-122 | The timed form `{lower, upper, lower_end, upper_end}` with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` and both ends `closed` refuses `invalid_package`/`operation-member-mismatch` at `/semantic_graph/nodes/{n}/body` under `quire.temporal.infinite-trace/v1` and under each of the three bounded profiles (merged FR-370-AC-8), and admits under `quire.temporal.timed/v1`, whose refusal of an integer-form `{lower, upper}` and of `{lower, upper: null}` is FR-038-AC-104's; four-member intervals with valid rational bounds and `lower_end` `"half"`, or `upper_end` `"half"`, each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`, as do `{lower: "0", upper: "3", lower_end: "closed"}` (a missing end, integer-string bounds), `{lower: "0", upper: "3", lower_end: "closed", upper_end: "closed", extra: "x"}` (a fifth member, integer-string bounds), each an IR reading that diverges from the published schema, whose closed interval `oneOf` and end `enum` fail them at strict wire validation, and each reported at the operation step after the temporal step, so a profile-fit defect in a higher-digest clause is reported first; and the same missing-end and fifth-member intervals with the rational-object bounds of the timed form refuse `invalid-value` at `.../interval/lower` instead, an interval of another member set having no form, its bounds judged against the integer pattern (an IR reading). | Test (TC-048) |
 | FR-038-AC-123 | Tamper regression (IR-627; planned, ungated). Over a package whose model-owned field read names a `bounded_domain`/`integer_range` node keyed as `Int[0, 1000]` (the field declared `Int[0, 1000]` in the selected domain document), the unmutated package admits; the same package with that node's `max` binding changed to `10`, and separately to `5000`, the `node_id` kept, `identity_projection` patched and `package_id` recomputed through `quire-canonical` in the test, each refuses `invalid_package`/`stale-node-key` at that node's `node_id` and returns no package. Mutation rows: `max` changed to `10`; `max` changed to `5000`; `min` changed to `1`; `min` and `max` swapped. The same four rows over an `Int[0, 1000]` node that no member read names (a scalar operand's bound and a state field's body target) refuse identically, so a reader that only compared the node a member read names admits those and fails. | Test (TC-226) |
-| FR-038-AC-124 | Closed body of each derived shape (IR-627; planned, ungated). An `integer_range` or `collection_bounds` node whose body is an `aggregate` of exactly the bindings `min` then `max`, each an `integer` literal typed at the `Integer`-keyed node with a canonical decimal string, and whose key is the derived one, admits. A body with `max` absent, a third binding, the order `max`, `min`, a `max` of `"01"`, `"+5"` or `""`, a `max` literal typed at the node keyed as `Boolean` or at any node other than the `Integer`-keyed one, or a `max` that is a `text` literal, each refuses `invalid_package`/`stale-node-key` at that node's `node_id`. A `scalar_type`/`integer` node with a non-empty body, a `reference`, `option` or collection node with no member, two members or a member that is not a `reference`, each refuses identically. | Test (TC-226) |
+| FR-038-AC-124 | Closed body of each derived shape (IR-627; planned, ungated). An `integer_range` or `collection_bounds` node whose body is an `aggregate` of exactly the bindings `min` then `max`, each an `integer` literal typed at the `Integer`-keyed node with a string of its form's grammar (`^(0|-?[1-9][0-9]*)$` for `integer_range`, `^(0|[1-9][0-9]*)$` for `collection_bounds`), and whose key is the derived one, admits; an `integer_range` `min` of `"-5"` admits. A body with `max` absent, a third binding, the order `max`, `min`, a `max` of `"01"`, `"+5"`, `"-0"`, `"-01"` or `""` on either form, a `collection_bounds` `min` of `"-1"`, a `max` literal typed at the node keyed as `Boolean` or at any node other than the `Integer`-keyed one, or a `max` that is a `text` literal, each refuses `invalid_package`/`stale-node-key` at that node's `node_id`. A `scalar_type`/`integer` node with a non-empty body, a `reference`, `option` or collection node with no member, two members or a member that is not a `reference`, each refuses identically. | Test (TC-226) |
 | FR-038-AC-125 | Self-typing and `semantic_type` (IR-627; planned, ungated). A `scalar_type` or `composite_type` node of a derived shape whose `semantic_type` is another node refuses `invalid_package`/`stale-node-key` at its `node_id`, although its key is unchanged. A `collection_bounds` node whose `semantic_type` is re-pointed at a collection of another element range, an `integer_range` node whose `semantic_type` is re-pointed at a node other than the `Integer`-keyed one, and a `collection_bounds` node whose `min` and `max` literal `type` is re-pointed at a genuinely keyed node of another type, each keep the stored `node_id` and each refuse the same way, because `semantic_type` and the literal `type` are in the preimage. | Test (TC-226) |
 | FR-038-AC-126 | Indirect redirection (IR-627; planned, ungated). Over fields and operations declared `Option<Int[0, 1000]>`, `Set<Int[0, 1000]>`, `Sequence<Int[0, 1000]>`, `Reference<O>` and an operation parameter typed `Int[0, 1000]`, a package in which the `option`, a collection or `reference` node keeps its stored key while its body `reference` is re-pointed at a genuinely keyed `Int[0, 10]` node, and one in which the parameter's type node holds the body `max` `10`, each refuses `invalid_package`/`stale-node-key` at the re-pointed or tampered node's `node_id`, and never `ill_typed`. A reader that re-derived only `integer_range` nodes admits the re-pointed `option`, collection and `reference` rows and fails. | Test (TC-226) |
 | FR-038-AC-127 | Stage and order (IR-627; planned, ungated). The derived-shape re-derivation runs after the graph-shape stage and the application key stage and before the nominal key stage and every declaration, frame, state, temporal, abstraction and operation step. A package holding a graph-shape defect and a tampered node reports the graph-shape defect; one holding a stale application key and a tampered node reports the stale application key; one holding a tampered node and an `ill_typed` defect in an application that reads it reports the tampered node; one holding two tampered nodes reports the one whose own `node_id` digest is lower. Each report is `invalid_package`/`stale-node-key` at that node's `node_id` and never at the reading application. | Test (TC-226) |
-| FR-038-AC-128 | Exact bounds at the extremes (IR-627; planned, ungated). Over fields declared `Int[0, 0]` and `Int[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]` (the `i128` extremes), a node holding the declared bounds admits and a node whose `max` differs from the declared bound by one in either direction refuses as AC-123 does. A comparison through a lossy float conversion would admit `"170141183460469231731687303715884105726"` against the `i128` maximum and fails this row. | Test (TC-226) |
+| FR-038-AC-128 | Exact bounds at the extremes (IR-627; planned, ungated). Over fields declared `Int[0, 0]` and `Int[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]` (the `i128` extremes), a node holding the declared bounds, the `i128` minimum as `min` included, admits and a node whose `max` differs from the declared bound by one in either direction refuses as AC-123 does. A comparison through a lossy float conversion would admit `"170141183460469231731687303715884105726"` against the `i128` maximum and fails this row. | Test (TC-226) |
 | FR-038-AC-129 | Trust root (IR-627; planned, ungated). A package whose `model_selections` row is re-pointed at a document declaring `Int[0, 10]`, whose node is re-keyed to `Int[0, 10]` and whose `package_id` is recomputed refuses `missing_import`/`missing-selection` at the row's `digest` when the evidence holds only the original document (FR-038-AC-27). The same package admits when the caller's evidence also holds the re-pointed document, because the reader admits a package against the evidence it is given, and the test records that admission as the stated limit of the trust root. | Test (TC-226) |
 | FR-038-AC-130 | One derivation (IR-627; planned, ungated). For each of the ten derived shapes the key the admission stage derives from a node's own body equals the key `MemberType::node_key` derives from the matching member type, and a node whose body is built from the derived key's own preimage admits. A test derives both for each shape over the bounds of AC-128 and compares them. | Test (TC-226) |
 | FR-038-AC-131 | Gated forms (IR-627; planned and GATED on IR-627-Q1 to Q4). When QSL's preimage for the gated forms is available to the reader without copying, a stored `node_id` that differs from the derived key refuses `invalid_package`/`stale-node-key` at that node's `node_id` for each gated form: `rational_range`, `decimal_range`, `float_rounding`, `text_bounds`, `model_population`, `compound_unit`, `parameter`, `union`, `record`, `tuple`, the value forms, and a declared (`declaration`-carrying) node of each derived shape. Mutation rows, one per form: change one body value and keep the node id. A reader that derives only the ten decided shapes admits every row and fails. Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 | FR-038-AC-132 | No copy (IR-627; planned and GATED as AC-131). The vectors or types the reader is checked against for the gated forms come from the source IR-627-Q2 names, are not copied into this repository, and a test that reads them fails closed when the source is absent, as FR-038-AC-112 does. | Test (TC-226) |
+| FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes the admission FR-038-AC-107 describes for derived-shape nodes when the code lands, and until then AC-107 stands as built). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with any one derived-shape node's key replaced by a placeholder (`7f7f...` on the `integer` node, `aaaa...` on the `boolean` node, `b2b2...` on a `reference` node) and every reference to it left in place refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures (IR-627-Q5); `make conformance-qspec` fails on them until they conform, which is why the code change is ordered after them. | Test (TC-226) |
+| FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`, including the self-typed `aaaa` scalar) carries the derived key on each node of the ten shapes and admits; the same package with the `aaaa` placeholder restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`. Owned by this repository's code change. | Test (TC-226) |
+| FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph` and the four `malformed_wire` body-grammar entries, and none is refused `stale-node-key`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
