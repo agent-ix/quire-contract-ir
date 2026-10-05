@@ -9,9 +9,19 @@
 //! `bounded_domain` `integer_range` and `collection_bounds`. A node whose
 //! body is not exactly the closed body of its form, whose `semantic_type` is
 //! not its own key (a scalar or composite), whose bounds are outside their
-//! form's grammar, or that sits in a recursion group, has no derivable key
-//! and is refused like a stale one: `invalid_package`/`stale-node-key` at the
-//! node's own `node_id`.
+//! form's grammar, or whose literal `type` is not the `Integer` key, has no
+//! derivable key and is refused like a stale one:
+//! `invalid_package`/`stale-node-key` at the node's own `node_id`.
+//!
+//! **A node that carries a `recursion_group` is skipped**, neither verified
+//! nor refused: QSL keys such a node (the `Option` or `Sequence` of a recursive
+//! record, and its `collection_bounds`) under a group digest this reader cannot
+//! compute, since it needs the declared member's `SourceOwner` (IR-627-Q4,
+//! FR-038-AC-138, gated). This is a stated soundness limit: a range, element
+//! type or bound read through an in-group node is NOT verified by this reader,
+//! and a consumer must not treat it as verified. A skipped node still passes
+//! every other check, including the cycle rule that refuses a cycle outside a
+//! declared `recursion_group` (FR-038-AC-18).
 //!
 //! The key is built by [`anonymous`], the one function
 //! [`MemberType::node_key`] calls, so no second derivation exists. Bounds
@@ -22,8 +32,9 @@
 //! application key stages, before the nominal key stage and every
 //! declaration, frame, state, temporal, abstraction and operation step, in
 //! ascending node-id digest order, one work unit per node it derives for.
-//! The forms with no preimage this reader derives, and every node carrying a
-//! `declaration`, are gated (IR-627-Q1 to Q4) and not visited.
+//! The forms with no preimage this reader derives, every node carrying a
+//! `declaration` and every node carrying a `recursion_group` are gated
+//! (IR-627-Q1 to Q4) and not visited.
 
 use super::model_members::{anonymous, CollectionKind, MemberType, StructuralBody};
 use super::structural::{
@@ -150,9 +161,7 @@ fn derived_key(
     shape: Shape,
     bytes: u64,
 ) -> Result<Option<String>, quire_canonical::Error> {
-    if node.recursion_group.is_some()
-        || (shape.is_self_typed() && node.semantic_type != node.node_id)
-    {
+    if shape.is_self_typed() && node.semantic_type != node.node_id {
         return Ok(None);
     }
     let Some(members) = aggregate_members(&node.body) else {
@@ -180,13 +189,12 @@ fn derived_key(
             )
             .map(Some)
         }
-        // An `integer_range` bound is a signed integer and the range is typed
-        // at `Integer`.
+        // An `integer_range` bound is a signed integer.
         (Shape::IntegerRange, [lower, upper]) => {
             bounded_key(node, shape, [lower, upper], BoundsOver::Integer, bytes)
         }
-        // A `collection_bounds` bound is a count and the domain is typed at
-        // the collection it bounds, which the preimage records.
+        // A `collection_bounds` bound is a count. The `semantic_type` of a
+        // bounded domain is in the preimage, so the key covers it.
         (Shape::CollectionBounds, [lower, upper]) => {
             bounded_key(node, shape, [lower, upper], BoundsOver::Collection, bytes)
         }
@@ -204,13 +212,12 @@ fn derived_key(
     }
 }
 
-/// What a bounded domain bounds, which fixes the grammar of its bounds and
-/// what its `semantic_type` must be.
+/// What a bounded domain bounds, which fixes the grammar of its bounds.
 #[derive(Clone, Copy)]
 enum BoundsOver {
-    /// `Int[min, max]`: signed bounds, typed at `Integer`.
+    /// `Int[min, max]`: signed bounds.
     Integer,
-    /// `K<E>[min, max]`: counts, typed at the collection.
+    /// `K<E>[min, max]`: counts.
     Collection,
 }
 
@@ -246,9 +253,6 @@ fn bounded_key(
     ) else {
         return Ok(None);
     };
-    if matches!(over, BoundsOver::Integer) && !typed_at_integer(&node.semantic_type) {
-        return Ok(None);
-    }
     anonymous(
         shape.tag(),
         shape.form(),
@@ -303,8 +307,11 @@ pub(super) fn validate_derived_keys(
         let Some(shape) = Shape::of(kind) else {
             continue;
         };
-        // A declared node's preimage has a `declaration` member: gated.
-        if node.declaration.is_some() {
+        // A declared node's preimage has a `declaration` member, and a node
+        // in a recursion group is keyed under a group digest the reader
+        // cannot compute: both are gated, and skipped (see the module docs
+        // for the soundness limit).
+        if node.declaration.is_some() || node.recursion_group.is_some() {
             continue;
         }
         let at = || node_pointer(position).key("node_id");

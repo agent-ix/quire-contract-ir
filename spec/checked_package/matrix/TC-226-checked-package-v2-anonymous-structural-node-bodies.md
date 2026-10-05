@@ -10,14 +10,14 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-123 through FR-038-AC-135 (IR-627): the reader re-derives the
+Verify FR-038-AC-123 through FR-038-AC-130 and FR-038-AC-134 (IR-627): the reader re-derives the
 node key of the ten anonymous node shapes `MemberType::node_key` already
 derives (`scalar_type` `boolean` and `integer`, `composite_type` `reference`,
 `option`, `set`, `bag`, `sequence` and `ordered_set`, `bounded_domain`
 `integer_range` and `collection_bounds`) from each node's own body, and refuses
 a node whose key differs at its `node_id`, wherever the node is reached from.
-AC-131 and AC-132 (the forms with no derived preimage, and declared nodes) are
-gated on IR-627-Q1 to Q4 and are planned.
+AC-131, AC-132, AC-133 and AC-135 (the gated forms and the QSpec fixtures) are
+verified by TC-228.
 
 ## Test Procedure
 
@@ -34,15 +34,13 @@ patch `identity_projection`, recompute `package_id` through `quire-canonical`
 in the test and not through the reader, and read each mutated package. Also
 read the packages of AC-127 that pair a tampered node with another defect, and
 the AC-129 package whose `model_selections` row is re-pointed, with and
-without the other document in the evidence. Read the three QSpec positive
-fixtures of FR-038-AC-107 and the in-repo fixture packages with their derived
-keys (admit) and with one placeholder key restored on an undeclared
-derived-shape node (`stale-node-key`); read the in-repo `aaaa` and `bbbb`
-nodes with keys regenerated but bodies and `semantic_type` unmigrated
-(`stale-node-key`); and apply `adverse.json` (eleven entries) and
-`dependency-selection-vectors.json` over `positive-all-families.json` carrying
-derived keys (AC-133 through AC-135). The QSpec fixtures are read
-from the checkout `QUIRE_SPECIFICATION_DIR` names, never copied.
+without the other document in the evidence. Read the in-repo fixture packages
+with their derived keys (admit) and with one placeholder key restored on an
+undeclared derived-shape node (`stale-node-key`); read the in-repo `aaaa` and
+`bbbb` nodes with keys regenerated but bodies and `semantic_type` unmigrated
+(`stale-node-key`). A node of the ten shapes that carries a `recursion_group` is
+skipped by the stage, not refused (the recursive packages of FR-038-AC-70 and
+AC-72 admit); the reading of IR-627-Q4 is recorded in the amendment IR #298.
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.
@@ -53,8 +51,7 @@ The unmutated packages admit. Each mutation refuses
 `invalid_package`/`stale-node-key` at the tampered node's `node_id` with no
 package; the stage order and ascending node-id order decide which node is
 reported (AC-127). The re-pointed selection refuses `missing_import`/
-`missing-selection` without the other document and admits with it. The AC-131
-and AC-132 cases do not exist until the gate lifts.
+`missing-selection` without the other document and admits with it.
 
 ## Status
 
@@ -62,8 +59,9 @@ Partly implemented (IR-627 code). AC-123 through AC-130 and AC-134 are tested in
 `tests/it/checked_package_v2_structural_keys.rs` (every package built in-repo
 over the all-families fixture, tampered keys kept, identity patched and
 `package_id` recomputed in the test) and, for AC-130, in the unit test of
-`crates/quire-contract-model/src/checked_package/v2/derived_keys.rs`. The
-state-field row of AC-123 and the QSpec-read cases below have no test. AC-131
-and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135 await
-QSpec's three fixtures carrying derived keys (IR-627-Q5, QSL-635): until they
-do, `make conformance-qspec` fails against QSpec's placeholder keys.
+`crates/quire-contract-model/src/checked_package/v2/derived_keys.rs`. AC-123's
+state route is tested over a `state`/`snapshot` node whose body names the
+range, not a `state_clause` or frame node. AC-131, AC-132, AC-133 and AC-135
+are verified by TC-228, which has no test: until QSpec's fixtures carry derived
+keys (IR-627-Q5, QSL-635), `make conformance-qspec` fails against QSpec's
+placeholder keys.

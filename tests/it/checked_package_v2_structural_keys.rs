@@ -498,6 +498,20 @@ fn tc_226_a_tampered_range_is_refused_at_its_node_wherever_it_is_reached_from() 
         );
     }
 
+    // A state node whose body names the range (the fixture's `state`/`snapshot`
+    // node): the rows hold for the state route too, and the state step never
+    // gets to read the tampered range.
+    let mut state = unmutated.clone();
+    let snapshot = at(&state, &family_key("3030"));
+    state["semantic_graph"]["nodes"][snapshot]["body"] = over_body(&base.wide);
+    state["semantic_graph"]["nodes"][snapshot]["dependencies"] = json!([node_id(&base.wide)]);
+    refresh_identity(&mut state);
+    admitted("the state node naming the range", &state);
+    for (row, edit) in tamper_rows() {
+        let package = tampered(&state, &base.wide, edit);
+        assert_stale(&format!("a state node's body: {row}"), &package, &base.wide);
+    }
+
     // The node a model-owned field read names: `Order.count` declared
     // `Int[0, 1000]` in the selected document.
     let document = orders_document(1000);
@@ -762,7 +776,6 @@ fn tc_226_the_derived_key_stage_runs_after_the_application_keys_and_before_the_o
     let package = &base.package;
     let wide_tamper =
         |package: &Value| tampered(package, &base.wide, |n| set_bound(n, "max", "10"));
-    let zero_tamper = |package: &Value| tampered(package, &base.zero, |n| set_bound(n, "max", "1"));
 
     // A graph-shape defect (a parameter whose body is not the closed
     // parameter body) is reported ahead of a tampered node.
@@ -815,20 +828,36 @@ fn tc_226_the_derived_key_stage_runs_after_the_application_keys_and_before_the_o
         stale_at(&both, &base.wide)
     );
 
-    // Two tampered nodes: the one whose own `node_id` digest is lower.
-    let both = zero_tamper(&wide_tamper(package));
-    let lower = std::cmp::min(base.zero.clone(), base.wide.clone());
+    // Two tampered nodes: the one whose own `node_id` digest is lower, even
+    // when the other sits earlier in the graph. Choose a pair whose graph
+    // order and digest order disagree, so that a stage that visited nodes in
+    // graph order would report the other node.
+    let candidates = [&base.wide, &base.narrow, &base.zero, &base.extremes];
+    let mut by_position: Vec<&String> = candidates.to_vec();
+    by_position.sort_by_key(|key| at(package, key));
+    let (earlier, later) = by_position
+        .iter()
+        .enumerate()
+        .flat_map(|(at, earlier)| {
+            by_position[at + 1..]
+                .iter()
+                .map(move |later| (*earlier, *later))
+        })
+        .find(|(earlier, later)| later < earlier)
+        .expect("a pair whose lower digest sits later in the graph");
+    assert!(at(package, earlier) < at(package, later) && later < earlier);
+    let edit = |n: &mut Value| set_bound(n, "max", "7");
+    let both = tampered(&tampered(package, earlier, edit), later, edit);
     assert_eq!(
         refusal_of("two tampered nodes", &both, &evidence_for(&both)),
-        stale_at(&both, &lower)
+        stale_at(&both, later),
+        "the lower digest, not the earlier position"
     );
-    let only_higher = if lower == base.zero {
-        wide_tamper(package)
-    } else {
-        zero_tamper(package)
-    };
-    let higher = std::cmp::max(base.zero.clone(), base.wide.clone());
-    assert_stale("only the higher tampered node", &only_higher, &higher);
+    assert_stale(
+        "only the earlier node",
+        &tampered(package, earlier, edit),
+        earlier,
+    );
 }
 
 /// Tracing: TC-226
@@ -987,18 +1016,199 @@ fn tc_226_the_recorded_scalar_keys_are_the_derived_ones() {
     );
 }
 
-/// A node of a derived shape in a recursion group has no derivable key: the
-/// derivation hashes a preimage whose `recursion` is `null` (FR-038,
-/// IR-627-Q4, an IR reading until QSL answers it).
+/// The recursive packages `record List { next?: List; }` (an `Option`
+/// self-reference, one group) and `record Tree { kids: Sequence<Tree>[0, 3]; }`
+/// (a `Sequence` self-reference and its `collection_bounds`, one group), added
+/// to the base package. Every in-group node carries a placeholder key: QSL keys
+/// such a node under a group digest this reader cannot compute (IR-627-Q4), so
+/// the stage skips it.
+struct Recursive {
+    package: Value,
+    /// The `collection_bounds` node of `Tree`, and the `Sequence<Tree>` node.
+    bounds: String,
+    sequence: String,
+    tree: String,
+}
+
+fn recursive() -> Recursive {
+    let base = base();
+    let key = |name: &str| sha256_hex(format!("recursive {name}").as_bytes());
+    let (list, option) = (key("list"), key("option"));
+    let (tree, sequence) = (key("tree"), key("sequence"));
+    // The bounds carry the key their own body derives, so that dropping the
+    // group label below leaves the key stage nothing to refuse and the cycle
+    // rule is what refuses the package.
+    let bounds = structural_key(
+        "bounded_domain",
+        "collection_bounds",
+        Some(&sequence),
+        &bounds_body("0", "3"),
+    );
+    let record = |key: &str, field: &str, target: &str| {
+        let body = json!({"term": "aggregate", "members": [{
+            "term": "binding", "name": field,
+            "value": {"term": "reference", "target": node_id(target)},
+        }]});
+        node(key, "composite_type", "record", key, &[target], body)
+    };
+    let in_group = |mut node: Value, group: &str| {
+        node["recursion_group"] = json!(group);
+        node
+    };
+    let nodes = vec![
+        in_group(record(&list, "next", &option), "list"),
+        in_group(
+            node(
+                &option,
+                "composite_type",
+                "option",
+                &option,
+                &[&list],
+                over_body(&list),
+            ),
+            "list",
+        ),
+        in_group(record(&tree, "kids", &bounds), "tree"),
+        in_group(
+            node(
+                &sequence,
+                "composite_type",
+                "sequence",
+                &sequence,
+                &[&tree],
+                over_body(&tree),
+            ),
+            "tree",
+        ),
+        in_group(
+            node(
+                &bounds,
+                "bounded_domain",
+                "collection_bounds",
+                &sequence,
+                &[&sequence],
+                bounds_body("0", "3"),
+            ),
+            "tree",
+        ),
+    ];
+    let package = with_nodes(base.package, nodes);
+    admitted("the recursive packages", &package);
+    Recursive {
+        package,
+        bounds,
+        sequence,
+        tree,
+    }
+}
+
+/// A node of the ten shapes that carries a `recursion_group` is skipped, not
+/// refused: the recursive `List` (an `Option`) and `Tree` (a `Sequence` and its
+/// bounds) packages admit. The skip is exactly the grouped nodes: a derived
+/// node outside every group, in the same package, still refuses; and the
+/// `Tree` bounds with the group removed is a cycle outside a declared group, so
+/// the cycle rule refuses it (FR-038-AC-18) and it is never admitted.
 ///
 /// Tracing: TC-226
-/// ACs: FR-038-AC-124
-#[trace("TC-226", "FR-038-AC-124")]
+#[trace("TC-226")]
 #[test]
-fn tc_226_a_derived_shape_node_in_a_recursion_group_has_no_derivable_key() {
+fn tc_226_a_derived_shape_node_in_a_recursion_group_is_skipped_and_one_outside_is_not() {
+    let recursive = recursive();
+    let package = &recursive.package;
+
     let base = base();
-    let package = tampered(&base.package, &base.set, |n| {
-        n["recursion_group"] = json!("g");
+    let outside = tampered(package, &base.wide, |n| set_bound(n, "max", "10"));
+    assert_stale("a derived node outside every group", &outside, &base.wide);
+
+    let ungrouped = tampered(package, &recursive.bounds, |n| {
+        n.as_object_mut().expect("node").remove("recursion_group");
     });
-    assert_stale("a set in a recursion group", &package, &base.set);
+    let refusal = refusal_of("the group removed", &ungrouped, &evidence_for(&ungrouped));
+    assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+    assert_eq!(
+        refusal.path,
+        Some(crate::support::checked_package::pointer(&format!(
+            "/semantic_graph/nodes/{}",
+            at(&ungrouped, &recursive.bounds)
+        )))
+    );
+
+    // With the group removed and a body that is not the node's key's, the key
+    // stage refuses first: it runs before the cycle rule.
+    let ungrouped_tampered = tampered(package, &recursive.bounds, |n| {
+        n.as_object_mut().expect("node").remove("recursion_group");
+        set_bound(n, "max", "5");
+    });
+    assert_stale(
+        "the group removed and the bound changed",
+        &ungrouped_tampered,
+        &recursive.bounds,
+    );
+}
+
+/// The stated soundness limit, recorded as a test: the reader does not verify
+/// the key of an in-group derived-shape node, so each single mutation of the
+/// `Tree` group below, its `node_id` kept and the identity recomputed, is
+/// admitted. When the in-group re-derivation lands (gated on the declared
+/// member's `SourceOwner`, IR-627-Q1 and Q4) these rows move to refusals in the
+/// same change. A consumer must not treat a range, element type or bound read
+/// through such a node as verified.
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_an_in_group_tamper_is_admitted_under_the_skip_the_recorded_limit() {
+    let recursive = recursive();
+    let rows: [(&str, String, Edit); 3] = [
+        (
+            "bounds max changed to 5",
+            recursive.bounds.clone(),
+            Box::new(|n| set_bound(n, "max", "5")),
+        ),
+        (
+            "bounds min changed to 1",
+            recursive.bounds.clone(),
+            Box::new(|n| set_bound(n, "min", "1")),
+        ),
+        (
+            "the sequence's reference re-pointed at the bounds",
+            recursive.sequence.clone(),
+            Box::new({
+                let bounds = recursive.bounds.clone();
+                move |n| n["body"]["members"][0]["target"] = node_id(&bounds)
+            }),
+        ),
+    ];
+    for (row, key, edit) in rows {
+        let package = tampered(&recursive.package, &key, edit);
+        admitted(row, &package);
+    }
+    let _ = &recursive.tree;
+}
+
+/// A `recursion_group` label added to a node that is on no cycle is not a
+/// group: a tamperer who labels the `Int[0, 1000]` node `solo` and changes its
+/// `max` must still be refused `stale-node-key` at the node, under any design
+/// of the in-group skip. (The existing admission of a lone label on an acyclic
+/// node, `tc_048_...`, holds for nodes the stage does not verify.)
+///
+/// Tracing: TC-226
+#[trace("TC-226")]
+#[test]
+fn tc_226_a_lone_group_label_does_not_exempt_a_tampered_range() {
+    let base = base();
+    for (what, key) in [
+        ("integer_range", base.wide.clone()),
+        ("set", base.set.clone()),
+    ] {
+        let package = tampered(&base.package, &key, |n| {
+            n["recursion_group"] = json!("solo");
+            if n["semantic_form"] == "integer_range" {
+                set_bound(n, "max", "10");
+            } else {
+                n["body"]["members"][0]["target"] = node_id(&base.narrow);
+            }
+        });
+        assert_stale(&format!("a labelled acyclic {what}"), &package, &key);
+    }
 }

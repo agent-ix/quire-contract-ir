@@ -461,16 +461,17 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
 #[trace("TC-050", "FR-038-AC-41")]
 #[test]
 fn tc_050_a_recursive_record_requires_a_bound() {
-    // `{kids: Kids, k: Int[0,9]}` where `Tree` is the record and `Kids` an
-    // alias of it: the cycle shares one `recursion_group`, and depth has no
-    // domain. The cycle names no node of a derived shape: such a node in a
-    // recursion group has no derivable key (FR-038, IR-627-Q4).
+    // `{kids: Sequence<Tree>[0,3], k: Int[0,9]}` where `Tree` is the record:
+    // the cycle shares one `recursion_group`, and depth has no domain. The
+    // sequence and its bounds sit in the group, where the derived-key stage
+    // skips them (FR-038, IR-627-Q4).
     let value = package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        in_recursion_group(composite("tree", "record", &["kids", "int09"])),
-        in_recursion_group(composite("kids", "alias", &["tree"])),
+        in_recursion_group(composite("tree", "record", &["kids03", "int09"])),
+        in_recursion_group(composite("kids", "sequence", &["tree"])),
+        in_recursion_group(bounded_collection("kids03", "kids")),
     ]);
     let least = std::cmp::min(id_of("tree"), id_of("kids"));
     assert_eq!(

@@ -23,8 +23,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// `ir_id` of every lowered node, then the lowered package's `package_id` and
-/// canonical byte length, recorded from the lowering before the move to
-/// `quire-canonical`. One `node ir_id` pair per line, in graph order.
+/// canonical byte length. One `node ir_id` pair per line, in graph order.
+///
+/// `RECORDED_NOMINAL` is the table recorded from the lowering before the move to
+/// `quire-canonical`. The tables of `v2_all_families` and
+/// `positive_operation_identities` were re-recorded from the lowering under test
+/// when IR-627 migrated those fixtures to derived keys and closed bodies
+/// (FR-038-AC-134): the fixture's nodes changed, so the pre-move values no longer
+/// apply. For those two fixtures the node-key column is independent (the test
+/// support derives the keys from QSL FR-092's preimage) and every `ir_id` is
+/// recomputed in the test from the wire node (`ir_id_of`), but the
+/// `package_id` and the byte length are a self-snapshot of the current lowering,
+/// not a pre-move oracle.
 const RECORDED_ALL_FAMILIES: &str = "\
 9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa 742a476c3eb3106e7a35ca7a056d806245cbaf50526cdd6749d61330ad7bf187
 64122a85d03d18a2cc2159533da9a64dcf38cbd51d2dd1dc787684b2c6dca3ff f9ec7e88cabdf27428942bdac05604c925502435d8880c4342e74acfe270f8b2
@@ -76,6 +86,26 @@ const OPERATIONS_PACKAGE: (&str, usize) = (
     "c10dac8e60c89fd64a3838f21bc482e560a84baef299808a307cb09604ddeaa4",
     7949,
 );
+
+/// The `ir_id` digest of a lowered node: SHA-256 of the canonical bytes of
+/// `{version, node (the wire node without occurrences), dependencies, bounds,
+/// claims}`, written out from the lowered-node preimage and not through the
+/// code under test.
+fn ir_id_of(wire: &Value, node: &quire_contract_ir::CompleteContractNodeV2) -> String {
+    let mut projection = wire.clone();
+    projection
+        .as_object_mut()
+        .expect("node")
+        .remove("occurrences");
+    let preimage = serde_json::json!({
+        "version": "quire.contract-ir.lowered-node/v1",
+        "node": projection,
+        "dependencies": node.dependencies,
+        "bounds": node.bounds,
+        "claims": node.claims,
+    });
+    sha256_hex(&canonical(&preimage))
+}
 
 fn admit(value: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
@@ -147,6 +177,25 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
             })
             .collect();
         assert_eq!(lowered, expected, "{name}: `ir_id` values");
+        // Each `ir_id` again, recomputed here from the wire node and the
+        // record's own lists, not through the lowering's digest.
+        for (key, record) in requested.iter().zip(&result.records) {
+            let CompleteLoweringRecordV2::Lowered { node } = record else {
+                panic!("{name}: expected a lowered record");
+            };
+            let wire = value["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|wire| wire["node_id"]["digest"] == key.digest.as_ref())
+                .expect("the wire node");
+            assert_eq!(
+                node.ir_id.digest.as_ref(),
+                ir_id_of(wire, node),
+                "{name}: recomputed `ir_id` of {}",
+                key.digest
+            );
+        }
         let id = result
             .package
             .package_id()
