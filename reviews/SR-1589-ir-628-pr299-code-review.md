@@ -71,3 +71,9 @@ the old `resolve` and the new one. The cost numbers, the stage placement and the
 semantics match the spec. There is one low finding, a stale comment. The test-oracle
 gaps, including one high, are recorded in SR-1590 (gap analysis), and the status and
 mutation-row defects of the spec in SR-1591.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |

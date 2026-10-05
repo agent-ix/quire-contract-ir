@@ -121,3 +121,12 @@ Semantic review was performed through the mutation runs, at the dispatcher's req
 - Reverse gaps: none found. Every new non-test item in `model_fields.rs` is owned by an
   FR-038 item.
 - Stubs: none found.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-002 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-003 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-004 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |

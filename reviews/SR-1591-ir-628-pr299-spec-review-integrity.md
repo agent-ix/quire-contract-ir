@@ -56,3 +56,13 @@ other findings are low. Three mutation rows of the spec cannot be caught at all
 decisions are left unstated (FND-005). `quire coverage --strict` does not overstate
 coverage: each AC has its own direct claims. The strict failure (37 unbacked rows) is
 main's baseline.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-002 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-003 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
+| FND-004 | still-open | AC-144 still calls for frame, abstraction and relationship-edge field charge observations. The only checks remain at ModelOwners::resolve_member and DomainModel::resolve; TC-227 still discloses that end-to-end cases are unexercised. |
+| FND-005 | fixed | 65622b8230443d661fa00aa55c2f02169b3fba3e |
