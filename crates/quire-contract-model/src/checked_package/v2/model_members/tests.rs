@@ -535,3 +535,179 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
         Some("/lock/model_selections/1")
     );
 }
+
+/// One object type of a differential document: its short name, the short
+/// names of its supertypes, and its fields as `(name, redefined member)`.
+type Declared<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, Option<&'a str>)]);
+
+const ORDERS: &str = "ix://acme/orders/";
+
+/// A document declaring `types`; a redefined member is written `Owner/name`.
+fn differential_document(types: &[Declared<'_>]) -> Value {
+    document(
+        types
+            .iter()
+            .map(|(short, supertypes, fields)| {
+                let node = format!("{ORDERS}{short}");
+                let supertypes: Vec<String> = supertypes
+                    .iter()
+                    .map(|supertype| format!("{ORDERS}{supertype}"))
+                    .collect();
+                let supertypes: Vec<&str> = supertypes.iter().map(String::as_str).collect();
+                let fields = fields
+                    .iter()
+                    .map(|(name, redefines)| {
+                        let mut declared = field(&node, name, "ix://quire/native/Integer");
+                        if let Some(target) = redefines {
+                            declared["redefines"] = json!(format!("{ORDERS}{target}"));
+                        }
+                        declared
+                    })
+                    .collect();
+                object_type(&node, &supertypes, fields)
+            })
+            .collect(),
+    )
+}
+
+/// For each type of `types`, the field names that resolve on it (and to
+/// which member), or are ambiguous, in name order, as `resolve` answers them:
+/// `Type: name=Owner/name name=ambiguous`.
+fn resolutions(label: &str, types: &[Declared<'_>]) -> Vec<String> {
+    let model = read(&differential_document(types)).expect("the document reads");
+    let names: BTreeSet<&str> = types
+        .iter()
+        .flat_map(|(_, _, fields)| fields.iter().map(|(name, _)| *name))
+        .collect();
+    types
+        .iter()
+        .map(|(short, _, _)| {
+            let node = format!("{ORDERS}{short}");
+            let answers: Vec<String> = names
+                .iter()
+                .filter_map(
+                    |name| match resolve(&model, &node, MemberKind::Field, name) {
+                        Ok(resolved) => Some(format!(
+                            "{name}={}",
+                            resolved.identity().trim_start_matches(ORDERS)
+                        )),
+                        Err(refusal) if refusal == ModelRefusal::ambiguous() => {
+                            Some(format!("{name}=ambiguous"))
+                        }
+                        Err(_) => None,
+                    },
+                )
+                .collect();
+            format!("{label}/{short}: {}", answers.join(" "))
+        })
+        .collect()
+}
+
+/// The documents whose resolutions are recorded below, each with cyclic or
+/// redefining declarations.
+fn differential_documents() -> Vec<(&'static str, Vec<Declared<'static>>)> {
+    vec![
+        ("self_cycle", vec![("A", &["A"], &[("f", None)])]),
+        (
+            "two_cycle",
+            vec![("A", &["B"], &[("a", None)]), ("B", &["A"], &[("b", None)])],
+        ),
+        (
+            "self_cycle_redefinition",
+            vec![("A", &["A"], &[("f", None), ("g", Some("A/f"))])],
+        ),
+        (
+            "extends_cycle",
+            vec![("A", &["A"], &[("f", None)]), ("C", &["A"], &[("c", None)])],
+        ),
+        (
+            "cycle_over_base",
+            vec![
+                ("P", &[], &[("x", None)]),
+                ("A", &["A", "P"], &[("f", Some("P/x")), ("h", None)]),
+                ("C", &["A"], &[("c", None)]),
+            ],
+        ),
+        (
+            "two_cycle_shared_target",
+            vec![
+                ("P", &[], &[("x", None)]),
+                ("A", &["B"], &[("a", Some("P/x"))]),
+                ("B", &["A", "P"], &[("b", Some("P/x"))]),
+                ("C", &["A"], &[("c", None)]),
+            ],
+        ),
+        (
+            "diamond",
+            vec![
+                ("Base", &[], &[("x", None), ("z", None)]),
+                ("L", &["Base"], &[("x", Some("Base/x"))]),
+                ("R", &["Base"], &[("x", Some("Base/x"))]),
+                ("M", &["L"], &[("x", Some("L/x"))]),
+                ("Bottom", &["M", "R"], &[("y", None)]),
+                ("Both", &["L", "R"], &[]),
+            ],
+        ),
+        (
+            "ambiguity",
+            vec![
+                ("T1", &[], &[("x", None)]),
+                ("T2", &[], &[("x", None)]),
+                ("T3", &["T1", "T2"], &[("y", None)]),
+            ],
+        ),
+        (
+            "redefining_chain",
+            vec![
+                ("C0", &[], &[("f", None), ("g", None)]),
+                ("C1", &["C0"], &[("f", Some("C0/f"))]),
+                ("C2", &["C1"], &[("f", Some("C1/f"))]),
+                ("C3", &["C2"], &[]),
+            ],
+        ),
+    ]
+}
+
+/// The values `DomainModel::resolve` returned for each document of
+/// [`differential_documents`] before IR-628 changed it, recorded by running
+/// that function and pasted here; the field tables of IR-628 are compared
+/// with them, not with a reading of the code.
+///
+/// Tracing: TC-227, FR-038-AC-144
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
+    let actual: Vec<String> = differential_documents()
+        .iter()
+        .flat_map(|(label, types)| resolutions(label, types))
+        .collect();
+    let recorded = [
+        "self_cycle/A: f=A/f",
+        "two_cycle/A: a=A/a b=B/b",
+        "two_cycle/B: a=A/a b=B/b",
+        "self_cycle_redefinition/A: ",
+        "extends_cycle/A: f=A/f",
+        "extends_cycle/C: c=C/c f=A/f",
+        "cycle_over_base/P: x=P/x",
+        "cycle_over_base/A: h=A/h",
+        "cycle_over_base/C: c=C/c h=A/h",
+        "two_cycle_shared_target/P: x=P/x",
+        "two_cycle_shared_target/A: ",
+        "two_cycle_shared_target/B: ",
+        "two_cycle_shared_target/C: c=C/c",
+        "diamond/Base: x=Base/x z=Base/z",
+        "diamond/L: x=L/x z=Base/z",
+        "diamond/R: x=R/x z=Base/z",
+        "diamond/M: x=M/x z=Base/z",
+        "diamond/Bottom: x=ambiguous y=Bottom/y z=Base/z",
+        "diamond/Both: x=ambiguous z=Base/z",
+        "ambiguity/T1: x=T1/x",
+        "ambiguity/T2: x=T2/x",
+        "ambiguity/T3: x=ambiguous y=T3/y",
+        "redefining_chain/C0: f=C0/f g=C0/g",
+        "redefining_chain/C1: f=C1/f g=C0/g",
+        "redefining_chain/C2: f=C2/f g=C0/g",
+        "redefining_chain/C3: f=C2/f g=C0/g",
+    ];
+    assert_eq!(actual, recorded);
+}
