@@ -1749,17 +1749,20 @@ proposed `quire.structural-node/v1` preimage, which QSpec does not publish.
 ### Anonymous structural node bodies and keys
 
 Measured at `origin/main` (IR-627, whose own text is a claim and was
-re-measured): the key check re-derives exactly two families of node key, the
-nominal keys ("Every identity digest is computed through quire-canonical") and
-the application keys ("Application node keys"). No stage re-derives the key of
-an anonymous structural node (`bounded_domain` of any form, and the
+re-measured): the reader re-derives three families of node key, the nominal
+keys ("Every identity digest is computed through quire-canonical"), the
+application keys ("Application node keys") and the model declaration node keys
+(owner recovery, step 2 of "Model-owned members", which refuses
+`stale-node-key` for a fixed member that does not hold). No stage re-derives the
+key of an anonymous structural node (`bounded_domain` of any form, and the
 self-typed `scalar_type` and `composite_type` forms), so a node of that kind
 is admitted with whatever `node_id` it carries. Step 4 of "Model-owned
 members" compares a member's derived type with the application's `result_type`
 by the digest of the node key alone: the reader derives the key of `Int[lo, hi]`
 from the declared bounds (`MemberType::node_key`, `pub(super)`, so the package
 exports no function for it) but never reads the body of the node that
-`result_type` names. A package whose `Int[0, 1000]`-keyed `bounded_domain`/
+`result_type` names, and an `Option`, a collection, a `Reference` or an
+operation parameter type is compared by its key alone in the same way. A package whose `Int[0, 1000]`-keyed `bounded_domain`/
 `integer_range` node carries the body bounds `0` and `10`, or `0` and `5000`,
 under the unchanged `node_id`, with `identity_projection` and `package_id`
 recomputed, therefore admits today. A consumer that takes the range from the
@@ -1767,69 +1770,127 @@ node body (quire-contract-codegen's field range and state domain, which a
 verification harness then assumes) assumes a range the declaration does not
 state, and a narrower one yields a verdict that is unsound.
 
-The preimage of `quire.structural-node/v1` is QSL's proposal. QSpec FR-322
-publishes the nominal and application preimages and not this one, and this
-repository has no QSpec file for it. This section does not state it, copy it
-or infer it for any form the reader does not already derive. It decides the
-two things that can be decided now and leaves the third gated.
+The preimage of an anonymous node is QSL's: QSpec FR-322 step 4 says each
+anonymous member-type node is keyed "exactly as QSL FR-092 and FR-094 key it",
+and QSpec publishes the `quire.structural-node/v1` preimage itself only for the
+model declaration node (the `ModelOwner` form). The reader already derives, from
+that QSL preimage, the keys of the ten node shapes `MemberType::node_key`
+covers. This section does not state a preimage, copy a QSL or QSpec file, or
+infer a preimage for any form the reader does not already derive. It decides
+what needs no new preimage and gates the rest.
 
-**Body against derived type (decided, needs no preimage).** When step 4's
-member type is `Int[lo, hi]` or a bounded collection `K<E>[l, u]`, the reader
-shall read the body of the node the application's `result_type` names, once its
-digest equals the derived key, and compare the values in that body with the
-member type's bounds by exact integer comparison, and not by hashing. The node
-shall be a `bounded_domain` of form `integer_range` (or `collection_bounds`),
-its body an `aggregate` of exactly the bindings `min` and `max`, each an
-`integer` literal whose `type` is the `scalar_type`/`integer` node and whose
-value is a canonical decimal string (the grammar `parameter` nodes already use),
-and the two values shall equal the member type's `lo` and `hi` (`l` and `u`).
-A node that fails any of these refuses `invalid_package` with cause
-`stale-node-key` at that node's `node_id`: its key names a range its body does
-not hold, so the key is stale for the body, the cause the reader already uses
-for a key that does not match its node. The choice of arithmetic over a
-digest is on the merits. A digest can only restate the key the tamperer kept,
-and the comparison with the declaration's own bounds is the property the
-consumer relies on; it is also checkable with the code the reader has today
-and with no new preimage. It is not a substitute for key re-derivation below,
-because it reaches only a node that a model-owned member read names.
+**Decided: re-derive the key of every node shape the reader already derives.**
+The shapes, enumerated from `MemberType::node_key`, are `scalar_type` of form
+`boolean` and `integer`; `composite_type` of form `reference`, `option`, `set`,
+`bag`, `sequence` and `ordered_set`; and `bounded_domain` of form
+`integer_range` and `collection_bounds`. Each of the following is its own requirement:
 
-**Every anonymous structural node (gated).** The reader shall re-derive the
-`node_id` of every anonymous structural node (`bounded_domain` of every form,
-and any other anonymous form whose body carries values, among them
-`compound_unit`, `parameter`, `union` and the value forms) from its own body,
-`semantic_type`, `node_tag` and `semantic_form` by the published preimage, and
-shall refuse a node whose stored key differs, `invalid_package` with cause
-`stale-node-key` at that node's `node_id`, in ascending node-id digest order
-and after the graph-shape refusals of "Parameter and compound-unit nodes, and
-the application dependency join". This requirement is gated on the open
-questions below and is planned, not implemented; no code is written against
-it until the owner of the preimage has decided them. When the gate lifts, the
-reader shall extend the one function that already derives the keys of
-`MemberType` to the forms it does not yet cover, not add a second derivation,
-and `MemberType::node_key` and the admission check shall be the same function.
+1. When a node of one of these shapes carries no `declaration`, the reader
+   shall re-derive its `node_id` from the node's own `node_tag`,
+   `semantic_form`, `semantic_type` and body.
+2. The reader shall derive that key by the one function `MemberType::node_key`
+   calls, and by no second function.
+3. When the body of such a node is not exactly the closed body of its form,
+   the reader shall treat the node as having no derivable key.
+4. When the stored `node_id` of such a node differs from the derived key, or
+   the node has no derivable key, the reader shall refuse the package as
+   `invalid_package` with cause `stale-node-key` at that node's `node_id`: the
+   cause the reader already uses for a key that does not match its node.
+5. When a `scalar_type` or `composite_type` node of these shapes is not its own
+   `semantic_type`, the reader shall refuse it as item 4 does, because the
+   preimage records that member as `null` and the key cannot show a
+   re-pointed one. The `semantic_type` of a `bounded_domain` node is in the
+   preimage, so the key covers it.
 
-Open questions for the QSpec owner (IR-627-Q1 to Q4):
+The closed bodies are: `scalar_type` `aggregate{[]}`; `reference`, `option` and
+the four collections an `aggregate` of exactly one `reference`; `integer_range`
+and `collection_bounds` an `aggregate` of exactly the bindings `min` then `max`,
+each an `integer` literal typed at the node keyed as the `scalar_type`/`integer`
+node and valued by a canonical decimal string. The bounds are not parsed to a
+fixed-width integer or a float: they enter the preimage as their canonical
+strings, so an `i128`-wide bound and one past it are compared exactly. The
+literal `type` is part of the preimage, so a literal typed at any node other
+than the derived `Integer` key changes the key.
 
-1. **Q1.** Is `quire.structural-node/v1` the authoritative identity of an
-   anonymous structural node, and where is its preimage published, per form:
-   `integer_range`, `rational_range`, `decimal_range`, `float_rounding`,
-   `text_bounds`, `collection_bounds`, `model_population`, `compound_unit`,
-   `parameter`, `union` and the value forms? IR derives only `Integer` and
-   `Boolean` scalars, `Reference`, `Option`, the four collection forms,
-   `integer_range` and `collection_bounds` today, from QSL FR-092 and FR-094.
-2. **Q2.** How does IR depend on that preimage without copying it: as a
-   published vector file read from the QSpec checkout at `make conformance-qspec`
-   (as FR-038-AC-112 and AC-113 read `adverse.json`), as a QSpec-owned crate, or
-   as an `Encode`-style type in `quire-canonical`?
+This one rule closes every route to a tampered range, and why it replaces an
+arithmetic comparison of body bounds against the member type, on the merits.
+The comparison would reach only the node a model-owned member read names, and
+would leave open a range reached through an `Option`, a collection, an
+operation parameter's argument key, a state field's body target, or a scalar
+operand's bound, each of which the consumer reads without passing through
+that member read. Re-derivation checks the body of every such node against its
+own key, so a node whose key equals a declared key holds exactly the range that
+key denotes; a node re-pointed at another node changes its own key; and the
+existing digest comparisons of "Model-owned members" step 4 and of operand and
+parameter types then compare keys that are true. A separate arithmetic check
+would restate a subset of this and is not specified.
+
+**Trust root.** The member type step 4 derives comes from the domain document
+that the caller's evidence supplies under the `model_selections` digest, whose
+RFC 8785 digest and identity the reader recomputes (FR-038-AC-27). The check is
+sound relative to that evidence. A tamperer who re-points `model_selections` at
+a document declaring a narrower range changes `package_id` and, with no such
+document in the caller's evidence, is refused `missing_import`/`missing-selection`
+at the row's `digest` (FR-038-AC-27); which document is authoritative for a
+lock is the caller's decision and is outside this reader, which admits a package
+against whatever evidence it is given.
+
+**Gated: forms with no preimage the reader derives.** The reader shall re-derive
+the `node_id` of every other structural node by the preimage QSL publishes once
+the open questions below are answered. The nodes are `bounded_domain` of form
+`rational_range`, `decimal_range`, `float_rounding`, `text_bounds` and
+`model_population`; `scalar_type` of form `rational`, `decimal`, `float32`,
+`float64`, `text` and `compound_unit`; `composite_type` of form `record`,
+`tuple`, `union` and `alias`; `value` of form `literal`, `collection_value`,
+`record_value`, `tuple_value`, `union_value`, `option_value` and `parameter`;
+every node of the shapes decided above that carries a `declaration` (a named
+`bounded_domain`, a declared record or tuple, and a declared function), whose
+preimage has a `declaration` member the reader holds as `null`; and every node
+of any other tag whose key no stage derives today (expression, function, model,
+relation, state, temporal, protocol, claim and correspondence nodes that are
+not application nodes or model declaration nodes). Nominal forms (`enum`,
+`enum_value`, `dimension`, `unit`) are already re-derived and are not listed.
+The gated requirement is planned, not implemented, and no code is written
+against it until the questions are answered.
+
+When the gate lifts, the reader shall derive the gated forms by the function
+of item 2 above and by no second function.
+
+**First-refusal order.** The reader shall run the decided re-derivation as its
+own stage in the stale-key stage of `validate_graph`: after the graph-shape
+stage ("Parameter and compound-unit nodes, and the application dependency
+join") and the application key stage, and before the nominal key stage and
+before every declaration, frame, state, temporal, abstraction and operation
+step. Within that stage the reader shall visit nodes in ascending digest order
+of the node's own `node_id`, charging one work unit per node, and shall report
+the first stale node at its own `node_id`. Because the stage does not run
+inside the operation step, a tampered node is reported at itself and never at
+an application that reads it, and ahead of any `ill_typed` defect of such an
+application.
+
+Open questions (IR-627-Q1 to Q4), for the owner of QSL FR-092 and FR-094 and
+for the QSpec owner of FR-322:
+
+1. **Q1.** Is `quire.structural-node/v1`, as QSL FR-092 and FR-094 publish it,
+   the authoritative preimage of each anonymous and each declared structural
+   node, and does it publish golden vectors for the forms the reader does not
+   yet derive (the gated list above)?
+2. **Q2.** How does IR depend on that preimage without copying it: golden
+   vectors read from the QSL or QSpec checkout at a `make conformance-*`
+   target (as FR-038-AC-112 and AC-113 read QSpec's `adverse.json`), or a
+   published type in `quire-canonical`? Neither copies a file into this
+   repository.
 3. **Q3.** Is `invalid_package`/`stale-node-key` the refusal for a structural
    key that differs from its body, or does QSpec want a distinct cause?
-4. **Q4.** May an anonymous structural node sit in a `recursion_group`, and may
-   two nodes of the package carry one key; if not, which refusal is it?
+4. **Q4.** May a node of a derived shape sit in a `recursion_group`, and may
+   two nodes of the package carry one key; if not, which refusal is it? The
+   decided rule hashes a preimage with `recursion` `null`, so it refuses a
+   derived-shape node that has one, as an IR reading until Q4 is answered.
 
 IR-628 (a typed accessor for a model object type's effective fields) is
 related and is not decided here: it would let a consumer read a declared range
 without trusting any `result_type`, and it does not remove the need for the
-body check above, because any node a consumer reads can be tampered.
+re-derivation above, because any node a consumer reads can be tampered.
 
 ### Application node keys
 
@@ -2444,14 +2505,16 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-120 | Each of these timed-form intervals refuses `invalid_package`/`invalid-value` at the bound, `/semantic_graph/nodes/{n}/body/operation/member/interval/lower` (or `.../upper` where it is the `upper` that fails), in strict wire validation, before the `package_id` recomputation, any node-key check and any temporal step (so also in a package whose `package_id` and node ids are all stale), with the bound of the first failing member in member order (`lower` then `upper`) and the same refusal under `quire.temporal.timed/v1`, `quire.temporal.infinite-trace/v1` and each of the three bounded profiles: `lower` with `numerator` `"-1"` (merged FR-370-AC-9's negative numerator), `lower` with `numerator` `"01"`, `upper` with `denominator` `"0"`, `upper` with `denominator` `"-2"`, `lower` a JSON integer `0`, `lower` the string `"3"`, and `upper` `null` with the four members present (an IR reading from the member-set rule: merged FR-370 states the upper bound is always present); a timed form with `lower` numerator `"-1"` and `upper` denominator `"0"` refuses at `lower`; the pointer is an IR reading, the published schema naming `.../lower/numerator` and the crate's rational check of a nominal preimage `.../numerator`; and a package whose first node holds a non-reduced bound and whose later node holds any of these pattern failures refuses `invalid-value` at the later node's bound. | Test (TC-048) |
 | FR-038-AC-121 | Under `quire.temporal.timed/v1`, `lower` `{numerator: "2", denominator: "4"}` refuses `invalid_semantic_graph` at `.../interval/lower` (the code is merged FR-370 and FR-322-AC-10's; the stage after strict wire validation and the identity recomputation, before the model-selection owners step, and the locus are an IR reading), before the temporal step, so a package holding it beside a profile-fit defect in a lower-digest node refuses `invalid_semantic_graph`; a non-reduced `lower` `{numerator: "2", denominator: "4"}` with `upper` numerator `"-1"` refuses `invalid_package`/`invalid-value` at `.../interval/upper`, a negative `lower` numerator `"-1"` with a non-reduced `upper` refuses `invalid-value` at `.../interval/lower`, and a non-reduced `upper` alone refuses `invalid_semantic_graph` at `.../interval/upper`; `(3, 3]`, `[3, 3)` and `(3, 3)` with both bounds `{numerator: "3", denominator: "1"}`, and `lower` `{numerator: "5", denominator: "2"}` over `upper` `{numerator: "2", denominator: "1"}`, refuse `invalid_package`/`invalid-value` at `/semantic_graph/nodes/{n}/body` (merged FR-370 and FR-370-AC-8), while `[3, 3]` admits; `lower` `{numerator: "1", denominator: "2"}` with `upper` `{numerator: "2", denominator: "3"}` admits and the two swapped refuses; and, both ends `closed`, `lower` `{numerator: "18446744073709551617", denominator: "3"}` with `upper` `{numerator: "18446744073709551616", denominator: "3"}` refuses `invalid-value` at the body, which a float comparison, rounding both numerators to 2^64, gets wrong by admitting it, and the two bounds swapped admit, which a checked parse into 64 bits gets wrong; that beyond-2^64 package, `lower` `{numerator: "18446744073709551617", denominator: "3"}` and `upper` `{numerator: "18446744073709551616", denominator: "3"}`, read with a work limit that the GCD or cross-multiplication of its bounds takes past returns `incomplete` naming the `work` limit (FR-038-AC-3) and no refusal of the interval. | Test (TC-048) |
 | FR-038-AC-122 | The timed form `{lower, upper, lower_end, upper_end}` with bounds `{numerator: "0", denominator: "1"}` and `{numerator: "3", denominator: "1"}` and both ends `closed` refuses `invalid_package`/`operation-member-mismatch` at `/semantic_graph/nodes/{n}/body` under `quire.temporal.infinite-trace/v1` and under each of the three bounded profiles (merged FR-370-AC-8), and admits under `quire.temporal.timed/v1`, whose refusal of an integer-form `{lower, upper}` and of `{lower, upper: null}` is FR-038-AC-104's; four-member intervals with valid rational bounds and `lower_end` `"half"`, or `upper_end` `"half"`, each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`, as do `{lower: "0", upper: "3", lower_end: "closed"}` (a missing end, integer-string bounds), `{lower: "0", upper: "3", lower_end: "closed", upper_end: "closed", extra: "x"}` (a fifth member, integer-string bounds), each an IR reading that diverges from the published schema, whose closed interval `oneOf` and end `enum` fail them at strict wire validation, and each reported at the operation step after the temporal step, so a profile-fit defect in a higher-digest clause is reported first; and the same missing-end and fifth-member intervals with the rational-object bounds of the timed form refuse `invalid-value` at `.../interval/lower` instead, an interval of another member set having no form, its bounds judged against the integer pattern (an IR reading). | Test (TC-048) |
-| FR-038-AC-123 | Tamper regression (IR-627; planned, ungated). Over a package whose model-owned field read names a `bounded_domain`/`integer_range` node keyed as `Int[0, 1000]` (the field declared `Int[0, 1000]` in the selected domain document), the unmutated package admits; the same package with that node's `max` binding changed to `10`, and separately to `5000`, the `node_id` kept, `identity_projection` patched and `package_id` recomputed through `quire-canonical` in the test, each refuses `invalid_package`/`stale-node-key` at that node's `node_id` and returns no package. Mutation rows: `max` changed to `10`; `max` changed to `5000`; `min` changed to `1`; `min` and `max` swapped. Neither the digest comparison nor the identity checks can refuse these, so a reader that still compares only the digest of the node key admits all four and fails the test. | Test (TC-226) |
-| FR-038-AC-124 | Body shape (IR-627; planned, ungated). The `result_type` of a model-owned field read of member type `Int[lo, hi]` names a `bounded_domain`/`integer_range` node whose body is an `aggregate` of exactly the bindings `min` then `max`, each an `integer` literal typed at the `scalar_type`/`integer` node with a canonical decimal string value, and admits; a body with `max` absent, a third binding, the bindings in the order `max`, `min`, a `max` of `"01"`, `"+5"` or `""`, a `max` literal typed at a node other than the integer scalar, or a `max` that is a `text` literal, each refuses `invalid_package`/`stale-node-key` at that node's `node_id`. Each row differs from the unmutated body in one member, so a check that compares only `max` fails on the `min`, order, count and type rows. | Test (TC-226) |
-| FR-038-AC-125 | Exact arithmetic at the extremes (IR-627; planned, ungated). Over fields declared `Int[0, 0]` and `Int[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]` (the `i128` extremes), a node whose body repeats the declared bounds admits, and a node whose `max` differs from the declared bound by one in either direction refuses as AC-123 does. The comparison is by value on integers: a comparison through a lossy float conversion would admit `"170141183460469231731687303715884105726"` against the `i128` maximum and fails this row. | Test (TC-226) |
-| FR-038-AC-126 | Bounded collection (IR-627; planned, ungated). When the member type is a bounded collection `K<E>[l, u]`, the node `result_type` names is a `bounded_domain`/`collection_bounds` node whose `min` and `max` bindings equal `l` and `u` and admits; a `collection_bounds` node with `u` changed by one, with `l` and `u` swapped, or one whose `semantic_form` is `integer_range` under the unchanged key, each refuses as AC-123 does. | Test (TC-226) |
-| FR-038-AC-127 | Order and locus (IR-627; planned, ungated). A package holding a tampered node of the AC-123 kind and an earlier graph-shape defect reports the graph-shape defect first; a package holding two tampered nodes reports the one first in ascending node-id digest order. Each is `invalid_package`/`stale-node-key` at that node's `node_id`, naming the node whose body is wrong and not the application that read it, and never `ill_typed`/`operator-ineligible`. | Test (TC-226) |
-| FR-038-AC-128 | Gate on structural key re-derivation (IR-627; planned and GATED on IR-627-Q1 to Q4). When the preimage of every anonymous structural form is published and the gate lifts, the reader refuses, for every `bounded_domain` form (`integer_range`, `rational_range`, `decimal_range`, `float_rounding`, `text_bounds`, `collection_bounds`, `model_population`), `compound_unit`, `parameter`, `union` and value-form node, a stored `node_id` that differs from the digest of its re-derived preimage as `invalid_package`/`stale-node-key` at that node's `node_id`, whether or not any application names the node. Mutation rows, one per form: change one body value, keep the node id. A reader that derives only the forms `MemberType` derives today admits the rows of the other forms and fails the test. Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
-| FR-038-AC-129 | One derivation (IR-627; planned and GATED as AC-128). The function that derives a structural key for admission is the function `MemberType::node_key` calls, and no second function derives one; the key of `Int[0, 1000]` derived by admission from a node's body equals the key derived from the declared bounds. Observed by a test that derives both and compares them for the bounds of AC-125, and by an inspection that the source has one `quire.structural-node/v1` preimage type. | Test (TC-226) |
-| FR-038-AC-130 | No copy (IR-627; planned and GATED as AC-128). The structural preimage vectors the reader is checked against are read from the QSpec checkout named by `QUIRE_SPECIFICATION_DIR` and are not copied into this repository, or are consumed through a QSpec-published crate, whichever IR-627-Q2 decides; a test fails closed when the source is absent, as FR-038-AC-112 does. | Test (TC-226) |
+| FR-038-AC-123 | Tamper regression (IR-627; planned, ungated). Over a package whose model-owned field read names a `bounded_domain`/`integer_range` node keyed as `Int[0, 1000]` (the field declared `Int[0, 1000]` in the selected domain document), the unmutated package admits; the same package with that node's `max` binding changed to `10`, and separately to `5000`, the `node_id` kept, `identity_projection` patched and `package_id` recomputed through `quire-canonical` in the test, each refuses `invalid_package`/`stale-node-key` at that node's `node_id` and returns no package. Mutation rows: `max` changed to `10`; `max` changed to `5000`; `min` changed to `1`; `min` and `max` swapped. The same four rows over an `Int[0, 1000]` node that no member read names (a scalar operand's bound and a state field's body target) refuse identically, so a reader that only compared the node a member read names admits those and fails. | Test (TC-226) |
+| FR-038-AC-124 | Closed body of each derived shape (IR-627; planned, ungated). An `integer_range` or `collection_bounds` node whose body is an `aggregate` of exactly the bindings `min` then `max`, each an `integer` literal typed at the `Integer`-keyed node with a canonical decimal string, and whose key is the derived one, admits. A body with `max` absent, a third binding, the order `max`, `min`, a `max` of `"01"`, `"+5"` or `""`, a `max` literal typed at the node keyed as `Boolean` or at any node other than the `Integer`-keyed one, or a `max` that is a `text` literal, each refuses `invalid_package`/`stale-node-key` at that node's `node_id`. A `scalar_type`/`integer` node with a non-empty body, a `reference`, `option` or collection node with no member, two members or a member that is not a `reference`, each refuses identically. | Test (TC-226) |
+| FR-038-AC-125 | Self-typing and `semantic_type` (IR-627; planned, ungated). A `scalar_type` or `composite_type` node of a derived shape whose `semantic_type` is another node refuses `invalid_package`/`stale-node-key` at its `node_id`, although its key is unchanged. A `collection_bounds` node whose `semantic_type` is re-pointed at a collection of another element range, an `integer_range` node whose `semantic_type` is re-pointed at a node other than the `Integer`-keyed one, and a `collection_bounds` node whose `min` and `max` literal `type` is re-pointed at a genuinely keyed node of another type, each keep the stored `node_id` and each refuse the same way, because `semantic_type` and the literal `type` are in the preimage. | Test (TC-226) |
+| FR-038-AC-126 | Indirect redirection (IR-627; planned, ungated). Over fields and operations declared `Option<Int[0, 1000]>`, `Set<Int[0, 1000]>`, `Sequence<Int[0, 1000]>`, `Reference<O>` and an operation parameter typed `Int[0, 1000]`, a package in which the `option`, a collection or `reference` node keeps its stored key while its body `reference` is re-pointed at a genuinely keyed `Int[0, 10]` node, and one in which the parameter's type node holds the body `max` `10`, each refuses `invalid_package`/`stale-node-key` at the re-pointed or tampered node's `node_id`, and never `ill_typed`. A reader that re-derived only `integer_range` nodes admits the re-pointed `option`, collection and `reference` rows and fails. | Test (TC-226) |
+| FR-038-AC-127 | Stage and order (IR-627; planned, ungated). The derived-shape re-derivation runs after the graph-shape stage and the application key stage and before the nominal key stage and every declaration, frame, state, temporal, abstraction and operation step. A package holding a graph-shape defect and a tampered node reports the graph-shape defect; one holding a stale application key and a tampered node reports the stale application key; one holding a tampered node and an `ill_typed` defect in an application that reads it reports the tampered node; one holding two tampered nodes reports the one whose own `node_id` digest is lower. Each report is `invalid_package`/`stale-node-key` at that node's `node_id` and never at the reading application. | Test (TC-226) |
+| FR-038-AC-128 | Exact bounds at the extremes (IR-627; planned, ungated). Over fields declared `Int[0, 0]` and `Int[-170141183460469231731687303715884105728, 170141183460469231731687303715884105727]` (the `i128` extremes), a node holding the declared bounds admits and a node whose `max` differs from the declared bound by one in either direction refuses as AC-123 does. A comparison through a lossy float conversion would admit `"170141183460469231731687303715884105726"` against the `i128` maximum and fails this row. | Test (TC-226) |
+| FR-038-AC-129 | Trust root (IR-627; planned, ungated). A package whose `model_selections` row is re-pointed at a document declaring `Int[0, 10]`, whose node is re-keyed to `Int[0, 10]` and whose `package_id` is recomputed refuses `missing_import`/`missing-selection` at the row's `digest` when the evidence holds only the original document (FR-038-AC-27). The same package admits when the caller's evidence also holds the re-pointed document, because the reader admits a package against the evidence it is given, and the test records that admission as the stated limit of the trust root. | Test (TC-226) |
+| FR-038-AC-130 | One derivation (IR-627; planned, ungated). For each of the ten derived shapes the key the admission stage derives from a node's own body equals the key `MemberType::node_key` derives from the matching member type, and a node whose body is built from the derived key's own preimage admits. A test derives both for each shape over the bounds of AC-128 and compares them. | Test (TC-226) |
+| FR-038-AC-131 | Gated forms (IR-627; planned and GATED on IR-627-Q1 to Q4). When QSL's preimage for the gated forms is available to the reader without copying, a stored `node_id` that differs from the derived key refuses `invalid_package`/`stale-node-key` at that node's `node_id` for each gated form: `rational_range`, `decimal_range`, `float_rounding`, `text_bounds`, `model_population`, `compound_unit`, `parameter`, `union`, `record`, `tuple`, the value forms, and a declared (`declaration`-carrying) node of each derived shape. Mutation rows, one per form: change one body value and keep the node id. A reader that derives only the ten decided shapes admits every row and fails. Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
+| FR-038-AC-132 | No copy (IR-627; planned and GATED as AC-131). The vectors or types the reader is checked against for the gated forms come from the source IR-627-Q2 names, are not copied into this repository, and a test that reads them fails closed when the source is absent, as FR-038-AC-112 does. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
