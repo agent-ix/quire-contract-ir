@@ -1935,7 +1935,8 @@ as the "Application node keys" section states, and a skipped node still passes
 every other check the reader makes of it, among them FR-038-AC-18's refusal of
 a cycle outside a declared `recursion_group`.
 
-**Stated soundness limit.** Until the gate of FR-038-AC-150 lifts, the reader
+**Stated soundness limit.** Until the gate of FR-038-AC-150 lifts (IR-630,
+blocked by QSL-638), the reader
 does not verify the key, and therefore not the body, of a skipped node. A
 changed `max` of the `Sequence<Tree>[0, 3]` node, with its `node_id` kept, is
 admitted by this stage. The limit includes a forged group: a tamperer who
@@ -1961,7 +1962,8 @@ FR-015 section, is the place to propose it) and this specification places no
 obligation on that repository.
 
 **Gated: in-group re-derivation.** Once the reader derives the preimage of each
-declared member of a group, including its `SourceOwner` (IR-627-Q1 and Q4), it
+declared member of a group, including its `SourceOwner` (IR-627-Q1 and Q4;
+the follow-up is IR-630, blocked by QSL-638, with a spec amendment first), it
 shall re-derive every structural node of that group by the QSL FR-092 rules
 above, by the function of item 2, and by no second function (FR-038-AC-150). A
 group with no declared member is not gated on the owner (Q4); it waits only for
@@ -2087,11 +2089,15 @@ for the QSpec owner of FR-322:
    (FR-092 "The group order", item 5), so a group holds no two nodes of one key.
    The earlier IR reading, that such a node is refused, is superseded: the
    decided stage skips it ("Derived-shape nodes inside a recursion group").
-   Still open, for the owners of QSL FR-092 and QSpec FR-322: how a reader
-   recovers a declared group member's `SourceOwner` (a wire `owner` member, or
-   one derived from the lock's sources), since `CheckedSemanticNodeV2` has none
-   and the group digest of FR-092 "An in-group node's preimage" binds it; and
-   whether a reader must recompute the content order of "The group order" or
+   The `SourceOwner` question (how a reader recovers a declared group member's
+   owner, which the group digest of FR-092 "An in-group node's preimage" binds
+   and `CheckedSemanticNodeV2` does not carry) is ANSWERED by the QSL owner per
+   the relay of 2026-10-05, QSL-638, option (a): the v2 wire carries `owner`, in
+   the preimage member's JSON shape, on exactly the nodes whose FR-092 preimage
+   has one (declared nodes, and model-owned nodes with `ModelOwner`) and
+   nowhere else, with QSpec FR-322 and the QSL emitter changed under QSL-638
+   and this reader reading it; the IR follow-up is IR-630, blocked by QSL-638.
+   Still open, for the owners of QSL FR-092 and QSpec FR-322: whether a reader must recompute the content order of "The group order" or
    may read each ordinal from graph order, as FR-092 states for FR-322, in which
    case a package whose members are re-keyed under a permuted wire order admits
    (a stated limit of FR-038-AC-150, not a refusal). QSL FR-092's vector G1 (an
@@ -3072,7 +3078,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-147 | A label or a dependency does not make a cycle (IR-627; planned, ungated). Over the `Tree` package: a `collection_bounds` node of an acyclic package, with the label `"x"` added and `max` changed to `5`, refuses `stale-node-key` at its `node_id` (it is verified as ungrouped: no names-graph cycle); a `collection_bounds` node with its own `node_id` added to its `dependencies` (a self-dependency, outside the names graph), with `max` changed to `5`, refuses identically; a legitimate group in which one more node carries the group's label, with that node off the group's cycle, makes the component the label names differ from the nodes carrying it, so the node is verified as ungrouped and refuses `stale-node-key` when its key is wrong and admits when its key is its ungrouped key (the existing admission of a lone label, `tc_048_package_id_covers_exactly_the_identity_preimage`, stands). A `collection_bounds` node whose semantic type is re-pointed so that it leaves the cycle keeps its label and is verified as ungrouped. Mutation rows: a skip keyed on the label alone; a skip keyed on a cycle of IR's own graph, which counts `dependencies` (the self-dependency row admits and fails). | Test (TC-226) |
 | FR-038-AC-148 | The stated limit is recorded as tests (IR-627; planned, ungated). Over the `Tree` package, each single mutation below, with the `node_id` kept and the identity members recomputed, is not refused `stale-node-key` by the decided stage, and none is refused for carrying a `recursion_group`: `max` of the in-group `collection_bounds` node changed to `5`; its `min` changed to `1`; the `Sequence<Tree>` node's body `reference` re-pointed to another node of the group on the cycle. A forged group is recorded the same way: a package of an acyclic `Int[0, 1000]` list type whose `Sequence` node's body `reference` is re-pointed at its own `collection_bounds` node (a names cycle of two nodes through `semantic_type` and the body reference), both nodes labelled `"x"`, with the bounds `max` changed to `5`, admits, which is the limit. The test fails if any of these refuses `stale-node-key` at a skippable-shape node, so that the day FR-038-AC-150 lands the rows move to refusals in the same change. | Test (TC-226) |
 | FR-038-AC-149 | A skipped node is charged (IR-627; planned, ungated). The stage charges one work unit for every node of the ten shapes it visits, skipped or not. Over the `Tree` package, in which the test counts K nodes of the ten shapes (the skipped `Sequence<Tree>` and `collection_bounds` nodes included), a crate-internal counter on the stage reads K after the read, and a `work` limit set to the work the whole read used minus one returns `incomplete`, while the exact work admits. Mutation row: a stage that does not charge a skipped node reads K minus the skipped count and admits at the lower limit, and fails. | Test (TC-226) |
-| FR-038-AC-150 | In-group re-derivation (IR-627; planned and GATED on IR-627-Q1 and Q4). Once the reader derives the preimage of each declared member of a group, including its `SourceOwner`, a package of the `List` and `Tree` groups of FR-038-AC-145 whose in-group keys are those QSL FR-092 mints (the group digest over the group-local preimages in ordinal order; `recursion` `{size, ordinal, group}` on every structural member; `{term: "group_reference", ordinal}` at every position that names a member of its own group, `semantic_type` included) admits. Each of these refuses `invalid_package`/`stale-node-key` at the node's `node_id`: `max` of the in-group `collection_bounds` node changed to `5`; the `Sequence<Tree>` node's body `reference` re-pointed at another member of the group (a different ordinal); the `semantic_type` of the `collection_bounds` node re-pointed at the record (a different ordinal at `semantic_type`); the group's members written in another wire order with every `node_id` kept; the forged group of FR-038-AC-148. A group in which no member carries a `declaration`, such as QSL FR-092's vector G1 (an `option` over itself), needs no owner and is not gated on Q4, because every member's preimage is derivable from the wire: it is re-derived once the reader computes the group digest. The preimage's `recursion` and `group_reference` members are derived, not wire members, so each mutation reaches them through the wire member that produces them. The stated limit, recorded as the admission of the same group with its members written in another wire order and every key recomputed for that order: the reader reads each ordinal from graph order, as QSL FR-092 states for FR-322, and does not recompute the content order (IR-627-Q4). Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
+| FR-038-AC-150 | In-group re-derivation (IR-627; planned and GATED on IR-630, which waits on QSL-638's wire `owner`; IR-627-Q1 and Q4). Once the reader derives the preimage of each declared member of a group, including its `SourceOwner`, a package of the `List` and `Tree` groups of FR-038-AC-145 whose in-group keys are those QSL FR-092 mints (the group digest over the group-local preimages in ordinal order; `recursion` `{size, ordinal, group}` on every structural member; `{term: "group_reference", ordinal}` at every position that names a member of its own group, `semantic_type` included) admits. Each of these refuses `invalid_package`/`stale-node-key` at the node's `node_id`: `max` of the in-group `collection_bounds` node changed to `5`; the `Sequence<Tree>` node's body `reference` re-pointed at another member of the group (a different ordinal); the `semantic_type` of the `collection_bounds` node re-pointed at the record (a different ordinal at `semantic_type`); the group's members written in another wire order with every `node_id` kept; the forged group of FR-038-AC-148. A group in which no member carries a `declaration`, such as QSL FR-092's vector G1 (an `option` over itself), needs no owner and is not gated on Q4, because every member's preimage is derivable from the wire: it is re-derived once the reader computes the group digest. The preimage's `recursion` and `group_reference` members are derived, not wire members, so each mutation reaches them through the wire member that produces them. The stated limit, recorded as the admission of the same group with its members written in another wire order and every key recomputed for that order: the reader reads each ordinal from graph order, as QSL FR-092 states for FR-322, and does not recompute the content order (IR-627-Q4). Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
