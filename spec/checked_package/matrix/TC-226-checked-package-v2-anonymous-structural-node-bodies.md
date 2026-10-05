@@ -17,7 +17,10 @@ derives (`scalar_type` `boolean` and `integer`, `composite_type` `reference`,
 `integer_range` and `collection_bounds`) from each node's own body, and refuses
 a node whose key differs at its `node_id`, wherever the node is reached from.
 AC-131 and AC-132 (the forms with no derived preimage, and declared nodes) are
-gated on IR-627-Q1 to Q4 and are planned.
+gated on IR-627-Q1 to Q4 and are planned. AC-136 and AC-137 verify that a node
+of those shapes inside a recursion group is skipped, not refused, with the
+unverified key recorded as a stated limit, and AC-138 (gated on the declared
+member's `SourceOwner`) verifies the in-group keys of QSL FR-092.
 
 ## Test Procedure
 
@@ -44,6 +47,12 @@ nodes with keys regenerated but bodies and `semantic_type` unmigrated
 derived keys (AC-133 through AC-135). The QSpec fixtures are read
 from the checkout `QUIRE_SPECIFICATION_DIR` names, never copied.
 
+Build the recursive packages `record List { next?: List; }` and
+`record Tree { kids: Sequence<Tree>[0, 3]; }`, each under one `recursion_group`
+with members in QSL's group order, and read them unmutated and with the
+single in-group mutations of AC-136 and AC-137 (no in-group key is verified
+until AC-138's gate lifts).
+
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.
 
@@ -53,12 +62,15 @@ The unmutated packages admit. Each mutation refuses
 `invalid_package`/`stale-node-key` at the tampered node's `node_id` with no
 package; the stage order and ascending node-id order decide which node is
 reported (AC-127). The re-pointed selection refuses `missing_import`/
-`missing-selection` without the other document and admits with it. The AC-131
-and AC-132 cases do not exist until the gate lifts.
+`missing-selection` without the other document and admits with it. The recursive
+packages admit, and an in-group derived-shape node is never refused
+`stale-node-key` by this stage. The AC-131, AC-132 and AC-138 cases do not
+exist until the gate lifts.
 
 ## Status
 
-Planned. No test is written. AC-123 through AC-130 await the code change that
+Planned. No test is written. AC-136 and AC-137 await the same code change;
+AC-138 awaits the answer to IR-627-Q1 and Q4. AC-123 through AC-130 await the code change that
 adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
 AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
 await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code

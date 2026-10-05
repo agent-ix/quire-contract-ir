@@ -1785,8 +1785,8 @@ The shapes, enumerated from `MemberType::node_key`, are `scalar_type` of form
 `bag`, `sequence` and `ordered_set`; and `bounded_domain` of form
 `integer_range` and `collection_bounds`. Each of the following is its own requirement:
 
-1. When a node of one of these shapes carries no `declaration`, the reader
-   shall re-derive its `node_id` from the node's own `node_tag`,
+1. When a node of one of these shapes carries no `declaration` and no
+   `recursion_group`, the reader shall re-derive its `node_id` from the node's own `node_tag`,
    `semantic_form`, `semantic_type` and body.
 2. The reader shall derive that key by the one function `MemberType::node_key`
    calls, and by no second function.
@@ -1842,9 +1842,75 @@ re-pointed at a genuinely keyed narrower node. The cases are a `value`/
 operand route reads (`operand_type_node`, `check_parameters`, `checked_bounds`);
 an `alias`, `record`, `tuple` or `union` composite over a range; and a declared,
 named `bounded_domain` (`type Small = Int[0, 9]`), which a state field's domain
-reads. Those routes stay open until the gate of FR-038-AC-131 lifts, and
-FR-038-AC-131 and FR-038-AC-132 are the planned closure, so the decided rule is
-a partial defence and not a complete one.
+reads. A second open route is a node of the ten shapes that carries a
+`recursion_group` (see "Derived-shape nodes inside a recursion group" below).
+Those routes stay open until the gate of FR-038-AC-131 and FR-038-AC-138
+lifts, and FR-038-AC-131, FR-038-AC-132 and FR-038-AC-138 are the planned
+closure, so the decided rule is a partial defence and not a complete one.
+
+### Derived-shape nodes inside a recursion group
+
+Measured at `origin/main` of QSL and of QSpec (IR-627, whose own text and the
+relayed owner answer are claims and were re-measured). A node of a derived
+shape can sit in a recursion group: QSpec FR-143 "Recursion rule" admits a
+recursive record through a `?` field, an `Option` or a collection whose minimum
+is `0`, and never through a tuple position, and QSL FR-092 "Recursion groups"
+(its sections "An in-group node's preimage" and "The group order") keys the
+`Option` or `Sequence` node of such a record, and the `collection_bounds` node
+over it (vector G9, whose `semantic_type` is a `group_reference`), as members of
+the record's group. The earlier reading of this section, that such a node is
+refused because the decided preimage holds `recursion` `null`, is SUPERSEDED:
+a derived-shape node inside a recursion group is legitimate, and the reader
+shall not refuse it for being in one.
+
+What QSL FR-092 requires of an in-group key, to the extent measured: a group is
+the strongly connected component of the graph in which a node names another by
+a body `reference`, its `semantic_type`, a `result_type`, a literal `type` or a
+member `declaration`; a structural member's preimage carries `recursion`
+`{size, ordinal, group}` and an application member's `{size, ordinal}`; each
+position that names a member of the node's own group, `semantic_type` included,
+holds `{term: "group_reference", ordinal}`; and `group` is a digest over the
+group-local preimages of every member. FR-092 reads a member's ordinal from its
+position among the group's nodes in the package's graph order, which QSL's
+emission sets to the group order (its "The group order" section); this reader
+derives an application member's ordinal the same way and recomputes no content
+order.
+
+**Why the decided stage cannot verify an in-group node.** The group digest binds
+the group-local preimage of every member, and every group QSL forms holds a
+declared record or function (FR-092, "Groups that collide"), whose preimage
+carries `declaration` and the `owner` `SourceOwner` of its unit (FR-092
+"The `quire.structural-node/v1` preimage"; QSpec `node-identity-preimage.schema.json`). A
+`CheckedSemanticNodeV2` carries no `owner` member and the reader holds a
+declared record's or function's `declaration` as `null` in its preimage (the
+gated form of this section), so the reader cannot compute the group digest, and
+cannot re-derive any structural member of a group, a derived-shape one included.
+
+**Decided: skip, do not refuse.** The re-derivation stage shall skip a node of
+one of the ten shapes if and only if the node carries a `recursion_group`. It
+shall neither refuse nor verify that node's key; the stage's other requirements
+apply to every node of the ten shapes that carries none. The reader keeps
+deriving the keys of application nodes inside a group as the "Application node
+keys" section states. A skipped node still passes every other check the reader
+makes of it, among them the graph-shape rule that a cycle outside a declared
+`recursion_group` refuses (FR-038-AC-18), so a tampered node cannot leave its
+group by dropping the label while it stays on a cycle.
+
+**Stated soundness limit.** Until the gate of FR-038-AC-138 lifts, the reader
+does not verify the key, and therefore not the body, of a node of the ten shapes
+that carries a `recursion_group`: a changed `max` of the `Sequence<Tree>[0, 3]`
+node, with its `node_id` kept, is admitted by this stage. A consumer shall not
+treat a range, an element type or a bound read through such a node as verified
+by this reader. Specifically, quire-contract-codegen's field range and state
+domain, and a verification harness that assumes them, may rely on the
+re-derivation of FR-038-AC-123 only for a node with no `recursion_group`; for a
+bounded collection or integer range inside a recursive record they rest on the
+package producer alone.
+
+**Gated: in-group re-derivation.** Once the reader can derive a declared
+member's preimage, including its `SourceOwner` (IR-627-Q1 and Q4), it shall
+re-derive every structural node of a recursion group by the QSL FR-092 rules
+above, by the function of item 2, and by no second function (FR-038-AC-138).
 
 **Trust root.** The member type step 4 derives comes from the domain document
 that the caller's evidence supplies under the `model_selections` digest, whose
@@ -1866,7 +1932,8 @@ the open questions below are answered. The nodes are `bounded_domain` of form
 `record_value`, `tuple_value`, `union_value`, `option_value` and `parameter`;
 every node of the shapes decided above that carries a `declaration` (a named
 `bounded_domain`, a declared record or tuple, and a declared function), whose
-preimage has a `declaration` member the reader holds as `null`; and every node
+preimage has a `declaration` member the reader holds as `null`; every node of
+the shapes decided above that carries a `recursion_group` (FR-038-AC-138); and every node
 of any other tag whose key no stage derives today (expression, function, model,
 relation, state, temporal, protocol, claim and correspondence nodes that are
 not application nodes or model declaration nodes). Nominal forms (`enum`,
@@ -1883,7 +1950,8 @@ stage ("Parameter and compound-unit nodes, and the application dependency
 join") and the application key stage, and before the nominal key stage and
 before every declaration, frame, state, temporal, abstraction and operation
 step. Within that stage the reader shall visit nodes in ascending digest order
-of the node's own `node_id`, charging one work unit per node, and shall report
+of the node's own `node_id`, charging one work unit per node, skipping a node
+that carries a `recursion_group` (FR-038-AC-136), and shall report
 the first stale node at its own `node_id`. Because the stage does not run
 inside the operation step, a tampered node is reported at itself and never at
 an application that reads it, and ahead of any `ill_typed` defect of such an
@@ -1956,10 +2024,21 @@ for the QSpec owner of FR-322:
    repository.
 3. **Q3.** Is `invalid_package`/`stale-node-key` the refusal for a structural
    key that differs from its body, or does QSpec want a distinct cause?
-4. **Q4.** May a node of a derived shape sit in a `recursion_group`, and may
-   two nodes of the package carry one key; if not, which refusal is it? The
-   decided rule hashes a preimage with `recursion` `null`, so it refuses a
-   derived-shape node that has one, as an IR reading until Q4 is answered.
+4. **Q4.** ANSWERED in part (QSL owner answer relayed 2026-10-05, QSL-635, and
+   re-measured at `origin/main` of QSL and QSpec). A derived-shape node may sit
+   in a `recursion_group` (QSpec FR-143 "Recursion rule"; QSL FR-092 "Recursion
+   groups", vector G9), and members with equal full signatures are one node
+   (FR-092 "The group order", item 5), so a group holds no two nodes of one key.
+   The earlier IR reading, that such a node is refused, is superseded: the
+   decided stage skips it ("Derived-shape nodes inside a recursion group").
+   Still open, for the owners of QSL FR-092 and QSpec FR-322: how a reader
+   recovers a declared group member's `SourceOwner` (a wire `owner` member, or
+   one derived from the lock's sources), since `CheckedSemanticNodeV2` has none
+   and the group digest of FR-092 "An in-group node's preimage" binds it; and
+   whether a reader must recompute the content order of "The group order" or
+   may read each ordinal from graph order, as FR-092 states for FR-322, in which
+   case a package whose members are re-keyed under a permuted wire order admits
+   (a stated limit of FR-038-AC-138, not a refusal).
 5. **Q5.** QSpec's checkout holds derived-shape nodes under placeholder keys
    (`aaaa...` boolean, `7f7f...` integer, `b2b2...` reference, `a1a1...` integer
    in the union fixture), which QSL FR-092's preimage does not produce, in these
@@ -2612,6 +2691,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-133 | Positive fixtures carry derived keys (IR-627; planned, ungated; supersedes FR-038-AC-107 for derived-shape nodes, which stands as built until then). The three fixtures AC-107 reads (`positive-all-families.json`, `positive-clause-operations.json`, `positive-union-nodes.json`) admit end to end with the derived key on every derived-shape node. The same fixture with the key of any one undeclared derived-shape node replaced by a placeholder, and every reference to it left in place, refuses; the nodes are `positive-all-families.json` nodes 24 (`integer`, `7f7f...`) and 26 (`reference`, `b2b2...`), `positive-clause-operations.json` nodes 0 (`boolean`, `aaaa...`), 7 (`integer`, `7f7f...`) and 12 (`reference`, `b2b2...`), and `positive-union-nodes.json` node 0 (`integer`, `a1a1...`), and `positive-all-families.json` nodes 0 (`boolean`, declared `Example::Flag`) and 2 (`integer_range`, declared `Example::Small`) are gated forms this row does not use. The refusal is `invalid_package`/`stale-node-key` at that node's `node_id`, and no placeholder key is tolerated. Owned by QSpec for those three fixtures and for the recorded `package_id` of `dependency-selection-vectors.json` (AC-113), which IR reads and whose base is `positive-all-families.json` (QSL-635, IR-627-Q5; QSL-635 also covers `positive-control-operations.json`, `positive-operation-identities.json` and `node-identity-vectors.json`, which IR does not read); `make conformance-qspec` fails on the three until they conform, so the IR code change merges after QSL-635's regenerated fixtures or a conformance lane is held citing QSL-635. QSpec also owns the conformance counterpart of the tamper regression row of TC-226: a negative fixture whose `integer_range` node keeps its id under a changed bound, patched `identity_projection` and recomputed `package_id`, which the reader refuses `stale-node-key` at that node (read from the checkout, never copied here). | Test (TC-226) |
 | FR-038-AC-134 | In-repo fixtures carry derived keys (IR-627; planned, ungated). Every in-repo fixture package (`tests/it/support/checked_package.rs`) carries on each undeclared node of the ten shapes the closed body of its form, its own key as `semantic_type` for a `scalar_type` or `composite_type`, and the derived key, and admits. The migration changes more than keys: the `aaaa` boolean's `literal` body becomes `aggregate{[]}`, and the `bbbb` option, typed at `aaaa` with an empty aggregate body, becomes self-typed with a body of one `reference`. The same package with the `aaaa` placeholder key restored on its boolean node refuses `invalid_package`/`stale-node-key` at that node's `node_id`, and with the `bbbb` body or `semantic_type` left unmigrated refuses the same way. Owned by this repository's code change. | Test (TC-226) |
 | FR-038-AC-135 | Adverse mutations still reach their stage (IR-627; planned, ungated; supersedes AC-112's base package when the code lands). With `positive-all-families.json` carrying derived keys, each `structural_mutations` and `body_grammar_mutations` entry of `adverse.json` refuses with exactly its recorded `outcome`, among them `wrong-node-family-form` as `invalid_semantic_graph`, `negative-temporal-interval-bound` as `invalid_package` and the five `malformed_wire` body-grammar entries (eleven entries in all: six `structural_mutations`, five `body_grammar_mutations`), and none is refused `stale-node-key`; `dependency-selection-vectors.json` over the regenerated base carries its regenerated `package_id`. The harness fails, as AC-112 says, on a mutation refused at an identity check instead of its recorded code. | Test (TC-226) |
+| FR-038-AC-136 | Derived-shape nodes inside a recursion group are skipped, not refused (IR-627; planned, ungated; supersedes the refusal reading of IR #295's Q4). A package of `record List { next?: List; }` (an `Option` self-reference) and `record Tree { kids: Sequence<Tree>[0, 3]; }` (a `Sequence` self-reference whose `collection_bounds` node's `semantic_type` is a node of its own group), each lowered under one `recursion_group` with its keys as QSL FR-092 mints them, admits, and the decided stage reports no `stale-node-key` for any in-group node. The stated limit is recorded as a test: the `Tree` package with the `max` of the `Sequence<Tree>[0, 3]` node changed to `5`, its `node_id` kept, `identity_projection` patched and `package_id` recomputed through `quire-canonical` in the test, is not refused `stale-node-key` by this stage, and the test names FR-038-AC-138 as the criterion that closes it. The skipped set is exactly the nodes of the ten shapes that carry a `recursion_group`: a derived-shape node outside every group, in the same package, with `max` changed, still refuses `invalid_package`/`stale-node-key` at its `node_id`; the same `Tree` package with the `recursion_group` removed from the `Sequence<Tree>[0, 3]` node refuses as FR-038-AC-18 does, `invalid_semantic_graph` at `semantic_graph.nodes.recursion_group`, and is never admitted; an application node inside a group keeps FR-038-AC-88's key check and refuses `stale-node-key` when its `node_id` is stale. The rustdoc of the stage names the skip and its consumer consequence (a range read through an in-group node is not verified by the reader). | Test (TC-226) |
+| FR-038-AC-137 | In-group tamper probes admit under the skip (IR-627; planned, ungated). Over the `Tree` package of FR-038-AC-136, each of these single mutations, applied with the `node_id` kept and the identity members recomputed, is not refused `stale-node-key` by the decided stage, and none is refused for carrying a `recursion_group`: `max` of the `collection_bounds` node changed to `5`; `min` changed to `1`; the body `reference` of the `Sequence<Tree>` node re-pointed from the record to the `collection_bounds` node (a different ordinal in the preimage, the same wire shape). Each package is admitted, and the test fails if any is refused `stale-node-key` at an in-group derived-shape node, so that the day FR-038-AC-138 lands the three rows move to refusals in the same change. | Test (TC-226) |
+| FR-038-AC-138 | In-group re-derivation (IR-627; planned and GATED on IR-627-Q1 and Q4: the declared member's `SourceOwner`). When the reader can derive the declared members' preimages, a package of the `List` and `Tree` groups of FR-038-AC-136 whose in-group keys are those QSL FR-092 mints (the group digest over the group-local preimages in ordinal order; `recursion` `{size, ordinal, group}` on every structural member; `{term: "group_reference", ordinal}` at every position that names a member of its own group, `semantic_type` included) admits, over the `Option` and the `Sequence` self-reference. Each of these refuses `invalid_package`/`stale-node-key` at the node's `node_id`: `max` of the in-group `collection_bounds` node changed to `5`; the body `reference` of the `Sequence<Tree>` node re-pointed at another member of the group (a different `group_reference` ordinal); the `semantic_type` of the `collection_bounds` node re-pointed at the record instead of the `Sequence<Tree>` node (a different `group_reference` ordinal at `semantic_type`); the group's members written in another wire order with every `node_id` kept (different ordinals). Mutation rows: one per clause above; the preimage's `recursion` and `group_reference` members are derived by the reader and are not wire members, so each is reached through the wire member that produces it. The stated limit, recorded as the admission of the same group with its members written in another wire order and every key recomputed for that order: the reader reads each ordinal from graph order, as QSL FR-092 states for FR-322, and does not recompute the content order (IR-627-Q4). Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
