@@ -2016,33 +2016,44 @@ piece is a typed way out of it and the package keeping what it derives from.
 **Decided: one accessor on the admitted package, over the retained derivation.**
 Each of the following is its own requirement:
 
-1. At admission, the reader shall compute the effective field table of every
-   object type declaration of each admitted `lock.model_selections` document:
-   the members of `MemberKind::Field` that FR-322 step 3 exposes (the object
-   type's own and inherited fields, less every field a redefinition hides and
-   every redefining field of a less derived owner), each with the member type
-   `DomainModel::field_type` derives.
-2. The reader shall compute that table by one function that `DomainModel::resolve`
-   also uses for its exposed-member set, extracted from `resolve` (today
-   `resolve` returns one member by name and charges a `Budget`), and by no second
-   walk of the declarations.
-3. The reader shall charge the computation of each table to the `work` limit at
-   the row of the selection it belongs to, in the units step 3 charges (one per
-   ancestor edge followed, member visited and redefinition pair compared), so
-   that an exhausted limit is `incomplete` with the pointer
-   `/lock/model_selections/<i>`.
-4. The reader shall retain the field tables, and an owned index from each
+1. At admission, the reader shall compute, for every object type declaration of
+   each admitted `lock.model_selections` document, a field table holding that
+   object type's exposed effective fields (the members of `MemberKind::Field`
+   that FR-322 step 3 exposes: its own and inherited fields, less every field a
+   redefinition hides and every redefining field of a less derived owner), each
+   with the member type `DomainModel::field_type` derives, and its hidden
+   entries.
+2. The reader shall build the table of an object type from its own fields and
+   the tables of its declared supertypes, each declaration built once, and shall
+   not re-walk the ancestors of each object type.
+3. The reader shall use that build for the exposed-member set of
+   `DomainModel::resolve` (today `resolve` re-walks ancestors and returns one
+   member by name), so that `resolve` selects the named member from the table,
+   and by no second walk of the declarations.
+4. The reader shall charge the build of each table to the `work` limit at the
+   row of its selection, so that an exhausted limit is `incomplete` with the
+   pointer `/lock/model_selections/<i>`.
+5. The charge of one table shall be one unit per own field, one per declared
+   supertype edge, and one per exposed or hidden entry copied from a supertype's
+   table.
+6. The work that a read, frame entry or state clause charges at step 3 shall
+   stay as it is today, so that the table charge is additional and admitted
+   packages' existing step 3 counts do not change.
+7. The reader shall build and charge the tables as the last act of the lock
+   stage: after step 1 has admitted every `lock.model_selections` row, in lock
+   order of the rows, and before the graph stage (`validate_graph`).
+8. The reader shall retain the field tables, and an owned index from each
    selected declaration's model declaration node key to its selection row, form
    and node identity, in the admitted `CheckedPackageV2`.
-5. Where the exposed fields of an object type include two of one name, the reader
-   shall retain that table as ambiguous, carrying the name, and shall not refuse
-   admission for it.
-6. `CheckedPackageV2` shall export `model_object_fields(&self, node:
-   &CheckedNodeId) -> Result<CheckedModelObjectFields,
-   CheckedModelFieldsError>`, which takes no evidence argument.
-7. When the graph holds no node whose `node_id` equals `node`, the accessor
-   shall return `CheckedModelFieldsError::UnknownNode`.
-8. When the node exists and is not an object type's model declaration node, the
+9. Where the exposed fields of an object type include two of one name, the
+   reader shall retain that table as ambiguous, carrying the name.
+10. The reader shall not refuse admission for an ambiguous table.
+11. `CheckedPackageV2` shall export `model_object_fields(&self, node:
+    &CheckedNodeId) -> Result<CheckedModelObjectFields,
+    CheckedModelFieldsError>`, which takes no evidence argument.
+12. When the graph holds no node whose `node_id` equals `node`, the accessor
+    shall return `CheckedModelFieldsError::UnknownNode`.
+13. When the node exists and is not an object type's model declaration node, the
    accessor shall return `CheckedModelFieldsError::NotModelObjectType`. A node is
    an object type's model declaration node when its `node_id` digest is the
    retained index's key of an object type (not a `systems_interface` or
@@ -2051,57 +2062,79 @@ Each of the following is its own requirement:
    `declaration`, no `recursion_group`, body `aggregate{[]}`): the rule of
    `ModelOwners::recover` (FR-322 step 2), shared with it and not restated by a
    second function.
-9. When the node is an object type's model declaration node and its retained
-   table is not ambiguous, the accessor shall return that table's fields.
-10. When the retained table of the node is ambiguous, the accessor shall return
+14. When the node is an object type's model declaration node and its retained
+    table is not ambiguous, the accessor shall return that table's fields.
+15. When the retained table of the node is ambiguous, the accessor shall return
     `CheckedModelFieldsError::AmbiguousField` carrying the name, for the whole
     call.
-11. The accessor shall return the fields in ascending order of field name
+16. The accessor shall return the fields in ascending order of field name
     (bytewise UTF-8), each name once.
-12. The member type of each returned field shall be the one
+17. The member type of each returned field shall be the one
     `DomainModel::field_type` derived at admission, the function
     `check_model_member` calls, so that a field's reported type is the type whose
     node key admission compares with a read's `result_type`.
-13. The member type shall be the closed enum `CheckedMemberType` with the variants
-   `Boolean`, `Integer`, `IntRange` carrying `lower` and `upper` as `i128`
-   values, `Reference` carrying the `CheckedNodeId` of the referenced object
-   type's model declaration node, `Option` carrying its element type, and
-   `Collection` carrying the closed enum `CheckedCollectionKind` (`Set`, `Bag`,
-   `Sequence`, `OrderedSet`), its element type and its bounds as
-   `Option<(u64, u64)>`; it mirrors `MemberType` variant for variant.
-14. Where the tables of FR-322 step 4 give a field no type (a declared type that
+18. The member type shall be the closed enum `CheckedMemberType` with the variants
+    `Boolean`, `Integer`, `IntRange` carrying `lower` and `upper` as `i128`
+    values, `Reference` carrying the `CheckedNodeId` of the referenced object
+    type's model declaration node, `Option` carrying its element type, and
+    `Collection` carrying the closed enum `CheckedCollectionKind` (`Set`, `Bag`,
+    `Sequence`, `OrderedSet`), its element type and its bounds as
+    `Option<(u64, u64)>`; it mirrors `MemberType` variant for variant.
+19. Where the tables of FR-322 step 4 give a field no type (a declared type that
     is a rational, decimal, float, text, relationship or systems interface, a
     value type not bound as `Int[lo, hi]` (including one whose bound lies
     outside `i128`), a type of another FR-208 meaning, or a collection with a
     positive lower bound and no upper bound), the accessor shall return the
     field with `member_type` `None`.
-15. A field with `member_type` `None` shall not make the call refuse.
-16. A bound outside `i128` shall give `member_type` `None` and shall never be
-    saturated, wrapped or truncated into an `IntRange`.
-17. The accessor shall read no node body other than the passed node's own fixed
-    members (item 8) and shall read no `result_type`.
-18. `CheckedModelObjectFields` shall expose `fields()`, a slice of
-    `CheckedModelField` in the order of item 11.
-19. `CheckedModelObjectFields` shall expose `field(&str) ->
+20. A field with `member_type` `None` shall not make the call refuse.
+21. A bound outside `i128` shall give `member_type` `None`.
+22. A bound outside `i128` shall never be saturated, wrapped or truncated into
+    an `IntRange`.
+23. The accessor shall read no node body other than the passed node's own fixed
+    members (item 13).
+24. The accessor shall read no `result_type`.
+25. `CheckedModelObjectFields` shall expose `fields()`, a slice of
+    `CheckedModelField` in the order of item 16.
+26. `CheckedModelObjectFields` shall expose `field(&str) ->
     Option<&CheckedModelField>`, which is `None` for an absent field and not an
     error.
-20. `CheckedModelField` shall expose `name()` and `member_type()`
+27. `CheckedModelField` shall expose `name()` and `member_type()`
     (`Option<&CheckedMemberType>`).
-21. The public enums `CheckedMemberType`, `CheckedCollectionKind` and
+28. The public enums `CheckedMemberType`, `CheckedCollectionKind` and
     `CheckedModelFieldsError` shall be closed, with no `#[non_exhaustive]`, as
     every public enum of the crate is (AD-006): a variant added later stops a
     consumer's exhaustive match from compiling, which is intended.
-22. The structs `CheckedModelObjectFields` and `CheckedModelField` shall keep
-    their fields private and expose the immutable accessors of items 18 to 20,
+29. The structs `CheckedModelObjectFields` and `CheckedModelField` shall keep
+    their fields private and expose the immutable accessors of items 25 to 27,
     as validated types of the crate do (FR-019).
-23. The accessor shall not panic.
-24. The accessor shall charge no work limit, because it performs no resolution:
-    it reads the retained table (items 1 to 4).
-25. The accessor shall return equal results for equal calls and for a clone of
+30. The accessor shall not panic.
+31. The accessor shall charge no work limit, because it performs no resolution:
+    it reads the retained table (items 1 to 10).
+32. The accessor shall return equal results for equal calls and for a clone of
     the package.
-26. The retained tables and index shall not take part in `PartialEq` for
+33. The retained tables and index shall not take part in `PartialEq` for
     `CheckedPackageV2`: equality stays the equality of the admitted content,
     which fixes each document through its digest.
+
+**Cost, stated.** The charge of items 4 and 5 is proportional to the total size
+of the tables, the sum over object types of (own fields + supertype edges +
+entries copied), not to an ancestor re-walk per type (which would charge about N²/2 edges for a
+chain of N before any member). It is still quadratic in the depth of an
+inheritance chain whose types each declare a field, because the table of a
+type at depth k holds k exposed fields, so the output itself is quadratic: for a
+chain of N types with one field each the charge is N(N+1)/2 + N − 1 (the first
+type 1, the type at depth k ≥ 2 charges k + 1: one own field, one edge and k − 1
+copied entries). A flat model, or one whose types declare few fields, costs
+linearly in its fields. Retained memory is at most one table entry per charged
+unit. The packages that change outcome are those that admit today and whose
+selected documents' total table charge, added to their present work, exceeds the
+caller's `work` limit: under `CheckedPackageReadLimits::bounded()` (work
+1,000,000), an unread chain of N = 1500 types with one field each charges
+1,500 × 1,501 / 2 + 1,499 = 1,127,249 and is `incomplete` at
+`/lock/model_selections/<i>`, where it admits today; a chain of N = 1000 charges
+1,000 × 1,001 / 2 + 999 = 501,499 and still admits (its document charge is
+linear). Reads' step 3 charges are unchanged (item 6), so a package with reads
+pays both. This is owner-visible in IR-628-Q2.
 
 Note (not a requirement). The code change that adds the five new public type
 names (`CheckedModelObjectFields`, `CheckedModelField`, `CheckedMemberType`,
@@ -2117,7 +2150,7 @@ non-selected key or a non-empty body is admitted. The accessor does not widen
 admission to sweep every model node, because that would refuse packages
 that admit today, a behavior change this requirement does not need: what is at
 stake is only whether the accessor's answer for a node is the document's. The accessor therefore
-applies the same step-2 rule at the call, to the node it is passed (item 8). It
+applies the same step-2 rule at the call, to the node it is passed (item 13). It
 returns the fields only for a node that rule recovers, so a node that a read of
 it would refuse at step 2 is `NotModelObjectType`, and the result for a recovered
 node is the document's table and no node body. Two admitted packages that differ
@@ -2219,11 +2252,19 @@ settled until the owner confirms):
    would add an encoder derivation (refusable at the byte limit) to the table
    at admission, and would make that unpublished QSL preimage's output part of
    the public surface when the consumer needs the value, which it has.
-2. **IR-628-Q2.** Should the accessor charge a work limit? Decided no (item 24):
-   the resolution is charged once at admission (items 1 to 3), so the accessor
-   does no resolution; the one-time cost for an unread object is a new charge at
-   admission, which changes the work count of a package whose documents declare
-   object types no read names (see FR-038-AC-144).
+2. **IR-628-Q2.** Who pays for the field tables? Decided: admission, once, for
+   every declared object type of every selected document (not only the unread
+   ones), built incrementally from supertypes' tables and charged per the
+   "Cost, stated" paragraph (items 4 and 5); the accessor charges nothing (item
+   31); reads keep their step 3 charges (item 6). The cost is quadratic in the
+   depth of a chain whose types each declare a field, so a package that admits
+   today can become `incomplete`: under `bounded()` an unread chain of 1500
+   such types does (1,127,249 units against 1,000,000), one of 1000 does not.
+   The alternative the owner may prefer is to retain only own fields and
+   supertype edges and resolve at call under a caller-supplied limit, which
+   changes no admission outcome and adds a limit parameter; not chosen, because
+   it gives the accessor a failure mode (`incomplete`) a consumer must handle
+   per call.
 3. **IR-628-Q3.** Should `systems_interface` and `relationship` declarations
    have an accessor? Decided no: no consumer reads them (CG's frame object is an
    object type); they return `NotModelObjectType`.
@@ -2857,12 +2898,12 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-136 | Fields as values (IR-628; planned, ungated). Over an admitted package whose `model`/`object_type` node is a model declaration node with the empty body (the shape QSL emits), selected from a domain document declaring `balance: Int[0, 1000]` and `audit: Int[0, 1000]`, with a read of `balance` only, `model_object_fields` returns exactly two fields, `audit` then `balance`, each with `member_type` `Some(IntRange { lower: 0, upper: 1000 })` as `i128` values; `field("audit")` is `Some` although no read names it, and `field("missing")` is `None`. Mutation rows: a reader that takes the fields from the node body returns none; one that takes them from reads' `result_type` omits `audit`; one that returns the order of the document's declaration or of a hash map breaks the ascending-name row (a document declaring `zeta` before `alpha`). | Test (TC-227) |
 | FR-038-AC-137 | Effective set is the one admission resolves (IR-628; planned, ungated). Over a document with a supertype chain, an inherited field, a field redefined by a subtype with a narrower `Int[lo, hi]`, a most-derived redefiner two owners deep and an own field, the accessor returns each exposed name once, with the most-derived redefiner's type, and no hidden field; for every returned field, a package whose read of it is keyed by the independent recomputation of the returned type's key admits, and the same read keyed by the hidden base field's type refuses `ill_typed`/`operator-ineligible` (step 4). Mutation rows: inherited fields omitted; a redefined base field returned beside its redefiner; the base type returned for a redefined field; a less derived redefiner returned. | Test (TC-227) |
 | FR-038-AC-138 | Every member kind (IR-628; planned, ungated). Fields declared `Boolean`, `Integer`, `Int[0, 0]`, `Int[-5, 5]`, the `i128` extremes as `Int[lo, hi]`, a `Reference` to another object type, an optional `Int[0, 1000]`, a `Set`, `Bag`, `Sequence` and `OrderedSet` of `Int[0, 1000]`, a bounded collection `Set<Int[0, 1000]>[1, 4]` and an optional `Set` return `Boolean`, `Integer`, `IntRange` with the exact `i128` values, `Reference` carrying the key of the referenced model declaration node, `Option`, `Collection` with the matching `CheckedCollectionKind`, element and `Some((1, 4))`. Fields declared `Text`, `Rational`, `Decimal`, a relationship type, a systems interface type, a value type not bound as `Int[lo, hi]`, `Int[0, 170141183460469231731687303715884105728]` and `Int[-170141183460469231731687303715884105729, 0]` (one past each `i128` extreme), and a collection of lower bound 1 with no upper bound are present with `member_type` `None`, and the call returns the other fields (`Ok`, never a refusal). Mutation rows: bounds narrowed through `i64` or `f64` (the `i128` extremes differ); a bound past `i128` saturated, wrapped or truncated into an `IntRange`; `Option` dropped; a `Collection` kind swapped; a `None` field omitted; a `None` field refusing the call. | Test (TC-227) |
-| FR-038-AC-139 | Absence and refusal semantics (IR-628; planned, ungated). `UnknownNode` for an id whose digest is no node of the graph; `NotModelObjectType` for a `scalar_type` node, a `systems_interface` declaration node, a `relationship` declaration node, a `model`/`object_type` node with a `declaration`, one whose key matches no selected declaration, and one whose key matches but whose body is not `aggregate{[]}`; `AmbiguousField` carrying `x` for an object type whose document gives two unhidden effective fields named `x` (own and inherited, no redefinition), in package A, which no read of `x` names and which admits, the call returning the error for the whole call even though the object also declares a valid `Int[0, 1000]` field `y`; package B, the same document with a read of `x`, is refused at admission `ambiguous_declaration`/`ambiguous-name` and yields no package to call; `field("absent")` is `None` and the call is `Ok`. The `NotModelObjectType` rows over a node with an unread, non-empty body hold by the rule of item 8, so the two admitted packages that differ only in that node's body return `Ok` and `NotModelObjectType`. Mutation rows: `UnknownNode` and `NotModelObjectType` collapsed into one; ambiguity resolved by returning the first or last field, or the other fields; an absent field returned as an error; the non-empty-body node returning the fields. | Test (TC-227) |
+| FR-038-AC-139 | Absence and refusal semantics (IR-628; planned, ungated). `UnknownNode` for an id whose digest is no node of the graph; `NotModelObjectType` for a `scalar_type` node, a `systems_interface` declaration node, a `relationship` declaration node, a `model`/`object_type` node with a `declaration`, one whose key matches no selected declaration, and one whose key matches but whose body is not `aggregate{[]}`; `AmbiguousField` carrying `x` for an object type whose document gives two unhidden effective fields named `x` (own and inherited, no redefinition), in package A, which no read of `x` names and which admits, the call returning the error for the whole call even though the object also declares a valid `Int[0, 1000]` field `y`; package B, the same document with a read of `x`, is refused at admission `ambiguous_declaration`/`ambiguous-name` and yields no package to call; `field("absent")` is `None` and the call is `Ok`. The `NotModelObjectType` rows over a node with an unread, non-empty body hold by the rule of item 13, so the two admitted packages that differ only in that node's body return `Ok` and `NotModelObjectType`. Mutation rows: `UnknownNode` and `NotModelObjectType` collapsed into one; ambiguity resolved by returning the first or last field, or the other fields; an absent field returned as an error; the non-empty-body node returning the fields. | Test (TC-227) |
 | FR-038-AC-140 | Independent of any node body (IR-628; planned, ungated; holds before and after IR-627's stage lands). A crate-internal test over an admitted package (the module's own tests can build a `CheckedPackageV2` from an admitted one) replaces, after admission, the body bounds of the `Int[0, 1000]` node that a read of the field names with `0` and `10`, and separately `0` and `5000`, and the accessor returns `IntRange { lower: 0, upper: 1000 }` for the field, equal to its result before the replacement. Mutation row: an accessor that takes the bounds from the node a read names, or from any node body, returns `10` or `5000`. This row stays catchable once IR-627's stage refuses such a package at admission, because the replacement happens after admission. | Test (TC-227) |
-| FR-038-AC-141 | One derivation with admission (IR-628; planned, ungated). For each field of AC-138 whose type is a range, `Reference`, `Option` or collection, a read keyed by the key the test recomputes through `quire-canonical` from the accessor's returned type admits, and the same read keyed from the perturbed type refuses `ill_typed`/`operator-ineligible` at the read. The perturbation is: for an `IntRange`, `upper - 1`, or `upper + 1` when `upper` is `i128::MIN`; for a collection's bounds, `upper - 1`, or `upper + 1` when `upper` is `0`; for a `Reference`, the key of another object type's model declaration node; for `Boolean` and `Integer`, the other scalar; for an `Option` or a collection, the same wrapper over the perturbed element. Mutation rows: an accessor that derives types by its own copy of `field_type` which differs in the optional wrapper, a collection's bounds, or a `Reference` target. | Test (TC-227) |
+| FR-038-AC-141 | One derivation with admission (IR-628; planned, ungated). For each field of AC-138 whose type is a range, `Reference`, `Option` or collection, a read keyed by the key the test recomputes through `quire-canonical` from the accessor's returned type admits, and the same read keyed from the perturbed type refuses `ill_typed`/`operator-ineligible` at the read. The perturbation is: for an `IntRange`, `upper - 1` when `upper > lower`, `upper + 1` when `lower == upper < i128::MAX`, and `lower - 1` when `lower == upper == i128::MAX`; for a collection's bounds, `upper - 1` when `upper > lower`, `upper + 1` when `lower == upper < u64::MAX`, and `lower - 1` when `lower == upper == u64::MAX`; so every perturbed type node stays well-formed (`min <= max`) and is refused at the read as `ill_typed`, never for its own shape; for a `Reference`, the key of another object type's model declaration node; for `Boolean` and `Integer`, the other scalar; for an `Option` or a collection, the same wrapper over the perturbed element. Mutation rows: an accessor that derives types by its own copy of `field_type` which differs in the optional wrapper, a collection's bounds, or a `Reference` target. | Test (TC-227) |
 | FR-038-AC-142 | Public shape and stability (IR-628; planned, ungated). A compile-time API fixture shows `model_object_fields` takes `&self` and one `&CheckedNodeId` and no evidence; an exhaustive match over `CheckedMemberType`, `CheckedCollectionKind` and `CheckedModelFieldsError` with no wildcard arm compiles; code constructing `CheckedModelObjectFields` or `CheckedModelField` by struct literal fails to compile; the criterion is the compile fixtures: the exhaustive matches compile from an external crate (`tests/it`) only while the enums are closed. Mutation rows: `#[non_exhaustive]` added to an enum (the wildcard-free match fails to compile); a public field on either struct (the struct-literal fixture compiles); a variant added to an enum (the exhaustive match fails to compile). | Test (TC-227) |
-| FR-038-AC-143 | Pure, total, bounded (IR-628; planned, ungated). Two calls on one package return equal results; a clone of the package returns an equal result; two admissions of the same bytes under different byte limits (both admitting) are equal as packages and return equal results; a package admitted from a document with an inheritance chain of 10000 object types and 1000 redefinitions of one field has a call that returns the fields without panic or stack overflow, and the call does no resolution (a counter on the extracted function of items 1 and 2 reads the same value before and after the call); a node of AC-139's refusal cases returns its error and never panics. Equality of two packages admitted from the same bytes is unchanged by the retained tables. Mutation rows: the accessor panics on an unwrap of a missing owner; it recurses over the chain; it resolves per call; equality of packages gains the retained tables. | Test (TC-227) |
-| FR-038-AC-144 | Resolution is charged once, at admission (IR-628; planned, ungated). Over a package whose document declares object types no read names, the admission work counter includes the field tables' charge at the selection's row: the smallest `work` limit that admits equals the sum of the charges of items 1 to 3 plus the charges the package incurred before, and the limit one below returns `incomplete` with the pointer `/lock/model_selections/<i>`; the 10000-type chain with 1000 redefinitions of AC-143 with a `work` limit below that sum is `incomplete` and never admits; an object type with an ambiguous name (AC-139, package A) admits and the work counter equals the same sum with that table charged. Mutation rows: tables computed after admission or per call (the limit never exhausts); the charge omitted for unread objects (the one-below limit admits); an ambiguous table refusing admission. | Test (TC-227) |
+| FR-038-AC-143 | Pure, total, bounded (IR-628; planned, ungated). Two calls on one package return equal results; a clone of the package returns an equal result; two admissions of the same bytes under different byte limits (both admitting) are equal as packages and return equal results; a package admitted (under a `work` limit set high enough) from a document with an inheritance chain of 200 object types and 100 redefinitions of one field has a call that returns the fields without panic or stack overflow, and the call does no resolution (a counter on the table-building function of items 2 and 3 reads the same value before and after the call); a node of AC-139's refusal cases returns its error and never panics. Equality of two packages admitted from the same bytes is unchanged by the retained tables. Mutation rows: the accessor panics on an unwrap of a missing owner; it recurses over the chain; it resolves per call; equality of packages gains the retained tables. | Test (TC-227) |
+| FR-038-AC-144 | Resolution is charged once, at admission (IR-628; planned, ungated). Cost model of items 4 and 5, with the arithmetic. For a chain of N object types, the first declaring one field and each later one declaring one field and extending the previous, the charge is 1 for the first type and k + 1 for the type at depth k >= 2 (one own field, one supertype edge, k - 1 copied entries), in all N(N + 1)/2 + N - 1: 13 for N = 4 (1 + 3 + 4 + 5) and 43 for N = 8. A crate-internal test reads the table-building counter and asserts 13 and 43. For the same chains, the smallest `work` limit that admits is M, and the limit M - 1 returns `incomplete` with the pointer `/lock/model_selections/0`. Under `CheckedPackageReadLimits::bounded()` (work 1,000,000), a chain of N = 1000 (charge 1,000 x 1,001 / 2 + 999 = 501,499) admits and a chain of N = 1500 (1,500 x 1,501 / 2 + 1,499 = 1,127,249) returns `incomplete` at `/lock/model_selections/0`. Precedence (item 7), over one package each: a table charge that exhausts the limit together with a graph-stage refusal (a stale node key) returns `incomplete`, because tables precede `validate_graph`; a step 1 refusal at row 1 together with a table charge that exhausts the limit at row 0 returns the step 1 refusal, because every row's step 1 precedes any table charge. An object type with an ambiguous name (AC-139, package A) admits, and its table is charged as any other. A package with a read of a field charges step 3 exactly as before (the counter of a read is unchanged by item 6). Mutation rows: tables computed after admission or per call (the limit never exhausts); the charge omitted for an unread object (the one-below limit admits); tables built after the graph stage (the precedence row returns the graph refusal); a per-type ancestor re-walk (the counter exceeds 13 for N = 4); an ambiguous table refusing admission; a read's step 3 charge dropped. | Test (TC-227) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
