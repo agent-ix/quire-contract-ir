@@ -1793,8 +1793,8 @@ The shapes, enumerated from `MemberType::node_key`, are `scalar_type` of form
 `bag`, `sequence` and `ordered_set`; and `bounded_domain` of form
 `integer_range` and `collection_bounds`. Each of the following is its own requirement:
 
-1. When a node of one of these shapes carries no `declaration`, the reader
-   shall re-derive its `node_id` from the node's own `node_tag`,
+1. When a node of one of these shapes carries no `declaration` and is not
+   skipped (the next section), the reader shall re-derive its `node_id` from the node's own `node_tag`,
    `semantic_form`, `semantic_type` and body.
 2. The reader shall derive that key by the one function `MemberType::node_key`
    calls, and by no second function.
@@ -1850,9 +1850,150 @@ re-pointed at a genuinely keyed narrower node. The cases are a `value`/
 operand route reads (`operand_type_node`, `check_parameters`, `checked_bounds`);
 an `alias`, `record`, `tuple` or `union` composite over a range; and a declared,
 named `bounded_domain` (`type Small = Int[0, 9]`), which a state field's domain
-reads. Those routes stay open until the gate of FR-038-AC-131 lifts, and
-FR-038-AC-131 and FR-038-AC-132 are the planned closure, so the decided rule is
-a partial defence and not a complete one.
+reads. A second open route is a node of a skippable shape that sits on a names
+cycle (see "Derived-shape nodes inside a recursion group" below), which is not
+the node of a range: `integer_range` is never skipped.
+Those routes stay open until the gate of FR-038-AC-131 and FR-038-AC-150
+lifts, and FR-038-AC-131, FR-038-AC-132 and FR-038-AC-150 are the planned
+closure, so the decided rule is a partial defence and not a complete one.
+
+### Derived-shape nodes inside a recursion group
+
+Measured at `origin/main` of QSL and of QSpec (IR-627, whose own text and the
+relayed owner answer are claims and were re-measured). A node of a derived
+shape can sit in a recursion group: QSpec FR-143 "Recursion rule" admits a
+recursive record through a `?` field, an `Option` or a collection whose minimum
+is `0`, and never through a tuple position, and QSL FR-092 "Recursion groups"
+(its sections "An in-group node's preimage" and "The group order") keys the
+`Option` or `Sequence` node of such a record, and the `collection_bounds` node
+over it (vector G9, whose `semantic_type` is a `group_reference`), as members of
+the record's group. The earlier reading of this section, that such a node is
+refused because the decided preimage holds `recursion` `null`, is SUPERSEDED:
+a derived-shape node inside a recursion group is legitimate, and the reader
+shall not refuse it for being in one.
+
+What QSL FR-092 requires of an in-group key, to the extent measured: a group is
+the strongly connected component of the graph in which a node names another by
+a body `reference`, its `semantic_type`, a `result_type`, a literal `type` or a
+member `declaration`; a structural member's preimage carries `recursion`
+`{size, ordinal, group}` and an application member's `{size, ordinal}`; each
+position that names a member of the node's own group, `semantic_type` included,
+holds `{term: "group_reference", ordinal}`; and `group` is a digest over the
+group-local preimages of every member. FR-092 reads a member's ordinal from its
+position among the group's nodes in the package's graph order, which QSL's
+emission sets to the group order (its "The group order" section); this reader
+derives an application member's ordinal the same way and recomputes no content
+order.
+
+**Why the decided stage cannot verify a node of a real group.** The group digest
+binds the group-local preimage of every member. A group that holds a declared
+record or function (every group that source can form: QSpec FR-143 admits
+recursion only through a named field, and QSL FR-092 "Groups that collide" says
+each group holds a declared record or function) has a member whose preimage
+carries `declaration` and the `SourceOwner` of its unit (FR-092 "The
+`quire.structural-node/v1` preimage"; QSpec `node-identity-preimage.schema.json`).
+A `CheckedSemanticNodeV2` carries no `owner` member and the reader holds a
+declared record's or function's `declaration` as `null` in its preimage (the
+gated form of this section), so the reader cannot compute that group's digest
+and cannot re-derive its members. A group with no declared member, as in QSL
+FR-092's vector G1 (an `option` over itself, which the key function keys and
+no declaration forms), needs no owner and is derivable from the wire alone; QSL
+FR-092 does not say the checker can produce one from source.
+
+**What can be in a group.** Of the ten shapes, six can legitimately be a member
+of a group: `option`, `set`, `bag`, `sequence` and `ordered_set` (the node that a
+recursive field names) and `collection_bounds` (it names the collection at its
+`semantic_type`, as G9 does). Four cannot, and are verified whatever label they
+carry: `scalar_type` `boolean` and `integer` and `bounded_domain`
+`integer_range` name only the `Integer` node, which names nothing but itself, so
+no path leads from them back to a node that names them; and `composite_type`
+`reference` names a model declaration node, whose body is empty so that
+`Reference` attributes "key without a cycle" (QSL FR-094, the empty-body
+paragraph after its model declaration table). A range read from a
+node whose wire form is `integer_range` is therefore verified in every package,
+with no owner needed (the wire-form caveat is in the limit below).
+
+**Decided: skip, do not refuse.** The names graph the reader uses is its own
+cycle graph (`validate_graph`) with the edges of `dependencies` left out: a node
+names another by its `semantic_type` (a self-typed node excluded), a body
+`reference` target, a literal `type`, an application's `result_type` or a frame
+entry. QSL FR-092's graph differs by also holding a member `declaration` and not
+holding a frame entry. Neither difference changes a component that holds a
+skippable shape: a type node's body holds only `reference` terms and literals,
+and a member `declaration` names a model node whose body is empty. The
+re-derivation stage shall skip a node if and only if all of these hold: its wire
+form (`node_tag` and `semantic_form`) is one of the six shapes; it carries a
+`recursion_group`; it lies on a cycle of the names graph; and every node of the
+strongly connected component that holds it carries that same `recursion_group`.
+Nodes carrying the label outside the component do not matter. The stage shall
+neither refuse nor verify the key of a skipped node. A node of a skippable
+shape that carries a label and fails any of the other three conditions is
+verified as an ungrouped node: its key is derived with
+`recursion` `null`, and it is refused `stale-node-key` when the stored key
+differs and admitted when it holds the ungrouped key. That choice keeps the
+admission of a lone label (`tc_048_package_id_covers_exactly_the_identity_preimage`)
+and refuses a tampered node that carries one. A node of the four shapes is
+verified whatever it carries, and one whose body is not closed has no derivable
+key (item 3), so a body reference that would forge a names cycle through it
+refuses. The reader keeps deriving the keys of application nodes inside a group
+as the "Application node keys" section states, and a skipped node still passes
+every other check the reader makes of it, among them FR-038-AC-18's refusal of
+a cycle outside a declared `recursion_group`.
+
+**Stated soundness limit.** Until the gate of FR-038-AC-150 lifts (IR-630,
+blocked by QSL-638), the reader
+does not verify the key, and therefore not the body, of a skipped node. A
+changed `max` of the `Sequence<Tree>[0, 3]` node, with its `node_id` kept, is
+admitted by this stage. The limit includes a forged group: a tamperer who
+re-points a collection node's body `reference` at a `collection_bounds` node
+that names the collection at its `semantic_type`, and labels both, makes a names
+cycle of two nodes whose members all carry the label, and the stage
+skips both (FR-038-AC-148). So a `collection_bounds` count, and the element type
+of an `option` or a collection, are unverified by this reader for any node that a
+tamperer can place on a names cycle; they rest on the package producer. A
+range is not reached through a node whose wire form is `integer_range`, which is
+never skipped, but the form is a wire member that a skipped node's key does not
+verify: `integer_range` and `collection_bounds` share one body form, so a node
+keyed as `Int[0, 1000]` can be retagged `collection_bounds`, have its `max`
+changed and its `semantic_type` re-pointed at a labelled collection whose body
+references it, and then lies on a forged names cycle and is skipped
+(FR-038-AC-148). A consumer that reads a range by wire form reads none from that
+node; a consumer that takes the field type from the domain document and the
+node from the graph by key is handed a node whose body is not the type it
+names. The reader cannot close this without the owner: a cross-check of a
+skipped node's key against the member types of the selected domain documents
+would need the field tables that FR-038-AC-136 to AC-144 only plan, and it
+would still not cover a key the domain documents do not name. In-group
+re-derivation (FR-038-AC-150) verifies every skipped node's tag, form and body
+through its key, so it closes this route with the rest. The limit does not make
+`dependencies` a route, because those edges are not in the names
+graph (FR-038-AC-147).
+
+**Consumer consequence.** quire-contract-codegen's lowering already returns
+`requires_bound` under a bounds-required profile for a `scalar_type` or
+`composite_type` node that declares a `recursion_group` (FR-038-AC-41), so a
+legitimate recursive record is not what exposes a consumer. Its
+`is_recursive_type` ignores `bounded_domain`, so a `collection_bounds` count read
+through a forged group reaches the consumer unverified. The element-range route
+is the same: a skipped node's body is not checked for closedness, so a skipped
+collection's body `reference` can be re-pointed, or given a second reference, at
+another genuinely keyed range, and a consumer that reads an element range
+through that collection gets a forged one. Under a bounds-required profile
+FR-038-AC-41 catches both, because a forged group labels a `composite_type`
+node and that node returns `requires_bound`; under any other profile neither is
+caught by this reader. No codegen requirement
+backs a rule that a consumer must not trust such a count; a downstream
+quire-contract-codegen requirement is needed for it (IR-624, in codegen's
+FR-015 section, is the place to propose it) and this specification places no
+obligation on that repository.
+
+**Gated: in-group re-derivation.** Once the reader derives the preimage of each
+declared member of a group, including its `SourceOwner` (IR-627-Q1 and Q4;
+the follow-up is IR-630, blocked by QSL-638, with a spec amendment first), it
+shall re-derive every structural node of that group by the QSL FR-092 rules
+above, by the function of item 2, and by no second function (FR-038-AC-150). A
+group with no declared member is not gated on the owner (Q4); it waits only for
+the reader to compute the group digest.
 
 **Trust root.** The member type step 4 derives comes from the domain document
 that the caller's evidence supplies under the `model_selections` digest, whose
@@ -1874,7 +2015,8 @@ the open questions below are answered. The nodes are `bounded_domain` of form
 `record_value`, `tuple_value`, `union_value`, `option_value` and `parameter`;
 every node of the shapes decided above that carries a `declaration` (a named
 `bounded_domain`, a declared record or tuple, and a declared function), whose
-preimage has a `declaration` member the reader holds as `null`; and every node
+preimage has a `declaration` member the reader holds as `null`; every node of
+the shapes decided above that the stage skips as a member of a real recursion group (FR-038-AC-150); and every node
 of any other tag whose key no stage derives today (expression, function, model,
 relation, state, temporal, protocol, claim and correspondence nodes that are
 not application nodes or model declaration nodes). Nominal forms (`enum`,
@@ -1891,7 +2033,9 @@ stage ("Parameter and compound-unit nodes, and the application dependency
 join") and the application key stage, and before the nominal key stage and
 before every declaration, frame, state, temporal, abstraction and operation
 step. Within that stage the reader shall visit nodes in ascending digest order
-of the node's own `node_id`, charging one work unit per node, and shall report
+of the node's own `node_id`, charging one work unit per node, skipped or
+not (a skipped node is still charged, FR-038-AC-149; the skip predicate is
+FR-038-AC-145), and shall report
 the first stale node at its own `node_id`. Because the stage does not run
 inside the operation step, a tampered node is reported at itself and never at
 an application that reads it, and ahead of any `ill_typed` defect of such an
@@ -1964,10 +2108,28 @@ for the QSpec owner of FR-322:
    repository.
 3. **Q3.** Is `invalid_package`/`stale-node-key` the refusal for a structural
    key that differs from its body, or does QSpec want a distinct cause?
-4. **Q4.** May a node of a derived shape sit in a `recursion_group`, and may
-   two nodes of the package carry one key; if not, which refusal is it? The
-   decided rule hashes a preimage with `recursion` `null`, so it refuses a
-   derived-shape node that has one, as an IR reading until Q4 is answered.
+4. **Q4.** ANSWERED in part (QSL owner answer relayed 2026-10-05, QSL-635, and
+   re-measured at `origin/main` of QSL and QSpec). A derived-shape node may sit
+   in a `recursion_group` (QSpec FR-143 "Recursion rule"; QSL FR-092 "Recursion
+   groups", vector G9), and members with equal full signatures are one node
+   (FR-092 "The group order", item 5), so a group holds no two nodes of one key.
+   The earlier IR reading, that such a node is refused, is superseded: the
+   decided stage skips it ("Derived-shape nodes inside a recursion group").
+   The `SourceOwner` question (how a reader recovers a declared group member's
+   owner, which the group digest of FR-092 "An in-group node's preimage" binds
+   and `CheckedSemanticNodeV2` does not carry) is ANSWERED by the QSL owner per
+   the relay of 2026-10-05, QSL-638, option (a): the v2 wire carries `owner`, in
+   the preimage member's JSON shape, on exactly the nodes whose FR-092 preimage
+   has one (declared nodes, and model-owned nodes with `ModelOwner`) and
+   nowhere else, with QSpec FR-322 and the QSL emitter changed under QSL-638
+   and this reader reading it; the IR follow-up is IR-630, blocked by QSL-638.
+   Still open, for the owners of QSL FR-092 and QSpec FR-322: whether a reader must recompute the content order of "The group order" or
+   may read each ordinal from graph order, as FR-092 states for FR-322, in which
+   case a package whose members are re-keyed under a permuted wire order admits
+   (a stated limit of FR-038-AC-150, not a refusal). QSL FR-092's vector G1 (an
+   `option` over itself) forms a group with no declared member, so the owner is
+   not needed for it; does the checker form such a group from source, or only
+   the key function (an owner-free group is derivable from the wire alone)?
 5. **Q5.** QSpec's checkout holds derived-shape nodes under placeholder keys
    (`aaaa...` boolean, `7f7f...` integer, `b2b2...` reference, `a1a1...` integer
    in the union fixture), which QSL FR-092's preimage does not produce, in these
@@ -2937,6 +3099,12 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-142 | Public shape and stability (IR-628; planned, ungated). A compile-time API fixture shows `model_object_fields` takes `&self` and one `&CheckedNodeId` and no evidence; an exhaustive match over `CheckedMemberType`, `CheckedCollectionKind` and `CheckedModelFieldsError` with no wildcard arm compiles; code constructing `CheckedModelObjectFields` or `CheckedModelField` by struct literal fails to compile; the criterion is the compile fixtures: the exhaustive matches compile from an external crate (`tests/it`) only while the enums are closed. Mutation rows: `#[non_exhaustive]` added to an enum (the wildcard-free match fails to compile); a public field on either struct (the struct-literal fixture compiles); a variant added to an enum (the exhaustive match fails to compile). | Test (TC-227) |
 | FR-038-AC-143 | Pure, total, bounded (IR-628; planned, ungated). Two calls on one package return equal results; a clone of the package returns an equal result; two admissions of the same bytes under different byte limits (both admitting) are equal as packages and return equal results; a package admitted (under a `work` limit set high enough) from a document with an inheritance chain of 200 object types and 100 redefinitions of one field has a call that returns the fields without panic or stack overflow, and the call does no resolution (a counter on the table-building function of items 2 and 7 reads the same value before and after the call); a node of AC-139's refusal cases returns its error and never panics. Equality of two packages admitted from the same bytes is unchanged by the retained tables. Mutation rows: the accessor panics on an unwrap of a missing owner; it recurses over the chain; it resolves per call; equality of packages gains the retained tables. | Test (TC-227) |
 | FR-038-AC-144 | Resolution is charged once, at admission (IR-628; planned, ungated). Cost model of items 8 and 9, with the arithmetic. For a chain of N object types, the first declaring one field and each later one declaring one field and extending the previous, the charge is 1 for the first type and k + 1 for the type at depth k >= 2 (one own field, one supertype edge, k - 1 copied entries), in all N(N + 1)/2 + N - 1: 13 for N = 4 (1 + 3 + 4 + 5) and 43 for N = 8. A crate-internal test reads the table-building counter and asserts 13 and 43. For the same chains, the smallest `work` limit that admits is M, and the limit M - 1 returns `incomplete` with the pointer `/lock/model_selections/0`. Under `CheckedPackageReadLimits::bounded()` (work 1,000,000), a chain of N = 1000 (charge 1,000 x 1,001 / 2 + 999 = 501,499) admits and a chain of N = 1500 (1,500 x 1,501 / 2 + 1,499 = 1,127,249) returns `incomplete` at `/lock/model_selections/0`. Precedence (item 11), over one package each: a table charge that exhausts the limit together with a graph-stage refusal (a stale node key) returns `incomplete`, because tables precede `validate_graph`; a step 1 refusal at row 1 together with a table charge that exhausts the limit at row 0 returns the step 1 refusal, because every row's step 1 precedes any table charge. An object type with an ambiguous name (AC-139, package A) admits, and its table is charged as any other. Read charge (item 10): a read of a field of the N = 4 chain's deepest type charges 4 units (the four entries of its table, no hidden entries), a read of the root charges 1, and a read of an operation charges the unchanged step 3 walk; a frame entry naming a field and an abstraction relation's field entry on that deepest type each charge the same 4 units, a relationship edge read charges the entries of its table, and none runs the ancestor walk for a field (a counter on the walk stays at its pre-resolution value); a state clause resolves only operations and is unchanged. Cycles (items 4 to 6, 9), each pinned against what `resolve` returns today (the expected tables are recorded by running the pre-change `resolve` over each document before the code change and stored as the test's expected values, so they are not asserted from reading the code): a type `A extends A` declaring one field `f` admits, its table is `{f}` and the charge is 2; types `A extends B` with field `a` and `B extends A` with field `b` admit, the tables of `A` and `B` are the one shared table `{a, b}` and the charge is 4; `A extends A` declaring `f` and `g` where `g` redefines `f` admits and its table equals what `resolve` returns for `A` today (by reading `resolve`, `g` hides `f` and, since `A` is its own ancestor, itself, so neither is exposed); a document with a third type `C extends A` (outside the cycle) has a table equal to `resolve`'s for `C`, charged with the entries copied from the cycle's table. Mutation rows: tables computed after admission or per call (the limit never exhausts); the charge omitted for an unread object (the one-below limit admits); tables built after the graph stage (the precedence row returns the graph refusal); a per-type ancestor re-walk (the counter exceeds 13 for N = 4); an ambiguous table refusing admission; a field resolution (read, frame entry, abstraction field entry) that still runs the walk or charges nothing; a cycle refused at admission, built without termination, or built per member (the charge exceeds 4 for the two-cycle); a cyclic table differing from `resolve`'s. | Test (TC-227) |
+| FR-038-AC-145 | Real groups: skip, not refuse (IR-627; planned, ungated; supersedes the refusal reading of IR #295's Q4). A package of `record List { next?: List; }` (an `Option` self-reference) and `record Tree { kids: Sequence<Tree>[0, 3]; }` (a `Sequence` self-reference whose `collection_bounds` node names the `Sequence<Tree>` node at its `semantic_type`), each under one `recursion_group` with its keys as QSL FR-092 mints them, admits, and the decided stage reports no `stale-node-key` for any in-group node. The skipped set is exactly the nodes of the six skippable shapes (`option`, `set`, `bag`, `sequence`, `ordered_set`, `collection_bounds`) that carry a `recursion_group`, lie on a cycle of the names graph and sit in a strongly connected component of that graph every node of which carries that label (FR-038 "Derived-shape nodes inside a recursion group"); the declared record and function of a group are gated forms the stage never touches. An application node inside a group keeps FR-038-AC-88's key check and refuses `stale-node-key` when its `node_id` is stale. | Test (TC-226) |
+| FR-038-AC-146 | Shapes that can never be in a group are always re-derived (IR-627; planned, ungated). For `scalar_type` `boolean` and `integer`, `bounded_domain` `integer_range` and `composite_type` `reference`, the decided stage re-derives the key and checks the closed body whatever `recursion_group` the node carries. Over the `Int[0, 1000]` node: with `recursion_group` `"x"` added (a label no other node carries), `max` changed to `10`, `node_id` kept, `identity_projection` patched and `package_id` recomputed through `quire-canonical` in the test, the package refuses `invalid_package`/`stale-node-key` at that node's `node_id`; the same with the label of the genuine `Tree` group added, refusing at the `Int[0, 1000]` node alone (the group's own nodes carry that label too and are skipped, so no other node is reported); the same over the acyclic `Set<Int[0, 1000]>[0, 3]` package of FR-038-AC-147 with a genuine cycle closed through its own nodes: the `Int[0, 1000]` node's `semantic_type` re-pointed at the `set` node (which already names the `Int[0, 1000]` node in its body `reference`), both labelled `"x"` (a names cycle of the two nodes whose members all carry the label), and `max` changed to `10`, the `node_id` kept, refusing `stale-node-key` at the `Int[0, 1000]` node's `node_id`, which is the only node reported because the `set` node is a skippable shape on that cycle and is skipped. An `integer_range` node that carries a label and holds its derived key admits, so the label alone is not a refusal. Mutation rows: a reader that skips on the label alone admits the first two rows and fails; a reader that skips any labelled node on a names cycle, whatever its shape, skips the `Int[0, 1000]` node of the third row, which is on the cycle and labelled, and admits the tampered `max`, and fails; a reader that re-derives only `integer_range` admits the same rows over a `reference`, `boolean` and `integer` node and fails. | Test (TC-226) |
+| FR-038-AC-147 | A label or a dependency does not make a cycle (IR-627; planned, ungated). Over a package with an acyclic bounded collection (a `Set<Int[0, 1000]>[0, 3]` field, so a `collection_bounds` node naming its `set` node and no cycle): the `collection_bounds` node with the label `"x"` added and `max` changed to `5` refuses `stale-node-key` at its `node_id` (it is on no names-graph cycle, so it is verified as ungrouped); the same node with its own `node_id` added to its `dependencies` (a self-dependency, outside the names graph) and the label `"x"` added, `max` changed to `5`, refuses identically, and without the label refuses `invalid_semantic_graph` at the graph-shape stage as FR-038-AC-18 does, before this stage. Over the `Tree` package, with one more node carrying the `Tree` group's label that is off the group's cycle (a `Set<Int[0, 1000]>` node, with its key left as its ungrouped key), every member of the group is still skipped and the extra node, verified as ungrouped, admits; with its body `reference` re-pointed at a genuinely keyed `Int[0, 10]` node and its `node_id` kept it refuses `stale-node-key` at its `node_id`. The existing admission of a lone label on an acyclic node, `tc_048_package_id_covers_exactly_the_identity_preimage`, stands. Mutation rows: a skip keyed on the label alone; a skip keyed on a cycle of IR's own graph, which counts `dependencies` (the self-dependency row admits and fails); a skip that requires the component to be exactly the labelled set (the extra-node row refuses a genuine member and fails). | Test (TC-226) |
+| FR-038-AC-148 | The stated limit is recorded as tests (IR-627; planned, ungated). Over the `Tree` package, each single mutation below, with the `node_id` kept and the identity members recomputed, is not refused `stale-node-key` by the decided stage, and none is refused for carrying a `recursion_group`: `max` of the in-group `collection_bounds` node changed to `5`; its `min` changed to `1`; the `Sequence<Tree>` node's body `reference` re-pointed from the record at the `collection_bounds` node, which leaves a names cycle of those two nodes (the labelled record is off the cycle and is a gated form the stage never touches, and both remaining nodes are skipped). A forged group is recorded the same way: a package of an acyclic `Set<Int[0, 1000]>[0, 3]` field whose `set` node's body `reference` is re-pointed at its own `collection_bounds` node (a names cycle of two nodes through `semantic_type` and the body reference), both nodes labelled `"x"`, with the bounds `max` changed to `5`, admits, which is the limit; and so does the retag of FR-038 "Stated soundness limit": the node keyed as `Int[0, 1000]` retagged `collection_bounds` and labelled `"x"`, its `max` changed, its `semantic_type` re-pointed at a `set` node labelled `"x"` whose body references it, which a consumer reading by wire form finds to hold no `integer_range` and a consumer reading the node by the key of the field type finds to hold a body that is not that type. The test fails if any of these refuses `stale-node-key` at a skippable-shape node, so that the day FR-038-AC-150 lands the rows move to refusals in the same change. | Test (TC-226) |
+| FR-038-AC-149 | A skipped node is charged (IR-627; planned, ungated). The stage charges one work unit for every node of the ten shapes it visits, skipped or not. Over the `Tree` package, in which the test counts K nodes of the ten shapes (the skipped `Sequence<Tree>` and `collection_bounds` nodes included), a crate-internal counter on the stage reads K after the read, K being the constant the test counts from the package it builds and not a value read from the stage. Mutation row: a stage that does not charge a skipped node reads K minus the number of skipped nodes and fails. | Test (TC-226) |
+| FR-038-AC-150 | In-group re-derivation (IR-627; planned and GATED on IR-630, which waits on QSL-638's wire `owner`; IR-627-Q1 and Q4). Once the reader derives the preimage of each declared member of a group, including its `SourceOwner`, a package of the `List` and `Tree` groups of FR-038-AC-145 whose in-group keys are those QSL FR-092 mints (the group digest over the group-local preimages in ordinal order; `recursion` `{size, ordinal, group}` on every structural member; `{term: "group_reference", ordinal}` at every position that names a member of its own group, `semantic_type` included) admits. Each of these refuses `invalid_package`/`stale-node-key` at the node's `node_id`: `max` of the in-group `collection_bounds` node changed to `5`; the `Sequence<Tree>` node's body `reference` re-pointed at another member of the group (a different ordinal); the `semantic_type` of the `collection_bounds` node re-pointed at the record (a different ordinal at `semantic_type`); the group's members written in another wire order with every `node_id` kept; the forged group of FR-038-AC-148. A group in which no member carries a `declaration`, such as QSL FR-092's vector G1 (an `option` over itself), needs no owner and is not gated on Q4, because every member's preimage is derivable from the wire: it is re-derived once the reader computes the group digest. The preimage's `recursion` and `group_reference` members are derived, not wire members, so each mutation reaches them through the wire member that produces them. The stated limit, recorded as the admission of the same group with its members written in another wire order and every key recomputed for that order: the reader reads each ordinal from graph order, as QSL FR-092 states for FR-322, and does not recompute the content order (IR-627-Q4). Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
