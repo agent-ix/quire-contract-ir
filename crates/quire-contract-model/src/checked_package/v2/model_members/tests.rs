@@ -21,7 +21,7 @@ fn sha256_of(text: &str) -> String {
 /// preimage, written out here from the preimage's JSON text with members in
 /// RFC 8785 order, not produced by the code under test.
 ///
-/// Tracing: TC-048, FR-038-AC-89
+/// Trace: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_structural_node_keys_hash_the_expected_canonical_bytes() {
@@ -164,7 +164,7 @@ const GADGET: &str = "ix://acme/orders/Gadget";
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
 /// subtype and a subtype conforms to its supertype, decided in either order.
 ///
-/// Tracing: TC-048, FR-038-AC-29
+/// Trace: FR-038-AC-29
 #[test]
 fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
     let model = read(&document(vec![
@@ -203,7 +203,7 @@ fn tc_048_a_semantic_ir_document_reads_inherited_members_and_conformance() {
 /// An FCD value type `scalar: integer` with `min` and `max` constraints is
 /// the element type `Int[lo, hi]`.
 ///
-/// Tracing: TC-048, FR-038-AC-29
+/// Trace: FR-038-AC-29
 #[test]
 fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
     let digit = json!({
@@ -234,7 +234,7 @@ fn tc_048_a_semantic_ir_integer_value_type_is_an_integer_range() {
 
 /// FR-154's declaration refusals the reader draws, each for one defect.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
     let refused = |types| read(&document(types)).map(|_| ()).expect_err("refused");
@@ -289,7 +289,7 @@ fn tc_048_semantic_ir_declaration_defects_refuse_with_their_fr_154_cause() {
 /// the bytes and the document's own `package` identity compared; no version
 /// is read.
 ///
-/// Tracing: TC-048, FR-038-AC-27
+/// Trace: FR-038-AC-27
 #[test]
 fn tc_048_a_selection_admits_only_the_document_it_names() {
     let document = document(vec![object_type(WIDGET, &[], vec![])]);
@@ -348,7 +348,7 @@ const BAD_ID: &str = "ix://acme/orders/bad-id";
 /// reported again as `missing-name`; the refused node's own refusal stands,
 /// whether the referencing node is read before or after it.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
@@ -385,7 +385,7 @@ fn tc_048_a_reference_to_a_refused_node_leaves_that_nodes_own_refusal() {
 /// multiplicity with `lower > upper` (`unpreserved-model-meaning`), and a
 /// malformed member before either, wherever each sits in the node.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_one_nodes_failures_report_in_table_order() {
     let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
@@ -438,7 +438,7 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// meaning, whether the object type declaring the relationship is read before
 /// or after the one naming it.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
     let owns = "ix://acme/orders/Widget/owns";
@@ -463,7 +463,7 @@ fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
 /// QSpec FR-154: two nodes that carry no identity share none; each is
 /// malformed, not a `conflicting-binding`.
 ///
-/// Tracing: TC-048, FR-038-AC-28
+/// Trace: FR-038-AC-28
 #[test]
 fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
     let mut nameless = object_type(WIDGET, &[], vec![]);
@@ -484,7 +484,7 @@ fn tc_048_nodes_with_no_identity_are_malformed_not_conflicting() {
 /// the reader's `work` limit at the document's `model_selections` row; a
 /// limit one below what a read used is `incomplete` there.
 ///
-/// Tracing: TC-048, FR-038-AC-30
+/// Trace: FR-038-AC-30
 #[test]
 fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let types = || {
@@ -678,6 +678,16 @@ pub(in crate::checked_package::v2) fn differential_documents(
                 ("C3", &["C2"], &[]),
             ],
         ),
+        (
+            "branch_dominance",
+            vec![
+                ("Base", &[], &[("x", None)]),
+                ("L", &["Base"], &[("x", Some("Base/x"))]),
+                ("M", &["L"], &[("x2", Some("Base/x"))]),
+                ("X", &["M", "L"], &[]),
+                ("Y", &["L", "M"], &[("y", None)]),
+            ],
+        ),
     ]
 }
 
@@ -685,7 +695,7 @@ pub(in crate::checked_package::v2) fn differential_documents(
 /// [`differential_documents`] before IR-628 changed it, recorded by running
 /// that function and pasted here; the field tables of IR-628 are compared
 /// with them, not with a reading of the code.
-pub(in crate::checked_package::v2) const RECORDED: [&str; 26] = [
+pub(in crate::checked_package::v2) const RECORDED: [&str; 31] = [
     "self_cycle/A: f=A/f",
     "two_cycle/A: a=A/a b=B/b",
     "two_cycle/B: a=A/a b=B/b",
@@ -712,12 +722,17 @@ pub(in crate::checked_package::v2) const RECORDED: [&str; 26] = [
     "redefining_chain/C1: f=C1/f g=C0/g",
     "redefining_chain/C2: f=C2/f g=C0/g",
     "redefining_chain/C3: f=C2/f g=C0/g",
+    "branch_dominance/Base: x=Base/x",
+    "branch_dominance/L: x=L/x",
+    "branch_dominance/M: x2=M/x2",
+    "branch_dominance/X: x2=M/x2",
+    "branch_dominance/Y: x2=M/x2 y=Y/y",
 ];
 
 /// `resolve` over the field tables answers as the pre-change `resolve` did,
 /// for supertype cycles, redefinitions, a diamond and an ambiguous name.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {

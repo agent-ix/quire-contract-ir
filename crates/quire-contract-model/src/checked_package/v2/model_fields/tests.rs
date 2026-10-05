@@ -81,7 +81,7 @@ fn table_for<'m>(model: &'m DomainModel, short: &str) -> &'m FieldTable {
 /// The table of each type, read for every field name, says what the
 /// pre-change `resolve` answered (FR-038 items 4 to 6).
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_tables_hold_the_fields_the_recorded_resolve_answers_expose() {
@@ -115,7 +115,7 @@ fn tc_227_tables_hold_the_fields_the_recorded_resolve_answers_expose() {
 /// table: a redefiner of a type that is its own ancestor hides itself and its
 /// target, so neither is exposed.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_redefiner_in_a_cycle_hides_itself_and_its_target() {
@@ -146,7 +146,7 @@ fn tc_227_a_redefiner_in_a_cycle_hides_itself_and_its_target() {
 /// `N (N + 1) / 2 + N - 1`: 13 for four types and 43 for eight; a table is
 /// built once per type from its supertype's, with no ancestor walk.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_chain_charges_the_sum_of_its_tables() {
@@ -188,7 +188,7 @@ fn tc_227_a_chain_charges_the_sum_of_its_tables() {
 /// A chain of 1000 and a chain of 1500 types are charged the sums the cost
 /// paragraph states, measured over the built tables.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_long_chains_charge_what_the_cost_paragraph_states() {
@@ -201,7 +201,7 @@ fn tc_227_the_long_chains_charge_what_the_cost_paragraph_states() {
 /// charge 4 and share one table holding both fields, and a type outside the
 /// cycle that extends it is charged the entries it copies.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_cycle_is_charged_and_built_once_per_component() {
@@ -244,7 +244,7 @@ fn tc_227_a_cycle_is_charged_and_built_once_per_component() {
 /// An ambiguous name is retained in the table, not refused, and is charged
 /// as any other table.
 ///
-/// Tracing: TC-227, FR-038-AC-139, FR-038-AC-144
+/// Trace: FR-038-AC-139, FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-144")]
 #[test]
 fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
@@ -259,7 +259,7 @@ fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
 /// table it selects from, without the ancestor walk; an operation keeps the
 /// walk.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_field_read_charges_the_table_and_an_operation_keeps_the_walk() {
@@ -308,7 +308,7 @@ fn tc_227_a_field_read_charges_the_table_and_an_operation_keeps_the_walk() {
 /// the owner's type: four units on the deepest type of a chain of four, one on
 /// the root, and no ancestor walk.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_field_entry_resolves_through_the_table_and_charges_its_entries() {
@@ -496,7 +496,7 @@ fn ledger() -> Value {
 /// read would name, after admission, changes nothing, and the accessor
 /// depends on no body of any other node.
 ///
-/// Tracing: TC-227, FR-038-AC-140
+/// Trace: FR-038-AC-140
 #[trace("TC-227", "FR-038-AC-140")]
 #[test]
 fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
@@ -549,7 +549,7 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
 /// model node whose body is not `aggregate{[]}` returns the error and not the
 /// fields.
 ///
-/// Tracing: TC-227, FR-038-AC-139, FR-038-AC-143
+/// Trace: FR-038-AC-139, FR-038-AC-143
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
@@ -638,7 +638,7 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
 /// chain of 200 types and 100 redefinitions of one field returns its fields
 /// without a panic and without resolving anything.
 ///
-/// Tracing: TC-227, FR-038-AC-139, FR-038-AC-143
+/// Trace: FR-038-AC-139, FR-038-AC-143
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
@@ -698,4 +698,49 @@ fn tc_227_the_accessor_is_pure_total_and_does_not_resolve() {
         built_before,
         "the call builds no table"
     );
+}
+
+/// The retained tables and declaration index take no part in the package's
+/// equality: two packages of one admitted content, one with its tables and one
+/// without, are equal, though only one returns fields.
+///
+/// Trace: FR-038-AC-143
+#[trace("TC-227", "FR-038-AC-143")]
+#[test]
+fn tc_227_the_retained_tables_take_no_part_in_equality() {
+    let with = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]).package;
+    let mut without = with.clone();
+    without.models = RetainedModels::default();
+    let ledger = with
+        .wire
+        .semantic_graph
+        .nodes
+        .first()
+        .expect("a node")
+        .node_id
+        .clone();
+    assert!(with.model_object_fields(&ledger).is_ok());
+    assert_eq!(
+        without.model_object_fields(&ledger),
+        Err(CheckedModelFieldsError::NotModelObjectType)
+    );
+    assert_eq!(with, without);
+}
+
+/// The component search follows a chain of any length on the heap: a chain of
+/// 20,000 object types is searched on a thread of 256 KiB, which a recursion
+/// over the chain does not survive.
+///
+/// Trace: FR-038-AC-143
+#[trace("TC-227", "FR-038-AC-143")]
+#[test]
+fn tc_227_the_component_search_needs_no_call_stack() {
+    let model = unbuilt(&chain_document(20_000));
+    let found = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || components(&model).len())
+        .expect("a thread")
+        .join()
+        .expect("the search finishes on a small stack");
+    assert_eq!(found, 20_000);
 }

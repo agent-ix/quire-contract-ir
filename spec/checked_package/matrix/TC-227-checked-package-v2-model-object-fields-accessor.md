@@ -24,9 +24,9 @@ of every node body.
 Build domain package documents in this repository and a lock selecting each:
 one with two `Int[0, 1000]` fields and a read of one; one with an inheritance
 chain, an inherited field, a redefinition with a narrower range and a
-most-derived redefiner; one declaring every kind of AC-138 (the `i128` extremes
-and one past each among them); one with an ambiguous name, in a package with no
-read of it and a sibling with a read; one with a 200-type chain and 100
+most-derived redefiner; one declaring every kind of AC-138 (the `i128` extremes,
+2^53 + 1 and one past each `i128` extreme); one with an ambiguous
+name, in a package with no read of it and a sibling with a read; one with a 200-type chain and 100
 redefinitions; chains of 4, 8, 1000 and 1500 types with one field each. Build the checked packages in the test, keying every read's type
 node by an independent recomputation through `quire-canonical`, never through
 the reader. Admit each, call `model_object_fields` on the model declaration
@@ -62,8 +62,8 @@ from an independent recomputation through `quire-canonical`) and the unit tests
 of `crates/quire-contract-model/src/checked_package/v2/model_fields.rs` (the
 tables, charges, cycles, read charges, node-body independence) and
 `model_members.rs` (the `resolve` answers recorded before the change, run
-against the field tables). Not exercised: a relationship-typed field (the
-document reader refuses it as `malformed-declaration`, so no admitted package
-holds one); an end-to-end frame entry, abstraction field entry and relationship
-edge read charge (verified at the two functions those readers call); the
-mutation rows, which were not run as mutations.
+against the field tables). Not exercised: an end-to-end frame entry,
+abstraction field entry and relationship edge read charge (verified at the two functions those readers call); the
+mutation rows, which were not run as mutations in the initial implementation.
+The branch-dominance, name-order, ambiguity, f64-bound, equality, and stack
+regressions were added in the review fix.

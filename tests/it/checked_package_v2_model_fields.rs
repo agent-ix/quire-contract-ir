@@ -509,7 +509,7 @@ fn names(fields: &CheckedModelObjectFields) -> Vec<&str> {
 /// with `i128` bounds, although no read names `audit`; an absent field is
 /// `None`, not an error.
 ///
-/// Tracing: TC-227, FR-038-AC-136
+/// Trace: FR-038-AC-136
 #[trace("TC-227", "FR-038-AC-136")]
 #[test]
 fn tc_227_the_fields_of_a_model_object_come_back_as_values() {
@@ -606,7 +606,7 @@ const INELIGIBLE: (
 /// and no hidden field; a read keyed from the returned type admits and the
 /// same read keyed from the hidden base field's type refuses.
 ///
-/// Tracing: TC-227, FR-038-AC-137
+/// Trace: FR-038-AC-137
 #[trace("TC-227", "FR-038-AC-137")]
 #[test]
 fn tc_227_the_effective_set_is_the_one_admission_resolves() {
@@ -698,6 +698,8 @@ fn every_kind() -> Value {
         value_type("Zero", "integer", Some(("0", "0"))),
         value_type("Signed", "integer", Some(("-5", "5"))),
         value_type("Wide", "integer", Some((MIN, MAX))),
+        // 2^53 + 1: a bound an `f64` cannot hold.
+        value_type("Odd", "integer", Some(("0", "9007199254740993"))),
         value_type("PastMax", "integer", Some(("0", PAST_MAX))),
         value_type("PastMin", "integer", Some((PAST_MIN, "0"))),
         value_type("Label", "text", None),
@@ -713,6 +715,7 @@ fn every_kind() -> Value {
                 field("zero", &orders("Zero")),
                 field("signed", &orders("Signed")),
                 field("wide", &orders("Wide")),
+                field("odd", &orders("Odd")),
                 field("link", &orders("Other")),
                 field("maybe", &thousand).optional(),
                 field("set", &thousand).many(many(false, true)),
@@ -749,6 +752,7 @@ fn expected_kinds() -> Vec<(&'static str, Option<Ty>)> {
         ("zero", Some(Ty::Range(0, 0))),
         ("signed", Some(Ty::Range(-5, 5))),
         ("wide", Some(Ty::Range(i128::MIN, i128::MAX))),
+        ("odd", Some(Ty::Range(0, 9_007_199_254_740_993))),
         ("link", Some(Ty::Reference(other))),
         ("maybe", Some(Ty::Option(Box::new(thousand())))),
         ("set", collection(Kind::Set, None)),
@@ -787,7 +791,7 @@ fn kinds_package() -> CheckedPackageV2 {
 /// extremes without loss and one past each as `None`, and a field with no type
 /// is present beside the others and never refuses the call.
 ///
-/// Tracing: TC-227, FR-038-AC-138
+/// Trace: FR-038-AC-138
 #[trace("TC-227", "FR-038-AC-138")]
 #[test]
 fn tc_227_every_member_kind_returns_its_derived_type_or_none() {
@@ -847,7 +851,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
 /// type refuses `ill_typed`/`operator-ineligible` at the read: the accessor
 /// reports the type admission compares.
 ///
-/// Tracing: TC-227, FR-038-AC-141
+/// Trace: FR-038-AC-141
 #[trace("TC-227", "FR-038-AC-141")]
 #[test]
 fn tc_227_the_returned_type_is_the_type_admission_compares() {
@@ -882,7 +886,7 @@ fn tc_227_the_returned_type_is_the_type_admission_compares() {
         assert_eq!((refused.0, refused.1), INELIGIBLE, "{name}: {perturbed:?}");
         checked += 1;
     }
-    assert_eq!(checked, 13, "every field with a derived type was exercised");
+    assert_eq!(checked, 14, "every field with a derived type was exercised");
 }
 
 // --- AC-139 ----------------------------------------------------------------------
@@ -904,7 +908,7 @@ fn refusal_document() -> Value {
 /// no selected declaration each name what is wrong, and the call is `Ok` for
 /// an absent field name.
 ///
-/// Tracing: TC-227, FR-038-AC-139
+/// Trace: FR-038-AC-139
 #[trace("TC-227", "FR-038-AC-139")]
 #[test]
 fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type() {
@@ -951,7 +955,7 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
 /// packages that differ only in that node's body return `Ok` and
 /// `NotModelObjectType`.
 ///
-/// Tracing: TC-227, FR-038-AC-139
+/// Trace: FR-038-AC-139
 #[trace("TC-227", "FR-038-AC-139")]
 #[test]
 fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
@@ -1018,7 +1022,7 @@ fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
 /// for the whole call although the object also declares a valid field; the
 /// same document with a read of the name is refused at admission.
 ///
-/// Tracing: TC-227, FR-038-AC-139
+/// Trace: FR-038-AC-139
 #[trace("TC-227", "FR-038-AC-139")]
 #[test]
 fn tc_227_an_ambiguous_name_refuses_the_call_not_the_admission() {
@@ -1068,7 +1072,7 @@ fn tc_227_an_ambiguous_name_refuses_the_call_not_the_admission() {
 /// enums match exhaustively with no wildcard arm from outside the crate,
 /// which compiles only while they are closed.
 ///
-/// Tracing: TC-227, FR-038-AC-142
+/// Trace: FR-038-AC-142
 #[trace("TC-227", "FR-038-AC-142")]
 #[test]
 fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
@@ -1115,7 +1119,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
 /// equality; a chain of 200 object types and 100 redefinitions of one field
 /// is read without panic or stack overflow.
 ///
-/// Tracing: TC-227, FR-038-AC-143
+/// Trace: FR-038-AC-143
 #[trace("TC-227", "FR-038-AC-143")]
 #[test]
 fn tc_227_the_accessor_is_pure_and_total() {
@@ -1257,7 +1261,7 @@ fn smallest_admitting_work(package: &Value, evidence: &CheckedPackageEvidence) -
 /// `M` that admits them, and under `M - 1` are `incomplete` at
 /// `/lock/model_selections/0`, though nothing reads them.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
@@ -1274,7 +1278,7 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
 /// and a chain of 1500 is `incomplete` at the selection's row: the owner
 /// decision's numbers.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
@@ -1309,7 +1313,7 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
 /// (a stale node key) is `incomplete`, and a step 1 refusal at row 1 together
 /// with a table charge that exhausts the limit at row 0 is the step 1 refusal.
 ///
-/// Tracing: TC-227, FR-038-AC-144
+/// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
@@ -1374,4 +1378,80 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
         }
         other => panic!("expected the row 1 step 1 refusal, got {other:?}"),
     }
+}
+
+/// The order is the field name's, bytewise, where it differs from the order of
+/// the member identities `<owner>/<name>`: an inherited `zeta` of `Base`
+/// identifies before an own `alpha` of `Order`, and still comes after it. The
+/// name lookup finds both, so it searches the order the list is in.
+///
+/// Trace: FR-038-AC-136
+#[trace("TC-227", "FR-038-AC-136")]
+#[test]
+fn tc_227_the_order_is_by_name_where_identity_order_differs() {
+    let thousand = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object(
+            "Base",
+            &[],
+            &[field("zeta", &thousand), field("mu", &thousand)],
+        ),
+        object(ORDER, &["Base"], &[field("alpha", &thousand)]),
+    ]);
+    let package = admit(&document, &[(ORDER, OBJECT)], &[]);
+    let fields = fields_of(&package, ORDER);
+    assert_eq!(names(&fields), ["alpha", "mu", "zeta"]);
+    for name in ["alpha", "mu", "zeta"] {
+        assert_eq!(fields.field(name).map(|field| field.name()), Some(name));
+    }
+}
+
+/// With two ambiguous names, the error names the smallest, so the answer does
+/// not depend on the order of the declarations.
+///
+/// Trace: FR-038-AC-139
+#[trace("TC-227", "FR-038-AC-139")]
+#[test]
+fn tc_227_the_ambiguous_name_the_error_carries_is_the_smallest() {
+    let thousand = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object("Left", &[], &[field("b", &thousand), field("a", &thousand)]),
+        object(
+            ORDER,
+            &["Left"],
+            &[field("b", &thousand), field("a", &thousand)],
+        ),
+    ]);
+    let package = admit(&document, &[(ORDER, OBJECT)], &[]);
+    assert_eq!(
+        package.model_object_fields(&declaration_id(ORDER)),
+        Err(CheckedModelFieldsError::AmbiguousField("a".into()))
+    );
+}
+
+/// The members of the returned structs are reached through their accessors
+/// alone: `name()` and `member_type()` of a field, `fields()` and `field()` of
+/// the list. That no member is public is decided by the `compile_fail`
+/// doctests of `CheckedModelField` and `CheckedModelObjectFields`, one probe
+/// per member, which `make test` runs in its `--doc` lane.
+///
+/// Trace: FR-038-AC-142
+#[trace("TC-227", "FR-038-AC-142")]
+#[test]
+fn tc_227_the_struct_members_are_reached_through_accessors() {
+    let thousand = orders("Thousand");
+    let document = document(vec![
+        thousand_type(),
+        object(ORDER, &[], &[field("balance", &thousand)]),
+    ]);
+    let package = admit(&document, &[(ORDER, OBJECT)], &[]);
+    let fields = fields_of(&package, ORDER);
+    let [balance] = fields.fields() else {
+        panic!("one field");
+    };
+    assert_eq!(balance.name(), "balance");
+    assert_eq!(balance.member_type(), Some(&range(0, 1000)));
+    assert_eq!(fields.field("balance"), Some(balance));
 }

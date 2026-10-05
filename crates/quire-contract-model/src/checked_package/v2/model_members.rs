@@ -811,9 +811,11 @@ impl DomainModel {
         if object.interface {
             return None;
         }
-        // `ModelOwners::new` derives this same key (or a longer one for an
-        // interface) under the same limit and refuses the read when the
-        // encoder refuses it, so no refusal reaches this point.
+        // The field tables of the lock stage reach this before
+        // `ModelOwners::new` does, so an encoder refusal here is `None`, not a
+        // refusal. The same key (or a longer one for an interface) is derived
+        // there under the same limit, and the graph stage refuses the read at
+        // the selection row when the encoder refuses it.
         declaration_key(
             &self.identity,
             DeclarationForm::ObjectType,

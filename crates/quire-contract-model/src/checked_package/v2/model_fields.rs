@@ -515,6 +515,21 @@ impl From<&MemberType> for CheckedMemberType {
 ///     member_type: None,
 /// };
 /// ```
+///
+/// and no single member is public, which a literal cannot show, since it also
+/// fails on the members left private:
+///
+/// ```compile_fail,E0616
+/// fn read(field: &quire_contract_model::CheckedModelField) {
+///     let _ = &field.name;
+/// }
+/// ```
+///
+/// ```compile_fail,E0616
+/// fn read(field: &quire_contract_model::CheckedModelField) {
+///     let _ = &field.member_type;
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedModelField {
     name: Box<str>,
@@ -528,7 +543,7 @@ impl CheckedModelField {
     }
 
     /// The field's member type, `None` where FR-322 step 4's tables give the
-    /// field no type (a rational, decimal, float, text, relationship or
+    /// field no type (a rational, decimal, float, text or
     /// systems interface, a value type not bound as `Int[lo, hi]` or bound past
     /// `i128`, another FR-208 meaning, or a collection with a positive lower
     /// bound and no upper bound).
@@ -542,6 +557,12 @@ impl CheckedModelField {
 ///
 /// ```compile_fail,E0451
 /// let _ = quire_contract_model::CheckedModelObjectFields { fields: Vec::new() };
+/// ```
+///
+/// ```compile_fail,E0616
+/// fn read(fields: &quire_contract_model::CheckedModelObjectFields) {
+///     let _ = &fields.fields;
+/// }
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedModelObjectFields {
