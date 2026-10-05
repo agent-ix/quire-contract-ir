@@ -62,6 +62,10 @@ FR-038-AC-210 through FR-038-AC-213 are planned reader-admission cases for
 the published operation catalog's declared-unit quantity, aggregate,
 same-family, literal-kind and rounding-mode rules; they are not counted as
 executed evidence until the IR-484 code slice adds tagged tests.
+FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
+split of a stale digest into `content-mismatch` (a document that reads, a dependency
+entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
+raw-digest `wrong-model-selection`, and the `expected` and `actual` digests the two causes carry.
 
 ## Test Procedure
 
@@ -199,7 +203,7 @@ documents with no or a non-string `package.version`; the unnamed owner
 refuses `invalid_semantic_graph`; the dependency supplied under its identity
 with its `package_id` admits, under another identity `missing_import`/
 `missing-selection`, and with another `package_id`
-`stale_dependency`/`byte-digest-mismatch`; the same-identity pair refuses as
+`stale_dependency`/`content-mismatch`; the same-identity pair refuses as
 stated. Compare the whole refusal code, cause and pointer.
 
 ## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69)
@@ -958,7 +962,7 @@ cause `inexact-number`; repeat with `0.1`, `0.5`, `1.5`, `-0.25`, `5e-324`,
 `0.1` and `0.1000000000000000000001` and check the second refuses
 (FR-038-AC-109). Repeat the numbers of FR-038-AC-93 (including the integer value type
 upper bound), `9007199254740993.0`, `1e400` and `-1e400` and check cause
-`inexact-integer` and `noncanonical_wire`, not `byte-digest-mismatch`; check `9007199254740992.5` refuses
+`inexact-integer` and `noncanonical_wire`, not `content-mismatch`; check `9007199254740992.5` refuses
 `inexact-number` and the admitted whole numbers still admit; put an inexact
 number and a whole number past 2^53 in one document in both orders and check the
 first in document order is named with its own cause; put a number past the
@@ -969,8 +973,8 @@ check `/n` and `/0` are named, and `[{"a":1,"a":2},1e400]` and
 `{"a":1,"a":2,"n":1e-400}` and `[1e400,"<0xFF>"]` under a digest that is not
 their raw digest and check `stale_dependency`/`byte-digest-mismatch`, and
 `[1e400,"\ud800"]` and check `/0`, the first fault `read` returns deciding
-(FR-038-AC-110; the outcome under a raw-path document's own raw digest is not
-pinned, IR-578). Read a
+(FR-038-AC-110; the outcome under a raw-path document's own raw digest is
+`wrong-model-selection`, FR-038-AC-216). Read a
 package document holding `0.1000000000000000000001` and `9007199254740993.5` in a
 node body and check `noncanonical_wire` with no pointer, no `document_pointer`
 and no cause, and `0.1`, `1.2793061557049685`, `1.2106592671318679` and `1.3567384036451073` not refused for it; read the manifest of the crate that holds the
@@ -1550,3 +1554,32 @@ does not pass.
    meaningful with the original reader-returned `locus`: code, path, cause and
    locus remain publicly mutable, and changing them on a clone cannot make
    the retained private key an authenticated substitution instruction.
+## Content and byte digest mismatches (FR-038-AC-215 through FR-038-AC-218)
+
+Read a self-built package whose one `model_selections` row selects a self-built
+domain package document under its RFC 8785 digest, with an expected digest written
+out in the test. Edit one member value of the supplied document, supply the
+whitespace-respelled document, and supply the document under the plain SHA-256 of
+its raw bytes. Supply each of a truncated array, invalid UTF-8, `{"a":1,"a":2}`
+and a lone surrogate escape under a digest that is not their plain SHA-256, then
+under their plain SHA-256. Supply a document holding a number AC-93 refuses, and
+one past the byte limit. Read a package whose one `dependency_selections` entry
+selects a self-built dependency, supplying a dependency package with another
+`package_id`, none, and the matching one. Compare `code`, `cause`, `path`,
+`expected`, `actual` and `document_pointer` of every refusal, and the cause set of
+`CheckedPackageRefusalCause`.
+
+Expected: the edited document refuses `stale_dependency`/`content-mismatch` at
+`/lock/model_selections/0/digest` carrying the row's digest and the written-out
+digest of the edited document; the unedited and respelled documents admit; the
+raw-digest selection of a parseable document whose raw and RFC 8785 digests differ
+refuses `content-mismatch`; each unreadable input under another digest refuses
+`byte-digest-mismatch` at that `digest` carrying the row's digest and the plain
+SHA-256 of the bytes, and under its own plain SHA-256 refuses
+`invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity`
+with no `expected` or `actual`; the AC-93 number refuses `noncanonical_wire` and the
+oversize document `incomplete` as before; the other dependency package refuses
+`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` carrying the
+entry's digest and the supplied package's, none refuses `missing_import`/
+`missing-selection` at the entry, and the matching one admits; and no other refusal
+carries `expected` or `actual`.

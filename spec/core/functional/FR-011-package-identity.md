@@ -32,6 +32,12 @@ references to a different package. Changing a requirement revision changes every
 identity that cites it. A package contains one current positive revision per
 requirement. Revision gaps are legal; when a caller advances a known prior
 revision, the replacement shall be strictly greater than the prior value.
+The registered codes of this requirement are those of the constructors and of
+the typed decoders that run with no schema stage before them (the package
+decoder, the expression operation decoder, the binding expression decoder). A
+whole executable projection is checked against its published schema first
+(FR-023), so a revision above 2^53 in a projection is refused
+`invalid_wire_format` there (FR-023-AC-6), not with the registered code.
 A source or requirement revision is at most 2^53 (9007199254740992), the
 largest integer RFC 8785 spells exactly: a larger value is refused at
 construction and in the non-canonical JSON value representation, so a canonical
@@ -49,7 +55,7 @@ and FR-018/FR-020 later publish the complete schema and conformance interface.
 |---|---|---|
 | FR-011-AC-1 | A package round trip through the non-canonical JSON value representation preserves namespace, schema version, requirement ID, requirement revision, and source-document identity/revision with structural equality. | Test (TC-015) |
 | FR-011-AC-2 | Incrementing one requirement revision changes its clause and dependency identities without changing unrelated requirement identities. | Test (TC-015) |
-| FR-011-AC-3 | Empty or malformed package, source-document, requirement, clause, anchor, or dependency-path-segment identities; a zero schema major; zero source or requirement revisions and a revision above 9007199254740992 (`invalid_source_revision`, `invalid_requirement_revision`); duplicate requirement or clause identifiers; non-increasing revision advances; and cross-package references fail with their registered structured diagnostic codes. Schema minor zero is valid. | Test (TC-015) |
+| FR-011-AC-3 | Empty or malformed package, source-document, requirement, clause, anchor, or dependency-path-segment identities; a zero schema major; zero source or requirement revisions and a revision above 9007199254740992 (`invalid_source_revision`, `invalid_requirement_revision`, through the constructors, the package decoder, the expression operation decoder and the binding expression decoder; a whole executable projection is FR-023-AC-6's); duplicate requirement or clause identifiers; non-increasing revision advances; and cross-package references fail with their registered structured diagnostic codes. Schema minor zero is valid. | Test (TC-015) |
 
 ## Dependencies
 

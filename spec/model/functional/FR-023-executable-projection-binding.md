@@ -57,6 +57,27 @@ the raw byte/depth guard. Protecting only initial JSON parsing is insufficient.
 This is a logical input/resource contract, not a guarantee against host-wide
 memory exhaustion. No operating-system worker thread is required by this API.
 
+The schema stage is the projection's first gate after the byte, depth and
+collection guards, and it decides every value the published schemas bound. A
+source or requirement revision, or a byte offset, above 9007199254740992 (2^53,
+the largest integer RFC 8785 spells exactly, FR-016) is outside both published
+schemas wherever it stands (the package, a binding's clause reference, an
+expression's source span), so a projection carrying one is refused
+`invalid_wire_format` at path `projection`, with no partial BoundPackage and
+before any typed decoder runs. It is never `invalid_requirement_revision`,
+`invalid_source_revision` or `invalid_source_span`: those registered codes are
+the codes of the constructors and of the typed decoders that run without a
+schema stage (FR-011-AC-3, FR-012-AC-6), which a projection reaches only with
+a value the schema admits. The schema is not relaxed for these members and the
+stages are not reordered: the published schemas are the normative interchange
+whose 2^53 bound is the exact-integer rule their consumers rely on, so
+relaxing them would let a document pass a published validator that IR then
+refuses; the decoder-first order would run the typed decoders over shapes no
+schema has bounded and leave FR-023-AC-5's agreement of schema and decoder
+unmeasurable. The same stage refuses the same value in the probe and coverage
+inputs of the conformance corpus (FR-020-AC-3), where it is an `invalid_corpus`
+failure of the run and never reaches a decoder.
+
 The package is validated before binding. Every executable clause requires
 exactly one expression. Bindings resolve by package, requirement identity and
 revision, and clause identity, never array position. Missing, duplicate,
@@ -111,3 +132,4 @@ A `BoundPackage` exposing read-only accessors, or structured IR diagnostics.
 | FR-023-AC-3 | Metadata/expression dependency disagreement is refused; changing binding order preserves the bound semantic digest and changing a bound expression changes it. | Test (TC-035) |
 | FR-023-AC-4 | Unknown format/members, trailing JSON, invalid UTF-8 and byte/depth/node/collection overruns are refused without panic; aggregate limits cannot be multiplied by adding bindings. | Test (TC-035) |
 | FR-023-AC-5 | An external integration test consumes public BoundPackage/BoundClause accessors without private wire imports or a codegen-owned package schema; normative projection schema positive and negative controls agree with the decoder. | Test (TC-035) |
+| FR-023-AC-6 | A projection whose package source revision, package requirement revision, binding clause reference revision, expression source-identity revision or expression byte offset is 9007199254740993 (and, for each, `u64::MAX`) is refused `invalid_wire_format` at path `projection`, with no partial BoundPackage, and never `invalid_requirement_revision`, `invalid_source_revision` or `invalid_source_span`; the same projection with that member at 9007199254740992 binds. | Test (TC-035) |
