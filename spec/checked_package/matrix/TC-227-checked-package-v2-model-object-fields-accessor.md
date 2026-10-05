@@ -40,7 +40,10 @@ struct literal that must fail to compile). For AC-144, read the table-building
 counter (13 for 4 types, 43 for 8), find the smallest admitting `work` limit and
 test one below it, read the 1000 and 1500 chains under `bounded()`, run the
 two precedence packages, read a field and an operation of the 4-chain for the
-read charges, and admit the cyclic documents (a self-cycle, a two-cycle, a
+read charges, compare the smallest admitting work budgets for full-reader
+frame-field, abstraction-field and relationship-edge packages whose selected
+tables differ by one entry (accounting for an extra graph edge in the frame
+case), and admit the cyclic documents (a self-cycle, a two-cycle, a
 self-cycle with a redefinition, a type extending a cycle), comparing each table
 and charge with the values recorded from the pre-change `resolve` and with
 items 4 to 9.
@@ -62,8 +65,11 @@ from an independent recomputation through `quire-canonical`) and the unit tests
 of `crates/quire-contract-model/src/checked_package/v2/model_fields.rs` (the
 tables, charges, cycles, read charges, node-body independence) and
 `model_members.rs` (the `resolve` answers recorded before the change, run
-against the field tables). Not exercised: an end-to-end frame entry,
-abstraction field entry and relationship edge read charge (verified at the two functions those readers call); the
-mutation rows, which were not run as mutations in the initial implementation.
+against the field tables). Frame-entry, abstraction-field-entry and
+relationship-edge charges are also measured end to end in
+`checked_package_v2_frame_entries.rs`, `checked_package_v2_abstraction_relation.rs`
+and `checked_package_v2_model_members.rs`: each paired admitted package has a
+one-entry table difference and refuses under one less than its admitting work
+limit. The initial implementation did not run the mutation rows as mutations.
 The branch-dominance, name-order, ambiguity, f64-bound, equality, and stack
 regressions were added in the review fix.

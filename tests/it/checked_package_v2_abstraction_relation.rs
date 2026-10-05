@@ -539,6 +539,60 @@ fn tc_225_the_minimal_abstraction_relation_body_admits_with_its_computed_key() {
     );
 }
 
+/// The relation's object-field entry reads the selected type's field table.
+/// `Draft` inherits `ConfigVersion`'s two fields and declares `extra`, so a
+/// full read of the same selected document costs one more unit when the entry
+/// names `Draft`.
+///
+/// Trace: FR-038-AC-144
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
+    let mut document = domain_document();
+    document["types"][1]["fields"] = json!([domain_field(DRAFT, "extra")]);
+    let smallest = |model: &str| {
+        let body = ordered(body(
+            vec![object(
+                model,
+                &["config_store", "Version"],
+                &[("version", "version")],
+            )],
+            vec![],
+            vec![],
+        ));
+        let value = with_nodes(base_over(&document), vec![relation_node(&body)]);
+        let mut evidence = evidence_for(&value);
+        evidence.insert_domain_package_document(
+            sha256_hex(&canonical(&document)),
+            canonical(&document),
+        );
+        let read = |work| {
+            let mut limits = CheckedPackageReadLimits::bounded();
+            limits.work = work;
+            CheckedPackageV2::read(&canonical(&value), limits, &evidence)
+        };
+        let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+        assert!(matches!(
+            read(high),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ));
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match read(middle) {
+                CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+                CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+                other => panic!("expected admission or work limit, got {other:?}"),
+            }
+        }
+        assert!(matches!(
+            read(low - 1),
+            CheckedPackageV2ReadResult::Incomplete(_)
+        ));
+        low
+    };
+    assert_eq!(smallest(&key(DRAFT)), smallest(&config_version()) + 1);
+}
+
 /// Tracing: TC-225
 /// ACs: FR-346-AC-1
 #[trace("TC-225", "FR-346-AC-1")]
