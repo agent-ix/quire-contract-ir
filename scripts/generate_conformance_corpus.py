@@ -374,7 +374,7 @@ def build_cases() -> list:
     add_case(cases, "expression-invalid-wire-string-grammar", "expression", wire_document(grammar_string),
              "diagnostic:invalid_wire_format")
     range_over = expression_input(boolean(), BOOL)
-    range_over["values"][0]["value_type"]["maximum"] = str(2**63)
+    range_over["values"][0]["value_type"]["maximum"] = str(2**127)
     add_case(cases, "expression-invalid-numeric-range", "expression", range_over,
              "diagnostic:invalid_numeric_bounds")
 
