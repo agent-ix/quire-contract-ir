@@ -26,3 +26,11 @@ CONDITIONAL. The typed accessor and Rust boundary checks match the six scoped cr
 - Examined FR-038-AC-159 through FR-038-AC-164, the five changed paths, admission constraints for nested applications, the operation catalog, and all new tests.
 - Rust lane: no new unsafe code, panic path, unbounded recursion, unchecked size conversion, test-only production branch, or CI-workflow change in the diff.
 - Exact-head pre-PR CI and security checks were run by the lead; this reviewer did not repeat heavy gates.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 42492d0582b8392d4b2868920e1c331eefc85969 |
+
+The final-head comment now names the four catalogued operations `add`, `sub`, `mul` and `negate`. The fix delta adds the two original SR artifacts verbatim and has no executable change. No new finding arose from this delta.
