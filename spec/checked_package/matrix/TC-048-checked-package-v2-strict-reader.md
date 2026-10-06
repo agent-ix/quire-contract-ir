@@ -572,6 +572,8 @@ with the expected one.
 
 ## QSL-shaped optional record fields (FR-038-AC-151 and FR-038-AC-152)
 
+PLANNED for IR-644 code; the assertions below do not exist yet.
+
 Build a checked package with the QSL-emitted `List` shape: its `next` field's
 value is an aggregate containing one `optional` binding whose value references
 an `Option<List>` node; the option node references `List`. Compare two `List`
