@@ -54,7 +54,11 @@ A local reference resolves only inside its active quantifier scope.
 Every integer, rational, text, enum, record, and collection literal explicitly
 names its value type; option-none names its option type and option-some names
 the same option type plus a value. Integer/rational values must fit their named
-bounds after rational normalization. Enum variants must exist. Record literals
+bounds after rational normalization. An integer literal at `i128::MIN` is one
+literal node with the value `-170141183460469231731687303715884105728`.
+Other negative expressions retain their numeric-negate node and its FR-015
+definedness judgment. This describes the IR node, without requiring a
+particular source-language fold. Enum variants must exist. Record literals
 must provide every declared field exactly once and no unknown field. Collection
 literal items must have the element type and their count must not exceed the
 declared maximum. Violations use the STD-001 precedence and registered codes.
@@ -134,7 +138,8 @@ scalar value; a shorter equal prefix sorts first.
 | FR-014-AC-4 | Rechecking identical declarations, context, expression, and expected type produces structurally equal typed output, ordered diagnostics, and dependency identities. | Test (TC-016) |
 | FR-014-AC-5 | Expression trees at the node/depth limits validate normally; the first node beyond either limit fails with `expression_too_large` before recursive typing. | Test (TC-016) |
 | FR-014-AC-6 | Typed expression fixtures derive exact input/state-observation, field-owner, enum-variant, and pure-function dependencies once in structural order, satisfying FR-012-AC-5. | Test (TC-016) |
-| FR-014-AC-7 | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened to a superset with the same minimum and maximum; a divisor whose resulting set contains zero reports `non_zero_divisor`; and no input aborts the process. | Test (TC-016) |
+| FR-014-AC-7 | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened to a superset with the same minimum and maximum; a divisor whose resulting set contains zero reports `non_zero_divisor`; and every case returns a typed result or diagnostic without panic. | Test (TC-016) |
+| FR-014-AC-8 | With matching declared types, integer literal nodes at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX` and rational literal nodes with `i128::MIN/1`, `i128::MAX/1` and `1/i128::MAX` retain those exact values in typed output; the `i128::MIN` node has no numeric-negate child, while negation of `i128::MAX` remains a distinct node. A literal outside its declared type reports `invalid_numeric_bounds` at that literal's span. | Test (TC-016) |
 
 ## Dependencies
 

@@ -73,6 +73,16 @@ stable public surface: their `minimum`, `maximum`, `numerator_minimum`,
 `numerator_maximum`, `maximum_denominator`, `value`, `numerator` and
 `denominator` members serialize as decimal strings (FR-013), the spelling FR-016
 canonicalizes, and a JSON number in one of them is `invalid_wire_format`.
+`IntegerType::new` takes `i128` minimum and maximum and its `minimum()` and
+`maximum()` return `i128`. `RationalType::new` takes `i128` numerator bounds
+and maximum denominator; its three numeric accessors return `i128`.
+`ExpressionKind::IntegerLiteral.value` and
+`ExpressionKind::RationalLiteral.{numerator, denominator}` hold `i128`.
+These are source API changes: callers holding `i64` or `u64` arguments must
+convert deliberately, and callers expecting those narrower accessor results
+must widen their storage or explicitly check a narrowing conversion. The wire
+remains decimal-string based. The change neither adds an alternate constructor nor
+changes a node-key preimage counter's encoding (QSpec FR-322-AC-58).
 Unvalidated JSON enters only through wire/request decoders. Validated identity,
 package, declaration, expression, canonical, and coverage types keep
 fields private and expose checked constructors plus immutable accessors. There
@@ -166,6 +176,7 @@ With the `fault-injection` feature the crate root also exports
 | FR-019-AC-5 | The `quire_contract_model` crate root has no glob re-export, and its default-feature public items are exactly those the Public items table lists, checked by a public-item inventory that fails on an added or missing item; no item in the table is reachable through a `quire_contract_ir` path. | Test (TC-058) |
 | FR-019-AC-6 | The table's `CheckedArtifactRef` has exactly the members `authority` and `identity`, `CheckedSourceRef` exactly `authority`, `identity`, `digest_domain` and `digest`, `CheckedArtifactLocator` exactly `authority`, `identity` and `domain`, and no `CheckedRevision` exists (FR-038 "Artifact references"). | Test (TC-018) |
 | FR-019-AC-2 | The complete negative corpus executes package/expression decode, validation, canonicalization, and coverage through `catch_unwind`; exact-at-limit and one-past-limit type depth, semantic node, and semantic collection cases return the specified result with no public panic, partial result, or message parsing. | Test (TC-018) |
+| FR-019-AC-7 | Public compile-time/API fixtures construct and read `IntegerType` bounds, `RationalType` numerator and denominator bounds, and integer/rational literal payloads at `i64::MAX + 1`, `u64::MAX` and the permitted i128 endpoints through signed 128-bit signatures without lossy casts; exact and one-past numeric wire boundary requests through `catch_unwind` return the specified result with no public panic or partial validated value. | Test (TC-018) |
 
 ## Dependencies
 

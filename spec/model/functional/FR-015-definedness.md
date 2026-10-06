@@ -49,9 +49,14 @@ pair. Field access, option unwrap, collection index, collection length, and
 pure-function call start at the declared bounds of their numeric result type
 and then intersect dominating exact-subject facts by the same rule as
 references; no node other than an exact-subject fact narrows that range.
-Because accepted children are 64-bit-bounded, implementations may use
-checked 128-bit intermediates; intermediate overflow is conservatively outside
-the result bounds.
+The interval calculation uses exact mathematical endpoints, including when
+an endpoint operation, `abs(i128::MIN)`, negation, cross-product, or gap width
+exceeds signed 128-bit storage. The checker treats an intermediate that cannot
+be represented conservatively as outside the named result bounds; it shall
+not wrap, panic, silently clamp into the bounds, or lose a
+definedness obligation. Exact singleton results may normalize before the
+final range check. A saturated integer operation clamps to the declared type
+bounds even when the mathematical intermediate is outside i128.
 
 For normalized rational operands `a/b` and `c/d`, add/subtract use numerator
 `a*d +/- c*b` and denominator `b*d`; multiply uses `a*c` and `b*d`; divide uses
@@ -97,6 +102,7 @@ declaration span is retained only when no guard contributed.
 | FR-015-AC-5 | Every `potentially_undefined` diagnostic carries the exact closed `obligation_kind`; every discharged node retains the deterministic declaration/guard proof span. | Test (TC-016) |
 | FR-015-AC-6 | Bottom-up range sets from literals, declaration bounds, exact-subject guards, field/unwrap/index results, and pure calls accept only results wholly contained in the named numeric type. | Test (TC-016) |
 | FR-015-AC-7 | Positive and negative bounded-rational fixtures pin normalization plus numerator/denominator propagation for add, subtract, multiply, divide, and negate. | Test (TC-016) |
+| FR-015-AC-8 | At an `i128::MIN` endpoint, integer `reject` negation and division by `-1` report `potentially_undefined` with the checked-range obligation at the operator span; `saturate` negation returns the declared maximum when its mathematical result exceeds that bound. Rational `i128::MIN/1` is admitted and normalizes without panic, while an unrepresentable rational cross-product or checked negation reports `potentially_undefined` rather than wrapping, panicking, or admitting an unproved result. | Test (TC-016) |
 
 ## Dependencies
 
