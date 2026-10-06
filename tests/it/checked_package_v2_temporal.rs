@@ -12,8 +12,8 @@
 //! fixtures are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, node_id, settle, sha256_hex, typed_node_id,
-    v2_all_families,
+    canonical, evidence_for, family_key, fixture_source, model_owner, node_id,
+    owned_structural_node, settle, sha256_hex, source_owner, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -363,18 +363,18 @@ fn at_node(position: usize, tail: &str) -> String {
 /// it, added to `package`.
 fn with_model(package: &mut Value) {
     let document = orders_document();
-    package["lock"]["model_selections"] = json!([{
-        "identity": ORDERS,
-        "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
-    }]);
-    for key in [
-        model_key(ORDER_NODE),
-        model_key(SUB_NODE),
-        model_key(LEFT_NODE),
-        model_key(RIGHT_NODE),
-        model_key(BOTH_NODE),
-        model_key_in(OTHER_PACKAGE, ORDER_NODE),
-    ] {
+    package["lock"]["model_selections"]
+        .as_array_mut()
+        .expect("model selections")
+        .insert(
+            0,
+            json!({
+                "identity": ORDERS,
+                "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
+            }),
+        );
+    for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
+        let key = model_key(declared);
         let mut node = node_with_key(
             &key,
             "model",
@@ -383,7 +383,10 @@ fn with_model(package: &mut Value) {
         );
         node["semantic_type"] = node_id(&key);
         node["occurrences"] = json!([{"role": "type", "ordinal": 0}]);
-        push(package, node);
+        push(
+            package,
+            owned_structural_node(node, model_owner(ORDERS, declared)),
+        );
     }
 }
 
@@ -866,9 +869,12 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
     let mut package = v2_all_families();
     let formula_at = find_identity(&package, &temporal_identity("eventually"));
     let formula_key = digest(&package, formula_at);
+    let mut function = node_with_key(&fresh(), "function", "pure_function", refer(&formula_key));
+    function["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    function["declaration"] = json!({"qualified_name": ["Example", "FormulaUser"]});
     let position = push(
         &mut package,
-        node_with_key(&fresh(), "function", "pure_function", refer(&formula_key)),
+        owned_structural_node(function, source_owner(&fixture_source())),
     );
     settle(&mut package);
     misplaced("from a function body", &package, position);
@@ -1646,7 +1652,7 @@ fn tc_048_lower_above_upper_is_refused_at_the_application_after_profile_fit() {
 // ---------------------------------------------------------------------------
 
 /// Tracing: TC-048, FR-038-AC-103
-#[trace("TC-048", "FR-038-AC-103")]
+#[trace("TC-048", "FR-038-AC-103", "FR-038-AC-155")]
 #[test]
 fn tc_048_a_clause_over_must_be_a_declared_parameter() {
     admitted("a parameter dependency", &v2_all_families());
@@ -1739,15 +1745,6 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
             member: "name",
             locus_is_target: true,
         },
-        Row {
-            case: "an unrecovered owner",
-            declaration: model_key_in(OTHER_PACKAGE, ORDER_NODE),
-            name: "scaled",
-            code: Code::MissingDeclaration,
-            cause: Cause::MissingSelection,
-            member: "declaration",
-            locus_is_target: false,
-        },
     ];
     for row in rows {
         let (package, fair) = with_fairness(INFINITE, fairness_member(&row.declaration, row.name));
@@ -1767,6 +1764,33 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
             &locus,
         );
     }
+    // An unreachable node with an unselected owner is now refused before
+    // the fairness member reaches its declaration target (FR-038-AC-155).
+    let unselected = model_key_in(OTHER_PACKAGE, ORDER_NODE);
+    let (mut package, _) = with_fairness(INFINITE, fairness_member(&unselected, "scaled"));
+    let mut node = node_with_key(
+        &unselected,
+        "model",
+        "object_type",
+        json!({"term": "aggregate", "members": []}),
+    );
+    node["semantic_type"] = node_id(&unselected);
+    node["occurrences"] = json!([{"role": "type", "ordinal": 0}]);
+    let position = push(
+        &mut package,
+        owned_structural_node(node, model_owner(OTHER_PACKAGE, ORDER_NODE)),
+    );
+    settle(&mut package);
+    expect_located(
+        "an unrecovered owner",
+        &package,
+        (
+            Code::MissingDeclaration,
+            Cause::MissingSelection,
+            &at_node(position, "/node_id"),
+        ),
+        &unselected,
+    );
     // A declaration that is no `model`/`object_type` declaration node is
     // `malformed-declaration` at the member's `declaration` target: a
     // `scalar_type` and a `model`/`value_type` node.

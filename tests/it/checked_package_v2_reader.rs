@@ -624,6 +624,11 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
 
     // Evidence the caller must supply: the required feature.
     let mut unsupported = CheckedPackageEvidence::new();
+    let family_document = checked_package::family_model_document();
+    unsupported.insert_domain_package_document(
+        sha256_hex(&canonical(&family_document)),
+        canonical(&family_document),
+    );
     assert_eq!(
         refused(&base, &unsupported),
         // Reported available, but the reader does not support it.
@@ -1053,6 +1058,11 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                     .as_object_mut()
                     .expect("node")
                     .remove("nominal_identity_preimage");
+                let source = v["lock"]["sources"][0].clone();
+                v["semantic_graph"]["nodes"][declaration]["owner"] = json!({
+                    "kind": "source", "authority": source["authority"],
+                    "identity": source["identity"],
+                });
             }),
             "/semantic_graph/nodes/0/nominal_identity_preimage/declaration_node_id",
         ),
@@ -1908,6 +1918,10 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
     ] {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        if matches!(form, "object_type" | "systems_interface") {
+            declare(&mut value, model, &["Example", "ChangedModel"]);
+            checked_package::rebuild_source_map(&mut value);
+        }
         refresh_identity(&mut value);
         admitted(&value);
     }
@@ -2291,8 +2305,8 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
             },
             // The node lacks the member it requires.
             refusal(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                &format!("/semantic_graph/nodes/{declaring_node}"),
+                CheckedPackageRefusalCode::MalformedWire,
+                &format!("/semantic_graph/nodes/{declaring_node}/owner"),
             ),
         ),
         (
@@ -2545,9 +2559,13 @@ fn tc_048_a_nominal_name_mismatch_is_reported_before_an_ambiguous_name() {
 /// Gives the node at `position` a `declaration`-role occurrence and the
 /// declared name `name`.
 fn declare(package: &mut Value, position: usize, name: &[&str]) {
+    let source = package["lock"]["sources"][0].clone();
     let node = &mut package["semantic_graph"]["nodes"][position];
     node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     node["declaration"] = json!({"qualified_name": name});
+    node["owner"] = json!({
+        "kind": "source", "authority": source["authority"], "identity": source["identity"],
+    });
 }
 
 /// Tracing: TC-048, FR-038-AC-21

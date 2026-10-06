@@ -228,17 +228,13 @@ fn base_over(document: &Value) -> Value {
             empty(),
         ),
     ];
-    let unselected = model_key_in(OTHER_IDENTITY, CONFIG_VERSION);
-    for model in object_types().iter().chain([&unselected]) {
-        nodes.push(plain(
-            model,
-            "model",
-            "object_type",
-            model,
-            &[],
-            "type",
-            empty(),
-        ));
+    for (declared, model) in [CONFIG_VERSION, DRAFT, LEFT, RIGHT, BOTH]
+        .into_iter()
+        .zip(object_types())
+    {
+        let mut node = plain(&model, "model", "object_type", &model, &[], "type", empty());
+        node["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": declared});
+        nodes.push(node);
     }
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
     settled(package)
@@ -1360,8 +1356,8 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
 // AC-5.
 
 /// Tracing: TC-225
-/// ACs: FR-346-AC-5
-#[trace("TC-225", "FR-346-AC-5")]
+/// ACs: FR-346-AC-5, FR-038-AC-155
+#[trace("TC-225", "FR-346-AC-5", "FR-038-AC-155")]
 #[test]
 fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target() {
     let unselected = model_key_in(OTHER_IDENTITY, CONFIG_VERSION);
@@ -1381,7 +1377,6 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
         )
     };
     let malformed = (Code::InvalidModelBinding, Cause::MalformedDeclaration);
-    let missing_selection = (Code::MissingDeclaration, Cause::MissingSelection);
     let cases = [
         (
             "a type naming a population",
@@ -1404,20 +1399,6 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
             "/body/frames/0",
             malformed,
         ),
-        (
-            "a context keyed under an unselected domain package",
-            in_frame(&unselected),
-            &unselected,
-            "/body/frames/0",
-            missing_selection,
-        ),
-        (
-            "a type keyed under an unselected domain package",
-            in_object(&unselected),
-            &unselected,
-            "/body/objects/0",
-            missing_selection,
-        ),
     ];
     for (case, body, locus, suffix, (code, cause)) in cases {
         let value = with_nodes(
@@ -1431,6 +1412,36 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
             Some(cause),
             &at_node(at(&value, &body), suffix),
             Some(locus),
+        );
+    }
+    for (case, body) in [
+        ("unselected frame context", in_frame(&unselected)),
+        ("unselected object type", in_object(&unselected)),
+    ] {
+        let mut node = plain(
+            &unselected,
+            "model",
+            "object_type",
+            &unselected,
+            &[],
+            "type",
+            empty(),
+        );
+        node["owner"] = json!({
+            "kind": "model", "identity": OTHER_IDENTITY, "node": CONFIG_VERSION,
+        });
+        let value = with_nodes(
+            relations(std::slice::from_ref(&body)),
+            vec![state_frame(&config_version()), node],
+        );
+        let at = position(&value, &unselected);
+        expect(
+            case,
+            &value,
+            Code::MissingDeclaration,
+            Some(Cause::MissingSelection),
+            &at_node(at, "/node_id"),
+            Some(&unselected),
         );
     }
 }

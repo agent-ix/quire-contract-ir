@@ -10,8 +10,8 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, rebuild_source_map, refresh_identity, rekey_application_node,
-    sha256_hex, typed_node_id, v2_all_families,
+    canonical, evidence_for, fixture_source, node_id, rebuild_source_map, refresh_identity,
+    rekey_application_node, sha256_hex, source_owner, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -375,6 +375,7 @@ fn tc_056_record_value_type_field_entries_admit_unresolved() {
         if declared {
             node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
             node["declaration"] = json!({"qualified_name": ["Example", "Address"]});
+            node["owner"] = source_owner(&fixture_source());
         }
         let frame = position(&value, "state", "frame");
         let frame = &mut value["semantic_graph"]["nodes"][frame];
@@ -410,6 +411,13 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     let with_form = |form: &str| {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        if matches!(form, "object_type" | "systems_interface") {
+            let node = &mut value["semantic_graph"]["nodes"][model];
+            node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+            node["declaration"] = json!({"qualified_name": ["Example", "ChangedModel"]});
+            node["owner"] = source_owner(&fixture_source());
+            rebuild_source_map(&mut value);
+        }
         refresh_identity(&mut value);
         value
     };
@@ -1367,10 +1375,16 @@ impl ModelPackage {
         let frame_key = state.digest(frame);
         let value = &mut state.value;
         let document = orders_document();
-        value["lock"]["model_selections"] = json!([{
-            "identity": ORDERS,
-            "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
-        }]);
+        value["lock"]["model_selections"]
+            .as_array_mut()
+            .expect("model selections")
+            .insert(
+                0,
+                json!({
+                    "identity": ORDERS,
+                    "digest_domain": "sha256-jcs", "digest": sha256_hex(&canonical(&document)),
+                }),
+            );
         let empty = || json!({"term": "aggregate", "members": []});
         let mut added = vec![plain(
             &integer,
@@ -1381,23 +1395,11 @@ impl ModelPackage {
             "type",
             empty(),
         )];
-        for key in [
-            model_key(ORDER_NODE),
-            model_key(SUB_NODE),
-            model_key(LEFT_NODE),
-            model_key(RIGHT_NODE),
-            model_key(BOTH_NODE),
-            unselected_key(),
-        ] {
-            added.push(plain(
-                &key,
-                "model",
-                "object_type",
-                &key,
-                &[],
-                "type",
-                empty(),
-            ));
+        for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
+            let key = model_key(declared);
+            let mut node = plain(&key, "model", "object_type", &key, &[], "type", empty());
+            node["owner"] = json!({"kind": "model", "identity": ORDERS, "node": declared});
+            added.push(node);
         }
         added.push(model_parameter(MODEL_INTEGER_PARAMETER, "n", "1", &integer));
         added.push(model_parameter(
@@ -1452,6 +1454,27 @@ impl ModelPackage {
 
     fn frame(&self) -> usize {
         position(&self.value, "state", "frame")
+    }
+
+    fn with_unselected_owner(mut self) -> Self {
+        let key = unselected_key();
+        let mut node = plain(
+            &key,
+            "model",
+            "object_type",
+            &key,
+            &[],
+            "type",
+            json!({"term": "aggregate", "members": []}),
+        );
+        node["owner"] = json!({"kind": "model", "identity": OTHER_PACKAGE, "node": ORDER_NODE});
+        self.value["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+        rebuild_source_map(&mut self.value);
+        refresh_identity(&mut self.value);
+        self
     }
 
     /// Edits the node at `position`, then re-keys and re-derives identity.
@@ -1559,13 +1582,6 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
             Code::AmbiguousDeclaration,
             Cause::AmbiguousName,
         ),
-        (
-            "another domain package",
-            &unselected,
-            "total",
-            Code::MissingDeclaration,
-            Cause::MissingSelection,
-        ),
     ] {
         let package = ModelPackage::new().modifying(declaring, name);
         let frame = package.frame();
@@ -1577,6 +1593,18 @@ fn tc_056_a_field_entry_resolves_among_the_selected_object_types_fields() {
             &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
         );
     }
+    // FR-038-AC-155: every owner joins before frame entry resolution.
+    let package = ModelPackage::new()
+        .with_unselected_owner()
+        .modifying(&unselected, "total");
+    let owner = package.position_of(&unselected);
+    model_expect(
+        "another domain package",
+        &package.value,
+        Code::MissingDeclaration,
+        Cause::MissingSelection,
+        &format!("/semantic_graph/nodes/{owner}/node_id"),
+    );
 }
 
 /// A frame entry naming an inherited field is charged for the selected
@@ -1667,13 +1695,6 @@ fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
         ),
-        (
-            "another domain package",
-            &unselected,
-            "scaled",
-            Code::MissingDeclaration,
-            Cause::MissingSelection,
-        ),
     ] {
         let package = ModelPackage::new().anchored(context, operation);
         let anchor = package.position_of(ANCHOR);
@@ -1685,6 +1706,18 @@ fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
             &format!("/semantic_graph/nodes/{anchor}/body/members/1"),
         );
     }
+    // FR-038-AC-155: the unselected owner refuses before anchor lookup.
+    let package = ModelPackage::new()
+        .with_unselected_owner()
+        .anchored(&unselected, "scaled");
+    let owner = package.position_of(&unselected);
+    model_expect(
+        "another domain package",
+        &package.value,
+        Code::MissingDeclaration,
+        Cause::MissingSelection,
+        &format!("/semantic_graph/nodes/{owner}/node_id"),
+    );
 }
 
 /// Tracing: TC-056

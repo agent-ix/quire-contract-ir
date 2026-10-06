@@ -200,10 +200,12 @@ fn package_selecting(name: &str, digest: &str) -> Value {
     })));
     let mut call_dependencies = [receiver.as_str(), argument.as_str(), order.as_str()];
     call_dependencies.sort_unstable();
+    let mut declaring_node = wire_node(&order, "model", "object_type", &order, &[], empty());
+    declaring_node["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ORDER});
     let nodes = [
         wire_node(&INTEGER, "scalar_type", "integer", &INTEGER, &[], empty()),
         wire_node(&TEXT, "scalar_type", "text", &TEXT, &[], empty()),
-        wire_node(&order, "model", "object_type", &order, &[], empty()),
+        declaring_node,
         wire_node(
             &reference_type,
             "composite_type",
@@ -308,7 +310,7 @@ fn tc_048_a_declaration_node_key_is_unchanged_when_the_selected_document_changes
 fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
     // The member's declaration is `Order` keyed under a package the lock does
     // not select: the key resolves to no selected declaration.
-    let (package, evidence, position) = reaches_package(
+    let (package, evidence, _) = reaches_package(
         (ORDER, OTHER_PACKAGE),
         "parent",
         Operand::Reference("unselected"),
@@ -322,11 +324,15 @@ fn tc_048_a_declaration_node_keyed_under_another_domain_package_refuses() {
             Some(CheckedPackageRefusalCause::MissingSelection)
         )
     );
+    let unselected = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["owner"]["identity"] == OTHER_PACKAGE)
+        .expect("unselected model node");
     assert_eq!(
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
-        Some(
-            format!("/semantic_graph/nodes/{position}/body/operation/member/declaration").as_str()
-        )
+        Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
     );
     // The selected package's own key for the same node resolves.
     let (package, evidence, _) = reaches_package(
@@ -1149,10 +1155,15 @@ fn reaches_package(
         .into_iter()
         .map(|node| (node.to_owned(), declaration_key_of(node, IDENTITY)))
         .collect();
-    models.push((
-        "unselected".to_owned(),
-        declaration_key_of(ORDER, OTHER_PACKAGE),
-    ));
+    if package_identity == OTHER_PACKAGE
+        || matches!(source, Operand::Reference("unselected"))
+        || matches!(target, Operand::Reference("unselected"))
+    {
+        models.push((
+            "unselected".to_owned(),
+            declaration_key_of(ORDER, OTHER_PACKAGE),
+        ));
+    }
     let reference_types: Vec<(String, String, Value)> = models
         .iter()
         .map(|(node, key)| {
@@ -1222,8 +1233,15 @@ fn reaches_package(
         wire_node(&TEXT, "scalar_type", "text", &TEXT, &[], empty()),
         wire_node(&boolean, "scalar_type", "boolean", &boolean, &[], empty()),
     ];
-    for (_, key) in &models {
-        nodes.push(wire_node(key, "model", "object_type", key, &[], empty()));
+    for (declared, key) in &models {
+        let mut node = wire_node(key, "model", "object_type", key, &[], empty());
+        let (identity, model_node) = if declared == "unselected" {
+            (OTHER_PACKAGE, ORDER)
+        } else {
+            (IDENTITY, declared.as_str())
+        };
+        node["owner"] = json!({"kind": "model", "identity": identity, "node": model_node});
+        nodes.push(node);
     }
     for ((_, model), (_, type_key, type_body)) in models.iter().zip(&reference_types) {
         nodes.push(wire_node(
@@ -1350,7 +1368,6 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
     use CheckedPackageRefusalCode as Code;
     let ineligible = (Code::IllTyped, Cause::OperatorIneligible);
     let name = "body/operation/member/name";
-    let declaration = "body/operation/member/declaration";
     let first = "body/arguments/0";
     let second = "body/arguments/1";
     let by_reference = |declaring, member, source, target| {
@@ -1398,16 +1415,6 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
             (Code::AmbiguousDeclaration, Cause::AmbiguousName),
             name,
         ),
-        (
-            reaches_package(
-                (ORDER, OTHER_PACKAGE),
-                "parent",
-                Operand::Reference("unselected"),
-                Operand::Reference("unselected"),
-            ),
-            (Code::MissingDeclaration, Cause::MissingSelection),
-            declaration,
-        ),
     ];
     for ((package, evidence, position), (code, cause), path) in cases {
         let refusal = refused(&package, &evidence);
@@ -1423,4 +1430,25 @@ fn tc_056_reaches_field_refuses_an_invalid_edge_where_it_fails() {
             "{expected}"
         );
     }
+    // An unselected owner is now refused at its own node before the
+    // application can inspect the member that names it (FR-038-AC-155).
+    let (package, evidence, _) = reaches_package(
+        (ORDER, OTHER_PACKAGE),
+        "parent",
+        Operand::Reference("unselected"),
+        Operand::Reference("unselected"),
+    );
+    let unselected = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["owner"]["identity"] == OTHER_PACKAGE)
+        .expect("unselected owner");
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, Code::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(Cause::MissingSelection));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some(format!("/semantic_graph/nodes/{unselected}/node_id").as_str())
+    );
 }

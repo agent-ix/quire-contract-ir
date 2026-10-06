@@ -20,6 +20,7 @@ mod model_members;
 mod natural;
 mod operation_catalog;
 mod operations;
+mod owner;
 mod rust_spelling;
 mod state;
 mod structural;
@@ -36,6 +37,7 @@ pub use vocabulary::*;
 
 use dependency_references::{admit_dependencies, SuppliedDependencies};
 use operations::{validate_application_keys, validate_operations};
+use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
 use temporal::{references_refused_node, validate_temporal, validate_timed_bounds_reduced};
 
@@ -78,6 +80,26 @@ pub struct CheckedDeclaration {
     pub qualified_name: Vec<Box<str>>,
 }
 
+/// The closed owner of a structural checked node.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CheckedNodeOwner {
+    /// A declared node owned by one selected raw source unit.
+    Source {
+        /// Source authority.
+        authority: Box<str>,
+        /// Source identity.
+        identity: Box<str>,
+    },
+    /// An undeclared node owned by one selected domain model declaration.
+    Model {
+        /// Selected domain package identity.
+        identity: Box<str>,
+        /// Declaring model node identity.
+        node: Box<str>,
+    },
+}
+
 /// A checked V2 semantic graph node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -105,6 +127,9 @@ pub struct CheckedSemanticNodeV2 {
     /// Declared qualified name; present exactly per `DeclarationOccurrenceRule`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration: Option<CheckedDeclaration>,
+    /// Structural owner, present exactly for declared or model-owned nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<CheckedNodeOwner>,
     /// Typed public semantic term.
     pub body: Value,
 }
@@ -134,6 +159,9 @@ pub struct CheckedNodeProjectionV2 {
     /// Declared qualified name when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration: Option<CheckedDeclaration>,
+    /// The corresponding node's structural owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<CheckedNodeOwner>,
     /// Typed semantic term.
     pub body: Value,
 }
@@ -150,6 +178,7 @@ impl From<&CheckedSemanticNodeV2> for CheckedNodeProjectionV2 {
             recursion_group: node.recursion_group.clone(),
             nominal_identity_preimage: node.nominal_identity_preimage.clone(),
             declaration: node.declaration.clone(),
+            owner: node.owner.clone(),
             body: node.body.clone(),
         }
     }
@@ -544,6 +573,33 @@ fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) ->
     ValidationFailure::Refused(refusal)
 }
 
+/// The owner variants are a closed wire shape whose unknown members are
+/// `malformed_wire` at `owner`, unlike other closed package members.
+fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
+    let ValidationFailure::Refused(mut refusal) = failure else {
+        return failure;
+    };
+    if refusal.code == CheckedPackageRefusalCode::UnknownMember
+        && refusal.path.as_ref().is_some_and(|path| {
+            [
+                "/semantic_graph/nodes/",
+                "/identity_preimage/identity_projection/",
+            ]
+            .iter()
+            .any(|prefix| {
+                path.as_str().strip_prefix(prefix).is_some_and(|rest| {
+                    rest.strip_suffix("/owner").is_some_and(|index| {
+                        !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+                })
+            })
+        })
+    {
+        refusal.code = CheckedPackageRefusalCode::MalformedWire;
+    }
+    ValidationFailure::Refused(refusal)
+}
+
 /// Whether `path` is one of the two positions the wire types a
 /// `nominal_identity_preimage` at: `/semantic_graph/nodes/{n}/…` or
 /// `/identity_preimage/identity_projection/{n}/…`. A member of that name
@@ -616,11 +672,13 @@ impl CheckedPackageV2 {
         let terms = intake::detach_terms(&mut value);
         let mut wire = decode_closed::<CheckedPackageWireV2>(&value)
             .map_err(|failure| locate_in_preimage(failure, &value))
-            .map_err(|failure| classify_dependency_entry_shape(failure, &value))?;
+            .map_err(|failure| classify_dependency_entry_shape(failure, &value))
+            .map_err(classify_owner_shape)?;
         // A lossless decode: no member was defaulted, nulled or dropped.
         intake::check_lossless(&mut value, &mut wire)?;
         drop(value);
         intake::attach_terms(&mut wire, terms);
+        validate_owner_schema(&wire)?;
         let (kinds, models) = validate(&wire, limits, evidence)?;
         Ok(Self {
             wire,
@@ -1732,6 +1790,7 @@ fn validate_graph(
             ));
         }
     }
+    validate_owner_joins(wire, &kinds, models, meter)?;
     // Graph-shape body and dependency rules FR-322 orders before the
     // stale-key stage: the structural forms' bodies and occurrence roles and
     // the application-node dependency join. Then, in reader order, the

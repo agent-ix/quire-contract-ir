@@ -414,7 +414,13 @@ fn package(
         } else {
             "model"
         };
-        ordered.push(wire_node(&key, tag, form, &key, &[], empty()));
+        let mut node = wire_node(&key, tag, form, &key, &[], empty());
+        if matches!(*form, OBJECT | INTERFACE | "relationship") {
+            node["owner"] = json!({
+                "kind": "model", "identity": IDENTITY, "node": orders(short),
+            });
+        }
+        ordered.push(node);
     }
     let mut read_nodes = Vec::new();
     for read in reads {
@@ -908,8 +914,8 @@ fn refusal_document() -> Value {
 /// no selected declaration each name what is wrong, and the call is `Ok` for
 /// an absent field name.
 ///
-/// Trace: FR-038-AC-139
-#[trace("TC-227", "FR-038-AC-139")]
+/// Trace: FR-038-AC-139, FR-038-AC-155
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-155")]
 #[test]
 fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type() {
     let read = Read {
@@ -996,24 +1002,25 @@ fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
     // A node keyed as no selected declaration.
     let mut unselected = package;
     let stranger = "a".repeat(64);
+    let mut stranger_node = wire_node(&stranger, "model", OBJECT, &stranger, &[], empty());
+    stranger_node["owner"] = json!({
+        "kind": "model", "identity": "acme/other", "node": orders("Stranger"),
+    });
     unselected["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
-        .push(wire_node(
-            &stranger,
-            "model",
-            OBJECT,
-            &stranger,
-            &[],
-            empty(),
-        ));
+        .push(stranger_node);
     rebuild_source_map(&mut unselected);
     refresh_identity(&mut unselected);
-    let unselected = admitted(&unselected);
-    let stranger: CheckedNodeId = serde_json::from_value(node_id(&stranger)).expect("a node id");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&unselected, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("an unselected model owner must refuse admission");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
     assert_eq!(
-        unselected.model_object_fields(&stranger),
-        Err(CheckedModelFieldsError::NotModelObjectType)
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
     );
 }
 

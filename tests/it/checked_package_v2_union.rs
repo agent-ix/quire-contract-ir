@@ -10,8 +10,8 @@
 //! (they are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, node_id, nominal_package, settle, sha256_hex,
-    typed_node_id, v2_all_families,
+    canonical, evidence_for, family_key, fixture_source, node_id, nominal_package,
+    owned_structural_node, settle, sha256_hex, source_owner, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -147,7 +147,7 @@ fn union_type(name: &str, members: &[(&str, &[&str])]) -> Value {
         body,
     );
     node["declaration"] = json!({"qualified_name": [name]});
-    node
+    owned_structural_node(node, source_owner(&fixture_source()))
 }
 
 /// A union value of type `ty` constructing `member` over `payload` (value nodes).
@@ -870,6 +870,7 @@ fn tc_048_a_malformed_union_body_refuses_at_the_node_body() {
         aggregate(vec![binding("Circle", reference("integer"))]),
     );
     not_an_aggregate["declaration"] = json!({"qualified_name": ["shape"]});
+    not_an_aggregate = owned_structural_node(not_an_aggregate, source_owner(&fixture_source()));
     for (name, malformed) in [
         ("shape", union_type("shape", &[])),
         ("shape", not_an_aggregate),
