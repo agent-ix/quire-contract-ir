@@ -99,6 +99,7 @@ fn tc_222_an_unrecognized_tag_or_form_refuses_at_the_graph_gate() {
 fn tc_222_a_population_body_outside_the_closed_term_grammar_refuses_at_the_body() {
     let (value, at) = mutated("relation", "relationship", |node| {
         node["semantic_form"] = json!("population");
+        node.as_object_mut().expect("node").remove("owner");
         node["body"] = population_body();
     });
     let body = format!("/semantic_graph/nodes/{at}/body");
@@ -110,6 +111,7 @@ fn tc_222_a_population_body_outside_the_closed_term_grammar_refuses_at_the_body(
     );
     let (value, _) = mutated("relation", "relationship", |node| {
         node["semantic_form"] = json!("population");
+        node.as_object_mut().expect("node").remove("owner");
         let mut with_term = population_body();
         with_term["term"] = json!("aggregate");
         node["body"] = with_term;

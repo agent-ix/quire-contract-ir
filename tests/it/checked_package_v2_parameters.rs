@@ -11,8 +11,8 @@
 //! keyed from its own preimage.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, rebuild_source_map,
-    refresh_identity, refusal, refusal_at, sha256_hex,
+    canonical, evidence_for, fixture_source, node_id, nominal_fixture_members, nominal_package,
+    rebuild_source_map, refresh_identity, refusal, refusal_at, sha256_hex, source_owner,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -236,12 +236,12 @@ fn parameters_package() -> Value {
         binding("parameters", json!({"term": "aggregate", "members": [reference(&a), reference(&b)]})),
         binding("body", reference(&and)),
     ]});
-    let owner = json!({"kind": "source", "authority": "a", "identity": "u"});
+    let owner = source_owner(&fixture_source());
     let both = structural_key(
         "function",
         "pure_function",
         Some(&BOOLEAN),
-        Some((&["both"], owner)),
+        Some((&["both"], owner.clone())),
         &both_body,
     );
     let mut both_dependencies = [a.as_str(), b.as_str(), and.as_str()];
@@ -256,6 +256,7 @@ fn parameters_package() -> Value {
         both_body,
     );
     both_node["declaration"] = json!({"qualified_name": ["both"]});
+    both_node["owner"] = owner;
 
     let compound_body = compound_unit_body(&metre, "2");
     let compound = structural_key("scalar_type", "compound_unit", None, None, &compound_body);
@@ -475,6 +476,7 @@ fn tc_048_a_malformed_parameter_node_refuses() {
     let declared = mutated(P1, |node| {
         node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
         node["declaration"] = json!({"qualified_name": ["a"]});
+        node["owner"] = source_owner(&fixture_source());
     });
     assert_eq!(
         refused(&declared),

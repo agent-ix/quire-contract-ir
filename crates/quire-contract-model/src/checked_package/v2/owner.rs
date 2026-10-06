@@ -125,28 +125,52 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
     Ok(())
 }
 
-fn model_kind_matches(kind: CheckedNodeKind, model: &DomainModel, node: &str) -> bool {
+fn clause_kind(body: &Value) -> Option<&str> {
+    if body.get("term")?.as_str()? != "aggregate" {
+        return None;
+    }
+    let mut clauses = body.get("members")?.as_array()?.iter().filter(|member| {
+        member.get("term").and_then(Value::as_str) == Some("binding")
+            && member.get("name").and_then(Value::as_str) == Some("clause")
+    });
+    let clause = clauses.next()?;
+    if clauses.next().is_some() {
+        return None;
+    }
+    let value = clause.get("value")?;
+    if value.get("term")?.as_str()? != "literal" || value.get("value_kind")?.as_str()? != "text" {
+        return None;
+    }
+    value.get("value")?.as_str()
+}
+
+fn model_kind_matches(
+    kind: CheckedNodeKind,
+    node: &CheckedSemanticNodeV2,
+    model: &DomainModel,
+    declared: &str,
+    operations: &BTreeSet<&str>,
+) -> bool {
     match kind {
         CheckedNodeKind::Model(super::ModelForm::ObjectType) => model
             .object_types
-            .get(node)
+            .get(declared)
             .is_some_and(|declared| !declared.interface),
         CheckedNodeKind::Model(super::ModelForm::SystemsInterface) => model
             .object_types
-            .get(node)
+            .get(declared)
             .is_some_and(|declared| declared.interface),
         CheckedNodeKind::Relation(super::RelationForm::Relationship) => {
-            model.relationships.contains(node)
+            model.relationships.contains(declared)
         }
-        CheckedNodeKind::Function(_) => {
-            model.object_types.contains_key(node)
-                || model.object_types.values().any(|object| {
-                    object
-                        .operations
-                        .iter()
-                        .any(|operation| operation.identity.as_ref() == node)
-                })
-        }
+        CheckedNodeKind::Function(_) => match clause_kind(&node.body) {
+            Some("invariant") => model
+                .object_types
+                .get(declared)
+                .is_some_and(|object| !object.interface),
+            Some("precondition" | "body") => operations.contains(declared),
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -172,6 +196,24 @@ pub(super) fn validate_owner_joins(
         .sources
         .iter()
         .map(|source| (source.authority.as_ref(), source.identity.as_ref()))
+        .collect();
+    let selected_models: BTreeMap<_, _> = models
+        .iter()
+        .map(|model| (model.identity.as_ref(), model))
+        .collect();
+    let model_operations: BTreeMap<_, BTreeSet<_>> = models
+        .iter()
+        .map(|model| {
+            (
+                model.identity.as_ref(),
+                model
+                    .object_types
+                    .values()
+                    .flat_map(|object| object.operations.iter())
+                    .map(|operation| operation.identity.as_ref())
+                    .collect(),
+            )
+        })
         .collect();
     let mut source_entries: BTreeMap<_, Vec<_>> = BTreeMap::new();
     for (entry_index, entry) in wire.source_map.iter().enumerate() {
@@ -225,14 +267,16 @@ pub(super) fn validate_owner_joins(
                 identity,
                 node: declared,
             }) => {
-                let Some(model) = models.iter().find(|model| model.identity == *identity) else {
+                let Some(model) = selected_models.get(identity.as_ref()) else {
                     return Err(missing_owner(node, at));
                 };
                 meter.charge(1, || at.clone())?;
-                if !kinds
-                    .get(position)
-                    .is_some_and(|kind| model_kind_matches(*kind, model, declared))
-                {
+                let operations = model_operations.get(identity.as_ref());
+                if !kinds.get(position).is_some_and(|kind| {
+                    operations.is_some_and(|operations| {
+                        model_kind_matches(*kind, node, model, declared, operations)
+                    })
+                }) {
                     return Err(missing_owner(node, at));
                 }
             }

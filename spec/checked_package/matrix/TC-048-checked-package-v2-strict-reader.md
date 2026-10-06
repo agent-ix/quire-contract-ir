@@ -671,12 +671,15 @@ so FR-038-AC-91 and FR-038-AC-92 are scanned over `checked_package/`, over the
 production source of `output_mapping.rs` (FR-038-AC-91's symbols and `u64::MAX`
 ceilings) and over that of `canonical.rs` and `binding.rs` (the symbols and
 calls, and the bound identity envelope deriving `FixedShape` with no `Value`).
-For each in-repo
-positive fixture, recompute every nominal, application and structural node key
-and the `package_id`, and compare each with the digest the fixture recorded
-before the move; lower every node and compare each `ir_id`, the lowered package's
-`package_id` and its canonical bytes with the values recorded from the lowering
-before the move; compare the canonical bytes of one preimage of each kind with an
+For the owner-free nominal fixture, recompute every node key and `package_id`
+and compare each with the digest the fixture recorded before the move; lower
+every node and compare each `ir_id`, the lowered package's `package_id` and its
+canonical bytes with the values recorded from the lowering before the move.
+For owner-bearing fixtures, compare unchanged owner-free nodes with their
+pre-owner golden, assert owner/projection equality and key recomputation in
+TC-228, and leave the authoritative owner-bearing golden for the conformance
+row that consumes QSL-638's emitter output. Compare the canonical bytes of one
+preimage of each kind with an
 expected byte string written out in the test, not computed by the code under test
 (FR-038-AC-89). Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with

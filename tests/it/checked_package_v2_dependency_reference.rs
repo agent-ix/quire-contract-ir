@@ -57,6 +57,11 @@ fn node(
     if let Some(name) = declared {
         node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
         node["declaration"] = json!({"qualified_name": name});
+        let source = crate::support::checked_package::fixture_source();
+        node["owner"] = json!({
+            "kind": "source", "authority": source["authority"],
+            "identity": source["identity"],
+        });
     }
     node
 }

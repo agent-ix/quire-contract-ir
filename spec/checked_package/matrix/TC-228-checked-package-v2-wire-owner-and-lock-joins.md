@@ -68,6 +68,12 @@ visit; a limit one below it returns `incomplete`.
 
 ## Status
 
-Planned for the IR-646 owner-wire code change. Complete structural-key
-re-derivation and retirement of the interim recursion-group skip belong to
-IR-630.
+The in-repo generated owner-schema and join cases run in IR-646. The external
+conformance row is **PLANNED**: QSpec's two-owner `Point` and recursive `List`
+fixtures and QSL-638's owner-bearing emitter golden must be read directly from
+their selected checkouts after those PRs land. The row is intentionally absent
+from the executable conformance target until the authoritative files exist;
+its absence is a pending coverage item, not a passing skip. No fixture is
+copied into this repository and the reader does not generate its own golden.
+Complete structural-key re-derivation and retirement of the interim
+recursion-group skip belong to IR-630.

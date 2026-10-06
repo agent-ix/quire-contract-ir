@@ -573,6 +573,33 @@ fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) ->
     ValidationFailure::Refused(refusal)
 }
 
+/// The owner variants are a closed wire shape whose unknown members are
+/// `malformed_wire` at `owner`, unlike other closed package members.
+fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
+    let ValidationFailure::Refused(mut refusal) = failure else {
+        return failure;
+    };
+    if refusal.code == CheckedPackageRefusalCode::UnknownMember
+        && refusal.path.as_ref().is_some_and(|path| {
+            [
+                "/semantic_graph/nodes/",
+                "/identity_preimage/identity_projection/",
+            ]
+            .iter()
+            .any(|prefix| {
+                path.as_str().strip_prefix(prefix).is_some_and(|rest| {
+                    rest.strip_suffix("/owner").is_some_and(|index| {
+                        !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+                })
+            })
+        })
+    {
+        refusal.code = CheckedPackageRefusalCode::MalformedWire;
+    }
+    ValidationFailure::Refused(refusal)
+}
+
 /// Whether `path` is one of the two positions the wire types a
 /// `nominal_identity_preimage` at: `/semantic_graph/nodes/{n}/…` or
 /// `/identity_preimage/identity_projection/{n}/…`. A member of that name
@@ -645,7 +672,8 @@ impl CheckedPackageV2 {
         let terms = intake::detach_terms(&mut value);
         let mut wire = decode_closed::<CheckedPackageWireV2>(&value)
             .map_err(|failure| locate_in_preimage(failure, &value))
-            .map_err(|failure| classify_dependency_entry_shape(failure, &value))?;
+            .map_err(|failure| classify_dependency_entry_shape(failure, &value))
+            .map_err(classify_owner_shape)?;
         // A lossless decode: no member was defaulted, nulled or dropped.
         intake::check_lossless(&mut value, &mut wire)?;
         drop(value);

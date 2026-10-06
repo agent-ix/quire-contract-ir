@@ -194,6 +194,26 @@ pub fn node_id(digest: &str) -> Value {
     json!({"domain": NODE_DOMAIN, "digest": digest})
 }
 
+/// The source owner attached to a declared structural fixture node.
+pub fn source_owner(source: &Value) -> Value {
+    json!({
+        "kind": "source", "authority": source["authority"],
+        "identity": source["identity"],
+    })
+}
+
+/// The model owner attached to an undeclared structural fixture node.
+pub fn model_owner(identity: &str, node: &str) -> Value {
+    json!({"kind": "model", "identity": identity, "node": node})
+}
+
+/// Attaches the owner before a fixture projects or derives the node's key.
+/// The caller keeps its existing key-derivation oracle at this seam.
+pub fn owned_structural_node(mut node: Value, owner: Value) -> Value {
+    node["owner"] = owner;
+    node
+}
+
 pub fn typed_node_id(digest: &str) -> quire_contract_ir::CheckedNodeId {
     serde_json::from_value(node_id(digest)).expect("node id")
 }
@@ -959,7 +979,7 @@ fn application_node(
     })
 }
 
-fn fixture_source() -> Value {
+pub fn fixture_source() -> Value {
     source_ref(
         FIXTURE_SOURCE_AUTHORITY,
         FIXTURE_SOURCE_IDENTITY,
