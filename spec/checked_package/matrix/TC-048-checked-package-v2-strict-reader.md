@@ -931,3 +931,63 @@ inputs, the missing-end and fifth-member inputs with integer-string bounds refus
 `operation-member-mismatch` at `operation.member`, reported after the higher-digest
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
+
+## FCD relationship declarations (FR-038-AC-165 through FR-038-AC-168)
+
+Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
+IR-661. Existing TC-048 implementation and trace tags do not establish them.
+They require independently authored minimal Semantic IR 2.0.0 documents and
+packages built from this repository's public vocabulary. Do not copy an FCD
+schema, fixture, binary or another repository's package into this repository.
+The FCD primary-source links in FR-038 "Selected relationship declarations"
+identify the shape to implement; the cases below are procedures, not execution
+results.
+
+1. Author one selected package of object types `Order` and `Customer`, with a
+   relationship owned by `Order` whose identity is
+   `ix://example/shop/relationship/Order-billedTo-Customer`, source role
+   `billedTo`, source type `ix://example/shop/Order`, target role `bills`, and
+   target type `ix://example/shop/Customer`. Supply each end's independently
+   authored multiplicity and the FCD-shaped category, composite, direction and
+   origin members. Keep fields and an operation on `Order` owner-nested, and
+   the operation's parameter nested under the operation. Derive the selection
+   evidence and package identities through the authoritative canonical encoder
+   after every document edit. Admit the document and a correctly owned
+   `relation`/`relationship` graph declaration. Independently change only the
+   relationship identity to an owner-nested, foreign-package and wrong-slot
+   identity; change a field and then an operation to the global relationship
+   slot. Compare each typed `invalid_model_binding`/`malformed-declaration`
+   outcome. Separately key a `model`/`object_type` node with the relationship
+   owner: the owner join refuses `missing_declaration`/`missing-selection`,
+   as FR-038-AC-155 requires.
+2. Read with both roles, then remove only the target role. The selected
+   declaration admits in both cases and the latter exposes only the forward
+   named end. Separately remove the source role; set each role to null, `""`
+   and a non-string. Every malformed-role mutation refuses
+   `invalid_model_binding`/`malformed-declaration` at the selection row, even
+   with no application naming that relationship. Use an arbitrary non-empty
+   target role to confirm the reader does not enforce the frontend registry.
+3. Mutate each end's type to a missing identity and to the identity of a
+   relationship. The missing targets refuse `missing_declaration`/`missing-name`
+   and the relationship targets refuse
+   `invalid_model_binding`/`malformed-declaration`. Run each with the target
+   sorting before and after the referring relationship. Independently make
+   an end malformed, remove its type or multiplicity, make a multiplicity
+   malformed, and reverse otherwise valid bounds. Compare the declared typed
+   refusals, the selection-row pointer, relationship identity, artifact id and
+   source span; no row returns a package.
+4. Repeat one relationship identity under the same owner and under a second
+   owner: each is `invalid_model_binding`/`conflicting-binding`. Remove the
+   identity from two relationships: each is a malformed declaration, never
+   a conflict. Combine a malformed role, a missing end type and reversed
+   multiplicity on one relationship, then restore the role, and compare
+   FR-154's earlier-row refusal. Point at a declaration independently refused
+   for identity or kind and confirm its own refusal survives in either node
+   order. Measure the work needed by a successful selected-document read;
+   the exact limit admits and one less returns `incomplete` at the selection
+   row with no partial admitted package. Keep all other limits sufficient.
+
+Expected: each success and refusal above satisfies FR-038-AC-165 through
+FR-038-AC-168. Compare typed code, cause, pointer and retained declaration
+metadata, not diagnostic prose. These outcomes remain **UNRUN** until the
+implementation lane records executed evidence.
