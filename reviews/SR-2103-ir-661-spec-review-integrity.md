@@ -84,3 +84,11 @@ Scoped PR307 amendment review at `agent-ix/quire-contract-ir@7e18bd47df1191f7680
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-003 | still-open: found in round 2 at 7e18bd47df1191f7680a16e6f84cc9e87956898e; no fix yet | routed to the author for the next fix round |
+
+## Dispositions (round 3)
+
+Round 3, scoped to FND-003 only, at `agent-ix/quire-contract-ir@e346607a5deed35f4d9a61febb4322ca023eed43` (prior `7e18bd47df1191f7680a16e6f84cc9e87956898e`, base `1540b3b6c0e4d167fe1ed9116c296e45e7dff258`), reviewer model `claude-opus-5-5`, session `d6f52734-00fe-4ca2-b421-37940583dc56`, run `668e64d7-b4af-41c5-af2e-7844c203a24e`. FND-001 and FND-002 keep `fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc`. The round-2 `still-open` row for FND-003 stays above, unedited.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-003 | fixed e346607a5deed35f4d9a61febb4322ca023eed43 | Fixed by the second remedy round 2 allowed: FR-038 now names the merged FR-154/FR-322 retention requirement, quoting FR-154 verbatim (checked against QSpec 60630b0 FR-154 line 89). It states that today's SelectionRefusal code, cause and pointer are a current implementation limit and not a conforming substitute. It routes the design and code to IR-663, which exists in Backlog on team IR. It marks the future node-identity and verbatim-FCD-origin allocation as awaiting unmerged QSpec #191, without treating #191 as authority. AC-167 and AC-173 expose the same gap. No refusal field, Rust change or conformance claim is added. Only AC-167 and AC-173 changed; 167 criteria preserved; AC-165..173 still PLANNED / UNRUN. |
