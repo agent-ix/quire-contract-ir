@@ -21,6 +21,9 @@ path = "src/lib.rs"
 fault-injection = []
 
 [dependencies]
+num-bigint = "0.4.8"
+num-integer = "0.1.47"
+num-traits = "0.2.19"
 jsonschema = { version = "=0.17.1", default-features = false }
 # The home of `quire.checked-operation-catalog/v1`. This crate reads the catalog
 # from there rather than carrying its own copy of the bytes; see

@@ -74,8 +74,8 @@ impl WireValueType {
                 overflow,
             } => IntegerType::new(
                 domain,
-                minimum.to_i64(INTEGER_BOUNDS_PATH)?,
-                maximum.to_i64(INTEGER_BOUNDS_PATH)?,
+                minimum.to_i128(INTEGER_BOUNDS_PATH)?,
+                maximum.to_i128(INTEGER_BOUNDS_PATH)?,
                 overflow,
             )
             .map(ValueType::integer),
@@ -84,9 +84,9 @@ impl WireValueType {
                 numerator_maximum,
                 maximum_denominator,
             } => RationalType::new(
-                numerator_minimum.to_i64(RATIONAL_BOUNDS_PATH)?,
-                numerator_maximum.to_i64(RATIONAL_BOUNDS_PATH)?,
-                maximum_denominator.to_u64(RATIONAL_BOUNDS_PATH)?,
+                numerator_minimum.to_i128(RATIONAL_BOUNDS_PATH)?,
+                numerator_maximum.to_i128(RATIONAL_BOUNDS_PATH)?,
+                maximum_denominator.to_i128(RATIONAL_BOUNDS_PATH)?,
             )
             .map(ValueType::rational),
             Self::Text => Ok(ValueType::Text),
@@ -371,7 +371,7 @@ impl WireExpression {
                     return Err(wire_type_error("expression.integer_literal.value_type"));
                 };
                 ExpressionKind::IntegerLiteral {
-                    value: value.to_i64("expression.integer_literal.value")?,
+                    value: value.to_i128("expression.integer_literal.value")?,
                     value_type,
                 }
             }
@@ -384,8 +384,8 @@ impl WireExpression {
                     return Err(wire_type_error("expression.rational_literal.value_type"));
                 };
                 ExpressionKind::RationalLiteral {
-                    numerator: numerator.to_i64("expression.rational_literal.numerator")?,
-                    denominator: denominator.to_i64("expression.rational_literal.denominator")?,
+                    numerator: numerator.to_i128("expression.rational_literal.numerator")?,
+                    denominator: denominator.to_i128("expression.rational_literal.denominator")?,
                     value_type,
                 }
             }
@@ -1251,29 +1251,93 @@ mod tests {
     #[trace("TC-016", "FR-013-AC-5")]
     #[test]
     fn tc_016_a_grammar_valid_string_out_of_range_is_invalid_numeric_bounds() {
-        let (_, integer, minimum) = members().remove(0);
-        let diagnostic = refusal(with_member(&integer, minimum, json!("9223372036854775808")));
-        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
-        let (_, rational, numerator) = members().remove(2);
-        let diagnostic = refusal(with_member(
-            &rational,
-            numerator,
-            json!("-9223372036854775809"),
-        ));
-        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+        for (name, base, pointer) in members() {
+            for member in [
+                "170141183460469231731687303715884105728",
+                "-170141183460469231731687303715884105729",
+            ] {
+                let outcome = std::panic::catch_unwind(|| {
+                    check_expression_input(with_member(&base, pointer, json!(member)), None)
+                });
+                let diagnostic = match outcome.expect("wire refusal must not panic") {
+                    Ok(_) => panic!("{name} = {member} must be refused"),
+                    Err(diagnostic) => diagnostic,
+                };
+                assert_eq!(diagnostic.len(), 1, "{name} = {member}");
+                assert_eq!(
+                    diagnostic[0].code,
+                    DiagnosticCode::InvalidNumericBounds,
+                    "{name} = {member}"
+                );
+            }
+        }
         let (_, rational, denominator) = members().remove(4);
-        for member in ["0", "-1", "9223372036854775808", "18446744073709551616"] {
+        for member in ["0", "-1"] {
             let diagnostic = refusal(with_member(&rational, denominator, json!(member)));
-            assert_eq!(
-                diagnostic.code,
-                DiagnosticCode::InvalidNumericBounds,
-                "maximum_denominator = {member}"
+            assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+        }
+    }
+
+    /// Trace: FR-013-AC-5, FR-013-AC-6, FR-019-AC-7.
+    #[trace("TC-016", "TC-018", "FR-013-AC-5", "FR-013-AC-6", "FR-019-AC-7")]
+    #[test]
+    fn wide_member_values_round_trip_through_expression_requests() {
+        let wide_integer = |minimum: &str, maximum: &str, value: &str, domain: &str| {
+            let kind = json!({"kind":"integer", "domain":domain, "minimum":minimum, "maximum":maximum, "overflow":"reject"});
+            let expression = json!({"node":"integer_literal", "value":value, "value_type":kind, "source":span()});
+            let checked = check_expression_input(request(expression, kind), None).unwrap();
+            let value_type = serde_json::to_value(checked.expression.value_type()).unwrap();
+            let tree = serde_json::to_value(checked.expression.expression()).unwrap();
+            assert_eq!(value_type["value"]["minimum"], minimum);
+            assert_eq!(value_type["value"]["maximum"], maximum);
+            assert_eq!(tree["kind"]["value"], value);
+        };
+        for value in [
+            "9223372036854775808",
+            "18446744073709551615",
+            "170141183460469231731687303715884105727",
+            "-170141183460469231731687303715884105728",
+        ] {
+            wide_integer(
+                &i128::MIN.to_string(),
+                &i128::MAX.to_string(),
+                value,
+                "signed",
             );
         }
-        let (_, literal, value) = members().remove(5);
-        let diagnostic = refusal(with_member(&literal, value, json!("9223372036854775808")));
-        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
-        assert_eq!(diagnostic.path, "expression.integer_literal.value");
+        wide_integer(
+            "0",
+            "18446744073709551615",
+            "18446744073709551615",
+            "unsigned",
+        );
+
+        let rational = |numerator: &str, denominator: &str| {
+            let kind = json!({"kind":"rational", "numerator_minimum":i128::MIN.to_string(),
+                "numerator_maximum":i128::MAX.to_string(), "maximum_denominator":i128::MAX.to_string()});
+            let expression = json!({"node":"rational_literal", "numerator":numerator,
+                "denominator":denominator, "value_type":kind, "source":span()});
+            let checked = check_expression_input(request(expression, kind), None).unwrap();
+            let value_type = serde_json::to_value(checked.expression.value_type()).unwrap();
+            let tree = serde_json::to_value(checked.expression.expression()).unwrap();
+            assert_eq!(
+                value_type["value"]["numerator_minimum"],
+                i128::MIN.to_string()
+            );
+            assert_eq!(
+                value_type["value"]["numerator_maximum"],
+                i128::MAX.to_string()
+            );
+            assert_eq!(
+                value_type["value"]["maximum_denominator"],
+                i128::MAX.to_string()
+            );
+            assert_eq!(tree["kind"]["numerator"], numerator);
+            assert_eq!(tree["kind"]["denominator"], denominator);
+        };
+        rational(&i128::MIN.to_string(), "1");
+        rational(&i128::MAX.to_string(), "1");
+        rational("1", &i128::MAX.to_string());
     }
 
     /// Tracing: TC-016, FR-013-AC-5.

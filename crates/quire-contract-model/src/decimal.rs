@@ -35,15 +35,9 @@ pub(crate) fn serialize_decimal<T: fmt::Display, S: Serializer>(
 pub(crate) struct IntegerString(String);
 
 impl IntegerString {
-    /// The member as an `i64`, or `invalid_numeric_bounds` at `path` when the
+    /// The member as an `i128`, or `invalid_numeric_bounds` at `path` when the
     /// grammar-valid string is out of range.
-    pub(crate) fn to_i64(&self, path: &'static str) -> Result<i64, Diagnostic> {
-        self.0.parse().map_err(|_| out_of_range(path))
-    }
-
-    /// The member as a `u64`, or `invalid_numeric_bounds` at `path` when the
-    /// grammar-valid string is out of range (including any negative one).
-    pub(crate) fn to_u64(&self, path: &'static str) -> Result<u64, Diagnostic> {
+    pub(crate) fn to_i128(&self, path: &'static str) -> Result<i128, Diagnostic> {
         self.0.parse().map_err(|_| out_of_range(path))
     }
 }
@@ -119,16 +113,13 @@ mod tests {
     #[test]
     fn tc_016_range_is_decided_after_the_grammar() {
         let in_range: IntegerString = serde_json::from_str("\"-9223372036854775808\"").unwrap();
-        assert_eq!(in_range.to_i64("p").unwrap(), i64::MIN);
+        assert_eq!(in_range.to_i128("p").unwrap(), i64::MIN as i128);
         let above: IntegerString = serde_json::from_str("\"9223372036854775808\"").unwrap();
+        assert_eq!(above.to_i128("p").unwrap(), 9_223_372_036_854_775_808);
+        let outside: IntegerString =
+            serde_json::from_str("\"170141183460469231731687303715884105728\"").unwrap();
         assert_eq!(
-            above.to_i64("p").unwrap_err().code,
-            DiagnosticCode::InvalidNumericBounds
-        );
-        assert_eq!(above.to_u64("p").unwrap(), 9_223_372_036_854_775_808);
-        let negative: IntegerString = serde_json::from_str("\"-1\"").unwrap();
-        assert_eq!(
-            negative.to_u64("p").unwrap_err().code,
+            outside.to_i128("p").unwrap_err().code,
             DiagnosticCode::InvalidNumericBounds
         );
         for number in [

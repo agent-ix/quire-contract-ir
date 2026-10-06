@@ -30,7 +30,7 @@ fn span(start: u64, end: u64) -> SourceSpan {
     .unwrap()
 }
 
-fn integer(minimum: i64, maximum: i64, overflow: OverflowPolicy) -> IntegerType {
+fn integer(minimum: i128, maximum: i128, overflow: OverflowPolicy) -> IntegerType {
     IntegerType::new(IntegerDomain::Signed, minimum, maximum, overflow).unwrap()
 }
 
@@ -42,13 +42,13 @@ fn index_type(maximum: u32) -> IntegerType {
     IntegerType::new(
         IntegerDomain::Unsigned,
         0,
-        i64::from(maximum),
+        i128::from(maximum),
         OverflowPolicy::Reject,
     )
     .unwrap()
 }
 
-fn int(value: i64, at: u64) -> Expression {
+fn int(value: i128, at: u64) -> Expression {
     Expression::new(
         ExpressionKind::IntegerLiteral {
             value,
@@ -1594,7 +1594,7 @@ impl Numeric {
         }
     }
 
-    fn literal(&self, value: i64, at: u64) -> Expression {
+    fn literal(&self, value: i128, at: u64) -> Expression {
         let kind = match self {
             Self::Integer(value_type) => ExpressionKind::IntegerLiteral {
                 value,
@@ -1848,4 +1848,272 @@ fn tc_016_nonzero_split_keeps_both_halves_for_every_numeric_family() {
             Some(DefinednessObligationKind::NonZeroDivisor)
         );
     }
+}
+
+/// Trace: FR-013-AC-6, FR-014-AC-8, FR-019-AC-7.
+#[ix_trace_rs::trace("TC-016", "TC-018", "FR-013-AC-6", "FR-014-AC-8", "FR-019-AC-7")]
+#[test]
+fn wide_public_numeric_values_retain_their_type_and_literal_payloads() {
+    let environment = environment();
+    let signed = IntegerType::new(
+        IntegerDomain::Signed,
+        i128::MIN,
+        i128::MAX,
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let unsigned = IntegerType::new(
+        IntegerDomain::Unsigned,
+        0,
+        i128::from(u64::MAX),
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let _: i128 = signed.minimum();
+    let _: i128 = signed.maximum();
+    let _: i128 = unsigned.maximum();
+    for value in [
+        i128::from(i64::MAX) + 1,
+        i128::from(u64::MAX),
+        i128::MIN,
+        i128::MAX,
+    ] {
+        let literal = Expression::new(
+            ExpressionKind::IntegerLiteral {
+                value,
+                value_type: signed.clone(),
+            },
+            span(300, 301),
+        );
+        let checked = environment
+            .check_expression(&literal, &ValueType::integer(signed.clone()), &pre(), false)
+            .unwrap();
+        assert!(
+            matches!(checked.expression().kind(), ExpressionKind::IntegerLiteral { value: found, .. } if *found == value)
+        );
+        assert_eq!(checked.value_type(), &ValueType::integer(signed.clone()));
+    }
+    let maximum = i128::from(u64::MAX);
+    let literal = Expression::new(
+        ExpressionKind::IntegerLiteral {
+            value: maximum,
+            value_type: unsigned.clone(),
+        },
+        span(302, 303),
+    );
+    assert_eq!(
+        environment
+            .check_expression(&literal, &ValueType::integer(unsigned), &pre(), false)
+            .unwrap()
+            .value_type()
+            .clone(),
+        ValueType::integer(
+            IntegerType::new(IntegerDomain::Unsigned, 0, maximum, OverflowPolicy::Reject).unwrap()
+        )
+    );
+
+    let narrow = IntegerType::new(
+        IntegerDomain::Signed,
+        i128::MIN,
+        i128::MAX - 1,
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let outside = Expression::new(
+        ExpressionKind::IntegerLiteral {
+            value: i128::MAX,
+            value_type: narrow.clone(),
+        },
+        span(306, 307),
+    );
+    let diagnostic = &environment
+        .check_expression(&outside, &ValueType::integer(narrow), &pre(), false)
+        .unwrap_err()[0];
+    assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumericBounds);
+    assert_eq!(diagnostic.span.as_deref(), Some(&span(306, 307)));
+
+    let rational_type = RationalType::new(i128::MIN, i128::MAX, i128::MAX).unwrap();
+    let _: i128 = rational_type.numerator_minimum();
+    let _: i128 = rational_type.numerator_maximum();
+    let _: i128 = rational_type.maximum_denominator();
+    for (numerator, denominator) in [(i128::MIN, 1), (i128::MAX, 1), (1, i128::MAX)] {
+        let literal = Expression::new(
+            ExpressionKind::RationalLiteral {
+                numerator,
+                denominator,
+                value_type: rational_type.clone(),
+            },
+            span(304, 305),
+        );
+        let checked = environment
+            .check_expression(
+                &literal,
+                &ValueType::rational(rational_type.clone()),
+                &pre(),
+                false,
+            )
+            .unwrap();
+        assert!(
+            matches!(checked.expression().kind(), ExpressionKind::RationalLiteral { numerator: found_num, denominator: found_den, .. } if *found_num == numerator && *found_den == denominator)
+        );
+    }
+}
+
+/// Trace: FR-015-AC-8.
+#[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+#[test]
+fn wide_numeric_operations_prove_reduced_results_and_refuse_unrepresentable_ones() {
+    let environment = environment();
+    let rational_type = RationalType::new(0, i128::MAX, i128::MAX).unwrap();
+    let rational = |numerator, denominator, at| {
+        Expression::new(
+            ExpressionKind::RationalLiteral {
+                numerator,
+                denominator,
+                value_type: rational_type.clone(),
+            },
+            span(at, at + 1),
+        )
+    };
+    let product = |left, right, at| {
+        Expression::new(
+            ExpressionKind::Numeric {
+                operator: NumericOperator::Multiply,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            span(at, at + 3),
+        )
+    };
+    let admitted = product(
+        rational(i128::MAX, i128::MAX - 1, 310),
+        rational(i128::MAX - 1, i128::MAX, 311),
+        310,
+    );
+    assert!(environment
+        .check_expression(
+            &admitted,
+            &ValueType::rational(rational_type.clone()),
+            &pre(),
+            false
+        )
+        .is_ok());
+    let refused = product(rational(i128::MAX, 1, 314), rational(2, 1, 315), 314);
+    let diagnostic = &environment
+        .check_expression(&refused, &ValueType::rational(rational_type), &pre(), false)
+        .unwrap_err()[0];
+    assert_eq!(diagnostic.code, DiagnosticCode::PotentiallyUndefined);
+    assert_eq!(
+        diagnostic.obligation_kind,
+        Some(DefinednessObligationKind::CheckedRange)
+    );
+    assert_eq!(diagnostic.span.as_deref(), Some(&span(314, 317)));
+
+    let signed = IntegerType::new(
+        IntegerDomain::Signed,
+        i128::MIN,
+        i128::MAX,
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let integer = |value, at| {
+        Expression::new(
+            ExpressionKind::IntegerLiteral {
+                value,
+                value_type: signed.clone(),
+            },
+            span(at, at + 1),
+        )
+    };
+    for kind in [
+        ExpressionKind::NumericNegate {
+            operand: Box::new(integer(i128::MIN, 320)),
+        },
+        ExpressionKind::Numeric {
+            operator: NumericOperator::Divide,
+            left: Box::new(integer(i128::MIN, 321)),
+            right: Box::new(integer(-1, 322)),
+        },
+    ] {
+        let expression = Expression::new(kind, span(320, 325));
+        let result = std::panic::catch_unwind(|| {
+            environment.check_expression(
+                &expression,
+                &ValueType::integer(signed.clone()),
+                &pre(),
+                false,
+            )
+        });
+        let diagnostic = &result.expect("numeric check must not panic").unwrap_err()[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::PotentiallyUndefined);
+        assert_eq!(
+            diagnostic.obligation_kind,
+            Some(DefinednessObligationKind::CheckedRange)
+        );
+    }
+    let remainder = Expression::new(
+        ExpressionKind::Numeric {
+            operator: NumericOperator::Remainder,
+            left: Box::new(integer(1, 323)),
+            right: Box::new(integer(i128::MIN, 324)),
+        },
+        span(323, 326),
+    );
+    assert!(environment
+        .check_expression(&remainder, &ValueType::integer(signed), &pre(), false)
+        .is_ok());
+    let saturating = IntegerType::new(
+        IntegerDomain::Signed,
+        i128::MIN,
+        i128::MAX,
+        OverflowPolicy::Saturate,
+    )
+    .unwrap();
+    let minimum = Expression::new(
+        ExpressionKind::IntegerLiteral {
+            value: i128::MIN,
+            value_type: saturating.clone(),
+        },
+        span(326, 327),
+    );
+    let negated = Expression::new(
+        ExpressionKind::NumericNegate {
+            operand: Box::new(minimum),
+        },
+        span(326, 328),
+    );
+    assert!(environment
+        .check_expression(&negated, &ValueType::integer(saturating), &pre(), false)
+        .is_ok());
+    let rational_min = RationalType::new(i128::MIN, i128::MAX, 1).unwrap();
+    let literal = Expression::new(
+        ExpressionKind::RationalLiteral {
+            numerator: i128::MIN,
+            denominator: 1,
+            value_type: rational_min.clone(),
+        },
+        span(329, 330),
+    );
+    assert!(environment
+        .check_expression(
+            &literal,
+            &ValueType::rational(rational_min.clone()),
+            &pre(),
+            false
+        )
+        .is_ok());
+    let negated = Expression::new(
+        ExpressionKind::NumericNegate {
+            operand: Box::new(literal),
+        },
+        span(329, 331),
+    );
+    let diagnostic = &environment
+        .check_expression(&negated, &ValueType::rational(rational_min), &pre(), false)
+        .unwrap_err()[0];
+    assert_eq!(diagnostic.code, DiagnosticCode::PotentiallyUndefined);
+    assert_eq!(
+        diagnostic.obligation_kind,
+        Some(DefinednessObligationKind::CheckedRange)
+    );
 }
