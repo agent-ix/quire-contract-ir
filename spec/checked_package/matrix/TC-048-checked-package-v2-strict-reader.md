@@ -245,8 +245,11 @@ fairness and clause node an empty `aggregate`
 body, a `literal` body and another class's application; reference a formula node
 from a `function` body, a fairness argument and a `case` argument, and a fairness
 node from a formula argument and a formula operand; read each, then read each
-class, node and reference at its own place (AC-100). Compile the reader's refusal
-types for the code `unsupported_construct` and the cause `expression-form`, read a
+class, node and reference at its own place (AC-100). Check that temporal/formula
+and expression/case applications are not
+blanket-refused `unsupported_construct`/`expression-form`; the planned IR-661
+relationship-navigation additions require the lead-owned existing TC-048 Rust
+refusal-enum assertion to be amended, not claimed as executed here. Read a
 diagnostics entry whose `code` is `unsupported_construct`, and lower the admitted
 `temporal`/`formula` and `expression`/`case` nodes under supporting and
 non-supporting profiles, comparing the lowered body and `ir_id` with the admitted
@@ -982,8 +985,9 @@ results.
    malformed, and reverse otherwise valid bounds. Also point the source type
    at a valid object type other than the owning type: this refuses
    `invalid_model_binding`/`malformed-declaration`. Compare the declared typed
-   refusals, the selection-row pointer, relationship identity, artifact id and
-   source span; no row returns a package.
+   refusals and selection-row pointer. The current SelectionRefusal mapping
+   retains no declaration identity or graph-node locus and promises no FCD
+   origin/sourceIdentity/path/span/artifact metadata; no row returns a package.
 4. Repeat one relationship identity under the same owner and under a second
    owner: each is `invalid_model_binding`/`conflicting-binding`. Remove the
    identity from two relationships: each is a malformed declaration, never
@@ -991,9 +995,11 @@ results.
    multiplicity on one relationship, then restore the role, and compare
    FR-154's earlier-row refusal. Point at a declaration independently refused
    for identity or kind and confirm its own refusal survives in either node
-   order. Measure the work needed by a successful selected-document read;
-   the exact limit admits and one less returns `incomplete` at the selection
-   row with no partial admitted package. Keep all other limits sufficient.
+   order. Measure the cumulative work threshold through the successful selection
+   stage, keeping other limits sufficient. One below that threshold returns
+   `incomplete` at the selection row with no partial admitted package; the
+   threshold pays the stage, not necessarily the later complete read. Separately
+   measure the total-reader limit in step 8.
 
 5. Build a `quire.op.model.navigate` application with a
    `relationship_end` member whose `declaration` names the relationship graph
@@ -1061,10 +1067,15 @@ results.
    defects to verify recovery wins; combine wrong receiver, disallowed
    direction, unsupported destination multiplicity and result mismatch to
    verify receiver wins; then repair successive defects to observe direction,
-   multiplicity and result comparison in order. Measure the work of a
-   successful relationship-end application; the exact measured limit admits
-   and one less returns `incomplete` at the selected-document row without a
-   partial package. These are acceptance procedures to execute in the code
+   multiplicity and result comparison in order. Measure the total work of a
+   successful complete relationship-end read; the exact measured total admits
+   and one less returns `incomplete` at the first unpayable charge in the
+   existing stage order without a partial package. Operation validation is
+   charged before later graph-body reference edges, so a final argument-edge
+   charge may report `/semantic_graph/nodes/<n>/body/arguments/0/target`;
+   do not force this total-reader oracle to the selection row. Separately
+   retain step 4's selection-stage-minus-one selection-row oracle. These are
+   acceptance procedures to execute in the code
    lane, not recorded measurements. External QSpec #191 relationship fixtures
    remain planned and unrun until merged and published by their owner; this
    procedure neither copies them nor tags them as current evidence.
@@ -1075,8 +1086,10 @@ results.
    and supply an origin with no admitted branch, both branches, a missing
    required source-locus member or a malformed generated-origin member.
    Each refuses `invalid_model_binding`/`malformed-declaration` at the
-   selection row with supplied well-shaped identity, artifact and span metadata
-   where available; missing origin metadata is not fabricated. Valid
+   selection row, retaining typed code, cause and pointer under step 3's
+   existing refusal contract. No FCD metadata or declaration identity retention
+   is asserted, and no missing source span is fabricated for generated origin.
+   Valid
    independently authored source and generated origin branches each admit.
    No missing direction becomes source-to-target by default. Combine a
    malformed non-end member with a dangling end type and reversed
@@ -1103,6 +1116,9 @@ results.
     not runtime graph execution evidence.
 
 Expected: each success and refusal above satisfies FR-038-AC-165 through
-FR-038-AC-173. Compare typed code, cause, pointer and retained declaration
-metadata, not diagnostic prose. These outcomes remain **UNRUN** until the
+FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
+key only
+where the existing refusal retains its locus; selected-document refusals
+do not retain a declaration identity or FCD metadata. Do not parse diagnostic
+prose. These outcomes remain **UNRUN** until the
 implementation lane records executed evidence.
