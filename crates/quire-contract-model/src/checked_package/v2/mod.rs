@@ -22,6 +22,7 @@ mod operation_catalog;
 mod operations;
 mod owner;
 mod rust_spelling;
+mod scalar_operands;
 mod state;
 mod structural;
 mod temporal;
@@ -32,6 +33,10 @@ pub use lower::*;
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
     CheckedModelObjectFields,
+};
+pub use scalar_operands::{
+    CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
+    CheckedScalarOperandRange,
 };
 pub use vocabulary::*;
 

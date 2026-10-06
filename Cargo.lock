@@ -860,6 +860,7 @@ dependencies = [
  "serde_stacker",
  "sha2",
  "stacker",
+ "thiserror",
  "unicode-ident",
  "unicode-normalization",
 ]

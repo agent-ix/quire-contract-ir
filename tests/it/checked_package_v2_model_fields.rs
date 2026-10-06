@@ -504,6 +504,513 @@ fn range(lower: i128, upper: i128) -> CheckedMemberType {
     CheckedMemberType::IntRange { lower, upper }
 }
 
+/// A small admitted graph for the public scalar operand API. The integer
+/// bounds and application key use the same independently built preimages as
+/// this module's model-field cases.
+fn scalar_operand_package(arguments: Vec<Value>) -> (CheckedPackageV2, CheckedNodeId) {
+    scalar_operand_package_for("quire.op.integer.add", "binary", arguments)
+}
+
+fn scalar_operand_package_for(
+    operation: &str,
+    operator: &str,
+    arguments: Vec<Value>,
+) -> (CheckedPackageV2, CheckedNodeId) {
+    scalar_operand_package_with_bounds(operation, operator, arguments, Some(("0", "1000")))
+}
+
+fn scalar_operand_package_with_bounds(
+    operation: &str,
+    operator: &str,
+    arguments: Vec<Value>,
+    bounds: Option<(&str, &str)>,
+) -> (CheckedPackageV2, CheckedNodeId) {
+    scalar_operand_package_with_literal(operation, operator, arguments, bounds, "7")
+}
+
+fn scalar_operand_package_with_literal(
+    operation: &str,
+    operator: &str,
+    mut arguments: Vec<Value>,
+    bounds: Option<(&str, &str)>,
+    literal_value: &str,
+) -> (CheckedPackageV2, CheckedNodeId) {
+    let mut nodes = BTreeMap::new();
+    let integer = type_nodes(&Ty::Integer, &mut nodes);
+    let bounded = if let Some((lower, upper)) = bounds {
+        let body = bounds_body(&integer, lower, upper);
+        let key = structural(
+            "bounded_domain",
+            "integer_range",
+            Some(&integer),
+            None,
+            &body,
+        );
+        nodes.insert(
+            key.clone(),
+            wire_node(
+                &key,
+                "bounded_domain",
+                "integer_range",
+                &integer,
+                &[&integer],
+                body,
+            ),
+        );
+        key
+    } else {
+        integer.clone()
+    };
+    let text = structural("scalar_type", "text", None, None, &empty());
+    nodes.insert(
+        text.clone(),
+        wire_node(&text, "scalar_type", "text", &text, &[], empty()),
+    );
+    for (name, key) in [("left", "a".repeat(64)), ("right", "b".repeat(64))] {
+        let body = json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value":
+                {"term": "literal", "type": node_id(&text), "value_kind": "text", "value": name}},
+            {"term": "binding", "name": "level", "value":
+                {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
+        ]});
+        let mut node = wire_node(&key, "value", "parameter", &bounded, &[], body);
+        node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+        nodes.insert(key, node);
+    }
+    let literal_key = "c".repeat(64);
+    let literal_body = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": literal_value});
+    let mut literal_node = wire_node(
+        &literal_key,
+        "value",
+        "literal",
+        &bounded,
+        &[&integer],
+        literal_body,
+    );
+    literal_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+    nodes.insert(literal_key, literal_node);
+    if let Some(position) = arguments.iter().position(|argument| argument == "nested") {
+        let inline = json!({"term": "literal", "type": node_id(&integer),
+            "value_kind": "integer", "value": "7"});
+        let nested_body = json!({
+            "term": "application", "operator": "binary",
+            "operation": {"identity": "quire.op.integer.add", "laws": [],
+                "mode": null, "member": null, "leaves": []},
+            "result_type": node_id(&bounded), "arguments": [inline.clone(), inline],
+        });
+        let nested_key = key_of(&json!({
+            "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": "binary",
+            "semantic_type": node_id(&bounded), "declaration": null, "recursion": null,
+            "body": nested_body,
+        }));
+        let mut nested = wire_node(
+            &nested_key,
+            "expression",
+            "binary",
+            &bounded,
+            &[],
+            nested_body,
+        );
+        nested["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+        nodes.insert(nested_key.clone(), nested);
+        arguments[position] = reference(&nested_key);
+    }
+    let body = json!({
+        "term": "application", "operator": operator,
+        "operation": {"identity": operation, "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": node_id(&bounded), "arguments": arguments,
+    });
+    let key = key_of(&json!({
+        "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": operator,
+        "semantic_type": node_id(&bounded), "declaration": null, "recursion": null,
+        "body": body,
+    }));
+    let mut application = wire_node(&key, "expression", operator, &bounded, &[], body);
+    application["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+    let mut package = nominal_package(&[]);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(nodes.into_values());
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(application);
+    crate::support::checked_package::settle(&mut package);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .last_mut()
+        .expect("application")["occurrences"]
+        .as_array_mut()
+        .expect("occurrences")
+        .push(json!({"role": "expression", "ordinal": 1}));
+    let mut second_source = package["source_map"]
+        .as_array()
+        .expect("source map")
+        .last()
+        .expect("application source")
+        .clone();
+    second_source["ordinal"] = json!(1);
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .push(second_source);
+    refresh_identity(&mut package);
+    let application_id: CheckedNodeId = serde_json::from_value(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .last()
+            .expect("application")["node_id"]
+            .clone(),
+    )
+    .expect("node id");
+    let evidence = evidence_for(&package);
+    let admitted = match read_with(&package, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("expected scalar fixture admission, got {other:?}"),
+    };
+    (admitted, application_id)
+}
+
+/// Tracing: TC-048, FR-038-AC-159, FR-038-AC-160, FR-038-AC-161, FR-038-AC-164
+#[trace(
+    "TC-048",
+    "FR-038-AC-159",
+    "FR-038-AC-160",
+    "FR-038-AC-161",
+    "FR-038-AC-164"
+)]
+#[test]
+fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
+    use quire_contract_ir::{
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperand, CheckedScalarOperandChild,
+        CheckedScalarOperandError,
+    };
+    fn consume_child(entry: &CheckedScalarOperand) -> (u64, i128, i128, CheckedNodeId) {
+        let node = match &entry.child {
+            CheckedScalarOperandChild::GraphChild(node) => node.clone(),
+            CheckedScalarOperandChild::InlineLiteral {
+                application,
+                occurrence,
+                ordinal,
+            } => {
+                assert_eq!(*ordinal, entry.ordinal);
+                assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
+                application.clone()
+            }
+        };
+        (entry.ordinal, entry.range.lower, entry.range.upper, node)
+    }
+    fn consume_error(error: CheckedScalarOperandError) -> &'static str {
+        match error {
+            CheckedScalarOperandError::UnknownNode => "unknown node",
+            CheckedScalarOperandError::NotApplication => "not application",
+            CheckedScalarOperandError::MissingOccurrence => "missing occurrence",
+            CheckedScalarOperandError::UnknownOperator => "unknown operator",
+            CheckedScalarOperandError::IneligibleOperator => "ineligible operator",
+            CheckedScalarOperandError::MissingChild => "missing child",
+            CheckedScalarOperandError::MissingRange => "missing range",
+            CheckedScalarOperandError::UnboundedRange => "unbounded range",
+            CheckedScalarOperandError::RangeOutOfI128 => "out of i128",
+        }
+    }
+    let first = node_id(&"a".repeat(64));
+    let second = node_id(&"b".repeat(64));
+    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let inline = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": "7"});
+    let (package, application) =
+        scalar_operand_package(vec![json!({"term": "reference", "target": first}), inline]);
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let before = package.clone();
+    let entries = package
+        .scalar_application_operands(&application, &occurrence)
+        .expect("typed operands");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].ordinal, 0);
+    assert_eq!(entries[0].range.lower, 0);
+    assert_eq!(entries[0].range.upper, 1000);
+    assert_eq!(entries[1].ordinal, 1);
+    assert_eq!(consume_child(&entries[1]).0, 1);
+    assert_eq!((entries[1].range.lower, entries[1].range.upper), (7, 7));
+    assert!(matches!(
+        &entries[0].child,
+        CheckedScalarOperandChild::GraphChild(id) if *id == serde_json::from_value(first).expect("id")
+    ));
+    assert!(matches!(
+        &entries[1].child,
+        CheckedScalarOperandChild::InlineLiteral { application: id, occurrence: at, ordinal: 1 }
+            if id == &application && at == &occurrence
+    ));
+    assert_eq!(
+        entries,
+        package
+            .clone()
+            .scalar_application_operands(&application, &occurrence)
+            .expect("repeat")
+    );
+    assert_eq!(package, before);
+    assert_eq!(
+        consume_error(
+            package
+                .scalar_application_operands(
+                    &application,
+                    &CheckedOccurrence {
+                        role: CheckedOccurrenceRole::Expression,
+                        ordinal: 2,
+                    },
+                )
+                .expect_err("no third occurrence"),
+        ),
+        "missing occurrence"
+    );
+
+    let second_occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 1,
+    };
+    let second_entries = package
+        .scalar_application_operands(&application, &second_occurrence)
+        .expect("second occurrence");
+    assert!(matches!(&second_entries[1].child,
+        CheckedScalarOperandChild::InlineLiteral { application: id, occurrence: at, ordinal: 1 }
+        if id == &application && at == &second_occurrence));
+    assert_ne!(second_entries[1].child, entries[1].child);
+
+    let (swapped, swapped_id) = scalar_operand_package(vec![
+        json!({"term": "reference", "target": second}),
+        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
+    ]);
+    let result = swapped
+        .scalar_application_operands(&swapped_id, &occurrence)
+        .expect("swapped");
+    assert_eq!(result.len(), 2);
+    assert!(
+        matches!(&result[0].child, CheckedScalarOperandChild::GraphChild(id)
+        if *id == serde_json::from_value(second).expect("id"))
+    );
+    assert_ne!(result[0].child, result[1].child);
+    let (forward, forward_id) = scalar_operand_package(vec![
+        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
+        json!({"term": "reference", "target": node_id(&"b".repeat(64))}),
+    ]);
+    let forward = forward
+        .scalar_application_operands(&forward_id, &occurrence)
+        .expect("forward");
+    assert_eq!(forward[0].child, result[1].child);
+    assert_eq!(forward[1].child, result[0].child);
+
+    let graph_literal = node_id(&"c".repeat(64));
+    let (package, id) = scalar_operand_package(vec![
+        json!({"term": "reference", "target": graph_literal.clone()}),
+        json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
+    ]);
+    let entries = package
+        .scalar_application_operands(&id, &occurrence)
+        .expect("literal child");
+    assert_eq!((entries[0].range.lower, entries[0].range.upper), (7, 7));
+    assert!(
+        matches!(&entries[0].child, CheckedScalarOperandChild::GraphChild(child)
+        if *child == serde_json::from_value(graph_literal).expect("id"))
+    );
+
+    let (package, outer) = scalar_operand_package(vec![
+        json!("nested"),
+        json!({"term": "literal", "type": node_id(&integer),
+            "value_kind": "integer", "value": "7"}),
+    ]);
+    let inner = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "binary" && node.node_id != outer)
+        .expect("inner application");
+    let entries = package
+        .scalar_application_operands(&outer, &occurrence)
+        .expect("nested child");
+    assert!(
+        matches!(&entries[0].child, CheckedScalarOperandChild::GraphChild(id)
+        if *id == inner.node_id)
+    );
+    assert_eq!((entries[0].range.lower, entries[0].range.upper), (0, 1000));
+}
+
+/// Tracing: TC-048, FR-038-AC-161, FR-038-AC-162
+#[trace("TC-048", "FR-038-AC-161", "FR-038-AC-162")]
+#[test]
+fn tc_048_scalar_operands_refuse_unknown_node_nonapplication_and_missing_occurrence() {
+    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let inline = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": "7"});
+    let (package, application) = scalar_operand_package(vec![inline.clone(), inline]);
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let missing = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 2,
+    };
+    let operands = package
+        .scalar_application_operands(&application, &occurrence)
+        .expect("two inline terms");
+    assert_ne!(operands[0].child, operands[1].child);
+    assert_eq!(
+        package.scalar_application_operands(&application, &missing),
+        Err(CheckedScalarOperandError::MissingOccurrence)
+    );
+    assert_eq!(
+        package.scalar_application_operands(
+            &serde_json::from_value(node_id(&integer)).expect("id"),
+            &occurrence
+        ),
+        Err(CheckedScalarOperandError::NotApplication)
+    );
+    assert_eq!(
+        package.scalar_application_operands(
+            &serde_json::from_value(node_id(&"f".repeat(64))).expect("id"),
+            &occurrence
+        ),
+        Err(CheckedScalarOperandError::UnknownNode)
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-159, FR-038-AC-163
+#[trace("TC-048", "FR-038-AC-159", "FR-038-AC-163")]
+#[test]
+fn tc_048_scalar_operand_eligibility_uses_catalogued_integer_operations() {
+    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let literal = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": "7"});
+    for (identity, operator, count) in [
+        ("quire.op.integer.add", "binary", 2),
+        ("quire.op.integer.sub", "binary", 2),
+        ("quire.op.integer.mul", "binary", 2),
+        ("quire.op.integer.negate", "unary", 1),
+    ] {
+        let (package, node) =
+            scalar_operand_package_for(identity, operator, vec![literal.clone(); count]);
+        let entries = package
+            .scalar_application_operands(&node, &occurrence)
+            .expect(identity);
+        assert_eq!(entries.len(), count, "{identity}");
+        assert!(entries.iter().enumerate().all(|(position, entry)| {
+            entry.ordinal == u64::try_from(position).expect("small fixture")
+                && entry.range.lower == 7
+                && entry.range.upper == 7
+        }));
+    }
+    let (package, node) = scalar_operand_package_for(
+        "quire.op.integer.mod",
+        "binary",
+        vec![literal.clone(), literal],
+    );
+    assert_eq!(
+        package.scalar_application_operands(&node, &occurrence),
+        Err(CheckedScalarOperandError::IneligibleOperator)
+    );
+}
+
+/// Tracing: TC-048, FR-038-AC-162
+#[trace("TC-048", "FR-038-AC-162")]
+#[test]
+fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
+    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let first = json!({"term": "reference", "target": node_id(&"a".repeat(64))});
+    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let inline = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": "7"});
+    let (unbounded, node) = scalar_operand_package_with_bounds(
+        "quire.op.integer.add",
+        "binary",
+        vec![first.clone(), inline.clone()],
+        None,
+    );
+    assert_eq!(
+        unbounded.scalar_application_operands(&node, &occurrence),
+        Err(CheckedScalarOperandError::UnboundedRange)
+    );
+
+    for (lower, upper) in [
+        ("0", "170141183460469231731687303715884105728"),
+        ("-170141183460469231731687303715884105729", "0"),
+    ] {
+        let (package, node) = scalar_operand_package_with_bounds(
+            "quire.op.integer.add",
+            "binary",
+            vec![first.clone(), inline.clone()],
+            Some((lower, upper)),
+        );
+        assert_eq!(
+            package.scalar_application_operands(&node, &occurrence),
+            Err(CheckedScalarOperandError::RangeOutOfI128),
+            "{lower}..={upper}"
+        );
+    }
+
+    let beyond = "170141183460469231731687303715884105728";
+    let large_inline = json!({"term": "literal", "type": node_id(&integer),
+        "value_kind": "integer", "value": beyond});
+    let (package, node) = scalar_operand_package(vec![large_inline, inline]);
+    assert_eq!(
+        package.scalar_application_operands(&node, &occurrence),
+        Err(CheckedScalarOperandError::RangeOutOfI128)
+    );
+
+    let (package, node) = scalar_operand_package_with_literal(
+        "quire.op.integer.add",
+        "binary",
+        vec![
+            json!({"term": "reference", "target": node_id(&"c".repeat(64))}),
+            json!({"term": "literal", "type": node_id(&integer),
+                "value_kind": "integer", "value": "7"}),
+        ],
+        None,
+        beyond,
+    );
+    assert_eq!(
+        package.scalar_application_operands(&node, &occurrence),
+        Err(CheckedScalarOperandError::RangeOutOfI128)
+    );
+
+    let minimum = i128::MIN.to_string();
+    let maximum = i128::MAX.to_string();
+    let (package, node) = scalar_operand_package_with_bounds(
+        "quire.op.integer.add",
+        "binary",
+        vec![
+            first,
+            json!({"term": "literal", "type": node_id(&integer),
+            "value_kind": "integer", "value": "7"}),
+        ],
+        Some((&minimum, &maximum)),
+    );
+    let entries = package
+        .scalar_application_operands(&node, &occurrence)
+        .expect("i128 edges");
+    assert_eq!(
+        (entries[0].range.lower, entries[0].range.upper),
+        (i128::MIN, i128::MAX)
+    );
+}
+
 fn names(fields: &CheckedModelObjectFields) -> Vec<&str> {
     fields.fields().iter().map(|field| field.name()).collect()
 }
