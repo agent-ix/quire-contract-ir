@@ -570,6 +570,30 @@ under the default limits, and bisect the work limit of a ring of 12 records, com
 12 text leaves and its recursion leaf, to the exact work (FR-038-AC-72). Compare the whole refusal code, cause and pointer
 with the expected one.
 
+## QSL-shaped optional record fields (FR-038-AC-151 and FR-038-AC-152)
+
+PLANNED for IR-644 code; the assertions below do not exist yet.
+
+Build a checked package with the QSL-emitted `List` shape: its `next` field's
+value is an aggregate containing one `optional` binding whose value references
+an `Option<List>` node; the option node references `List`. Compare two `List`
+values by `structural.eq`. With an integer field, assert admission with no
+leaves. Replace it with selected-profile text and assert admission with the
+text leaf followed by `["field:next", "inner", "recursion:0"]`; omit the
+recursion leaf and assert `operation-law-missing` at `operation.leaves`. Add a
+text sibling after `next` and assert its leaf follows the recursion leaf in
+declaration order. Run a direct-reference-to-`Option<List>` control and check that it admits
+with the same field and inner path.
+
+For the same otherwise well-formed comparison, replace the `next` value in
+fresh packages with an empty aggregate, two `optional` bindings, another
+binding name, a non-binding member, and an `optional` binding that does not
+reference an option type. Recompute the package's identity members each time.
+The flat body grammar admits each mutant. Assert that every one reaches the
+operation check and refuses `ill_typed`/`operator-ineligible` at
+`operation.leaves`, with no partial leaf derivation. An earlier grammar or
+identity refusal fails the test.
+
 ## Canonical encoding (FR-038-AC-74 through FR-038-AC-80)
 
 For each in-repo positive fixture, encode the identity preimage, graph, lock,
