@@ -31,6 +31,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-contract-ir/AD-006
     type: references
+  - target: ix://agent-ix/quire-spec-language/FR-357
+    type: references
 ---
 # FR-038: Consume the CheckedPackage V2 contract and refuse every other version
 
@@ -93,6 +95,10 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   model object type's effective fields with their derived member types, integer
   bounds as values; see "Typed accessor for a model object type's fields"
   (FR-038-AC-136 through FR-038-AC-144, IR-628).
+- A typed accessor on the admitted package for a scalar application's ordered
+  operands. Each entry carries its argument ordinal, a typed child identity,
+  and its own inclusive integer range; see "Typed scalar application operands"
+  (FR-038-AC-159 through FR-038-AC-164).
 
 ## Behavior
 
@@ -2527,6 +2533,52 @@ settled until the owner confirms):
    have an accessor? Decided no: no consumer reads them (CG's frame object is an
    object type); they return `NotModelObjectType`.
 
+### Typed scalar application operands
+
+When a caller supplies an admitted application node id and one of that node's
+`CheckedOccurrence` keys, `CheckedPackageV2::scalar_application_operands` shall
+return a typed result in `body.arguments` order for the integer `add`,
+`subtract`, `multiply` and `negate` operation identities used by QSL
+[FR-357](ix://agent-ix/quire-spec-language/FR-357). The accessor does not
+evaluate the operation or mint a CG obligation identity. Its input and output
+use public Rust types, not `serde_json::Value`; CG consumes the typed result
+without decoding the package's `body` itself.
+Composite equality operands have structural domains and are outside this
+scalar accessor; their typed accessor is a planned follow-on.
+
+Each returned entry holds the zero-based `ordinal`, a child identity, and the
+inclusive `(lower, upper)` operand range as exact `i128` values. A reference
+to a graph child carries that child's `CheckedNodeId`: a parameter reference
+names the `value`/`parameter` node, while a reference to a subterm names the
+subterm's own application node. Its range is the admitted integer range of
+that value's semantic type, except that a `value`/`literal` child has the
+singleton range of its integer value. An inline integer literal has the same
+singleton range. Its identity is a distinct typed
+`InlineLiteral { application: CheckedNodeId, occurrence: CheckedOccurrence,
+ordinal: u64 }` variant, not a fabricated graph node id. This distinguishes
+two literal positions and two occurrences of the same application. The
+`GraphChild(CheckedNodeId)` variant identifies a referenced node. The
+accessor returns no occurrence regions or serialized term fragments.
+
+The closed typed error distinguishes `UnknownNode`, `NotApplication`,
+`UnknownOperator`, `IneligibleOperator`, `MissingOccurrence`, `MissingChild`
+and `MissingRange`. A missing occurrence refuses even if another occurrence
+of the same node exists. A dangling reference or a missing bound refuses
+instead of returning a partial operand list or guessing a range. An admitted
+package ordinarily rules out a dangling child; the accessor still returns a
+typed error if its internal graph cannot resolve one. It never panics on any
+input. These accessor errors do not change package admission or the V2
+reader's refusal order.
+
+The admitted flat wire permits both a reference to a `value`/`literal` graph
+node and an inline literal term inside `arguments`. QSL FR-357 requires an
+operator-level literal's singleton range; the inline selector above gives
+that term a distinct identity without inventing a graph node. ADR-013 O-09
+identifies the *application obligation* by application node id and occurrence
+key; the operand identity is not a new obligation preimage member. QSL
+confirmed the two-variant operand identity for this seam while its FR-357 and
+ADR-013 wording is being amended (QSL-641).
+
 ### Application node keys
 
 A node whose `body` is an `application` term carries a `node_id` that is the
@@ -3190,6 +3242,12 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-153 | A declared record, tuple and function each carries its source owner in the node and equal identity projection; QSpec's two-owner packages for `Point` and recursive `List` admit with distinct `Point` ids, distinct `List` group labels and member ids, and equal builtin `Integer` and application-keyed `three` ids under the two owners. An undeclared model declaration and clause function each carries its model owner, while an anonymous type, `source_locus` node and application-keyed node carry no owner. | Test (TC-228) |
 | FR-038-AC-154 | Omitting a required node or projection owner, inserting `null`, using the wrong owner kind, adding `version` to `ModelOwner`, or placing an owner on an owner-free node refuses `malformed_wire` at the node or projection object that lacks a required owner and at the present `owner` otherwise, before identity validation. A well-shaped projection owner differing from its node's owner refuses `stale_dependency` at the first differing projection value. The reader does not reconstruct an omitted owner from an occurrence, source map or lock. | Test (TC-228) |
 | FR-038-AC-155 | Before structural key re-derivation, a `SourceOwner` absent from `lock.sources` refuses `missing_declaration`/`missing-selection` at its node's `node_id`; a source-map region of its `declaration` occurrence naming another source pair refuses `invalid_package`/`invalid-value` at that source-map entry even when both pairs are lock-selected. A `ModelOwner` whose `identity` is unselected, whose `node` names no declaration, or whose `node` names the wrong kind refuses `missing_declaration`/`missing-selection` at its node's `node_id`, even if nothing reaches that node: a relationship cannot back `model`/`object_type`, an object type with `interfaceFeatures` cannot back `model`/`object_type`, an object type without `interfaceFeatures` cannot back `model`/`systems_interface`, and a field cannot back an operation clause. An operation member's clause and an object type's invariant pass. Two owner defects select the lowest retained node-id digest, ahead of a stale key on a lower-key node. Each selected-document lookup charges one validation visit. | Test (TC-228) |
+| FR-038-AC-159 | For admitted `quire.op.integer.add`, `.subtract`, `.multiply` and `.negate` applications, `scalar_application_operands` returns one entry per argument, in wire argument order, with ordinals `0..n-1`, typed identities and exact inclusive `i128` ranges; the unary operation returns one entry and the binary operations return two. Swapping two arguments swaps their entries and ordinals without sorting by child id. | Test (TC-048) |
+| FR-038-AC-160 | A reference to a `value`/`parameter` returns `GraphChild` carrying that parameter's node id and its admitted integer-range bounds; a reference to an application subterm returns `GraphChild` carrying that subterm's own node id and result range. Two distinct children of the same integer type remain distinct identities. An admitted graph literal reference carries the literal node id and singleton `(value, value)`, independent of a wider declared type bound. | Test (TC-048) |
+| FR-038-AC-161 | For an admitted inline integer literal argument of value `7`, the result carries `InlineLiteral` naming the application node id, the supplied occurrence key and that argument's ordinal, with range `(7, 7)`; another position or occurrence yields a distinct identity. No `CheckedNodeId` is fabricated for the inline term. | Test (TC-048) |
+| FR-038-AC-162 | An unknown graph node, a known non-application node, an absent occurrence key, a dangling referenced child and a child without a readable integer range produce the distinct typed errors `UnknownNode`, `NotApplication`, `MissingOccurrence`, `MissingChild` and `MissingRange`, respectively; no case returns a partial list or panics. The dangling-child row may use a crate-internal mutation after admission because the reader ordinarily rejects it. | Test (TC-048) |
+| FR-038-AC-163 | A crate-internal mutation of an admitted application to an operation identity absent from the catalog returns `UnknownOperator`; an admitted application with a catalogued identity outside the four eligible integer operations returns `IneligibleOperator`. The accessor does not interpret a non-integer operation as an eligible scalar parity claim. | Test (TC-048) |
+| FR-038-AC-164 | An external Rust API fixture calls the accessor with `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively matches the child-identity and error enums, and reads each ordinal, node id or inline selector and range through typed fields; it does not read `graph().nodes[*].body` or deserialize JSON. Repeated calls and a cloned admitted package return equal results, and neither call changes package equality. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
