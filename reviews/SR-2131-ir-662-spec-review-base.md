@@ -34,3 +34,13 @@ Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The n
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | FR-016-AC-9 is placed before AC-7 and AC-8 in the Acceptance Criteria table, so the IDs no longer read in sequence. Move AC-9 after AC-8 without renumbering existing criteria. | spec/model/functional/FR-016-canonicalization-digests.md:146-148 |
+
+## Dispositions
+
+| FND | Outcome | SHA / reason |
+| --- | --- | --- |
+| FND-001 | fixed | b9b3fb2d6ce19167ec0813ab46262d1e19e57b51 — FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. |
+
+## Disposition Verdict
+
+**PASS at b9b3fb2d6ce19167ec0813ab46262d1e19e57b51.** FR-016-AC-9 is now after AC-8 at line 148; existing AC-7 and AC-8 remain in order. The frozen original finding row is retained above.

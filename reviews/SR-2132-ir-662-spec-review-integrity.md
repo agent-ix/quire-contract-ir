@@ -32,3 +32,13 @@ Ticket IR-662, frozen PR #310 at c5d7cca9fa3ed577c3578af2ea5d9a7c99ae4b75. The w
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | FR-015-AC-8 requires a refusal for every unrepresentable rational cross-product, but FR-015 behavior says exact singleton results normalize before the final range check and discharge when the normalized result fits. For normalized operands MAX/(MAX-1) and (MAX-1)/MAX, raw products exceed i128 while the exact result is 1/1. Decide whether this case must pass or conservatively refuse, state that rule consistently, and add the fixture. | spec/model/functional/FR-015-definedness.md:52-68,105 |
+
+## Dispositions
+
+| FND | Outcome | SHA / reason |
+| --- | --- | --- |
+| FND-001 | fixed | b9b3fb2d6ce19167ec0813ab46262d1e19e57b51 — FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. |
+
+## Disposition Verdict
+
+**PASS at b9b3fb2d6ce19167ec0813ab46262d1e19e57b51.** FR-015 behavior now requires exact singleton normalization before bounds checking, and AC-8 admits the overflowing raw cross-products yielding 1/1 while refusing an out-of-bounds normalized result. The frozen original finding row is retained above.
