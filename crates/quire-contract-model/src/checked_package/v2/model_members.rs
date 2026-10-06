@@ -406,7 +406,7 @@ impl CollectionKind {
         }
     }
 
-    const fn form(self) -> &'static str {
+    pub(super) const fn form(self) -> &'static str {
         match self {
             Self::Set => "set",
             Self::Bag => "bag",
@@ -450,10 +450,10 @@ impl MemberType {
     pub(super) fn node_key(&self, bytes: u64) -> Result<String, quire_canonical::Error> {
         match self {
             Self::Boolean => {
-                anonymous("scalar_type", "boolean", None, aggregate(Vec::new()), bytes)
+                anonymous("scalar_type", "boolean", None, StructuralBody::Empty, bytes)
             }
             Self::Integer => {
-                anonymous("scalar_type", "integer", None, aggregate(Vec::new()), bytes)
+                anonymous("scalar_type", "integer", None, StructuralBody::Empty, bytes)
             }
             Self::IntRange(range) => {
                 let integer = Self::Integer.node_key(bytes)?;
@@ -461,16 +461,30 @@ impl MemberType {
                     "bounded_domain",
                     "integer_range",
                     Some(&integer),
-                    bounds(&integer, &range.lower.to_string(), &range.upper.to_string()),
+                    StructuralBody::Bounds {
+                        integer: &integer,
+                        lower: &range.lower.to_string(),
+                        upper: &range.upper.to_string(),
+                    },
                     bytes,
                 )
             }
-            Self::Reference(target) => {
-                anonymous("composite_type", "reference", None, over(target), bytes)
-            }
+            Self::Reference(target) => anonymous(
+                "composite_type",
+                "reference",
+                None,
+                StructuralBody::Over(target),
+                bytes,
+            ),
             Self::Option(inner) => {
                 let inner = inner.node_key(bytes)?;
-                anonymous("composite_type", "option", None, over(&inner), bytes)
+                anonymous(
+                    "composite_type",
+                    "option",
+                    None,
+                    StructuralBody::Over(&inner),
+                    bytes,
+                )
             }
             Self::Collection {
                 kind,
@@ -478,8 +492,13 @@ impl MemberType {
                 bounds: collection_bounds,
             } => {
                 let element = element.node_key(bytes)?;
-                let collection =
-                    anonymous("composite_type", kind.form(), None, over(&element), bytes)?;
+                let collection = anonymous(
+                    "composite_type",
+                    kind.form(),
+                    None,
+                    StructuralBody::Over(&element),
+                    bytes,
+                )?;
                 match collection_bounds {
                     None => Ok(collection),
                     Some((lower, upper)) => {
@@ -488,7 +507,11 @@ impl MemberType {
                             "bounded_domain",
                             "collection_bounds",
                             Some(&collection),
-                            bounds(&integer, &lower.to_string(), &upper.to_string()),
+                            StructuralBody::Bounds {
+                                integer: &integer,
+                                lower: &lower.to_string(),
+                                upper: &upper.to_string(),
+                            },
                             bytes,
                         )
                     }
@@ -498,12 +521,45 @@ impl MemberType {
     }
 }
 
+/// The closed body of an anonymous structural node, by the keys and strings
+/// it holds. [`MemberType::node_key`] and the reader's re-derivation of a
+/// graph node's key (FR-038-AC-123 through FR-038-AC-130) both build their
+/// preimage through this type and [`anonymous`], so there is one derivation.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum StructuralBody<'a> {
+    /// `aggregate{[]}`: a `boolean` or `integer` scalar.
+    Empty,
+    /// An `aggregate` of one `reference` to this node key.
+    Over(&'a str),
+    /// An `aggregate` of the `min` and `max` bindings, each an `Integer`
+    /// literal typed at `integer`, valued by the decimal strings.
+    Bounds {
+        integer: &'a str,
+        lower: &'a str,
+        upper: &'a str,
+    },
+}
+
+impl<'a> StructuralBody<'a> {
+    fn aggregate(self) -> AggregateBody<'a> {
+        match self {
+            Self::Empty => aggregate(Vec::new()),
+            Self::Over(target) => over(target),
+            Self::Bounds {
+                integer,
+                lower,
+                upper,
+            } => bounds(integer, lower, upper),
+        }
+    }
+}
+
 /// The key of an anonymous structural node: no `declaration`, no `owner`.
-fn anonymous(
+pub(super) fn anonymous(
     node_tag: &str,
     semantic_form: &str,
     semantic_type: Option<&str>,
-    body: AggregateBody<'_>,
+    body: StructuralBody<'_>,
     bytes: u64,
 ) -> Result<String, quire_canonical::Error> {
     structural_key(
@@ -515,7 +571,7 @@ fn anonymous(
             declaration: (),
             recursion: (),
             owner: None,
-            body,
+            body: body.aggregate(),
         },
         bytes,
     )
