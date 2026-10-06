@@ -464,6 +464,47 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
     );
 }
 
+/// Trace: FR-038-AC-171
+#[trace("TC-048", "FR-038-AC-171")]
+#[test]
+fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_edge() {
+    let (package, evidence) = relationship_package(authored_relationship(), "links");
+    let bytes = canonical(&package);
+    let read_at = |work| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        CheckedPackageV2::read(&bytes, limits, &evidence)
+    };
+    let (mut insufficient, mut admitted) = (0, CheckedPackageReadLimits::bounded().work);
+    assert!(matches!(
+        read_at(admitted),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    while insufficient + 1 < admitted {
+        let middle = insufficient + (admitted - insufficient) / 2;
+        match read_at(middle) {
+            CheckedPackageV2ReadResult::Admitted(_) => admitted = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => insufficient = middle,
+            other => panic!("expected work boundary, got {other:?}"),
+        }
+    }
+    assert!(matches!(
+        read_at(admitted),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    match read_at(admitted - 1) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(incomplete.limit, admitted - 1);
+            assert_eq!(
+                incomplete.path.map(|path| path.to_string()).as_deref(),
+                Some("/semantic_graph/nodes/6/body/arguments/0/target")
+            );
+        }
+        other => panic!("expected total-work exhaustion, got {other:?}"),
+    }
+}
+
 /// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
 #[trace(
     "TC-048",
