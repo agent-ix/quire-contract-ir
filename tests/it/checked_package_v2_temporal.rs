@@ -12,8 +12,9 @@
 //! fixtures are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, fixture_source, model_owner, node_id,
-    owned_structural_node, settle, sha256_hex, source_owner, typed_node_id, v2_all_families,
+    canonical, evidence_for, family_key, fixture_source, mint_ungrouped_structural_keys,
+    model_owner, node_id, owned_structural_node, settle, sha256_hex, source_owner, structural_key,
+    typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -23,6 +24,7 @@ use quire_contract_ir::{
 };
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -855,6 +857,7 @@ fn tc_048_a_formula_fairness_or_clause_node_needs_its_own_application() {
         ] {
             let mut package = v2_all_families();
             let position = push(&mut package, node_with_key(&fresh(), tag, form, body));
+            mint_ungrouped_structural_keys(&mut package);
             settle(&mut package);
             misplaced(&format!("{form} with {case}"), &package, position);
         }
@@ -993,6 +996,7 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
             &mut package,
             node_with_key(&fresh(), "expression", form, body),
         );
+        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
         let locus = digest(&package, position);
         // `invalid_semantic_graph` carries no cause.
@@ -1015,11 +1019,16 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
     for key in [LOWEST, HIGHEST] {
         let mut package = v2_all_families();
         let placement = push(&mut package, misplaced_formula(key));
-        push(
+        let case_position = push(
             &mut package,
             node_with_key(&fresh(), "function", "pure_function", case_body()),
         );
         settle(&mut package);
+        assert_eq!(
+            digest(&package, placement) < digest(&package, case_position),
+            key == LOWEST,
+            "the valid structural key must exercise this digest order",
+        );
         misplaced(
             &format!("a temporal placement defect beside a case placement defect, {key}"),
             &package,
@@ -1191,14 +1200,38 @@ fn tc_048_a_diagnostics_entry_may_carry_the_unsupported_construct_code() {
 // AC-102
 // ---------------------------------------------------------------------------
 
-/// A formula node with a placement defect and a free key: an aggregate body.
-fn misplaced_formula(key: &str) -> Value {
-    node_with_key(
-        key,
-        "temporal",
-        "formula",
-        json!({"term": "aggregate", "members": []}),
+/// Valid derived-key formula nodes with opposite digest order, each retaining
+/// the same temporal placement defect. The salt lives only in a closed body.
+static MISPLACED_FORMULAS: LazyLock<(Value, Value)> = LazyLock::new(|| {
+    let mut candidates = (0..128)
+        .map(|salt| {
+            let body = json!({"term": "aggregate", "members": [{
+                "term": "binding", "name": format!("salt{salt}"),
+                "value": {"term": "literal", "type": node_id(&aaaa()),
+                    "value_kind": "boolean", "value": true},
+            }]});
+            let key = structural_key("temporal", "formula", Some(&aaaa()), &body);
+            (
+                key.clone(),
+                node_with_key(&key, "temporal", "formula", body),
+            )
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+    (
+        candidates.first().expect("candidate").1.clone(),
+        candidates.last().expect("candidate").1.clone(),
     )
+});
+
+/// A formula node with a placement defect and a valid low or high key.
+fn misplaced_formula(key: &str) -> Value {
+    if key == LOWEST {
+        MISPLACED_FORMULAS.0.clone()
+    } else {
+        assert_eq!(key, HIGHEST, "placement fixture key selection");
+        MISPLACED_FORMULAS.1.clone()
+    }
 }
 
 /// A function node whose application has an unknown identity: an operation
@@ -1228,8 +1261,13 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
         // Beside an operation defect, whatever the digest order.
         let mut package = v2_all_families();
         let placement = push(&mut package, misplaced_formula(key));
-        let _operation = push(&mut package, unknown_identity_call());
+        let operation = push(&mut package, unknown_identity_call());
         settle(&mut package);
+        assert_eq!(
+            digest(&package, placement) < digest(&package, operation),
+            key == LOWEST,
+            "the valid structural key must exercise this digest order",
+        );
         misplaced(
             &format!("beside an operation defect, {key}"),
             &package,
@@ -1250,8 +1288,9 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
     // Two placement defects: the lower digest.
     let mut package = v2_all_families();
     let low = push(&mut package, misplaced_formula(LOWEST));
-    let _high = push(&mut package, misplaced_formula(HIGHEST));
+    let high = push(&mut package, misplaced_formula(HIGHEST));
     settle(&mut package);
+    assert!(digest(&package, low) < digest(&package, high));
     misplaced("two placement defects", &package, low);
 }
 

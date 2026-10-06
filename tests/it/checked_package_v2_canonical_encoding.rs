@@ -7,8 +7,8 @@
 //! quire-canonical's bytes", FR-038-AC-74 through FR-038-AC-80).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, positive_operation_identities, refresh_identity, refusal,
-    refusal_bytes, v2_all_families, v2_nominal,
+    canonical, evidence_for, mint_ungrouped_structural_keys, positive_operation_identities,
+    refresh_identity, refusal, refusal_bytes, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
@@ -762,9 +762,12 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         json!(2),
     ] {
         let mut package = base.clone();
-        package["semantic_graph"]["nodes"][0]["body"] = json!({
+        // Node 2 is the `value`/`literal` node; its changed body needs a new
+        // structural key before the canonical document is read.
+        package["semantic_graph"]["nodes"][2]["body"] = json!({
             "term": "literal", "type": self_type, "value_kind": "integer", "value": literal
         });
+        mint_ungrouped_structural_keys(&mut package);
         refresh_identity(&mut package);
         assert!(
             matches!(

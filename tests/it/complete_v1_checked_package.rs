@@ -10,8 +10,9 @@
 //! only the current `CheckedPackageV2` reader and lowerer.
 
 use crate::support::checked_package::{
-    all_families_read_work, canonical, evidence_for, incomplete, refresh_identity, refusal,
-    refusal_bytes, typed_node_id, unknown_version, v2_all_families, NODE_DOMAIN,
+    all_families_read_work, canonical, evidence_for, incomplete, mint_ungrouped_structural_keys,
+    refresh_identity, refusal, refusal_bytes, typed_node_id, unknown_version, v2_all_families,
+    NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -290,6 +291,7 @@ fn tc_044_reader_refuses_strict_wire_and_identity_mutations() {
         .expect("all-families fixture carries an expression node");
     dangling_target["semantic_graph"]["nodes"][expression]["body"]["target"]["digest"] =
         json!("0123456789abcdef".repeat(4));
+    mint_ungrouped_structural_keys(&mut dangling_target);
     refresh_identity(&mut dangling_target);
     assert_eq!(
         refused(&dangling_target, &evidence_for(&dangling_target)),

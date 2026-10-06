@@ -13,8 +13,8 @@
 //! every expectation is written out.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, json_depth, node_id, pointer, refresh_identity, settle,
-    sha256_hex, v2_all_families, v2_reference_chain,
+    canonical, evidence_for, family_key, json_depth, mint_ungrouped_structural_keys, node_id,
+    pointer, refresh_identity, settle, sha256_hex, v2_all_families, v2_reference_chain,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -140,6 +140,8 @@ fn settled(position: impl Fn(&Value) -> usize, edit: impl FnOnce(&mut Value)) ->
     let mut package = v2_all_families();
     let position = position(&package);
     edit(&mut package["semantic_graph"]["nodes"][position]);
+    settle(&mut package);
+    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     (package, position)
 }

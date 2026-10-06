@@ -441,6 +441,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 // fixture's own real node 23 (systems_interface/Flowable).
                 v["semantic_graph"]["nodes"][4]["body"]["target"]["digest"] =
                     json!("0123456789abcdef".repeat(4));
+                checked_package::mint_ungrouped_structural_keys(v);
                 refresh_identity(v);
             }),
             refusal(
@@ -476,12 +477,16 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         ),
         (
             "stale projection",
+            // Mutate the projection while keeping the graph's structural key
+            // valid, so the projection comparison remains the deciding stage.
             Box::new(|v| {
-                v["semantic_graph"]["nodes"][0]["body"]["value"] = json!(false);
+                v["identity_preimage"]["identity_projection"][3]["body"]["members"] = json!([{"term": "literal", "type": v["semantic_graph"]["nodes"][3]
+                        ["semantic_type"], "value_kind": "boolean", "value": false}]);
+                v["package_id"]["digest"] = json!(sha256_hex(&canonical(&v["identity_preimage"])));
             }),
             refusal(
                 CheckedPackageRefusalCode::StaleDependency,
-                "/identity_preimage/identity_projection/0/body/value",
+                "/identity_preimage/identity_projection/3/body/members",
             ),
         ),
         (
@@ -505,48 +510,50 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         ),
         (
             "cycle without a recursion group",
+            // Nodes 3 and 6 are `value` and `model` nodes: no derived key
+            // (FR-038-AC-134) is refused ahead of the cycle check.
             Box::new(|v| {
-                let first = v["semantic_graph"]["nodes"][1]["node_id"].clone();
-                let second = v["semantic_graph"]["nodes"][2]["node_id"].clone();
-                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([second]);
-                v["semantic_graph"]["nodes"][2]["dependencies"] = json!([first]);
+                let first = v["semantic_graph"]["nodes"][3]["node_id"].clone();
+                let second = v["semantic_graph"]["nodes"][6]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
+                v["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
                 refresh_identity(v);
             }),
             // Neither node carries the member the cycle requires; the
             // lower-positioned one is named.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/1",
+                "/semantic_graph/nodes/3",
             ),
         ),
         (
             "cycle split across recursion groups",
             Box::new(|v| {
-                let first = v["semantic_graph"]["nodes"][1]["node_id"].clone();
-                let second = v["semantic_graph"]["nodes"][2]["node_id"].clone();
-                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([second]);
-                v["semantic_graph"]["nodes"][2]["dependencies"] = json!([first]);
-                v["semantic_graph"]["nodes"][1]["recursion_group"] = json!("left");
-                v["semantic_graph"]["nodes"][2]["recursion_group"] = json!("right");
+                let first = v["semantic_graph"]["nodes"][3]["node_id"].clone();
+                let second = v["semantic_graph"]["nodes"][6]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
+                v["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
+                v["semantic_graph"]["nodes"][3]["recursion_group"] = json!("left");
+                v["semantic_graph"]["nodes"][6]["recursion_group"] = json!("right");
                 refresh_identity(v);
             }),
-            // Node 1 sets the group; node 2's differs.
+            // Node 3 sets the group; node 6's differs.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/2/recursion_group",
+                "/semantic_graph/nodes/6/recursion_group",
             ),
         ),
         (
             "self dependency without a recursion group",
             Box::new(|v| {
-                let own = v["semantic_graph"]["nodes"][1]["node_id"].clone();
-                v["semantic_graph"]["nodes"][1]["dependencies"] = json!([own]);
+                let own = v["semantic_graph"]["nodes"][3]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["dependencies"] = json!([own]);
                 refresh_identity(v);
             }),
             // The node lacks the `recursion_group` member its cycle needs.
             refusal(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/1",
+                "/semantic_graph/nodes/3",
             ),
         ),
     ];
@@ -574,7 +581,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
     let body: Build = Box::new(|literal| {
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][0]["body"] = json!({"term":"literal","type":self_type.clone(),"value_kind":"integer","value":literal});
+        changed["semantic_graph"]["nodes"][3]["body"] = json!({"term":"literal","type":self_type.clone(),"value_kind":"integer","value":literal});
+        checked_package::mint_ungrouped_structural_keys(&mut changed);
         refresh_identity(&mut changed);
         changed
     });
@@ -591,7 +599,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     });
     // Each refuses at the literal term itself.
     for (build, at) in [
-        (body, "/semantic_graph/nodes/0/body"),
+        (body, "/semantic_graph/nodes/3/body"),
         (detail, "/diagnostics/entries/0/details/0"),
     ] {
         let integer_refusal = refusal(CheckedPackageRefusalCode::InvalidSemanticGraph, at);
@@ -613,12 +621,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
 
     // A cycle is admitted once every member shares one explicit group.
     let mut grouped = base.clone();
-    let first = grouped["semantic_graph"]["nodes"][1]["node_id"].clone();
-    let second = grouped["semantic_graph"]["nodes"][2]["node_id"].clone();
-    grouped["semantic_graph"]["nodes"][1]["dependencies"] = json!([second]);
-    grouped["semantic_graph"]["nodes"][2]["dependencies"] = json!([first]);
-    grouped["semantic_graph"]["nodes"][1]["recursion_group"] = json!("pair");
-    grouped["semantic_graph"]["nodes"][2]["recursion_group"] = json!("pair");
+    let first = grouped["semantic_graph"]["nodes"][3]["node_id"].clone();
+    let second = grouped["semantic_graph"]["nodes"][6]["node_id"].clone();
+    grouped["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
+    grouped["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
+    grouped["semantic_graph"]["nodes"][3]["recursion_group"] = json!("pair");
+    grouped["semantic_graph"]["nodes"][6]["recursion_group"] = json!("pair");
     refresh_identity(&mut grouped);
     admitted(&grouped);
 
@@ -2102,14 +2110,33 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 #[test]
 fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     let base = v2_all_families();
-    let own_id = base["semantic_graph"]["nodes"][1]["node_id"].clone();
-    let other_id = base["semantic_graph"]["nodes"][1]["semantic_type"].clone();
+    // The nodes the cases rewrite are `function` and `model` nodes, which
+    // carry no derived key (FR-038-AC-134): a rewritten `option` or
+    // `integer_range` would be refused as a stale key before any cycle check.
+    let node_at = |key: &str| {
+        base["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"]["digest"] == checked_package::family_key(key))
+            .expect("fixture node")
+    };
+    let (own, sibling) = (node_at("8080"), node_at("1010"));
+    let own_id = base["semantic_graph"]["nodes"][own]["node_id"].clone();
+    let other_id = base["semantic_graph"]["nodes"][own]["semantic_type"].clone();
+    let application_position = base["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression");
+    let application_id = base["semantic_graph"]["nodes"][application_position]["node_id"].clone();
 
     // The node lacks the `recursion_group` member its self-cycle requires,
     // so the refusal points at the node.
     let recursion_group_refusal = refusal(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
-        "/semantic_graph/nodes/1",
+        &format!("/semantic_graph/nodes/{own}"),
     );
     // An `application`-termed body embedding a literal self-reference to its
     // own node_id is, once `validate_application_keys` exists, a
@@ -2123,18 +2150,25 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // never touch `validate_application_keys`, still exercise it directly).
     let stale_application_key_refusal = refusal_at(
         CheckedPackageRefusalCode::InvalidPackage,
-        "/semantic_graph/nodes/1/node_id",
+        &format!("/semantic_graph/nodes/{application_position}/node_id"),
         Some(CheckedPackageRefusalCause::StaleNodeKey),
-        own_id["digest"].as_str().expect("own_id digest"),
+        application_id["digest"]
+            .as_str()
+            .expect("application digest"),
     );
 
-    let assert_self_cycle_refused = |body: Value, expected: CheckedPackageRefusal| {
-        let mut mutated = base.clone();
-        mutated["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
-        mutated["semantic_graph"]["nodes"][1]["body"] = body;
-        refresh_identity(&mut mutated);
-        assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
-    };
+    let assert_self_cycle_refused =
+        |position: usize, body: Value, expected: CheckedPackageRefusal| {
+            let mut mutated = base.clone();
+            mutated["semantic_graph"]["nodes"][position]["semantic_type"] =
+                mutated["semantic_graph"]["nodes"][position]["node_id"].clone();
+            mutated["semantic_graph"]["nodes"][position]["body"] = body;
+            if position == application_position {
+                mutated["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
+            }
+            refresh_identity(&mut mutated);
+            assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
+        };
 
     // Negative: a self-typed node whose body is a `reference` term naming
     // itself is a genuine 1-node cycle, not the carve-out's case. The carve-
@@ -2142,6 +2176,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // (`semantic_type == position`), which also swallowed this case with no
     // `recursion_group` on `origin/main`'s vendored fixture.
     assert_self_cycle_refused(
+        own,
         json!({"term": "reference", "target": own_id}),
         recursion_group_refusal.clone(),
     );
@@ -2153,6 +2188,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // as the body-root case, so the carve-out must not key on the member
     // alone.
     assert_self_cycle_refused(
+        own,
         json!({
             "term": "aggregate",
             "members": [
@@ -2165,6 +2201,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // Negative: the same self-reference nested inside a `binding` value. A
     // `binding` is no body root (FR-038-AC-114), so it is an aggregate's member.
     assert_self_cycle_refused(
+        own,
         json!({
             "term": "aggregate",
             "members": [{
@@ -2183,6 +2220,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // `stale_application_key_refusal` above for why that is the correct,
     // more fundamental defect rather than a masked recursion assertion.
     assert_self_cycle_refused(
+        application_position,
         json!({
             "term": "application",
             "operator": "call",
@@ -2195,7 +2233,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
             },
             "result_type": other_id,
             "arguments": [
-                {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
+                {"term": "literal", "type": application_id, "value_kind": "integer", "value": 1}
             ]
         }),
         stale_application_key_refusal.clone(),
@@ -2207,6 +2245,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // the argument is itself self-referencing. Same stale-key reasoning as
     // the previous case applies here too.
     assert_self_cycle_refused(
+        application_position,
         json!({
             "term": "application",
             "operator": "call",
@@ -2217,7 +2256,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
                 "member": null,
                 "leaves": []
             },
-            "result_type": own_id,
+            "result_type": application_id,
             "arguments": [
                 {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
             ]
@@ -2232,11 +2271,11 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     // exercising both the exempt body-root case and an ordinary nested
     // reference the narrowing must not disturb.
     let mut literal_type = base.clone();
-    literal_type["semantic_graph"]["nodes"][1]["semantic_type"] = own_id.clone();
-    literal_type["semantic_graph"]["nodes"][1]["body"] = json!({
+    literal_type["semantic_graph"]["nodes"][own]["semantic_type"] = own_id.clone();
+    literal_type["semantic_graph"]["nodes"][own]["body"] = json!({
         "term": "literal", "type": own_id, "value_kind": "integer", "value": 1
     });
-    literal_type["semantic_graph"]["nodes"][2]["body"] = json!({
+    literal_type["semantic_graph"]["nodes"][sibling]["body"] = json!({
         "term": "aggregate",
         "members": [
             {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
@@ -2245,12 +2284,12 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
     refresh_identity(&mut literal_type);
     let package = admitted(&literal_type);
     assert_eq!(
-        package.graph().nodes[1].recursion_group,
+        package.graph().nodes[own].recursion_group,
         None,
         "a self-typed literal.type self-reference is not a cycle"
     );
     assert_eq!(
-        package.graph().nodes[2].recursion_group,
+        package.graph().nodes[sibling].recursion_group,
         None,
         "a nested literal typed by a different node is not a cycle"
     );
@@ -2408,6 +2447,7 @@ fn tc_048_expression_forms_bound_admission() {
     for form in ExpressionForm::ALL {
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][expression]["semantic_form"] = json!(form.as_wire());
+        checked_package::mint_ungrouped_structural_keys(&mut value);
         refresh_identity(&mut value);
         if *form == ExpressionForm::Case {
             // An `expression`/`case` node stands only with a `case`
@@ -2623,6 +2663,7 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
             "kind": "relationship",
             "declaration": checked_package::node_id(&"0123456789abcdef".repeat(4)),
         }]);
+        checked_package::mint_ungrouped_structural_keys(&mut value);
         value
     };
     // Control: the frame defect alone is refused at the frame stage.
@@ -2666,7 +2707,7 @@ fn first_reference(term: &Value) -> Option<Value> {
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
-    let base = v2_all_families();
+    let mut base = v2_all_families();
     let position_of = |value: &Value, test: &dyn Fn(&Value) -> bool| {
         value["semantic_graph"]["nodes"]
             .as_array()
@@ -2675,10 +2716,20 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             .position(test)
             .expect("node")
     };
-    let function_key = json!(checked_package::family_key("ffff"));
-    let function = position_of(&base, &|node| node["node_id"]["digest"] == function_key);
-    let target = first_reference(&base["semantic_graph"]["nodes"][function]["body"])
+    let function = position_of(&base, &|node| {
+        node["node_id"]["digest"] == checked_package::family_key("ffff")
+    });
+    // The called node takes the highest possible key, so that the placement
+    // with the called node first puts the higher digest first whatever the
+    // application's own key hashes to; its key is a placeholder (a `function`
+    // node), so nothing re-derives it, and the application is re-keyed over it.
+    let original_target = first_reference(&base["semantic_graph"]["nodes"][function]["body"])
         .expect("the call references a node");
+    let target = checked_package::node_id(&"ff".repeat(32));
+    replace_everywhere(&mut base, &original_target, &target);
+    checked_package::rekey_application_node(&mut base, function);
+    refresh_identity(&mut base);
+    let function_key = base["semantic_graph"]["nodes"][function]["node_id"]["digest"].clone();
     // Groups the application node with the node it calls, placing the
     // application first or second in graph order, and re-keys it by FR-322.
     // Returns the package and the group's key digests in graph order.
@@ -2747,12 +2798,10 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
             CheckedPackageRefusalCode::InvalidPackage,
             &format!(
                 "/semantic_graph/nodes/{}/node_id",
-                position_of(&bare, &|node| {
-                    node["node_id"]["digest"] == checked_package::family_key("ffff")
-                })
+                position_of(&bare, &|node| node["node_id"]["digest"] == function_key)
             ),
             Some(CheckedPackageRefusalCause::StaleNodeKey),
-            &checked_package::family_key("ffff"),
+            function_key.as_str().expect("digest"),
         )
     );
 }

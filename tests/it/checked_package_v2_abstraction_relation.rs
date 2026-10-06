@@ -15,7 +15,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    settle, sha256_hex, typed_node_id,
+    settle, sha256_hex, structural_key, typed_node_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -39,13 +39,13 @@ const RIGHT: &str = "ix://acme/config/Right";
 const BOTH: &str = "ix://acme/config/Both";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
 
-const INTEGER: &str = "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f";
-const TEXT: &str = "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e";
+/// The derived key of the anonymous `Integer` node (FR-038-AC-134).
+const INTEGER: &str = INTEGER_KEY;
+fn text_key() -> String {
+    structural_key("scalar_type", "text", None, &empty())
+}
 const POPULATION_A: &str = "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a";
 const POPULATION_B: &str = "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b";
-const FRAME: &str = "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a";
-const ANCHOR: &str = "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b";
-const FORMULA: &str = "4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a";
 
 // The domain package document.
 
@@ -208,7 +208,15 @@ fn base_over(document: &Value) -> Value {
             "type",
             empty(),
         ),
-        plain(TEXT, "scalar_type", "text", TEXT, &[], "type", empty()),
+        plain(
+            &text_key(),
+            "scalar_type",
+            "text",
+            &text_key(),
+            &[],
+            "type",
+            empty(),
+        ),
         plain(
             POPULATION_A,
             "relation",
@@ -1112,34 +1120,41 @@ fn tc_225_a_node_key_outside_the_node_domain_refuses_as_a_domain_mismatch() {
 // AC-3.
 
 fn state_frame(context: &str) -> Value {
+    let body = json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
+    let key = structural_key("state", "frame", Some(context), &body);
     plain(
-        FRAME,
+        &key,
         "state",
         "frame",
         context,
         &[context],
         "generated",
-        json!({"term": "frame", "modifies": [], "creates": [], "deletes": []}),
+        body,
     )
 }
 
-fn operation_anchor(context: &str, operation: &str) -> Value {
-    let mut dependencies = [context.to_owned(), FRAME.to_owned()];
+fn operation_anchor(context: &str, operation: &str, frame_context: &str) -> Value {
+    let frame = state_frame(frame_context)["node_id"]["digest"]
+        .as_str()
+        .expect("frame key")
+        .to_owned();
+    let mut dependencies = [context.to_owned(), frame.clone()];
     dependencies.sort();
-    let literal =
-        json!({"term": "literal", "type": node_id(TEXT), "value_kind": "text", "value": operation});
+    let literal = json!({"term": "literal", "type": node_id(&text_key()), "value_kind": "text", "value": operation});
+    let body = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "context", "value": {"term": "reference", "target": node_id(context)}},
+        {"term": "binding", "name": "operation", "value": literal},
+        {"term": "binding", "name": "frame", "value": {"term": "reference", "target": node_id(&frame)}},
+    ]});
+    let key = structural_key("state", "operation_anchor", Some(context), &body);
     plain(
-        ANCHOR,
+        &key,
         "state",
         "operation_anchor",
         context,
         &[&dependencies[0], &dependencies[1]],
         "anchor",
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "context", "value": {"term": "reference", "target": node_id(context)}},
-            {"term": "binding", "name": "operation", "value": literal},
-            {"term": "binding", "name": "frame", "value": {"term": "reference", "target": node_id(FRAME)}},
-        ]}),
+        body,
     )
 }
 
@@ -1162,7 +1177,7 @@ fn tc_225_a_frame_entry_binds_its_pair_with_or_without_a_frame_node() {
         relations(std::slice::from_ref(&minimal)),
         vec![
             state_frame(&context),
-            operation_anchor(&context, "attemptUpdate"),
+            operation_anchor(&context, "attemptUpdate", &context),
         ],
     );
     let package = admitted("a state/frame node and its anchor for the pair", &with);
@@ -1195,7 +1210,10 @@ fn tc_225_a_frame_entry_binds_its_pair_with_or_without_a_frame_node() {
     // whether or not a frame node holds it).
     let other = with_nodes(
         relations(std::slice::from_ref(&minimal)),
-        vec![state_frame(&context), operation_anchor(&context, "rebase")],
+        vec![
+            state_frame(&context),
+            operation_anchor(&context, "rebase", &context),
+        ],
     );
     let other = admitted("an anchor for another operation", &other);
     let (entry_pair, anchor_pair) = pair_of(&other);
@@ -1361,6 +1379,10 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
 #[test]
 fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target() {
     let unselected = model_key_in(OTHER_IDENTITY, CONFIG_VERSION);
+    let frame_key = state_frame(&config_version())["node_id"]["digest"]
+        .as_str()
+        .expect("frame key")
+        .to_owned();
     let in_object = |ty: &str| body(vec![object(ty, &["t"], &[])], vec![], vec![]);
     let in_population = |ty: &str| body(vec![], vec![population(ty, &["p"])], vec![]);
     let in_frame = |context: &str| {
@@ -1394,8 +1416,8 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
         ),
         (
             "a context naming a state/frame node",
-            in_frame(FRAME),
-            FRAME,
+            in_frame(&frame_key),
+            &frame_key,
             "/body/frames/0",
             malformed,
         ),
@@ -1865,7 +1887,7 @@ fn with_state(value: Value, frame_context: &str, anchor_context: &str) -> Value 
         value,
         vec![
             state_frame(frame_context),
-            operation_anchor(anchor_context, "attemptUpdate"),
+            operation_anchor(anchor_context, "attemptUpdate", frame_context),
         ],
     )
 }
@@ -1928,7 +1950,10 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
     );
     // A frame defect: the frame's semantic_type is no object type.
     let frame_defect = with_nodes(alone.clone(), vec![state_frame(INTEGER)]);
-    let frame_at = position(&frame_defect, FRAME);
+    let frame_at = nodes(&frame_defect)
+        .iter()
+        .position(|node| node["semantic_form"] == "frame")
+        .expect("frame node");
     expect(
         "a frame defect and an abstraction defect",
         &frame_defect,
@@ -1951,7 +1976,10 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
     );
     // A state defect: the anchor's context is no object type.
     let state_defect = with_state(alone.clone(), &config_version(), INTEGER);
-    let anchor_at = position(&state_defect, ANCHOR);
+    let anchor_at = nodes(&state_defect)
+        .iter()
+        .position(|node| node["semantic_form"] == "operation_anchor")
+        .expect("anchor node");
     expect(
         "a state defect and an abstraction defect",
         &state_defect,
@@ -1961,8 +1989,9 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
         None,
     );
     // A temporal placement defect: a formula node whose body is no formula.
+    let formula_key = structural_key("temporal", "formula", Some(INTEGER), &empty());
     let formula = plain(
-        FORMULA,
+        &formula_key,
         "temporal",
         "formula",
         INTEGER,
@@ -1976,7 +2005,7 @@ fn tc_225_a_defect_of_an_earlier_step_is_reported_before_the_abstraction_step() 
         &temporal_defect,
         Code::IllTyped,
         Some(Cause::OperatorIneligible),
-        &at_node(position(&temporal_defect, FORMULA), ""),
+        &at_node(position(&temporal_defect, &formula_key), ""),
         None,
     );
 }

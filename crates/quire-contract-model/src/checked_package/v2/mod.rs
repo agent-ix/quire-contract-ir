@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod dependency_references;
+mod derived_keys;
 pub(in crate::checked_package) mod encode;
 mod flat_wire;
 mod frame;
@@ -41,6 +42,7 @@ pub use scalar_operands::{
 pub use vocabulary::*;
 
 use dependency_references::{admit_dependencies, SuppliedDependencies};
+use derived_keys::validate_derived_keys;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
@@ -1806,6 +1808,16 @@ fn validate_graph(
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &index)?;
     validate_application_keys(&graph.nodes, &index, meter, limits.bytes)?;
+    // FR-038-AC-127: the derived-shape key stage, after the application keys
+    // and before the nominal keys.
+    validate_derived_keys(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &references,
+        meter,
+        limits.bytes,
+    )?;
     validate_nominal_nodes(
         &graph.nodes,
         &kinds,

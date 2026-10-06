@@ -566,20 +566,23 @@ fn scalar_operand_package_with_literal(
         text.clone(),
         wire_node(&text, "scalar_type", "text", &text, &[], empty()),
     );
-    for (name, key) in [("left", "a".repeat(64)), ("right", "b".repeat(64))] {
+    let mut parameter_keys = Vec::new();
+    for name in ["left", "right"] {
         let body = json!({"term": "aggregate", "members": [
             {"term": "binding", "name": "name", "value":
                 {"term": "literal", "type": node_id(&text), "value_kind": "text", "value": name}},
             {"term": "binding", "name": "level", "value":
                 {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
         ]});
+        let key = structural("value", "parameter", Some(&bounded), None, &body);
         let mut node = wire_node(&key, "value", "parameter", &bounded, &[], body);
         node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
-        nodes.insert(key, node);
+        nodes.insert(key.clone(), node);
+        parameter_keys.push(key);
     }
-    let literal_key = "c".repeat(64);
     let literal_body = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": literal_value});
+    let literal_key = structural("value", "literal", Some(&bounded), None, &literal_body);
     let mut literal_node = wire_node(
         &literal_key,
         "value",
@@ -589,7 +592,21 @@ fn scalar_operand_package_with_literal(
         literal_body,
     );
     literal_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
-    nodes.insert(literal_key, literal_node);
+    nodes.insert(literal_key.clone(), literal_node);
+    for argument in &mut arguments {
+        let Some(target) = argument.pointer_mut("/target/digest") else {
+            continue;
+        };
+        let replacement = match target.as_str() {
+            Some(key) if key == "a".repeat(64) => Some(&parameter_keys[0]),
+            Some(key) if key == "b".repeat(64) => Some(&parameter_keys[1]),
+            Some(key) if key == "c".repeat(64) => Some(&literal_key),
+            _ => None,
+        };
+        if let Some(replacement) = replacement {
+            *target = json!(replacement);
+        }
+    }
     if let Some(position) = arguments.iter().position(|argument| argument == "nested") {
         let inline = json!({"term": "literal", "type": node_id(&integer),
             "value_kind": "integer", "value": "7"});
@@ -676,6 +693,34 @@ fn scalar_operand_package_with_literal(
     (admitted, application_id)
 }
 
+/// The child's independently built QSL key: the public accessor test does
+/// not inspect the admitted graph body to find its expected identity.
+fn scalar_fixture_child_id(form: &str, value: &str) -> Value {
+    let integer = structural("scalar_type", "integer", None, None, &empty());
+    let bounds = bounds_body(&integer, "0", "1000");
+    let bounded = structural(
+        "bounded_domain",
+        "integer_range",
+        Some(&integer),
+        None,
+        &bounds,
+    );
+    let body = if form == "parameter" {
+        let text = structural("scalar_type", "text", None, None, &empty());
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value":
+                {"term": "literal", "type": node_id(&text), "value_kind": "text", "value": value}},
+            {"term": "binding", "name": "level", "value":
+                {"term": "literal", "type": node_id(&integer), "value_kind": "integer", "value": "0"}},
+        ]})
+    } else {
+        assert_eq!(form, "literal");
+        json!({"term": "literal", "type": node_id(&integer),
+            "value_kind": "integer", "value": value})
+    };
+    node_id(&structural("value", form, Some(&bounded), None, &body))
+}
+
 /// Tracing: TC-048, FR-038-AC-159, FR-038-AC-160, FR-038-AC-161, FR-038-AC-164
 #[trace(
     "TC-048",
@@ -719,12 +764,13 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
         }
     }
     let first = node_id(&"a".repeat(64));
-    let second = node_id(&"b".repeat(64));
     let integer = structural("scalar_type", "integer", None, None, &empty());
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
     let (package, application) =
         scalar_operand_package(vec![json!({"term": "reference", "target": first}), inline]);
+    let first = scalar_fixture_child_id("parameter", "left");
+    let second = scalar_fixture_child_id("parameter", "right");
     let occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
@@ -812,6 +858,7 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
         json!({"term": "reference", "target": graph_literal.clone()}),
         json!({"term": "reference", "target": node_id(&"a".repeat(64))}),
     ]);
+    let graph_literal = scalar_fixture_child_id("literal", "7");
     let entries = package
         .scalar_application_operands(&id, &occurrence)
         .expect("literal child");

@@ -6,7 +6,8 @@
 //! call and nothing for any other disposition.
 
 use crate::support::checked_package::{
-    self, canonical, evidence_for, refresh_identity, sha256_hex, typed_node_id, v2_all_families,
+    self, canonical, evidence_for, mint_ungrouped_structural_keys, settle, sha256_hex,
+    structural_key, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -23,7 +24,18 @@ fn bytes(package: &CompleteContractPackageV2) -> &[u8] {
 }
 
 fn id(prefix: &str) -> CheckedNodeId {
-    typed_node_id(&checked_package::family_key(prefix))
+    if prefix == "dddd" {
+        // The mixed fixture retypes this structural value at Integer. Its
+        // expected key comes from the FR-092 preimage, independent of read.
+        typed_node_id(&structural_key(
+            "value",
+            "literal",
+            Some(&checked_package::family_key("a3a3")),
+            &json!({"term": "aggregate", "members": []}),
+        ))
+    } else {
+        typed_node_id(&checked_package::family_key(prefix))
+    }
 }
 
 fn missing() -> CheckedNodeId {
@@ -41,15 +53,36 @@ fn admit(value: &Value) -> CheckedPackageV2 {
     }
 }
 
-/// The fixture with an unbounded `integer` scalar at `aaaa`, bounded by
-/// `cccc` only for nodes that reach it: `dddd` does, `bbbb` does not.
+/// The fixture with `1010` and `dddd` typed at the unbounded `Integer` node
+/// `a3a3`, bounded by `cccc` only for nodes that reach it: `dddd` does,
+/// `1010` does not.
 fn mixed_fixture() -> Value {
     let mut value = v2_all_families();
-    value["semantic_graph"]["nodes"][0]["semantic_form"] = json!("integer");
-    value["semantic_graph"]["nodes"][3]["dependencies"] =
-        json!([value["semantic_graph"]["nodes"][2]["node_id"]]);
-    refresh_identity(&mut value);
+    let integer = checked_package::node_id(&checked_package::family_key("a3a3"));
+    for node in value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["node_id"] == checked_package::node_id(&checked_package::family_key("1010")) {
+            node["semantic_type"] = integer.clone();
+            node["dependencies"] = json!([integer]);
+        } else if node["node_id"] == checked_package::node_id(&checked_package::family_key("dddd"))
+        {
+            node["semantic_type"] = integer.clone();
+            node["dependencies"] = json!([checked_package::node_id(&checked_package::family_key(
+                "cccc"
+            ))]);
+        }
+    }
+    mint_ungrouped_structural_keys(&mut value);
+    settle(&mut value);
     value
+}
+
+/// The ids in ascending key order, the order a package lists them in.
+fn ascending(mut keys: Vec<CheckedNodeId>) -> Vec<CheckedNodeId> {
+    keys.sort();
+    keys
 }
 
 /// Every family but `correspondence`, with bounds required.
@@ -78,7 +111,7 @@ fn mixed_profile() -> CompleteLoweringProfileV2 {
 
 /// Supported (twice), requires-bound, unsupported and absent items.
 fn mixed_request() -> Vec<CheckedNodeId> {
-    vec![id("dddd"), id("bbbb"), id("7070"), missing(), id("dddd")]
+    vec![id("dddd"), id("1010"), id("7070"), missing(), id("dddd")]
 }
 
 fn lower_mixed(value: &Value) -> CompleteLoweringResultV2 {
@@ -108,7 +141,7 @@ fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
         dispositions,
         vec![
             ("lowered", &id("dddd")),
-            ("requires_bound", &id("bbbb")),
+            ("requires_bound", &id("1010")),
             ("unsupported", &id("7070")),
             ("invalid_input", &missing()),
             ("lowered", &id("dddd")),
@@ -130,7 +163,7 @@ fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
         .iter()
         .map(|dependency| dependency.node.node_id.clone())
         .collect::<Vec<_>>();
-    assert_eq!(dependency_keys, vec![id("aaaa"), id("cccc")]);
+    assert_eq!(dependency_keys, ascending(vec![id("a3a3"), id("cccc")]));
     assert_eq!(package.lowered()[0].dependencies, dependency_keys);
     for dependency in package.dependencies() {
         assert!(!dependency.source_map.is_empty());
@@ -147,7 +180,7 @@ fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
         .map(|node| node.node.node_id.clone())
         .chain(dependency_keys)
         .collect::<BTreeSet<_>>();
-    for refused in [id("bbbb"), id("7070"), missing()] {
+    for refused in [id("1010"), id("7070"), missing()] {
         assert!(!represented.contains(&refused), "{refused:?}");
     }
 }
@@ -226,7 +259,7 @@ fn without_source_identity(bytes: &[u8]) -> Value {
 #[test]
 fn tc_047_a_call_that_lowers_nothing_emits_an_empty_package() {
     let package = admit(&mixed_fixture())
-        .lower(&[id("bbbb"), missing()], &mixed_profile())
+        .lower(&[id("1010"), missing()], &mixed_profile())
         .package;
     assert!(package.lowered().is_empty());
     assert!(package.dependencies().is_empty());
@@ -262,7 +295,7 @@ fn tc_047_a_lowered_node_another_lowered_node_reaches_is_held_once() {
         .iter()
         .map(|dependency| dependency.node.node_id.clone())
         .collect::<Vec<_>>();
-    assert_eq!(dependencies, vec![id("aaaa")]);
+    assert_eq!(dependencies, vec![id("a3a3")]);
 }
 
 /// Tracing: TC-047, FR-035-AC-5
@@ -347,35 +380,69 @@ fn tc_047_package_bytes_are_rfc_8785_key_ordered() {
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
 fn tc_047_a_refused_request_is_represented_only_as_reached_meaning() {
-    // `bbbb` is an unbounded sequence of booleans and `cccc` a bounding domain
-    // over it; `dddd` is typed at `bbbb` and depends on both. Requested alone,
-    // `bbbb` reaches no bounding domain and is refused; `dddd` reaches the
-    // bound `cccc`, so it lowers and carries `bbbb` as exact reached meaning,
+    // `sequence` is an unbounded sequence of booleans and `bounds` a bounding
+    // domain over it, both under their derived keys (FR-038-AC-134); `dddd`
+    // is typed at the sequence and depends on both. Requested alone, the
+    // sequence reaches no bounding domain and is refused; `dddd` reaches the
+    // bound, so it lowers and carries the sequence as exact reached meaning,
     // never as a lowered node.
     let mut value = mixed_fixture();
-    let bbbb = value["semantic_graph"]["nodes"][1]["node_id"].clone();
-    let cccc = value["semantic_graph"]["nodes"][2]["node_id"].clone();
-    value["semantic_graph"]["nodes"][0]["semantic_form"] = json!("boolean");
-    value["semantic_graph"]["nodes"][1]["semantic_form"] = json!("sequence");
-    value["semantic_graph"]["nodes"][2]["semantic_form"] = json!("collection_bounds");
-    value["semantic_graph"]["nodes"][2]["semantic_type"] = bbbb.clone();
-    value["semantic_graph"]["nodes"][2]["dependencies"] = json!([bbbb]);
-    value["semantic_graph"]["nodes"][3]["semantic_type"] = bbbb.clone();
-    let mut dependencies = vec![bbbb, cccc];
-    dependencies.sort_by_key(|key| key["digest"].as_str().map(str::to_owned));
+    let sequence_body = checked_package::over_body(checked_package::BOOLEAN_KEY);
+    let sequence_key =
+        checked_package::structural_key("composite_type", "sequence", None, &sequence_body);
+    let bounds_key = checked_package::structural_key(
+        "bounded_domain",
+        "collection_bounds",
+        Some(&sequence_key),
+        &checked_package::bounds_body("0", "3"),
+    );
+    let mut sequence = value["semantic_graph"]["nodes"][1].clone();
+    sequence["node_id"] = checked_package::node_id(&sequence_key);
+    sequence["semantic_form"] = json!("sequence");
+    sequence["semantic_type"] = checked_package::node_id(&sequence_key);
+    sequence["dependencies"] = json!([checked_package::node_id(checked_package::BOOLEAN_KEY)]);
+    sequence["body"] = sequence_body;
+    let mut bounds = value["semantic_graph"]["nodes"][2].clone();
+    bounds["node_id"] = checked_package::node_id(&bounds_key);
+    bounds["semantic_form"] = json!("collection_bounds");
+    bounds["semantic_type"] = checked_package::node_id(&sequence_key);
+    bounds["dependencies"] = json!([checked_package::node_id(&sequence_key)]);
+    bounds["body"] = checked_package::bounds_body("0", "3");
+    value["semantic_graph"]["nodes"][1] = sequence;
+    value["semantic_graph"]["nodes"][2] = bounds;
+    value["semantic_graph"]["nodes"][3]["semantic_type"] = checked_package::node_id(&sequence_key);
+    let dependencies = ascending(vec![
+        typed_node_id(&sequence_key),
+        typed_node_id(&bounds_key),
+    ]);
     value["semantic_graph"]["nodes"][3]["dependencies"] = json!(dependencies);
-    refresh_identity(&mut value);
-    let result = lower_mixed(&value);
+    let retyped_value = typed_node_id(&structural_key(
+        "value",
+        "literal",
+        Some(&sequence_key),
+        &json!({"term": "aggregate", "members": []}),
+    ));
+    mint_ungrouped_structural_keys(&mut value);
+    settle(&mut value);
+    let sequence_id = typed_node_id(&sequence_key);
+    let request = vec![
+        retyped_value.clone(),
+        sequence_id.clone(),
+        id("7070"),
+        missing(),
+        retyped_value.clone(),
+    ];
+    let result = admit(&value).lower(&request, &mixed_profile());
     let dispositions = result.records.iter().map(record_key).collect::<Vec<_>>();
-    assert_eq!(dispositions[0], ("lowered", &id("dddd")));
-    assert_eq!(dispositions[1], ("requires_bound", &id("bbbb")));
+    assert_eq!(dispositions[0], ("lowered", &retyped_value));
+    assert_eq!(dispositions[1], ("requires_bound", &sequence_id));
     let package = &result.package;
     assert!(package
         .lowered()
         .iter()
-        .all(|node| node.node.node_id != id("bbbb")));
+        .all(|node| node.node.node_id != sequence_id));
     assert!(package
         .dependencies()
         .iter()
-        .any(|dependency| dependency.node.node_id == id("bbbb")));
+        .any(|dependency| dependency.node.node_id == sequence_id));
 }
