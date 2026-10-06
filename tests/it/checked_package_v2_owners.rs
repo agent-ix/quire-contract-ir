@@ -468,6 +468,7 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
     let (base, mut document) = model_package();
     let object = "ix://acme/owners/Point";
     let operation = format!("{object}/op");
+    let absent_operation = format!("{object}/absent");
     let field = format!("{object}/field");
     document["types"][0]["operations"] = json!([{"identity": operation, "params": []}]);
     document["types"][0]["fields"] = json!([{
@@ -479,6 +480,12 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
         ("operation clause", operation.as_str(), "precondition", true),
         ("body clause", operation.as_str(), "body", true),
         ("invariant clause", object, "invariant", true),
+        (
+            "absent operation member on an unreachable clause",
+            absent_operation.as_str(),
+            "precondition",
+            false,
+        ),
         (
             "field cannot back a clause",
             field.as_str(),

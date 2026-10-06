@@ -103,7 +103,10 @@ An unknown, empty or absent `contract_version` refuses as
 `unknown_contract_version`; a malformed `contract_version`, document, or a
 duplicate or noncanonical top-level member refuses as `malformed_wire`,
 `duplicate_member` or `noncanonical_wire` before any version-specific
-decoding. Positive fixtures admit with their recorded package ids. Every adverse and
+decoding. Positive fixtures admit. The owner-free nominal fixture retains its
+recorded pre-owner package id; an owner-bearing fixture derives its package id
+from its owner-bearing identity projection and awaits QSL-638's authoritative
+golden in the planned external conformance row. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
 package. Excluded edits keep the id and included edits change it. Every nominal
 preimage digest matches its node key; every nominal mutation and contradictory cross-field join
