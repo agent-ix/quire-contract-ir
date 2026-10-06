@@ -2002,8 +2002,9 @@ The strict wire/schema step SHALL refuse a missing required `owner` as
 `malformed_wire` at the node or projection object that lacks it. It SHALL
 refuse an owner on a node that must omit one, a wrong owner kind, `null`, a
 wrong member type, or an unknown owner member as `malformed_wire` at `owner`;
-the same rule applies to each projection entry. A well-shaped projection owner
-differing from its node's owner SHALL refuse `invalid_package`/`invalid-value`
+the same rule applies to each projection entry. If a well-shaped projection
+owner differs from its node's owner, the reader SHALL refuse
+`invalid_package`/`invalid-value`
 at `/identity_preimage/identity_projection/{i}/owner` after the schema step and
 before the owner join, even when the package id is recomputed over the changed
 projection. This applies to both `SourceOwner` and `ModelOwner`; the projection
