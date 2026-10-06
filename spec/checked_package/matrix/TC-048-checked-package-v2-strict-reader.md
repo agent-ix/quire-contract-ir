@@ -56,6 +56,8 @@ mutations. FR-038-AC-119 through FR-038-AC-122 (IR-551) are against the timed in
 merged QSpec FR-370 and FR-370-AC-8: the four end variants, rational bounds in lowest
 terms, the refusal of a negative, malformed or non-reduced bound, a null upper bound,
 an open end with equal bounds and a missing or extra member, and the profile fit.
+FR-038-AC-159 through FR-038-AC-164 verify the typed scalar operand accessor
+over admitted application nodes and explicit post-admission mutation rows.
 
 ## Test Procedure
 
@@ -488,6 +490,46 @@ as stated, the stale key refuses `stale-node-key` at `node_id` and the genuine
 one admits. Compare the whole refusal code, cause and pointer. The `definition`
 of a law of the right role is FR-038-AC-56 and FR-038-AC-57's, and the modes of a
 leaf are FR-038-AC-44's.
+
+## Typed scalar application operands (FR-038-AC-159 through FR-038-AC-164)
+
+Read an admitted package containing integer add, subtract, multiply and negate
+applications. For each, call `scalar_application_operands` with its node id and
+an actual occurrence key. Supply, across the applications, references to two
+distinct `value`/`parameter` nodes of the same type, a reference to a nested
+application result, a reference to a graph literal, and inline integer
+literals. Include two occurrences of one application and two inline literal
+positions of the same value. Swap an add application's arguments in a
+separately admitted package, then call again. An admitted example argument is
+`{"term":"literal","type":<integer-type-node-ref>,"value_kind":"integer","value":"7"}`;
+unlike `{"term":"reference","target":<literal-node-ref>}`, this inline term
+has no child graph node id.
+
+Expected: each result contains exactly the argument count and order, with
+zero-based ordinals; parameter and subterm references return their distinct
+`GraphChild` node ids and admitted ranges, and both literal forms return
+singleton `(7, 7)` for value `7`. The graph literal returns its node id;
+each inline literal returns `InlineLiteral` with the application id, supplied
+occurrence and position, distinct across either change. Swapping arguments
+swaps entries. Supply an unknown id, a non-application node, a different
+occurrence key, and a referenced child or range removed by a crate-internal
+post-admission mutation; assert the respective typed errors and no partial
+result. In separately admitted packages, put a parameter typed at unbounded
+`Integer`, then a parameter typed at an `integer_range` with upper endpoint
+`170141183460469231731687303715884105728` (one above `i128::MAX`), in an
+otherwise eligible add application. Assert `UnboundedRange` for the first and
+`RangeOutOfI128` for the second. Also use a graph literal reference and an
+inline integer literal with that same out-of-`i128` value as separate operand
+cases; each returns `RangeOutOfI128`. Repeat the bound case with lower endpoint
+`-170141183460469231731687303715884105729` (one below `i128::MIN`). Assert
+each call returns only the typed refusal, without a partial list, narrowed or
+saturated endpoint, or panic. The `i128` endpoints themselves return their
+exact values. Mutate an admitted application's catalog identity to an unknown
+one in the same way, and call an admitted application of a catalogued ineligible
+identity; assert `UnknownOperator` and `IneligibleOperator` respectively.
+An external API fixture exhaustively matches the public identity and error
+enums and consumes every result member without JSON access. Repeated calls
+and a package clone return equal values, with package equality unchanged.
 
 ## Operation leaf count (FR-038-AC-43)
 
