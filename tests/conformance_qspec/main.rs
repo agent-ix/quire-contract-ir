@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038-AC-107, AC-112 and AC-113: QSpec's CheckedPackage V2 fixtures and
+//! FR-038-AC-107, AC-112, AC-113 and AC-154: QSpec's CheckedPackage V2 fixtures and
 //! vectors against the production reader.
 //!
 //! AC-107: the positive fixtures admit end to end. AC-112: every mutation of
@@ -9,7 +9,8 @@
 //! listed expected failures, and each body-grammar `flattened` form is not
 //! refused `malformed_wire`. AC-113: the version-free dependency selections of
 //! `dependency-selection-vectors.json` derive the recorded `package_id`
-//! through the reader's own derivation.
+//! through the reader's own derivation. AC-154: the projection-owner adverse
+//! entries refuse with their recorded code, cause and path after identity refresh.
 //!
 //! The fixtures are QSpec's and are read from a `quire-specification` checkout
 //! named by `QUIRE_SPECIFICATION_DIR`; nothing of them is copied into this
@@ -97,9 +98,8 @@ fn read_json(path: &Path) -> Result<Value, String> {
         .map_err(|error| format!("{} is not JSON: {error}", path.display()))
 }
 
-/// What the production reader makes of `package`: `admitted`, `incomplete`, or
-/// `refused:<code>` with `/<cause>` where the reader gives one.
-fn reading_of(package: &Value) -> Result<String, String> {
+/// Read `package` through the production reader with its declared features.
+fn read_package(package: &Value) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
@@ -113,16 +113,24 @@ fn reading_of(package: &Value) -> Result<String, String> {
                 .ok_or("a required feature is not a string")?,
         );
     }
-    Ok(
-        match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
-            CheckedPackageV2ReadResult::Admitted(_) => "admitted".to_owned(),
-            CheckedPackageV2ReadResult::Incomplete(_) => "incomplete".to_owned(),
-            CheckedPackageV2ReadResult::Refused(refusal) => match refusal.cause {
-                Some(cause) => format!("refused:{}/{}", code_word(refusal.code), cause_word(cause)),
-                None => format!("refused:{}", code_word(refusal.code)),
-            },
+    Ok(CheckedPackageV2::read(
+        &bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ))
+}
+
+/// What the production reader makes of `package`: `admitted`, `incomplete`, or
+/// `refused:<code>` with `/<cause>` where the reader gives one.
+fn reading_of(package: &Value) -> Result<String, String> {
+    Ok(match read_package(package)? {
+        CheckedPackageV2ReadResult::Admitted(_) => "admitted".to_owned(),
+        CheckedPackageV2ReadResult::Incomplete(_) => "incomplete".to_owned(),
+        CheckedPackageV2ReadResult::Refused(refusal) => match refusal.cause {
+            Some(cause) => format!("refused:{}/{}", code_word(refusal.code), cause_word(cause)),
+            None => format!("refused:{}", code_word(refusal.code)),
         },
-    )
+    })
 }
 
 /// The wire word of a refusal code. No wildcard: a variant added to the reader
@@ -499,6 +507,104 @@ fn derived_shape_mutation(dir: &Path, row: &Value) -> Result<Value, String> {
     let package_id = derived_with(&package, None)?;
     replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
     Ok(package)
+}
+
+/// Apply a recorded projection-owner patch to its selected node in a fresh
+/// QSpec package, preserving the graph node and refreshing only the package id.
+fn projection_owner_mutation(dir: &Path, row: &Value) -> Result<(Value, usize), String> {
+    let base = text_of(row, "base")?;
+    let mut package = read_json(&dir.join(format!("{base}.json")))?;
+    let tag = text_of(&row["node"], "node_tag")?;
+    let form = text_of(&row["node"], "semantic_form")?;
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .ok_or("semantic_graph.nodes is not an array")?;
+    let matches = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["node_tag"] == tag && node["semantic_form"] == form)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [position] = matches.as_slice() else {
+        return Err(format!(
+            "{base}: expected one {tag}/{form} node, found {}",
+            matches.len()
+        ));
+    };
+    let projection = package["identity_preimage"]["identity_projection"]
+        .as_array()
+        .ok_or("identity_projection is not an array")?;
+    let projected = projection
+        .get(*position)
+        .ok_or("selected node has no identity projection")?;
+    if projected["node_id"] != nodes[*position]["node_id"]
+        || projected["owner"] != nodes[*position]["owner"]
+    {
+        return Err("selected projection does not mirror its node before mutation".into());
+    }
+    let patches = row["projection_patch"]
+        .as_array()
+        .filter(|patches| !patches.is_empty())
+        .ok_or("mutation has no projection_patch entries")?;
+    for patch in patches {
+        if text_of(patch, "op")? != "replace" {
+            return Err("projection mutation uses an unsupported patch op".into());
+        }
+        let path = text_of(patch, "path")?;
+        if !path.starts_with("/owner/") {
+            return Err(format!("projection patch is outside owner: {path}"));
+        }
+        let replacement = patch.get("value").ok_or("projection patch has no value")?;
+        replace_at(
+            &mut package,
+            &format!("/identity_preimage/identity_projection/{position}{path}"),
+            replacement,
+        )?;
+    }
+    let package_id = derived_with(&package, None)?;
+    replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
+    Ok((package, *position))
+}
+
+/// Trace: TC-228, FR-038-AC-154
+#[trace("TC-228", "FR-038-AC-154")]
+#[test]
+fn tc_228_qspec_projection_owner_mutations_refuse_at_owner() {
+    let dir = fixtures_dir();
+    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
+    let rows = mutations(&adverse, "projection_owner_mutations").expect("mutation rows");
+    let mut seen = std::collections::BTreeSet::new();
+    for row in rows {
+        let id = text_of(row, "id").expect("mutation id");
+        assert!(seen.insert(id), "duplicate projection-owner mutation {id}");
+        let (package, position) =
+            projection_owner_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
+        let expected_path = text_of(row, "expected_locus")
+            .expect("expected locus")
+            .replace("{index}", &position.to_string());
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&package).unwrap_or_else(|why| panic!("{id}: {why}"))
+        else {
+            panic!("{id}: mutated QSpec package did not refuse");
+        };
+        assert_eq!(
+            code_word(refusal.code),
+            text_of(row, "expected_code").unwrap(),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.cause.map(cause_word),
+            Some(text_of(row, "expected_cause").unwrap()),
+            "{id}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(expected_path.as_str()),
+            "{id}"
+        );
+    }
+    assert!(seen.contains("projection-source-owner-differs-from-node"));
+    assert!(seen.contains("projection-model-owner-differs-from-node"));
 }
 
 /// QSpec's owner-free ungrouped tamper cases must reach the derived-key stage.
