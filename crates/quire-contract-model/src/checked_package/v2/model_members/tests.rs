@@ -239,10 +239,11 @@ fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_
     }
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
 #[trace(
     "TC-048",
     "FR-038-AC-165",
+    "FR-038-AC-166",
     "FR-038-AC-167",
     "FR-038-AC-168",
     "FR-038-AC-173"
@@ -296,9 +297,13 @@ fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
         relation[member] = replacement;
         cases.push((relation, malformed));
     }
-    let mut relation = relationship();
-    relation["targetEnd"]["role"] = Value::Null;
-    cases.push((relation, malformed));
+    for end in ["sourceEnd", "targetEnd"] {
+        for role in [Value::Null, json!(""), json!(7)] {
+            let mut relation = relationship();
+            relation[end]["role"] = role;
+            cases.push((relation, malformed));
+        }
+    }
     let mut relation = relationship();
     relation["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
     cases.push((relation, missing));

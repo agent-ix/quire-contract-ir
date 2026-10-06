@@ -370,10 +370,11 @@ fn relationship_operation_package(
     (package, evidence)
 }
 
-/// Trace: FR-038-AC-165, FR-038-AC-169, FR-038-AC-170, FR-038-AC-171
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-169, FR-038-AC-170, FR-038-AC-171
 #[trace(
     "TC-048",
     "FR-038-AC-165",
+    "FR-038-AC-166",
     "FR-038-AC-169",
     "FR-038-AC-170",
     "FR-038-AC-171"
@@ -399,6 +400,36 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
             &serde_json::from_value(package["semantic_graph"]["nodes"][CALL]["node_id"].clone())
                 .expect("application id")
         )
+    );
+    let mut renamed = authored_relationship();
+    renamed["sourceEnd"]["role"] = json!("billedTo");
+    let (package, evidence) = relationship_package(renamed.clone(), "links");
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingName)
+        )
+    );
+    let (package, evidence) = relationship_package(renamed.clone(), "billedTo");
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    renamed["targetEnd"]["role"] = json!("billedTo");
+    let (package, evidence) = relationship_package(renamed, "billedTo");
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            Some(CheckedPackageRefusalCause::AmbiguousName)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
 }
 
