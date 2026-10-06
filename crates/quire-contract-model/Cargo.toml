@@ -39,6 +39,7 @@ serde_json = { version = "1.0.151", features = ["unbounded_depth", "float_roundt
 # Locates a closed-schema decode failure at the member the decoder reached,
 # so a checked-package refusal carries the RFC 6901 pointer of that value.
 serde_path_to_error = "=0.1.20"
+thiserror = "=2.0.20"
 # The v1 modules (FR-019, FR-023) keep `serde_stacker` and `stacker`; the V2
 # reader (`checked_package/`) uses neither.
 serde_stacker = "=0.1.11"
