@@ -76,7 +76,7 @@ pub enum CheckedScalarOperandError {
 impl CheckedPackageV2 {
     /// Reads an admitted integer application's operands in wire argument order.
     ///
-    /// Only `add`, `subtract`, `multiply` and `negate` are eligible. Every
+    /// Only `add`, `sub`, `mul` and `negate` are eligible. Every
     /// operand must have an exact finite `i128` range; on failure this returns
     /// one typed error and no partial list.
     pub fn scalar_application_operands(
