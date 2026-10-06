@@ -209,6 +209,7 @@ impl Encode for CheckedNodeProjectionV2 {
             &self.nominal_identity_preimage,
         )?;
         present(writer, "declaration", &self.declaration)?;
+        present(writer, "owner", &self.owner)?;
         value(writer, "body", &self.body)?;
         writer.end_object()
     }
@@ -240,6 +241,7 @@ impl Encode for CheckedSemanticNodeV2 {
             &self.nominal_identity_preimage,
         )?;
         present(writer, "declaration", &self.declaration)?;
+        present(writer, "owner", &self.owner)?;
         value(writer, "body", &self.body)?;
         writer.end_object()
     }

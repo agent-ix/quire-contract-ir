@@ -33,6 +33,28 @@ use sha2::{Digest, Sha256};
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
+const FAMILY_MODEL_IDENTITY: &str = "test/families";
+const FAMILY_OBJECT: &str = "ix://test/families/Account";
+const FAMILY_RELATIONSHIP: &str = "ix://test/families/Account/balanceRel";
+
+pub fn family_model_document() -> Value {
+    json!({
+        "contractVersion": "2.0.0",
+        "package": {"identity": FAMILY_MODEL_IDENTITY, "version": "1"},
+        "constructs": [{
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
+            "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }],
+        "types": [{
+            "identity": FAMILY_OBJECT, "displayName": "Account",
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [],
+            "fields": [], "operations": [],
+            "relationships": [{"identity": FAMILY_RELATIONSHIP}],
+        }],
+    })
+}
 
 /// The exact minimum `work` `CheckedPackageV2::read` charges to admit
 /// `v2_all_families()`. Measured by binary search directly against the real
@@ -205,11 +227,12 @@ pub fn evidence_for(package: &Value) -> CheckedPackageEvidence {
     {
         // The row names no version; the document it is supplied as carries
         // `1`, which nothing reads.
-        let document = domain_package_document(
-            model["identity"].as_str().expect("model identity"),
-            "1",
-            Vec::new(),
-        );
+        let identity = model["identity"].as_str().expect("model identity");
+        let document = if identity == FAMILY_MODEL_IDENTITY {
+            family_model_document()
+        } else {
+            domain_package_document(identity, "1", Vec::new())
+        };
         let digest = domain_package_digest(&document);
         if model["digest"].as_str() == Some(digest.as_str()) {
             evidence.insert_domain_package_document(digest, canonical(&document));
@@ -883,6 +906,10 @@ fn plain_node(
 fn declared(mut node: Value, qualified_name: &[&str]) -> Value {
     node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     node["declaration"] = json!({ "qualified_name": qualified_name });
+    let source = fixture_source();
+    node["owner"] = json!({
+        "kind": "source", "authority": source["authority"], "identity": source["identity"],
+    });
     node
 }
 
@@ -1370,14 +1397,21 @@ fn build_v2_all_families() -> Value {
             &[aaaa.as_str()],
             empty_aggregate(),
         ),
-        plain_node(
-            &f2020,
-            "relation",
-            "relationship",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
-        ),
+        {
+            let mut relation = plain_node(
+                &f2020,
+                "relation",
+                "relationship",
+                &aaaa,
+                &[aaaa.as_str()],
+                empty_aggregate(),
+            );
+            relation["owner"] = json!({
+                "kind": "model", "identity": FAMILY_MODEL_IDENTITY,
+                "node": FAMILY_RELATIONSHIP,
+            });
+            relation
+        },
         plain_node(
             &f3030,
             "state",
@@ -1427,13 +1461,16 @@ fn build_v2_all_families() -> Value {
             &[aaaa.as_str(), dddd.as_str()],
             empty_aggregate(),
         ),
-        plain_node(
-            &f8080,
-            "function",
-            "pure_function",
-            &aaaa,
-            &[],
-            empty_aggregate(),
+        declared(
+            plain_node(
+                &f8080,
+                "function",
+                "pure_function",
+                &aaaa,
+                &[],
+                empty_aggregate(),
+            ),
+            &["Example", "Function"],
         ),
         declared(
             plain_node(
@@ -1560,6 +1597,12 @@ fn build_v2_all_families() -> Value {
         "capability_report": fixture_capability_report(),
         "diagnostics": {"catalog": fixture_diagnostics_catalog(), "entries": Value::Array(Vec::new())},
     });
+    let family_document = family_model_document();
+    package["lock"]["model_selections"] = json!([{
+        "identity": FAMILY_MODEL_IDENTITY,
+        "digest_domain": "sha256-jcs",
+        "digest": domain_package_digest(&family_document),
+    }]);
     let nodes_array = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -1600,6 +1643,10 @@ fn build_operation_identities() -> Value {
     );
     declaring_node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
     declaring_node["declaration"] = json!({"qualified_name": ["Example", "Widget"]});
+    let source = fixture_source();
+    declaring_node["owner"] = json!({
+        "kind": "source", "authority": source["authority"], "identity": source["identity"],
+    });
 
     let literal_node = plain_node(
         &literal_key,
@@ -1610,13 +1657,16 @@ fn build_operation_identities() -> Value {
         json!({"term": "literal", "type": node_id(&root), "value_kind": "boolean", "value": true}),
     );
 
-    let func_node = plain_node(
-        &func,
-        "function",
-        "pure_function",
-        &root,
-        &[],
-        empty_aggregate(),
+    let func_node = declared(
+        plain_node(
+            &func,
+            "function",
+            "pure_function",
+            &root,
+            &[],
+            empty_aggregate(),
+        ),
+        &["Example", "Function"],
     );
 
     let call_node = application_node(
