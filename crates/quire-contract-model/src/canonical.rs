@@ -741,7 +741,7 @@ enum Step<'a> {
     Text(&'a str),
     Bool(bool),
     /// An integer member of the eight, spelled as its decimal string.
-    Decimal(i64),
+    Decimal(i128),
     /// A count that stays a JSON number (`maximum_items`).
     Count(u32),
 }

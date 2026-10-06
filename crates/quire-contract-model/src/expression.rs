@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::ToPrimitive;
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Serialize};
 
@@ -69,17 +72,17 @@ pub enum OverflowPolicy {
 pub struct IntegerType {
     domain: IntegerDomain,
     #[serde(serialize_with = "serialize_decimal")]
-    minimum: i64,
+    minimum: i128,
     #[serde(serialize_with = "serialize_decimal")]
-    maximum: i64,
+    maximum: i128,
     overflow: OverflowPolicy,
 }
 
 impl IntegerType {
     pub fn new(
         domain: IntegerDomain,
-        minimum: i64,
-        maximum: i64,
+        minimum: i128,
+        maximum: i128,
         overflow: OverflowPolicy,
     ) -> Result<Self, Diagnostic> {
         if minimum > maximum || (domain == IntegerDomain::Unsigned && minimum < 0) {
@@ -102,11 +105,11 @@ impl IntegerType {
         self.domain
     }
 
-    pub const fn minimum(&self) -> i64 {
+    pub const fn minimum(&self) -> i128 {
         self.minimum
     }
 
-    pub const fn maximum(&self) -> i64 {
+    pub const fn maximum(&self) -> i128 {
         self.maximum
     }
 
@@ -120,23 +123,20 @@ impl IntegerType {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, FixedShape)]
 pub struct RationalType {
     #[serde(serialize_with = "serialize_decimal")]
-    numerator_minimum: i64,
+    numerator_minimum: i128,
     #[serde(serialize_with = "serialize_decimal")]
-    numerator_maximum: i64,
+    numerator_maximum: i128,
     #[serde(serialize_with = "serialize_decimal")]
-    maximum_denominator: u64,
+    maximum_denominator: i128,
 }
 
 impl RationalType {
     pub fn new(
-        numerator_minimum: i64,
-        numerator_maximum: i64,
-        maximum_denominator: u64,
+        numerator_minimum: i128,
+        numerator_maximum: i128,
+        maximum_denominator: i128,
     ) -> Result<Self, Diagnostic> {
-        if numerator_minimum > numerator_maximum
-            || maximum_denominator == 0
-            || maximum_denominator > i64::MAX as u64
-        {
+        if numerator_minimum > numerator_maximum || maximum_denominator <= 0 {
             Err(Diagnostic::error(
                 DiagnosticCode::InvalidNumericBounds,
                 "rational numerator or denominator bounds are invalid",
@@ -151,15 +151,15 @@ impl RationalType {
         }
     }
 
-    pub const fn numerator_minimum(&self) -> i64 {
+    pub const fn numerator_minimum(&self) -> i128 {
         self.numerator_minimum
     }
 
-    pub const fn numerator_maximum(&self) -> i64 {
+    pub const fn numerator_maximum(&self) -> i128 {
         self.numerator_maximum
     }
 
-    pub const fn maximum_denominator(&self) -> u64 {
+    pub const fn maximum_denominator(&self) -> i128 {
         self.maximum_denominator
     }
 }
@@ -198,7 +198,7 @@ impl CollectionType {
         IntegerType {
             domain: IntegerDomain::Unsigned,
             minimum: 0,
-            maximum: i64::from(self.maximum_items),
+            maximum: i128::from(self.maximum_items),
             overflow: OverflowPolicy::Reject,
         }
     }
@@ -1027,10 +1027,11 @@ impl Expression {
             ..
         } = &mut kind
         {
-            if *denominator > 0 {
-                let divisor = gcd(numerator.unsigned_abs(), *denominator as u64) as i64;
-                *numerator /= divisor;
-                *denominator /= divisor;
+            if let Some((reduced_numerator, reduced_denominator)) =
+                normalize_literal_parts(*numerator, *denominator)
+            {
+                *numerator = reduced_numerator;
+                *denominator = reduced_denominator;
             }
         }
         Self { kind, source }
@@ -1116,14 +1117,14 @@ pub enum ExpressionKind {
     },
     IntegerLiteral {
         #[serde(serialize_with = "serialize_decimal")]
-        value: i64,
+        value: i128,
         value_type: IntegerType,
     },
     RationalLiteral {
         #[serde(serialize_with = "serialize_decimal")]
-        numerator: i64,
+        numerator: i128,
         #[serde(serialize_with = "serialize_decimal")]
-        denominator: i64,
+        denominator: i128,
         value_type: RationalType,
     },
     TextLiteral {
@@ -1335,7 +1336,7 @@ enum FactKind {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ScalarBound {
-    Integer(i64),
+    Integer(i128),
     Rational(i128, i128),
 }
 
@@ -1431,10 +1432,7 @@ fn check_kind(
                 Ok(with_range_proof(
                     leaf(
                         ValueType::integer(value_type.clone()),
-                        Some(NumericRange::Integer(vec![(
-                            i128::from(*value),
-                            i128::from(*value),
-                        )])),
+                        Some(NumericRange::Integer(vec![(*value, *value)])),
                     ),
                     declaration_range_proof(&expression.source),
                 ))
@@ -1707,8 +1705,8 @@ fn undefined(
 
 fn check_rational_literal(
     expression: &Expression,
-    numerator: i64,
-    denominator: i64,
+    numerator: i128,
+    denominator: i128,
     value_type: &RationalType,
 ) -> Result<Checked, Vec<Diagnostic>> {
     if denominator <= 0 {
@@ -1718,12 +1716,18 @@ fn check_rational_literal(
             "rational denominator must be positive",
         ));
     }
-    let divisor = gcd(numerator.unsigned_abs(), denominator as u64);
-    let normalized_numerator = i128::from(numerator) / i128::from(divisor);
-    let normalized_denominator = i128::from(denominator) / i128::from(divisor);
-    if normalized_numerator < i128::from(value_type.numerator_minimum)
-        || normalized_numerator > i128::from(value_type.numerator_maximum)
-        || normalized_denominator > i128::from(value_type.maximum_denominator)
+    let Some((normalized_numerator, normalized_denominator)) =
+        normalize_literal_parts(numerator, denominator)
+    else {
+        return Err(single(
+            expression,
+            DiagnosticCode::InvalidNumericBounds,
+            "rational literal cannot be normalized",
+        ));
+    };
+    if normalized_numerator < value_type.numerator_minimum
+        || normalized_numerator > value_type.numerator_maximum
+        || normalized_denominator > value_type.maximum_denominator
     {
         Err(single(
             expression,
@@ -1743,15 +1747,6 @@ fn check_rational_literal(
             declaration_range_proof(&expression.source),
         ))
     }
-}
-
-fn gcd(mut left: u64, mut right: u64) -> u64 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left.max(1)
 }
 
 fn check_enum_literal(
@@ -2505,16 +2500,16 @@ fn check_integer_operator(
             right_proof,
         ));
     }
-    let Some(ranges) = integer_ranges(operator, &left_ranges, &right_ranges) else {
+    let Some(ranges) = integer_ranges(operator, &left_ranges, &right_ranges, value_type) else {
         return Err(undefined(
             expression,
             DefinednessObligationKind::CheckedRange,
             "integer interval computation exceeded checked intermediates",
         ));
     };
-    let within = ranges.iter().all(|(min, max)| {
-        *min >= i128::from(value_type.minimum) && *max <= i128::from(value_type.maximum)
-    });
+    let within = ranges
+        .iter()
+        .all(|(min, max)| *min >= value_type.minimum && *max <= value_type.maximum);
     let range_required = value_type.overflow == OverflowPolicy::Reject;
     if range_required && !within {
         return Err(undefined(
@@ -2534,10 +2529,7 @@ fn check_integer_operator(
     let range = if within {
         ranges
     } else {
-        vec![(
-            i128::from(value_type.minimum),
-            i128::from(value_type.maximum),
-        )]
+        vec![(value_type.minimum, value_type.maximum)]
     };
     let mut checked = with_children(
         ValueType::integer(value_type.clone()),
@@ -2609,11 +2601,17 @@ fn integer_ranges(
     operator: NumericOperator,
     left: &[(i128, i128)],
     right: &[(i128, i128)],
+    value_type: &IntegerType,
 ) -> Option<Vec<(i128, i128)>> {
     let mut output = Vec::with_capacity(left.len() * right.len());
     for &left_range in left {
         for &right_range in right {
-            output.push(integer_pair_range(operator, left_range, right_range)?);
+            output.push(integer_pair_range(
+                operator,
+                left_range,
+                right_range,
+                value_type,
+            )?);
         }
     }
     Some(bounded_ranges(output))
@@ -2623,34 +2621,45 @@ fn integer_pair_range(
     operator: NumericOperator,
     (left_min, left_max): (i128, i128),
     (right_min, right_max): (i128, i128),
+    value_type: &IntegerType,
 ) -> Option<(i128, i128)> {
-    let range = match operator {
-        NumericOperator::Add => (
-            left_min.checked_add(right_min)?,
-            left_max.checked_add(right_max)?,
-        ),
-        NumericOperator::Subtract => (
-            left_min.checked_sub(right_max)?,
-            left_max.checked_sub(right_min)?,
-        ),
-        NumericOperator::Multiply => extrema([
-            left_min.checked_mul(right_min)?,
-            left_min.checked_mul(right_max)?,
-            left_max.checked_mul(right_min)?,
-            left_max.checked_mul(right_max)?,
-        ]),
-        NumericOperator::Divide => extrema([
-            left_min.checked_div(right_min)?,
-            left_min.checked_div(right_max)?,
-            left_max.checked_div(right_min)?,
-            left_max.checked_div(right_max)?,
-        ]),
+    let endpoints = match operator {
+        NumericOperator::Add => vec![
+            BigInt::from(left_min) + right_min,
+            BigInt::from(left_max) + right_max,
+        ],
+        NumericOperator::Subtract => vec![
+            BigInt::from(left_min) - right_max,
+            BigInt::from(left_max) - right_min,
+        ],
+        NumericOperator::Multiply => [left_min, left_max]
+            .into_iter()
+            .flat_map(|left| [right_min, right_max].map(|right| BigInt::from(left) * right))
+            .collect(),
+        NumericOperator::Divide => [left_min, left_max]
+            .into_iter()
+            .flat_map(|left| [right_min, right_max].map(|right| BigInt::from(left) / right))
+            .collect(),
         NumericOperator::Remainder => {
-            let magnitude = right_min.abs().max(right_max.abs()).saturating_sub(1);
-            (-magnitude, magnitude)
+            let magnitude = right_min
+                .unsigned_abs()
+                .max(right_max.unsigned_abs())
+                .saturating_sub(1);
+            vec![-BigInt::from(magnitude), BigInt::from(magnitude)]
         }
     };
-    Some(range)
+    let minimum = endpoints.iter().min()?;
+    let maximum = endpoints.iter().max()?;
+    if value_type.overflow == OverflowPolicy::Saturate {
+        let floor = BigInt::from(value_type.minimum);
+        let ceiling = BigInt::from(value_type.maximum);
+        Some((
+            minimum.clamp(&floor, &ceiling).to_i128()?,
+            maximum.clamp(&floor, &ceiling).to_i128()?,
+        ))
+    } else {
+        Some((minimum.to_i128()?, maximum.to_i128()?))
+    }
 }
 
 fn extrema(values: [i128; 4]) -> (i128, i128) {
@@ -2723,9 +2732,8 @@ fn check_rational_operator(
         ));
     };
     if !numerator_ranges.iter().all(|(minimum, maximum)| {
-        *minimum >= i128::from(value_type.numerator_minimum)
-            && *maximum <= i128::from(value_type.numerator_maximum)
-    }) || denominator_max > i128::from(value_type.maximum_denominator)
+        *minimum >= value_type.numerator_minimum && *maximum <= value_type.numerator_maximum
+    }) || denominator_max > value_type.maximum_denominator
     {
         return Err(undefined(
             expression,
@@ -2780,48 +2788,37 @@ fn rational_exact_result(
     left: (i128, i128),
     right: (i128, i128),
 ) -> Option<(i128, i128)> {
-    let (left_numerator, left_denominator) = left;
-    let (right_numerator, right_denominator) = right;
+    let (a, b) = (BigInt::from(left.0), BigInt::from(left.1));
+    let (c, d) = (BigInt::from(right.0), BigInt::from(right.1));
     let (numerator, denominator) = match operator {
-        NumericOperator::Add => (
-            left_numerator
-                .checked_mul(right_denominator)?
-                .checked_add(right_numerator.checked_mul(left_denominator)?)?,
-            left_denominator.checked_mul(right_denominator)?,
-        ),
-        NumericOperator::Subtract => (
-            left_numerator
-                .checked_mul(right_denominator)?
-                .checked_sub(right_numerator.checked_mul(left_denominator)?)?,
-            left_denominator.checked_mul(right_denominator)?,
-        ),
-        NumericOperator::Multiply => (
-            left_numerator.checked_mul(right_numerator)?,
-            left_denominator.checked_mul(right_denominator)?,
-        ),
-        NumericOperator::Divide => (
-            left_numerator.checked_mul(right_denominator)?,
-            left_denominator.checked_mul(right_numerator)?,
-        ),
+        NumericOperator::Add => (&a * &d + &c * &b, &b * &d),
+        NumericOperator::Subtract => (&a * &d - &c * &b, &b * &d),
+        NumericOperator::Multiply => (&a * &c, &b * &d),
+        NumericOperator::Divide => (&a * &d, &b * &c),
         NumericOperator::Remainder => return None,
     };
-    normalize_rational(numerator, denominator)
-}
-
-fn normalize_rational(numerator: i128, denominator: i128) -> Option<(i128, i128)> {
-    if denominator == 0 {
+    if denominator == BigInt::from(0) {
         return None;
     }
-    let (numerator, denominator) = if denominator < 0 {
-        (numerator.checked_neg()?, denominator.checked_neg()?)
+    let (numerator, denominator) = if denominator < BigInt::from(0) {
+        (-numerator, -denominator)
     } else {
         (numerator, denominator)
     };
-    let divisor = gcd_u128(numerator.unsigned_abs(), denominator as u128);
+    let divisor = numerator.gcd(&denominator);
     Some((
-        numerator / i128::try_from(divisor).ok()?,
-        denominator / i128::try_from(divisor).ok()?,
+        (numerator / &divisor).to_i128()?,
+        (denominator / divisor).to_i128()?,
     ))
+}
+
+fn normalize_literal_parts(numerator: i128, denominator: i128) -> Option<(i128, i128)> {
+    if denominator <= 0 {
+        return None;
+    }
+    let divisor = gcd_u128(numerator.unsigned_abs(), denominator as u128);
+    let divisor = i128::try_from(divisor).ok()?;
+    Some((numerator / divisor, denominator / divisor))
 }
 
 fn gcd_u128(mut left: u128, mut right: u128) -> u128 {
@@ -2925,7 +2922,13 @@ fn check_numeric_negate(
             let overflow = value.overflow;
             let Some(mut result) = ranges
                 .iter()
-                .map(|(min, max)| Some((max.checked_neg()?, min.checked_neg()?)))
+                .map(|(min, max)| {
+                    if overflow == OverflowPolicy::Saturate {
+                        Some((max.saturating_neg(), min.saturating_neg()))
+                    } else {
+                        Some((max.checked_neg()?, min.checked_neg()?))
+                    }
+                })
                 .collect::<Option<Vec<_>>>()
             else {
                 return Err(undefined(
@@ -2934,9 +2937,9 @@ fn check_numeric_negate(
                     "negation exceeded checked intermediates",
                 ));
             };
-            let within = result.iter().all(|(min, max)| {
-                *min >= i128::from(value.minimum) && *max <= i128::from(value.maximum)
-            });
+            let within = result
+                .iter()
+                .all(|(min, max)| *min >= value.minimum && *max <= value.maximum);
             if overflow == OverflowPolicy::Reject && !within {
                 return Err(undefined(
                     expression,
@@ -2945,8 +2948,8 @@ fn check_numeric_negate(
                 ));
             }
             if overflow == OverflowPolicy::Saturate && !within {
-                let minimum = i128::from(value.minimum);
-                let maximum = i128::from(value.maximum);
+                let minimum = value.minimum;
+                let maximum = value.maximum;
                 result = canonical_ranges(
                     result
                         .into_iter()
@@ -2988,8 +2991,7 @@ fn check_numeric_negate(
                 ));
             };
             if !negated_ranges.iter().all(|(minimum, maximum)| {
-                *minimum >= i128::from(value.numerator_minimum)
-                    && *maximum <= i128::from(value.numerator_maximum)
+                *minimum >= value.numerator_minimum && *maximum <= value.numerator_maximum
             }) {
                 return Err(undefined(
                     expression,
@@ -3000,7 +3002,9 @@ fn check_numeric_negate(
             let range = NumericRange::Rational {
                 numerator_ranges: negated_ranges,
                 denominator_max: *denominator_max,
-                exact: exact.map(|(numerator, denominator)| (-numerator, denominator)),
+                exact: exact.and_then(|(numerator, denominator)| {
+                    numerator.checked_neg().map(|value| (value, denominator))
+                }),
             };
             let ty = ValueType::rational(value.clone());
             let mut checked = with_children(ty, Some(range), [child]);
@@ -3317,16 +3321,12 @@ fn dependency<const N: usize>(
 
 fn numeric_range(value_type: &ValueType) -> Option<NumericRange> {
     match value_type {
-        ValueType::Integer { value } => Some(NumericRange::Integer(vec![(
-            i128::from(value.minimum),
-            i128::from(value.maximum),
-        )])),
+        ValueType::Integer { value } => {
+            Some(NumericRange::Integer(vec![(value.minimum, value.maximum)]))
+        }
         ValueType::Rational { value } => Some(NumericRange::Rational {
-            numerator_ranges: vec![(
-                i128::from(value.numerator_minimum),
-                i128::from(value.numerator_maximum),
-            )],
-            denominator_max: i128::from(value.maximum_denominator),
+            numerator_ranges: vec![(value.numerator_minimum, value.numerator_maximum)],
+            denominator_max: value.maximum_denominator,
             exact: None,
         }),
         _ => None,
@@ -3388,7 +3388,9 @@ fn refine_integer_ranges(
             FactKind::Lower(candidate, ScalarBound::Integer(value), inclusive)
                 if candidate == subject =>
             {
-                let bound = i128::from(*value) + i128::from(!*inclusive);
+                let Some(bound) = value.checked_add(i128::from(!*inclusive)) else {
+                    return Vec::new();
+                };
                 ranges = ranges
                     .into_iter()
                     .filter_map(|(min, max)| (max >= bound).then_some((min.max(bound), max)))
@@ -3397,7 +3399,9 @@ fn refine_integer_ranges(
             FactKind::Upper(candidate, ScalarBound::Integer(value), inclusive)
                 if candidate == subject =>
             {
-                let bound = i128::from(*value) - i128::from(!*inclusive);
+                let Some(bound) = value.checked_sub(i128::from(!*inclusive)) else {
+                    return Vec::new();
+                };
                 ranges = ranges
                     .into_iter()
                     .filter_map(|(min, max)| (min <= bound).then_some((min, max.min(bound))))
@@ -3444,6 +3448,9 @@ fn refine_rational_ranges(
                     true,
                     *inclusive,
                 );
+                let Some(bound) = bound else {
+                    return Vec::new();
+                };
                 ranges = ranges
                     .into_iter()
                     .filter_map(|(minimum, maximum)| {
@@ -3463,6 +3470,9 @@ fn refine_rational_ranges(
                     false,
                     *inclusive,
                 );
+                let Some(bound) = bound else {
+                    return Vec::new();
+                };
                 ranges = ranges
                     .into_iter()
                     .filter_map(|(minimum, maximum)| {
@@ -3482,13 +3492,14 @@ fn rational_numerator_bound(
     denominator_maximum: i128,
     lower: bool,
     inclusive: bool,
-) -> i128 {
-    [1_i128, denominator_maximum]
+) -> Option<i128> {
+    let bound = [1_i128, denominator_maximum]
         .into_iter()
         .map(|candidate_denominator| {
-            let product = numerator * candidate_denominator;
-            let floor = product.div_euclid(denominator);
-            let ceiling = floor + i128::from(product.rem_euclid(denominator) != 0);
+            let product = BigInt::from(numerator) * candidate_denominator;
+            let denominator = BigInt::from(denominator);
+            let floor = product.div_floor(&denominator);
+            let ceiling = product.div_ceil(&denominator);
             match (lower, inclusive) {
                 (true, true) => ceiling,
                 (true, false) => floor + 1,
@@ -3502,8 +3513,14 @@ fn rational_numerator_bound(
             } else {
                 left.max(right)
             }
-        })
-        .unwrap_or(0)
+        })?;
+    if (lower && bound > BigInt::from(i128::MAX)) || (!lower && bound < BigInt::from(i128::MIN)) {
+        None
+    } else {
+        bound
+            .clamp(BigInt::from(i128::MIN), BigInt::from(i128::MAX))
+            .to_i128()
+    }
 }
 
 fn contains_zero(ranges: &[(i128, i128)]) -> bool {
@@ -3732,10 +3749,7 @@ fn numeric_literal(expression: &Expression) -> Option<ScalarBound> {
             numerator,
             denominator,
             ..
-        } if denominator > 0 => Some(ScalarBound::Rational(
-            i128::from(numerator),
-            i128::from(denominator),
-        )),
+        } if denominator > 0 => Some(ScalarBound::Rational(numerator, denominator)),
         _ => None,
     }
 }
@@ -3751,12 +3765,11 @@ fn semantic_key(expression: &Expression) -> String {
             denominator,
             value_type,
         } => {
-            if *denominator > 0 {
-                let divisor = gcd(numerator.unsigned_abs(), *denominator as u64) as i64;
+            if let Some((reduced_numerator, reduced_denominator)) =
+                normalize_literal_parts(*numerator, *denominator)
+            {
                 format!(
-                    "rational:{}/{}:{}",
-                    numerator / divisor,
-                    denominator / divisor,
+                    "rational:{reduced_numerator}/{reduced_denominator}:{}",
                     rational_type_key(value_type)
                 )
             } else {
@@ -4039,6 +4052,83 @@ fn children(expression: &Expression) -> Vec<&Expression> {
 mod range_set_tests {
     use super::*;
 
+    fn full_integer_type() -> IntegerType {
+        IntegerType::new(
+            IntegerDomain::Signed,
+            i128::MIN,
+            i128::MAX,
+            OverflowPolicy::Reject,
+        )
+        .unwrap()
+    }
+
+    /// Trace: FR-015-AC-8.
+    #[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+    #[test]
+    fn exact_rational_products_reduce_before_i128_range_check() {
+        let maximum = i128::MAX;
+        assert_eq!(
+            rational_exact_result(
+                NumericOperator::Multiply,
+                (maximum, maximum - 1),
+                (maximum - 1, maximum)
+            ),
+            Some((1, 1))
+        );
+        assert_eq!(
+            rational_exact_result(NumericOperator::Multiply, (maximum, 1), (2, 1)),
+            None
+        );
+        assert_eq!(
+            rational_exact_result(NumericOperator::Add, (i128::MIN, 1), (i128::MAX, 1)),
+            Some((-1, 1))
+        );
+        assert_eq!(
+            rational_exact_result(
+                NumericOperator::Add,
+                (maximum, maximum - 1),
+                (-maximum, maximum - 1)
+            ),
+            Some((0, 1))
+        );
+    }
+
+    /// Trace: FR-015-AC-8.
+    #[ix_trace_rs::trace("TC-016", "FR-015-AC-8")]
+    #[test]
+    fn saturated_integer_intermediates_clamp_at_declared_bounds() {
+        let value_type =
+            IntegerType::new(IntegerDomain::Signed, -10, 10, OverflowPolicy::Saturate).unwrap();
+        assert_eq!(
+            integer_pair_range(
+                NumericOperator::Multiply,
+                (i128::MAX, i128::MAX),
+                (2, 2),
+                &value_type
+            ),
+            Some((10, 10))
+        );
+        assert_eq!(
+            integer_pair_range(
+                NumericOperator::Divide,
+                (i128::MIN, i128::MIN),
+                (-1, -1),
+                &value_type
+            ),
+            Some((10, 10))
+        );
+        let reject = full_integer_type();
+        assert_eq!(
+            integer_pair_range(
+                NumericOperator::Divide,
+                (i128::MIN, i128::MIN),
+                (-1, -1),
+                &reject
+            ),
+            None
+        );
+    }
+
     fn covered(ranges: &[(i128, i128)]) -> BTreeSet<i128> {
         ranges
             .iter()
@@ -4077,9 +4167,12 @@ mod range_set_tests {
                     let unmerged: Vec<_> = left
                         .iter()
                         .flat_map(|&l| right.iter().map(move |&r| (l, r)))
-                        .map(|(l, r)| integer_pair_range(operator, l, r).unwrap())
+                        .map(|(l, r)| {
+                            integer_pair_range(operator, l, r, &full_integer_type()).unwrap()
+                        })
                         .collect();
-                    let merged = integer_ranges(operator, left, right).unwrap();
+                    let merged =
+                        integer_ranges(operator, left, right, &full_integer_type()).unwrap();
                     assert_eq!(covered(&merged), covered(&unmerged), "{operator:?}");
                     assert!(
                         merged.windows(2).all(|pair| pair[0].1 + 1 < pair[1].0),
@@ -4098,7 +4191,13 @@ mod range_set_tests {
         let split = vec![(-1, -1), (1, 1)];
         let mut product = split.clone();
         for _ in 0..40 {
-            product = integer_ranges(NumericOperator::Multiply, &product, &split).unwrap();
+            product = integer_ranges(
+                NumericOperator::Multiply,
+                &product,
+                &split,
+                &full_integer_type(),
+            )
+            .unwrap();
             assert_eq!(product, split);
         }
     }
@@ -4152,7 +4251,7 @@ mod range_set_tests {
         let mut sum = split.clone();
         // A sum of n copies is the n + 1 points -n, -n + 2, .., n.
         for terms in 2..=200_i128 {
-            sum = integer_ranges(NumericOperator::Add, &sum, &split).unwrap();
+            sum = integer_ranges(NumericOperator::Add, &sum, &split, &full_integer_type()).unwrap();
             assert_eq!(sum.len(), (terms as usize + 1).min(64));
             assert_eq!(sum.first().unwrap().0, -terms);
             assert_eq!(sum.last().unwrap().1, terms);

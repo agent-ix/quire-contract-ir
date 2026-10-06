@@ -851,6 +851,9 @@ version = "0.1.0"
 dependencies = [
  "ix-trace-rs",
  "jsonschema 0.17.1",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
  "quire-canonical",
  "quire-verification-contracts",
  "quire-walk",

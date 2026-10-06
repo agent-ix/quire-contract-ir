@@ -81,15 +81,20 @@ fn typed(expression: Expression, expected: &ValueType) -> TypedExpression {
 fn widest_integer() -> IntegerType {
     IntegerType::new(
         IntegerDomain::Signed,
-        i64::MIN,
-        i64::MAX,
+        i128::from(i64::MIN),
+        i128::from(i64::MAX),
         OverflowPolicy::Reject,
     )
     .unwrap()
 }
 
 fn widest_rational() -> RationalType {
-    RationalType::new(i64::MIN, i64::MAX, i64::MAX as u64).unwrap()
+    RationalType::new(
+        i128::from(i64::MIN),
+        i128::from(i64::MAX),
+        i128::from(i64::MAX),
+    )
+    .unwrap()
 }
 
 fn text(output: &CanonicalOutput) -> &str {
@@ -561,4 +566,68 @@ fn tc_017_the_digest_is_the_explicit_domain_prefix_not_the_encoder_domain_framin
     assert_ne!(output.digest().to_string(), framed.to_string());
     let bare = quire_canonical::sha256(&document, quire_canonical::Limits::new(1 << 20)).unwrap();
     assert_ne!(output.digest().to_string(), bare.to_string());
+}
+
+/// Trace: FR-016-AC-9.
+#[trace("TC-017", "FR-016-AC-9")]
+#[test]
+fn wide_numeric_values_keep_decimal_string_canonical_spelling() {
+    let integer_type = IntegerType::new(
+        IntegerDomain::Signed,
+        i128::MIN,
+        i128::MAX,
+        OverflowPolicy::Reject,
+    )
+    .unwrap();
+    let encode_integer = |value| {
+        typed(
+            Expression::new(
+                ExpressionKind::IntegerLiteral {
+                    value,
+                    value_type: integer_type.clone(),
+                },
+                span(0, 1),
+            ),
+            &ValueType::integer(integer_type.clone()),
+        )
+        .canonical_expression(CanonicalProfile::V1)
+        .unwrap()
+    };
+    let prior = encode_integer(i64::MAX.into());
+    for value in [
+        i128::from(i64::MAX) + 1,
+        i128::from(u64::MAX),
+        i128::MIN,
+        i128::MAX,
+    ] {
+        let output = encode_integer(value);
+        let bytes = text(&output);
+        assert!(bytes.contains(&format!("\"minimum\":\"{}\"", i128::MIN)));
+        assert!(bytes.contains(&format!("\"maximum\":\"{}\"", i128::MAX)));
+        assert!(bytes.contains(&format!("\"value\":\"{value}\"")));
+        assert_ne!(text(&prior), bytes);
+        assert_ne!(prior.digest(), output.digest());
+    }
+    let rational_type = RationalType::new(i128::MIN, i128::MAX, i128::MAX).unwrap();
+    for (numerator, denominator) in [(i128::MIN, 1), (i128::MAX, 1), (1, i128::MAX)] {
+        let output = typed(
+            Expression::new(
+                ExpressionKind::RationalLiteral {
+                    numerator,
+                    denominator,
+                    value_type: rational_type.clone(),
+                },
+                span(0, 1),
+            ),
+            &ValueType::rational(rational_type.clone()),
+        )
+        .canonical_expression(CanonicalProfile::V1)
+        .unwrap();
+        let bytes = text(&output);
+        assert!(bytes.contains(&format!("\"numerator_minimum\":\"{}\"", i128::MIN)));
+        assert!(bytes.contains(&format!("\"numerator_maximum\":\"{}\"", i128::MAX)));
+        assert!(bytes.contains(&format!("\"maximum_denominator\":\"{}\"", i128::MAX)));
+        assert!(bytes.contains(&format!("\"numerator\":\"{numerator}\"")));
+        assert!(bytes.contains(&format!("\"denominator\":\"{denominator}\"")));
+    }
 }
