@@ -160,6 +160,332 @@ pub(in crate::checked_package::v2) fn document(types: Vec<Value>) -> Value {
 
 const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
+const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
+
+pub(in crate::checked_package::v2) fn relationship() -> Value {
+    json!({
+        "identity": LINK,
+        "category": "structural",
+        "composite": false,
+        "direction": "bidirectional",
+        "sourceEnd": {"role": "links", "type": WIDGET, "multiplicity": multiplicity(0, Some(1))},
+        "targetEnd": {"role": "linkedBy", "type": GADGET, "multiplicity": multiplicity(1, Some(1))},
+        "origin": {"source": {"sourceIdentity": WIDGET, "path": "models/Widget.md", "startLine": 1, "startColumn": 1}},
+    })
+}
+
+pub(in crate::checked_package::v2) fn relationship_document(relationships: Vec<Value>) -> Value {
+    let mut widget = object_type(WIDGET, &[], vec![]);
+    widget["relationships"] = json!(relationships);
+    document(vec![widget, object_type(GADGET, &[], vec![])])
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-173
+#[trace("TC-048", "FR-038-AC-165", "FR-038-AC-166", "FR-038-AC-173")]
+#[test]
+fn tc_048_relationship_roles_and_metadata_are_read_from_the_authored_declaration() {
+    let mut declaration = relationship();
+    let model = read(&relationship_document(vec![declaration.clone()])).expect("admitted");
+    let selected = model
+        .relationships
+        .get(LINK)
+        .expect("selected relationship");
+    assert_eq!(selected.source.role.as_deref(), Some("links"));
+    assert_eq!(selected.target.role.as_deref(), Some("linkedBy"));
+    assert_eq!(selected.target.type_ref.as_ref(), GADGET);
+    declaration["targetEnd"]
+        .as_object_mut()
+        .expect("end")
+        .remove("role");
+    let model = read(&relationship_document(vec![declaration.clone()])).expect("no inverse role");
+    assert_eq!(
+        model
+            .relationships
+            .get(LINK)
+            .expect("relationship")
+            .target
+            .role,
+        None
+    );
+    declaration["origin"] = json!({"generated": {
+        "generatorIdentity": WIDGET, "generatorVersion": "1.0.0", "inputIdentities": [GADGET]
+    }});
+    assert!(read(&relationship_document(vec![declaration])).is_ok());
+}
+
+/// Trace: FR-038-AC-165
+#[trace("TC-048", "FR-038-AC-165")]
+#[test]
+fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_ids() {
+    let mut document = relationship_document(vec![relationship()]);
+    document["types"][0]["fields"] = json!([field(WIDGET, "count", "ix://quire/native/Integer")]);
+    document["types"][0]["operations"] = json!([{
+        "identity": format!("{WIDGET}/inspect"),
+        "params": [{"identity": format!("{WIDGET}/inspect/item"),
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))}],
+    }]);
+    assert!(read(&document).is_ok());
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    for path in [
+        "/types/0/fields/0/identity",
+        "/types/0/operations/0/identity",
+        "/types/0/operations/0/params/0/identity",
+    ] {
+        let mut moved = document.clone();
+        let target = moved.pointer_mut(path).expect("member identity");
+        *target = json!("ix://acme/orders/relationship/Widget-count-Gadget");
+        assert_eq!(read(&moved).map(|_| ()), Err(malformed), "{path}");
+    }
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
+#[trace(
+    "TC-048",
+    "FR-038-AC-165",
+    "FR-038-AC-166",
+    "FR-038-AC-167",
+    "FR-038-AC-168",
+    "FR-038-AC-173"
+)]
+#[test]
+fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
+    let reversed = ModelRefusal::new(Code::InvalidModelBinding, Cause::UnpreservedModelMeaning);
+    let mut cases = Vec::new();
+    for identity in [
+        "ix://acme/orders/Widget/links",
+        "ix://acme/billing/relationship/Widget-links-Gadget",
+        "ix://acme/orders/clause/Widget-links-Gadget",
+    ] {
+        let mut relation = relationship();
+        relation["identity"] = json!(identity);
+        cases.push((relation, malformed));
+    }
+    for member in ["direction", "category", "composite", "origin", "sourceEnd"] {
+        let mut relation = relationship();
+        relation
+            .as_object_mut()
+            .expect("relationship")
+            .remove(member);
+        cases.push((relation, malformed));
+    }
+    for member in ["direction", "category", "composite", "origin"] {
+        for replacement in [Value::Null, json!(42)] {
+            let mut relation = relationship();
+            relation[member] = replacement;
+            cases.push((relation, malformed));
+        }
+    }
+    for (member, replacement) in [
+        ("direction", json!("diagonal")),
+        ("category", json!("unknown")),
+        ("origin", json!({})),
+        ("origin", json!({"source": {}, "generated": {}})),
+        (
+            "origin",
+            json!({"source": {"sourceIdentity": WIDGET, "path": "x"}}),
+        ),
+        (
+            "origin",
+            json!({"generated": {"generatorIdentity": WIDGET,
+            "generatorVersion": "bad", "inputIdentities": [GADGET]}}),
+        ),
+    ] {
+        let mut relation = relationship();
+        relation[member] = replacement;
+        cases.push((relation, malformed));
+    }
+    for end in ["sourceEnd", "targetEnd"] {
+        for role in [Value::Null, json!(""), json!(7)] {
+            let mut relation = relationship();
+            relation[end]["role"] = role;
+            cases.push((relation, malformed));
+        }
+    }
+    let mut relation = relationship();
+    relation["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    cases.push((relation, missing));
+    let mut relation = relationship();
+    relation["targetEnd"]["type"] = json!(LINK);
+    cases.push((relation, malformed));
+    let mut relation = relationship();
+    relation["sourceEnd"]["type"] = json!(GADGET);
+    cases.push((relation, malformed));
+    let mut relation = relationship();
+    relation["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    cases.push((relation, reversed));
+    for (relation, expected) in cases {
+        assert_eq!(
+            read(&relationship_document(vec![relation.clone()])).map(|_| ()),
+            Err(expected),
+            "{relation}"
+        );
+    }
+    let mut mixed = relationship();
+    mixed["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    mixed["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    assert_eq!(
+        read(&relationship_document(vec![mixed])).map(|_| ()),
+        Err(missing)
+    );
+    let mut mixed = relationship();
+    mixed["targetEnd"]["role"] = json!("");
+    mixed["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    assert_eq!(
+        read(&relationship_document(vec![mixed])).map(|_| ()),
+        Err(malformed)
+    );
+    let conflicting = ModelRefusal::new(Code::InvalidModelBinding, Cause::ConflictingBinding);
+    assert_eq!(
+        read(&relationship_document(vec![relationship(), relationship()])).map(|_| ()),
+        Err(conflicting)
+    );
+}
+
+/// Trace: FR-038-AC-168
+#[trace("TC-048", "FR-038-AC-168")]
+#[test]
+fn tc_048_relationship_duplicates_follow_declaration_and_failure_row_order() {
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
+    let conflicting = ModelRefusal::new(Code::InvalidModelBinding, Cause::ConflictingBinding);
+    let mut first = relationship();
+    first["sourceEnd"]["type"] = json!(GADGET);
+    let second = relationship();
+    let with_owners = |first: Value, second: Value| {
+        let mut gadget = object_type(GADGET, &[], vec![]);
+        gadget["relationships"] = json!([first]);
+        let mut widget = object_type(WIDGET, &[], vec![]);
+        widget["relationships"] = json!([second]);
+        document(vec![widget, gadget])
+    };
+    let mut bad_role = first.clone();
+    bad_role["sourceEnd"]["role"] = json!("");
+    assert_eq!(
+        read(&with_owners(bad_role, second.clone())).map(|_| ()),
+        Err(malformed)
+    );
+    let mut missing_end = first.clone();
+    missing_end["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    assert_eq!(
+        read(&with_owners(missing_end, second.clone())).map(|_| ()),
+        Err(missing)
+    );
+    assert_eq!(
+        read(&with_owners(first.clone(), second.clone())).map(|_| ()),
+        Err(conflicting)
+    );
+    let mut reversed_later = second.clone();
+    reversed_later["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    assert_eq!(
+        read(&with_owners(first, reversed_later)).map(|_| ()),
+        Err(conflicting)
+    );
+    let mut malformed_first = relationship();
+    malformed_first["sourceEnd"]["role"] = json!("");
+    assert_eq!(
+        read(&relationship_document(vec![
+            malformed_first,
+            relationship()
+        ]))
+        .map(|_| ()),
+        Err(malformed),
+    );
+}
+
+/// Trace: FR-038-AC-170
+#[trace("TC-048", "FR-038-AC-170")]
+#[test]
+fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type() {
+    let mut relation = relationship();
+    let cases = [
+        (0, Some(1), true, "option"),
+        (1, Some(1), true, "reference"),
+        (0, Some(3), true, "set"),
+        (0, Some(3), false, "bag"),
+    ];
+    for (lower, upper, unique, expected) in cases {
+        relation["targetEnd"]["multiplicity"] = json!({
+            "lower": lower, "upper": upper, "ordered": false, "unique": unique,
+        });
+        let model = read(&relationship_document(vec![relation.clone()])).expect("admitted");
+        let declaration = model.relationships.get(LINK).expect("relationship");
+        let type_key = declaration_key("acme/orders", DeclarationForm::ObjectType, GADGET, BYTES)
+            .expect("destination key");
+        let result = declaration
+            .navigation_type(true, type_key.into())
+            .expect("navigation type");
+        match (expected, result) {
+            ("option", MemberType::Option(_))
+            | ("reference", MemberType::Reference(_))
+            | (
+                "set",
+                MemberType::Collection {
+                    kind: CollectionKind::Set,
+                    ..
+                },
+            )
+            | (
+                "bag",
+                MemberType::Collection {
+                    kind: CollectionKind::Bag,
+                    ..
+                },
+            ) => {}
+            (_, actual) => panic!("expected {expected}, got {actual:?}"),
+        }
+    }
+    relation["targetEnd"]["multiplicity"] = json!({
+        "lower": 0, "ordered": true, "unique": true,
+    });
+    let model = read(&relationship_document(vec![relation])).expect("admitted");
+    let declaration = model.relationships.get(LINK).expect("relationship");
+    assert_eq!(
+        declaration.navigation_type(true, "destination-key".into()),
+        Err(ModelRefusal::new(
+            Code::UnsupportedConstruct,
+            Cause::ExpressionForm
+        ))
+    );
+}
+
+/// Trace: FR-038-AC-168
+#[trace("TC-048", "FR-038-AC-168")]
+#[test]
+fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
+    let document = relationship_document(vec![relationship()]);
+    let read_at = |work| {
+        let mut meter = WorkMeter::new(work);
+        read_semantic_ir(&document, &mut Budget::new(&mut meter, 0, BYTES))
+    };
+    let mut below = 0;
+    let mut enough = 100;
+    assert!(read_at(enough).is_ok());
+    while below + 1 < enough {
+        let middle = below + (enough - below) / 2;
+        if read_at(middle).is_ok() {
+            enough = middle;
+        } else {
+            below = middle;
+        }
+    }
+    assert!(read_at(enough).is_ok());
+    match read_at(enough - 1) {
+        Err(ModelFailure::Limit(ValidationFailure::Incomplete(incomplete))) => {
+            assert_eq!(
+                incomplete.limit_kind,
+                crate::checked_package::shared::CheckedPackageLimit::Work
+            );
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected selected-row work exhaustion, got {other:?}"),
+    }
+}
 
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
 /// subtype and a subtype conforms to its supertype, decided in either order.
@@ -441,14 +767,17 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
-    let owns = "ix://acme/orders/Widget/owns";
     let mut widget = object_type(WIDGET, &[], vec![]);
-    widget["relationships"] = json!([{"identity": owns}]);
+    widget["relationships"] = json!([relationship()]);
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
     for referencing in [GADGET, ZETA] {
-        let holder = object_type(referencing, &[], vec![field(referencing, "owned", owns)]);
+        let holder = object_type(referencing, &[], vec![field(referencing, "owned", LINK)]);
+        let mut types = vec![widget.clone(), holder];
+        if referencing != GADGET {
+            types.push(object_type(GADGET, &[], vec![]));
+        }
         assert_eq!(
-            read(&document(vec![widget.clone(), holder])).map(|_| ()),
+            read(&document(types)).map(|_| ()),
             Err(malformed),
             "{referencing} is read {} the relationship's owner",
             if referencing < WIDGET {

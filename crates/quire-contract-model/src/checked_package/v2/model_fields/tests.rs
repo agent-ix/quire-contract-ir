@@ -479,7 +479,19 @@ fn ledger() -> Value {
     let base = format!("{ORDERS}Base");
     let ledger = format!("{ORDERS}Ledger");
     let mut base_type = object_type(&base, &[], vec![field(&base, "audit", &thousand)]);
-    base_type["relationships"] = json!([{"identity": format!("{base}/owns")}]);
+    base_type["relationships"] = json!([{
+        "identity": format!("{ORDERS}relationship/Base-owns-Base"),
+        "category": "structural", "composite": false, "direction": "source-to-target",
+        "sourceEnd": {
+            "type": base, "role": "owns",
+            "multiplicity": multiplicity(0, Some(1)),
+        },
+        "targetEnd": {"type": base, "multiplicity": multiplicity(0, Some(1))},
+        "origin": {"source": {
+            "sourceIdentity": base, "path": "models/Base.md",
+            "startLine": 1, "startColumn": 1,
+        }},
+    }]);
     document(vec![
         digit,
         base_type,
@@ -558,7 +570,7 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
         ("Base", DeclarationForm::ObjectType),
     ];
     types.push(("Ledger", DeclarationForm::SystemsInterface));
-    types.push(("Base/owns", DeclarationForm::Relationship));
+    types.push(("relationship/Base-owns-Base", DeclarationForm::Relationship));
     let mut fixture = build_fixture(&ledger(), &types);
     // The first node is Ledger's object type declaration node; the second is
     // Base's; the third is a node keyed as Ledger's systems interface, which

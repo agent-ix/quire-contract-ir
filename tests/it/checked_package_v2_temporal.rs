@@ -1038,12 +1038,10 @@ fn tc_048_a_case_application_stands_only_at_the_root_of_a_case_node() {
 }
 
 // ---------------------------------------------------------------------------
-// AC-101
+// AC-170
 // ---------------------------------------------------------------------------
 
-/// The reader's refusal types hold neither `unsupported_construct` nor
-/// `expression-form`: these matches name every variant of both, with no
-/// wildcard, so a variant added back is a compile error here.
+/// Exhaustive words of the reader's typed refusal variants.
 fn code_word(code: Code) -> &'static str {
     match code {
         Code::UnknownContractVersion => "unknown_contract_version",
@@ -1064,6 +1062,7 @@ fn code_word(code: Code) -> &'static str {
         Code::AmbiguousDeclaration => "ambiguous_declaration",
         Code::MissingImport => "missing_import",
         Code::UnknownProfile => "unknown_profile",
+        Code::UnsupportedConstruct => "unsupported_construct",
     }
 }
 
@@ -1097,16 +1096,20 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
         Cause::InexactNumber => "inexact-number",
+        Cause::ExpressionForm => "expression-form",
     }
 }
 
-/// Tracing: TC-048, FR-038-AC-101
-#[trace("TC-048", "FR-038-AC-101")]
+/// Trace: FR-038-AC-170
+#[trace("TC-048", "FR-038-AC-170")]
 #[test]
-fn tc_048_the_reader_has_no_unsupported_construct_code_and_no_expression_form_cause() {
-    // The oracle is compile-time: `code_word` and `cause_word` name every variant
-    // of both public enums with no wildcard, so a variant added back (or one
-    // removed) fails to build here. At run time the new words read through them.
+fn tc_048_relationship_refusal_words_are_typed_and_diagnostics_stay_closed() {
+    // The exhaustive mappings keep the public refusal variants explicit.
+    assert_eq!(
+        code_word(Code::UnsupportedConstruct),
+        "unsupported_construct"
+    );
+    assert_eq!(cause_word(Cause::ExpressionForm), "expression-form");
     assert_eq!(code_word(Code::UnknownProfile), "unknown_profile");
     assert_eq!(cause_word(Cause::DuplicateMember), "duplicate-member");
     assert_eq!(cause_word(Cause::TypeMismatch), "type-mismatch");
@@ -1118,8 +1121,7 @@ fn tc_048_the_reader_has_no_unsupported_construct_code_and_no_expression_form_ca
         cause_word(Cause::WrongSelectionRole),
         "wrong-selection-role"
     );
-    // And the retired cause word is no word of any wire vocabulary the reader
-    // reads: a diagnostics entry carrying it is refused.
+    // A diagnostics entry has its own closed cause vocabulary.
     let mut package = v2_all_families();
     package["diagnostics"]["entries"] = json!([{
         "stage": "type_checking", "code": "ill_typed", "cause_tag": "expression-form",

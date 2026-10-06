@@ -147,6 +147,7 @@ fn code_word(code: Code) -> &'static str {
         Code::AmbiguousDeclaration => "ambiguous_declaration",
         Code::MissingImport => "missing_import",
         Code::UnknownProfile => "unknown_profile",
+        Code::UnsupportedConstruct => "unsupported_construct",
     }
 }
 
@@ -181,6 +182,7 @@ fn cause_word(cause: Cause) -> &'static str {
         Cause::WrongSelectionRole => "wrong-selection-role",
         Cause::InexactInteger => "inexact-integer",
         Cause::InexactNumber => "inexact-number",
+        Cause::ExpressionForm => "expression-form",
     }
 }
 

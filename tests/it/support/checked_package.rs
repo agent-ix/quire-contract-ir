@@ -35,7 +35,7 @@ pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 const FAMILY_OBJECT: &str = "ix://test/families/Account";
-const FAMILY_RELATIONSHIP: &str = "ix://test/families/Account/balanceRel";
+const FAMILY_RELATIONSHIP: &str = "ix://test/families/relationship/Account-balance-Account";
 
 pub fn family_model_document() -> Value {
     json!({
@@ -51,7 +51,16 @@ pub fn family_model_document() -> Value {
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [],
             "fields": [], "operations": [],
-            "relationships": [{"identity": FAMILY_RELATIONSHIP}],
+            "relationships": [{
+                "identity": FAMILY_RELATIONSHIP,
+                "category": "structural", "composite": false, "direction": "bidirectional",
+                "sourceEnd": {"type": FAMILY_OBJECT, "role": "balanceRel",
+                    "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}},
+                "targetEnd": {"type": FAMILY_OBJECT,
+                    "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}},
+                "origin": {"source": {"sourceIdentity": FAMILY_OBJECT,
+                    "path": "models/Account.md", "startLine": 1, "startColumn": 1}},
+            }],
         }],
     })
 }
