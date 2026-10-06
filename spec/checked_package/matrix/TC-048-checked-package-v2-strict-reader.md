@@ -572,7 +572,7 @@ with the expected one.
 
 ## QSL-shaped optional record fields (FR-038-AC-151 and FR-038-AC-152)
 
-PLANNED for IR-644 code; the assertions below do not exist yet.
+Implemented by IR-644 in `tests/it/checked_package_v2_recursive_leaves.rs`; the assertions below run as TC-048.
 
 Build a checked package with the QSL-emitted `List` shape: its `next` field's
 value is an aggregate containing one `optional` binding whose value references
