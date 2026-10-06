@@ -39,17 +39,18 @@ U+001F controls use lowercase four-digit `\u00xx`; every other Unicode scalar
 is emitted directly as UTF-8. `/` and non-ASCII scalars are not escaped.
 Boolean values are lowercase.
 
-The profile spells every integer the model bounds by `i64` or `u64` as a JSON
+The profile spells every integer the model bounds by `i128` as a JSON
 string of its minimal base-ten digits, the `IntegerString` spelling of QSpec
 V2 (`^(0|-?[1-9][0-9]*)$`: `0` for zero, no `+`, no leading zero, `-` only
 before a nonzero digit). These are the eight members of the profile:
 `minimum` and `maximum` of an integer type, `value` of an integer literal,
 `numerator_minimum`, `numerator_maximum` and `maximum_denominator` of a
 rational type, and `numerator` and `denominator` of a rational literal. An
-integer type bounded by `i64::MIN` and `i64::MAX` is written
-`"minimum":"-9223372036854775808"` and `"maximum":"9223372036854775807"`, and a
-rational type whose `maximum_denominator` is `i64::MAX` writes
-`"maximum_denominator":"9223372036854775807"`. RFC 8785 has no exact number
+integer type bounded by `i128::MIN` and `i128::MAX` is written
+`"minimum":"-170141183460469231731687303715884105728"` and
+`"maximum":"170141183460469231731687303715884105727"`, and a
+rational type whose `maximum_denominator` is `i128::MAX` writes
+`"maximum_denominator":"170141183460469231731687303715884105727"`. RFC 8785 has no exact number
 past 2^53 and `quire-canonical` encodes no integer of larger magnitude, so these
 members are strings and no encoder stringifies a number on the caller's behalf.
 Every other integer member of a canonical object (the schema version's `major`
@@ -144,6 +145,7 @@ call produces.
 | FR-016-AC-6 | Every canonical byte sequence and digest of this crate comes from `quire-canonical`: for one fixture of each of the five kinds the bytes returned equal an expected byte string written out in the test member by member from RFC 8785 (members in UTF-16 order, minimal escapes, the eight integer members as strings), not computed by a call into this crate or by a second call into the encoder, and the digest equals the SHA-256 of the domain prefix and those expected bytes; a byte limit of the exact length returns the bytes and one byte lower returns `canonicalization_resource_exhausted`; and the crate source holds no `CanonicalWriter`, `canonical_envelope_bytes`, `digest_json` or `serde_json_canonicalizer` symbol and no `serde_json::to_vec` or `serde_json::to_value` call in `canonical.rs`, `binding.rs` or `output_mapping.rs`, checked by a test that reads those files and the manifests and counts the symbols, which finds none. | Test (TC-017) |
 | FR-016-AC-7 | The semantic value has no member that can hold a `null`, a floating-point number or a `serde_json::Value`: the canonical types (`ValueType`, `IntegerType`, `RationalType`, `CollectionType`, `Expression`, `ExpressionKind`, `RecordLiteralField`, `TypedExpression`, `DeclarationEnvironment` and the declaration, requirement and clause projections in `canonical.rs`) declare no `f32`, `f64` or `serde_json::Value` member and no `Option` member that serializes as `null` (an absent optional member is omitted), checked by a test that reads their source and finds none; and a requirement revision of 9007199254740992 canonicalizes to the number `9007199254740992` (the refusal above 2^53 is FR-011-AC-3's and FR-012-AC-6's). | Test (TC-017) |
 | FR-016-AC-8 | The digest for kind `K` equals SHA-256 over `quire-contract-ir`, a zero byte, the profile identity, a zero byte, `K`, a zero byte and the bytes `quire_canonical::to_vec` returns for the envelope, and differs from `quire_canonical::sha256_with_domain` over the same envelope with the same label. | Test (TC-017) |
+| FR-016-AC-9 | Canonical bytes spell integer type bounds and literal values at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX`, rational numerator and denominator members at their permitted i128 endpoints, as minimal JSON strings; the same semantic value previously representable within i64 yields byte-identical output, and changing only one wide value changes the canonical bytes and digest. No node-key preimage counter or other number-field encoding changes. | Test (TC-017) |
 
 ## Dependencies
 
