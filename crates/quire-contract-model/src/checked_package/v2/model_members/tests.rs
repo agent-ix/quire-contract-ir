@@ -160,6 +160,132 @@ pub(in crate::checked_package::v2) fn document(types: Vec<Value>) -> Value {
 
 const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
+const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
+
+fn relationship() -> Value {
+    json!({
+        "identity": LINK,
+        "category": "structural",
+        "composite": false,
+        "direction": "bidirectional",
+        "sourceEnd": {"role": "links", "type": WIDGET, "multiplicity": multiplicity(0, Some(1))},
+        "targetEnd": {"role": "linkedBy", "type": GADGET, "multiplicity": multiplicity(1, Some(1))},
+        "origin": {"source": {"sourceIdentity": WIDGET, "path": "models/Widget.md", "startLine": 1, "startColumn": 1}},
+    })
+}
+
+fn relationship_document(relationships: Vec<Value>) -> Value {
+    let mut widget = object_type(WIDGET, &[], vec![]);
+    widget["relationships"] = json!(relationships);
+    document(vec![widget, object_type(GADGET, &[], vec![])])
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-173
+#[trace("TC-048", "FR-038-AC-165", "FR-038-AC-166", "FR-038-AC-173")]
+#[test]
+fn tc_048_relationship_roles_and_metadata_are_read_from_the_authored_declaration() {
+    let mut declaration = relationship();
+    let model = read(&relationship_document(vec![declaration.clone()])).expect("admitted");
+    let selected = model
+        .relationships
+        .get(LINK)
+        .expect("selected relationship");
+    assert_eq!(selected.source.role.as_deref(), Some("links"));
+    assert_eq!(selected.target.role.as_deref(), Some("linkedBy"));
+    assert_eq!(selected.target.type_ref.as_ref(), GADGET);
+    declaration["targetEnd"]
+        .as_object_mut()
+        .expect("end")
+        .remove("role");
+    let model = read(&relationship_document(vec![declaration.clone()])).expect("no inverse role");
+    assert_eq!(
+        model
+            .relationships
+            .get(LINK)
+            .expect("relationship")
+            .target
+            .role,
+        None
+    );
+    declaration["origin"] = json!({"generated": {
+        "generatorIdentity": WIDGET, "generatorVersion": "1.0.0", "inputIdentities": [GADGET]
+    }});
+    assert!(read(&relationship_document(vec![declaration])).is_ok());
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
+#[trace(
+    "TC-048",
+    "FR-038-AC-165",
+    "FR-038-AC-167",
+    "FR-038-AC-168",
+    "FR-038-AC-173"
+)]
+#[test]
+fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
+    let reversed = ModelRefusal::new(Code::InvalidModelBinding, Cause::UnpreservedModelMeaning);
+    let mut cases = Vec::new();
+    for identity in [
+        "ix://acme/orders/Widget/links",
+        "ix://acme/billing/relationship/Widget-links-Gadget",
+        "ix://acme/orders/clause/Widget-links-Gadget",
+    ] {
+        let mut relation = relationship();
+        relation["identity"] = json!(identity);
+        cases.push((relation, malformed));
+    }
+    for member in ["direction", "category", "composite", "origin", "sourceEnd"] {
+        let mut relation = relationship();
+        relation
+            .as_object_mut()
+            .expect("relationship")
+            .remove(member);
+        cases.push((relation, malformed));
+    }
+    let mut relation = relationship();
+    relation["targetEnd"]["role"] = Value::Null;
+    cases.push((relation, malformed));
+    let mut relation = relationship();
+    relation["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    cases.push((relation, missing));
+    let mut relation = relationship();
+    relation["targetEnd"]["type"] = json!(LINK);
+    cases.push((relation, malformed));
+    let mut relation = relationship();
+    relation["sourceEnd"]["type"] = json!(GADGET);
+    cases.push((relation, malformed));
+    let mut relation = relationship();
+    relation["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    cases.push((relation, reversed));
+    for (relation, expected) in cases {
+        assert_eq!(
+            read(&relationship_document(vec![relation.clone()])).map(|_| ()),
+            Err(expected),
+            "{relation}"
+        );
+    }
+    let mut mixed = relationship();
+    mixed["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    mixed["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    assert_eq!(
+        read(&relationship_document(vec![mixed])).map(|_| ()),
+        Err(missing)
+    );
+    let mut mixed = relationship();
+    mixed["targetEnd"]["role"] = json!("");
+    mixed["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    assert_eq!(
+        read(&relationship_document(vec![mixed])).map(|_| ()),
+        Err(malformed)
+    );
+    let conflicting = ModelRefusal::new(Code::InvalidModelBinding, Cause::ConflictingBinding);
+    assert_eq!(
+        read(&relationship_document(vec![relationship(), relationship()])).map(|_| ()),
+        Err(conflicting)
+    );
+}
 
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
 /// subtype and a subtype conforms to its supertype, decided in either order.

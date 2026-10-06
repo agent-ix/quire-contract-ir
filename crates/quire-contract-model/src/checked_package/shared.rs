@@ -87,6 +87,8 @@ pub enum CheckedPackageRefusalCode {
     InvalidSourceMap,
     /// The selected graph contained a tag unknown to the current contract.
     UnsupportedNodeTag,
+    /// A well-formed relationship end asks for a traversal form its bounds cannot express.
+    UnsupportedConstruct,
     /// A frame entry named no declared dependency of its frame node.
     MissingDeclaration,
     /// A frame entry named a declared dependency of a meaning its member
@@ -152,6 +154,8 @@ pub enum CheckedPackageRefusalCause {
     /// `operator-ineligible`: an argument's arity, type or named member does
     /// not fit the catalogued entry's operands, constraints or member.
     OperatorIneligible,
+    /// `expression-form`: a relationship destination has an unbounded or ordered multiplicity.
+    ExpressionForm,
     /// `declaration-nominal-mismatch`: a node's declared `qualified_name`
     /// differs from its nominal identity preimage's `qualified_declaration`.
     DeclarationNominalMismatch,
