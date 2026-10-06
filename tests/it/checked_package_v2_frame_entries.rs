@@ -10,8 +10,9 @@
 //! vocabulary.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, node_id, rebuild_source_map, refresh_identity,
-    rekey_application_node, sha256_hex, source_owner, typed_node_id, v2_all_families,
+    canonical, evidence_for, fixture_source, mint_ungrouped_structural_keys, node_id, over_body,
+    rebuild_source_map, refresh_identity, rename_node, settle, sha256_hex, source_owner,
+    structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -20,6 +21,7 @@ use quire_contract_ir::{
     CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
+use std::sync::LazyLock;
 
 use CheckedPackageRefusalCause as Cause;
 use CheckedPackageRefusalCode as Code;
@@ -104,6 +106,7 @@ fn frame_mutation(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     let mut value = v2_all_families();
     let frame = position(&value, "state", "frame");
     edit(&mut value["semantic_graph"]["nodes"][frame]);
+    mint_ungrouped_structural_keys(&mut value);
     rebuild_source_map(&mut value);
     refresh_identity(&mut value);
     (value, frame)
@@ -388,8 +391,12 @@ fn tc_056_record_value_type_field_entries_admit_unresolved() {
             field(OBJECT, "balance"),
             relationship(RELATIONSHIP)
         ]);
-        rebuild_source_map(&mut value);
-        refresh_identity(&mut value);
+        frame["dependencies"]
+            .as_array_mut()
+            .expect("frame dependencies")
+            .sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+        mint_ungrouped_structural_keys(&mut value);
+        settle(&mut value);
         value
     };
     // With no `declaration` the node is not owned by any domain package, so
@@ -465,11 +472,19 @@ struct StatePackage {
     value: Value,
 }
 
-const TEXT: &str = "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e";
-const INTEGER: &str = "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f";
-const REFERENCE: &str = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
-const SELF: &str = "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3";
-const ANCHOR: &str = "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5";
+fn text_key() -> &'static str {
+    static KEY: LazyLock<String> =
+        LazyLock::new(|| crate::support::checked_package::family_key("a1a1"));
+    &KEY
+}
+
+/// The derived key of the anonymous `Integer` node the fixture already holds.
+const INTEGER: &str = INTEGER_KEY;
+
+/// The derived key of the anonymous `Reference<target>` node (FR-038-AC-134).
+fn reference_key(target: &str) -> String {
+    structural_key("composite_type", "reference", None, &over_body(target))
+}
 
 fn plain(
     digest: &str,
@@ -492,6 +507,28 @@ fn plain(
     })
 }
 
+fn self_key() -> &'static str {
+    static KEY: LazyLock<String> = LazyLock::new(|| {
+        let ty = reference_key(OBJECT);
+        let body = json!({"term": "aggregate", "members": [
+            binding("name", text("self")),
+            binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
+        ]});
+        structural_key("value", "parameter", Some(&ty), &body)
+    });
+    &KEY
+}
+
+fn anchor_key() -> &'static str {
+    static KEY: LazyLock<String> = LazyLock::new(|| {
+        let package = v2_all_families();
+        let frame = position(&package, "state", "frame");
+        let body = anchor_body(OBJECT, text("deposit"), &digest(&package, frame));
+        structural_key("state", "operation_anchor", Some(OBJECT), &body)
+    });
+    &KEY
+}
+
 fn reference(digest: &str) -> Value {
     json!({"term": "reference", "target": node_id(digest)})
 }
@@ -501,7 +538,7 @@ fn binding(name: &str, value: Value) -> Value {
 }
 
 fn text(value: &str) -> Value {
-    json!({"term": "literal", "type": node_id(TEXT), "value_kind": "text", "value": value})
+    json!({"term": "literal", "type": node_id(text_key()), "value_kind": "text", "value": value})
 }
 
 fn anchor_body(context: &str, operation: Value, frame: &str) -> Value {
@@ -529,11 +566,11 @@ fn clause_body(clause: &str, parameters: &[&str], anchor: &str, condition: &str)
 }
 
 fn boolean() -> String {
-    "a".repeat(64)
+    BOOLEAN_KEY.to_owned()
 }
 
 fn condition() -> String {
-    "d".repeat(64)
+    crate::support::checked_package::family_key("dddd")
 }
 
 /// The dependency join of a clause body: its reference targets, ascending.
@@ -572,39 +609,22 @@ impl StatePackage {
         let mut value = v2_all_families();
         let frame = position(&value, "state", "frame");
         let frame_key = digest(&value, frame);
+        let reference_type = reference_key(OBJECT);
         let added = [
             plain(
-                TEXT,
-                "scalar_type",
-                "text",
-                TEXT,
-                &[],
-                "type",
-                json!({"term": "aggregate", "members": []}),
-            ),
-            plain(
-                INTEGER,
-                "scalar_type",
-                "integer",
-                INTEGER,
-                &[],
-                "type",
-                json!({"term": "aggregate", "members": []}),
-            ),
-            plain(
-                REFERENCE,
+                &reference_type,
                 "composite_type",
                 "reference",
-                REFERENCE,
+                &reference_type,
                 &[OBJECT],
                 "type",
                 json!({"term": "aggregate", "members": [reference(OBJECT)]}),
             ),
             plain(
-                SELF,
+                self_key(),
                 "value",
                 "parameter",
-                REFERENCE,
+                &reference_type,
                 &[],
                 "expression",
                 json!({"term": "aggregate", "members": [
@@ -613,7 +633,7 @@ impl StatePackage {
                 ]}),
             ),
             plain(
-                ANCHOR,
+                anchor_key(),
                 "state",
                 "operation_anchor",
                 OBJECT,
@@ -621,28 +641,16 @@ impl StatePackage {
                 "anchor",
                 anchor_body(OBJECT, text("deposit"), &frame_key),
             ),
-            clause_node("invariant", &[SELF], OBJECT),
-            clause_node("precondition", &[SELF], ANCHOR),
+            clause_node("invariant", &[self_key()], OBJECT),
+            clause_node("precondition", &[self_key()], anchor_key()),
         ];
         value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
             .extend(added);
-        let mut package = Self { value };
-        package.refresh();
-        package
-    }
-
-    /// Re-keys every node whose body is a state clause application, then re-derives the source map and identity.
-    fn refresh(&mut self) {
-        for position in 0..nodes(&self.value).len() {
-            let node = &nodes(&self.value)[position];
-            if node["body"]["operation"]["identity"] == "quire.op.state.clause" {
-                rekey_application_node(&mut self.value, position);
-            }
-        }
-        rebuild_source_map(&mut self.value);
-        refresh_identity(&mut self.value);
+        mint_ungrouped_structural_keys(&mut value);
+        settle(&mut value);
+        Self { value }
     }
 
     fn at(&self, tag: &str, form: &str) -> usize {
@@ -662,7 +670,8 @@ impl StatePackage {
 
     fn edit(mut self, position: usize, edit: impl FnOnce(&mut Value)) -> Self {
         edit(&mut self.value["semantic_graph"]["nodes"][position]);
-        self.refresh();
+        mint_ungrouped_structural_keys(&mut self.value);
+        settle(&mut self.value);
         self
     }
 
@@ -792,7 +801,7 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{anchor}"),
-        Some(ANCHOR),
+        Some(digest(&value, anchor).as_str()),
     );
 
     // A second anchor naming the same (context, operation) pair, or the same
@@ -803,15 +812,30 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     ] {
         let mut package = StatePackage::new();
         let mut second = nodes(&package.value)[anchor].clone();
-        let second_key = "b6".repeat(32);
-        second["node_id"] = node_id(&second_key);
+        second["node_id"] = node_id(&"b6".repeat(32));
         second["body"]["members"][1]["value"]["value"] = json!(operation);
+        if case == "a duplicate pair" {
+            let mut alternate_frame = nodes(&package.value)[frame].clone();
+            let alternate_key = "b7".repeat(32);
+            alternate_frame["node_id"] = node_id(&alternate_key);
+            alternate_frame["body"] =
+                json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
+            alternate_frame["dependencies"] = json!([]);
+            second["body"]["members"][2]["value"]["target"] = node_id(&alternate_key);
+            second["dependencies"] = json!([node_id(OBJECT), node_id(&alternate_key)]);
+            package.value["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(alternate_frame);
+        }
         package.value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes")
             .push(second);
-        package.refresh();
+        mint_ungrouped_structural_keys(&mut package.value);
+        settle(&mut package.value);
         let second = nodes(&package.value).len() - 1;
+        let second_key = digest(&package.value, second);
         expect(
             case,
             &package.value,
@@ -840,7 +864,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
             "an invariant at an operation anchor",
             invariant,
             "invariant",
-            ANCHOR,
+            anchor_key(),
         ),
         (
             "a precondition at an object type",
@@ -850,7 +874,9 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         ),
     ] {
         let value = StatePackage::new()
-            .edit(clause, |node| *node = clause_node(kind, &[SELF], anchor))
+            .edit(clause, |node| {
+                *node = clause_node(kind, &[self_key()], anchor)
+            })
             .value;
         let clause = StatePackage {
             value: value.clone(),
@@ -903,7 +929,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         ),
         (
             "a first argument that is not an aggregate",
-            Box::new(|body| body["arguments"][0] = reference(SELF)),
+            Box::new(|body| body["arguments"][0] = reference(self_key())),
         ),
         (
             "an empty parameter aggregate",
@@ -924,7 +950,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
             .iter()
             .position(|node| {
                 node["semantic_form"] == "state_clause"
-                    && node["body"]["arguments"][1] != reference(ANCHOR)
+                    && node["body"]["arguments"][1] != reference(anchor_key())
             })
             .expect("the edited clause");
         expect(
@@ -957,7 +983,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     // Signature: `self` of another object type, and an invariant binding a
     // second parameter, refuse at the clause.
     let mut other_self = StatePackage::new();
-    let other_reference = "b7".repeat(32);
+    let other_reference = reference_key(PROCESS);
     let other_self_key = "b8".repeat(32);
     let reference_node =
         nodes(&other_self.value)[other_self.at("composite_type", "reference")].clone();
@@ -997,7 +1023,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         .expect("nodes")
         .push(extra);
     let second = second.edit(invariant, |node| {
-        *node = clause_node("invariant", &[SELF, &extra_key], OBJECT);
+        *node = clause_node("invariant", &[self_key(), &extra_key], OBJECT);
     });
     let clause = second.clause("invariant");
     expect(
@@ -1063,7 +1089,7 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
     let non_boolean = StatePackage::new()
         .edit(invariant, |node| {
             node["body"]["arguments"][2] = reference(INTEGER);
-            let deps = clause_dependencies(&[SELF], OBJECT);
+            let deps = clause_dependencies(&[self_key()], OBJECT);
             let mut deps: Vec<String> = deps
                 .into_iter()
                 .filter(|d| *d != condition())
@@ -1369,7 +1395,8 @@ fn model_parameter(key: &str, name: &str, level: &str, ty: &str) -> Value {
 impl ModelPackage {
     fn new() -> Self {
         let order = model_key(ORDER_NODE);
-        let integer = structural("scalar_type", "integer", None);
+        // The fixture already holds the one anonymous `Integer` node.
+        let integer = INTEGER_KEY.to_owned();
         let mut state = StatePackage::new();
         let frame = state.at("state", "frame");
         let frame_key = state.digest(frame);
@@ -1386,15 +1413,7 @@ impl ModelPackage {
                 }),
             );
         let empty = || json!({"term": "aggregate", "members": []});
-        let mut added = vec![plain(
-            &integer,
-            "scalar_type",
-            "integer",
-            &integer,
-            &[],
-            "type",
-            empty(),
-        )];
+        let mut added = Vec::new();
         for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
             let key = model_key(declared);
             let mut node = plain(&key, "model", "object_type", &key, &[], "type", empty());
@@ -1408,18 +1427,18 @@ impl ModelPackage {
             "1",
             &integer,
         ));
-        added.push(model_parameter(MODEL_TEXT_PARAMETER, "t", "1", TEXT));
+        added.push(model_parameter(MODEL_TEXT_PARAMETER, "t", "1", text_key()));
         added.push(clause_node(
             "postcondition",
-            &[SELF, MODEL_RESULT_PARAMETER, MODEL_INTEGER_PARAMETER],
-            ANCHOR,
+            &[self_key(), MODEL_RESULT_PARAMETER, MODEL_INTEGER_PARAMETER],
+            anchor_key(),
         ));
         let nodes = value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
         for node in nodes.iter_mut() {
             let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
-            if key == REFERENCE {
+            if key == reference_key(OBJECT) {
                 node["dependencies"] = json!([node_id(&order)]);
                 node["body"] = json!({"term": "aggregate", "members": [reference(&order)]});
             } else if key == frame_key {
@@ -1428,20 +1447,32 @@ impl ModelPackage {
                 deps.push(node_id(&order));
                 deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
                 node["dependencies"] = Value::Array(deps);
-            } else if key == ANCHOR {
+            } else if key == anchor_key() {
                 let mut deps = [order.clone(), frame_key.clone()];
                 deps.sort();
                 node["semantic_type"] = node_id(&order);
                 node["dependencies"] = json!(deps.iter().map(|d| node_id(d)).collect::<Vec<_>>());
                 node["body"] = anchor_body(&order, text("scaled"), &frame_key);
             } else if node["body"]["operation"]["member"]["clause"] == "invariant" {
-                *node = clause_node("invariant", &[SELF], &order);
+                *node = clause_node("invariant", &[self_key()], &order);
             } else if node["body"]["operation"]["member"]["clause"] == "precondition" {
-                *node = clause_node("precondition", &[SELF, MODEL_INTEGER_PARAMETER], ANCHOR);
+                *node = clause_node(
+                    "precondition",
+                    &[self_key(), MODEL_INTEGER_PARAMETER],
+                    anchor_key(),
+                );
             }
         }
         nodes.extend(added);
-        state.refresh();
+        // The `Reference` node now names the selected object type, so its
+        // derived key changes with its body.
+        rename_node(
+            &mut state.value,
+            &reference_key(OBJECT),
+            &reference_key(&order),
+        );
+        mint_ungrouped_structural_keys(&mut state.value);
+        settle(&mut state.value);
         Self { value: state.value }
     }
 
@@ -1454,6 +1485,18 @@ impl ModelPackage {
 
     fn frame(&self) -> usize {
         position(&self.value, "state", "frame")
+    }
+
+    fn parameter_key(&self, name: &str) -> String {
+        nodes(&self.value)
+            .iter()
+            .find(|node| {
+                node["semantic_form"] == "parameter"
+                    && node["body"]["members"][0]["value"]["value"] == name
+            })
+            .and_then(|node| node["node_id"]["digest"].as_str())
+            .unwrap_or_else(|| panic!("parameter {name}"))
+            .to_owned()
     }
 
     fn with_unselected_owner(mut self) -> Self {
@@ -1480,9 +1523,8 @@ impl ModelPackage {
     /// Edits the node at `position`, then re-keys and re-derives identity.
     fn edit(mut self, position: usize, edit: impl FnOnce(&mut Value)) -> Self {
         edit(&mut self.value["semantic_graph"]["nodes"][position]);
-        let mut state = StatePackage { value: self.value };
-        state.refresh();
-        self.value = state.value;
+        mint_ungrouped_structural_keys(&mut self.value);
+        settle(&mut self.value);
         self
     }
 
@@ -1508,12 +1550,11 @@ impl ModelPackage {
     /// Binds the anchor, and the frame it names, to `context` and `operation`.
     fn anchored(self, context: &str, operation: &str) -> Self {
         let frame = self.frame();
-        let frame_key = digest(&self.value, frame);
-        let anchor = self.position_of(ANCHOR);
+        let anchor = position(&self.value, "state", "operation_anchor");
         let context = context.to_owned();
         let with_context = context.clone();
         let operation = operation.to_owned();
-        self.edit(frame, move |node| {
+        let package = self.edit(frame, move |node| {
             node["semantic_type"] = node_id(&with_context);
             let mut deps = node["dependencies"].as_array().expect("deps").clone();
             if !deps.contains(&node_id(&with_context)) {
@@ -1521,8 +1562,9 @@ impl ModelPackage {
             }
             deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
             node["dependencies"] = Value::Array(deps);
-        })
-        .edit(anchor, move |node| {
+        });
+        let frame_key = digest(&package.value, frame);
+        package.edit(anchor, move |node| {
             let mut deps = [context.clone(), frame_key.clone()];
             deps.sort();
             node["semantic_type"] = node_id(&context);
@@ -1533,12 +1575,16 @@ impl ModelPackage {
 
     /// Replaces the parameters of the clause of kind `clause`.
     fn binding(self, clause: &str, parameters: &[&str]) -> Self {
-        let position = nodes(&self.value)
+        let clause_position = nodes(&self.value)
             .iter()
             .position(|node| node["body"]["operation"]["member"]["clause"] == clause)
             .unwrap_or_else(|| panic!("a {clause}"));
-        let replacement = clause_node(clause, parameters, ANCHOR);
-        self.edit(position, move |node| *node = replacement)
+        let anchor = digest(
+            &self.value,
+            position(&self.value, "state", "operation_anchor"),
+        );
+        let replacement = clause_node(clause, parameters, &anchor);
+        self.edit(clause_position, move |node| *node = replacement)
     }
 }
 
@@ -1697,7 +1743,7 @@ fn tc_056_an_anchor_operation_resolves_to_one_its_context_declares() {
         ),
     ] {
         let package = ModelPackage::new().anchored(context, operation);
-        let anchor = package.position_of(ANCHOR);
+        let anchor = position(&package.value, "state", "operation_anchor");
         model_expect(
             case,
             &package.value,
@@ -1728,17 +1774,25 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
     // The base package's precondition `[self, n]` and postcondition
     // `[self, result, n]` over `Order.scaled(n: Integer): Integer` admit.
     model_admits("precondition and postcondition", &ModelPackage::new().value);
+    let base = ModelPackage::new();
+    let self_key = base.parameter_key("self");
+    let integer_parameter = base.parameter_key("n");
+    let text_parameter = base.parameter_key("t");
     for (case, clause, parameters) in [
-        ("a missing operation parameter", "precondition", vec![SELF]),
+        (
+            "a missing operation parameter",
+            "precondition",
+            vec![self_key.as_str()],
+        ),
         (
             "a missing result",
             "postcondition",
-            vec![SELF, MODEL_INTEGER_PARAMETER],
+            vec![self_key.as_str(), integer_parameter.as_str()],
         ),
         (
             "a parameter of another type",
             "precondition",
-            vec![SELF, MODEL_TEXT_PARAMETER],
+            vec![self_key.as_str(), text_parameter.as_str()],
         ),
     ] {
         let package = ModelPackage::new().binding(clause, &parameters);

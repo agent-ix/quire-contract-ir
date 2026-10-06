@@ -356,6 +356,59 @@ pub fn rekey(preimages: &mut [Value], keys: &[String]) -> Vec<String> {
     current
 }
 
+/// Renames the node `stale` to `fresh` everywhere it is named in `package`:
+/// its own `node_id`, every `semantic_type`, dependency and body reference.
+pub fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
+    replace_digest(package, stale, fresh);
+}
+
+/// Mint QSL FR-092 keys for a builder's owner-free, ungrouped structural
+/// nodes. Each rename reaches every reference in the test package; repeated
+/// passes let a node built before a type it names pick up the type's real key.
+/// Nominal, application, model-owned, grouped and FR-451 relation keys have
+/// their separate constructors or owning stages.
+pub fn mint_ungrouped_structural_keys(package: &mut Value) {
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    for _ in 0..=count {
+        let mut changed = false;
+        for position in 0..count {
+            let node = package["semantic_graph"]["nodes"][position].clone();
+            let tag = node["node_tag"].as_str().expect("node tag");
+            let form = node["semantic_form"].as_str().expect("semantic form");
+            if node.get("nominal_identity_preimage").is_some()
+                || node["body"]["term"] == "application"
+                || node.get("declaration").is_some()
+                || node.get("recursion_group").is_some()
+                || matches!(tag, "model" | "relation")
+                || (tag == "correspondence" && form == "abstraction_relation")
+            {
+                continue;
+            }
+            let stale = node["node_id"]["digest"].as_str().expect("node digest");
+            let semantic_type = node["semantic_type"]["digest"]
+                .as_str()
+                .expect("semantic type digest");
+            let fresh = structural_key(
+                tag,
+                form,
+                (semantic_type != stale).then_some(semantic_type),
+                &node["body"],
+            );
+            if fresh != stale {
+                rename_node(package, stale, &fresh);
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+    }
+    panic!("ungrouped fixture nodes did not reach stable structural keys");
+}
+
 fn replace_digest(value: &mut Value, stale: &str, fresh: &str) {
     match value {
         Value::String(text) if text == stale => *text = fresh.to_owned(),
@@ -629,6 +682,88 @@ fn application_key(
     )
 }
 
+/// The key QSL FR-092 and FR-094 give an anonymous structural node
+/// (`quire.structural-node/v1`: no `declaration`, no `recursion`, no `owner`;
+/// `semantic_type` `null` for a node typed by itself). Written here from that
+/// preimage, independently of the reader, so a fixture's derived keys are not
+/// the reader's own output.
+pub fn structural_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: Option<&str>,
+    body: &Value,
+) -> String {
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": node_tag,
+        "semantic_form": semantic_form,
+        "semantic_type": semantic_type.map_or(Value::Null, node_id),
+        "declaration": Value::Null,
+        "recursion": Value::Null,
+        "body": body,
+    });
+    sha256_hex(&canonical(&preimage))
+}
+
+/// The derived key of the anonymous `scalar_type`/`boolean` node, as a
+/// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
+pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
+
+/// The derived key of the anonymous `scalar_type`/`integer` node, as a literal.
+pub const INTEGER_KEY: &str = "07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32";
+
+/// The derived key of the anonymous `scalar_type`/`boolean` node.
+pub fn boolean_key() -> String {
+    BOOLEAN_KEY.to_owned()
+}
+
+/// The derived key of the anonymous `scalar_type`/`integer` node.
+pub fn integer_key() -> String {
+    INTEGER_KEY.to_owned()
+}
+
+/// An `aggregate` of one `reference` to `target`: the closed body of a
+/// `reference`, `option` and collection node.
+pub fn over_body(target: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "reference", "target": node_id(target)},
+    ]})
+}
+
+/// An `aggregate` of the `min` then `max` bindings, each an `integer` literal
+/// typed at the derived `Integer` key: the closed body of an `integer_range`
+/// and a `collection_bounds` node.
+pub fn bounds_body(min: &str, max: &str) -> Value {
+    let integer = integer_key();
+    let bound = |name: &str, value: &str| {
+        json!({"term": "binding", "name": name, "value": {
+            "term": "literal", "type": node_id(&integer),
+            "value_kind": "integer", "value": value}})
+    };
+    json!({"term": "aggregate", "members": [bound("min", min), bound("max", max)]})
+}
+
+/// The derived key of an anonymous `integer_range` node over `[min, max]`.
+pub fn integer_range_key(min: &str, max: &str) -> String {
+    structural_key(
+        "bounded_domain",
+        "integer_range",
+        Some(&integer_key()),
+        &bounds_body(min, max),
+    )
+}
+
+/// The `quire.application-node/v1` key of an undeclared application node of
+/// `node_tag`/`semantic_form` typed at the node `semantic_type`, over `body`.
+pub fn application_node_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: &str,
+    body: &Value,
+) -> String {
+    application_key(node_tag, semantic_form, &node_id(semantic_type), body)
+}
+
 /// SHA-256 of the RFC-8785 bytes of FR-322's `quire.application-node/v1`
 /// preimage, the one builder both fixture keys and grouped keys use.
 fn application_preimage_key(
@@ -733,6 +868,59 @@ pub fn family_key(prefix: &str) -> String {
             "verification_claim",
             &node_id(&family_key("aaaa")),
             &claim_clause_body(),
+        ),
+        // The undeclared nodes of the ten derived shapes carry the key the
+        // reader derives (FR-038-AC-134), not a placeholder. `a6a6` is the
+        // same anonymous Boolean node as `aaaa`: one key names one node.
+        "aaaa" | "a6a6" => boolean_key(),
+        "a3a3" => integer_key(),
+        "bbbb" => structural_key(
+            "composite_type",
+            "option",
+            None,
+            &over_body(&family_key("aaaa")),
+        ),
+        "cccc" => integer_range_key("0", "1000"),
+        "3030" => structural_key(
+            "state",
+            "snapshot",
+            Some(&boolean_key()),
+            &empty_aggregate(),
+        ),
+        "7070" => structural_key(
+            "correspondence",
+            "source_locus",
+            Some(&boolean_key()),
+            &empty_aggregate(),
+        ),
+        "8080" => structural_key(
+            "function",
+            "pure_function",
+            Some(&boolean_key()),
+            &empty_aggregate(),
+        ),
+        "a1a1" => structural_key("scalar_type", "text", None, &empty_aggregate()),
+        "dddd" => structural_key("value", "literal", Some(&boolean_key()), &empty_aggregate()),
+        "eeee" => structural_key(
+            "expression",
+            "reference",
+            Some(&boolean_key()),
+            &json!({"term": "reference", "target": node_id(&family_key("dddd"))}),
+        ),
+        "a4a4" => structural_key(
+            "value",
+            "parameter",
+            Some(&boolean_key()),
+            &json!({
+                "term": "aggregate", "members": [
+                    {"term": "binding", "name": "name", "value": {
+                        "term": "literal", "type": node_id(&family_key("a1a1")),
+                        "value_kind": "text", "value": "over"}},
+                    {"term": "binding", "name": "level", "value": {
+                        "term": "literal", "type": node_id(&family_key("a3a3")),
+                        "value_kind": "integer", "value": "0"}},
+                ],
+            }),
         ),
         _ => prefix.repeat(16),
     }
@@ -1350,7 +1538,16 @@ fn build_v2_all_families() -> Value {
     let f8080 = family_key("8080");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
-    let frame_key = "f4a0".repeat(16);
+    let frame_body = json!({
+        "term": "frame",
+        "modifies": [
+            {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
+            {"kind": "relationship", "declaration": node_id(&f2020)},
+        ],
+        "creates": [node_id(&f1515)],
+        "deletes": [node_id(&f1616)],
+    });
+    let frame_key = structural_key("state", "frame", Some(&f1515), &frame_body);
 
     let nodes = vec![
         plain_node(
@@ -1359,7 +1556,7 @@ fn build_v2_all_families() -> Value {
             "boolean",
             &aaaa,
             &[],
-            json!({"term": "literal", "type": node_id(&aaaa), "value_kind": "boolean", "value": true}),
+            empty_aggregate(),
         ),
         // No wire `dependencies` of its own: its lowering closure already
         // reaches `aaaa` through `semantic_type` alone, and leaving this one
@@ -1370,17 +1567,17 @@ fn build_v2_all_families() -> Value {
             &bbbb,
             "composite_type",
             "option",
-            &aaaa,
+            &bbbb,
             &[],
-            empty_aggregate(),
+            over_body(&aaaa),
         ),
         plain_node(
             &cccc,
             "bounded_domain",
             "integer_range",
-            &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+            &family_key("a3a3"),
+            &[family_key("a3a3").as_str()],
+            bounds_body("0", "1000"),
         ),
         plain_node(
             &dddd,
@@ -1517,15 +1714,7 @@ fn build_v2_all_families() -> Value {
             "frame",
             &f1515,
             &[f1515.as_str(), f1616.as_str(), f2020.as_str()],
-            json!({
-                "term": "frame",
-                "modifies": [
-                    {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
-                    {"kind": "relationship", "declaration": node_id(&f2020)},
-                ],
-                "creates": [node_id(&f1515)],
-                "deletes": [node_id(&f1616)],
-            }),
+            frame_body,
         ),
         // The nodes the temporal clause's arguments name: the `text` type of
         // its name literal, the `temporal`/`formula` node it applies
@@ -1562,14 +1751,6 @@ fn build_v2_all_families() -> Value {
                 .clone(),
             // A literal's `type` is no dependency (FR-322).
             &[],
-        ),
-        plain_node(
-            &family_key("a6a6"),
-            "scalar_type",
-            "boolean",
-            &family_key("a6a6"),
-            &[],
-            empty_aggregate(),
         ),
         plain_node(
             &family_key("a3a3"),
@@ -1639,10 +1820,12 @@ fn build_v2_all_families() -> Value {
 /// `application.operation` and an `application.result_type` — so it can
 /// assert the closed-schema refusal each deletion produces.
 fn build_operation_identities() -> Value {
-    let root = "beef".repeat(16);
+    let root = boolean_key();
     let declaring = "cafe".repeat(16);
-    let literal_key = "d00d".repeat(16);
-    let func = "f00d".repeat(16);
+    let literal_body =
+        json!({"term": "literal", "type": node_id(&root), "value_kind": "boolean", "value": true});
+    let literal_key = structural_key("value", "literal", Some(&root), &literal_body);
+    let func = structural_key("function", "pure_function", Some(&root), &empty_aggregate());
 
     let root_node = plain_node(
         &root,
@@ -1674,7 +1857,7 @@ fn build_operation_identities() -> Value {
         "literal",
         &root,
         &[root.as_str()],
-        json!({"term": "literal", "type": node_id(&root), "value_kind": "boolean", "value": true}),
+        literal_body,
     );
 
     let func_node = declared(

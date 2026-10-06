@@ -13,8 +13,9 @@
 
 use crate::support::checked_package::{
     admitted_dependency, domain_package_digest, domain_package_document, family_key, node_id,
-    nominal_package, pointer, read_with_dependencies, rebuild_source_map, refresh_identity, rekey,
-    rekey_application_node, v2_all_families, v2_nominal,
+    nominal_package, over_body, pointer, read_with_dependencies, rebuild_source_map,
+    refresh_identity, rekey, rekey_application_node, rename_node, structural_key, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -82,6 +83,18 @@ fn integer_range_key() -> String {
 
 fn record_key() -> String {
     "7a".repeat(32)
+}
+
+/// The anonymous `composite_type` node of `form` over `element`, self-typed,
+/// its body the one `reference` and its key the derived one (FR-038-AC-134).
+fn collection(form: &str, element: &str, dependencies: &[&str]) -> (String, Value) {
+    let body = over_body(element);
+    let key = structural_key("composite_type", form, None, &body);
+    let collection = with_body(
+        node(&key, "composite_type", form, &key, dependencies, None),
+        body,
+    );
+    (key, collection)
 }
 
 /// A dependency package: the fixture's own graph with its `function` node
@@ -333,8 +346,9 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     );
     // As a node body root and inside an aggregate.
     let mut root = importing(vec![selection(&dependency.digest)], term.clone());
+    let expression_key = structural_key("expression", "reference", Some(&boolean_key()), &term);
     let mut expression = node(
-        &"9a".repeat(32),
+        &expression_key,
         "expression",
         "reference",
         &boolean_key(),
@@ -361,6 +375,13 @@ fn tc_048_the_term_is_admitted_only_as_a_function_call_callee() {
     let mut aggregate = root.clone();
     aggregate["semantic_graph"]["nodes"][count]["body"] =
         json!({"term": "aggregate", "members": [term]});
+    let aggregate_key = structural_key(
+        "expression",
+        "reference",
+        Some(&boolean_key()),
+        &aggregate["semantic_graph"]["nodes"][count]["body"],
+    );
+    rename_node(&mut aggregate, &expression_key, &aggregate_key);
     refresh_identity(&mut aggregate);
     expect_refusal(
         &refused(read(&aggregate, &dependency)),
@@ -527,10 +548,15 @@ fn signature(signature: &[&str], result: &str, edit: impl FnOnce(&mut Vec<Value>
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
-    let set_key = "7b".repeat(32);
-    let tuple_key = "7c".repeat(32);
-    let reference_key = "7d".repeat(32);
+    let (set_key, set_node) = collection("set", &record_key(), &[&record_key()]);
+    let tuple_key = structural_key(
+        "composite_type",
+        "tuple",
+        Some(&boolean_key()),
+        &json!({"term": "aggregate", "members": []}),
+    );
     let model = family_key("1515");
+    let (reference_key, reference_node) = collection("reference", &model, &[&model]);
     let cases: Vec<(&str, Dependency)> = vec![
         (
             "a parameter that is a declared record",
@@ -543,14 +569,7 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
         (
             "a set of a declared record",
             signature(&[&set_key], &boolean_key(), |nodes| {
-                nodes.push(node(
-                    &set_key,
-                    "composite_type",
-                    "set",
-                    &boolean_key(),
-                    &[&record_key()],
-                    None,
-                ));
+                nodes.push(set_node);
             }),
         ),
         (
@@ -569,14 +588,7 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
         (
             "a reference to a model type",
             signature(&[&reference_key], &boolean_key(), |nodes| {
-                nodes.push(node(
-                    &reference_key,
-                    "composite_type",
-                    "reference",
-                    &boolean_key(),
-                    &[&model],
-                    None,
-                ));
+                nodes.push(reference_node);
             }),
         ),
     ];
@@ -597,15 +609,9 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
     }
     // The same shapes over package-independent types admit: a set of the
     // bounded integer.
-    let ok = signature(&[&set_key], &boolean_key(), |nodes| {
-        nodes.push(node(
-            &set_key,
-            "composite_type",
-            "set",
-            &boolean_key(),
-            &[&integer_range_key()],
-            None,
-        ));
+    let (ok_key, ok_node) = collection("set", &integer_range_key(), &[&integer_range_key()]);
+    let ok = signature(&[&ok_key], &boolean_key(), |nodes| {
+        nodes.push(ok_node);
     });
     let package = calling(&ok, &function_key());
     assert!(
@@ -627,35 +633,31 @@ fn reference_to(key: &str) -> Value {
 /// A `value`/`parameter` node typed at `semantic_type`, with the closed
 /// parameter body (a text name and an integer level, each typed at a scalar
 /// node the caller adds).
-fn parameter(key: &str, semantic_type: &str, text: &str, integer: &str) -> Value {
+fn parameter(semantic_type: &str, text: &str, integer: &str) -> Value {
     let literal = |type_key: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
-    let mut node = node(key, "value", "parameter", semantic_type, &[], None);
+    let body = json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
+        {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},
+    ]});
+    let key = structural_key("value", "parameter", Some(semantic_type), &body);
+    let mut node = node(&key, "value", "parameter", semantic_type, &[], None);
     node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
-    with_body(
-        node,
-        json!({"term": "aggregate", "members": [
-            {"term": "binding", "name": "name", "value": literal(text, "text", "x")},
-            {"term": "binding", "name": "level", "value": literal(integer, "integer", "0")},
-        ]}),
-    )
+    with_body(node, body)
 }
 
 /// The dependency function with `parameter` as a parameter node, its type
 /// the declared record, listed as the caller says.
 fn parameter_dependency(listed: bool, referenced: bool) -> Dependency {
-    let (text, integer, parameter_key) = ("7e".repeat(32), "7f".repeat(32), "7d".repeat(32));
+    // The fixture already holds the anonymous `Text` and `Integer` nodes.
+    let (text, integer) = (family_key("a1a1"), family_key("a3a3"));
+    let parameter = parameter(&record_key(), &text, &integer);
+    let parameter_key = parameter["node_id"]["digest"]
+        .as_str()
+        .expect("parameter key")
+        .to_owned();
     let signed: &[&str] = if listed { &[&parameter_key] } else { &[] };
     signature(signed, &boolean_key(), |nodes| {
-        nodes.push(node(&text, "scalar_type", "text", &text, &[], None));
-        nodes.push(node(
-            &integer,
-            "scalar_type",
-            "integer",
-            &integer,
-            &[],
-            None,
-        ));
-        nodes.push(parameter(&parameter_key, &record_key(), &text, &integer));
+        nodes.push(parameter);
         let function = nodes
             .iter_mut()
             .find(|node| node["node_id"]["digest"] == function_key())
@@ -698,21 +700,26 @@ fn tc_048_a_parameter_of_a_declared_type_refuses_however_the_function_reaches_it
 #[trace("TC-048", "FR-038-AC-38")]
 #[test]
 fn tc_048_the_signature_closure_follows_body_references_and_semantic_types() {
-    let (by_body, by_type) = ("7b".repeat(32), "7c".repeat(32));
+    let by_type = structural_key(
+        "composite_type",
+        "tuple",
+        Some(&record_key()),
+        &json!({"term": "aggregate", "members": []}),
+    );
     // A set no `dependencies` entry ties to the record: its body references
     // it.
+    let (by_body, by_body_node) = collection("set", &record_key(), &[]);
     let body = signature(&[&by_body], &boolean_key(), |nodes| {
-        nodes.push(with_body(
-            node(&by_body, "composite_type", "set", &boolean_key(), &[], None),
-            json!({"term": "aggregate", "members": [reference_to(&record_key())]}),
-        ));
+        nodes.push(by_body_node);
     });
-    // A set whose semantic type is the record.
+    // A tuple (a form whose key the reader does not derive) whose semantic
+    // type is the record: a derived-shape node is its own semantic type, so
+    // only another form carries the semantic-type route.
     let typed = signature(&[&by_type], &boolean_key(), |nodes| {
         nodes.push(node(
             &by_type,
             "composite_type",
-            "set",
+            "tuple",
             &record_key(),
             &[],
             None,

@@ -129,6 +129,42 @@ fn read_with_model(package: &Value, document: &Value) -> CheckedPackageV2ReadRes
     )
 }
 
+fn owned_clause(mut package: Value, document: &Value, declared: &str, clause: &str) -> Value {
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(document)));
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let literal_type = package["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["node_tag"] = json!("function");
+    node["semantic_form"] = json!("pure_function");
+    node["owner"]["node"] = json!(declared);
+    let body = json!({"term": "aggregate", "members": [{
+        "term": "binding", "name": "clause",
+        "value": {"term": "literal", "type": literal_type,
+                  "value_kind": "text", "value": clause},
+    }]});
+    node["body"] = body.clone();
+    let preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": "function",
+        "semantic_form": "pure_function", "semantic_type": null,
+        "declaration": null, "recursion": null,
+        "owner": node["owner"], "body": body,
+    });
+    let id = node_id(&sha256_hex(&canonical(&preimage)));
+    node["node_id"] = id.clone();
+    node["semantic_type"] = id.clone();
+    package["source_map"]
+        .as_array_mut()
+        .expect("map")
+        .last_mut()
+        .expect("entry")["node_id"] = id;
+    refresh_identity(&mut package);
+    package
+}
+
 fn refused(package: &Value, code: CheckedPackageRefusalCode, path: &str) {
     let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
         panic!("owner mutation must refuse");
@@ -505,38 +541,12 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
             false,
         ),
     ] {
-        let mut package = base.clone();
-        package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(&document)));
+        let package = owned_clause(base.clone(), &document, declared, clause);
         let position = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
             .len()
             - 1;
-        let node = &mut package["semantic_graph"]["nodes"][position];
-        node["node_tag"] = json!("function");
-        node["semantic_form"] = json!("pure_function");
-        node["owner"]["node"] = json!(declared);
-        let body = json!({"term": "aggregate", "members": [{
-            "term": "binding", "name": "clause",
-            "value": {"term": "literal", "type": base["semantic_graph"]["nodes"][0]["node_id"],
-                      "value_kind": "text", "value": clause},
-        }]});
-        node["body"] = body.clone();
-        let preimage = json!({
-            "version": "quire.structural-node/v1", "node_tag": "function",
-            "semantic_form": "pure_function", "semantic_type": null,
-            "declaration": null, "recursion": null,
-            "owner": node["owner"], "body": body,
-        });
-        let id = node_id(&sha256_hex(&canonical(&preimage)));
-        node["node_id"] = id.clone();
-        node["semantic_type"] = id.clone();
-        package["source_map"]
-            .as_array_mut()
-            .expect("map")
-            .last_mut()
-            .expect("entry")["node_id"] = id;
-        refresh_identity(&mut package);
         match read_with_model(&package, &document) {
             CheckedPackageV2ReadResult::Admitted(_) if expected_admission => {}
             CheckedPackageV2ReadResult::Refused(refusal) if !expected_admission => {
@@ -559,6 +569,43 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
             other => panic!("{name}: unexpected {other:?}"),
         }
     }
+}
+
+/// This is the IR-627/IR-630 boundary: IR-627 validates only owner-free
+/// structural keys. IR-630 must make this stale owner-bearing function key
+/// refuse; admission here is not evidence of FR-092 owner-key validation.
+///
+/// Trace: TC-228
+#[trace("TC-228")]
+#[test]
+fn tc_228_owner_bearing_function_key_remains_for_ir_630() {
+    let (base, mut document) = model_package();
+    let operation = "ix://acme/owners/Point/op";
+    document["types"][0]["operations"] = json!([{"identity": operation, "params": []}]);
+    let mut package = owned_clause(base, &document, operation, "precondition");
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+        - 1;
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    node["body"]["members"][0]["value"]["value"] = json!("body");
+    let would_be_key = sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": "function",
+        "semantic_form": "pure_function", "semantic_type": null,
+        "declaration": null, "recursion": null,
+        "owner": node["owner"], "body": node["body"],
+    })));
+    assert_ne!(node["node_id"]["digest"], would_be_key);
+    refresh_identity(&mut package);
+    assert!(matches!(
+        read_with_model(&package, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }
 
 /// Trace: FR-038-AC-155

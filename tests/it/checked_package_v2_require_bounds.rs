@@ -6,8 +6,9 @@
 //! one on every literal, including the name literal of every parameter).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, rebuild_source_map,
-    refresh_identity, sha256_hex, typed_node_id,
+    bounds_body, canonical, evidence_for, integer_range_key, mint_ungrouped_structural_keys,
+    node_id, nominal_fixture_members, nominal_package, over_body, settle, sha256_hex,
+    structural_key, typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -15,17 +16,62 @@ use quire_contract_ir::{
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::sync::LazyLock;
+
+struct Fixture {
+    value: Value,
+    ids: BTreeMap<String, CheckedNodeId>,
+}
+
+impl Deref for Fixture {
+    type Target = Value;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
 
 /// The key of the nominal unit `Example::Metre` the quantity tests name as
 /// `metre`; its node comes from [`quantity_package`], not from [`node`].
 static METRE: LazyLock<String> = LazyLock::new(|| nominal_fixture_members()[2].1.clone());
 
+/// The key of the node called `name`: the derived key (FR-038-AC-134) for
+/// each anonymous node of the ten derived shapes this file builds, the key
+/// of the nominal unit for `metre`, and the digest of the name otherwise.
 fn key(name: &str) -> String {
-    if name == "metre" {
-        return METRE.clone();
+    match name {
+        "metre" => METRE.clone(),
+        "integer" => INTEGER_KEY.to_owned(),
+        "boolean" => BOOLEAN_KEY.to_owned(),
+        "int09" => integer_range_key("0", "9"),
+        "bools" => collection_key("sequence", "boolean"),
+        "ints" => collection_key("sequence", "int09"),
+        "plain_ints" => collection_key("sequence", "integer"),
+        "seq" => collection_key("sequence", "metre"),
+        "opt" => collection_key("option", "metre"),
+        "bools03" => bounded_key("bools"),
+        "ints03" => bounded_key("ints"),
+        "plain_ints03" => bounded_key("plain_ints"),
+        "seq03" => bounded_key("seq"),
+        _ => sha256_hex(name.as_bytes()),
     }
-    sha256_hex(name.as_bytes())
+}
+
+/// The derived key of the self-typed `form` node over the node `element`.
+fn collection_key(form: &str, element: &str) -> String {
+    structural_key("composite_type", form, None, &over_body(&key(element)))
+}
+
+/// The derived key of the `collection_bounds` `[0, 3]` over the node `over`.
+fn bounded_key(over: &str) -> String {
+    structural_key(
+        "bounded_domain",
+        "collection_bounds",
+        Some(&key(over)),
+        &bounds_body("0", "3"),
+    )
 }
 
 fn node(
@@ -138,15 +184,37 @@ fn add_one(name: &str, x: &str) -> (String, Value) {
     )
 }
 
-/// A package holding `nodes`, ascending by key.
-fn package(mut nodes: Vec<(String, Value)>) -> Value {
+/// Rekey nodes without losing each builder name's final identity. The map is
+/// test-local metadata, never an extra member of the package wire.
+fn finish(mut package: Value, mut nodes: Vec<(String, Value)>) -> Fixture {
     nodes.sort_by(|left, right| left.0.cmp(&right.0));
-    let mut package = nominal_package(&[]);
+    let old_keys = nodes.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
     package["semantic_graph"]["nodes"] =
         Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
-    package
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    let ids = old_keys
+        .into_iter()
+        .zip(
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes"),
+        )
+        .map(|(old, node)| {
+            (
+                old,
+                typed_node_id(node["node_id"]["digest"].as_str().expect("key")),
+            )
+        })
+        .collect();
+    Fixture {
+        value: package,
+        ids,
+    }
+}
+
+fn package(nodes: Vec<(String, Value)>) -> Fixture {
+    finish(nominal_package(&[]), nodes)
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -168,8 +236,8 @@ fn bounded_profile() -> CompleteLoweringProfileV2 {
     }
 }
 
-fn id_of(name: &str) -> CheckedNodeId {
-    typed_node_id(&key(name))
+fn id_of(value: &Fixture, name: &str) -> CheckedNodeId {
+    value.ids[&key(name)].clone()
 }
 
 /// `Int[0,9]`: an `integer_range` domain over `integer`.
@@ -181,11 +249,11 @@ fn int_0_9() -> (String, Value) {
         "integer",
         &["integer"],
         "type",
-        empty(),
+        bounds_body("0", "9"),
     )
 }
 
-fn bounded_x_plus_one() -> Value {
+fn bounded_x_plus_one() -> Fixture {
     let (x, x_node) = parameter("x", "int09");
     let (_, expression) = add_one("x_plus_1", "x");
     package(vec![
@@ -223,7 +291,7 @@ fn tc_050_x_plus_one_over_a_bounded_parameter_lowers_under_require_bounds() {
     let request: CheckedNodeId = serde_json::from_value(expression).expect("id");
     match only_record(&value, &request) {
         CompleteLoweringRecordV2::Lowered { node } => {
-            assert_eq!(node.bounds, vec![id_of("int09")]);
+            assert_eq!(node.bounds, vec![id_of(&value, "int09")]);
         }
         other => panic!("expected lowered, got {other:?}"),
     }
@@ -240,10 +308,10 @@ fn tc_050_a_value_typed_at_an_unbounded_type_still_requires_a_bound() {
         (y, y_node),
     ]);
     assert_eq!(
-        only_record(&value, &id_of("y")),
+        only_record(&value, &id_of(&value, "y")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("y"),
-            unbounded_type: id_of("integer"),
+            node_id: id_of(&value, "y"),
+            unbounded_type: id_of(&value, "integer"),
         }
     );
 }
@@ -255,9 +323,9 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
     // `x` is typed at `Int[0,9]`; `text` and (through the domain) `integer`
     // are reached as annotations. `text` is unbounded and only an annotation.
     let value = bounded_x_plus_one();
-    match only_record(&value, &id_of("x")) {
+    match only_record(&value, &id_of(&value, "x")) {
         CompleteLoweringRecordV2::Lowered { node } => {
-            assert!(node.dependencies.contains(&id_of("text")));
+            assert!(node.dependencies.contains(&id_of(&value, "text")));
         }
         other => panic!("expected lowered, got {other:?}"),
     }
@@ -274,10 +342,10 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
     // (fda5..), so a check that also tested annotations would name one of them
     // first; this half is what catches an always-true `typed` check.
     assert_eq!(
-        only_record(&bare, &id_of("z")),
+        only_record(&bare, &id_of(&bare, "z")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("z"),
-            unbounded_type: id_of("rational"),
+            node_id: id_of(&bare, "z"),
+            unbounded_type: id_of(&bare, "rational"),
         }
     );
 }
@@ -305,27 +373,41 @@ fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
         (v, v_node),
     ]);
     assert_eq!(
-        only_record(&value, &id_of("v")),
+        only_record(&value, &id_of(&value, "v")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("v"),
-            unbounded_type: id_of("rational"),
+            node_id: id_of(&value, "v"),
+            unbounded_type: id_of(&value, "rational"),
         }
     );
 }
 
 /// A composite type node named `name`, self-typed, naming each of `over` as
-/// an element or field type.
+/// an element or field type. Record fields are distinct closed body bindings
+/// so different records do not collapse onto one structural key.
 fn composite(name: &str, form: &str, over: &[&str]) -> (String, Value) {
-    node(name, "composite_type", form, name, over, "type", empty())
+    // A node of a derived shape holds the closed body of its form: one
+    // `reference` to its element (FR-038-AC-134).
+    let body = if matches!(
+        form,
+        "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
+    ) {
+        over_body(&key(over[0]))
+    } else if form == "record" {
+        json!({"term": "aggregate", "members": over.iter().enumerate().map(|(index, name)| {
+            binding(&format!("field{index}"), reference(name))
+        }).collect::<Vec<_>>()})
+    } else if form == "alias" {
+        over_body(&key(over[0]))
+    } else {
+        empty()
+    };
+    node(name, "composite_type", form, name, over, "type", body)
 }
 
 /// `K<E>[0, 3]` over the composite `seq`: a `collection_bounds` domain whose
 /// min and max literals are annotated with the unbounded `integer` type.
 fn bounded_collection(name: &str, seq: &str) -> (String, Value) {
-    let body = json!({"term": "aggregate", "members": [
-        binding("min", literal("integer", "integer", "0")),
-        binding("max", literal("integer", "integer", "3")),
-    ]});
+    let body = bounds_body("0", "3");
     node(
         name,
         "bounded_domain",
@@ -355,10 +437,10 @@ fn tc_050_a_bound_over_the_shared_integer_does_not_cover_an_unbounded_field() {
         composite("mixed", "record", &["integer", "int09"]),
     ]);
     assert_eq!(
-        only_record(&value, &id_of("mixed")),
+        only_record(&value, &id_of(&value, "mixed")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("mixed"),
-            unbounded_type: id_of("integer"),
+            node_id: id_of(&value, "mixed"),
+            unbounded_type: id_of(&value, "integer"),
         }
     );
 }
@@ -381,15 +463,19 @@ fn tc_050_bounded_collections_and_ranged_fields_lower() {
         bounded_collection("ints03", "ints"),
         composite("box", "record", &["bools03", "ints03", "int09"]),
     ]);
-    match only_record(&value, &id_of("box")) {
+    match only_record(&value, &id_of(&value, "box")) {
         CompleteLoweringRecordV2::Lowered { node } => {
             assert_eq!(
                 node.bounds,
-                vec![id_of("int09"), id_of("bools03"), id_of("ints03")]
-                    .into_iter()
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>()
+                vec![
+                    id_of(&value, "int09"),
+                    id_of(&value, "bools03"),
+                    id_of(&value, "ints03")
+                ]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
             );
         }
         other => panic!("expected lowered, got {other:?}"),
@@ -406,15 +492,15 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        composite("ints", "sequence", &["integer"]),
-        bounded_collection("ints03", "ints"),
-        composite("holder", "record", &["ints03", "int09"]),
+        composite("plain_ints", "sequence", &["integer"]),
+        bounded_collection("plain_ints03", "plain_ints"),
+        composite("holder", "record", &["plain_ints03", "int09"]),
     ]);
     assert_eq!(
-        only_record(&value, &id_of("holder")),
+        only_record(&value, &id_of(&value, "holder")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("holder"),
-            unbounded_type: id_of("integer"),
+            node_id: id_of(&value, "holder"),
+            unbounded_type: id_of(&value, "integer"),
         }
     );
 }
@@ -424,20 +510,35 @@ fn tc_050_a_collection_of_unranged_integers_requires_a_bound() {
 #[test]
 fn tc_050_a_recursive_record_requires_a_bound() {
     // `{kids: Sequence<Tree>[0,3], k: Int[0,9]}` where `Tree` is the record:
-    // the cycle shares one `recursion_group`, and depth has no domain.
+    // the cycle shares one `recursion_group`, and depth has no domain. The
+    // sequence and its bounds sit in the group, where the derived-key stage
+    // skips them (FR-038, IR-627-Q4).
     let value = package(vec![
         scalar("integer", "integer"),
         scalar("text", "text"),
         int_0_9(),
-        in_recursion_group(composite("tree", "record", &["kids03", "int09"])),
+        // The record names its fields in its body, so the cycle is one of QSL
+        // FR-092's names graph and not only of `dependencies`.
+        in_recursion_group(node(
+            "tree",
+            "composite_type",
+            "record",
+            "tree",
+            &["kids03", "int09"],
+            "type",
+            json!({"term": "aggregate", "members": [
+                binding("kids", reference("kids03")),
+                binding("k", reference("int09")),
+            ]}),
+        )),
         in_recursion_group(composite("kids", "sequence", &["tree"])),
         in_recursion_group(bounded_collection("kids03", "kids")),
     ]);
-    let least = std::cmp::min(id_of("tree"), id_of("kids"));
+    let least = std::cmp::min(id_of(&value, "tree"), id_of(&value, "kids"));
     assert_eq!(
-        only_record(&value, &id_of("tree")),
+        only_record(&value, &id_of(&value, "tree")),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("tree"),
+            node_id: id_of(&value, "tree"),
             unbounded_type: least,
         }
     );
@@ -474,12 +575,12 @@ fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
         (inner, inner_node),
         (outer.clone(), outer_node),
     ]);
-    let request: CheckedNodeId = typed_node_id(&outer);
+    let request = value.ids[&outer].clone();
     assert_eq!(
         only_record(&value, &request),
         CompleteLoweringRecordV2::RequiresBound {
             node_id: request,
-            unbounded_type: id_of("integer"),
+            unbounded_type: id_of(&value, "integer"),
         }
     );
 }
@@ -488,9 +589,9 @@ fn tc_050_a_bound_over_one_parameter_does_not_cover_another_of_the_same_type() {
 /// the nominal dimension and unit `metre`, the compound unit `cu` over it, the
 /// scalars the bodies annotate, `int09`, and every node of the quantity
 /// cases below. Each request's closure is its own, so one package serves all.
-fn quantity_package() -> Value {
+fn quantity_package() -> Fixture {
     let members = nominal_fixture_members();
-    let mut package = nominal_package(&[members[3].clone(), members[2].clone()]);
+    let package = nominal_package(&[members[3].clone(), members[2].clone()]);
     let compound = json!({"term": "aggregate", "members": [
         {"term": "aggregate", "members": [
             binding("unit", reference("metre")),
@@ -566,12 +667,7 @@ fn quantity_package() -> Value {
                 (digest.to_owned(), node.clone())
             }),
     );
-    nodes.sort_by(|left, right| left.0.cmp(&right.0));
-    package["semantic_graph"]["nodes"] =
-        Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
-    rebuild_source_map(&mut package);
-    refresh_identity(&mut package);
-    package
+    finish(package, nodes)
 }
 
 /// A `rational_range` domain named `name` over the type called `base`.
@@ -587,19 +683,19 @@ fn quantity_domain(name: &str, base: &str) -> (String, Value) {
     )
 }
 
-fn record_with(value: &Value, name: &str, require_bounds: bool) -> CompleteLoweringRecordV2 {
+fn record_with(value: &Fixture, name: &str, require_bounds: bool) -> CompleteLoweringRecordV2 {
     let profile = CompleteLoweringProfileV2 {
         require_bounds,
         ..bounded_profile()
     };
-    let result = admit(value).lower(&[id_of(name)], &profile);
+    let result = admit(value).lower(&[id_of(value, name)], &profile);
     result.records.into_iter().next().expect("one record")
 }
 
-fn requires_bound_at(request: &str, unbounded: &str) -> CompleteLoweringRecordV2 {
+fn requires_bound_at(value: &Fixture, request: &str, unbounded: &str) -> CompleteLoweringRecordV2 {
     CompleteLoweringRecordV2::RequiresBound {
-        node_id: id_of(request),
-        unbounded_type: id_of(unbounded),
+        node_id: id_of(value, request),
+        unbounded_type: id_of(value, unbounded),
     }
 }
 
@@ -625,7 +721,7 @@ fn tc_050_a_position_typed_at_a_quantity_requires_a_bound_naming_the_unit() {
     for (request, unit) in cases {
         assert_eq!(
             record_with(&value, request, true),
-            requires_bound_at(request, unit),
+            requires_bound_at(&value, request, unit),
             "{request}"
         );
     }
@@ -636,11 +732,11 @@ fn tc_050_a_position_typed_at_a_quantity_requires_a_bound_naming_the_unit() {
 #[test]
 fn tc_050_the_least_quantity_among_positions_is_named() {
     let value = quantity_package();
-    let least = std::cmp::min(id_of("metre"), id_of("cu"));
+    let least = std::cmp::min(id_of(&value, "metre"), id_of(&value, "cu"));
     assert_eq!(
         record_with(&value, "both", true),
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of("both"),
+            node_id: id_of(&value, "both"),
             unbounded_type: least,
         }
     );
@@ -664,14 +760,14 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
     }
     match record_with(&value, "cu", true) {
         CompleteLoweringRecordV2::Lowered { node } => {
-            assert!(node.dependencies.contains(&id_of("metre")));
+            assert!(node.dependencies.contains(&id_of(&value, "metre")));
         }
         other => panic!("expected lowered, got {other:?}"),
     }
     // A unit reached only as a `literal.type` annotation.
     match record_with(&value, "annotated", true) {
         CompleteLoweringRecordV2::Lowered { node } => {
-            assert!(node.dependencies.contains(&id_of("metre")));
+            assert!(node.dependencies.contains(&id_of(&value, "metre")));
         }
         other => panic!("expected lowered, got {other:?}"),
     }
@@ -688,7 +784,7 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
     let result = admit(&value).lower(&[typed_node_id(&application)], &bounded_profile());
     match &result.records[0] {
         CompleteLoweringRecordV2::Lowered { node } => {
-            assert!(node.dependencies.contains(&id_of("metre")));
+            assert!(node.dependencies.contains(&id_of(&value, "metre")));
         }
         other => panic!("expected lowered, got {other:?}"),
     }

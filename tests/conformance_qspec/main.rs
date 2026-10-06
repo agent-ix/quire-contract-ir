@@ -44,6 +44,9 @@ const POSITIVE: [&str; 3] = [
     "positive-union-nodes.json",
 ];
 
+/// QSpec's recursive records, including the owner-free derived nodes in each group.
+const RECURSIVE: &str = "positive-recursive-records.json";
+
 /// The adverse mutations FR-038-AC-112 applies, under `fixtures/`.
 const ADVERSE: &str = "adverse.json";
 
@@ -412,6 +415,140 @@ fn tc_048_qspec_positive_fixtures_admit() {
             }
             other => panic!("{name} does not admit: {other:?}"),
         }
+    }
+}
+
+/// Trace: FR-038-AC-145
+#[trace("FR-038-AC-145")]
+#[test]
+fn tc_226_qspec_recursive_records_admit() {
+    let path = fixtures_dir().join(RECURSIVE);
+    let package = read_json(&path).unwrap_or_else(|why| panic!("{why}"));
+    assert_eq!(reading_of(&package).expect("fixture reading"), "admitted");
+}
+
+/// Apply one QSpec derived-shape mutation to its named positive package,
+/// preserving the node key while refreshing both identity mirrors and the
+/// package id. The fixture and mutation are always read from the QSpec checkout.
+fn derived_shape_mutation(dir: &Path, row: &Value) -> Result<Value, String> {
+    let base = text_of(row, "base")?;
+    let mut package = read_json(&dir.join(format!("{base}.json")))?;
+    let tag = row["node"]["node_tag"]
+        .as_str()
+        .ok_or("mutation has no node_tag")?;
+    let form = row["node"]["semantic_form"]
+        .as_str()
+        .ok_or("mutation has no semantic_form")?;
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .ok_or("semantic_graph.nodes is not an array")?;
+    let matches = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["node_tag"] == tag && node["semantic_form"] == form)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [position] = matches.as_slice() else {
+        return Err(format!(
+            "{base}: expected one {tag}/{form} node, found {}",
+            matches.len()
+        ));
+    };
+    let patches = row["patch"]
+        .as_array()
+        .ok_or("mutation has no patch array")?;
+    for patch in patches {
+        if text_of(patch, "op")? != "replace" {
+            return Err("mutation uses an unsupported patch op".into());
+        }
+        let path = text_of(patch, "path")?;
+        let replacement = patch.get("value").ok_or("patch has no value")?;
+        replace_at(
+            &mut package,
+            &format!("/semantic_graph/nodes/{position}{path}"),
+            replacement,
+        )?;
+    }
+    let changed = package["semantic_graph"]["nodes"][*position].clone();
+    let node_id = changed["node_id"].clone();
+    let projection = package["identity_preimage"]["identity_projection"]
+        .as_array()
+        .ok_or("identity_projection is not an array")?;
+    let mirrors = projection
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["node_id"] == node_id)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [mirror] = mirrors.as_slice() else {
+        return Err(format!(
+            "{base}: expected one identity mirror, found {}",
+            mirrors.len()
+        ));
+    };
+    for member in ["body", "dependencies", "semantic_type"] {
+        let value = changed[member].clone();
+        replace_at(
+            &mut package,
+            &format!("/identity_preimage/identity_projection/{mirror}/{member}"),
+            &value,
+        )?;
+    }
+    let package_id = derived_with(&package, None)?;
+    replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
+    Ok(package)
+}
+
+/// QSpec's owner-free ungrouped tamper cases must reach the derived-key stage.
+/// Trace: FR-038-AC-123, FR-038-AC-133
+#[trace("FR-038-AC-123", "FR-038-AC-133")]
+#[test]
+fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {
+    let dir = fixtures_dir();
+    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
+    let rows = mutations(&adverse, "derived_shape_key_mutations").expect("mutation rows");
+    for row in rows.iter().filter(|row| {
+        row["base"] != "positive-recursive-records" && row["node"]["semantic_form"] != "record"
+    }) {
+        let id = text_of(row, "id").expect("mutation id");
+        let package = derived_shape_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
+        let expected = format!(
+            "refused:{}/{}",
+            text_of(row, "expected_code").expect("expected code"),
+            text_of(row, "expected_cause").expect("expected cause")
+        );
+        assert_eq!(
+            reading_of(&package).expect("package reading"),
+            expected,
+            "{id}"
+        );
+    }
+}
+
+/// IR-630, after QSL-638 supplies the declared SourceOwner on the wire.
+/// Trace: FR-038-AC-150
+#[trace("FR-038-AC-150")]
+#[test]
+#[ignore = "IR-630: declared SourceOwner is absent from the v2 semantic node wire"]
+fn tc_226_qspec_grouped_and_declared_derived_shape_mutations_refuse() {
+    let dir = fixtures_dir();
+    let adverse = read_json(&dir.join(ADVERSE)).expect("QSpec adverse fixture");
+    let rows = mutations(&adverse, "derived_shape_key_mutations").expect("mutation rows");
+    for row in rows.iter().filter(|row| {
+        row["base"] == "positive-recursive-records" || row["node"]["semantic_form"] == "record"
+    }) {
+        let id = text_of(row, "id").expect("mutation id");
+        let package = derived_shape_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
+        let expected = format!(
+            "refused:{}/{}",
+            text_of(row, "expected_code").expect("expected code"),
+            text_of(row, "expected_cause").expect("expected cause")
+        );
+        assert_eq!(
+            reading_of(&package).expect("package reading"),
+            expected,
+            "{id}"
+        );
     }
 }
 

@@ -11,8 +11,9 @@
 //! keyed from its own preimage.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, fixture_source, node_id, nominal_fixture_members, nominal_package,
-    rebuild_source_map, refresh_identity, refusal, refusal_at, sha256_hex, source_owner,
+    canonical, evidence_for, fixture_source, mint_ungrouped_structural_keys, node_id,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, refusal,
+    refusal_at, sha256_hex, source_owner,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -315,6 +316,7 @@ fn node_key(package: &Value, position: usize) -> String {
 fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
     let mut package = parameters_package();
     mutate(&mut package["semantic_graph"]["nodes"][position]);
+    mint_ungrouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     package

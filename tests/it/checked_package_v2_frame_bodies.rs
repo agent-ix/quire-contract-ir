@@ -6,7 +6,8 @@
 //! `state`/`frame` nodes.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, refresh_identity, refusal_at, v2_all_families,
+    canonical, evidence_for, mint_ungrouped_structural_keys, node_id, refresh_identity, refusal_at,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -87,6 +88,7 @@ fn tc_053_process_in_creates_and_object_type_in_deletes_are_admitted() {
     package["semantic_graph"]["nodes"][index]["body"]["modifies"] = modifies;
     package["semantic_graph"]["nodes"][index]["body"]["creates"] = Value::Array(vec![process]);
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] = Value::Array(vec![object_type]);
+    mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
 
     admitted(&package);
@@ -133,6 +135,7 @@ fn tc_053_meaning_join_defect_outranks_a_co_occurring_order_defect() {
     // individually eligible for `deletes`.
     package["semantic_graph"]["nodes"][index]["body"]["deletes"] =
         Value::Array(vec![process, object_type]);
+    mint_ungrouped_structural_keys(&mut package);
     refresh_identity(&mut package);
 
     let refusal = refused(&package);
@@ -185,6 +188,7 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
         let mut package = base.clone();
         package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
             Value::Array(vec![relationship(entry)]);
+        mint_ungrouped_structural_keys(&mut package);
         refresh_identity(&mut package);
         assert_eq!(
             refused(&package),
@@ -201,21 +205,17 @@ fn tc_053_frame_entry_outside_dependencies_refuses_as_missing_declaration() {
 
 /// FR-038-AC-15: with two defective `state`/`frame` nodes, the reader reports
 /// the first one it visits (ascending `node_id` digest) rather than comparing
-/// every frame's defect — even when the *other* frame's defect would outrank
-/// this one's under FR-038-AC-14's own single-frame precedence (a
-/// meaning-join defect over a canonical-order defect).
+/// every frame's defect.
 ///
 /// Adds a second frame node keyed below the published frame's own digest,
 /// built from the same entries the published frame already declares, but
 /// with `deletes` in descending digest order — a pure canonical-order defect
 /// (the *weaker* of the two defect classes; both entries stay individually
 /// eligible for `deletes`, so there is no meaning-join defect alongside it).
-/// The published frame itself is then mutated to carry a meaning-join defect
-/// (an entry naming a real node it never declared as a dependency) — the
-/// *stronger* class, which AC-14 requires to win whenever both defects sit in
-/// one frame. AC-15 requires the lower-keyed frame's own, weaker defect to be
-/// reported instead: the higher-keyed frame's stronger defect is never even
-/// reached, because the reader stops at the first defective frame it visits.
+/// The published frame itself is then mutated to carry a missing-declaration
+/// defect (an entry naming a real node outside its dependencies). AC-15
+/// requires the lower-keyed frame's own defect to be reported instead: the
+/// higher-keyed frame is never reached.
 ///
 /// Tracing: TC-053, FR-038-AC-15
 #[trace("TC-053", "FR-038-AC-15")]
@@ -230,8 +230,7 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     // A second frame, keyed below the published frame's own digest, sharing
     // the same declared dependencies and `modifies` entries, but with
     // `deletes` reversed.
-    let lower_digest = "0505".repeat(16);
-    lower_frame["node_id"] = node_id(&lower_digest);
+    lower_frame["node_id"] = node_id(&"0505".repeat(16));
     lower_frame["body"]["creates"] = Value::Array(Vec::new());
     lower_frame["body"]["deletes"] = Value::Array(vec![process, object_type]);
 
@@ -242,12 +241,44 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
     let lower_index = nodes.len();
     nodes.push(lower_frame);
 
-    // The published frame's own body: a meaning-join defect, an entry naming
-    // a real node it never declared as a dependency.
-    let aaaa = package["semantic_graph"]["nodes"][0]["node_id"].clone();
-    package["semantic_graph"]["nodes"][index]["body"]["modifies"] =
-        Value::Array(vec![relationship(aaaa)]);
+    // Choose a real node outside the frame's dependencies whose independently
+    // derived stronger-defect frame key sorts after the weaker frame's key.
+    let package = (0..lower_index)
+        .filter_map(|candidate| {
+            let target = package["semantic_graph"]["nodes"][candidate]["node_id"].clone();
+            if package["semantic_graph"]["nodes"][index]["dependencies"]
+                .as_array()
+                .expect("dependencies")
+                .contains(&target)
+            {
+                return None;
+            }
+            let mut variant = package.clone();
+            variant["semantic_graph"]["nodes"][index]["body"]["modifies"] =
+                Value::Array(vec![relationship(target)]);
+            mint_ungrouped_structural_keys(&mut variant);
+            let lower = variant["semantic_graph"]["nodes"][lower_index]["node_id"]["digest"]
+                .as_str()
+                .expect("derived frame digest");
+            let stronger = variant["semantic_graph"]["nodes"][index]["node_id"]["digest"]
+                .as_str()
+                .expect("derived frame digest");
+            (lower < stronger).then_some(variant)
+        })
+        .next()
+        .expect("valid derived keys with the weaker frame first");
+    let mut package = package;
     refresh_identity(&mut package);
+    let lower_digest = package["semantic_graph"]["nodes"][lower_index]["node_id"]["digest"]
+        .as_str()
+        .expect("derived frame digest");
+    let stronger_digest = package["semantic_graph"]["nodes"][index]["node_id"]["digest"]
+        .as_str()
+        .expect("derived frame digest");
+    assert!(
+        lower_digest < stronger_digest,
+        "weaker defect must sort first"
+    );
 
     assert_eq!(
         refused(&package),
@@ -255,9 +286,8 @@ fn tc_053_two_defective_frames_refuse_at_the_lower_keyed_frame() {
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             &frame_body(lower_index),
             None,
-            &lower_digest,
+            lower_digest,
         ),
-        "the lower-keyed frame's own (weaker) defect must be reported, not \
-         the higher-keyed frame's (stronger) meaning-join defect"
+        "the lower-keyed frame's own defect must be reported before the higher-keyed frame"
     );
 }

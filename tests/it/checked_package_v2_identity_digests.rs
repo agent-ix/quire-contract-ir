@@ -16,9 +16,10 @@ use ix_trace_rs::trace;
 use quire_canonical::{Error, LimitKind};
 use quire_contract_ir::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2, NominalIdentityPreimage,
+    CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    NominalIdentityPreimage,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -26,33 +27,32 @@ use std::path::{Path, PathBuf};
 /// canonical byte length, recorded from the lowering before the move to
 /// `quire-canonical`. One `node ir_id` pair per line, in graph order.
 const RECORDED_ALL_FAMILIES: &str = "\
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 39fcdcad8558e6266381e0473c730c66965087f81bcb7adc5f99aa0155514af9
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb d66cb5b15dff6ae1cec8f875535ee8fffa8935fef9d2a0d118c5ca6172f6bbd7
-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc 69b26b6562dccae6f97679d338438e70d77445fb83527b30b49d7c6601c15111
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd 103e55988e513f1c600574dfdc83f88e73266935600961f50611ad07408570aa
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee 62330a59c40bffdba5f0d89a83b837271563c223f6b68101976c463508c9c48d
-ace54dacfc17d1530436ee8074e3b14ed40e087033115595bb8d1d392b12b36e 0ea17a9e943e5e051d3b4f033777f46f6848d8026da4aaaa0ab3c8b4e1d5eeaa
-1010101010101010101010101010101010101010101010101010101010101010 616ba6525b290c84f1c407dc708b910a35ec307cc9615532a55389c28c8116c6
-2020202020202020202020202020202020202020202020202020202020202020 17f858cfdadae63b3919bdbfd51be1f3931a8b26c7214b99347be08db8fdb07b
-3030303030303030303030303030303030303030303030303030303030303030 8a140681fe45569f9a58af68dcced609b321023d909dcf436f017bf64c6eafa8
-5f934c5208321e5e08835d4506c1d7ad736a25c3ab6ee8415daa842c0ff587ba d990ad3092d1d88fd811752064b70d02232b9ea656273e104f8e3e4fe9a1f395
-ab48836daadf2308e60c9ace4f273245980b53ede1e65416cc00270ccae71e79 93fd0a1b39ae451798c67eecd3ed9e1de35504702fecf2118fbaf1f796bb17a3
-773d33e42cbc9e5f3735330b41fd06b6c58609eb2369a408b7801b87104a035d 95ba07af33eae01930fcaee8b03bfd70722e78c870dbf7d061fc4604936e1721
-7070707070707070707070707070707070707070707070707070707070707070 55e635a70d36a40c3cdb033996ffd501e720c12b0adee9db2828fe86fd228e3c
-8080808080808080808080808080808080808080808080808080808080808080 914140e10534e3f22803ecbb40b89c215e43f419211abb23fcbe36cd205762d9
-1515151515151515151515151515151515151515151515151515151515151515 8771428969ce08b4d8373f7cb077a691ddf041b89ce54e4bb18cb9e6030628ec
-1616161616161616161616161616161616161616161616161616161616161616 69d1fac2393973f8af0eaade013e84292a178c7647e473ab39a1ab782114e1e7
-f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0 bd74d12307f1dee12e77dec4a898135a73d625b8c38daad0ad8cd8e01fda9914
+9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa 742a476c3eb3106e7a35ca7a056d806245cbaf50526cdd6749d61330ad7bf187
+64122a85d03d18a2cc2159533da9a64dcf38cbd51d2dd1dc787684b2c6dca3ff f9ec7e88cabdf27428942bdac05604c925502435d8880c4342e74acfe270f8b2
+da7206523158146e82400a142bf315ccbaab12be85cd9bb7306f610e857dce00 a4a410f63d9ffaf6485dced3497181ebf555d792dca9eaa2e5307e49be943e61
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd 205694e20f84256d05f36b48ae4530211a6eaf550d2499141b88ed11c23d25ab
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ec8daec331d3141d61437f3f034afaf149d1ff0b6056e54bace784d589ee9507
+46ba3240097c31e20c060e8d22ca6d9c8367157eeaef4d07df58ff4564b03f4d 93c499162238525068185c7640408b49ba0bdfd781b623f3bce43f380f620d6f
+1010101010101010101010101010101010101010101010101010101010101010 f591e6be7787b9ae6c05ef734bf57f7988ae6bed27b18dd995e2e24a5b28d143
+2020202020202020202020202020202020202020202020202020202020202020 adad6936f27bc9d4a3ec53825743dd73dc16f1ba999004c59a8a27d3e26ddafe
+3030303030303030303030303030303030303030303030303030303030303030 154f979c1f76c16cc939cccc05a0b33a95eb2a1b8ca0bf9823d1cbd72152f1b3
+604ab43bb381922319c084f90fb8f3a63d913263e64e11abfe6d930b7a485683 18d00b7f5f9b92f4ac4489ae1c19f98f8f118adc6d29951d805543d7e934d3e0
+bb759058b3950264ddf00aa88788145c3fff9d50c1d978385d9d37ab937d34fd 5e3cc03945d41279fa91322c4bcb59aeaffd73fdf7c233ed7df070e80020093d
+570ad4c0f445d4b9205ac8f700c7354b371470f07574c9d50aaf7fc2c52985b0 4411df292705a9f5f5fbba48a20ded700d16d7587b2a183695154f5c9a2d94ad
+7070707070707070707070707070707070707070707070707070707070707070 aa1bc18362fe82ef94f0edcc49ad7b4c4a9c19809f0dc58e7a32abe114885784
+8080808080808080808080808080808080808080808080808080808080808080 f80587b8ed259103feb9510015ed584ba1f2f8bb0c11a531e1854ce85adf591b
+1515151515151515151515151515151515151515151515151515151515151515 5218c467de614e9074cd7c3edb1dbf4559c109a5dccf0637699e6e2afd2dc744
+1616161616161616161616161616161616161616161616161616161616161616 1d1134d4d43f5f02e14ccf05e9ece8e91a8881eee64dd1685e32e2259717368b
+f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0f4a0 e68f4ea524756a27c7a80079128dcf8b5b7dcb0dee34b5020b8ba266b1a64db5
 a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1 7bc463ef2cd246231a48e0f812baed64d2f61d8e724ca466bc0b53b0e24f91b2
-9e1bda145090a3ee6217e5549dbfa47351221847ae2382bbf07ea6a5bdb5556e fe3eac164599910357b08ce94b5d0b04ad079949c11f51ffde5d2da7090ae4ae
-ac694939ba336aab1fe50613ed2326dcf27c1cd69f477474a82331e3b089ef7b 7525871ceff187be476bea1fd57486c634f88221902ea57e58dbb53d6381050d
-a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6 8d0ddd66b582ce9c631a2dc91485ad771512cd9af4592018328a3bd5cc51695c
-a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3 1765f6c8ec87d21d7709370998acac0eed95a5280682091e7f25a53e88342709
-a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4 25284da55bcd9dddc4785e94661131b679f57a103ead665f0a2fa0a560ae2dc8
+9ff55d90c0aee49063e5089611362385e897453178ad2c64163014c6e36afbee 48017a73a26ce8a906d3bc302f082ff4b5ff44e35415765709851625cfda267a
+a677efccc10c1960b68811f6d9904c6fdae6c3a99bc62a1f1cea9c3653cc4b9a e59e72574f82dd7c7fb40786e0060df0c4177a393d38a2b04da2a8b8a21e661e
+07f6dca966d22bde13d3bb198f12610e57d8e1e04d0476bbab03f405d2b04e32 aeef2fa1c3789c2ff17389d2b237ed1c2ba3cc9d26b8fda79c6c3975a9af2114
+a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4 714815380b2d282c308ba5d34dbec2d469160a801dcc96486704cbddf29b1913
 ";
 const ALL_FAMILIES_PACKAGE: (&str, usize) = (
-    "d688cce71d20310c7c018499420aedfe4247808e2eb10d689c4226cc47453aba",
-    39522,
+    "ff928e306afa74914b5674cea6060c94458c7b12e8eb06a0d966c01b3059061f",
+    38370,
 );
 
 const RECORDED_NOMINAL: &str = "\
@@ -67,14 +67,14 @@ const NOMINAL_PACKAGE: (&str, usize) = (
 );
 
 const RECORDED_OPERATIONS: &str = "\
-beefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeef 86b877fd505f970ee50918aeed93cb1496ebfda80fb1a655244249cb8312454b
-cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe d884a10a9189123760eb4e54d447d585b1bdc6021c045b7f2dcf26ee0a7c0025
-d00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00d 689ce9939e0be390e0ef90f045992aa51fd7ea385e7e026a7d7663bc556025ff
-f00df00df00df00df00df00df00df00df00df00df00df00df00df00df00df00d 32084934e99105f13caf8377bcff6fcf2445aa6147e5fd6532f44fbcd35bfbea
-91d352432696da426e7324426094c63a0bcfa0f74bc22880132a004bbae62081 9547532a7a7b33376907f037d05e66bad03fe14d5c85a667ace93e249f1d0981
+9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa 742a476c3eb3106e7a35ca7a056d806245cbaf50526cdd6749d61330ad7bf187
+cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe 88614f70de145e5eee7e55f61f4247d959ade92f6ee1a735d1beeab4506ab044
+d00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00d 3691777c4507fcbc1c730c20af9ccc916c5e223086b5dabe4e75d25eca39da29
+f00df00df00df00df00df00df00df00df00df00df00df00df00df00df00df00d 9b8fad0018827aaa5c6be8b7dd71d66f0c1303569ba1defeecd188d88f007847
+37b50f2dd7623c54a5ca2b73b2fc6a965b2eeeccb6a8ccd47b8f137b32ff4f3f d84e850e60b9b483e01f64de7a8408f58ac57bfda342992d763e41a6dfc5465e
 ";
 const OPERATIONS_PACKAGE: (&str, usize) = (
-    "c716dbac37d2c2560fb67137a0628677bc44156bfe59e9c5e9c2179df1c2576a",
+    "c10dac8e60c89fd64a3838f21bc482e560a84baef299808a307cb09604ddeaa4",
     7949,
 );
 
@@ -87,6 +87,51 @@ fn admit(value: &Value) -> CheckedPackageV2 {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("expected V2 admission, got {other:?}"),
     }
+}
+
+/// Independent FR-092 key oracle over the published structural preimage.
+/// The fixture builder does not supply this expected digest.
+fn structural_oracle_key(wire: &Value) -> String {
+    let key = &wire["node_id"];
+    let semantic_type = (&wire["semantic_type"] != key).then(|| wire["semantic_type"].clone());
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": wire["node_tag"],
+        "semantic_form": wire["semantic_form"],
+        "semantic_type": semantic_type,
+        "declaration": wire.get("declaration"),
+        "recursion": null,
+        "body": wire["body"],
+    });
+    sha256_hex(&canonical(&preimage))
+}
+
+fn application_oracle_key(wire: &Value) -> String {
+    sha256_hex(&canonical(&json!({
+        "version": "quire.application-node/v1",
+        "node_tag": wire["node_tag"],
+        "semantic_form": wire["semantic_form"],
+        "semantic_type": wire["semantic_type"],
+        "declaration": wire.get("declaration"),
+        "recursion": null,
+        "body": wire["body"],
+    })))
+}
+
+/// Independent canonical-byte oracle for a lowered node's identity.
+fn lowered_oracle_id(wire: &Value, lowered: &CompleteContractNodeV2) -> String {
+    let mut projection = wire.clone();
+    projection
+        .as_object_mut()
+        .expect("wire node")
+        .remove("occurrences");
+    sha256_hex(&canonical(&json!({
+        "version": "quire.contract-ir.lowered-node/v1",
+        "node": projection,
+        "dependencies": lowered.dependencies,
+        "bounds": lowered.bounds,
+        "claims": lowered.claims,
+    })))
 }
 
 /// Tracing: TC-048
@@ -150,18 +195,45 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
         if name == "v2_nominal" {
             assert_eq!(lowered, expected, "{name}: `ir_id` values");
         } else {
-            // IR-646 adds an owner to declared/model structural nodes. The
-            // pre-owner golden remains exact for nodes whose wire shape did
-            // not change; QSL-638 supplies the authoritative owner-bearing
-            // golden in the follow-up conformance row.
+            // Exact recorded pairs remain the oracle where their identity
+            // preimage has not changed. IR-627's changed structural keys use
+            // independent test-side canonical preimages; QSpec/QSL emitted
+            // fixtures supply the authoritative golden separately.
             assert_eq!(lowered.len(), expected.len(), "{name}: node count");
-            for ((actual, previous), node) in lowered
+            for (((actual, previous), wire), record) in lowered
                 .iter()
                 .zip(&expected)
                 .zip(value["semantic_graph"]["nodes"].as_array().expect("nodes"))
+                .zip(&result.records)
             {
-                if node.get("owner").is_none() {
+                if wire.get("owner").is_some() {
+                    continue;
+                }
+                if wire.get("nominal_identity_preimage").is_some()
+                    || matches!(wire["node_tag"].as_str(), Some("model" | "relation"))
+                    || (wire["node_tag"] == "correspondence"
+                        && wire["semantic_form"] == "abstraction_relation")
+                {
                     assert_eq!(actual, previous, "{name}: owner-free node");
+                    continue;
+                }
+                let derived = if wire["body"]["term"] == "application" {
+                    application_oracle_key(wire)
+                } else {
+                    structural_oracle_key(wire)
+                };
+                if derived == previous.0 {
+                    assert_eq!(actual, previous, "{name}: unchanged structural node");
+                } else {
+                    let CompleteLoweringRecordV2::Lowered { node } = record else {
+                        panic!("{name}: expected a lowered record");
+                    };
+                    assert_eq!(actual.0, derived, "{name}: changed node key");
+                    assert_eq!(
+                        actual.1,
+                        lowered_oracle_id(wire, node),
+                        "{name}: changed node ir_id"
+                    );
                 }
             }
         }
