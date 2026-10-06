@@ -4,7 +4,7 @@ use super::{
     CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedPackageWireV2,
     CheckedSemanticNodeV2, DomainModel, WorkMeter,
 };
-use crate::checked_package::common::{first_difference, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -107,17 +107,10 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
         )?;
         if let Some(node) = wire.semantic_graph.nodes.get(position) {
             if projection.owner != node.owner {
-                let owner_at = at.key("owner");
-                let path = match (
-                    serde_json::to_value(&projection.owner),
-                    serde_json::to_value(&node.owner),
-                ) {
-                    (Ok(projection), Ok(node)) => first_difference(owner_at, &projection, &node),
-                    _ => owner_at,
-                };
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::StaleDependency,
-                    path,
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at.key("owner"),
+                    CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
         }

@@ -324,12 +324,19 @@ fn tc_228_required_and_forbidden_owner_shapes_refuse_before_identity() {
 
     let mut different = base;
     different["identity_preimage"]["identity_projection"][position]["owner"]["identity"] =
-        json!("another-source");
+        json!("other");
     refresh_package_id(&mut different);
-    refused(
-        &different,
-        CheckedPackageRefusalCode::StaleDependency,
-        &format!("{projection_path}/owner/identity"),
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&different) else {
+        panic!("different projection source owner must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        format!("{projection_path}/owner")
     );
 }
 
@@ -337,6 +344,35 @@ fn refresh_package_id(package: &mut Value) {
     package["package_id"]["digest"] = json!(crate::support::checked_package::sha256_hex(
         &canonical(&package["identity_preimage"])
     ));
+}
+
+/// Trace: FR-038-AC-154
+#[trace("TC-228", "FR-038-AC-154")]
+#[test]
+fn tc_228_projection_model_owner_difference_refuses_at_owner_before_join() {
+    let mut package = v2_all_families();
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "relation" && node["semantic_form"] == "relationship")
+        .expect("relationship node");
+    package["identity_preimage"]["identity_projection"][position]["owner"]["node"] =
+        json!("ix://acme/orders/Order");
+    refresh_package_id(&mut package);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("different projection model owner must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.path.expect("path").as_str(),
+        format!("/identity_preimage/identity_projection/{position}/owner")
+    );
 }
 
 /// Trace: FR-038-AC-155
