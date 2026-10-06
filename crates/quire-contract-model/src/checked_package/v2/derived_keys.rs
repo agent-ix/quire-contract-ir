@@ -299,6 +299,12 @@ fn bounded_key(
     bytes: u64,
 ) -> Result<Option<String>, quire_canonical::Error> {
     let integer = MemberType::Integer.node_key(bytes)?;
+    if matches!(over, BoundsOver::Integer)
+        && (node.semantic_type.domain.as_ref() != NODE_DOMAIN
+            || node.semantic_type.digest.as_ref() != integer)
+    {
+        return Ok(None);
+    }
     let typed_at_integer =
         |id: &CheckedNodeId| id.domain.as_ref() == NODE_DOMAIN && *id.digest == *integer;
     let (Some(lower), Some(upper)) = (
@@ -396,7 +402,34 @@ pub(super) fn validate_derived_keys(
         if shape.is_some_and(|shape| grouped.skips(position, shape)) {
             continue;
         }
-        let derived = if let Some(shape) = shape {
+        let bounded_type_matches = match shape {
+            Some(Shape::CollectionBounds) => index
+                .get(&node.semantic_type)
+                .and_then(|&target| kinds.get(target))
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        CheckedNodeKind::CompositeType(
+                            CompositeTypeForm::Set
+                                | CompositeTypeForm::Bag
+                                | CompositeTypeForm::Sequence
+                                | CompositeTypeForm::OrderedSet
+                        )
+                    )
+                }),
+            Some(
+                Shape::Boolean
+                | Shape::Integer
+                | Shape::Reference
+                | Shape::Option
+                | Shape::Collection(_)
+                | Shape::IntegerRange,
+            )
+            | None => true,
+        };
+        let derived = if !bounded_type_matches {
+            Ok(None)
+        } else if let Some(shape) = shape {
             derived_key(node, shape, bytes)
         } else {
             quire_canonical::sha256(

@@ -329,6 +329,170 @@ fn tc_226_owner_free_parameter_and_text_keys_cover_their_bodies() {
     assert_stale("text type body", &altered, &text);
 }
 
+/// Each included owner-free form is checked from its own QSL preimage, not
+/// only the ten closed shapes handled by the specialized path.
+/// Trace: FR-038-AC-131
+#[trace("FR-038-AC-131")]
+#[test]
+fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
+    let base = base();
+    let empty = json!({"term": "aggregate", "members": []});
+    for (tag, form, semantic_type, body) in [
+        (
+            "bounded_domain",
+            "rational_range",
+            INTEGER_KEY,
+            empty.clone(),
+        ),
+        (
+            "bounded_domain",
+            "decimal_range",
+            INTEGER_KEY,
+            empty.clone(),
+        ),
+        (
+            "bounded_domain",
+            "float_rounding",
+            INTEGER_KEY,
+            empty.clone(),
+        ),
+        ("bounded_domain", "text_bounds", INTEGER_KEY, empty.clone()),
+        (
+            "bounded_domain",
+            "model_population",
+            INTEGER_KEY,
+            empty.clone(),
+        ),
+        ("scalar_type", "rational", "", empty.clone()),
+        ("scalar_type", "decimal", "", empty.clone()),
+        ("scalar_type", "float32", "", empty.clone()),
+        ("scalar_type", "float64", "", empty.clone()),
+        ("composite_type", "record", "", empty.clone()),
+        ("composite_type", "tuple", "", empty.clone()),
+        ("composite_type", "alias", "", empty.clone()),
+        (
+            "value",
+            "literal",
+            INTEGER_KEY,
+            json!({
+                "term": "literal", "type": node_id(INTEGER_KEY),
+                "value_kind": "integer", "value": "1"
+            }),
+        ),
+        ("value", "collection_value", INTEGER_KEY, empty.clone()),
+        ("value", "record_value", INTEGER_KEY, empty.clone()),
+        ("value", "tuple_value", INTEGER_KEY, empty.clone()),
+        ("value", "option_value", INTEGER_KEY, empty.clone()),
+    ] {
+        let key = structural_key(
+            tag,
+            form,
+            (!semantic_type.is_empty()).then_some(semantic_type),
+            &body,
+        );
+        let ty = if semantic_type.is_empty() {
+            key.as_str()
+        } else {
+            semantic_type
+        };
+        let added = node(&key, tag, form, ty, &[], body);
+        let package = with_nodes(base.package.clone(), vec![added]);
+        admitted(&format!("{tag}/{form}"), &package);
+        let altered = tampered(&package, &key, |node| {
+            node["body"] = json!({"term": "aggregate", "members": [
+                {"term": "reference", "target": node_id(INTEGER_KEY)}
+            ]});
+        });
+        assert_stale(&format!("{tag}/{form}"), &altered, &key);
+    }
+}
+
+/// The forms with stricter body grammars also reach key re-derivation with
+/// valid mutations of their own body values.
+/// Trace: FR-038-AC-131
+#[trace("FR-038-AC-131")]
+#[test]
+fn tc_226_compound_unit_and_union_forms_cover_their_bodies() {
+    let nominal = v2_nominal();
+    let nominal_nodes = nominal["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nominal nodes")
+        .clone();
+    let unit = nominal_nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "unit")
+        .expect("root unit")["node_id"]["digest"]
+        .as_str()
+        .expect("unit key")
+        .to_owned();
+    let compound_body = |exponent: &str| {
+        json!({"term": "aggregate", "members": [{
+            "term": "aggregate", "members": [
+                {"term": "binding", "name": "unit",
+                 "value": {"term": "reference", "target": node_id(&unit)}},
+                {"term": "binding", "name": "exponent",
+                 "value": {"term": "literal", "type": node_id(INTEGER_KEY),
+                           "value_kind": "integer", "value": exponent}},
+            ]
+        }]})
+    };
+    let body = compound_body("2");
+    let key = structural_key("scalar_type", "compound_unit", None, &body);
+    let mut compound = node(&key, "scalar_type", "compound_unit", &key, &[&unit], body);
+    compound["occurrences"] = json!([{"role": "type", "ordinal": 0}]);
+    let package = with_nodes(
+        nominal,
+        vec![
+            node(
+                INTEGER_KEY,
+                "scalar_type",
+                "integer",
+                INTEGER_KEY,
+                &[],
+                json!({"term": "aggregate", "members": []}),
+            ),
+            compound,
+        ],
+    );
+    admitted("compound unit", &package);
+    let altered = tampered(&package, &key, |node| node["body"] = compound_body("3"));
+    assert_stale("compound unit exponent", &altered, &key);
+
+    let union_body = |name: &str| {
+        json!({"term": "aggregate", "members": [{
+            "term": "binding", "name": name,
+            "value": {"term": "aggregate", "members": []}
+        }]})
+    };
+    let body = union_body("One");
+    let union = structural_key("composite_type", "union", None, &body);
+    let union_node = node(&union, "composite_type", "union", &union, &[], body);
+    let value_body = |name: &str| {
+        json!({"term": "aggregate", "members": [{
+            "term": "binding", "name": name,
+            "value": {"term": "aggregate", "members": []}
+        }]})
+    };
+    let value_key = structural_key("value", "union_value", Some(&union), &value_body("One"));
+    let mut value_node = node(
+        &value_key,
+        "value",
+        "union_value",
+        &union,
+        &[],
+        value_body("One"),
+    );
+    value_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+    let package = with_nodes(base().package, vec![union_node, value_node]);
+    admitted("union and union value", &package);
+    let altered = tampered(&package, &union, |node| node["body"] = union_body("Two"));
+    assert_stale("union member", &altered, &union);
+    let altered = tampered(&package, &value_key, |node| {
+        node["body"] = value_body("Two")
+    });
+    assert_stale("union value member", &altered, &value_key);
+}
+
 /// Edits the `min` or `max` literal's `value` of a bounds body.
 fn set_bound(node: &mut Value, name: &str, value: &str) {
     for member in node["body"]["members"].as_array_mut().expect("members") {
@@ -417,8 +581,38 @@ fn member_read(
         "arguments": [{"term": "reference", "target": node_id(&order)}],
     });
     let read_key = application_node_key("expression", "query", result, &body);
-    let (range_key, range_node) = range("0", result_maximum(result));
-    let nodes = vec![
+    let constraints = &document["types"][1]["constraints"];
+    let bound = |position: usize| {
+        constraints[position]["operands"]["value"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| {
+                constraints[position]["operands"]["value"]
+                    .as_i64()
+                    .map(|value| value.to_string())
+            })
+            .expect("integer bound")
+    };
+    let (range_key, range_node) = range(&bound(0), &bound(1));
+    let field = &document["types"][0]["fields"][0];
+    let mut type_nodes = vec![range_node];
+    if field["presence"] == "optional" {
+        let (key, wrapper) = collection("option", &range_key);
+        assert_eq!(key, result);
+        type_nodes.push(wrapper);
+    } else if field["multiplicity"]["lower"] == 0 && field["multiplicity"]["upper"].is_null() {
+        let form = if field["multiplicity"]["ordered"] == true {
+            "sequence"
+        } else {
+            "set"
+        };
+        let (key, wrapper) = collection(form, &range_key);
+        assert_eq!(key, result);
+        type_nodes.push(wrapper);
+    } else {
+        assert_eq!(range_key, result);
+    }
+    let mut nodes = vec![
         node(
             INTEGER_KEY,
             "scalar_type",
@@ -431,10 +625,9 @@ fn member_read(
             node(&order, "model", "object_type", &order, &[], empty),
             model_owner(ORDERS, ORDER),
         ),
-        range_node,
         node(&read_key, "expression", "query", result, &[&order], body),
     ];
-    assert_eq!(range_key, result);
+    nodes.append(&mut type_nodes);
     package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
@@ -447,15 +640,6 @@ fn member_read(
             .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
     }
     (package, evidence)
-}
-
-/// The `max` of the range key `Int[0, 10]` or `Int[0, 1000]`.
-fn result_maximum(key: &str) -> &'static str {
-    if key == integer_range_key("0", "10") {
-        "10"
-    } else {
-        "1000"
-    }
 }
 
 /// The rows AC-123 tampers a `[0, 1000]` range by, as `(row, edit)`.
@@ -521,19 +705,17 @@ fn tc_226_a_tampered_range_is_refused_at_its_node_wherever_it_is_reached_from() 
         );
     }
 
-    // A state node whose body names the range (the fixture's `state`/`snapshot`
-    // node): the rows hold for the state route too, and the state step never
-    // gets to read the tampered range.
+    // A state field's body target names the range through the fixture's
+    // `state`/`snapshot` node. The state step never gets to read a tamper.
     let mut state = unmutated.clone();
     let snapshot = at(&state, &family_key("3030"));
-    state["semantic_graph"]["nodes"][snapshot]["body"] = over_body(&base.wide);
+    let field_body = json!({"term": "aggregate", "members": [{
+        "term": "binding", "name": "count",
+        "value": {"term": "reference", "target": node_id(&base.wide)}
+    }]});
+    state["semantic_graph"]["nodes"][snapshot]["body"] = field_body.clone();
     state["semantic_graph"]["nodes"][snapshot]["dependencies"] = json!([node_id(&base.wide)]);
-    let state_key = structural_key(
-        "state",
-        "snapshot",
-        Some(BOOLEAN_KEY),
-        &over_body(&base.wide),
-    );
+    let state_key = structural_key("state", "snapshot", Some(BOOLEAN_KEY), &field_body);
     rename_node(&mut state, &family_key("3030"), &state_key);
     refresh_identity(&mut state);
     admitted("the state node naming the range", &state);
@@ -728,6 +910,17 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
         &retype(&base.zero, BOOLEAN_KEY),
         &base.zero,
     );
+    // Rekeying after the semantic-type edit must not turn an invalid form
+    // into an admitted one. Both target nodes are genuinely keyed.
+    for (what, key) in [
+        ("integer_range typed at Boolean", &base.zero),
+        ("collection_bounds typed at Boolean", &base.sequence_bounds),
+    ] {
+        let (package, fresh) = rekeyed(package, key, |n| {
+            n["semantic_type"] = node_id(BOOLEAN_KEY);
+        });
+        assert_stale(what, &package, &fresh);
+    }
     // The literal `type` of `min` and `max` re-pointed at a genuinely keyed
     // node of another type.
     for key in [&base.sequence_bounds, &base.zero] {
@@ -769,6 +962,115 @@ fn tc_226_a_body_reference_re_pointed_at_a_narrower_range_is_refused_at_its_node
     assert_eq!(refusal, stale_at(&package, &base.wide));
     assert_ne!(refusal.locus, Some(typed_node_id(&base.parameter)));
     assert_ne!(refusal.locus, Some(typed_node_id(&base.add)));
+
+    // The selected document declares the field's wrapped type, so the
+    // member-read operation reaches each wrapper through a real declaration.
+    for (what, form) in [
+        ("optional field", "option"),
+        ("set field", "set"),
+        ("sequence field", "sequence"),
+    ] {
+        let mut document = orders_document(1000);
+        if form == "option" {
+            document["types"][0]["fields"][0]["presence"] = json!("optional");
+        } else {
+            document["types"][0]["fields"][0]["multiplicity"] = json!({
+                "lower": 0,
+                "ordered": form == "sequence", "unique": form == "set"
+            });
+        }
+        let key = structural_key("composite_type", form, None, &over_body(&base.wide));
+        let (package, evidence) = member_read(&document, &key, &[&document]);
+        match read(&package, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => {}
+            other => panic!("{what}: expected admission, read {other:?}"),
+        }
+        let altered = tampered(&package, &key, |node| {
+            node["body"]["members"][0]["target"] = node_id(&base.narrow);
+        });
+        // The genuinely keyed narrow target is supplied as a node, so the
+        // mismatch is the declared wrapper's retained key, not a dangling ref.
+        let (_, narrow_node) = range("0", "10");
+        let altered = with_nodes(altered, vec![narrow_node]);
+        assert_eq!(
+            refusal_of(what, &altered, &evidence),
+            stale_at(&altered, &key),
+            "{what}"
+        );
+    }
+
+    // A selected operation declares a bounded parameter and return. Its
+    // dispatch call reads that parameter through the model member table.
+    let mut document = orders_document(1000);
+    document["types"][0]["operations"] = json!([{
+        "identity": format!("{ORDER}/total"),
+        "params": [{
+            "typeRef": COUNT,
+            "multiplicity": {"lower": 1, "upper": 1,
+                             "ordered": false, "unique": true}
+        }],
+        "returns": {
+            "typeRef": COUNT,
+            "multiplicity": {"lower": 1, "upper": 1,
+                             "ordered": false, "unique": true}
+        }
+    }]);
+    let (mut package, evidence) = member_read(&document, &base.wide, &[&document]);
+    let order = order_key();
+    let (reference, reference_node) = collection("reference", &order);
+    let (receiver, receiver_node) = parameter("receiver", "0", &reference);
+    let (argument, argument_node) = parameter("argument", "1", &base.wide);
+    let body = json!({
+        "term": "application", "operator": "call",
+        "operation": {
+            "identity": "quire.op.model.dispatch_call", "laws": [], "mode": null,
+            "member": {"kind": "operation", "declaration": node_id(&order), "name": "total"},
+            "leaves": []
+        },
+        "result_type": node_id(&base.wide),
+        "arguments": [
+            {"term": "reference", "target": node_id(&receiver)},
+            {"term": "reference", "target": node_id(&argument)}
+        ]
+    });
+    let call = application_node_key("expression", "call", &base.wide, &body);
+    let mut deps = vec![order.as_str(), receiver.as_str(), argument.as_str()];
+    deps.sort_unstable();
+    package = with_nodes(
+        package,
+        vec![
+            node(
+                &family_key("a1a1"),
+                "scalar_type",
+                "text",
+                &family_key("a1a1"),
+                &[],
+                json!({"term": "aggregate", "members": []}),
+            ),
+            reference_node,
+            receiver_node,
+            argument_node,
+            node(&call, "expression", "call", &base.wide, &deps, body),
+        ],
+    );
+    match read(&package, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        other => panic!("declared operation parameter: expected admission, read {other:?}"),
+    }
+    let altered = tampered(&package, &base.wide, |node| set_bound(node, "max", "10"));
+    assert_eq!(
+        refusal_of("declared operation parameter range", &altered, &evidence),
+        stale_at(&altered, &base.wide)
+    );
+    let altered = tampered(&package, &reference, |node| {
+        node["body"]["members"][0]["target"] = node_id(&base.narrow);
+    });
+    let (_, narrow_node) = range("0", "10");
+    let altered = with_nodes(altered, vec![narrow_node]);
+    assert_eq!(
+        refusal_of("declared operation receiver reference", &altered, &evidence),
+        stale_at(&altered, &reference)
+    );
 }
 
 /// `package` with the body of the application keyed `key` edited and the
@@ -925,6 +1227,41 @@ fn tc_226_bounds_are_compared_exactly_at_the_i128_extremes() {
     ] {
         let package = tampered(package, key, |n| set_bound(n, edit.0, edit.1));
         assert_stale(row, &package, key);
+    }
+
+    // The same exact comparison is exercised through a selected document's
+    // declared field, including bounds outside JSON's i64 integer range.
+    for (what, min, max, rows) in [
+        ("declared zero", "0", "0", vec![("max", "1"), ("min", "-1")]),
+        (
+            "declared i128 extremes",
+            I128_MIN,
+            I128_MAX,
+            vec![
+                ("max", I128_MAX_LESS_ONE),
+                ("max", I128_MAX_PLUS_ONE),
+                ("min", I128_MIN_LESS_ONE),
+                ("min", "-170141183460469231731687303715884105727"),
+            ],
+        ),
+    ] {
+        let mut document = orders_document(0);
+        document["types"][1]["constraints"][0]["operands"]["value"] = json!(min);
+        document["types"][1]["constraints"][1]["operands"]["value"] = json!(max);
+        let key = integer_range_key(min, max);
+        let (package, evidence) = member_read(&document, &key, &[&document]);
+        match read(&package, &evidence) {
+            CheckedPackageV2ReadResult::Admitted(_) => {}
+            other => panic!("{what}: expected admission, read {other:?}"),
+        }
+        for (member, changed) in rows {
+            let altered = tampered(&package, &key, |node| set_bound(node, member, changed));
+            assert_eq!(
+                refusal_of(what, &altered, &evidence),
+                stale_at(&altered, &key),
+                "{what}: {member} changed to {changed}"
+            );
+        }
     }
 }
 
