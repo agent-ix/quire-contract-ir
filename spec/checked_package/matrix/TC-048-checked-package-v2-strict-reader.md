@@ -988,6 +988,14 @@ results.
    refusals and selection-row pointer. The current SelectionRefusal mapping
    retains no declaration identity or graph-node locus and promises no FCD
    origin/sourceIdentity/path/span/artifact metadata; no row returns a package.
+   Record this as the named FR-154/FR-322 declaration-refusal-retention
+   conformance gap owned by IR-663, not a passing metadata-retention oracle.
+   IR-663's future allocation retains node identity and FCD origin verbatim,
+   including sourceIdentity/path/span as supplied for source origin and the
+   supplied generated-origin members with no invented span. That design/code
+   remains PLANNED / UNRUN; its upstream normative amendment is unmerged.
+   IR-663 is diagnostic metadata work after QSpec #191 and IR-651, not a
+   QSL-638 gate.
 4. Repeat one relationship identity under the same owner and under a second
    owner: each is `invalid_model_binding`/`conflicting-binding`. Remove the
    identity from two relationships: each is a malformed declaration, never
@@ -1119,6 +1127,8 @@ Expected: each success and refusal above satisfies FR-038-AC-165 through
 FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
 key only
 where the existing refusal retains its locus; selected-document refusals
-do not retain a declaration identity or FCD metadata. Do not parse diagnostic
-prose. These outcomes remain **UNRUN** until the
+do not retain a declaration identity or FCD metadata. This current limit is
+the named IR-663 declaration-refusal-retention conformance gap; metadata
+retention required by merged FR-154/FR-322 remains unverified pending that
+work and the upstream normative amendment for the allocated verbatim origin. Do not parse diagnostic prose. These outcomes remain **UNRUN** until the
 implementation lane records executed evidence.

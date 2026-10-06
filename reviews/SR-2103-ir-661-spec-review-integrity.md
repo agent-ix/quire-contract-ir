@@ -68,3 +68,19 @@ Round 1, reviewed at `agent-ix/quire-contract-ir@c50050da5f20d4af41ab2dd6ea573d5
 | --- | --- | --- |
 | FND-001 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | Step 2 now recovers a valid object owner normally. A new relationship-member kind check after recovery refuses `ill_typed`/`operator-ineligible` at `member.declaration`, before role lookup. That matches FR-322-AC-30's cross-kind code and cause, the AC-155 owner join is unchanged, and the order paragraph no longer claims today's reader performs it. |
 | FND-002 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | `reaches` now uses the same relationship-node mapper. The resolved receiver endpoint is the static edge owner, checked by reference against FR-322 reference-edge admissibility and FR-043's static-edge conformance and homogeneous traversal (merged FR-043 Behavior: "a and b are Reference<S> values whose types conform to the owner T of edge e"). The result is Boolean. AC-172 and TC-048 step 10 add positive and adverse cases. |
+
+## New findings (disposition pass 2)
+
+Scoped PR307 amendment review at `agent-ix/quire-contract-ir@7e18bd47df1191f7680a16e6f84cc9e87956898e` (prior `ce634ee6b3502cdc9b5d584050d7a1f1cf0541e9`, base `1540b3b6c0e4d167fe1ed9116c296e45e7dff258`), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. Scope: only the two-file amendment (FR-038, TC-048) and its primary-source grounding. This is not a second initial review. FND-001 and FND-002 keep their round-1 `fixed` outcomes; their units are unchanged by this amendment.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | Relationship declaration refusals drop FR-154-required identity/artifact/span with the deviation unnamed | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3443 |
+
+- **FND-003** (medium, confidence high, check `soundness`, unit `FR-038-AC-167`): The amendment makes it normative that relationship declaration refusals keep only code, cause and the selection-row pointer, and states that "no new refusal field is required". Merged QSpec FR-154 says "Every declaration refusal retains the IR node identity, the source artifact id and the source span" the node carries. Merged FR-322 step 1 returns the read's refusal "with its own code, cause and loci". The new text matches today's `SelectionRefusal`, which carries only code, cause and member, instead of the merged authority. Unlike the round-1 identity conflict, this deviation from FR-154 is not named or routed. Two fixes are open: carry FR-154's metadata, or name the deviation as an explicit, routed allocation.
+
+## Dispositions (round 2)
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-003 | still-open: found in round 2 at 7e18bd47df1191f7680a16e6f84cc9e87956898e; no fix yet | routed to the author for the next fix round |

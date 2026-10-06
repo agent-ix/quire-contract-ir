@@ -49,3 +49,7 @@ Round 1, reviewed at `agent-ix/quire-contract-ir@c50050da5f20d4af41ab2dd6ea573d5
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | The direction table and multiplicity-to-type derivation are removed. FR-152 Navigation is the canonical rule, applied by reference, and FR-038 keeps only the role-to-endpoint binding and the result-node comparison. TC-048's numeric cases are test inputs, not a second normative table. |
+
+## Amendment round 2 correspondence
+
+Scoped PR307 amendment review at `agent-ix/quire-contract-ir@7e18bd47df1191f7680a16e6f84cc9e87956898e` (prior `ce634ee6b3502cdc9b5d584050d7a1f1cf0541e9`), reviewer model `claude-opus-5-5`, run `ad2d17a1-a843-41fa-82e5-f0047b03193c`. FND-001 keeps its latest round-1 outcome `fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc`; no new disposition row is needed. Current text: `FR-038-AC-170` at spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3446. Still fixed at the amended head. AC-170 now names FR-152's `unsupported_construct`/`expression-form` outcome as an observable acceptance result, and FR-038 still applies FR-152 by reference with no second direction or multiplicity table; checked against merged FR-152 Navigation. No new finding in this artifact's scope.
