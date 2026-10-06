@@ -259,6 +259,137 @@ fn node_types() -> Vec<Typed> {
     ]
 }
 
+/// The QSL record-field encoding of `next?: List` contributes one field edge.
+fn wrapped_list(text_fields: &[&str]) -> Vec<Typed> {
+    let mut fields = vec![("number", "integer")];
+    if let Some(label) = text_fields.first() {
+        fields.push((label, "nfc"));
+    }
+    fields.push(("next", "list_next"));
+    fields.extend(text_fields.iter().skip(1).map(|name| (*name, "nfc")));
+    let (id, mut list) = record("list", &fields);
+    let next = list["body"]["members"]
+        .as_array_mut()
+        .expect("record members")
+        .iter_mut()
+        .find(|field| field["name"] == "next")
+        .expect("next field");
+    next["value"] = json!({"term": "aggregate", "members": [
+        binding("optional", reference("list_next")),
+    ]});
+    vec![
+        in_group((id, list)),
+        in_group(option_of("list_next", "list")),
+    ]
+}
+
+fn list_leaves(text_fields: &[&str]) -> Vec<Value> {
+    let mut leaves: Vec<Value> = text_fields
+        .first()
+        .map(|name| text_leaf(&[field(name)]))
+        .into_iter()
+        .collect();
+    leaves.push(recursion_leaf(&[
+        field("next"),
+        "inner".into(),
+        "recursion:0".into(),
+    ]));
+    leaves.extend(
+        text_fields
+            .iter()
+            .skip(1)
+            .map(|name| text_leaf(&[field(name)])),
+    );
+    leaves
+}
+
+/// Tracing: TC-048, FR-038-AC-151
+#[trace("TC-048", "FR-038-AC-151")]
+#[test]
+fn tc_048_wrapped_optional_record_fields_keep_their_leaf_order() {
+    let limits = CheckedPackageReadLimits::bounded();
+    let (integer_list, _) = equality_package(wrapped_list(&[]), "list", vec![]);
+    assert!(matches!(
+        read(&integer_list, limits),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+
+    for text_fields in [&["label"][..], &["label", "tail"][..]] {
+        let (package, _) =
+            equality_package(wrapped_list(text_fields), "list", list_leaves(text_fields));
+        match read(&package, limits) {
+            CheckedPackageV2ReadResult::Admitted(_) => {}
+            other => panic!("wrapped optional with {text_fields:?} must admit: {other:?}"),
+        }
+    }
+
+    let (package, id) = equality_package(
+        wrapped_list(&["label"]),
+        "list",
+        vec![text_leaf(&[field("label")])],
+    );
+    assert_eq!(
+        read(&package, limits),
+        CheckedPackageV2ReadResult::Refused(refusal_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            &leaves_pointer(&package, &id),
+            Some(CheckedPackageRefusalCause::OperationLawMissing),
+            &id,
+        )),
+    );
+
+    let mut direct = wrapped_list(&["label"]);
+    direct[0].1["body"]["members"]
+        .as_array_mut()
+        .expect("record members")
+        .iter_mut()
+        .find(|field| field["name"] == "next")
+        .expect("next field")["value"] = reference("list_next");
+    let (package, _) = equality_package(direct, "list", list_leaves(&["label"]));
+    assert!(matches!(
+        read(&package, limits),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+/// Tracing: TC-048, FR-038-AC-152
+#[trace("TC-048", "FR-038-AC-152")]
+#[test]
+fn tc_048_malformed_optional_record_fields_refuse_at_operation_leaves() {
+    let malformed = [
+        json!({"term": "aggregate", "members": []}),
+        json!({"term": "aggregate", "members": [
+            binding("optional", reference("list_next")),
+            binding("optional", reference("list_next")),
+        ]}),
+        json!({"term": "aggregate", "members": [binding("other", reference("list_next"))]}),
+        json!({"term": "aggregate", "members": [reference("list_next")]}),
+        json!({"term": "aggregate", "members": [binding("optional", reference("integer"))]}),
+        json!({"term": "aggregate", "members": [binding("optional", literal("integer", "integer", "1"))]}),
+    ];
+    for value in malformed {
+        let mut types = wrapped_list(&["label"]);
+        types[0].1["body"]["members"]
+            .as_array_mut()
+            .expect("record members")
+            .iter_mut()
+            .find(|field| field["name"] == "next")
+            .expect("next field")["value"] = value;
+        let (package, id) = equality_package(types, "list", list_leaves(&["label"]));
+        assert_eq!(
+            read(&package, CheckedPackageReadLimits::bounded()),
+            CheckedPackageV2ReadResult::Refused(refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &leaves_pointer(&package, &id),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &id,
+            )),
+            "malformed next: {}",
+            package["semantic_graph"]["nodes"],
+        );
+    }
+}
+
 fn field(name: &str) -> String {
     format!("field:{name}")
 }

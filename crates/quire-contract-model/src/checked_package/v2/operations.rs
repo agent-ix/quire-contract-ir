@@ -2366,10 +2366,28 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
                         return None;
                     }
                     let name = member.get("name")?.as_str()?;
-                    Some((
-                        vec![format!("field:{name}").into()],
-                        referenced_type(member.get("value")?)?,
-                    ))
+                    let value = member.get("value")?;
+                    let target = if body_term(value) == Some(BodyTerm::Aggregate) {
+                        let [optional] = value.get("members")?.as_array()?.as_slice() else {
+                            return None;
+                        };
+                        if body_term(optional) != Some(BodyTerm::Binding)
+                            || optional.get("name")?.as_str()? != "optional"
+                        {
+                            return None;
+                        }
+                        let target = referenced_type(optional.get("value")?)?;
+                        let position = *self.index.get(&target)?;
+                        if self.kinds.get(position)
+                            != Some(&CheckedNodeKind::CompositeType(CompositeTypeForm::Option))
+                        {
+                            return None;
+                        }
+                        target
+                    } else {
+                        referenced_type(value)?
+                    };
+                    Some((vec![format!("field:{name}").into()], target))
                 })
                 .collect::<Option<Vec<_>>>()
                 .map(|edges| (Anchor::Composite, edges)),
