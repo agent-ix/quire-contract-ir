@@ -12,8 +12,9 @@
 //! from FR-322's and QSL FR-092's preimages; nothing of QSpec is copied in.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, pointer, rebuild_source_map,
-    refresh_identity, refusal_bytes, refusal_cause, sha256_hex,
+    application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_package,
+    over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause,
+    sha256_hex,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -29,6 +30,9 @@ const APPLICATION_NODE: &str = "quire.application-node/v1";
 const IDENTITY: &str = "acme/orders";
 const VERSION: &str = "1.0.0";
 const ORDER: &str = "ix://acme/orders/Order";
+const CUSTOMER: &str = "ix://acme/orders/Customer";
+const PRIORITY_ORDER: &str = "ix://acme/orders/PriorityOrder";
+const PREFERRED_ORDER: &str = "ix://acme/orders/PreferredOrder";
 
 /// The self-typed Integer and Text scalar type nodes, keyed by
 /// [`structural_key`].
@@ -315,8 +319,12 @@ fn relationship_operation_package(
     } else {
         "quire.op.model.navigate"
     };
+    let second = reaches.then(|| parameter("other", "1", &reference_type));
     let arguments = if reaches {
-        vec![reference(&receiver), reference(&receiver)]
+        vec![
+            reference(&receiver),
+            reference(&second.as_ref().expect("second operand").0),
+        ]
     } else {
         vec![reference(&receiver)]
     };
@@ -333,7 +341,10 @@ fn relationship_operation_package(
         "semantic_type": node_id(result_type), "declaration": null,
         "recursion": null, "body": body,
     })));
-    let mut dependencies = [receiver.as_str(), relationship_key.as_str()];
+    let mut dependencies = vec![receiver.as_str(), relationship_key.as_str()];
+    if let Some((key, _)) = &second {
+        dependencies.push(key);
+    }
     dependencies.sort_unstable();
     nodes[CALL] = wire_node(
         &application_key,
@@ -343,6 +354,9 @@ fn relationship_operation_package(
         &dependencies,
         body,
     );
+    if let Some((_, second_node)) = second {
+        nodes.push(second_node);
+    }
     let mut relation_node = wire_node(
         &relationship_key,
         "relation",
@@ -363,6 +377,239 @@ fn relationship_operation_package(
             empty(),
         ));
     }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest, canonical(&document));
+    (package, evidence)
+}
+
+#[derive(Clone, Copy)]
+enum NavigationResult {
+    Reference,
+    OrderReference,
+    Option,
+    Set(u64, u64),
+    Bag(u64, u64),
+}
+
+/// A complete selected package whose application names an independently
+/// authored result node. The result is supplied separately from the FCD end
+/// so a changed destination can reject the formerly admitted result.
+fn navigation_with_result(
+    relationship: Value,
+    result: NavigationResult,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+    let (mut package, _) = relationship_package(relationship.clone(), "links");
+    let mut document = domain_document(json!({"relationships": [relationship.clone()]}));
+    let destination = relationship["targetEnd"]["type"]
+        .as_str()
+        .expect("destination type");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let reference_type = if destination == ORDER {
+        nodes[3]["node_id"]["digest"]
+            .as_str()
+            .expect("reference")
+            .to_owned()
+    } else {
+        document["types"]
+            .as_array_mut()
+            .expect("types")
+            .push(json!({
+                "identity": destination, "displayName": "Customer",
+                "kind": {"module": IDENTITY, "name": "entity"},
+                "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+                "supertypes": [], "fields": [], "operations": [],
+            }));
+        let object = structural_key(
+            "model",
+            "object_type",
+            None,
+            Some(json!({"kind": "model", "identity": IDENTITY, "node": destination})),
+            &empty(),
+        );
+        let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
+        declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": destination});
+        nodes.push(declaration);
+        let body = over_body(&object);
+        let reference = structural_key("composite_type", "reference", None, None, &body);
+        nodes.push(wire_node(
+            &reference,
+            "composite_type",
+            "reference",
+            &reference,
+            &[&object],
+            body,
+        ));
+        reference
+    };
+    let result_type = match result {
+        NavigationResult::Reference => reference_type,
+        NavigationResult::OrderReference => nodes[3]["node_id"]["digest"]
+            .as_str()
+            .expect("Order reference")
+            .to_owned(),
+        NavigationResult::Option => {
+            let body = over_body(&reference_type);
+            let key = structural_key("composite_type", "option", None, None, &body);
+            nodes.push(wire_node(
+                &key,
+                "composite_type",
+                "option",
+                &key,
+                &[&reference_type],
+                body,
+            ));
+            key
+        }
+        NavigationResult::Set(lower, upper) | NavigationResult::Bag(lower, upper) => {
+            let form = if matches!(result, NavigationResult::Set(..)) {
+                "set"
+            } else {
+                "bag"
+            };
+            let body = over_body(&reference_type);
+            let collection = structural_key("composite_type", form, None, None, &body);
+            nodes.push(wire_node(
+                &collection,
+                "composite_type",
+                form,
+                &collection,
+                &[&reference_type],
+                body,
+            ));
+            let bounds = bounds_body(&lower.to_string(), &upper.to_string());
+            let key = structural_key(
+                "bounded_domain",
+                "collection_bounds",
+                Some(&collection),
+                None,
+                &bounds,
+            );
+            nodes.push(wire_node(
+                &key,
+                "bounded_domain",
+                "collection_bounds",
+                &collection,
+                &[&collection],
+                bounds,
+            ));
+            key
+        }
+    };
+    let call = &mut nodes[CALL];
+    call["body"]["result_type"] = node_id(&result_type);
+    call["semantic_type"] = node_id(&result_type);
+    call["node_id"] = node_id(&application_node_key(
+        "expression",
+        "query",
+        &result_type,
+        &call["body"],
+    ));
+    let digest = sha256_hex(&canonical(&document));
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest, canonical(&document));
+    (package, evidence)
+}
+
+/// Two independently keyed reaches operands, each typed at its authored
+/// object declaration. An unrelated second owner must be checked even when
+/// operand 0 is eligible.
+fn reaches_with_operands(
+    first_type: &str,
+    second_type: &str,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+    let relation = authored_relationship();
+    let (mut package, _) = relationship_operation_package(relation.clone(), "links", true);
+    let mut document = domain_document(json!({"relationships": [relation]}));
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let order_reference = nodes[3]["node_id"]["digest"]
+        .as_str()
+        .expect("Order reference")
+        .to_owned();
+    let mut references = vec![(ORDER, order_reference)];
+    let mut operand_keys = Vec::new();
+    for (position, ty) in [first_type, second_type].into_iter().enumerate() {
+        if !references.iter().any(|(known, _)| *known == ty) {
+            let supertype = if matches!(ty, PRIORITY_ORDER | PREFERRED_ORDER) {
+                vec![ORDER]
+            } else {
+                vec![]
+            };
+            document["types"]
+                .as_array_mut()
+                .expect("types")
+                .push(json!({
+                    "identity": ty, "displayName": ty.rsplit('/').next().expect("name"),
+                    "kind": {"module": IDENTITY, "name": "entity"},
+                    "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+                    "supertypes": supertype, "fields": [], "operations": [],
+                }));
+            let object = structural_key(
+                "model",
+                "object_type",
+                None,
+                Some(json!({"kind": "model", "identity": IDENTITY, "node": ty})),
+                &empty(),
+            );
+            let mut declaration = wire_node(&object, "model", "object_type", &object, &[], empty());
+            declaration["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": ty});
+            nodes.push(declaration);
+            let body = over_body(&object);
+            let reference = structural_key("composite_type", "reference", None, None, &body);
+            nodes.push(wire_node(
+                &reference,
+                "composite_type",
+                "reference",
+                &reference,
+                &[&object],
+                body,
+            ));
+            references.push((ty, reference));
+        }
+        let reference_type = references
+            .iter()
+            .find(|(known, _)| *known == ty)
+            .expect("operand reference")
+            .1
+            .as_str();
+        let (key, operand) = parameter(
+            &format!("operand{position}"),
+            &position.to_string(),
+            reference_type,
+        );
+        nodes.push(operand);
+        operand_keys.push(key);
+    }
+    let relation_key = nodes[CALL]["body"]["operation"]["member"]["declaration"]["digest"]
+        .as_str()
+        .expect("relationship declaration")
+        .to_owned();
+    nodes[CALL]["body"]["arguments"] =
+        json!([reference(&operand_keys[0]), reference(&operand_keys[1])]);
+    let mut dependencies = [&operand_keys[0], &operand_keys[1], &relation_key];
+    dependencies.sort_unstable();
+    nodes[CALL]["dependencies"] = json!(dependencies
+        .iter()
+        .map(|key| node_id(key))
+        .collect::<Vec<_>>());
+    nodes[CALL]["node_id"] = node_id(&application_node_key(
+        "expression",
+        "reachability",
+        nodes[CALL]["semantic_type"]["digest"]
+            .as_str()
+            .expect("Boolean"),
+        &nodes[CALL]["body"],
+    ));
+    let digest = sha256_hex(&canonical(&document));
+    package["lock"]["model_selections"][0]["digest"] = json!(digest);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
@@ -433,6 +680,83 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
     );
 }
 
+/// Trace: FR-038-AC-170
+#[trace("TC-048", "FR-038-AC-170")]
+#[test]
+fn tc_048_navigation_admits_canonical_finite_results_and_observes_destination_changes() {
+    let mut relation = authored_relationship();
+    for (lower, upper, unique, result) in [
+        (1, 1, true, NavigationResult::Reference),
+        (0, 1, true, NavigationResult::Option),
+        (2, 3, true, NavigationResult::Set(2, 3)),
+        (2, 3, false, NavigationResult::Bag(2, 3)),
+    ] {
+        relation["targetEnd"]["multiplicity"] = json!({
+            "lower": lower, "upper": upper, "ordered": false, "unique": unique,
+        });
+        let (package, evidence) = navigation_with_result(relation.clone(), result);
+        assert!(
+            matches!(
+                read(&package, &evidence),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "result for {lower}..{upper}, unique={unique}"
+        );
+    }
+    let (package, evidence) = navigation_with_result(relation.clone(), NavigationResult::Set(2, 3));
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/result_type")
+    );
+
+    relation["targetEnd"]["multiplicity"]["unique"] = json!(true);
+    let (package, evidence) = navigation_with_result(relation.clone(), NavigationResult::Set(1, 3));
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/result_type")
+    );
+
+    relation["targetEnd"]["multiplicity"] = json!({
+        "lower": 1, "upper": 1, "ordered": false, "unique": true,
+    });
+    relation["targetEnd"]["type"] = json!(CUSTOMER);
+    let (package, evidence) =
+        navigation_with_result(relation.clone(), NavigationResult::OrderReference);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/result_type")
+    );
+    let (package, evidence) = navigation_with_result(relation, NavigationResult::Reference);
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
 /// Trace: FR-038-AC-169, FR-038-AC-172
 #[trace("TC-048", "FR-038-AC-169", "FR-038-AC-172")]
 #[test]
@@ -440,6 +764,11 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
     for role in ["links", "linkedBy"] {
         let (package, evidence) =
             relationship_operation_package(authored_relationship(), role, true);
+        assert_ne!(
+            package["semantic_graph"]["nodes"][CALL]["body"]["arguments"][0],
+            package["semantic_graph"]["nodes"][CALL]["body"]["arguments"][1],
+            "the two operands name distinct nodes"
+        );
         let result = read(&package, &evidence);
         assert!(
             matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
@@ -462,6 +791,29 @@ fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
+    let (package, evidence) = reaches_with_operands(PRIORITY_ORDER, PREFERRED_ORDER);
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for (first, second, expected_path) in [
+        (ORDER, CUSTOMER, "/semantic_graph/nodes/6/body/arguments/1"),
+        (CUSTOMER, ORDER, "/semantic_graph/nodes/6/body/arguments/0"),
+    ] {
+        let (package, evidence) = reaches_with_operands(first, second);
+        let refusal = refused(&package, &evidence);
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (
+                CheckedPackageRefusalCode::IllTyped,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            )
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some(expected_path)
+        );
+    }
 }
 
 /// Trace: FR-038-AC-171

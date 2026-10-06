@@ -1723,6 +1723,8 @@ enum Row {
     Meaning,
     /// A reference names no node or member of the package.
     Reference,
+    /// A relationship identity names a declaration already read in this document.
+    Duplicate,
     /// A multiplicity has `lower > upper`.
     Multiplicity,
 }
@@ -1924,13 +1926,7 @@ pub(super) fn read_semantic_ir(
                         if !valid_relationship_identity(&model.identity, identity) {
                             scope.refused.insert(identity);
                         }
-                        if !scope.relationships.insert(identity) {
-                            return Err(ModelRefusal::new(
-                                CheckedPackageRefusalCode::InvalidModelBinding,
-                                CheckedPackageRefusalCause::ConflictingBinding,
-                            )
-                            .into());
-                        }
+                        scope.relationships.insert(identity);
                     }
                 }
             }
@@ -1962,6 +1958,7 @@ pub(super) fn read_semantic_ir(
                         model: &model,
                         scope: &scope,
                     },
+                    &relationships,
                     &mut defects,
                 );
                 if let Some(refusal) = defects.first() {
@@ -2397,6 +2394,7 @@ fn semantic_ir_object_type(
     node: &str,
     interface: bool,
     references: &References<'_>,
+    known_relationships: &BTreeMap<Box<str>, RelationshipDecl>,
     defects: &mut Defects,
 ) -> (ObjectTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
     let mut fields = Vec::new();
@@ -2466,8 +2464,25 @@ fn semantic_ir_object_type(
         });
     }
     let mut relationships = Vec::new();
+    let mut local_relationships = BTreeSet::new();
     for (index, relationship) in items(value, "relationships", defects).iter().enumerate() {
         let base = [Segment::Name("relationships"), Segment::Index(index)];
+        if let Some(identity) = relationship
+            .get("identity")
+            .and_then(Value::as_str)
+            .filter(|identity| valid_relationship_identity(&references.model.identity, identity))
+        {
+            if known_relationships.contains_key(identity) || !local_relationships.insert(identity) {
+                defects.push(
+                    Row::Duplicate,
+                    &joined(&base, Segment::Name("identity")),
+                    ModelRefusal::new(
+                        CheckedPackageRefusalCode::InvalidModelBinding,
+                        CheckedPackageRefusalCause::ConflictingBinding,
+                    ),
+                );
+            }
+        }
         if let Some(declared) =
             semantic_ir_relationship(relationship, node, &base, references, defects)
         {

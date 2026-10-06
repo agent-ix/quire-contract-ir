@@ -344,6 +344,57 @@ fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
     );
 }
 
+/// Trace: FR-038-AC-168
+#[trace("TC-048", "FR-038-AC-168")]
+#[test]
+fn tc_048_relationship_duplicates_follow_declaration_and_failure_row_order() {
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    let missing = ModelRefusal::new(Code::MissingDeclaration, Cause::MissingName);
+    let conflicting = ModelRefusal::new(Code::InvalidModelBinding, Cause::ConflictingBinding);
+    let mut first = relationship();
+    first["sourceEnd"]["type"] = json!(GADGET);
+    let second = relationship();
+    let with_owners = |first: Value, second: Value| {
+        let mut gadget = object_type(GADGET, &[], vec![]);
+        gadget["relationships"] = json!([first]);
+        let mut widget = object_type(WIDGET, &[], vec![]);
+        widget["relationships"] = json!([second]);
+        document(vec![widget, gadget])
+    };
+    let mut bad_role = first.clone();
+    bad_role["sourceEnd"]["role"] = json!("");
+    assert_eq!(
+        read(&with_owners(bad_role, second.clone())).map(|_| ()),
+        Err(malformed)
+    );
+    let mut missing_end = first.clone();
+    missing_end["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    assert_eq!(
+        read(&with_owners(missing_end, second.clone())).map(|_| ()),
+        Err(missing)
+    );
+    assert_eq!(
+        read(&with_owners(first.clone(), second.clone())).map(|_| ()),
+        Err(conflicting)
+    );
+    let mut reversed_later = second.clone();
+    reversed_later["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    assert_eq!(
+        read(&with_owners(first, reversed_later)).map(|_| ()),
+        Err(conflicting)
+    );
+    let mut malformed_first = relationship();
+    malformed_first["sourceEnd"]["role"] = json!("");
+    assert_eq!(
+        read(&relationship_document(vec![
+            malformed_first,
+            relationship()
+        ]))
+        .map(|_| ()),
+        Err(malformed),
+    );
+}
+
 /// Trace: FR-038-AC-170
 #[trace("TC-048", "FR-038-AC-170")]
 #[test]
