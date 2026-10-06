@@ -514,8 +514,18 @@ occurrence and position, distinct across either change. Swapping arguments
 swaps entries. Supply an unknown id, a non-application node, a different
 occurrence key, and a referenced child or range removed by a crate-internal
 post-admission mutation; assert the respective typed errors and no partial
-result. Mutate an admitted application's catalog identity to an unknown one
-in the same way, and call an admitted application of a catalogued ineligible
+result. In separately admitted packages, put a parameter typed at unbounded
+`Integer`, then a parameter typed at an `integer_range` with upper endpoint
+`170141183460469231731687303715884105728` (one above `i128::MAX`), in an
+otherwise eligible add application. Assert `UnboundedRange` for the first and
+`RangeOutOfI128` for the second. Also use a graph literal reference and an
+inline integer literal with that same out-of-`i128` value as separate operand
+cases; each returns `RangeOutOfI128`. Repeat the bound case with lower endpoint
+`-170141183460469231731687303715884105729` (one below `i128::MIN`). Assert
+each call returns only the typed refusal, without a partial list, narrowed or
+saturated endpoint, or panic. The `i128` endpoints themselves return their
+exact values. Mutate an admitted application's catalog identity to an unknown
+one in the same way, and call an admitted application of a catalogued ineligible
 identity; assert `UnknownOperator` and `IneligibleOperator` respectively.
 An external API fixture exhaustively matches the public identity and error
 enums and consumes every result member without JSON access. Repeated calls
