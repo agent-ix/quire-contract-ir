@@ -37,7 +37,13 @@ fixtures from its selected checkout; copy no fixture into this repository.
    pairs selected but with a declared node's source-map region changed to the
    other pair while its owner remains fixed. In the selected model document,
    give an otherwise valid model declaration node an absent `owner.node`,
-   then one naming a relationship while the node claims an object type.
+   then one naming a relationship while the node claims an object type. Test
+   both object-type subkind mismatches: a `model`/`object_type` node owned by
+   an object type with `interfaceFeatures`, and a
+   `model`/`systems_interface` node owned by an object type without
+   `interfaceFeatures`. Key each mutated node under its own preimage and
+   refresh its identity projection and package id so a stale-key refusal
+   cannot mask the owner join.
    Give an unreachable clause function an absent operation member, then a
    field as its owner node; as positive controls, use an operation member's
    clause and an object type's invariant. Place a stale key on a lower-key
@@ -51,7 +57,8 @@ between owners, while `Integer` and `three` have equal keys. Missing or
 forbidden owners refuse `malformed_wire` at the object lacking the member or
 at the present `owner`; no occurrence repairs the omission. A projection
 owner differing from its node refuses `stale_dependency` at the projection.
-Unmatched source owners and unresolved or wrong-kind model owners refuse
+Unmatched source owners and unresolved or wrong-kind model owners, including
+both `interfaceFeatures` cross-kind mutations, refuse
 `missing_declaration`/`missing-selection` at the lowest-key offending node,
 even when it is unreachable and another lower-key node has a stale key. A
 declaration occurrence whose source differs from its owner refuses
