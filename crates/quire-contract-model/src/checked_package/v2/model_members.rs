@@ -283,6 +283,8 @@ pub(super) struct DomainModel {
     pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
     /// Relationship declarations, by IR node identity.
     pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
+    /// Systems connection declarations that also back relation nodes.
+    pub(super) relation_nodes: BTreeSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
     pub(super) other_types: BTreeSet<Box<str>>,
     /// The field tables of [`Self::object_types`], empty until the lock stage
@@ -1017,8 +1019,9 @@ impl<'m> ModelOwners<'m> {
             });
             let relationships = package
                 .relationships
-                .iter()
-                .map(|(node, _)| (node, DeclarationForm::Relationship));
+                .keys()
+                .chain(&package.relation_nodes)
+                .map(|node| (node, DeclarationForm::Relationship));
             for (node, form) in objects.chain(relationships) {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
@@ -1885,6 +1888,7 @@ pub(super) fn read_semantic_ir(
         object_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         relationships: BTreeMap::new(),
+        relation_nodes: BTreeSet::new(),
         other_types: BTreeSet::new(),
         fields: FieldTables::default(),
     };
@@ -1917,6 +1921,9 @@ pub(super) fn read_semantic_ir(
                 }
                 for item in list(declared, "relationships").unwrap_or_default() {
                     if let Some(identity) = item.get("identity").and_then(Value::as_str) {
+                        if !valid_relationship_identity(&model.identity, identity) {
+                            scope.refused.insert(identity);
+                        }
                         if !scope.relationships.insert(identity) {
                             return Err(ModelRefusal::new(
                                 CheckedPackageRefusalCode::InvalidModelBinding,
@@ -1931,7 +1938,8 @@ pub(super) fn read_semantic_ir(
                 model.value_types.insert((*node).into(), None);
             }
             meaning::SYSTEMS_CONNECTION => {
-                model.other_types.insert((*node).into());
+                model.relation_nodes.insert((*node).into());
+                scope.relationships.insert(node);
             }
             _ => {
                 model.other_types.insert((*node).into());
@@ -2024,10 +2032,10 @@ impl References<'_> {
             None if self.scope.objects.contains(type_ref)
                 || self.model.value_types.contains_key(type_ref)
                 || self.model.other_types.contains(type_ref) => {}
+            None if self.scope.refused.contains(type_ref) => {}
             None if self.scope.relationships.contains(type_ref) => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
-            None if self.scope.refused.contains(type_ref) => {}
             None => defects.push(Row::Reference, &path, ModelRefusal::missing_name()),
         }
     }
@@ -2115,7 +2123,6 @@ fn semantic_ir_relationship(
     references: &References<'_>,
     defects: &mut Defects,
 ) -> Option<(Box<str>, RelationshipDecl)> {
-    let prefix = format!("ix://{}/relationship/", references.model.identity);
     let parsed = (|| {
         let members = value.as_object()?;
         if !members.keys().all(|key| {
@@ -2133,8 +2140,7 @@ fn semantic_ir_relationship(
             return None;
         }
         let identity = value.get("identity")?.as_str()?;
-        let name = identity.strip_prefix(&prefix)?;
-        if name.is_empty() || name.contains('/') || !valid_semantic_identity(identity) {
+        if !valid_relationship_identity(&references.model.identity, identity) {
             return None;
         }
         let direction = match value.get("direction")?.as_str()? {
@@ -2203,6 +2209,13 @@ fn semantic_ir_relationship(
             direction,
         },
     ))
+}
+
+fn valid_relationship_identity(package: &str, identity: &str) -> bool {
+    let prefix = format!("ix://{package}/relationship/");
+    identity.strip_prefix(&prefix).is_some_and(|name| {
+        !name.is_empty() && !name.contains('/') && valid_semantic_identity(identity)
+    })
 }
 
 fn relationship_end(value: &Value, required_role: bool) -> Option<RelationshipEnd> {
@@ -2311,7 +2324,9 @@ fn valid_semantic_identity(identity: &str) -> bool {
     else {
         return false;
     };
-    org.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+    org.as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
         && org.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
         })
@@ -2329,20 +2344,30 @@ fn valid_source_path(path: &str) -> bool {
         && !path.starts_with('/')
         && !path.contains('\\')
         && !path.contains('\0')
-        && !path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+        && !(path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+            && path.as_bytes().get(1) == Some(&b':'))
         && !path.split('/').any(|segment| segment == "..")
 }
 
 fn valid_semver(version: &str) -> bool {
-    let core = version
-        .split_once(['-', '+'])
-        .map_or(version, |(core, _)| core);
+    let (before_build, build) = version
+        .split_once('+')
+        .map_or((version, None), |(core, suffix)| (core, Some(suffix)));
+    let (core, pre) = before_build
+        .split_once('-')
+        .map_or((before_build, None), |(core, suffix)| (core, Some(suffix)));
     let parts = core.split('.').collect::<Vec<_>>();
     parts.len() == 3
         && parts.iter().all(|part| {
             !part.is_empty()
                 && (part.len() == 1 || !part.starts_with('0'))
                 && part.bytes().all(|byte| byte.is_ascii_digit())
+        })
+        && [pre, build].into_iter().flatten().all(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
         })
 }
 
@@ -2419,18 +2444,22 @@ fn semantic_ir_object_type(
     let mut operations = Vec::new();
     for (index, operation) in items(value, "operations", defects).iter().enumerate() {
         let base = [Segment::Name("operations"), Segment::Index(index)];
+        let operation_identity = identity_of(operation, node, &base, defects);
         let params_path = joined(&base, Segment::Name("params"));
         let mut parameters = Vec::new();
         let declared = items_at(operation, "params", &params_path, defects);
         for (position, parameter) in declared.iter().enumerate() {
             let at = joined(&params_path, Segment::Index(position));
+            if parameter.get("identity").is_some() {
+                identity_of(parameter, &operation_identity, &at, defects);
+            }
             parameters.push(references.slot(parameter, &at, defects));
         }
         let result = operation.get("returns").map(|returns| {
             references.slot(returns, &joined(&base, Segment::Name("returns")), defects)
         });
         operations.push(OperationDecl {
-            identity: identity_of(operation, node, &base, defects),
+            identity: operation_identity,
             parameters,
             result,
             redefines: None,

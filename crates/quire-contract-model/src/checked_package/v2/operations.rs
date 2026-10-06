@@ -687,6 +687,16 @@ fn operation_defect(
             _ => {}
         }
     }
+    if matches!(
+        operation.identity.as_ref(),
+        "quire.op.model.navigate" | "quire.op.model.reaches"
+    ) {
+        if let Some(failure) =
+            check_relationship_member(application, &operation, &arguments, graph, owners, meter)?
+        {
+            return Ok(Some(failure));
+        }
+    }
     if let Some(failure) = check_mode_type(
         application,
         entry,
@@ -1607,6 +1617,167 @@ fn check_reference_edge(
 /// The `operation.member.declaration` an application names.
 fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
     serde_json::from_value(operation.member.as_ref()?.get("declaration")?.clone()).ok()
+}
+
+/// The selected relationship end of a `navigate` or `reaches` application.
+fn check_relationship_member(
+    application: Application<'_>,
+    operation: &OperationWire,
+    arguments: &[Value],
+    graph: &Graph<'_>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let member_at = |member: &str| application.body(&["operation", "member", member]);
+    let argument_at = |position: usize| application.body(&["arguments"]).index(position);
+    let refuse = |path: JsonPointer, refusal: ModelRefusal| {
+        Ok(Some(model_refusal(application, path, refusal)))
+    };
+    let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
+    let key_refused = || {
+        Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.node_id(),
+        )))
+    };
+    let Some(declaring) =
+        member_declaration(operation).and_then(|id| graph.index.get(&id).copied())
+    else {
+        return refuse(member_at("declaration"), ModelRefusal::unselected());
+    };
+    let node = &graph.nodes[declaring];
+    if !owners.is_model_declaration_node(node, graph.kinds[declaring].tag()) {
+        return refuse(member_at("declaration"), ModelRefusal::unselected());
+    }
+    let owner = match owners.recover(node) {
+        Ok(owner) => owner,
+        Err(refusal) => return refuse(member_at("declaration"), refusal),
+    };
+    if owner.form != DeclarationForm::Relationship {
+        return ineligible(member_at("declaration"));
+    }
+    let Some(relationship) = owner.package.relationships.get(owner.node) else {
+        return refuse(member_at("declaration"), ModelRefusal::unselected());
+    };
+    let mut budget = Budget::new(meter, owner.selection, owner.package.bytes);
+    budget.charge(1)?;
+    let name = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let forward = match (
+        relationship.source.role.as_deref() == Some(name),
+        relationship.target.role.as_deref() == Some(name),
+    ) {
+        (true, false) => true,
+        (false, true) => false,
+        (false, false) => return refuse(member_at("name"), ModelRefusal::missing_name()),
+        (true, true) => return refuse(member_at("name"), ModelRefusal::ambiguous()),
+    };
+    let (receiver, destination) = if forward {
+        (&relationship.source, &relationship.target)
+    } else {
+        (&relationship.target, &relationship.source)
+    };
+    let operand_owner = |position: usize| {
+        let Some(argument) = arguments.get(position) else {
+            return Ok(None);
+        };
+        let Some(type_id) = operand_type_node(argument, graph.nodes, graph.kinds, graph.index)
+        else {
+            return Ok(None);
+        };
+        let Some(target) = reference_target(&type_id, graph) else {
+            return Ok(None);
+        };
+        let Some(&at) = graph.index.get(&target) else {
+            return Ok(None);
+        };
+        let node = &graph.nodes[at];
+        if !owners.is_model_declaration_node(node, graph.kinds[at].tag()) {
+            return Ok(None);
+        }
+        owners.recover(node).map(Some)
+    };
+    let actual_receiver = match operand_owner(0) {
+        Ok(Some(owner)) => owner,
+        Ok(None) => return ineligible(argument_at(0)),
+        Err(refusal) => return refuse(argument_at(0), refusal),
+    };
+    if !std::ptr::eq(actual_receiver.package, owner.package)
+        || actual_receiver.object_type().is_none()
+        || !owner
+            .package
+            .conforms_to(actual_receiver.node, &receiver.type_ref, &mut budget)?
+    {
+        return ineligible(argument_at(0));
+    }
+    if !relationship.direction.admits(forward) {
+        return ineligible(member_at("name"));
+    }
+    let Some(destination_object) = owner.package.object_types.get(&destination.type_ref) else {
+        return ineligible(member_at("name"));
+    };
+    let form = if destination_object.interface {
+        DeclarationForm::SystemsInterface
+    } else {
+        DeclarationForm::ObjectType
+    };
+    let Ok(destination_key) = declaration_key(
+        &owner.package.identity,
+        form,
+        &destination.type_ref,
+        owner.package.bytes,
+    ) else {
+        return key_refused();
+    };
+    let member_type = match relationship.navigation_type(forward, destination_key.into()) {
+        Ok(member_type) => member_type,
+        Err(refusal) => return refuse(member_at("name"), refusal),
+    };
+    if operation.identity.as_ref() == "quire.op.model.reaches" {
+        if relationship.source.type_ref != relationship.target.type_ref
+            || !matches!(
+                member_type,
+                MemberType::Reference(_) | MemberType::Option(_)
+            )
+        {
+            return ineligible(member_at("name"));
+        }
+        let actual_target = match operand_owner(1) {
+            Ok(Some(owner)) => owner,
+            Ok(None) => return ineligible(argument_at(1)),
+            Err(refusal) => return refuse(argument_at(1), refusal),
+        };
+        if !std::ptr::eq(actual_target.package, owner.package)
+            || actual_target.object_type().is_none()
+            || !owner
+                .package
+                .conforms_to(actual_target.node, &destination.type_ref, &mut budget)?
+        {
+            return ineligible(argument_at(1));
+        }
+    }
+    let expected = if operation.identity.as_ref() == "quire.op.model.reaches" {
+        MemberType::Boolean
+    } else {
+        member_type
+    };
+    let Ok(expected_key) = expected.node_key(owner.package.bytes) else {
+        return key_refused();
+    };
+    let result = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| value.get("digest"))
+        .and_then(Value::as_str);
+    if result != Some(expected_key.as_str()) {
+        return ineligible(application.body(&["result_type"]));
+    }
+    Ok(None)
 }
 
 /// The node a `composite_type`/`reference` type node's body references: `X`
@@ -3051,6 +3222,335 @@ mod tests {
     }
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
+
+    fn relationship_member_outcome(
+        relation: Value,
+        role: &str,
+        receiver_type: &str,
+        operation_identity: &str,
+        result_key: &str,
+    ) -> Option<(
+        CheckedPackageRefusalCode,
+        CheckedPackageRefusalCause,
+        String,
+    )> {
+        use crate::checked_package::v2::model_members::{
+            declaration_key, tests as model_tests, DeclarationForm, MemberType,
+        };
+        let model = model_tests::read(&model_tests::relationship_document(vec![relation]))
+            .expect("selected document admits");
+        let mut meter = WorkMeter::new(100_000);
+        let owners = ModelOwners::new(std::slice::from_ref(&model), |_| Ok(())).expect("owners");
+        let identity = "acme/orders";
+        let widget = "ix://acme/orders/Widget";
+        let gadget = "ix://acme/orders/Gadget";
+        let relationship = "ix://acme/orders/relationship/Widget-links-Gadget";
+        let keys = [widget, gadget, relationship].map(|name| {
+            let form = if name == relationship {
+                DeclarationForm::Relationship
+            } else {
+                DeclarationForm::ObjectType
+            };
+            declaration_key(identity, form, name, model_tests::BYTES).expect("declaration key")
+        });
+        let [widget_key, gadget_key, relationship_key] = &keys;
+        let receiver_key = if receiver_type == widget {
+            widget_key
+        } else {
+            gadget_key
+        };
+        let reference_key = MemberType::Reference(receiver_key.as_str().into())
+            .node_key(model_tests::BYTES)
+            .expect("reference key");
+        let id = |digest: &str| json!({"domain": NODE_DOMAIN, "digest": digest});
+        let mut operation = plain_operation(operation_identity);
+        operation["member"] = json!({
+            "kind": "relationship_end", "declaration": id(relationship_key), "name": role,
+        });
+        let operator = if operation_identity == "quire.op.model.reaches" {
+            "reaches"
+        } else {
+            "query"
+        };
+        let mut application = custom_application_node(
+            operator,
+            operation.clone(),
+            vec![json!({"term": "reference", "target": id(&dummy_digest('r'))})],
+        );
+        if operation_identity == "quire.op.model.reaches" {
+            application.body["arguments"]
+                .as_array_mut()
+                .expect("arguments")
+                .push(json!({"term": "reference", "target": id(&dummy_digest('r'))}));
+        }
+        application.body["result_type"] = id(result_key);
+        let object = |key: &str, name: &str| {
+            let mut node = graph_node(
+                'o',
+                "model",
+                "object_type",
+                &node_id('o'),
+                json!({"term": "aggregate", "members": []}),
+            );
+            node.node_id.digest = key.into();
+            node.semantic_type = node.node_id.clone();
+            node.owner = Some(
+                serde_json::from_value(json!({
+                    "kind": "model", "identity": identity, "node": name,
+                }))
+                .expect("owner"),
+            );
+            node
+        };
+        let mut relation_node = graph_node(
+            'l',
+            "relation",
+            "relationship",
+            &node_id('l'),
+            json!({"term": "aggregate", "members": []}),
+        );
+        relation_node.node_id.digest = relationship_key.as_str().into();
+        relation_node.semantic_type = relation_node.node_id.clone();
+        relation_node.owner = Some(
+            serde_json::from_value(json!({
+                "kind": "model", "identity": identity, "node": relationship,
+            }))
+            .expect("owner"),
+        );
+        let mut reference_node = graph_node(
+            'e',
+            "composite_type",
+            "reference",
+            &node_id('e'),
+            json!({"term": "aggregate", "members": [{"term": "reference", "target": id(receiver_key)}]}),
+        );
+        reference_node.node_id.digest = reference_key.into();
+        reference_node.semantic_type = reference_node.node_id.clone();
+        let mut parameter = graph_node(
+            'r',
+            "value",
+            "parameter",
+            &reference_node.node_id,
+            json!({"term": "aggregate", "members": []}),
+        );
+        parameter.node_id.digest = dummy_digest('r').into();
+        let nodes = [
+            application,
+            object(widget_key, widget),
+            object(gadget_key, gadget),
+            relation_node,
+            reference_node,
+            parameter,
+        ];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<_, _> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| (&node.node_id, at))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let operation: super::OperationWire = serde_json::from_value(operation).expect("operation");
+        super::check_relationship_member(
+            Application {
+                node: &nodes[0],
+                position: 0,
+            },
+            &operation,
+            nodes[0].body["arguments"].as_array().expect("arguments"),
+            &graph,
+            &owners,
+            &mut meter,
+        )
+        .expect("work budget")
+        .map(|failure| match failure {
+            ValidationFailure::Refused(refusal) => (
+                refusal.code,
+                refusal.cause.expect("typed cause"),
+                refusal.path.expect("path").to_string(),
+            ),
+            other => panic!("expected refusal, got {other:?}"),
+        })
+    }
+
+    /// Trace: FR-038-AC-169, FR-038-AC-170, FR-038-AC-171, FR-038-AC-172
+    #[trace(
+        "TC-048",
+        "FR-038-AC-169",
+        "FR-038-AC-170",
+        "FR-038-AC-171",
+        "FR-038-AC-172"
+    )]
+    #[test]
+    fn tc_048_relationship_end_binding_resolves_roles_before_navigation_and_reachability() {
+        use crate::checked_package::v2::model_members::{
+            declaration_key, tests::relationship, DeclarationForm, MemberType,
+        };
+        let widget = declaration_key(
+            "acme/orders",
+            DeclarationForm::ObjectType,
+            "ix://acme/orders/Widget",
+            1 << 20,
+        )
+        .expect("widget key");
+        let gadget = declaration_key(
+            "acme/orders",
+            DeclarationForm::ObjectType,
+            "ix://acme/orders/Gadget",
+            1 << 20,
+        )
+        .expect("gadget key");
+        let reference = MemberType::Reference(gadget.into())
+            .node_key(1 << 20)
+            .expect("reference");
+        let option = MemberType::Option(Box::new(MemberType::Reference(widget.clone().into())))
+            .node_key(1 << 20)
+            .expect("option");
+        let boolean = MemberType::Boolean.node_key(1 << 20).expect("boolean");
+        let navigate = "quire.op.model.navigate";
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "links",
+                "ix://acme/orders/Widget",
+                navigate,
+                &reference
+            ),
+            None
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "linkedBy",
+                "ix://acme/orders/Gadget",
+                navigate,
+                &option
+            ),
+            None
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "absent",
+                "ix://acme/orders/Gadget",
+                navigate,
+                "wrong"
+            ),
+            Some((
+                CheckedPackageRefusalCode::MissingDeclaration,
+                CheckedPackageRefusalCause::MissingName,
+                "/semantic_graph/nodes/0/body/operation/member/name".into()
+            ))
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "links",
+                "ix://acme/orders/Gadget",
+                navigate,
+                &reference
+            ),
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/arguments/0".into()
+            ))
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "links",
+                "ix://acme/orders/Widget",
+                navigate,
+                "wrong"
+            ),
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/result_type".into()
+            ))
+        );
+        let mut direction = relationship();
+        direction["direction"] = json!("source-to-target");
+        assert_eq!(
+            relationship_member_outcome(
+                direction,
+                "linkedBy",
+                "ix://acme/orders/Gadget",
+                navigate,
+                &option
+            ),
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/operation/member/name".into()
+            ))
+        );
+        for multiplicity in [
+            json!({"lower": 0, "ordered": false, "unique": true}),
+            json!({"lower": 0, "upper": 1, "ordered": true, "unique": true}),
+        ] {
+            let mut relation = relationship();
+            relation["targetEnd"]["multiplicity"] = multiplicity;
+            assert_eq!(
+                relationship_member_outcome(
+                    relation,
+                    "links",
+                    "ix://acme/orders/Widget",
+                    navigate,
+                    &reference
+                ),
+                Some((
+                    CheckedPackageRefusalCode::UnsupportedConstruct,
+                    CheckedPackageRefusalCause::ExpressionForm,
+                    "/semantic_graph/nodes/0/body/operation/member/name".into()
+                ))
+            );
+        }
+        let mut self_relationship = relationship();
+        self_relationship["targetEnd"]["type"] = json!("ix://acme/orders/Widget");
+        assert_eq!(
+            relationship_member_outcome(
+                self_relationship.clone(),
+                "links",
+                "ix://acme/orders/Widget",
+                "quire.op.model.reaches",
+                &boolean
+            ),
+            None
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                self_relationship,
+                "links",
+                "ix://acme/orders/Widget",
+                "quire.op.model.reaches",
+                "wrong"
+            ),
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/result_type".into()
+            ))
+        );
+        assert_eq!(
+            relationship_member_outcome(
+                relationship(),
+                "links",
+                "ix://acme/orders/Widget",
+                "quire.op.model.reaches",
+                &boolean
+            ),
+            Some((
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                "/semantic_graph/nodes/0/body/operation/member/name".into()
+            ))
+        );
+    }
 
     /// A catalogued identity used correctly throughout this module's tests:
     /// zero laws, no mode, no member, two plain-literal operands (so the

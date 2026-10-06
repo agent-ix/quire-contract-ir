@@ -162,7 +162,7 @@ const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
-fn relationship() -> Value {
+pub(in crate::checked_package::v2) fn relationship() -> Value {
     json!({
         "identity": LINK,
         "category": "structural",
@@ -174,7 +174,7 @@ fn relationship() -> Value {
     })
 }
 
-fn relationship_document(relationships: Vec<Value>) -> Value {
+pub(in crate::checked_package::v2) fn relationship_document(relationships: Vec<Value>) -> Value {
     let mut widget = object_type(WIDGET, &[], vec![]);
     widget["relationships"] = json!(relationships);
     document(vec![widget, object_type(GADGET, &[], vec![])])
@@ -213,6 +213,32 @@ fn tc_048_relationship_roles_and_metadata_are_read_from_the_authored_declaration
     assert!(read(&relationship_document(vec![declaration])).is_ok());
 }
 
+/// Trace: FR-038-AC-165
+#[trace("TC-048", "FR-038-AC-165")]
+#[test]
+fn tc_048_relationship_slot_does_not_change_nested_field_operation_or_parameter_ids() {
+    let mut document = relationship_document(vec![relationship()]);
+    document["types"][0]["fields"] = json!([field(WIDGET, "count", "ix://quire/native/Integer")]);
+    document["types"][0]["operations"] = json!([{
+        "identity": format!("{WIDGET}/inspect"),
+        "params": [{"identity": format!("{WIDGET}/inspect/item"),
+            "typeRef": "ix://quire/native/Integer",
+            "multiplicity": multiplicity(1, Some(1))}],
+    }]);
+    assert!(read(&document).is_ok());
+    let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
+    for path in [
+        "/types/0/fields/0/identity",
+        "/types/0/operations/0/identity",
+        "/types/0/operations/0/params/0/identity",
+    ] {
+        let mut moved = document.clone();
+        let target = moved.pointer_mut(path).expect("member identity");
+        *target = json!("ix://acme/orders/relationship/Widget-count-Gadget");
+        assert_eq!(read(&moved).map(|_| ()), Err(malformed), "{path}");
+    }
+}
+
 /// Trace: FR-038-AC-165, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
 #[trace(
     "TC-048",
@@ -242,6 +268,32 @@ fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
             .as_object_mut()
             .expect("relationship")
             .remove(member);
+        cases.push((relation, malformed));
+    }
+    for member in ["direction", "category", "composite", "origin"] {
+        for replacement in [Value::Null, json!(42)] {
+            let mut relation = relationship();
+            relation[member] = replacement;
+            cases.push((relation, malformed));
+        }
+    }
+    for (member, replacement) in [
+        ("direction", json!("diagonal")),
+        ("category", json!("unknown")),
+        ("origin", json!({})),
+        ("origin", json!({"source": {}, "generated": {}})),
+        (
+            "origin",
+            json!({"source": {"sourceIdentity": WIDGET, "path": "x"}}),
+        ),
+        (
+            "origin",
+            json!({"generated": {"generatorIdentity": WIDGET,
+            "generatorVersion": "bad", "inputIdentities": [GADGET]}}),
+        ),
+    ] {
+        let mut relation = relationship();
+        relation[member] = replacement;
         cases.push((relation, malformed));
     }
     let mut relation = relationship();
@@ -285,6 +337,98 @@ fn tc_048_relationship_admission_refuses_bad_identity_shape_and_end_meaning() {
         read(&relationship_document(vec![relationship(), relationship()])).map(|_| ()),
         Err(conflicting)
     );
+}
+
+/// Trace: FR-038-AC-170
+#[trace("TC-048", "FR-038-AC-170")]
+#[test]
+fn tc_048_relationship_destination_bounds_derive_the_canonical_navigation_type() {
+    let mut relation = relationship();
+    let cases = [
+        (0, Some(1), true, "option"),
+        (1, Some(1), true, "reference"),
+        (0, Some(3), true, "set"),
+        (0, Some(3), false, "bag"),
+    ];
+    for (lower, upper, unique, expected) in cases {
+        relation["targetEnd"]["multiplicity"] = json!({
+            "lower": lower, "upper": upper, "ordered": false, "unique": unique,
+        });
+        let model = read(&relationship_document(vec![relation.clone()])).expect("admitted");
+        let declaration = model.relationships.get(LINK).expect("relationship");
+        let type_key = declaration_key("acme/orders", DeclarationForm::ObjectType, GADGET, BYTES)
+            .expect("destination key");
+        let result = declaration
+            .navigation_type(true, type_key.into())
+            .expect("navigation type");
+        match (expected, result) {
+            ("option", MemberType::Option(_))
+            | ("reference", MemberType::Reference(_))
+            | (
+                "set",
+                MemberType::Collection {
+                    kind: CollectionKind::Set,
+                    ..
+                },
+            )
+            | (
+                "bag",
+                MemberType::Collection {
+                    kind: CollectionKind::Bag,
+                    ..
+                },
+            ) => {}
+            (_, actual) => panic!("expected {expected}, got {actual:?}"),
+        }
+    }
+    relation["targetEnd"]["multiplicity"] = json!({
+        "lower": 0, "ordered": true, "unique": true,
+    });
+    let model = read(&relationship_document(vec![relation])).expect("admitted");
+    let declaration = model.relationships.get(LINK).expect("relationship");
+    assert_eq!(
+        declaration.navigation_type(true, "destination-key".into()),
+        Err(ModelRefusal::new(
+            Code::UnsupportedConstruct,
+            Cause::ExpressionForm
+        ))
+    );
+}
+
+/// Trace: FR-038-AC-168
+#[trace("TC-048", "FR-038-AC-168")]
+#[test]
+fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
+    let document = relationship_document(vec![relationship()]);
+    let read_at = |work| {
+        let mut meter = WorkMeter::new(work);
+        read_semantic_ir(&document, &mut Budget::new(&mut meter, 0, BYTES))
+    };
+    let mut below = 0;
+    let mut enough = 100;
+    assert!(read_at(enough).is_ok());
+    while below + 1 < enough {
+        let middle = below + (enough - below) / 2;
+        if read_at(middle).is_ok() {
+            enough = middle;
+        } else {
+            below = middle;
+        }
+    }
+    assert!(read_at(enough).is_ok());
+    match read_at(enough - 1) {
+        Err(ModelFailure::Limit(ValidationFailure::Incomplete(incomplete))) => {
+            assert_eq!(
+                incomplete.limit_kind,
+                crate::checked_package::shared::CheckedPackageLimit::Work
+            );
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected selected-row work exhaustion, got {other:?}"),
+    }
 }
 
 /// FR-154 over a Semantic IR document: an inherited field resolves on the
@@ -567,14 +711,17 @@ fn tc_048_one_nodes_failures_report_in_table_order() {
 /// Trace: FR-038-AC-28
 #[test]
 fn tc_048_a_type_ref_to_a_relationship_is_wrong_meaning_in_any_node_order() {
-    let owns = "ix://acme/orders/Widget/owns";
     let mut widget = object_type(WIDGET, &[], vec![]);
-    widget["relationships"] = json!([{"identity": owns}]);
+    widget["relationships"] = json!([relationship()]);
     let malformed = ModelRefusal::new(Code::InvalidModelBinding, Cause::MalformedDeclaration);
     for referencing in [GADGET, ZETA] {
-        let holder = object_type(referencing, &[], vec![field(referencing, "owned", owns)]);
+        let holder = object_type(referencing, &[], vec![field(referencing, "owned", LINK)]);
+        let mut types = vec![widget.clone(), holder];
+        if referencing != GADGET {
+            types.push(object_type(GADGET, &[], vec![]));
+        }
         assert_eq!(
-            read(&document(vec![widget.clone(), holder])).map(|_| ()),
+            read(&document(types)).map(|_| ()),
             Err(malformed),
             "{referencing} is read {} the relationship's owner",
             if referencing < WIDGET {

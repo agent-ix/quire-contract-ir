@@ -258,6 +258,267 @@ fn refused(
 /// The position of the `dispatch_call` application in [`package_over`]'s graph.
 const CALL: usize = 6;
 
+const RELATIONSHIP: &str = "ix://acme/orders/relationship/Order-links-Order";
+
+fn authored_relationship() -> Value {
+    json!({
+        "identity": RELATIONSHIP, "category": "structural", "composite": false,
+        "direction": "bidirectional",
+        "sourceEnd": {"type": ORDER, "role": "links", "multiplicity":
+            {"lower": 0, "upper": 1, "ordered": false, "unique": true}},
+        "targetEnd": {"type": ORDER, "role": "linkedBy", "multiplicity":
+            {"lower": 1, "upper": 1, "ordered": false, "unique": true}},
+        "origin": {"source": {"sourceIdentity": ORDER, "path": "models/Order.md",
+            "startLine": 1, "startColumn": 1}},
+    })
+}
+
+fn relationship_package(
+    relationship: Value,
+    role: &str,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+    relationship_operation_package(relationship, role, false)
+}
+
+fn relationship_operation_package(
+    relationship: Value,
+    role: &str,
+    reaches: bool,
+) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+    let document = domain_document(json!({"relationships": [relationship]}));
+    let digest = sha256_hex(&canonical(&document));
+    let mut package = package_selecting("total", &digest);
+    let relationship_key = structural_key(
+        "relation",
+        "relationship",
+        None,
+        Some(json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP})),
+        &empty(),
+    );
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let receiver = nodes[4]["node_id"]["digest"]
+        .as_str()
+        .expect("receiver")
+        .to_owned();
+    let reference_type = nodes[3]["node_id"]["digest"]
+        .as_str()
+        .expect("reference")
+        .to_owned();
+    let boolean = structural_key("scalar_type", "boolean", None, None, &empty());
+    let result_type = if reaches { &boolean } else { &reference_type };
+    let form = if reaches { "reachability" } else { "query" };
+    let operator = if reaches { "reaches" } else { "query" };
+    let operation = if reaches {
+        "quire.op.model.reaches"
+    } else {
+        "quire.op.model.navigate"
+    };
+    let arguments = if reaches {
+        vec![reference(&receiver), reference(&receiver)]
+    } else {
+        vec![reference(&receiver)]
+    };
+    let body = json!({
+        "term": "application", "operator": operator,
+        "operation": {"identity": operation, "laws": [], "mode": null,
+            "member": {"kind": "relationship_end", "declaration": node_id(&relationship_key), "name": role},
+            "leaves": []},
+        "result_type": node_id(result_type),
+        "arguments": arguments,
+    });
+    let application_key = sha256_hex(&canonical(&json!({
+        "version": APPLICATION_NODE, "node_tag": "expression", "semantic_form": form,
+        "semantic_type": node_id(result_type), "declaration": null,
+        "recursion": null, "body": body,
+    })));
+    let mut dependencies = [receiver.as_str(), relationship_key.as_str()];
+    dependencies.sort_unstable();
+    nodes[CALL] = wire_node(
+        &application_key,
+        "expression",
+        form,
+        result_type,
+        &dependencies,
+        body,
+    );
+    let mut relation_node = wire_node(
+        &relationship_key,
+        "relation",
+        "relationship",
+        &relationship_key,
+        &[],
+        empty(),
+    );
+    relation_node["owner"] = json!({"kind": "model", "identity": IDENTITY, "node": RELATIONSHIP});
+    nodes.push(relation_node);
+    if reaches {
+        nodes.push(wire_node(
+            &boolean,
+            "scalar_type",
+            "boolean",
+            &boolean,
+            &[],
+            empty(),
+        ));
+    }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let mut evidence = evidence_for(&package);
+    evidence.insert_domain_package_document(digest, canonical(&document));
+    (package, evidence)
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-169, FR-038-AC-170, FR-038-AC-171
+#[trace(
+    "TC-048",
+    "FR-038-AC-165",
+    "FR-038-AC-169",
+    "FR-038-AC-170",
+    "FR-038-AC-171"
+)]
+#[test]
+fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
+    let (package, evidence) = relationship_package(authored_relationship(), "links");
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let (package, evidence) = relationship_package(authored_relationship(), "missing");
+    let refusal = refused(&package, &evidence);
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/operation/member/name")
+    );
+    assert_eq!(
+        refusal.locus.as_ref(),
+        Some(
+            &serde_json::from_value(package["semantic_graph"]["nodes"][CALL]["node_id"].clone())
+                .expect("application id")
+        )
+    );
+}
+
+/// Trace: FR-038-AC-169, FR-038-AC-172
+#[trace("TC-048", "FR-038-AC-169", "FR-038-AC-172")]
+#[test]
+fn tc_048_a_selected_self_relationship_reaches_through_either_named_end() {
+    for role in ["links", "linkedBy"] {
+        let (package, evidence) =
+            relationship_operation_package(authored_relationship(), role, true);
+        let result = read(&package, &evidence);
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "{role}: {result:?}"
+        );
+    }
+    let mut set_edge = authored_relationship();
+    set_edge["targetEnd"]["multiplicity"]["lower"] = json!(2);
+    set_edge["targetEnd"]["multiplicity"]["upper"] = json!(3);
+    let (package, evidence) = relationship_operation_package(set_edge, "links", true);
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::IllTyped,
+            Some(CheckedPackageRefusalCause::OperatorIneligible)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/operation/member/name")
+    );
+}
+
+/// Trace: FR-038-AC-165, FR-038-AC-166, FR-038-AC-167, FR-038-AC-168, FR-038-AC-173
+#[trace(
+    "TC-048",
+    "FR-038-AC-165",
+    "FR-038-AC-166",
+    "FR-038-AC-167",
+    "FR-038-AC-168",
+    "FR-038-AC-173"
+)]
+#[test]
+fn tc_048_selected_relationship_declaration_refusals_precede_navigation() {
+    let mut cases = Vec::new();
+    let mut wrong_identity = authored_relationship();
+    wrong_identity["identity"] = json!("ix://acme/orders/Order/links");
+    cases.push((
+        wrong_identity,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        CheckedPackageRefusalCause::MalformedDeclaration,
+    ));
+    let mut missing_direction = authored_relationship();
+    missing_direction
+        .as_object_mut()
+        .expect("relationship")
+        .remove("direction");
+    cases.push((
+        missing_direction,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        CheckedPackageRefusalCause::MalformedDeclaration,
+    ));
+    let mut no_role = authored_relationship();
+    no_role["sourceEnd"]
+        .as_object_mut()
+        .expect("source end")
+        .remove("role");
+    cases.push((
+        no_role,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        CheckedPackageRefusalCause::MalformedDeclaration,
+    ));
+    let mut unresolved = authored_relationship();
+    unresolved["targetEnd"]["type"] = json!("ix://acme/orders/Ghost");
+    cases.push((
+        unresolved,
+        CheckedPackageRefusalCode::MissingDeclaration,
+        CheckedPackageRefusalCause::MissingName,
+    ));
+    let mut reversed = authored_relationship();
+    reversed["targetEnd"]["multiplicity"]["lower"] = json!(3);
+    cases.push((
+        reversed,
+        CheckedPackageRefusalCode::InvalidModelBinding,
+        CheckedPackageRefusalCause::UnpreservedModelMeaning,
+    ));
+    for (relation, code, cause) in cases {
+        let (package, evidence) = relationship_package(relation.clone(), "missing");
+        let refusal = refused(&package, &evidence);
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (code, Some(cause)),
+            "{relation}"
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(ToString::to_string).as_deref(),
+            Some("/lock/model_selections/0")
+        );
+    }
+    let mut no_inverse = authored_relationship();
+    no_inverse["targetEnd"]
+        .as_object_mut()
+        .expect("target end")
+        .remove("role");
+    let (package, evidence) = relationship_package(no_inverse, "linkedBy");
+    let refusal = refused(&package, &evidence);
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (
+            CheckedPackageRefusalCode::MissingDeclaration,
+            Some(CheckedPackageRefusalCause::MissingName)
+        )
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/6/body/operation/member/name")
+    );
+}
+
 /// Tracing: TC-048, FR-038-AC-29
 #[trace("TC-048", "FR-038-AC-29")]
 #[test]

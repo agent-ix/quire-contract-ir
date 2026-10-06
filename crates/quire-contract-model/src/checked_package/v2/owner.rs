@@ -161,7 +161,7 @@ fn model_kind_matches(
             .get(declared)
             .is_some_and(|declared| declared.interface),
         CheckedNodeKind::Relation(super::RelationForm::Relationship) => {
-            model.relationships.contains_key(declared)
+            model.relationships.contains_key(declared) || model.relation_nodes.contains(declared)
         }
         CheckedNodeKind::Function(_) => match clause_kind(&node.body) {
             Some("invariant") => model
