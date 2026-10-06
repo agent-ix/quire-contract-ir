@@ -582,19 +582,17 @@ leaves. Replace it with selected-profile text and assert admission with the
 text leaf followed by `["field:next", "inner", "recursion:0"]`; omit the
 recursion leaf and assert `operation-law-missing` at `operation.leaves`. Add a
 text sibling after `next` and assert its leaf follows the recursion leaf in
-declaration order. Run a direct-reference-to-`Option<List>` control and check
-its field and inner path without interpreting it as the optional binding form.
+declaration order. Run a direct-reference-to-`Option<List>` control and check that it admits
+with the same field and inner path.
 
 For the same otherwise well-formed comparison, replace the `next` value in
 fresh packages with an empty aggregate, two `optional` bindings, another
 binding name, a non-binding member, and an `optional` binding that does not
 reference an option type. Recompute the package's identity members each time.
-For mutants admitted by the earlier strict wire and body-grammar stages,
-assert `ill_typed`/`operator-ineligible` at `operation.leaves` and no partial
-leaf derivation; for any mutant those earlier stages refuse, assert that
-earlier typed refusal and pointer instead. At least the duplicate-member and
-wrong-name variants must reach the operation check, so this test cannot pass
-entirely on earlier grammar refusals.
+The flat body grammar admits each mutant. Assert that every one reaches the
+operation check and refuses `ill_typed`/`operator-ineligible` at
+`operation.leaves`, with no partial leaf derivation. An earlier grammar or
+identity refusal fails the test.
 
 ## Canonical encoding (FR-038-AC-74 through FR-038-AC-80)
 
