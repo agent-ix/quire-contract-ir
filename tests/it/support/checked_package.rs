@@ -120,14 +120,15 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     let source = fixture_source();
     let (mut nodes, mut projection, mut source_map) = (Vec::new(), Vec::new(), Vec::new());
     for index in 0..length {
-        let key = format!("{:064x}", index + 1);
+        let body = json!({"term": "reference", "target": node_id(&previous)});
+        let key = structural_key("expression", "reference", Some(&boolean), &body);
         let mut node = plain_node(
             &key,
             "expression",
             "reference",
             &boolean,
             &[previous.as_str()],
-            json!({"term": "reference", "target": node_id(&previous)}),
+            body,
         );
         nodes.push(serde_json::to_string(&node).expect("node"));
         node.as_object_mut()
