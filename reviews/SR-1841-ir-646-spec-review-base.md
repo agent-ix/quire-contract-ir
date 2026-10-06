@@ -22,3 +22,13 @@ Ticket: IR-646. Reviewed PR #302 at 46597863d12f708bbcdf146609deb2b3386469c7; ex
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | The ModelOwner join calls both model/object_type and model/systems_interface a matching object type without testing interfaceFeatures. QSpec FR-322 requires an object type without interfaceFeatures for object_type and one with interfaceFeatures for systems_interface. The current rule can admit a node under the wrong semantic form; require the distinction and test both cross-kind mutations in TC-228. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:1801 |
+
+## Dispositions
+
+| FND | Outcome | SHA / reason |
+| --- | --- | --- |
+| FND-001 | fixed | 1f1003c5710089f97816147956d7fc1a08afd506 — FR-038 distinguishes object types with and without `interfaceFeatures`; AC-155 and TC-228 exercise both cross-kind refusals with current identity material. |
+
+## Disposition Verdict
+
+**PASS at 1f1003c5710089f97816147956d7fc1a08afd506** — the sole finding is fixed, and the focused spec validation and diff check pass.
