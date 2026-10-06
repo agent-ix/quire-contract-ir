@@ -49,20 +49,26 @@ pair. Field access, option unwrap, collection index, collection length, and
 pure-function call start at the declared bounds of their numeric result type
 and then intersect dominating exact-subject facts by the same rule as
 references; no node other than an exact-subject fact narrows that range.
-The interval calculation uses exact mathematical endpoints, including when
-an endpoint operation, `abs(i128::MIN)`, negation, cross-product, or gap width
-exceeds signed 128-bit storage. The checker treats an intermediate that cannot
-be represented conservatively as outside the named result bounds; it shall
-not wrap, panic, silently clamp into the bounds, or lose a
-definedness obligation. Exact singleton results may normalize before the
-final range check. A saturated integer operation clamps to the declared type
-bounds even when the mathematical intermediate is outside i128.
+The interval calculation uses mathematical endpoints, including when an
+endpoint operation, `abs(i128::MIN)`, negation, cross-product, or gap width
+exceeds signed 128-bit storage. For an exact singleton rational result, the
+checker establishes the mathematical fraction and normalizes it before the
+final bounds check, using cancellation or sufficient precision when raw
+products do not fit i128. Raw intermediate width alone cannot refuse a
+singleton whose normalized numerator and denominator fit the declared type.
+For a non-singleton range, the checker uses a sound envelope; if it cannot
+establish that every normalized result fits the declared bounds, it reports
+`potentially_undefined` with the checked-range obligation. No calculation
+wraps, panics, silently clamps a checked result into the bounds, or loses an
+obligation. A saturated integer operation clamps to the declared type bounds
+even when its mathematical intermediate is outside i128.
 
 For normalized rational operands `a/b` and `c/d`, add/subtract use numerator
 `a*d +/- c*b` and denominator `b*d`; multiply uses `a*c` and `b*d`; divide uses
 `a*d` and `b*c`; and negate preserves `b`. The checker applies these operations
 to bound endpoints, rejects a possible zero `c`, normalizes exact singleton
-results, and otherwise uses the unreduced worst case. A checked-range obligation
+results before judging their bounds, and otherwise uses a sound unreduced worst
+case. A checked-range obligation
 is discharged exactly when every result range is contained in the named
 numerator/integer bounds and every possible positive denominator stays within
 its declared maximum.
@@ -102,7 +108,7 @@ declaration span is retained only when no guard contributed.
 | FR-015-AC-5 | Every `potentially_undefined` diagnostic carries the exact closed `obligation_kind`; every discharged node retains the deterministic declaration/guard proof span. | Test (TC-016) |
 | FR-015-AC-6 | Bottom-up range sets from literals, declaration bounds, exact-subject guards, field/unwrap/index results, and pure calls accept only results wholly contained in the named numeric type. | Test (TC-016) |
 | FR-015-AC-7 | Positive and negative bounded-rational fixtures pin normalization plus numerator/denominator propagation for add, subtract, multiply, divide, and negate. | Test (TC-016) |
-| FR-015-AC-8 | At an `i128::MIN` endpoint, integer `reject` negation and division by `-1` report `potentially_undefined` with the checked-range obligation at the operator span; `saturate` negation returns the declared maximum when its mathematical result exceeds that bound. Rational `i128::MIN/1` is admitted and normalizes without panic, while an unrepresentable rational cross-product or checked negation reports `potentially_undefined` rather than wrapping, panicking, or admitting an unproved result. | Test (TC-016) |
+| FR-015-AC-8 | At an `i128::MIN` endpoint, integer `reject` negation and division by `-1` report `potentially_undefined` with the checked-range obligation at the operator span; `saturate` negation returns the declared maximum when its mathematical result exceeds that bound. Rational `i128::MIN/1` is admitted and normalizes without panic. In the rational type with numerator bounds `[0, i128::MAX]` and maximum denominator `i128::MAX`, the singleton product `i128::MAX/(i128::MAX - 1) * (i128::MAX - 1)/i128::MAX` is admitted as normalized `1/1` despite both raw products exceeding i128. In that type, `i128::MAX/1 * 2/1` reports `potentially_undefined` with the checked-range obligation at the multiplication span because its normalized numerator exceeds the bound. Negation of rational `i128::MIN/1` under bounds `[i128::MIN, i128::MAX]` likewise reports that obligation at the negation span. None wraps or panics. | Test (TC-016) |
 
 ## Dependencies
 
