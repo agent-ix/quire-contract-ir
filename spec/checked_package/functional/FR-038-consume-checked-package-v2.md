@@ -9,6 +9,10 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
+  - target: ix://agent-ix/quire-spec-language/FR-092
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-094
+    type: references
   - target: ix://agent-ix/quire-specification/FR-201
     type: references
   - target: ix://agent-ix/quire-specification/FR-195
@@ -1754,6 +1758,64 @@ above does. These are graph-shape refusals: they precede the stale-key
 stage. The reader re-derives neither form's node key: QSL keys both by its
 proposed `quire.structural-node/v1` preimage, which QSpec does not publish.
 
+### Wire owner on checked nodes
+
+FR-038-AC-153 through FR-038-AC-155 specify the planned IR-646 owner-wire
+reader. They do not lift FR-038-AC-145 through FR-038-AC-149's current
+recursion-group skip or the soundness limit it records. IR-630 owns the later
+complete structural-key stage, including in-group re-derivation and retirement
+or amendment of those interim criteria and TC-226. QSpec FR-322's derived-shape
+rule and QSL FR-092/FR-094 supply that later stage's preimage authority;
+IR-646 only exposes and validates the owner it will read.
+
+The optional `owner` member of `CheckedSemanticNodeV2` and of its
+`identity_projection` entry has QSpec FR-322's closed `NodeOwner` shape:
+`SourceOwner` `{kind: "source", authority, identity}` or `ModelOwner`
+`{kind: "model", identity, node}`. The projection carries exactly the node's
+owner, so changing it changes `package_id`. A node is structural for this
+presence rule when it has no `nominal_identity_preimage` and its body root is
+not `application`. Every declared structural node SHALL carry the declaring
+unit's `SourceOwner`. An undeclared `model`/`object_type`,
+`model`/`systems_interface`, `relation`/`relationship` or `function` node
+SHALL carry its `ModelOwner`. Every other node SHALL omit `owner`: this
+includes anonymous types, undeclared values and parameters, nominal nodes
+whose owner is in their nominal preimage, and application-keyed nodes. A
+`DefinitionOwner` is not a node owner. The reader SHALL derive no missing
+owner from occurrences, the source map, the lock, or node position.
+
+The strict wire/schema step SHALL refuse a missing required `owner` as
+`malformed_wire` at the node or projection object that lacks it. It SHALL
+refuse an owner on a node that must omit one, a wrong owner kind, `null`, a
+wrong member type, or an unknown owner member as `malformed_wire` at `owner`;
+the same rule applies to each projection entry. A projection owner differing
+from its node's owner SHALL refuse as `stale_dependency` at the first differing
+projection value after the schema step. There is no admission route for an
+owner-less declared or model-owned structural node.
+
+The owner-join step SHALL visit owner-bearing nodes in ascending retained
+node-id digest order, before any derived-shape key check. A `SourceOwner` SHALL
+match a `lock.sources` row by (`authority`, `identity`). Every source-map
+region of that node's `declaration` occurrence SHALL name that same source
+pair; a mismatch SHALL refuse `invalid_package`/`invalid-value` at the
+occurrence's source-map entry, even when the other source is lock-selected.
+A `ModelOwner` SHALL match a `lock.model_selections` row by `identity`, and
+its `node` SHALL resolve in that selection's admitted document to the kind
+the node represents: `model`/`object_type` requires an object type without
+`interfaceFeatures`, `model`/`systems_interface` requires an object type with
+`interfaceFeatures`, and `relation`/`relationship` requires a relationship.
+An operation clause function requires an operation member; an invariant clause
+function requires an object type. The reader SHALL check this
+for every model-owned node whether or not any other node references it, and
+charge one validation visit for each document lookup. A missing selection,
+declaration, member or matching kind SHALL refuse
+`missing_declaration`/`missing-selection` at that node's `node_id`.
+
+An owner that passes this join proceeds to the existing reader stages;
+IR-630 will expand the key stage to read this member for every structural
+key, with `correspondence`/`abstraction_relation` remaining under FR-346's
+distinct FR-451 key check. `source_locus` remains a structural form, and
+application-keyed nodes remain owner-free.
+
 ### Anonymous structural node bodies and keys
 
 Measured at `origin/main` (IR-627, whose own text is a claim and was
@@ -3125,6 +3187,9 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-150 | In-group re-derivation (IR-627; planned and GATED on IR-630, which waits on QSL-638's wire `owner`; IR-627-Q1 and Q4). Once the reader derives the preimage of each declared member of a group, including its `SourceOwner`, a package of the `List` and `Tree` groups of FR-038-AC-145 whose in-group keys are those QSL FR-092 mints (the group digest over the group-local preimages in ordinal order; `recursion` `{size, ordinal, group}` on every structural member; `{term: "group_reference", ordinal}` at every position that names a member of its own group, `semantic_type` included) admits. Each of these refuses `invalid_package`/`stale-node-key` at the node's `node_id`: `max` of the in-group `collection_bounds` node changed to `5`; the `Sequence<Tree>` node's body `reference` re-pointed at another member of the group (a different ordinal); the `semantic_type` of the `collection_bounds` node re-pointed at the record (a different ordinal at `semantic_type`); the group's members written in another wire order with every `node_id` kept; the forged group of FR-038-AC-148. A group in which no member carries a `declaration`, such as QSL FR-092's vector G1 (an `option` over itself), needs no owner and is not gated on Q4, because every member's preimage is derivable from the wire: it is re-derived once the reader computes the group digest. The preimage's `recursion` and `group_reference` members are derived, not wire members, so each mutation reaches them through the wire member that produces them. The stated limit, recorded as the admission of the same group with its members written in another wire order and every key recomputed for that order: the reader reads each ordinal from graph order, as QSL FR-092 states for FR-322, and does not recompute the content order (IR-627-Q4). Until the gate lifts this criterion has no test and no implementation. | Test (TC-226) |
 | FR-038-AC-151 | Implemented by IR-644 and verified by TC-048. Over the QSL-shaped recursive `List` record with an integer field and `next` encoded as `binding(next, aggregate([binding(optional, reference Option<List>)]))`, `structural.eq` over two `List` values admits with `leaves` empty, and the leaf derivation terminates through the option's `inner` edge at the record reentry. Replacing that integer field with a text field whose profile is selected admits exactly its text leaf followed by `["field:next", "inner", "recursion:0"]`; omission of that recursion leaf refuses `invalid_package`/`operation-law-missing` at `operation.leaves`. Adding a healthy text sibling after `next` retains its own leaf after the recursion leaf in declaration order, proving that the wrapper consumes exactly one field edge. A direct field `reference` to `Option<List>` also admits with the same `field:next`, `inner` path. | Test (TC-048) |
 | FR-038-AC-152 | Implemented by IR-644 and verified by TC-048. With the rest of the `List` comparison well formed and its identity members recomputed after each mutation, replace only the value of `next` by an `aggregate` with no member, two `optional` members, a member named otherwise, a non-binding member, or an `optional` binding whose value is not a reference to an option type. Each mutation is admitted by the flat body grammar; after identity re-derivation, each reaches the operation check and refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, rather than silently omitting `next` or deriving a leaf from a different member. | Test (TC-048) |
+| FR-038-AC-153 | A declared record, tuple and function each carries its source owner in the node and equal identity projection; QSpec's two-owner packages for `Point` and recursive `List` admit with distinct `Point` ids, distinct `List` group labels and member ids, and equal builtin `Integer` and application-keyed `three` ids under the two owners. An undeclared model declaration and clause function each carries its model owner, while an anonymous type, `source_locus` node and application-keyed node carry no owner. | Test (TC-228) |
+| FR-038-AC-154 | Omitting a required node or projection owner, inserting `null`, using the wrong owner kind, adding `version` to `ModelOwner`, or placing an owner on an owner-free node refuses `malformed_wire` at the node or projection object that lacks a required owner and at the present `owner` otherwise, before identity validation. A well-shaped projection owner differing from its node's owner refuses `stale_dependency` at the first differing projection value. The reader does not reconstruct an omitted owner from an occurrence, source map or lock. | Test (TC-228) |
+| FR-038-AC-155 | Before structural key re-derivation, a `SourceOwner` absent from `lock.sources` refuses `missing_declaration`/`missing-selection` at its node's `node_id`; a source-map region of its `declaration` occurrence naming another source pair refuses `invalid_package`/`invalid-value` at that source-map entry even when both pairs are lock-selected. A `ModelOwner` whose `identity` is unselected, whose `node` names no declaration, or whose `node` names the wrong kind refuses `missing_declaration`/`missing-selection` at its node's `node_id`, even if nothing reaches that node: a relationship cannot back `model`/`object_type`, an object type with `interfaceFeatures` cannot back `model`/`object_type`, an object type without `interfaceFeatures` cannot back `model`/`systems_interface`, and a field cannot back an operation clause. An operation member's clause and an object type's invariant pass. Two owner defects select the lowest retained node-id digest, ahead of a stale key on a lower-key node. Each selected-document lookup charges one validation visit. | Test (TC-228) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
