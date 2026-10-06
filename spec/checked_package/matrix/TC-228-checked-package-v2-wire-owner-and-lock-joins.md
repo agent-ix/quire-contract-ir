@@ -28,9 +28,13 @@ fixtures from its selected checkout; copy no fixture into this repository.
    projection. Separately insert `null`, the wrong owner variant, a model
    `version` member, and an owner on an anonymous, nominal or application
    node. Repeat an omitted-owner mutation while an occurrence and the source
-   map still name the source unit. For a valid node owner, make the projection
-   owner differ while preserving canonical bytes and recomputing package id.
-   Check code and RFC 6901 pointer before any key check can run.
+   map still name the source unit. Apply QSpec `adverse.json`'s
+   `projection_owner_mutations` entries
+   `projection-source-owner-differs-from-node` and
+   `projection-model-owner-differs-from-node` to their selected nodes in fresh
+   `positive-all-families` packages. Keep each node's owner unchanged and
+   recompute the package id over the changed projection. Check exact code,
+   cause and RFC 6901 pointer before the owner join or a key check can run.
 3. Set a source owner pair and a model owner identity to values absent from
    their respective lock selections. Put two unmatched owners in inverse wire
    and digest order, and assert the reported node. Repeat with both source
@@ -56,7 +60,9 @@ All positive packages admit. `Point` and every `List` group member differ
 between owners, while `Integer` and `three` have equal keys. Missing or
 forbidden owners refuse `malformed_wire` at the object lacking the member or
 at the present `owner`; no occurrence repairs the omission. A projection
-owner differing from its node refuses `stale_dependency` at the projection.
+owner differing from its node refuses `invalid_package`/`invalid-value` at
+`/identity_preimage/identity_projection/{i}/owner` for both the source-owner
+and model-owner mutations, even after recomputing the package id.
 Unmatched source owners and unresolved or wrong-kind model owners, including
 both `interfaceFeatures` cross-kind mutations, refuse
 `missing_declaration`/`missing-selection` at the lowest-key offending node,
@@ -68,8 +74,9 @@ visit; a limit one below it returns `incomplete`.
 
 ## Status
 
-The in-repo generated owner-schema and join cases run in IR-646. The external
-conformance row is **PLANNED**: QSpec's two-owner `Point` and recursive `List`
+The in-repo generated owner-schema and join cases run in IR-646. The
+projection-owner mismatch refusal is specified by IR-658 and awaits its reader
+change. The external conformance row is **PLANNED**: QSpec's two-owner `Point` and recursive `List`
 fixtures and QSL-638's owner-bearing emitter golden must be read directly from
 their selected checkouts after those PRs land. The row is intentionally absent
 from the executable conformance target until the authoritative files exist;
