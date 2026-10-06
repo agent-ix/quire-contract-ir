@@ -932,7 +932,7 @@ inputs, the missing-end and fifth-member inputs with integer-string bounds refus
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
 
-## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-171)
+## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-173)
 
 Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
 IR-661. Existing TC-048 implementation and trace tags do not establish them.
@@ -962,7 +962,13 @@ results.
    as FR-038-AC-155 requires.
 2. Read with both roles, then remove only the target role. The selected
    declaration admits in both cases and the latter exposes only the forward
-   named end. Separately remove the source role; set each role to null, `""`
+   named end. Change source role `billedTo` to `billedToChanged`, updating the
+   relationship's minted identity and all canonical joins: the old name
+   refuses `missing_declaration`/`missing-name`, while the new name admits the
+   otherwise same forward navigation. Repeat this observation for the target
+   role on an eligible finite inverse case. These calls, not a new accessor,
+   observe role retention. Separately remove the source role; set each role to
+   null, `""`
    and a non-string. Every malformed-role mutation refuses
    `invalid_model_binding`/`malformed-declaration` at the selection row, even
    with no application naming that relationship. Use an arbitrary non-empty
@@ -1004,9 +1010,11 @@ results.
    target role absent and combine the unknown name with a wrong receiver,
    disallowed direction and wrong result: missing name still wins. Change
    `declaration` to the valid source object node, then the valid target object
-   node: expected relationship-kind recovery refuses
-   `missing_declaration`/`missing-selection` at `member.declaration`, without
-   rejecting those object nodes' own owners. Independently make the
+   node: owner recovery succeeds for that object and the new member-kind
+   binding check refuses `ill_typed`/`operator-ineligible` at
+   `member.declaration`, without rejecting those object nodes' own owners.
+   Combine that valid object declaration with an unknown role to confirm
+   declaration-kind eligibility precedes role lookup. Independently make the
    relationship node's owner undeclared or wrong-kind and observe the earlier
    existing owner join (FR-038-AC-155). Finally, give both end roles the same
    name and request it: two role matches refuse
@@ -1023,7 +1031,13 @@ results.
    opposite destination end, not the receiver end, determines each result.
    These finite bidirectional documents are self-authored contract cases,
    not a claim that today's extraction frontend emits that direction or
-   source multiplicity. Independently give a forward call the target receiver
+   source multiplicity. Add `PriorityOrder extends Order` and
+   `PreferredCustomer extends Customer`; a receiver of each subtype admits
+   the inherited forward or inverse end and keeps the declared destination
+   result node. A third unrelated object type refuses. Change the destination
+   type to another valid object type, updating its relationship identity and
+   joins, and observe that only the corresponding new result node admits.
+   Independently give a forward call the unrelated target receiver
    type and an inverse call the source receiver type, and give a well-typed
    receiver a different result node: each refuses
    `ill_typed`/`operator-ineligible`, respectively at `body.arguments[0]`
@@ -1055,7 +1069,40 @@ results.
    remain planned and unrun until merged and published by their owner; this
    procedure neither copies them nor tags them as current evidence.
 
+9. Before any application uses the relationship, independently remove
+   `direction`, `category`, `composite` and `origin`; set each to null and a
+   wrong JSON type; use `diagonal` for direction and `unknown` for category;
+   and supply an origin with no admitted branch, both branches, a missing
+   required source-locus member or a malformed generated-origin member.
+   Each refuses `invalid_model_binding`/`malformed-declaration` at the
+   selection row with supplied well-shaped identity, artifact and span metadata
+   where available; missing origin metadata is not fabricated. Valid
+   independently authored source and generated origin branches each admit.
+   No missing direction becomes source-to-target by default. Combine a
+   malformed non-end member with a dangling end type and reversed
+   multiplicity to confirm the malformed-declaration row precedes both.
+10. Author a self-relationship on `Order` with the same selected relationship
+    graph-node mapper, two distinct roles, bidirectional direction and finite
+    unordered singleton destination. Read `quire.op.model.reaches` over two
+    `Reference<Order>` values with the source role, then the inverse role:
+    both admit with Boolean result. Make destination `[0,1]` and admit the
+    corresponding optional edge; use `PriorityOrder` subtype operands and
+    admit by static-edge conformance. Independently substitute an unrelated
+    operand 0, then operand 1, and a heterogeneous destination type: each
+    refuses `ill_typed`/`operator-ineligible`, at arguments0, arguments1 and
+    member.name respectively. Give the homogeneous edge a finite Set or Bag
+    destination rather than the admissible Reference/Option edge: each
+    refuses the reference-edge check at member.name. Remove the requested
+    inverse role and name it: missing name wins before operand checks. Name
+    a valid object node as member.declaration: the new declaration-kind check
+    refuses `ill_typed`/`operator-ineligible` there. Give an otherwise valid
+    reaches application a navigation result type instead of Boolean: it
+    refuses at body.result_type. Keep both operands' static object owners
+    distinct from the relationship graph node; no Reference<relationship>
+    substitutes for an object reference. These are static reader procedures,
+    not runtime graph execution evidence.
+
 Expected: each success and refusal above satisfies FR-038-AC-165 through
-FR-038-AC-171. Compare typed code, cause, pointer and retained declaration
+FR-038-AC-173. Compare typed code, cause, pointer and retained declaration
 metadata, not diagnostic prose. These outcomes remain **UNRUN** until the
 implementation lane records executed evidence.
