@@ -9,6 +9,16 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322
     type: references
+  - target: ix://agent-ix/quire-specification/FR-152
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-154
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-043
+    type: references
+  - target: ix://agent-ix/filament-core-data/FR-094
+    type: references
+  - target: ix://agent-ix/filament-core-data/FR-095
+    type: references
   - target: ix://agent-ix/quire-spec-language/FR-092
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-094
@@ -970,6 +980,189 @@ reader runs FR-322's four steps:
    member's `name`, two refuse `ambiguous_declaration`/`ambiguous-name`.
 4. **Member type**, compared with the application's `result_type` by node key.
 
+#### Selected relationship declarations (IR-661)
+
+The reader SHALL read relationships in the Semantic IR 2.0.0 shape owned by
+FCD, rather than applying the owner-nested field and operation identity rule
+to them. FCD [FR-095, "Node identities"](https://github.com/agent-ix/filament-core-data/blob/main/spec/functional/FR-095-mint-package-identity-and-provenance.md#node-identities)
+places a relationship at
+`ix://<org>/<name>/relationship/<Name>-<verb>-<TargetName>` in the selected
+package's global `relationship` slot. This reader allocates relationship
+identity to FCD FR-095's specific closed-slot rule and the relationship row of
+[contracts-v1, Identity minting](https://github.com/agent-ix/filament-core-data/blob/main/docs/semantic-data-system/contracts-v1.md#identity-minting-issue-87).
+There is an upstream prose conflict: QSpec FR-154's generic member-identity
+paragraph says every member is owner-nested, and FCD contracts-v1's paragraph
+before the table includes relationships among members with no slot. Those
+paragraphs have not been reconciled with the specific relationship slot. For
+this Semantic IR reader, the specific relationship rule governs that case;
+the generic owner-nested rule governs fields, operations and parameters. This
+is an explicit authority allocation for IR-661, not a claim that the upstream
+prose already agrees. The terminal identity segment is an identity, not an end role; the reader SHALL NOT derive a role by splitting it.
+Fields and operations retain `<owner type identity>/<member>` identities, and
+operation parameters retain `<owner operation identity>/<parameter>` identities.
+An owner-nested relationship identity, a foreign-package relationship identity,
+or an identity outside the global relationship slot is
+`invalid_model_binding`/`malformed-declaration`. A relationship still backs
+`relation`/`relationship`, never `model`/`object_type`, and all declarations
+share the existing package-wide identity uniqueness check.
+
+FCD [FR-094, "Relationships"](https://github.com/agent-ix/filament-core-data/blob/main/spec/functional/FR-094-lower-relationships-operations-and-clauses.md)
+and its [semantic IR schema, relationship end definitions](https://github.com/agent-ix/filament-core-data/blob/main/schema/semantic/v1/semantic-ir.schema.json)
+are the producer authority for the whole relationship declaration. The reader
+SHALL validate its required `direction`, `category`, `composite` and `origin`
+against those authoritative schema definitions, including the origin's
+referenced common-schema branch and closed shape. An absent, null,
+wrong-typed, unsupported-enum or otherwise schema-invalid non-end member
+refuses `invalid_model_binding`/`malformed-declaration` in step 1 at the
+selection row with its typed code, cause and RFC 6901 pointer. The refusal
+does not retain FCD origin, sourceIdentity, path, span or artifact metadata;
+a generated origin has no source span. The schema is
+referenced, never copied into this repository. The reader SHALL
+read each end's `type` and `multiplicity`, the required non-empty string
+`sourceEnd.role`, and `targetEnd.role` only when present. An absent target role
+is valid and exposes no inverse name; a present null, empty or non-string
+role, or an absent source role, refuses
+`invalid_model_binding`/`malformed-declaration`. The reader SHALL NOT supply a
+default role or check a role against the frontend's inverse registry. The
+frontend owns agreement with that registry. The source end's type names its
+owning type and the target end's type names the target declaration in the same
+selected document. A source end naming a different owning type refuses
+`invalid_model_binding`/`malformed-declaration`. An end type naming no
+declaration refuses
+`missing_declaration`/`missing-name`; an end type naming a declaration of the
+wrong meaning, including another relationship, refuses
+`invalid_model_binding`/`malformed-declaration`. A malformed end or
+multiplicity refuses `invalid_model_binding`/`malformed-declaration`; a
+well-shaped multiplicity with `lower > upper` refuses
+`invalid_model_binding`/`unpreserved-model-meaning`.
+
+A V2 `relationship_end` member SHALL have the existing member shape
+`{kind: "relationship_end", declaration, name}`, with `declaration` naming
+the relationship's `relation`/`relationship` graph node. Its `ModelOwner`
+selects the actual FCD relationship by selected package identity and global
+relationship identity; it does not select the source or target object node.
+This is the declaring-node rule of merged QSpec
+[FR-322, Properties and Model-owned members step 2](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md),
+together with merged QSL
+[FR-094, Model declaration nodes](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-094-key-model-owned-reference-population-and-quantity-nodes.md#model-declaration-nodes):
+"A `RelationshipRecord` is `relation` / `relationship`" and a checked node
+names it "only through a `relationship_end` member". The relationship node
+keeps its content-only owner and empty body. Step 2 recovers a valid object's
+own declaration when the member names that object node; it does not fail
+expected-kind recovery. After that recovery this amendment adds a
+relationship-member binding check: a recovered declaration that is not a
+relationship refuses `ill_typed`/`operator-ineligible` at
+`member.declaration`, before role lookup. This mirrors QSpec FR-322-AC-30's
+ineligible cross-kind member case and never redirects lookup to object
+members. The earlier owner join remains FR-038-AC-155's: an owner's missing
+selection, undeclared node or mismatched node kind is still
+`missing_declaration`/`missing-selection` at the owner's node, independently
+of this new member check.
+
+At the application's model-member check, the reader SHALL resolve the
+member's `name` against this selected relationship's declared roles, byte for
+byte. Named-end lookup uses `sourceEnd.role` for the forward source-to-target
+end and, only when present, `targetEnd.role` for the inverse target-to-source
+end. Two matching end roles refuse `ambiguous_declaration`/`ambiguous-name`.
+A requested name matching no declared applicable end role, including an
+absent inverse, refuses `missing_declaration`/`missing-name`; it SHALL NOT
+select the forward end or create an inverse. This lookup alone
+grants no navigation eligibility. Merged QSpec
+[FR-152, "Navigation"](https://github.com/agent-ix/quire-specification/blob/main/spec/functional/type-model/FR-152-bind-systems-model-structures.md#navigation)
+owns traversal-direction eligibility, destination-multiplicity result
+derivation and its typed refusals. The reader SHALL apply that canonical
+rule, not maintain a second direction or multiplicity table. Its IR binding
+is: source role chooses the source receiver endpoint and target destination;
+target role chooses the target receiver endpoint and source destination. A
+receiver qualifies through the endpoint's effective view, including an
+inherited relationship on a subtype, under `quire.model.complete/v1` and
+FR-152; it need not be the exact declared endpoint type. An unrelated receiver
+refuses `ill_typed`/`operator-ineligible`. Role lookup precedes those checks,
+so an absent inverse remains a missing name even if traversal would also be
+ineligible. The navigation application's `result_type` SHALL name the
+anonymous type node the canonical derivation yields; a different node refuses
+`ill_typed`/`operator-ineligible`. A present inverse never overrides FR-152's
+direction eligibility.
+
+For `quire.op.model.reaches`, the same recovered relationship node and named
+end select the edge. The static edge owner is the resolved receiver endpoint,
+not the relationship graph node: neither operand is a reference to the
+relationship declaration. The reader SHALL check the two reference operands
+and resolved destination edge against QSpec FR-322 "Reaches over a field"'s
+reference-edge admissibility and
+[FR-043, Behavior](https://github.com/agent-ix/quire-specification/blob/main/spec/functional/foundation/FR-043-evaluate-finite-graph-relations.md#behavior)'s
+static-edge conformance and homogeneous traversal rule, using that endpoint
+as the object owner. Thus the endpoint mapping adapts the relationship-end
+case of the predicate; it does not apply the field-only equality between
+`member.declaration` and the receiver object node. Role, endpoint and
+direction resolution follow the binding above; FR-152 remains the authority
+for the destination end's typed multiplicity. An otherwise well-formed edge
+or pair of operands that fails reference-edge admissibility refuses
+`ill_typed`/`operator-ineligible`. The result remains the catalog's Boolean
+node, not navigation's destination type. Runtime traversal remains FR-043's
+owner responsibility; this reader checks the static package binding only.
+
+These declaration checks run in step 1 above, including for an otherwise
+unused relationship. Their outer pointer is `/lock/model_selections/<i>`;
+the current selection-refusal mapping retains code, cause and that pointer,
+not the relationship's declaration identity or FCD origin/source metadata.
+`SelectionRefusal` carries no node identity, so no graph-node locus is
+guaranteed for these selected-document failures. Graph-node refusals retain
+a node key only where the existing reader explicitly supplies its `locus`;
+IR-661 introduces no new refusal field. They keep FR-154's table order and
+member-path order within a row: malformed declaration before unresolved end type, duplicate identity
+before reversed multiplicity, and unresolved end type before reversed
+multiplicity. A reference to a declaration refused for its identity or kind
+keeps that declaration's own refusal, independent of node order; it SHALL NOT
+be recast as a missing end type. Selected-document parsing and each
+relationship node and member read are charged through the existing work meter
+at the selection row. Exhaustion of that selection-stage charge returns
+`incomplete` there and no partial package. The complete read also charges
+operation validation and later graph-body reference edges in its existing
+order. A total-reader work limit one below the measured successful total
+reports the first unpayable charge at its own stage pointer, which may be a
+graph argument target; it does not necessarily report the selection row.
+
+**Named conformance gap: declaration-refusal retention (IR-663).** Merged
+[QSpec FR-154, Behavior](https://github.com/agent-ix/quire-specification/blob/main/spec/functional/type-model/FR-154-admit-domain-package-model.md#behavior)
+requires: "Every declaration refusal retains the IR node identity, the source
+artifact id and the source span `{artifact, start, end}` that the node carries."
+QSpec FR-322 "Model-owned members" step 1 also requires the first refusal's
+own code, cause and loci. The existing `SelectionRefusal` mapping described
+above does not meet that retention requirement; its observable code, cause and
+selection pointer are a current implementation limit, not a conforming substitute.
+IR-663 owns the refusal-retention design and code needed to close this gap.
+That work is PLANNED / UNRUN and introduces no field in this IR-661 amendment.
+The planner/upstream-owner allocation for IR-663 is to retain the IR node
+identity and the node's FCD origin verbatim: source-origin sourceIdentity,
+path and span as supplied; generated-origin members as supplied, with no
+invented span. A span is retained only when the origin carries one. This
+future allocation awaits the upstream normative amendment in QSpec #191;
+that unmerged work is not authority replacing the quoted merged requirement.
+IR-663 is diagnostic metadata work after QSpec #191 and IR-651, not a gate
+on QSL-638. No completed retention or conformance is asserted here. AC-167
+and AC-173 expose this same gap rather than promise metadata the reader discards.
+
+The new relationship-member binding checks run at the operation step, after
+the existing catalog shape, operand-count and family checks: owner recovery,
+relationship declaration-kind check, role lookup, receiver effective endpoint,
+direction, destination multiplicity and operation-specific type comparison.
+This is the order to implement for IR-661, not an assertion that today's
+reader already performs relationship-end checks. A `reaches` operand-1
+conformance or edge-admissibility refusal points to `.../body/arguments/1`
+or `.../operation/member/name`, respectively.
+The member's `declaration` and `name` refusals point to those members under
+`/semantic_graph/nodes/{n}/body/operation/member`; the operand refusal points
+to `/semantic_graph/nodes/{n}/body/arguments/0`, and a mismatched result points
+to `/semantic_graph/nodes/{n}/body/result_type`. Direction and destination
+multiplicity eligibility refuse at `.../operation/member/name`, the value
+that selected that traversal. These operation refusals retain the calling
+application node's key; selected-document declaration refusals keep the
+selection-row pointer and declaration metadata above. Each ancestor or conformance edge followed and each relationship
+member visited during resolution is charged through the same selected-row
+work meter as other model-member visits; no endpoint or role lookup bypasses
+the bounded read. These rules introduce no new limit or budget domain.
+
 Every ancestor edge followed, member visited and redefinition pair compared
 in step 3 for an operation, the build of the field tables and the table entries of every field
 resolution (a read, a frame entry, an abstraction relation's field entry) ("Typed accessor for a model object type's fields", which replace
@@ -1649,14 +1842,18 @@ a typed unsupported cause of their own, not by this reader (note, not a
 requirement of this specification: `quire-contract-codegen`'s generation outcome
 `Unsupported` with error code `UnsupportedExpression` is the typed cause that
 exists today, and whether it is reached for these operators is not measured
-here). The reader's refusal types, `CheckedPackageRefusalCode::UnsupportedConstruct`
-and `CheckedPackageRefusalCause::ExpressionForm`, are removed, since nothing
-raises them; the diagnostics wire vocabulary `CheckedDiagnosticCode::
-UnsupportedConstruct` stays, because QSpec's V2 schema enumerates
-`unsupported_construct` as a diagnostics `code`.
+here). IR-549 removed `CheckedPackageRefusalCode::UnsupportedConstruct` and
+`CheckedPackageRefusalCause::ExpressionForm` for blanket rejection of temporal
+and case applications; admitting those forms does not require evaluating them.
+IR-661 separately requires those code/cause variants only for relationship
+navigation whose destination has an unbounded upper or `ordered: true`, as
+QSpec FR-152 Navigation states. These additions are PLANNED / UNRUN and do
+not restore blanket temporal/case rejection. The diagnostics wire vocabulary
+`CheckedDiagnosticCode::UnsupportedConstruct` stays, because QSpec's V2 schema
+enumerates `unsupported_construct` as a diagnostics `code`.
 
-**A breaking change for consumers, shipped inside the held branch.** The four new
-node forms, the removed refusal code `UnsupportedConstruct` and the new public
+**IR-549 historical breaking change for consumers, shipped inside its held branch.**
+The four new node forms, the then-removed refusal code `UnsupportedConstruct` and the new public
 `CheckedPackageRefusalCode` variant `UnknownProfile` are visible to every consumer
 of this crate: a consumer that classifies every `CheckedNodeKind` or matches
 `CheckedPackageRefusalCode` exhaustively fails to build or test until it handles
@@ -3166,7 +3363,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-63 | A package whose `lock.dependency_selections` entries are exactly `{identity, package_id}`, mirrored identically in `identity_preimage.dependency_selections`, admits, each other check passing; an entry carrying both `identity` and `package_id` plus `version`, in the lock or in the identity preimage, alone or beside an otherwise well-formed entry, refuses as `unknown_member` at that `version` member, the first in document order, and returns no package; an old-shape entry `{identity, version}` that lacks `package_id` refuses as `malformed_wire` at the entry; and the reader never reads, drops or compares the extra `version`. | Test (TC-048) |
 | FR-038-AC-64 | Selections bind by identity and content digest alone: a `model_selections` row admits when the document supplied under its `digest` names the row's `identity`, so two documents of one package at different versions, each selected in its own package under its own digest, both admit and yield the same model-owned node keys; a model owner joins the row whose `identity` equals its own, and an owner naming another identity refuses as `invalid_semantic_graph`; and a `dependency_selections` entry admits when the package supplied under its `identity` has the entry's `package_id`, with no version supplied or compared, and refuses `missing_import`/`missing-selection` for a package supplied under another identity and `stale_dependency`/`byte-digest-mismatch` for another `package_id`. | Test (TC-048) |
 | FR-038-AC-65 | Every application operator class, operation member kind and constraint kind the operation catalog declares decodes to a member of its closed vocabulary, so the production catalog, whose `law_roles` entries carry no `revision`, reads once FR-038-AC-46 through FR-038-AC-61 are also implemented; each of `case`, `temporal_formula`, `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` converts wire string to enum member and back to the same string; catalog bytes that name an operator class, member kind or constraint kind outside its vocabulary return the typed error of the catalog read of FR-038-AC-58, naming the word, instead of a catalog; and a package application whose `operator` is outside the closed operator vocabulary refuses `invalid_semantic_graph` at that term. | Test (TC-048) |
-| FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of every other check of the entry at the operation step, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; and of two defective body-root nodes the one with the lower `node_id` digest is reported when both defects are operation refusals. A placement defect of the temporal step (FR-038-AC-102) is reported ahead of every operation refusal, whatever the digest order. (Amended by IR-549: the earlier text ordered both refusals ahead of `unsupported_construct`, which the reader no longer has, and put the placement of these applications inside the operation step.) | Test (TC-048) |
+| FR-038-AC-67 | An unknown identity refuses `unknown-operation` and an `operator` that differs from the catalogued class refuses `operation-class-mismatch`, each ahead of every other check of the entry at the operation step, so `quire.op.control.case` under the operator `unary` refuses `operation-class-mismatch`; and of two defective body-root nodes the one with the lower `node_id` digest is reported when both defects are operation refusals. A placement defect of the temporal step (FR-038-AC-102) is reported ahead of every operation refusal, whatever the digest order. (Amended by IR-549: the earlier text ordered both refusals ahead of blanket temporal/case `unsupported_construct`, which IR-549 removed, and put the placement of these applications inside the operation step.) | Test (TC-048) |
 | FR-038-AC-68 | At the operation check of a `quire.op.temporal.clause` application, observed on that node as a unit-level check of the node's operation step and, since IR-549, also as an admitted package whose formula node is a `temporal_formula` application (FR-038-AC-96), an application with the one selected `temporal_profile` law, no member and six arguments (a `reference` to a `value`/`parameter` node of any type, a `text` literal, three `aggregate` terms and a `reference` to a `temporal`/`formula` node) passes; five or seven arguments refuse `ill_typed`/`operator-ineligible` at `arguments`; a first argument that is not a `reference` term and a sixth that references a Boolean node each refuse the same way at that argument; a `reference` to a `temporal`/`formula` node fits the sixth operand and an `any_term` position and no `boolean` operand position; and a member of kind `profile_operator` or any other kind refuses `invalid_package`/`operation-member-mismatch` at `operation.member`. | Test (TC-048) |
 | FR-038-AC-69 | A member of kind `temporal_interval` or `fairness` on an application whose catalogued entry has none of the operator classes `case`, `temporal_formula` and `temporal_fairness` and a member of another kind or none, such as `quire.op.boolean.not` or `quire.op.temporal.clause`, refuses `invalid_package`/`operation-member-mismatch` at the member, and, since IR-549, so does a `fairness` member on a `temporal_formula` identity such as `quire.op.temporal.holds`, which the earlier text refused `unsupported_construct` at `operator`; the operator refusal is gone and every member that disagrees with its entry refuses alike. | Test (TC-048) |
 | FR-038-AC-70 | `structural.eq` over `record Node { label: Text[0, 8; nfc]; next?: Node; }` admits with the leaf `["field:label"]` carrying one catalogued `text_profile` law the lock selects and the mode `{kind: text_profile, value: nfc}` followed by the recursion leaf `["field:next", "inner", "recursion:0"]` with no laws and no mode, and the same comparison with the text leaf alone refuses `invalid_package`/`operation-law-missing` at `operation.leaves`, as does the recursion leaf alone; over `Option<Node>` it admits the leaves `["inner", "field:label"]` and `["inner", "field:next", "inner", "recursion:1"]`; over a mutually recursive pair `A { name: Text[0, 8; binary-utf8]; b?: B }` and `B { tag: Text[0, 4; nfc]; a?: A }` in one package, compared at `A` and compared at `B`, each leaf with the mode its own type pins, it admits `["field:name"]`, `["field:b", "inner", "field:tag"]` and the recursion leaf `["field:b", "inner", "field:a", "inner", "recursion:0"]` at `A`, and `["field:tag"]`, `["field:a", "inner", "field:name"]` and the recursion leaf `["field:a", "inner", "field:b", "inner", "recursion:0"]` at `B`; over `Two { x: Node; y: Node }` it admits exactly the text leaves `["field:x", "field:label"]` and `["field:y", "field:label"]` each followed by its own recursion leaf, `["field:x", "field:next", "inner", "recursion:1"]` and `["field:y", "field:next", "inner", "recursion:1"]`, and refuses the list lacking either recursion leaf `operation-law-missing`; over `Tree2 { label: Text[0, 8; binary-utf8]; kids: Sequence<Tree2>[0, 3]; }` it admits `["field:label"]` and the recursion leaf `["field:kids", "inner", "recursion:0"]`; over a declared tuple `Pair` of a `Text[0, 8; nfc]` and an `Option<Pair>` it admits `["position:0"]` and the recursion leaf `["position:1", "inner", "recursion:0"]`; over `X { t: Text[0, 8; nfc]; n?: Y }`, `Y { u: Text[0, 8; nfc]; x?: X }` and `Wrap { y: Y; x: X }` compared at `Wrap` it admits exactly the four text leaves `["field:y", "field:u"]`, `["field:y", "field:x", "inner", "field:t"]`, `["field:x", "field:t"]` and `["field:x", "field:n", "inner", "field:u"]` with the two recursion leaves its reentries derive in their places, `["field:y", "field:x", "inner", "field:n", "inner", "recursion:1"]` after the second and `["field:x", "field:n", "inner", "field:x", "inner", "recursion:1"]` after the fourth, so a count memoised for `Y` under `field:y` is not reused under `field:x`, where `X` is open, and a list of the four text leaves alone refuses `operation-law-missing` at `operation.leaves` while a list of all six and one further text leaf refuses `operation-law-mismatch` at the seventh entry; over a record `R { a?: Text[0, 8; nfc]; b?: Text[0, 8; nfc] }`, whose two optional fields name one option node, it admits `["field:a", "inner"]` and `["field:b", "inner"]`; over a recursive record that reaches no `text` type, such as a `List` of integers, `structural.eq` and `collection.contains` admit with `leaves` empty; and the `Node` comparison with a second text leaf supplied after `["field:label"]` and the recursion leaf refuses `operation-law-mismatch` at that extra entry, `operation.leaves/2`, so a cyclic type is no longer refused `ill_typed`/`operator-ineligible` at `operation.leaves` and no longer admits unchecked leaves. | Test (TC-048) |
@@ -3200,7 +3397,7 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-98 | The `fairness` member of `quire.op.temporal.fair` admits as `{kind: fairness, fairness_kind: weak, granularity: whole, declaration, name}` and as `strong` with `each`, with a `declaration` and `name` that resolve (the resolution refusals are FR-038-AC-103's); a `fairness_kind` of `medium`, a `granularity` of `part`, a member lacking `name`, a member holding an extra member, a `null` member and a member of kind `temporal_interval` each refuse `invalid_package`/`operation-member-mismatch` at `operation.member`; and a `fairness` member on `quire.op.boolean.not` refuses the same way. | Test (TC-048) |
 | FR-038-AC-99 | A package holding a `composite_type`/`union` node `Shape` with the members `Circle(Integer)`, `Rect(Integer, Integer)` and `Empty`, a `value`/`union_value` node `Shape::Rect(2, 3)` and an `expression`/`case` node whose body root applies `quire.op.control.case` over the scrutinee and the arms `Circle`, `Rect` and `Empty` in member declaration order, the binders `r`, `w` and `h` as `value`/`parameter` nodes typed `Integer` and every arm body of the `result_type`, admits, the three forms decoded and the operand family of the `Shape` node `union`; the same `case` with its arms out of member order, with the `Empty` arm omitted, with the `Circle` arm repeated, with the `Rect` binder aggregate holding one reference, with the `Circle` binder typed `Text` and with one arm body of another type than the `result_type` each refuse `ill_typed`/`operator-ineligible` at the `case` node (`/semantic_graph/nodes/{n}`); a union with no member and a union value with two bindings each refuse `invalid_semantic_graph` at the node's `body`; a union type with `Circle` twice refuses `invalid_package`/`duplicate-member` and a payload reference to a node that is not a type refuses `ill_typed`/`operator-ineligible`, each at the union node; and a union value naming `Triangle`, a `Rect` with one payload term and a `Circle` over a `Text` payload each refuse `ill_typed`/`type-mismatch` at the node. | Test (TC-048) |
 | FR-038-AC-100 | Placement in both directions: an application of operator class `temporal`, `temporal_formula` or `temporal_fairness`, naming any identity, refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node of another form (a `temporal_formula` application in a `function` node, a `quire.op.temporal.fair` application in a `temporal`/`formula` node), while the same application as an element of another application's `arguments`, a `binding` value or inside an `aggregate` refuses `malformed_wire` at the nested application at strict wire validation, ahead of every step here (FR-038-AC-114); a `temporal`/`formula` node, a `temporal`/`fairness` node and a `temporal`/`temporal_clause` node whose body is an empty `aggregate`, a `literal`, or an application of another class refuses the same way at the node; a `reference` to a `temporal`/`formula` node from a `function` node's body, from a clause's fairness argument or from a `case` argument, and a `reference` to a `temporal`/`fairness` node from a clause's formula argument or from a `temporal_formula` operand, refuses the same way at the node that holds the reference; a `case` application refuses `ill_typed`/`operator-ineligible` at the node that holds it when it is the body root of a node that is not an `expression` node, at the operation step and so after every temporal-step defect whatever the digest order (merged FR-440 join 1; not in the temporal placement pass), and at its own `operator` (`/semantic_graph/nodes/{n}/body/.../operator`) when it is nested in another term (merged FR-322 "Body grammar"); an `expression` node whose `semantic_form` contradicts its root application's operator class (an `expression`/`case` node whose body is not a `case` application, an `expression` node of another form whose body root is a `case` application) refuses `invalid_semantic_graph` at the node's `body` (merged QSpec FR-440 and FR-322); a `diagnostics.entries[].details[]` term that references a `temporal`/`formula`, `temporal`/`fairness` or `expression`/`case` node refuses `ill_typed`/`operator-ineligible` at that entry (`/diagnostics/entries/{e}/details/{d}`; the `case` node reference is merged FR-370-AC-12), a `details` reference to a `composite_type`/`union` or `value`/`union_value` node is an ordinary reference and admits, and an application of the `temporal_formula`, `temporal_fairness` or `case` class as the root of or nested in a `details` term refuses `ill_typed`/`operator-ineligible` at that application's `operator` (`/diagnostics/entries/{e}/details/{d}/operator`, and `.../members/0/operator` for the first member of a `details` aggregate; merged FR-370-AC-12 and FR-322 "Body grammar"), the first in document pre-order, outermost first, while an application of any other class there refuses `malformed_wire` at that application (FR-038-AC-115); and each application, node and reference at its own place admits (FR-038-AC-96, FR-038-AC-99), so none of the refusals is a refusal of every such term. The in-repo `v2_all_families` formula node, whose body is an empty `aggregate`, is refused as above and the code change replaces its body. | Test (TC-048) |
-| FR-038-AC-101 | The reader's refusal types, `CheckedPackageRefusalCode` and `CheckedPackageRefusalCause`, carry neither `unsupported_construct` nor `expression-form`, so no input is refused with either; the diagnostics wire vocabulary `CheckedDiagnosticCode` still carries `unsupported_construct`, so a `diagnostics.entries[]` entry whose `code` is `unsupported_construct` reads as QSpec's schema allows; no application is evaluated by the reader or the lowerer, so an admitted `temporal`/`formula` node and an admitted `expression`/`case` node lower, under a profile that supports their tags, to nodes whose body equals the admitted body and whose `ir_id` is derived from it as for every node, and a profile lacking the tag returns `unsupported` naming it (FR-038-AC-8). | Test (TC-048) |
+| FR-038-AC-101 | Admitted temporal/formula and expression/case applications are not blanket-refused `unsupported_construct`/`expression-form`. IR-661 adds `CheckedPackageRefusalCode::UnsupportedConstruct` and `CheckedPackageRefusalCause::ExpressionForm` only for FR-152's unsupported unbounded or ordered relationship-navigation destination (PLANNED / UNRUN; AC-170); this does not restore the original temporal/case refusal; the diagnostics wire vocabulary `CheckedDiagnosticCode` still carries `unsupported_construct`, so a `diagnostics.entries[]` entry whose `code` is `unsupported_construct` reads as QSpec's schema allows; no application is evaluated by the reader or the lowerer, so an admitted `temporal`/`formula` node and an admitted `expression`/`case` node lower, under a profile that supports their tags, to nodes whose body equals the admitted body and whose `ir_id` is derived from it as for every node, and a profile lacking the tag returns `unsupported` naming it (FR-038-AC-8). | Test (TC-048) |
 | FR-038-AC-102 | The temporal step runs after the frame and state-clause step and before the operation step, placement first: a package holding one node with a placement defect (a `temporal_formula` application as the body root of a `function` node) and a second with a lower `node_id` digest whose operation identity is unknown refuses for the placement defect, and so does the same placement defect beside a lower-digest node whose `operator` differs from its entry's class (`quire.op.control.case` under `unary`), in both digest orders each, the placement defect taken in the shape of a `temporal_formula` application in a `function` node; two placement defects are reported at the lower `node_id` digest; a placement defect is reported ahead of any clause defect in either digest order; within one clause an `over` defect is reported ahead of a fairness-resolution defect, ahead of a profile-fit defect, ahead of an interval-bounds defect, each adjacent pair built as two defects of one clause and in both orders of the two defects' positions; and across two clauses the lower-digest clause's later-stage defect (a profile-fit defect) is reported ahead of the higher-digest clause's earlier-stage defect (an `over` defect), in both digest orders of the two clauses. The temporal step skips a member whose shape the operation step refuses (a wrong-kind member, an interval with a third member), and a `null` member on an interval operator under a bounded profile refuses `invalid_package`/`operation-member-mismatch` at the application. Every bound outside the schema pattern, negative or malformed (`{lower: "1.5", upper: "0"}` included), is a schema-pattern failure, refused `invalid_package`/`invalid-value` at the bound in strict wire validation, before placement and every temporal step, first in member order, under every profile (merged QSpec FR-370-AC-9; there is no asymmetry between a negative and a malformed bound): `{lower: "0", upper: "-2"}` refuses at `.../interval/upper`, `{lower: "-1", upper: "-3"}` at `.../interval/lower`, and `{lower: "-1", upper: null}` refuses at `.../interval/lower` under a bounded profile, under `quire.temporal.infinite-trace/v1` and under a clause that also holds a placement defect at a lower-digest node, never `operation-member-mismatch`; `lower > upper` stays in the bounds step, after profile fit, so `{lower: "3", upper: "0"}` under a bounded profile in a clause whose profile fit also fails refuses the profile-fit defect first. | Test (TC-048) |
 | FR-038-AC-103 | A clause whose `over` argument is a `reference` to a `value`/`parameter` node among its `dependencies` admits; one whose `over` references a `value`/`parameter` node that is not among its `dependencies` refuses `missing_declaration`/`missing-name`, and one that references a declared dependency that is a `scalar_type` node refuses `invalid_model_binding`/`malformed-declaration`, each with path `/semantic_graph/nodes/{clause}/body/arguments/0` and the locus of the "Path and locus" table; a fairness member whose `declaration` and `name` resolve to an operation of a `model`/`object_type` declaration node admits (FR-370 "Fairness resolution" steps 1 to 3, in that order), one whose `name` is no operation of that node refuses `missing_declaration`/`missing-name` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/name` and the `declaration` target's key as locus, and one whose `declaration` names a node that is not a `model`/`object_type` declaration (a `scalar_type` node, a `model`/`value_type` node, or a key that names no node) refuses `invalid_model_binding`/`malformed-declaration` with path `/semantic_graph/nodes/{fairness node}/body/operation/member/declaration` and the `declaration` target's key as named as locus; the `over`-not-among-`dependencies` case is observed at the unit level of the temporal step, as AC-68 observes the clause check, because the application-node dependency join refuses a package that names a non-dependency reference first, while the package-level half (an `over` that names no node) is read through the reader; a `name` that matches two exposed operation members of the declaration node refuses `ambiguous_declaration`/`ambiguous-name`, one that the node only inherits admits and resolves to its most-derived redefinition, and a declaring node whose owner is not recovered refuses with that resolution's own refusal (`missing_declaration`/`missing-selection` or `invalid_package`/`stale-node-key`), the ambiguous name with path `.../member/name` and the `declaration` target's key as locus and the unrecovered owner with path `.../member/declaration` and the fairness node's key (merged QSpec FR-370-AC-11 and FR-370 "Fairness resolution" state the ambiguous, inherited-admitted, unrecovered-owner and malformed-declaration outcomes; the loci of the name and owner rows are an IR reading). | Test (TC-048) |
 | FR-038-AC-104 | Under a clause whose `temporal_profile` law names `quire.temporal.event-position.false-extension/v1`, `quire.temporal.fixed-sample.false-extension/v1` or `quire.temporal.timestamped-event.finite-window/v1`, every interval operator of its formula tree with a closed interval admits, and one with a `null` interval or `{lower, upper: null}` refuses `invalid_package`/`operation-member-mismatch` at that operator's application; a non-empty fairness argument refuses `operation-member-mismatch` at the clause's application and an empty one admits; under `quire.temporal.infinite-trace/v1` the same `null` interval, `{lower, upper: null}` and a non-empty fairness argument admit; under `quire.temporal.timed/v1` a `null` interval admits and `{lower, upper: null}` and an integer-form closed `{lower, upper}` each refuse `operation-member-mismatch` at that operator's application (merged QSpec FR-370-AC-3: a timed interval is the timed form; under `timed/v1` only `null` and the timed form are admitted, confirmed by the QSL ruling relayed 2026-10-03), and a non-empty fairness argument admits under it as under infinite-trace (only the three bounded profiles refuse one, as above; merged QSpec FR-370-AC-4); the timed form itself, `{lower, upper, lower_end, upper_end}`, is FR-038-AC-119 through FR-038-AC-122's (merged FR-370-AC-8), and this criterion's fit rows are unchanged by it; and the profile fit reads only the formula nodes reachable from that clause. | Test (TC-048) |
@@ -3261,12 +3458,22 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-162 | An unknown graph node, a known non-application node, an absent occurrence key, a dangling referenced child and a child without a readable integer range produce the distinct typed errors `UnknownNode`, `NotApplication`, `MissingOccurrence`, `MissingChild` and `MissingRange`, respectively. An admitted reference to unbounded `Integer` returns `UnboundedRange`; an admitted integer-range endpoint, graph literal or inline literal outside `i128` returns `RangeOutOfI128`. Each refusal returns no partial list, narrowed value or panic. The dangling-child row may use a crate-internal mutation after admission because the reader ordinarily rejects it. | Test (TC-048) |
 | FR-038-AC-163 | A crate-internal mutation of an admitted application to an operation identity absent from the catalog returns `UnknownOperator`; an admitted application with a catalogued identity outside the four eligible integer operations returns `IneligibleOperator`. The accessor does not interpret a non-integer operation as an eligible scalar parity claim. | Test (TC-048) |
 | FR-038-AC-164 | An external Rust API fixture calls the accessor with `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively matches the child-identity and error enums, and reads each ordinal, node id or inline selector and range through typed fields; it does not read `graph().nodes[*].body` or deserialize JSON. Repeated calls and a cloned admitted package return equal results, and neither call changes package equality. | Test (TC-048) |
+| FR-038-AC-165 | PLANNED / UNRUN (IR-661). A selected, independently authored FCD-shaped document with a global `relationship` slot identity admits, while an owner-nested relationship, a foreign-package identity and a wrong-slot identity each refuse `invalid_model_binding`/`malformed-declaration`. Owner-nested fields, operations and operation parameters still admit; moving a field or operation into the global relationship slot refuses `invalid_model_binding`/`malformed-declaration`. | Test |
+| FR-038-AC-166 | PLANNED / UNRUN (IR-661). Changing only an authored role makes the old name refuse `missing_declaration`/`missing-name` and the new name resolve on the same selected relationship. Destination-type and multiplicity changes are observed through the admitted navigation result nodes of AC-170, not through an unspecified retention accessor. Omitting only `targetEnd.role` admits the document with only its forward named end. Removing `sourceEnd.role`, or setting either present role to null, empty or a non-string, refuses `invalid_model_binding`/`malformed-declaration`; no role is synthesized or checked against an inverse registry. | Test |
+| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal retains its typed code, cause and selection-row pointer. The current SelectionRefusal mapping does not retain the relationship declaration identity, graph-node locus or FCD origin/sourceIdentity/path/span/artifact metadata; no such metadata is fabricated. This is the named FR-154/FR-322 declaration-refusal-retention nonconformance, allocated to IR-663 design/code (PLANNED / UNRUN), with the node-identity/verbatim-FCD-origin allocation awaiting its upstream normative amendment; observing the current limit does not establish conformance. | Test |
+| FR-038-AC-168 | PLANNED / UNRUN (IR-661). Repeating a relationship identity, including under two different owners, refuses `invalid_model_binding`/`conflicting-binding` at the selection row. Two missing relationship identities are malformed declarations, not conflicting identities. A malformed role beats an unresolved end type and reversed multiplicity on that relationship; an unresolved end type beats reversed multiplicity. Referencing a node refused for identity or kind keeps its own refusal rather than reporting a missing end type. With other limits sufficient, the measured successful selection-stage work admits that stage; one below its cumulative charge threshold returns `incomplete` at `/lock/model_selections/<i>` with no admitted package. This is separate from AC-171's total-reader work limit. | Test |
+| FR-038-AC-169 | PLANNED / UNRUN (IR-661). `relationship_end.declaration` names the selected relationship's `relation`/`relationship` graph node and resolves through its content-only `ModelOwner`, with an empty body; a valid source or target object node used as its declaration refuses `ill_typed`/`operator-ineligible` at `member.declaration` after owner recovery and before role lookup, without invalidating that object owner. Source role lookup yields the forward end and a present target role yields the inverse end, by exact role bytes rather than the terminal identity segment. An unknown role or absent inverse refuses `missing_declaration`/`missing-name` at the member's `name` before receiver, direction or result checks; two matching roles refuse `ambiguous_declaration`/`ambiguous-name`. A wrong-kind or missing relationship owner keeps the existing owner-join refusal, with no role fallback. | Test |
+| FR-038-AC-170 | PLANNED / UNRUN (IR-661). Forward and inverse navigation choose opposite receiver/destination endpoints and admit the canonical result nodes specified by QSpec FR-152 Navigation. The independently authored finite cases in TC-048 exercise Reference, Option, Set and Bag results; changing only destination type or bounds changes which result node admits. An inherited end admits on a subtype receiver with the same destination type; an unrelated object receiver refuses `ill_typed`/`operator-ineligible`. Wrong result or direction refuses `ill_typed`/`operator-ineligible` at the declared IR path. An eligible direction with an unbounded or ordered destination refuses `unsupported_construct`/`expression-form` at `member.name`, using the relationship-navigation-only variants named in AC-101. A named inverse on a source-to-target relationship refuses direction before unsupported destination multiplicity. | Test |
+| FR-038-AC-171 | PLANNED / UNRUN (IR-661). For `quire.op.model.navigate`, the new relationship-end checks follow the specified operation-step order, explicit calling-node locus and RFC 6901 paths: owner recovery and declaration-kind eligibility before roles; roles before receiver, direction, multiplicity and result comparison. A missing role combined with a wrong receiver, disallowed direction and wrong result reports `missing_declaration`/`missing-name` at `.../operation/member/name`; a valid role with wrong receiver reports at `.../body/arguments/0`; a mismatched result reports at `.../body/result_type`. A successful complete read admits at its measured exact total work limit. One less returns `incomplete` at the first unpayable charge in the existing stage order, without a partial package: operation validation precedes later graph-body reference-edge charges, so the pointer may be `.../body/arguments/0/target`, not the selection row. Selection-stage-minus-one has the separate selection-row oracle of AC-168. | Test |
+| FR-038-AC-172 | PLANNED / UNRUN (IR-661). A homogeneous self-relationship with a resolved forward or inverse end and an eligible Reference or Option destination admits `quire.op.model.reaches` with two references conforming to its static endpoint owner and Boolean result, including subtype operands. An unrelated operand, heterogeneous destination or otherwise ineligible Set/Bag edge refuses `ill_typed`/`operator-ineligible` at its operand or member-name path. Missing role and object-node declaration produce AC-169's respective typed outcomes; a wrong result node refuses at `body.result_type`. No operand is treated as Reference to the relationship graph node. | Test |
+| FR-038-AC-173 | PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before any application resolution, retaining code, cause and selection-row pointer under AC-167's existing refusal contract; FCD metadata and a declaration node identity are not promised or fabricated. Schema-valid source and generated origins admit; no default direction is supplied. Declaration-refusal metadata retention remains the named FR-154/FR-322 conformance gap allocated to IR-663 (PLANNED / UNRUN), with future node-identity/verbatim-FCD-origin retention awaiting the upstream normative amendment. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
 refused `unsupported_construct`/`expression-form`, which IR-549 lifts: those classes
 are admitted at their node roots (FR-038-AC-96 through FR-038-AC-100) and the
-reader has no such code or cause (FR-038-AC-101).
+reader does not blanket-refuse those temporal/case forms (FR-038-AC-101).
+IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 
 ## Dependencies
 
