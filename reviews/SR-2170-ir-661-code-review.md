@@ -51,3 +51,13 @@ Matrix: FR-038-AC-165..173 each tagged; static bindings alone do not establish b
 Semantic review: examined the nine IR-661 criteria against changed tests and source.
 Full CI, Kani, replay, cargo build and test were not run by this reviewer.
 IR-663 refusal metadata retention is an explicit current gap; no conformance claim is made.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 8cde11e40fc1fd7180158721e66a48b47d1e57b3 |
+
+## Disposition verdict
+
+**PASS (round 1, scoped)** — All original findings are fixed at 8cde11e40fc1fd7180158721e66a48b47d1e57b3; no new defects found in the fix diff. This does not replace the initial verdict or assert full gate results.
