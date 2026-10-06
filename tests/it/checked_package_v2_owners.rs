@@ -431,13 +431,27 @@ fn tc_228_an_unreachable_model_node_joins_its_declaring_object_type() {
     }
 
     let mut relation_document = document.clone();
-    relation_document["types"][0]["relationships"] =
-        json!([{"identity": "ix://acme/owners/Point/related"}]);
+    let relationship = "ix://acme/owners/relationship/Point-related-Point";
+    relation_document["types"][0]["relationships"] = json!([{
+        "identity": relationship,
+        "category": "structural", "composite": false, "direction": "source-to-target",
+        "sourceEnd": {
+            "type": "ix://acme/owners/Point", "role": "related",
+            "multiplicity": {"lower": 0, "upper": 1, "ordered": false, "unique": true},
+        },
+        "targetEnd": {
+            "type": "ix://acme/owners/Point",
+            "multiplicity": {"lower": 0, "upper": 1, "ordered": false, "unique": true},
+        },
+        "origin": {"source": {
+            "sourceIdentity": "ix://acme/owners/Point", "path": "models/Point.md",
+            "startLine": 1, "startColumn": 1,
+        }},
+    }]);
     let mut wrong_kind = base.clone();
     wrong_kind["lock"]["model_selections"][0]["digest"] =
         json!(sha256_hex(&canonical(&relation_document)));
-    wrong_kind["semantic_graph"]["nodes"][position]["owner"]["node"] =
-        json!("ix://acme/owners/Point/related");
+    wrong_kind["semantic_graph"]["nodes"][position]["owner"]["node"] = json!(relationship);
     refresh_identity(&mut wrong_kind);
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_model(&wrong_kind, &relation_document)
