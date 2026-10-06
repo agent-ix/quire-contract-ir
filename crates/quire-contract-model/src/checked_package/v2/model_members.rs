@@ -111,7 +111,7 @@ impl ModelRefusal {
     }
 
     /// `missing_declaration`/`missing-selection`.
-    const fn unselected() -> Self {
+    pub(super) const fn unselected() -> Self {
         Self::new(
             CheckedPackageRefusalCode::MissingDeclaration,
             CheckedPackageRefusalCause::MissingSelection,
@@ -196,6 +196,72 @@ pub(super) struct ObjectTypeDecl {
     pub(super) operations: Vec<OperationDecl>,
 }
 
+/// One end of a selected relationship, including its authored role.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RelationshipEnd {
+    pub(super) role: Option<Box<str>>,
+    pub(super) type_ref: Box<str>,
+    pub(super) multiplicity: Multiplicity,
+}
+
+/// An FCD relationship nested under its source object type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RelationshipDecl {
+    pub(super) source: RelationshipEnd,
+    pub(super) target: RelationshipEnd,
+    pub(super) direction: RelationshipDirection,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RelationshipDirection {
+    SourceToTarget,
+    TargetToSource,
+    Bidirectional,
+    Undirected,
+}
+
+impl RelationshipDirection {
+    pub(super) fn admits(self, forward: bool) -> bool {
+        matches!(self, Self::Bidirectional | Self::Undirected)
+            || (forward && self == Self::SourceToTarget)
+            || (!forward && self == Self::TargetToSource)
+    }
+}
+
+impl RelationshipDecl {
+    /// FR-152's single destination-multiplicity derivation for a named end.
+    pub(super) fn navigation_type(
+        &self,
+        forward: bool,
+        destination_key: Box<str>,
+    ) -> Result<MemberType, ModelRefusal> {
+        let end = if forward { &self.target } else { &self.source };
+        let multiplicity = end.multiplicity;
+        let Some(upper) = multiplicity.upper else {
+            return Err(ModelRefusal::new(
+                CheckedPackageRefusalCode::UnsupportedConstruct,
+                CheckedPackageRefusalCause::ExpressionForm,
+            ));
+        };
+        if multiplicity.ordered {
+            return Err(ModelRefusal::new(
+                CheckedPackageRefusalCode::UnsupportedConstruct,
+                CheckedPackageRefusalCause::ExpressionForm,
+            ));
+        }
+        let reference = MemberType::Reference(destination_key);
+        match (multiplicity.lower, upper) {
+            (1, 1) => Ok(reference),
+            (0, 1) => Ok(MemberType::Option(Box::new(reference))),
+            (lower, upper) => Ok(MemberType::Collection {
+                kind: CollectionKind::of(false, multiplicity.unique),
+                element: Box::new(reference),
+                bounds: Some((lower, upper)),
+            }),
+        }
+    }
+}
+
 /// An integer value type bound as `Int[lo, hi]`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct IntegerBounds {
@@ -216,7 +282,7 @@ pub(super) struct DomainModel {
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
     /// Relationship declarations, by IR node identity.
-    pub(super) relationships: BTreeSet<Box<str>>,
+    pub(super) relationships: BTreeMap<Box<str>, RelationshipDecl>,
     /// Types of every other FR-208 meaning, by IR node identity.
     pub(super) other_types: BTreeSet<Box<str>>,
     /// The field tables of [`Self::object_types`], empty until the lock stage
@@ -952,7 +1018,7 @@ impl<'m> ModelOwners<'m> {
             let relationships = package
                 .relationships
                 .iter()
-                .map(|node| (node, DeclarationForm::Relationship));
+                .map(|(node, _)| (node, DeclarationForm::Relationship));
             for (node, form) in objects.chain(relationships) {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
@@ -1716,6 +1782,8 @@ struct Scope<'v> {
     refused: BTreeSet<&'v str>,
     /// Field and operation members of the object types.
     members: BTreeSet<Box<str>>,
+    /// Relationship identities are collected before any declaration body is read.
+    relationships: BTreeSet<&'v str>,
 }
 
 /// A node's own refusal, from its identity, its kind and whether another
@@ -1816,7 +1884,7 @@ pub(super) fn read_semantic_ir(
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
-        relationships: BTreeSet::new(),
+        relationships: BTreeMap::new(),
         other_types: BTreeSet::new(),
         fields: FieldTables::default(),
     };
@@ -1824,6 +1892,7 @@ pub(super) fn read_semantic_ir(
         objects: BTreeSet::new(),
         refused: BTreeSet::new(),
         members: BTreeSet::new(),
+        relationships: BTreeSet::new(),
     };
     for (node, classified) in &classified {
         let (declared, meaning) = match classified {
@@ -1847,8 +1916,14 @@ pub(super) fn read_semantic_ir(
                     }
                 }
                 for item in list(declared, "relationships").unwrap_or_default() {
-                    if let Ok(identity) = member_identity(item, node) {
-                        model.relationships.insert(identity);
+                    if let Some(identity) = item.get("identity").and_then(Value::as_str) {
+                        if !scope.relationships.insert(identity) {
+                            return Err(ModelRefusal::new(
+                                CheckedPackageRefusalCode::InvalidModelBinding,
+                                CheckedPackageRefusalCause::ConflictingBinding,
+                            )
+                            .into());
+                        }
                     }
                 }
             }
@@ -1856,7 +1931,7 @@ pub(super) fn read_semantic_ir(
                 model.value_types.insert((*node).into(), None);
             }
             meaning::SYSTEMS_CONNECTION => {
-                model.relationships.insert((*node).into());
+                model.other_types.insert((*node).into());
             }
             _ => {
                 model.other_types.insert((*node).into());
@@ -1864,13 +1939,14 @@ pub(super) fn read_semantic_ir(
         }
     }
     let mut objects = Vec::new();
+    let mut relationships = BTreeMap::new();
     for (node, classified) in classified {
         let (declared, meaning) = classified?;
         budget.charge(node_size(declared))?;
         match meaning {
             meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE => {
                 let mut defects = Defects::default();
-                let object = semantic_ir_object_type(
+                let (object, declared_relationships) = semantic_ir_object_type(
                     declared,
                     node,
                     meaning == meaning::SYSTEMS_INTERFACE,
@@ -1884,6 +1960,15 @@ pub(super) fn read_semantic_ir(
                     return Err(refusal.into());
                 }
                 objects.push((node, object));
+                for (identity, relationship) in declared_relationships {
+                    if relationships.insert(identity, relationship).is_some() {
+                        return Err(ModelRefusal::new(
+                            CheckedPackageRefusalCode::InvalidModelBinding,
+                            CheckedPackageRefusalCause::ConflictingBinding,
+                        )
+                        .into());
+                    }
+                }
             }
             meaning::VALUE_TYPE => {
                 model
@@ -1898,6 +1983,7 @@ pub(super) fn read_semantic_ir(
             .into_iter()
             .map(|(node, object)| (Box::from(node), object)),
     );
+    model.relationships = relationships;
     Ok(model)
 }
 
@@ -1908,13 +1994,22 @@ struct References<'a> {
 }
 
 impl References<'_> {
+    fn object_ref(&self, type_ref: &str) -> Result<(), (Row, ModelRefusal)> {
+        if self.scope.objects.contains(type_ref) || self.scope.refused.contains(type_ref) {
+            Ok(())
+        } else if self.declared_elsewhere(type_ref) {
+            Err((Row::Meaning, ModelRefusal::malformed()))
+        } else {
+            Err((Row::Reference, ModelRefusal::missing_name()))
+        }
+    }
     /// Whether `node` is declared by the document as something other than an
     /// object type: a value type, a type of another meaning, or a
     /// relationship.
     fn declared_elsewhere(&self, node: &str) -> bool {
         self.model.value_types.contains_key(node)
             || self.model.other_types.contains(node)
-            || self.model.relationships.contains(node)
+            || self.scope.relationships.contains(node)
     }
 
     /// A field type or parameter or result type (FR-154 rows 3 and 4): a
@@ -1929,7 +2024,7 @@ impl References<'_> {
             None if self.scope.objects.contains(type_ref)
                 || self.model.value_types.contains_key(type_ref)
                 || self.model.other_types.contains(type_ref) => {}
-            None if self.model.relationships.contains(type_ref) => {
+            None if self.scope.relationships.contains(type_ref) => {
                 defects.push(Row::Meaning, &path, ModelRefusal::malformed());
             }
             None if self.scope.refused.contains(type_ref) => {}
@@ -2012,6 +2107,245 @@ impl References<'_> {
     }
 }
 
+/// Closed authored relationship metadata and ends, read at the selection row.
+fn semantic_ir_relationship(
+    value: &Value,
+    owner: &str,
+    base: &[Segment],
+    references: &References<'_>,
+    defects: &mut Defects,
+) -> Option<(Box<str>, RelationshipDecl)> {
+    let prefix = format!("ix://{}/relationship/", references.model.identity);
+    let parsed = (|| {
+        let members = value.as_object()?;
+        if !members.keys().all(|key| {
+            matches!(
+                key.as_str(),
+                "identity"
+                    | "category"
+                    | "composite"
+                    | "direction"
+                    | "origin"
+                    | "sourceEnd"
+                    | "targetEnd"
+            )
+        }) {
+            return None;
+        }
+        let identity = value.get("identity")?.as_str()?;
+        let name = identity.strip_prefix(&prefix)?;
+        if name.is_empty() || name.contains('/') || !valid_semantic_identity(identity) {
+            return None;
+        }
+        let direction = match value.get("direction")?.as_str()? {
+            "source-to-target" => RelationshipDirection::SourceToTarget,
+            "target-to-source" => RelationshipDirection::TargetToSource,
+            "bidirectional" => RelationshipDirection::Bidirectional,
+            "undirected" => RelationshipDirection::Undirected,
+            _ => return None,
+        };
+        if !matches!(
+            value.get("category").and_then(Value::as_str),
+            Some(
+                "structural"
+                    | "behavioral"
+                    | "dataflow"
+                    | "dependency"
+                    | "realization"
+                    | "governance"
+                    | "traceability"
+            )
+        ) || value.get("composite").and_then(Value::as_bool).is_none()
+            || !valid_relationship_origin(value.get("origin")?)
+        {
+            return None;
+        }
+        let source = relationship_end(value.get("sourceEnd")?, true)?;
+        let target = relationship_end(value.get("targetEnd")?, false)?;
+        Some((identity, source, target, direction))
+    })();
+    let Some((identity, source, target, direction)) = parsed else {
+        defects.push(Row::Meaning, base, ModelRefusal::malformed());
+        return None;
+    };
+    for (end, member) in [(&source, "sourceEnd"), (&target, "targetEnd")] {
+        if let Err((row, refusal)) = references.object_ref(&end.type_ref) {
+            defects.push(row, &joined(base, Segment::Name(member)), refusal);
+            return None;
+        }
+    }
+    if source.type_ref.as_ref() != owner {
+        defects.push(Row::Meaning, base, ModelRefusal::malformed());
+        return None;
+    }
+    for (end, member) in [(&source, "sourceEnd"), (&target, "targetEnd")] {
+        if end
+            .multiplicity
+            .upper
+            .is_some_and(|upper| end.multiplicity.lower > upper)
+        {
+            defects.push(
+                Row::Multiplicity,
+                &joined(base, Segment::Name(member)),
+                ModelRefusal::new(
+                    CheckedPackageRefusalCode::InvalidModelBinding,
+                    CheckedPackageRefusalCause::UnpreservedModelMeaning,
+                ),
+            );
+            return None;
+        }
+    }
+    Some((
+        identity.into(),
+        RelationshipDecl {
+            source,
+            target,
+            direction,
+        },
+    ))
+}
+
+fn relationship_end(value: &Value, required_role: bool) -> Option<RelationshipEnd> {
+    let members = value.as_object()?;
+    if !members
+        .keys()
+        .all(|key| matches!(key.as_str(), "type" | "role" | "multiplicity"))
+    {
+        return None;
+    }
+    let role = match members.get("role") {
+        Some(Value::String(role)) if !role.is_empty() => Some(role.as_str().into()),
+        None if !required_role => None,
+        _ => return None,
+    };
+    let multiplicity = value.get("multiplicity")?.as_object()?;
+    if !multiplicity
+        .keys()
+        .all(|key| matches!(key.as_str(), "lower" | "upper" | "ordered" | "unique"))
+    {
+        return None;
+    }
+    Some(RelationshipEnd {
+        role,
+        type_ref: value
+            .get("type")?
+            .as_str()
+            .filter(|id| valid_semantic_identity(id))?
+            .into(),
+        multiplicity: semantic_ir_multiplicity(value).ok()?,
+    })
+}
+
+fn valid_relationship_origin(value: &Value) -> bool {
+    let Some(origin) = value.as_object() else {
+        return false;
+    };
+    match (origin.get("source"), origin.get("generated"), origin.len()) {
+        (Some(source), None, 1) => source.as_object().is_some_and(|members| {
+            (4..=6).contains(&members.len())
+                && members.keys().all(|key| {
+                    matches!(
+                        key.as_str(),
+                        "sourceIdentity"
+                            | "path"
+                            | "startLine"
+                            | "startColumn"
+                            | "endLine"
+                            | "endColumn"
+                    )
+                })
+                && source
+                    .get("sourceIdentity")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_semantic_identity)
+                && source
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_source_path)
+                && ["startLine", "startColumn"].iter().all(|key| {
+                    source
+                        .get(*key)
+                        .and_then(Value::as_u64)
+                        .is_some_and(|number| number > 0)
+                })
+                && ["endLine", "endColumn"].iter().all(|key| {
+                    source
+                        .get(*key)
+                        .is_none_or(|value| value.as_u64().is_some_and(|number| number > 0))
+                })
+        }),
+        (None, Some(generated), 1) => generated.as_object().is_some_and(|members| {
+            members.len() == 3
+                && members.keys().all(|key| {
+                    matches!(
+                        key.as_str(),
+                        "generatorIdentity" | "generatorVersion" | "inputIdentities"
+                    )
+                })
+                && generated
+                    .get("generatorIdentity")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_semantic_identity)
+                && generated
+                    .get("generatorVersion")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_semver)
+                && generated
+                    .get("inputIdentities")
+                    .and_then(Value::as_array)
+                    .is_some_and(|values| {
+                        !values.is_empty()
+                            && values
+                                .iter()
+                                .all(|value| value.as_str().is_some_and(valid_semantic_identity))
+                    })
+        }),
+        _ => false,
+    }
+}
+
+fn valid_semantic_identity(identity: &str) -> bool {
+    let Some((org, path)) = identity
+        .strip_prefix("ix://")
+        .and_then(|rest| rest.split_once('/'))
+    else {
+        return false;
+    };
+    org.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && org.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
+        && path
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && path.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b':' | b'/' | b'-')
+        })
+}
+
+fn valid_source_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && !path.contains('\0')
+        && !path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+        && !path.split('/').any(|segment| segment == "..")
+}
+
+fn valid_semver(version: &str) -> bool {
+    let core = version
+        .split_once(['-', '+'])
+        .map_or(version, |(core, _)| core);
+    let parts = core.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && (part.len() == 1 || !part.starts_with('0'))
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
 /// One member list of the node, or the failure of a member that is not a list.
 fn items<'v>(value: &'v Value, member: &'static str, defects: &mut Defects) -> &'v [Value] {
     items_at(value, member, &[Segment::Name(member)], defects)
@@ -2039,7 +2373,7 @@ fn semantic_ir_object_type(
     interface: bool,
     references: &References<'_>,
     defects: &mut Defects,
-) -> ObjectTypeDecl {
+) -> (ObjectTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
     let mut fields = Vec::new();
     for (index, field) in items(value, "fields", defects).iter().enumerate() {
         let base = [Segment::Name("fields"), Segment::Index(index)];
@@ -2102,9 +2436,14 @@ fn semantic_ir_object_type(
             redefines: None,
         });
     }
+    let mut relationships = Vec::new();
     for (index, relationship) in items(value, "relationships", defects).iter().enumerate() {
         let base = [Segment::Name("relationships"), Segment::Index(index)];
-        identity_of(relationship, node, &base, defects);
+        if let Some(declared) =
+            semantic_ir_relationship(relationship, node, &base, references, defects)
+        {
+            relationships.push(declared);
+        }
     }
     let mut supertypes = Vec::new();
     for (index, supertype) in items(value, "supertypes", defects).iter().enumerate() {
@@ -2117,12 +2456,15 @@ fn semantic_ir_object_type(
             None => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
         }
     }
-    ObjectTypeDecl {
-        interface,
-        supertypes,
-        fields,
-        operations,
-    }
+    (
+        ObjectTypeDecl {
+            interface,
+            supertypes,
+            fields,
+            operations,
+        },
+        relationships,
+    )
 }
 
 /// A member list nested at `path`, or the failure of one that is not a list.
