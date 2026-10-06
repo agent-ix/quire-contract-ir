@@ -48,3 +48,12 @@ Ticket: IR-661. Method: `spec-review/spec-object-review`. Reviewer model `claude
 
 - **FND-001** (medium, confidence medium, check `soundness`, unit `FR-038-AC-170`): Operand 0 must be exactly `Reference<S>` or `Reference<T>` of the declared end type, and "an operand of another endpoint type" refuses `ill_typed`/`operator-ineligible`. Merged QSpec FR-152 resolves `r.name` over `Reference<T>` "in the effective view". model-complete makes a relationship end an end of every effective type that has the relationship member, so a subtype receiver inherits the end. The amendment refuses a subtype receiver with no stated ruling or criterion. That diverges from FR-152 and from FR-038's own inherited-member resolution (AC-29).
 - **FND-002** (low, confidence high, check `trace`, unit `FR-038#frontmatter`): The amendment makes merged QSpec FR-152 and FR-154 and FCD FR-094 and FR-095 normative authorities. FR-038's `relationships:` frontmatter gains no edge for any of them (it already lists QSpec FR-322 and QSL FR-094). The dependency is visible only in body prose and is absent from the relationship graph.
+
+## Dispositions
+
+Round 1, reviewed at `agent-ix/quire-contract-ir@c50050da5f20d4af41ab2dd6ea573d5e4b9abacc` (prior review `705cef3f7a07370f111f19e8e7d86e1e07fd31d7`), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | The exact-endpoint receiver restriction is removed. A receiver qualifies through the endpoint's effective view under quire.model.complete/v1 and FR-152, so an inherited end admits on a subtype and an unrelated receiver still refuses. TC-048 step 6 adds PriorityOrder/PreferredCustomer cases. |
+| FND-002 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | `references` edges are added for QSpec FR-152, FR-154 and FR-043 and FCD FR-094 and FR-095. All targets exist at the merged revisions and none has a back-edge into quire-contract-ir; the dependency analysis is SR-2107. |

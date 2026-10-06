@@ -41,3 +41,11 @@ Ticket: IR-661. Method: `code-review`. Reviewer model `claude-opus-5-5`, run `23
 ## Finding Detail
 
 - **FND-001** (high, confidence medium, check `other`, unit `FR-038#navigation-derivation`): FR-038 re-states merged QSpec FR-152 Navigation's traversal-direction eligibility and its multiplicity-to-result-type derivation (`[0,1]` Option, `[1,1]` Reference, finite Set/Bag, unbounded or ordered refused `unsupported_construct`/`expression-form`) as its own normative prose, beside a link to FR-152. The only IR-specific content is which end is the destination and the wire paths. A later FR-152 change leaves two diverging statements of one rule, and the commit-pinned link (SR-2101 FND-002) hides the drift. The same requirement re-stated in a second repository's spec is duplication.
+
+## Dispositions
+
+Round 1, reviewed at `agent-ix/quire-contract-ir@c50050da5f20d4af41ab2dd6ea573d5e4b9abacc` (prior review `705cef3f7a07370f111f19e8e7d86e1e07fd31d7`), reviewer model `claude-opus-5-5`, run `ae1a4470-06bc-44c7-90df-81c70be53842`. Every outcome was verified against the fix commit's own text, not the author's receipt. All new criteria and procedures remain PLANNED / UNRUN; no implementation, CI gate or procedure coverage is claimed.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed c50050da5f20d4af41ab2dd6ea573d5e4b9abacc | The direction table and multiplicity-to-type derivation are removed. FR-152 Navigation is the canonical rule, applied by reference, and FR-038 keeps only the role-to-endpoint binding and the result-node comparison. TC-048's numeric cases are test inputs, not a second normative table. |
