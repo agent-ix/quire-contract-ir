@@ -932,7 +932,7 @@ inputs, the missing-end and fifth-member inputs with integer-string bounds refus
 clause's profile-fit defect; and the two inputs with rational-object bounds refuse
 `invalid-value` at `.../interval/lower`.
 
-## FCD relationship declarations (FR-038-AC-165 through FR-038-AC-168)
+## FCD relationships and named ends (FR-038-AC-165 through FR-038-AC-171)
 
 Status: **PLANNED / UNRUN**. These procedures are new acceptance work for
 IR-661. Existing TC-048 implementation and trace tags do not establish them.
@@ -973,7 +973,9 @@ results.
    `invalid_model_binding`/`malformed-declaration`. Run each with the target
    sorting before and after the referring relationship. Independently make
    an end malformed, remove its type or multiplicity, make a multiplicity
-   malformed, and reverse otherwise valid bounds. Compare the declared typed
+   malformed, and reverse otherwise valid bounds. Also point the source type
+   at a valid object type other than the owning type: this refuses
+   `invalid_model_binding`/`malformed-declaration`. Compare the declared typed
    refusals, the selection-row pointer, relationship identity, artifact id and
    source span; no row returns a package.
 4. Repeat one relationship identity under the same owner and under a second
@@ -987,7 +989,73 @@ results.
    the exact limit admits and one less returns `incomplete` at the selection
    row with no partial admitted package. Keep all other limits sufficient.
 
+5. Build a `quire.op.model.navigate` application with a
+   `relationship_end` member whose `declaration` names the relationship graph
+   node from step 1 and whose `name` is `billedTo`. The relationship node's
+   body is empty and its content-only `ModelOwner` names the selected global
+   relationship identity. Give operand 0 type `Reference<Order>` and the
+   result type `Reference<Customer>`; with FCD-shaped `source-to-target`
+   direction and target multiplicity `[1,1]`, it admits. The source's
+   multiplicity is `[0,unbounded]` and does not determine the forward result.
+   Remove only the target role and confirm the same forward application still
+   admits. On that document, request `bills`, a wholly unknown role, and the
+   relationship identity's terminal segment as `name`, independently: each
+   refuses `missing_declaration`/`missing-name` at `member.name`. Keep the
+   target role absent and combine the unknown name with a wrong receiver,
+   disallowed direction and wrong result: missing name still wins. Change
+   `declaration` to the valid source object node, then the valid target object
+   node: expected relationship-kind recovery refuses
+   `missing_declaration`/`missing-selection` at `member.declaration`, without
+   rejecting those object nodes' own owners. Independently make the
+   relationship node's owner undeclared or wrong-kind and observe the earlier
+   existing owner join (FR-038-AC-155). Finally, give both end roles the same
+   name and request it: two role matches refuse
+   `ambiguous_declaration`/`ambiguous-name`.
+6. On an independently authored schema-valid relationship with `bidirectional`
+   direction and unordered finite multiplicities, navigate forward over
+   `Reference<Order>` and inverse over `Reference<Customer>`, using the same
+   relationship graph node and its two role names. Change only the destination
+   multiplicity through `[1,1]`, `[0,1]`, and `[2,3]` with unique true and
+   false. Compare the derived result nodes against `Reference<U>`,
+   `Option<Reference<U>>`, `Set<Reference<U>>[2,3]` and
+   `Bag<Reference<U>>[2,3]`, where `U` is Customer forward and Order inverse.
+   Vary source and target multiplicities independently to show that the
+   opposite destination end, not the receiver end, determines each result.
+   These finite bidirectional documents are self-authored contract cases,
+   not a claim that today's extraction frontend emits that direction or
+   source multiplicity. Independently give a forward call the target receiver
+   type and an inverse call the source receiver type, and give a well-typed
+   receiver a different result node: each refuses
+   `ill_typed`/`operator-ineligible`, respectively at `body.arguments[0]`
+   and `body.result_type`.
+7. Retain both role names and finite unordered destination multiplicities.
+   For each direction, read the corresponding forward and inverse
+   applications: `source-to-target` admits only forward, `target-to-source`
+   only inverse, and `bidirectional` and `undirected` admit both. A disallowed
+   traversal refuses `ill_typed`/`operator-ineligible` at `member.name` even
+   when the inverse name exists. With an eligible direction, give the
+   destination an unbounded upper and then `ordered: true`: each refuses
+   `unsupported_construct`/`expression-form` at `member.name`. Restore the
+   exact FCD source-to-target shape, including the unbounded source end, and
+   name its present inverse: direction refuses first, never a fabricated
+   inverse result type. No row changes reader limits to admit unsupported
+   navigation.
+8. For each new operation refusal above, compare the typed code, cause,
+   RFC 6901 pointer and calling application key. Keep graph dependencies,
+   derived identities and other operation members current after each mutation
+   so the intended check is reached. Combine owner-recovery, role and receiver
+   defects to verify recovery wins; combine wrong receiver, disallowed
+   direction, unsupported destination multiplicity and result mismatch to
+   verify receiver wins; then repair successive defects to observe direction,
+   multiplicity and result comparison in order. Measure the work of a
+   successful relationship-end application; the exact measured limit admits
+   and one less returns `incomplete` at the selected-document row without a
+   partial package. These are acceptance procedures to execute in the code
+   lane, not recorded measurements. External QSpec #191 relationship fixtures
+   remain planned and unrun until merged and published by their owner; this
+   procedure neither copies them nor tags them as current evidence.
+
 Expected: each success and refusal above satisfies FR-038-AC-165 through
-FR-038-AC-168. Compare typed code, cause, pointer and retained declaration
+FR-038-AC-171. Compare typed code, cause, pointer and retained declaration
 metadata, not diagnostic prose. These outcomes remain **UNRUN** until the
 implementation lane records executed evidence.

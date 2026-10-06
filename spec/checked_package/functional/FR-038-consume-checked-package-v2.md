@@ -998,7 +998,8 @@ role, or an absent source role, refuses
 default role or check a role against the frontend's inverse registry. The
 frontend owns agreement with that registry. The source end's type names its
 owning type and the target end's type names the target declaration in the same
-selected document. An end type naming no declaration refuses
+selected document. A source end naming a different owning type refuses
+`invalid_model_binding`/`malformed-declaration`. An end type naming no declaration refuses
 `missing_declaration`/`missing-name`; an end type naming a declaration of the
 wrong meaning, including another relationship, refuses
 `invalid_model_binding`/`malformed-declaration`. A malformed end or
@@ -1006,15 +1007,45 @@ multiplicity refuses `invalid_model_binding`/`malformed-declaration`; a
 well-shaped multiplicity with `lower > upper` refuses
 `invalid_model_binding`/`unpreserved-model-meaning`.
 
-Named-end lookup uses `sourceEnd.role` for the forward source-to-target end
-and, only when present, `targetEnd.role` for the inverse target-to-source end.
+A V2 `relationship_end` member SHALL have the existing member shape
+`{kind: "relationship_end", declaration, name}`, with `declaration` naming
+the relationship's `relation`/`relationship` graph node. Its `ModelOwner`
+selects the actual FCD relationship by selected package identity and global
+relationship identity; it does not select the source or target object node.
+This is the declaring-node rule of merged QSpec
+[FR-322, Properties and Model-owned members step 2](https://github.com/agent-ix/quire-specification/blob/60630b0d3d5e9cca048d1c314675db3bf9c6e4f2/spec/objects/interfaces/FR-322-checked-package-artifact.md),
+together with merged QSL
+[FR-094, Model declaration nodes](https://github.com/agent-ix/quire-spec-language/blob/bdb910ad5ac54e40d22c23480d52cce13c57edb3/spec/functional/FR-094-key-model-owned-reference-population-and-quantity-nodes.md#model-declaration-nodes):
+"A `RelationshipRecord` is `relation` / `relationship`" and a checked node
+names it "only through a `relationship_end` member". The relationship node
+keeps its content-only owner and empty body. A member naming an object-type
+node does not redirect lookup to that object's effective members: no key of
+the expected relationship declaration matches, so step 2 refuses
+`missing_declaration`/`missing-selection` at `member.declaration`, even when
+that object node's own owner is valid. The existing owner join and expected-kind recovery apply before role lookup, with their
+existing refusals; an owner naming an undeclared relationship or the wrong
+kind remains `missing_declaration`/`missing-selection`.
+
+At the application's model-member check, the reader SHALL resolve the
+member's `name` against this selected relationship's declared roles, byte for
+byte. Named-end lookup uses `sourceEnd.role` for the forward source-to-target
+end and, only when present, `targetEnd.role` for the inverse target-to-source
+end. Two matching end roles refuse `ambiguous_declaration`/`ambiguous-name`.
 A requested name matching no declared applicable end role, including an
 absent inverse, refuses `missing_declaration`/`missing-name`; it SHALL NOT
 select the forward end or create an inverse. This lookup alone
 grants no navigation eligibility. Merged QSpec
 [FR-152, "Navigation"](https://github.com/agent-ix/quire-specification/blob/60630b0d3d5e9cca048d1c314675db3bf9c6e4f2/spec/functional/type-model/FR-152-bind-systems-model-structures.md#navigation)
-requires the corresponding traversal direction and the destination end's
-typed multiplicity. Forward traversal requires `source-to-target`,
+requires the receiver endpoint, corresponding traversal direction and the
+destination end's typed multiplicity for `quire.op.model.navigate`. For
+forward navigation, operand 0 is
+`Reference<S>` for the declared `sourceEnd.type` and the destination is
+`targetEnd`; for inverse navigation, operand 0 is `Reference<T>` for
+`targetEnd.type` and the destination is `sourceEnd`. An operand of another
+endpoint type refuses `ill_typed`/`operator-ineligible`. Role lookup precedes
+these eligibility checks, so an absent inverse is a missing name even if the
+requested traversal would also violate direction or multiplicity. Forward
+traversal requires `source-to-target`,
 `bidirectional` or `undirected`; inverse traversal requires
 `target-to-source`, `bidirectional` or `undirected`; a disallowed traversal
 refuses `ill_typed`/`operator-ineligible`. For destination type `U`, `[0,1]`
@@ -1024,8 +1055,12 @@ finite `[l,u]` yields `Set<Reference<U>>[l,u]` when unique and
 refuses `unsupported_construct`/`expression-form`. A declared inverse is
 therefore a name, not permission to traverse an FCD `source-to-target`
 relationship backwards or a default type for its unbounded source
-multiplicity. The application's `result_type` must name the derived result
-node; a different node refuses `ill_typed`/`operator-ineligible`.
+multiplicity. The navigation application's `result_type` must name the
+derived result node; a different node refuses
+`ill_typed`/`operator-ineligible`. Other catalogued operations that name a
+`relationship_end`, including the Boolean-result `quire.op.model.reaches`,
+retain their catalogued operands and result form; this amendment does not
+replace those with navigation's member result type.
 
 These declaration checks run in step 1 above, including for an otherwise
 unused relationship. Their outer pointer is `/lock/model_selections/<i>`;
@@ -1035,8 +1070,27 @@ row: malformed declaration before unresolved end type, duplicate identity
 before reversed multiplicity, and unresolved end type before reversed
 multiplicity. A reference to a declaration refused for its identity or kind
 keeps that declaration's own refusal, independent of node order; it SHALL NOT
-be recast as a missing end type. Selected-document parsing and each relationship node and member read are
-charged through the existing work meter at the selection row. Exhaustion returns `incomplete` there and no partial package.
+be recast as a missing end type. Selected-document parsing and each
+relationship node and member read are charged through the existing work meter
+at the selection row. Exhaustion returns `incomplete` there and no partial
+package.
+
+For `quire.op.model.navigate`, relationship-end resolution runs at the
+operation step, after the existing catalog shape, operand-count and family
+checks, in the existing operation-refusal order: expected-kind owner
+recovery, role lookup, receiver endpoint, direction, destination multiplicity
+and result-type comparison.
+The member's `declaration` and `name` refusals point to those members under
+`/semantic_graph/nodes/{n}/body/operation/member`; the operand refusal points
+to `/semantic_graph/nodes/{n}/body/arguments/0`, and a mismatched result points
+to `/semantic_graph/nodes/{n}/body/result_type`. Direction and destination
+multiplicity eligibility refuse at `.../operation/member/name`, the value
+that selected that traversal. These operation refusals retain the calling
+application node's key; selected-document declaration refusals keep the
+selection-row pointer and declaration metadata above. Each relationship
+member visited during resolution is charged through the same selected-row
+work meter as other model-member visits; no endpoint or role lookup bypasses
+the bounded read. These rules introduce no new limit or budget domain.
 
 Every ancestor edge followed, member visited and redefinition pair compared
 in step 3 for an operation, the build of the field tables and the table entries of every field
@@ -3332,8 +3386,12 @@ the three as disjoint disagrees byte for byte.
 
 | FR-038-AC-165 | PLANNED / UNRUN (IR-661). A selected, independently authored FCD-shaped document with a global `relationship` slot identity admits, while an owner-nested relationship, a foreign-package identity and a wrong-slot identity each refuse `invalid_model_binding`/`malformed-declaration`. Owner-nested fields, operations and operation parameters still admit; moving a field or operation into the global relationship slot refuses `invalid_model_binding`/`malformed-declaration`. A relationship backs `relation`/`relationship` and cannot back `model`/`object_type`. | Test |
 | FR-038-AC-166 | PLANNED / UNRUN (IR-661). Both ends retain their declared type and multiplicity and their authored role strings. Omitting only `targetEnd.role` admits the document with only its forward named end. Removing `sourceEnd.role`, or setting either present role to null, empty or a non-string, refuses `invalid_model_binding`/`malformed-declaration`; no role is synthesized or checked against an inverse registry. | Test |
-| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal points to the selection row and retains the relationship identity, artifact id and span. | Test |
+| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal points to the selection row and retains the relationship identity, artifact id and span. | Test |
 | FR-038-AC-168 | PLANNED / UNRUN (IR-661). Repeating a relationship identity, including under two different owners, refuses `invalid_model_binding`/`conflicting-binding` at the selection row. Two missing relationship identities are malformed declarations, not conflicting identities. A malformed role beats an unresolved end type and reversed multiplicity on that relationship; an unresolved end type beats reversed multiplicity. Referencing a node refused for identity or kind keeps its own refusal rather than reporting a missing end type. Exact measured relationship-read work admits; one less returns `incomplete` at `/lock/model_selections/<i>` with no admitted package. | Test |
+
+| FR-038-AC-169 | PLANNED / UNRUN (IR-661). `relationship_end.declaration` names the selected relationship's `relation`/`relationship` graph node and resolves through its content-only `ModelOwner`, with an empty body; it never substitutes a source or target object-type declaration. Source role lookup yields the forward end and a present target role yields the inverse end, by exact role bytes rather than the terminal identity segment. An unknown role or absent inverse refuses `missing_declaration`/`missing-name` at the member's `name` before receiver, direction or result checks; two matching roles refuse `ambiguous_declaration`/`ambiguous-name`. A wrong-kind or missing relationship owner keeps the existing owner-join refusal, with no role fallback. | Test |
+| FR-038-AC-170 | PLANNED / UNRUN (IR-661). Forward navigation reads the source receiver and target destination; inverse navigation reads the target receiver and source destination. With an eligible direction and unordered finite destination bounds, `[1,1]` gives `Reference<U>`, `[0,1]` gives `Option<Reference<U>>`, another finite interval gives bounded `Set<Reference<U>>` when unique and `Bag<Reference<U>>` otherwise. Each successful application's result names the derived type node. The wrong receiver endpoint, result node or direction refuses `ill_typed`/`operator-ineligible`; an unbounded or ordered destination refuses `unsupported_construct`/`expression-form`. In particular, a present inverse on the FCD `source-to-target` shape is named but cannot be traversed backwards. | Test |
+| FR-038-AC-171 | PLANNED / UNRUN (IR-661). For `quire.op.model.navigate`, relationship-end resolution preserves the existing operation-refusal order, explicit calling-node locus and RFC 6901 paths: owner recovery before roles; roles before receiver, direction, multiplicity and result comparison. A missing role combined with a wrong receiver, disallowed direction and wrong result reports `missing_declaration`/`missing-name` at `.../operation/member/name`; a valid role with wrong receiver reports at `.../body/arguments/0`; a mismatched result reports at `.../body/result_type`. A successful application admits at its measured exact work limit and returns `incomplete` at the selection row with one less, without a partial package. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
