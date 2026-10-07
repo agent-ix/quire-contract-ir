@@ -149,8 +149,10 @@ pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainMod
             let [model] = models;
             Ok(model)
         }
-        Err(ModelFailure::Refused(refusal)) => Err(refusal),
-        Err(ModelFailure::Limit(_)) => panic!("no limit is reached"),
+        Err(SelectionFailure::Refused(refusal)) => Err(refusal.refusal),
+        Err(SelectionFailure::Limit(_) | SelectionFailure::InexactNumber { .. }) => {
+            panic!("no limit or inexact number is reached")
+        }
     }
 }
 
@@ -529,7 +531,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
     }
     assert!(read_at(enough).is_ok());
     match read_at(enough - 1) {
-        Err(ModelFailure::Limit(ValidationFailure::Incomplete(incomplete))) => {
+        Err(SelectionFailure::Limit(ValidationFailure::Incomplete(incomplete))) => {
             assert_eq!(
                 incomplete.limit_kind,
                 crate::checked_package::shared::CheckedPackageLimit::Work
@@ -895,7 +897,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let mut exact = WorkMeter::new(used);
     read_semantic_ir(&document, &mut Budget::new(&mut exact, 2, BYTES)).expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
-    let Err(ModelFailure::Limit(failure)) =
+    let Err(SelectionFailure::Limit(failure)) =
         read_semantic_ir(&document, &mut Budget::new(&mut tight, 2, BYTES))
     else {
         panic!("one unit less than the read used is a limit");
@@ -1127,3 +1129,5 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
         .collect();
     assert_eq!(actual, RECORDED);
 }
+
+mod intake_retention;
