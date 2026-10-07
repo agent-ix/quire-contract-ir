@@ -1194,7 +1194,8 @@ intake forms, not admission of new declaration forms.
 When origin is missing or malformed, including both branches, partial branches,
 unknown members or invalid members, the reader shall retain None and shall not
 salvage a partial branch.
-For an unselected group of type declarations with the same supplied identity,
+A same-identity type group means two or more type declarations sharing one
+supplied identity. For every such group,
 the reader shall retain that common identity when available. It shall retain an
 origin only when every candidate has a valid origin and all those typed origins
 are equal in every supplied value and optional-member presence. Any missing or
@@ -1205,7 +1206,7 @@ the first refusal. This conservative ambiguity rule is an IR-local refinement
 of the multi-node case left unspecified by FR-154's per-node retention rule.
 
 A relationship identity repeated sequentially, including under different owners,
-is not an unselected type group. For that duplicate refusal the reader shall
+is not a same-identity type group. For that duplicate refusal the reader shall
 retain the later actual offending relationship's supplied identity and its own
 valid origin, or None for its missing/malformed origin, in the existing
 node/member-path order. It shall not substitute the earlier relationship or
@@ -1221,15 +1222,22 @@ bounded document/read/work accounting. No second parse, raised ceiling, unbounde
 diagnostic collection, default origin or diagnostic-prose parsing is allocated.
 
 The reader shall compare full valid typed origin values in production when
-resolving an unselected group's origin ambiguity. At the existing private
-intake-to-`ValidationFailure` conversion, it shall deliberately consume and
-release owned declaration metadata within the existing accounted lifetime,
-while preserving the existing refusal projection. Required CODE duties are
-real production use and bounded ownership release. Fake reads to suppress
-unused fields, a blanket `dead_code` allowance or a new observer/public API do not satisfy them.
-Its feature-off model-consumer Clippy gate remains mandatory. Open CODE gate: concrete safe production consumption and ownership release
-remain to be established; a source/API gap requires owner resolution rather than
-an undocumented suppression. No compiler pass is claimed here.
+resolving a same-identity type group's origin ambiguity. The owned metadata shall
+belong to `SelectionRefusal`, carried by `SelectionFailure::Refused` through
+`admit_selection`, and survive that function's release of the original document.
+At the existing `SelectionFailure::Refused(refused)` mapping arm in
+`checked_package/v2/mod.rs`, the reader shall release that owned metadata by the
+end of the arm while preserving its existing `ValidationFailure` projection.
+Inspection passes only if the production group comparison determines origin
+retention and the actual owned metadata is moved into that refusal and released
+at that mapping arm, by explicit ownership teardown or ordinary destruction of
+its scoped owner. A read whose result affects neither origin retention nor an
+ownership transfer is not consumption; reading a field solely to silence lint
+fails the inspection. A blanket `dead_code` allowance or a new observer/public
+API also fails it. Its feature-off model-consumer Clippy gate remains mandatory.
+Open CODE gate: this production ownership lifecycle and typed comparison remain
+to be implemented and inspected; a source/API gap requires owner resolution
+rather than an undocumented suppression. No compiler pass is claimed here.
 
 The retention boundary is the private intake return above. The current conversion
 of that return to `ValidationFailure` carries code, path and cause only. The
@@ -3845,14 +3853,15 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-185 | Implemented and verified by TC-048 (IR-680 code). The expected key is a private, bounded `Option<CheckedNodeId>` exposed only by `expected_node_id() -> Option<&CheckedNodeId>`; it participates in derived `Clone`/`Eq`/`PartialEq`, may appear in derived `Debug`, and is absent from Display, document pointer, locus text and serialized forms. A fixed-member model declaration shape failure, a canonical encoding failure and a pre-key-stage refusal return `None`; every IR refusal constructor and public V2/dispatch forwarder preserves an authentic value or absence, and IR's independent test-authored expected values check the actual reader field by field. Existing code, cause, path, locus, first-refusal order, byte/work charges and public key-derivation surface remain unchanged; no public synthetic-refusal constructor or derive/rekey API is added. The key is meaningful only with the reader-returned original `locus`, since callers can mutate public fields on a cloned refusal. | Test, Inspection (TC-048) |
 | FR-038-AC-186 | PLANNED / UNRUN (IR-663 source origin). Given a located refusal with a valid FCD Source origin, the reader returns its exact typed source member values and optional-member presence at the private intake boundary, including all four end-coordinate presence combinations and the existing admitted 2^53 boundary. Retention adds no paired-end or span-order constraint. | Test |
 | FR-038-AC-187 | PLANNED / UNRUN (IR-663 generated origin). Given a located refusal with a valid FCD Generated origin, the reader returns exact generator identity/version text and input identity sequence at the private intake boundary. Input order/repetition remains unchanged and no source span is present. | Test |
-| FR-038-AC-188 | PLANNED / UNRUN (IR-663 selected nested context). When an existing field declaration/type reference, operation declaration/return type, parameter declaration/type reference or relationship-end check refuses, the reader retains the actual offending field, operation, parameter or relationship's supplied identity and valid origin. A sequential repeated relationship, including across two owners, retains the later actual offending relationship's context under the existing order. Missing nested metadata remains None; an owner, earlier relationship or unresolved target cannot substitute. | Test |
+| FR-038-AC-188 | PLANNED / UNRUN (IR-663 selected nested context). When an existing field declaration/type reference, operation declaration/return type, parameter declaration/type reference or relationship-end check refuses, the reader retains the actual offending field, operation, parameter or relationship's supplied identity and valid origin. Missing nested metadata remains None; an enclosing owner or unresolved target cannot substitute. | Test |
 | FR-038-AC-189 | PLANNED / UNRUN (IR-663 origin absence). Given a located refusal with missing or malformed origin, the reader returns None for origin while independently retaining any available declaration identity. Both-branch, partial-branch, unknown-member and invalid-member cases cannot yield a salvaged branch or default origin. | Test |
-| FR-038-AC-190 | PLANNED / UNRUN (IR-663 unselected type-group refinement). For every unselected same-identity type group, including malformed-declaration and conflicting-binding refusals, the reader retains its common supplied identity and retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree. Any missing, malformed or different valid candidate origin yields None. Candidate permutation cannot select a winner. This IR-local ambiguity refinement does not apply type-group consensus to a sequential relationship refusal. | Test |
+| FR-038-AC-190 | PLANNED / UNRUN (IR-663 same-identity type-group refinement). For every same-identity type group as defined above, including malformed-declaration and conflicting-binding refusals, the reader retains its common supplied identity and retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree. Any missing, malformed or different valid candidate origin yields None. Candidate permutation cannot select a winner. This IR-local ambiguity refinement does not apply type-group consensus to a sequential relationship refusal. | Test |
 | FR-038-AC-191 | PLANNED / UNRUN (IR-663 refusal precedence). Retaining metadata does not change the existing first code, cause or selection-row member in node/table/member-path order. Combining declaration defects preserves that exact first refusal; distinct Limit and InexactNumber alternatives retain their current payloads and precedence. | Test |
 | FR-038-AC-192 | PLANNED / UNRUN (IR-663 bounded retention). Retained metadata is acquired and released within the existing bounded document/read/work accounting, without a second parse, raised ceiling or unbounded diagnostic collection. Exact sufficient work succeeds; the first unpayable charge preserves the existing incomplete result and no partial package. | Test |
 | FR-038-AC-193 | PLANNED / UNRUN (IR-663 public boundary exclusion). Inspection of the IR-owned model-intake conversion confirms that it projects code/path/cause to ValidationFailure and adds no declaration metadata field to CheckedPackageRefusal or the IR-owned dispatch result. Unrelated locus, expected-node-key, contract-version and document-pointer behavior remains intact. | Inspection |
-| FR-038-AC-194 | PLANNED / UNRUN (IR-663 production ownership). Inspection confirms that production group-origin resolution compares full valid typed origin values and the existing private-to-public conversion consumes/releases owned metadata within the accounted lifetime. Fake reads solely to suppress unused fields, blanket dead_code allowances, an observer or new public API cannot supply that production use. | Inspection |
+| FR-038-AC-194 | PLANNED / UNRUN (IR-663 production ownership). Inspection passes only when full typed-origin equality determines production group-origin retention, metadata is owned by SelectionRefusal through SelectionFailure::Refused after admit_selection releases the document, and that owner is released by the end of the existing SelectionFailure::Refused(refused) mapping arm to ValidationFailure in checked_package/v2/mod.rs. Explicit teardown or ordinary scoped-owner destruction passes; a field read affecting neither origin retention nor ownership transfer, a read solely to silence lint, a blanket dead_code allowance or a new observer/public API fails. | Inspection |
 | FR-038-AC-195 | PLANNED / UNRUN (IR-663 consumer lint gate). The CODE slice passes the repository's model-consumer Clippy lane with test-only fault injection disabled and warnings denied, as well as the workspace all-target lane. A compiler failure remains an open code gate rather than permission for a suppression or fake observer. | Test |
+| FR-038-AC-196 | PLANNED / UNRUN (IR-663 sequential relationship context). A relationship identity repeated sequentially, including under two different owners, retains the later actual offending relationship's supplied identity and its own valid origin under the existing node/member-path order. Its missing or malformed origin yields None. The earlier relationship or enclosing owner cannot substitute, and type-group origin consensus does not apply. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

@@ -42,3 +42,11 @@ already present at base. AC-174/175 are deliberately untagged (PLANNED).
 - Property classification (informational, `quire properties`): extractable 101/179 to 100/179; invariant shapes 26 to 25.
 - Semantic review: skipped (specification-only change; no code under review).
 - Plan completion: not assessed
+
+## Dispositions
+
+Round 1, fix commit "spec: close IR663 private intake review findings".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |

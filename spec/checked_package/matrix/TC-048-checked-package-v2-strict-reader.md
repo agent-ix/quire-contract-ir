@@ -1235,7 +1235,7 @@ FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
 key only
 where the existing refusal retains its locus. At the private `admit_selection` return, selected-document declaration refusals
 additionally retain authentic declaration identity and valid origin under
-FR-038-AC-174/175 and FR-038-AC-186 through FR-038-AC-195, with absence for missing/malformed origin. The existing
+FR-038-AC-174/175 and FR-038-AC-186 through FR-038-AC-196, with absence for missing/malformed origin. The existing
 model-intake conversion to `ValidationFailure` retains code/path/cause only;
 these procedures assert no public metadata extension. Do not parse diagnostic
 prose or infer a graph locus from a semantic declaration URI. All outcomes and
@@ -1246,7 +1246,7 @@ records executed evidence.
 ### Planned private intake refusal-origin checks
 
 These Test and Inspection procedures back FR-038-AC-174/175 and
-FR-038-AC-186 through FR-038-AC-195. They are PLANNED / UNRUN for IR-663;
+FR-038-AC-186 through FR-038-AC-196. They are PLANNED / UNRUN for IR-663;
 existing AC-167/173 trace tags verify refusal/admission semantics only and
 supply no evidence for these retention criteria. Exercise the real private model-intake return,
 `admit_selection` yielding `SelectionFailure::Refused(SelectionRefusal)`, in
@@ -1287,7 +1287,7 @@ No public reader/dispatch/driver metadata observation is allocated.
    require None. Repeat these cases both for conflicting-binding and for a
    malformed-declaration group (bad common object-id spelling or bad candidate
    kind). Permute candidate order without changing origin or first refusal.
-   Separately repeat a valid relationship identity under two owners with different
+   For AC-196, separately repeat a valid relationship identity under two owners with different
    origins: in the existing sequential node/member-path order require the later
    actual offending relationship's metadata, not the earlier node or owner.
    Give that later relationship missing/malformed origin to require None with
@@ -1308,12 +1308,18 @@ No public reader/dispatch/driver metadata observation is allocated.
    Future concrete typed consumers remain an open owner allocation, not this test's
    promised interface. No second parse, raised ceiling or diagnostic collection
    supplies retention. Source inspection alone cannot close the runtime Tests.
-7. For AC-194, inspect real production full typed-origin equality in group resolution and
-   owned-metadata consumption/release at the existing public projection boundary.
-   No fake read, blanket dead-code allowance, observer or public metadata field
-   may supply the use. For AC-195, the CODE slice shall run both repository Clippy lanes,
+7. For AC-194, inspect that full typed-origin equality actually determines the
+   production group retention decision. Follow the owned metadata in
+   `SelectionRefusal` through `SelectionFailure::Refused` after `admit_selection`
+   releases the document, to the existing `SelectionFailure::Refused(refused)`
+   mapping arm in `checked_package/v2/mod.rs`. Pass only if that arm releases the
+   actual owner by its end, by explicit ownership teardown or ordinary scoped
+   destruction, while preserving code/path/cause. Fail if a field is read solely
+   to silence lint, or its read affects neither the group decision nor ownership
+   transfer. A blanket dead-code allowance, observer or public metadata field
+   also fails. For AC-195, the CODE slice shall run both repository Clippy lanes,
    including the feature-off model-consumer command, and record their actual exits.
-   If safe concrete consumption is unavailable, report the source/API gap rather
+   If this ownership lifecycle is unavailable, report the source/API gap rather
    than claim the criterion satisfied. These code checks remain PLANNED / UNRUN.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)

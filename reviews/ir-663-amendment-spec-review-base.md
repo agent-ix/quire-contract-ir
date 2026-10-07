@@ -82,3 +82,14 @@ conversion in `v2/mod.rs`; `ValidationFailure::refused_because` in `common.rs`;
 Not merge-ready: FND-001 is a live contradiction between the Outputs section
 and the narrowed retention contract, and FND-002 is a second unchanged passage
 that conflicts with it. Both are one-sentence fixes inside FR-038.
+
+## Dispositions
+
+Round 1, fix commit "spec: close IR663 private intake review findings".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-002 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-003 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-004 | fixed | fixed by commit "spec: close IR663 private intake review findings" |

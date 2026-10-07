@@ -41,3 +41,19 @@ rather than the reader.
 
 Conditional: no high-severity grammar defect; atomicity of AC-174 is the main
 item to fix while the amendment is open.
+
+## Dispositions
+
+Round 1, fix commit "spec: close IR663 private intake review findings".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-002 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-003 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | AC-188 combines two obligations that fail independently: nested field/operation/parameter/relationship-end context retention, and the separate sequential repeated-relationship rule (later offending relationship's metadata). The sequential rule could stand alone or move beside AC-190's contrasting type-group rule. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3848 |

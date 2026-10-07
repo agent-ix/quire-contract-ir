@@ -49,3 +49,22 @@ TC-048 does not pin it.
 Conditional: the boundary and absence rules are sound. FND-001 to FND-003
 need one sentence each in the contract plus one TC-048 case each, so that the
 planned code slice has a single correct reading.
+
+## Dispositions
+
+Round 1, fix commit "spec: close IR663 private intake review findings".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-002 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-003 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-004 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+| FND-005 | fixed | fixed by commit "spec: close IR663 private intake review findings" |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | AC-194's line between required 'consumption/release' at the conversion and forbidden 'fake reads solely to suppress unused fields' has no objective test. The only production consumer projects code/path/cause and drops the metadata, so destructure-and-drop there matches both descriptions and two inspectors can disagree. The text does route a gap to owner resolution, so nothing wrong ships, but the Inspection verdict stays a judgment call. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3854 |
+| FND-007 | low | 'Unselected' (group / same-identity type group) is undefined; it reads as a subset of same-identity groups but appears to mean every group of two or more type declarations sharing an identity. Drop the word or define it. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3850 |
