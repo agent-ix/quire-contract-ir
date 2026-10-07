@@ -203,7 +203,7 @@ fn references(term: &Value, out: &mut Vec<String>) {
 fn admit(wire: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
         &canonical(wire),
-        CheckedPackageReadLimits::default(),
+        CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),
     ) {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
@@ -232,7 +232,10 @@ fn inspect_public_fields(result: &CheckedCompositeOperands) {
         operands,
         consumed_work,
     } = result;
-    assert_eq!(application.domain, "quire.checked-semantic-node/v1");
+    assert_eq!(
+        application.domain.as_ref(),
+        "quire.checked-semantic-node/v1"
+    );
     assert_eq!(occurrence.role, CheckedOccurrenceRole::Expression);
     assert!(*consumed_work > 0);
     for operand in operands {
