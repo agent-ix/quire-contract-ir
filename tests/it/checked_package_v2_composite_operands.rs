@@ -508,6 +508,56 @@ fn exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
     rebuild_source_map(&mut reversed);
     refresh_identity(&mut reversed);
     assert_eq!(project(&admit(&reversed), &app), result);
+
+    // Re-author only the element range's lower endpoint and derive all parent
+    // identities again. Its collection descriptor remains the same, while
+    // the element descriptor at the same path names the new authored range.
+    let changed_lower = "-60000000000000000000000000000000000000000000000000";
+    let changed_range = f.ty(
+        "bounded_domain",
+        "integer_range",
+        Some(&integer),
+        bounds_body(changed_lower, high),
+    );
+    let changed_sequence = f.collection("sequence", &changed_range);
+    let changed_bounded = f.ty(
+        "bounded_domain",
+        "collection_bounds",
+        Some(&changed_sequence),
+        bounds_body("2", maximum),
+    );
+    let changed_record = f.record(&[("items", &changed_bounded)]);
+    let changed_parameter = f.parameter("p", &changed_record);
+    let changed_app = f.application(
+        vec![reference(&changed_parameter), reference(&changed_parameter)],
+        "quire.op.structural.eq",
+    );
+    let changed = project(&f.read(), &changed_app);
+    let (_, changed_positions) = parameter_domain(&changed, 0);
+    assert_eq!(changed_positions.len(), positions.len());
+    assert_eq!(changed_positions[0].authored, positions[0].authored);
+    assert_ne!(changed_positions[1].authored, positions[1].authored);
+    assert_eq!(
+        changed_positions[1].type_node,
+        typed_node_id(&changed_range)
+    );
+    assert_ne!(changed_positions[1].type_node, positions[1].type_node);
+    for (entry, path) in changed_positions.iter().zip([vec![0], vec![0, 0]]) {
+        assert_eq!(
+            entry.key,
+            CheckedCompositeDomainKey::Node {
+                node: typed_node_id(&changed_parameter),
+                path,
+            }
+        );
+    }
+    match &changed_positions[1].authored {
+        Domain::IntegerRange { lower, upper } => {
+            assert_eq!(lower.as_str(), changed_lower);
+            assert_eq!(upper.as_str(), high);
+        }
+        other => panic!("changed integer bounds: {other:?}"),
+    }
 }
 
 #[trace("FR-038-AC-178", "FR-038-AC-181")]
