@@ -416,6 +416,9 @@ fn module_file(
 
 /// Derive exclusions from actual cfg(test) module ancestry, never filenames.
 /// A child's test-only status is inherited only through an actual declaration.
+/// This is a text scan, not a Rust parser: comments, raw strings and inline
+/// module nesting can resemble declarations. The caller pins the exact excluded
+/// set so an unexpected exclusion fails the audit instead of hiding production.
 fn test_only_module_files(
     sources: &std::collections::BTreeMap<PathBuf, String>,
 ) -> std::collections::BTreeSet<PathBuf> {
@@ -462,6 +465,20 @@ fn checked_package_sources() -> Vec<(PathBuf, String)> {
         })
         .collect();
     let test_only = test_only_module_files(&sources);
+    // This is a regression oracle, not an exclusion allow-list: ancestry above
+    // computes the set, and any added or missing exclusion must fail this audit.
+    let expected: std::collections::BTreeSet<_> = [
+        "lower/ceiling_tests.rs",
+        "model_fields/tests.rs",
+        "model_members/tests.rs",
+        "model_members/tests/intake_retention.rs",
+    ]
+    .map(|relative| {
+        repository_path("crates/quire-contract-model/src/checked_package/v2").join(relative)
+    })
+    .into_iter()
+    .collect();
+    assert_eq!(test_only, expected, "exact cfg(test) source ancestry");
     sources
         .into_iter()
         .filter(|(path, _)| !test_only.contains(path))

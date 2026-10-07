@@ -127,3 +127,20 @@ Round 1, fix commit "Pin private intake metadata invariants and correct final-he
 | FND-004 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
 | FND-005 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
 | FND-006 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-007 | accepted-no-change | Accepted by the planner. Reason: the audit pins the excluded set to exactly the four known cfg(test) files, so any new exclusion fails; the text-based limitation will be documented in a comment at the classifier in the next push. Reviewer note: at the commit "Classify nested unit fixture sources by actual cfg-test module ancestry" the test asserts only that intake_retention.rs is excluded and intake_origin.rs is kept, not the exact four-file set. Both the exact-set assertion and the comment are to be verified at the next head. |
+
+## New findings (disposition pass 2)
+
+Round 2 is a targeted review of the fix commit "Classify nested unit fixture sources by actual cfg-test module ancestry". That commit changes only `tests/it/checked_package_v2_identity_digests.rs`. I checked it statically and ran no cargo.
+
+What it gets right:
+
+- **Exclusion follows the declaration tree.** A file is excluded only when its parent declares it as an out-of-line `mod` on the line after an exact `#[cfg(test)]` attribute. Such a declaration is present in the raw text and absent after `production_source`. Exclusion then passes to declared descendants through the default layout.
+- **Unclear cases stay in the scan.** A missing or ambiguous file, a `#[path]` in the parent, or any other cfg form (`cfg(not(test))`, `cfg(all(test, ..))`, `cfg_attr`) leaves the file scanned.
+- **The excluded set is exactly the four cfg(test) files in the tree.** These are `lower/ceiling_tests.rs`, `model_fields/tests.rs`, `model_members/tests.rs` and the nested `model_members/tests/intake_retention.rs`. The old filename filter excluded the first three, so the only new exclusion is the nested fixture. `intake_origin.rs` is asserted to stay in the scan.
+- **The negative control is sound.** It declares a production module named `tests` with a nested child, and it kills two classifiers that are not ancestry-based: one that excludes by name or path (the old `tests.rs` filter, or a `/tests/` path match), and one that treats every out-of-line module as test-only.
+- **The audit is otherwise unchanged.** The banned symbol list, the `to_value` allowance counts and the AC-90/AC-92 audits are the same. The classifier is in one place and `production_source` is still the single shared stripper.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | low | The ancestry classifier reads text, not syntax. A line that is exactly `#[cfg(test)]` inside a block comment or a raw string, followed by `mod x;`, would exclude production `x.rs` and its descendants. Separately, a `mod n;` inside an inline `#[cfg(test)] mod t { .. }` resolves against the parent's directory rather than `t/`. That could exclude an unrelated file which some other module includes through `#[path]`. Neither pattern exists today, and the `production_source` inline stripping already carried the same textual trust. | tests/it/checked_package_v2_identity_digests.rs:335-365,370-391,394-417,419-448 |
