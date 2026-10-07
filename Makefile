@@ -81,7 +81,11 @@ test:
 .PHONY: conformance-qspec
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --test conformance_qspec
-	$(CARGO) test $(LOCKED) --workspace --lib tc_048_qspec_model_declaration_keys_use_production_derivation
+	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --workspace --lib checked_package::v2::model_members::tests::tc_048_qspec_model_declaration_keys_use_production_derivation -- --exact 2>&1); \
+	status=$$?; printf '%s\n' "$$output"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
+	[ "$$passed" -eq 1 ] || { echo 'required QSpec production-key test did not run exactly once' >&2; exit 1; }
 
 .PHONY: build
 build:

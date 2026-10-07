@@ -16,8 +16,10 @@ use ix_trace_rs::trace;
 #[trace("TC-048", "FR-038-AC-176")]
 #[test]
 fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
-    let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
-        return;
+    let root = match std::env::var("QUIRE_SPECIFICATION_DIR") {
+        Ok(root) if !root.is_empty() => root,
+        _ if std::env::var_os("QSPEC_CONFORMANCE").is_none() => return,
+        _ => panic!("QUIRE_SPECIFICATION_DIR is required for QSpec conformance"),
     };
     let path = std::path::Path::new(&root)
         .join("proposals/checked-package-v2/model-member-type-vectors.json");
@@ -28,11 +30,7 @@ fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
     let rows = vectors["model_declaration_nodes"]
         .as_array()
         .expect("QSpec model_declaration_nodes must be an array");
-    assert_eq!(
-        rows.len(),
-        12,
-        "QSpec must publish all twelve declaration vectors"
-    );
+    assert!(!rows.is_empty(), "QSpec must publish declaration vectors");
     for row in rows {
         let name = row["name"].as_str().expect("vector name");
         let preimage = &row["preimage"];

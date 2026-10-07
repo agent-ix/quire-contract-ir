@@ -75,13 +75,11 @@ visit; a limit one below it returns `incomplete`.
 ## Status
 
 The in-repo generated owner-schema and join cases run in IR-646. IR-658
-implements the projection-owner mismatch refusal. The external conformance
-row remains **PLANNED / UNRUN** under FR-038-AC-176: read QSpec's
-`proposals/checked-package-v2/fixtures/positive-two-owners-a.json` and
-`positive-two-owners-b.json`, and the model declaration keys in
-`proposals/checked-package-v2/model-member-type-vectors.json`, directly from
-the checkout named by `QUIRE_SPECIFICATION_DIR`. The row is absent from the
-executable conformance target until IR-654 code lands; its absence is pending
-coverage, not a passing skip. No fixture is copied into this repository.
+implements the projection-owner mismatch refusal. FR-038-AC-176 external
+conformance runs through `tests/conformance_qspec/main.rs` for QSpec's
+`positive-two-owners-a.json` and `positive-two-owners-b.json` and through the
+private `model_members` test for every published model declaration key. Both
+read the checkout named by `QUIRE_SPECIFICATION_DIR` through the explicit
+`make conformance-qspec` target. No fixture is copied into this repository.
 Complete structural-key re-derivation and retirement of the interim
 recursion-group skip belong to IR-630.

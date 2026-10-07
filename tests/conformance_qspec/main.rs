@@ -560,6 +560,10 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
     let malformed = read_positive(&fixtures, base, &scratch)
         .expect_err("a malformed selected document must fail");
     std::fs::remove_file(&scratch).expect("remove malformed domain document");
+    assert!(
+        malformed.contains(&scratch.display().to_string()),
+        "{malformed}"
+    );
     assert!(malformed.contains("is not JSON"), "{malformed}");
     let package = read_json(&fixtures.join(base)).expect("published positive package");
     let mut unknown = package.clone();
@@ -574,11 +578,13 @@ fn tc_048_qspec_positive_inputs_fail_closed() {
         .remove("digest");
     let refused = read_positive_package(absent_digest, base, &document)
         .expect_err("selection without digest must fail");
+    assert!(refused.contains("acme/orders"), "{refused}");
     assert!(refused.contains("no digest"), "{refused}");
     let mut changed_package_id = package;
     changed_package_id["package_id"]["digest"] = json!("0".repeat(64));
     let refused = read_positive_package(changed_package_id, base, &document)
         .expect_err("non-admitted positive package must fail");
+    assert!(refused.contains(base), "{refused}");
     assert!(refused.contains("did not admit"), "{refused}");
 }
 
