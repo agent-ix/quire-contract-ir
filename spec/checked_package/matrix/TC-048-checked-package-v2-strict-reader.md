@@ -593,6 +593,12 @@ assert ordered=true and its semantic preimage member order. No accessor output
 supplies the expected identifier list. Assert the exact introduced key set.
 
 For AC181, exercise all twelve public error variants and their exact tabled fields.
+The changed IneligibleOperator case is PLANNED/UNRUN (IR-690): retarget
+`tc_048_external_error_consumer_retains_authentic_node_and_application_loci`
+from its current structural.ne refusal to a reader-admitted catalogued identity
+outside eq/ne. Preserve its exact public application-locus refusal assertion;
+its existing AC181/182 tags do not verify that replacement case. Other existing
+IR-651 evidence remains unchanged.
 Use public admitted inputs for unknown node, nonapplication, missing occurrence,
 known ineligible identity outside structural.eq/structural.ne, unsupported operands and
 unsupported union projection; retain authentic ordinal/type fields. Crate-internal
@@ -624,7 +630,8 @@ Existing IR-651 equality execution does not discharge these rows.
    production reader and owning catalog, using supported parameters and closed
    graph composite values. Assert the actual application/selected occurrence,
    ordinals and original child/type identities. Swap arguments, repeat a child,
-   select a second authentic occurrence and request an absent occurrence. Compare
+   select a second authentic occurrence and request an absent occurrence (AC199):
+   assert MissingOccurrence with the supplied application and occurrence. Compare
    with the authored source, never an accessor-produced expected value.
 
 2. For AC198, admit corresponding eq/ne applications over the same operand type
@@ -642,7 +649,11 @@ Existing IR-651 equality execution does not discharge these rows.
    variant and payload, no partial output. Admission-inaccessible branches use
    explicitly defensive admitted-then-mutated model tests only. A separately
    authored catalog-ineligible input retains the reader's original refusal;
-   a known admitted non-eq/ne operation returns IneligibleOperator at the accessor.
+   a known admitted non-eq/ne operation returns IneligibleOperator with its actual
+   application id at the accessor. Retarget the existing public AC181/182 error-
+   consumer assertion to that identity without removing or weakening its payload
+   oracle; the current structural.ne refusal is superseded target behavior, not
+   evidence for this planned replacement.
 
 4. For AC200, measure successful actual logical work, assert exact-budget success
    and zero/minus-one WorkLimit with exact limit and attempted consumed payload.
