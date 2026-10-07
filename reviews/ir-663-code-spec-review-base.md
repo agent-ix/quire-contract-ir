@@ -54,3 +54,13 @@ Not merge-ready. There are no high findings, and the criteria and
 procedures stay consistent. The status and evidence wording claims runs
 that the frozen head has not had, and it must be corrected or re-earned by
 the full gates at the final head.
+
+## Dispositions
+
+Round 1, fix commit "Pin private intake metadata invariants and correct final-head evidence status". Verified statically against the code and text at that commit; no cargo was run.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-002 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-003 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |

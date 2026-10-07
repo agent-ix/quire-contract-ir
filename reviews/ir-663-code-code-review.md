@@ -114,3 +114,16 @@ full gates run twice before merge.
 
 Static review only. `quire validate` on this file is recorded in the review
 report.
+
+## Dispositions
+
+Round 1, fix commit "Pin private intake metadata invariants and correct final-head evidence status". Verified statically against the code and text at that commit; no cargo was run.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-002 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-003 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-004 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-005 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-006 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |

@@ -95,3 +95,13 @@ Not merge-ready on evidence. The matrix improves and nothing regresses, but
 the tagged rows for AC-189 to AC-192 rest on tests that have not run at
 this head. The partial clause coverage recorded in SR-2960 also applies to
 AC-186, AC-188 and AC-192.
+
+## Dispositions
+
+Round 1, fix commit "Pin private intake metadata invariants and correct final-head evidence status". Verified statically against the code and text at that commit; no cargo was run.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-002 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
+| FND-003 | fixed | fixed by commit "Pin private intake metadata invariants and correct final-head evidence status" |
