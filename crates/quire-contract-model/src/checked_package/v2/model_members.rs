@@ -54,6 +54,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod intake_origin;
+use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
+
 const STRUCTURAL_NODE: &str = "quire.structural-node/v1";
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 const NATIVE_BOOLEAN: &str = "ix://quire/native/Boolean";
@@ -1162,10 +1165,12 @@ const DOCUMENT_BYTES_PER_WORK: usize = 1024;
 
 /// A step 1 refusal and the member of the selection row it is about
 /// (`None`: the row itself).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct SelectionRefusal {
     pub(super) refusal: ModelRefusal,
     pub(super) member: Option<&'static str>,
+    pub(super) declaration_identity: Option<Box<str>>,
+    pub(super) declaration_origin: Option<IntakeDeclarationOrigin>,
 }
 
 impl SelectionRefusal {
@@ -1177,7 +1182,44 @@ impl SelectionRefusal {
         Self {
             refusal: ModelRefusal::new(code, cause),
             member,
+            declaration_identity: None,
+            declaration_origin: None,
         }
+    }
+
+    fn located(
+        refusal: ModelRefusal,
+        node: &Value,
+        budget: &mut Budget<'_>,
+    ) -> Result<Self, ValidationFailure> {
+        let identity = node.get("identity").and_then(Value::as_str);
+        budget.charge(1_u64.saturating_add(identity.map_or(0, |value| units(value.len()))))?;
+        Ok(Self {
+            refusal,
+            member: None,
+            declaration_identity: identity.map(Box::from),
+            declaration_origin: retained_origin(node.get("origin"), budget)?,
+        })
+    }
+
+    fn group(
+        refusal: ModelRefusal,
+        nodes: &[&Value],
+        budget: &mut Budget<'_>,
+    ) -> Result<Self, ValidationFailure> {
+        let Some(first) = nodes.first() else {
+            return Ok(Self::at(refusal.code, refusal.cause, None));
+        };
+        let mut retained = Self::located(refusal, first, budget)?;
+        let mut agrees = retained.declaration_origin.is_some();
+        for node in nodes.iter().skip(1) {
+            let origin = retained_origin(node.get("origin"), budget)?;
+            agrees &= origin.is_some() && origin == retained.declaration_origin;
+        }
+        if !agrees {
+            retained.declaration_origin = None;
+        }
+        Ok(retained)
     }
 }
 
@@ -1209,15 +1251,9 @@ impl From<ValidationFailure> for SelectionFailure {
     }
 }
 
-impl From<ModelFailure> for SelectionFailure {
-    fn from(failure: ModelFailure) -> Self {
-        match failure {
-            ModelFailure::Refused(refusal) => Self::Refused(SelectionRefusal {
-                refusal,
-                member: None,
-            }),
-            ModelFailure::Limit(failure) => Self::Limit(failure),
-        }
+impl From<ModelRefusal> for SelectionFailure {
+    fn from(refusal: ModelRefusal) -> Self {
+        Self::Refused(SelectionRefusal::at(refusal.code, refusal.cause, None))
     }
 }
 
@@ -1614,7 +1650,7 @@ pub(super) fn admit_selection(
     )?;
     let model = read_semantic_ir(&document, budget);
     quire_canonical::drop_value(document);
-    Ok(model?)
+    model
 }
 
 /// Whether `text` is an FR-154 object id, `^[A-Za-z][A-Za-z0-9_]*$`.
@@ -1738,32 +1774,44 @@ enum Segment {
 }
 
 /// One failure inside one node, ordered by table row and then member path.
-struct Defect {
+struct Defect<'v> {
     row: Row,
     path: Vec<Segment>,
     refusal: ModelRefusal,
+    declaration: &'v Value,
 }
 
 /// The failures of one node.
-#[derive(Default)]
-struct Defects(Vec<Defect>);
+struct Defects<'v> {
+    entries: Vec<Defect<'v>>,
+    declaration: &'v Value,
+}
 
-impl Defects {
+impl<'v> Defects<'v> {
+    fn new(declaration: &'v Value) -> Self {
+        Self {
+            entries: Vec::new(),
+            declaration,
+        }
+    }
+    fn context(&mut self, declaration: &'v Value) {
+        self.declaration = declaration;
+    }
     fn push(&mut self, row: Row, path: &[Segment], refusal: ModelRefusal) {
-        self.0.push(Defect {
+        self.entries.push(Defect {
             row,
             path: path.to_vec(),
             refusal,
+            declaration: self.declaration,
         });
     }
 
     /// The failure FR-154 reports for the node: first by table row, then by
     /// member path.
-    fn first(self) -> Option<ModelRefusal> {
-        self.0
+    fn first(self) -> Option<Defect<'v>> {
+        self.entries
             .into_iter()
             .min_by(|a, b| (a.row, &a.path).cmp(&(b.row, &b.path)))
-            .map(|defect| defect.refusal)
     }
 }
 
@@ -1855,7 +1903,7 @@ fn node_size(value: &Value) -> u64 {
 pub(super) fn read_semantic_ir(
     document: &Value,
     budget: &mut Budget<'_>,
-) -> Result<DomainModel, ModelFailure> {
+) -> Result<DomainModel, SelectionFailure> {
     let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;
     let mut meanings: BTreeMap<(&str, &str), &str> = BTreeMap::new();
     for construct in list(document, "constructs")? {
@@ -1873,7 +1921,9 @@ pub(super) fn read_semantic_ir(
         // A node with no identity has none to share and is malformed on its
         // own; the empty identity orders before every other.
         let Some(node) = declared.get("identity").and_then(Value::as_str) else {
-            return Err(ModelRefusal::malformed().into());
+            return Err(
+                SelectionRefusal::located(ModelRefusal::malformed(), declared, budget)?.into(),
+            );
         };
         types.entry(node).or_default().push(declared);
     }
@@ -1945,11 +1995,17 @@ pub(super) fn read_semantic_ir(
     let mut objects = Vec::new();
     let mut relationships = BTreeMap::new();
     for (node, classified) in classified {
-        let (declared, meaning) = classified?;
+        let (declared, meaning) = match classified {
+            Ok(value) => value,
+            Err(refusal) => {
+                let candidates = types.get(node).map_or(&[][..], Vec::as_slice);
+                return Err(SelectionRefusal::group(refusal, candidates, budget)?.into());
+            }
+        };
         budget.charge(node_size(declared))?;
         match meaning {
             meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE => {
-                let mut defects = Defects::default();
+                let mut defects = Defects::new(declared);
                 let (object, declared_relationships) = semantic_ir_object_type(
                     declared,
                     node,
@@ -1962,7 +2018,12 @@ pub(super) fn read_semantic_ir(
                     &mut defects,
                 );
                 if let Some(refusal) = defects.first() {
-                    return Err(refusal.into());
+                    return Err(SelectionRefusal::located(
+                        refusal.refusal,
+                        refusal.declaration,
+                        budget,
+                    )?
+                    .into());
                 }
                 objects.push((node, object));
                 for (identity, relationship) in declared_relationships {
@@ -2247,71 +2308,7 @@ fn relationship_end(value: &Value, required_role: bool) -> Option<RelationshipEn
 }
 
 fn valid_relationship_origin(value: &Value) -> bool {
-    let Some(origin) = value.as_object() else {
-        return false;
-    };
-    match (origin.get("source"), origin.get("generated"), origin.len()) {
-        (Some(source), None, 1) => source.as_object().is_some_and(|members| {
-            (4..=6).contains(&members.len())
-                && members.keys().all(|key| {
-                    matches!(
-                        key.as_str(),
-                        "sourceIdentity"
-                            | "path"
-                            | "startLine"
-                            | "startColumn"
-                            | "endLine"
-                            | "endColumn"
-                    )
-                })
-                && source
-                    .get("sourceIdentity")
-                    .and_then(Value::as_str)
-                    .is_some_and(valid_semantic_identity)
-                && source
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .is_some_and(valid_source_path)
-                && ["startLine", "startColumn"].iter().all(|key| {
-                    source
-                        .get(*key)
-                        .and_then(Value::as_u64)
-                        .is_some_and(|number| number > 0)
-                })
-                && ["endLine", "endColumn"].iter().all(|key| {
-                    source
-                        .get(*key)
-                        .is_none_or(|value| value.as_u64().is_some_and(|number| number > 0))
-                })
-        }),
-        (None, Some(generated), 1) => generated.as_object().is_some_and(|members| {
-            members.len() == 3
-                && members.keys().all(|key| {
-                    matches!(
-                        key.as_str(),
-                        "generatorIdentity" | "generatorVersion" | "inputIdentities"
-                    )
-                })
-                && generated
-                    .get("generatorIdentity")
-                    .and_then(Value::as_str)
-                    .is_some_and(valid_semantic_identity)
-                && generated
-                    .get("generatorVersion")
-                    .and_then(Value::as_str)
-                    .is_some_and(valid_semver)
-                && generated
-                    .get("inputIdentities")
-                    .and_then(Value::as_array)
-                    .is_some_and(|values| {
-                        !values.is_empty()
-                            && values
-                                .iter()
-                                .all(|value| value.as_str().is_some_and(valid_semantic_identity))
-                    })
-        }),
-        _ => false,
-    }
+    OriginView::decode(value).is_some()
 }
 
 fn valid_semantic_identity(identity: &str) -> bool {
@@ -2389,16 +2386,17 @@ fn identity_of(member: &Value, owner: &str, path: &[Segment], defects: &mut Defe
 /// recorded in `defects`, and the declaration returned is meaningful only
 /// when there is none.
 // Reads a selected domain package document's supertype references.
-fn semantic_ir_object_type(
-    value: &Value,
+fn semantic_ir_object_type<'v>(
+    value: &'v Value,
     node: &str,
     interface: bool,
     references: &References<'_>,
     known_relationships: &BTreeMap<Box<str>, RelationshipDecl>,
-    defects: &mut Defects,
+    defects: &mut Defects<'v>,
 ) -> (ObjectTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
     let mut fields = Vec::new();
     for (index, field) in items(value, "fields", defects).iter().enumerate() {
+        defects.context(field);
         let base = [Segment::Name("fields"), Segment::Index(index)];
         let optional = match text(field, "presence") {
             Ok("required") => false,
@@ -2439,20 +2437,24 @@ fn semantic_ir_object_type(
             redefines,
         });
     }
+    defects.context(value);
     let mut operations = Vec::new();
     for (index, operation) in items(value, "operations", defects).iter().enumerate() {
+        defects.context(operation);
         let base = [Segment::Name("operations"), Segment::Index(index)];
         let operation_identity = identity_of(operation, node, &base, defects);
         let params_path = joined(&base, Segment::Name("params"));
         let mut parameters = Vec::new();
         let declared = items_at(operation, "params", &params_path, defects);
         for (position, parameter) in declared.iter().enumerate() {
+            defects.context(parameter);
             let at = joined(&params_path, Segment::Index(position));
             if parameter.get("identity").is_some() {
                 identity_of(parameter, &operation_identity, &at, defects);
             }
             parameters.push(references.slot(parameter, &at, defects));
         }
+        defects.context(operation);
         let result = operation.get("returns").map(|returns| {
             references.slot(returns, &joined(&base, Segment::Name("returns")), defects)
         });
@@ -2463,9 +2465,11 @@ fn semantic_ir_object_type(
             redefines: None,
         });
     }
+    defects.context(value);
     let mut relationships = Vec::new();
     let mut local_relationships = BTreeSet::new();
     for (index, relationship) in items(value, "relationships", defects).iter().enumerate() {
+        defects.context(relationship);
         let base = [Segment::Name("relationships"), Segment::Index(index)];
         if let Some(identity) = relationship
             .get("identity")
@@ -2489,6 +2493,7 @@ fn semantic_ir_object_type(
             relationships.push(declared);
         }
     }
+    defects.context(value);
     let mut supertypes = Vec::new();
     for (index, supertype) in items(value, "supertypes", defects).iter().enumerate() {
         let path = [Segment::Name("supertypes"), Segment::Index(index)];

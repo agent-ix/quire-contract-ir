@@ -1145,14 +1145,17 @@ fn validate_domain_packages(
                     cause,
                 ),
                 SelectionFailure::Refused(refused) => {
-                    let path = refused
-                        .member
-                        .map_or_else(|| row(index), |member| at(index, member));
-                    ValidationFailure::refused_because(
-                        refused.refusal.code,
-                        path,
-                        refused.refusal.cause,
-                    )
+                    let model_members::SelectionRefusal {
+                        refusal,
+                        member,
+                        declaration_identity,
+                        declaration_origin,
+                    } = refused;
+                    // Intake metadata is private. Its owning lifetime ends at
+                    // this projection; none is attached to the public refusal.
+                    drop((declaration_identity, declaration_origin));
+                    let path = member.map_or_else(|| row(index), |member| at(index, member));
+                    ValidationFailure::refused_because(refusal.code, path, refusal.cause)
                 }
             })
         })
