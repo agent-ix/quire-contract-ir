@@ -105,9 +105,9 @@ duplicate or noncanonical top-level member refuses as `malformed_wire`,
 `duplicate_member` or `noncanonical_wire` before any version-specific
 decoding. Positive fixtures admit. The owner-free nominal fixture retains its
 recorded pre-owner package id; an owner-bearing fixture derives its package id
-from its owner-bearing identity projection and is compared with QSpec's
-published positive packages and model declaration vectors in the external
-conformance row. Every adverse and
+from its owner-bearing identity projection and is compared under FR-038-AC-176
+with QSpec's published positive packages and
+`model-member-type-vectors.json`. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
 package. Excluded edits keep the id and included edits change it. Every nominal
 preimage digest matches its node key; every nominal mutation and contradictory cross-field join
@@ -685,19 +685,36 @@ canonical bytes with the values recorded from the lowering before the move.
 For owner-bearing fixtures, compare unchanged owner-free nodes with their
 pre-owner golden, assert owner/projection equality and key recomputation in
 TC-228, and use the authoritative owner-bearing golden from QSpec's published
-positive packages and model declaration vectors in the conformance row.
+positive packages and `model-member-type-vectors.json` under FR-038-AC-176.
 Compare the canonical bytes of one
 preimage of each kind with an
 expected byte string written out in the test, not computed by the code under test
 (FR-038-AC-89). Run
-`make conformance-qspec` for FR-038-AC-176 against the authoritative QSpec
-checkout: discover every positive package, provide its selected `acme/orders`
-domain document from the same checkout, and compare admitted identities,
-owners and projection entries with the published wire. Check that the two
-source-owner fixtures identify corresponding declared structural nodes
-differently. Compare model-owned structural preimages with QSpec's
-`model-member-type-vectors.json` recorded digests; no in-repo derivation
-becomes the expected external golden.
+`make conformance-qspec` for FR-038-AC-176 with `QUIRE_SPECIFICATION_DIR`
+pointing to the authoritative QSpec checkout. Require all nine
+`proposals/checked-package-v2/fixtures/positive-*.json` packages named by the
+criterion, not just the three AC-107 originally read. Supply the selected
+`acme/orders` document from
+`proposals/checked-package-v2/domain-package-acme-orders.json` and compare
+every admitted package id with the published wire. Read node ids and owners
+through each admitted package's graph accessor and compare them with its
+published graph and identity projection; the corresponding declared `Point`
+and `List` nodes in the two source-owner fixtures have different keys (AC-153).
+This does not claim production source-owner key re-derivation (IR-630).
+For every `model_declaration_nodes[*].preimage` and `.sha256` pair in
+`proposals/checked-package-v2/model-member-type-vectors.json`, call the
+production model-declaration key path in `model_members.rs`, or admit the
+vector's published wire node through that path, and compare the production
+digest with the recorded `.sha256`. Hashing only the vector's JSON preimage
+cannot pass. Keep `node-identity-vectors.json` distinct from
+`model-effective-declaration-vectors.json`, which describes another artifact.
+Fail the run when the selected domain document is missing or malformed, a
+required positive fixture is absent, a model selection names an unknown
+identity or lacks its digest, or a positive package is not admitted. For each
+case, remove or corrupt only that input in a fresh run and assert a failure
+with the affected file or selection named; never skip the case or silently
+read an in-repo substitute. These negative runs are separate from the
+AC-112/AC-113 fail-closed probes above.
 
 Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with
