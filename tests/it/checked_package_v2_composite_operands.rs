@@ -640,7 +640,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
     }
 
     // The owning catalog publishes collection.sequence as a collection-valued
-    // operation. Both graph-reference and inline application cases admit first.
+    // operation. Its graph reference admits; flat wire rejects nested applications.
     let application_body = json!({"term":"application","operator":"collection",
         "operation":{"identity":"quire.op.collection.sequence","laws":[],"mode":null,"member":null,"leaves":[]},
         "result_type":node_id(&sequence),"arguments":[literal.clone()]});
@@ -663,24 +663,54 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         vec![reference(&closed_sequence), reference(&expression)],
         "quire.op.structural.eq",
     );
+    assert_eq!(
+        f.read().composite_application_operands(
+            &typed_node_id(&referenced_app),
+            &occurrence(0),
+            100_000
+        ),
+        Err(Error::UnsupportedOperand {
+            ordinal: 1,
+            type_node: Some(typed_node_id(&sequence)),
+            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+        })
+    );
+    // An independently authored nested application is rejected by the reader's
+    // flat grammar. The model unit exercises the defensive accessor branch
+    // only after admitting its fixture and then mutating argument one.
     let inline_subterm = f.application(
         vec![reference(&closed_sequence), application_body],
         "quire.op.structural.eq",
     );
-    for application in [referenced_app, inline_subterm] {
-        assert_eq!(
-            f.read().composite_application_operands(
-                &typed_node_id(&application),
-                &occurrence(0),
-                100_000
-            ),
-            Err(Error::UnsupportedOperand {
-                ordinal: 1,
-                type_node: Some(typed_node_id(&sequence)),
-                reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
-            })
-        );
+    let nested_wire = f.wire();
+    let nested_position = nested_wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == node_id(&inline_subterm))
+        .expect("nested application");
+    match CheckedPackageV2::read(
+        &canonical(&nested_wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&nested_wire),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(
+                refusal.code,
+                quire_contract_ir::CheckedPackageRefusalCode::MalformedWire
+            );
+            assert_eq!(refusal.cause, None);
+            assert_eq!(
+                refusal.path.expect("nested argument pointer").as_str(),
+                format!("/semantic_graph/nodes/{nested_position}/body/arguments/1")
+            );
+        }
+        other => panic!("nested application must retain flat-wire refusal: {other:?}"),
     }
+    // Keep subsequent public-accessor cases genuinely reader-admitted.
+    f.nodes
+        .remove(&inline_subterm)
+        .expect("authored nested application");
     let containing_record = f.record(&[("items", &sequence)]);
     let closed_record = f.graph_value(
         "record_value",

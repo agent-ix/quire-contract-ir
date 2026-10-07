@@ -9,9 +9,9 @@ use super::structural::{
     reference_target,
 };
 use super::{
-    BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
-    CheckedOccurrence, CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2,
-    CompositeTypeForm, NominalIdentityPreimage, ScalarTypeForm, ValueForm,
+    BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
+    CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2, CompositeTypeForm,
+    NominalIdentityPreimage, ScalarTypeForm, ValueForm,
 };
 #[cfg(test)]
 use crate::checked_package::common::NODE_DOMAIN;
