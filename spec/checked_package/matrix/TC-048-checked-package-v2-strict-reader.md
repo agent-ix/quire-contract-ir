@@ -791,6 +791,12 @@ with the affected file or selection named; never skip the case or silently
 read an in-repo substitute. These negative runs are separate from the
 AC-112/AC-113 fail-closed probes above.
 
+FR-038-AC-176 is implemented by `tests/conformance_qspec/main.rs` for all nine positive packages,
+their selected `acme/orders` document, graph/owner readback and fail-closed inputs. The same explicit
+`make conformance-qspec` target runs the `model_members::declaration_key` unit test against every
+published model-declaration vector through the private production function; ordinary
+`make test` needs no external QSpec checkout. The focused target passed against the named checkout.
+
 Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with
 a limit equal to its canonical length and one byte lower (FR-038-AC-90). A test
