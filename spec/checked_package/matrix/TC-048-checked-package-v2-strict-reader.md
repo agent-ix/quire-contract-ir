@@ -538,6 +538,82 @@ An external API fixture exhaustively matches the public identity and error
 enums and consumes every result member without JSON access. Repeated calls
 and a package clone return equal values, with package equality unchanged.
 
+## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182)
+
+All cases remain PLANNED / UNRUN. Admit structural.eq applications through the
+production reader and published catalog using independently authored inputs.
+Use authentic parameter and closed graph-composite value references, with two
+actual occurrences of one application. Assert the tabled application, occurrence,
+ordinals, child identities, type identities and domain fields. Swap arguments
+and repeat one parameter without deduplication (AC177).
+
+For AC178, compare a supported closed record/tuple/collection/Option graph value
+with its original node identity and assert Literal disposition/no positions.
+Include a graph value whose member reads a parameter and an application subterm;
+assert UnsupportedOperand with exact reason, enclosing ordinal and available
+type identity. A closed union-value root and one nested in a closed record value
+shall instead refuse UnsupportedDomain with the enclosing ordinal and original
+union semantic-type identity, never NonliteralGraphValue or Literal success.
+Use a reader-admitted noninteger inline term with structural type
+where possible, such as an inline none term typed at Option, to exercise
+InlineNonInteger. Defensive inline integer handling may use a crate-internal
+post-admission mutation only: the catalog excludes Integer from structural_kind,
+so no successful public structural.eq integer-inline fixture is claimed. Assert
+InlineInteger refusal/no fabricated identity or value; retain reader admission's
+original refusal on a separately authored integer-inline structural.eq input.
+Future eligible integer-inline success/value transport requires an owning catalog
+and accessor specification, not a test that bypasses admission.
+
+For AC179, use a record with a bounded Sequence of integer-range elements.
+Independently enumerate field and element paths from the original admitted type.
+Assert exact lower/upper strings, including integer endpoints beyond i128 and
+collection maxima beyond u64; preserve collection minimum too. Replace a path's
+type in a separately admitted input and assert only its affected descriptor changes.
+Repeat with unbounded Integer and collection and assert no invented maximum.
+
+For AC180, build root List with head and an optional-presence tail. Its field
+binding value is the prescribed aggregate/optional binding referencing Option<List>.
+Assert the field edge retains optional_presence=true, the aggregate/binding add
+no index, the actual reentry is [1,0] and the Depth key path is []. Repeat with a
+direct field reference to Option<List>, asserting optional_presence=false and the
+same path. Root Tree with left/right optional self-fields retains both [0,0] and
+[1,0] reentry paths in lexicographic order at a single Depth key []. Contrast two
+nonrecursive sibling fields sharing a type: both paths remain, with no Depth.
+Cover tuple and Option ordinal edges. Assert each key's actual parameter root.
+
+Enumerate all eleven scalar and seven bounded-domain table rows through eligible
+containing structural types and actual admitted preimages. Assert Boolean's zero
+positions, each Whole source, each unbounded descriptor and each bounded source.
+In particular text_bounds yields one Whole at its wrapper, and model_population
+as a leaf yields a Node-keyed Whole with no Population key or member walk.
+For an unordered Color enum, the admitted preimage member order is Blue, Green,
+Red with ordered=false, independent of its source spelling. For an ordered enum,
+assert ordered=true and its semantic preimage member order. No accessor output
+supplies the expected identifier list. Assert the exact introduced key set.
+
+For AC181, exercise all twelve public error variants and their exact tabled fields.
+Use public admitted inputs for unknown node, nonapplication, missing occurrence,
+known ineligible identity (including structural.ne), unsupported operands and
+unsupported union projection; retain authentic ordinal/type fields. Crate-internal
+mutations may exercise unknown catalog identity, dangling child, malformed domain
+or optional wrapper and checked-index conversion ordinarily blocked by admission.
+For a reference with a valid but absent target, assert MissingChild and the actual
+child id; for an absent or malformed target id, assert MalformedChild with only
+the enclosing ordinal, without fabricating or salvaging a child identity.
+Do not allocate a multi-billion-element graph to test the conversion helper.
+An unanchored forwarding/Option/collection cycle refuses MalformedDomain, not a
+fabricated depth. Pair an early operand defect with a later one to assert order.
+Measure successful consumed_work, then use its exact value, one less and zero.
+Assert the same logical work for equivalent node order and lookup strategies;
+expected charges come from the specified semantic visits, not implementation scans.
+
+For AC182, compile an external consumer in the normal workspace test lane. It
+exhaustively matches each named public output/key/descriptor/edge/error type and
+reads the specified fields without body JSON or a QSL model import. Assert repeated
+and clone projections and pre/post package equality. API inspection checks the
+absence of drawn bound inputs, incoming-key validator, coverage verdict or obligation
+encoder. structural.ne remains the declared consumer gap, not an enabled alternative.
+
 ## Operation leaf count (FR-038-AC-43)
 
 Apply `structural.eq` and `structural.ne` to two parameters of an all-integer

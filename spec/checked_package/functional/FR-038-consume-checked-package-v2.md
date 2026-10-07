@@ -3,6 +3,12 @@ id: FR-038
 title: "Consume the CheckedPackage V2 contract and refuse every other version"
 type: FR
 relationships:
+  - target: ix://agent-ix/quire-contract-codegen/FR-033
+    type: references
+  - target: ix://agent-ix/quire-spec-language/ADR-013
+    type: references
+  - target: ix://agent-ix/quire-spec-language/FR-358
+    type: references
   - target: ix://agent-ix/quire-contract-ir/StR-001
     type: traces_to
   - target: ix://agent-ix/quire-contract-ir/AD-003
@@ -112,6 +118,11 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   operands. Each entry carries its argument ordinal, a typed child identity,
   and its own inclusive integer range; see "Typed scalar application operands"
   (FR-038-AC-159 through FR-038-AC-164).
+
+- A planned typed composite operand accessor, `composite_application_operands`,
+  returning authentic positional children, authored shapes and introduced positions
+  with exact decimal bounds, explicit unbounded/Whole descriptors and typed refusals;
+  see "Typed authored domains of composite equality operands" (AC-177 through AC-182).
 
 ## Behavior
 
@@ -2854,6 +2865,212 @@ key; the operand identity is not a new obligation preimage member. QSL
 confirmed the two-variant operand identity for this seam while its FR-357 and
 ADR-013 wording is being amended (QSL-641).
 
+### Typed authored domains of composite equality operands
+
+When supplied an admitted `quire.op.structural.eq` application node id, an
+occurrence belonging to that node, and a finite accessor work limit,
+`CheckedPackageV2::composite_application_operands` shall return the application's
+authentic operands and their package-authored domain structure through public
+Rust types. The accessor shall admit only this operation identity and the
+package's admitted structural-kind operand families. Its eligibility does not
+expand the owning checked-operation catalog. The existing scalar accessor's
+clauses, four operations, types and errors remain unchanged.
+
+The public call is
+`composite_application_operands(&self, application: &CheckedNodeId,
+occurrence: &CheckedOccurrence, work_limit: u64) ->
+Result<CheckedCompositeOperands, CheckedCompositeOperandError>`.
+The following are planned public IR-owned API types, not QSL wire types:
+
+| Public type | Exposed fields or closed variants |
+| --- | --- |
+| `CheckedCompositeOperands` | `application: CheckedNodeId`, `occurrence: CheckedOccurrence`, `operands: Vec<CheckedCompositeOperand>`, `consumed_work: u64` |
+| `CheckedCompositeOperand` | `ordinal: u64`, `child: CheckedScalarOperandChild`, `semantic_type: CheckedNodeId`, `domain: CheckedCompositeOperandDomain` |
+| `CheckedCompositeOperandDomain` | `Literal`; `Parameter { shape: Vec<CheckedCompositeShapeEntry>, positions: Vec<CheckedCompositeDomainPosition> }` |
+| `CheckedCompositeShapeEntry` | `type_node: CheckedNodeId`, `kind: CheckedNodeKind`, `path: Vec<u32>`, `edges: Vec<CheckedCompositeChildEdge>` |
+| `CheckedCompositeChildEdge` | `target: CheckedNodeId`, `ordinal: Option<u32>`, `name: Option<Box<str>>`, `optional_presence: bool`; an ordinal is present for a field, tuple position or inner edge, and absent only for path-neutral alias/bounded-domain forwarding; a name is present only for a record field; optional_presence is false except for the prescribed optional-presence record wrapper |
+| `CheckedCompositeDomainPosition` | `key: CheckedCompositeDomainKey`, `type_node: CheckedNodeId`, `authored: CheckedAuthoredCompositeDomain` |
+| `CheckedCompositeDomainKey` | `Node { node: CheckedNodeId, path: Vec<u32> }` only |
+| `CheckedCanonicalIntegerBound` | Validated admitted canonical decimal text exposed by `as_str()`; construction restricted to reader/accessor content |
+| `CheckedAuthoredCompositeDomain` | `IntegerRange { lower: CheckedCanonicalIntegerBound, upper: CheckedCanonicalIntegerBound }`; `UnboundedInteger`; `Collection { kind: CheckedCollectionKind, minimum: CheckedCanonicalIntegerBound, maximum: CheckedCanonicalIntegerBound }`; `UnboundedCollection { kind: CheckedCollectionKind }`; `Enum { ordered: bool, members: Vec<Box<str>> }`; `UnboundedDepth { declaration: CheckedNodeId, reentry_paths: Vec<Vec<u32>> }`; `Whole { kind: CheckedNodeKind }` |
+| `CheckedUnsupportedCompositeOperand` | `InlineInteger`, `InlineNonInteger`, `ApplicationSubterm`, `NonStructuralType`, `NonliteralGraphValue` |
+| `CheckedCompositeOperandError` | The twelve variants and payloads below |
+
+None of these types shall expose `serde_json::Value` or a serialized term body.
+The result shall retain the actual application and supplied occurrence, and one
+entry per `body.arguments` position in that order, with ordinals `0..n-1`.
+Each entry shall retain its admitted semantic type and actual child identity.
+Repeated references shall remain separate entries. A parameter reference shall
+carry its own `GraphChild` identity, not its type or application identity.
+
+A supported graph literal shall be a finite closed value subtree whose root has
+an admitted structural-kind semantic type, in the record-value, tuple-value,
+collection-value or option-value forms. A `union_value`, at the operand root or
+within its graph subtree, shall refuse `UnsupportedDomain` with the enclosing
+argument ordinal and its actual union semantic-type node; closedness shall not
+turn that unsupported domain into `NonliteralGraphValue`. Missing or malformed
+union type metadata shall first refuse `MalformedDomain` with its specified
+authentic available type locus, never an invented union id. Its other descendants
+may use the admitted literal and enum-value forms as well. A parameter reference,
+application subterm,
+unsupported value form or value-cycle within it shall refuse `UnsupportedOperand`
+with reason `NonliteralGraphValue`; the enclosing argument ordinal is retained.
+The accessor shall establish closure through a bounded structural walk under the
+same work limit without evaluating an expression. The value tag alone shall not
+establish closure. A closed graph literal shall retain its own `GraphChild` id
+and `Literal` disposition with no introduced positions. It shall not copy or
+reconstruct the literal value, or replace that singleton with its wider type's
+free positions. QSL owns the downstream parity domain and encoding decisions.
+
+The accessor shall refuse top-level inline integer terms as `UnsupportedOperand`
+with reason `InlineInteger`, and every other top-level inline literal kind as
+`UnsupportedOperand` with reason `InlineNonInteger` (including `none`). It shall
+fabricate neither a graph id nor an inline literal value. This is a defensive
+accessor rule for integer terms: the owning catalog's `structural_kind` family
+excludes Integer, and reader admission already refuses an integer operand of
+`structural.eq`. No successfully admitted integer-inline equality fixture is
+claimed here. The scalar accessor's eligible arithmetic literals remain governed
+by AC-159 through AC-164; that does not allocate scalar equality support.
+A future catalog/reader allocation that admits integer-inline equality must first
+specify its exact authored decimal value and identity without `i128` narrowing.
+Application subterms shall refuse reason `ApplicationSubterm`; nonstructural
+operand types shall refuse reason `NonStructuralType`. This accessor does not
+promise replay support for subterms merely because a reader admits them elsewhere.
+
+For a parameter, the accessor shall retain a finite projection of its admitted
+type structure using an explicit heap stack. Each shape entry shall retain its
+actual type node, closed kind, path and ordered child edges. Record fields shall
+use admitted body member order; tuples shall use positional order; Option and
+collection elements shall use child zero. A direct record field reference names
+that field's type. For the optional-presence form, the field binding's aggregate
+contains exactly one `optional` binding referencing an Option type; the accessor
+shall follow that reference as the field type, retaining `optional_presence=true`.
+The aggregate and `optional` binding shall add no child-index segment. The field
+ordinal adds one segment, and the Option inner edge adds zero: root
+`List { head; tail?: List }` reenters List at `[1,0]`. A malformed optional wrapper
+shall refuse `MalformedDomain`, not silently add a path segment or skip the field.
+A direct reference to an Option type shall retain `optional_presence=false` and
+follow the same field/inner path. Alias and bounded-domain forwarding shall
+retain their source shape node and use a path-neutral edge.
+
+The accessor shall root every introduced `Node` key at the actual parameter node,
+with its child-index path, never at a type or application node. Shared types
+reached through distinct paths shall retain those paths separately. The following
+mapping is exhaustive over the eleven scalar and seven bounded-domain forms:
+
+| Admitted form | Introduced descriptor and source node |
+| --- | --- |
+| `scalar_type/boolean` | No position; retain its shape |
+| `scalar_type/integer` | `UnboundedInteger` at this node, unless the same path is already represented by an enclosing `integer_range` |
+| `scalar_type/enum` | `Enum` at this declaration node, retaining `EnumDeclarationPreimage.ordered` and `members` in preimage order; an unordered preimage is byte-ascending, while an ordered preimage retains its semantic order |
+| `scalar_type/rational`, `scalar_type/decimal`, `scalar_type/float32`, `scalar_type/float64`, `scalar_type/text`, `scalar_type/dimension`, `scalar_type/unit`, `scalar_type/compound_unit` | One `Whole` position at this node, unless an enclosing bounded-domain Whole at the same path represents it |
+| `bounded_domain/integer_range` | One `IntegerRange` at this wrapper with its exact admitted min/max; forward to its semantic type at the same path without adding `UnboundedInteger` |
+| `bounded_domain/collection_bounds` | One `Collection` at this wrapper with exact admitted min/max and resolved collection kind; forward to its collection type without a second collection position, and visit its element at child zero |
+| `bounded_domain/rational_range`, `bounded_domain/decimal_range`, `bounded_domain/float_rounding`, `bounded_domain/text_bounds` | One `Whole` at the outermost such wrapper on this path; retain path-neutral forwarded shape nodes, but suppress additional Whole positions at that same path |
+| `bounded_domain/model_population` | One Node-keyed `Whole` at this population-typed leaf; no population member walk or `Population` key |
+
+A `text_bounds` leaf shall therefore introduce exactly one `Whole` position whose
+`type_node` and kind identify the `text_bounds` wrapper, not a second position at
+its underlying text node. The source identity retains the whole admitted type,
+not just its length ceiling. Nested bounded wrappers at one path shall retain all
+shape nodes and use the outermost applicable wrapper as that path's descriptor
+source; contradictory wrapper/type structure shall refuse `MalformedDomain`.
+
+For composite forms, Record and Tuple shall retain their ordered edges and walk
+their children. Option shall introduce no position of its own and walk child
+zero. Sequence, Set, Bag and OrderedSet shall introduce `UnboundedCollection` at
+their type node when no collection-bounds wrapper supplies the position, and walk
+child zero. Alias shall forward at the same path. Reference shall introduce one
+`Whole` position at its type node, without walking an object or population.
+Union payload projection remains outside this allocation and shall refuse
+`UnsupportedDomain`. This is accessor eligibility, not a new admission refusal.
+
+Recursion detection shall use the current ancestor chain, not a global visited
+set. On a record/tuple declaration reentry, the accessor shall introduce one
+`UnboundedDepth` key at that declaration's first-entry path and stop that branch.
+Its descriptor shall retain all distinct encountered reentry paths, in
+lexicographic `Vec<u32>` order, at that one key. Root List's Depth key is `[]`
+and its reentry path is `[1,0]`; these are distinct facts. Root
+`Tree { left?: Tree; right?: Tree }` has one Depth key `[]` and reentry paths
+`[0,0]` and `[1,0]`. A shared nonrecursive sibling shall not acquire Depth.
+A forwarding or Option/collection-only cycle with no record/tuple anchor shall
+refuse `MalformedDomain`. The result shall contain each introduced key once.
+
+Integer and collection endpoints shall retain their admitted canonical decimal
+text. The accessor shall not convert them through `i128`, `u64`, `usize` or float,
+order or repair them, or supply a maximum for an unbounded position. An authored
+collection minimum remains visible. This projection shall not claim to construct
+a valid QSL `FiniteBound` or to cover the whole domain of a Whole leaf.
+
+The accessor shall return no partial result and use exactly this closed public
+error enum. Every `ordinal` below is the enclosing argument position. A
+`type_node: Option<CheckedNodeId>` is `Some` exactly when a valid typed target
+identity is available, including a missing referenced type; absent or malformed
+identity is `None`, never a fabricated node.
+
+| Variant | Exact fields | Condition |
+| --- | --- | --- |
+| `UnknownNode` | `node: CheckedNodeId` | Requested application absent |
+| `NotApplication` | `node: CheckedNodeId` | Requested node is not an application |
+| `MissingOccurrence` | `application: CheckedNodeId, occurrence: CheckedOccurrence` | Supplied occurrence absent from application |
+| `UnknownOperator` | `application: CheckedNodeId` | Missing or unknown catalog identity |
+| `IneligibleOperator` | `application: CheckedNodeId` | Known identity other than structural.eq, including structural.ne |
+| `MissingChild` | `ordinal: u64, child: CheckedNodeId` | Valid typed reference target names an absent value child |
+| `MalformedChild` | `ordinal: u64` | Reference target is absent or cannot decode as CheckedNodeId; no child identity is invented |
+| `UnsupportedOperand` | `ordinal: u64, type_node: Option<CheckedNodeId>, reason: CheckedUnsupportedCompositeOperand` | The unsupported forms named above |
+| `MalformedDomain` | `ordinal: u64, type_node: Option<CheckedNodeId>` | Missing type, malformed closed structure/optional wrapper or unanchored type cycle |
+| `UnsupportedDomain` | `ordinal: u64, type_node: CheckedNodeId` | Union payload projection |
+| `PositionOutOfRange` | `ordinal: Option<u64>, type_node: Option<CheckedNodeId>` | Argument ordinal or child path index cannot fit its specified wire width; ordinal is None only when that ordinal itself cannot fit |
+| `WorkLimit` | `limit: u64, consumed: u64` | First unpayable charge or counter overflow |
+
+For `UnsupportedOperand`, `type_node` shall identify the inline term's declared
+type, the application subterm's result type, or the first offending graph value's
+semantic type, whichever source caused that refusal. For `MalformedDomain`, it
+shall identify the first missing or malformed type node; when an optional field
+has no valid type reference it shall identify the containing record node.
+`UnsupportedDomain` shall retain the actual union type node. A failed child-index
+conversion shall retain its containing type node and enclosing ordinal; a failed
+argument-ordinal conversion occurs before type resolution and shall retain None
+for both optional fields. No other error variant carries an unstated locus field.
+
+The accessor shall check node, application, occurrence and operation in that
+order, then operands in argument order and type positions in depth-first child
+order. Within an operand it shall recognize an inline term first, then an
+application subterm, then resolve a graph reference and its semantic type before
+family eligibility and parameter/literal projection. Thus a defensive inline
+integer case returns InlineInteger rather than NonStructuralType. It shall charge before inspecting the charged item; an exhausted charge
+shall take precedence at that point. Crate-internal post-admission mutations may
+exercise conditions ordinarily rejected by the reader. Diagnostic prose shall
+not classify an error. Recoverable input conditions shall not panic.
+
+The accessor shall charge one unit per logical graph-node resolution attempt
+(including a missing-node result), per visited shape/position, per traversed
+edge, per retained path element and per UTF-8 byte copied as bound text or an
+identifier. Lookup scan length, index hits and cache strategy shall not change
+these logical charges. Repeated visits at distinct paths shall be charged for
+each path. The finite admitted graph bounds lookup storage; the caller work limit
+bounds semantic traversal and retained projection growth. The accessor shall use
+checked counter, ordinal and path-index arithmetic. `consumed` shall be the
+attempted cumulative charge; on counter overflow it shall be `u64::MAX` and shall
+not authorize another visit. Zero work shall refuse before any node inspection.
+A sufficient budget shall yield deterministic content and consumed_work; its
+exact successful consumed_work budget shall succeed and one less shall refuse.
+This limit is not a harness recursion depth, draw maximum or read-admission limit.
+Package equality and reader refusal order shall remain unchanged.
+
+IR shall expose only authored structure and introduced positions. It shall
+neither accept, select, store nor validate harness draw values, B-4 substitutions
+or CG proof ceilings. CG owns actual draw bounds; QSL owns domain admission,
+Bounds ordering and the single parity encoder. The cycle-free model shall not
+acquire a QSL dependency; owner integration belongs in the root bridge. This
+accessor shall mint no obligation identity, incoming-key validator or coverage
+verdict. Its declared type/position output does not prove harness coverage.
+
+`structural.ne` remains ineligible here. [CG FR-033](ix://agent-ix/quire-contract-codegen/FR-033)
+AC-12 and [QSL FR-358](ix://agent-ix/quire-spec-language/FR-358) include NotEqual;
+that arm still requires an owning follow-on allocation for its operand accessor.
+This allocation does not claim to enable all Eq/Ne or scalar equality claims.
+
 ### Application node keys
 
 A node whose `body` is an `application` term carries a `node_id` that is the
@@ -3588,6 +3805,12 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-174 | PLANNED / UNRUN (refusal origin retention). Every located model-declaration refusal retains its authentic IR node identity and valid full typed Source or Generated origin through selected-document release and the public CheckedPackageRefusal boundary. A nested relationship retains its own metadata, not its owner's. Source coordinates and independently optional end members remain exact, including the existing admitted 2^53 boundary; generated input identity order/multiplicity and version text remain exact with no invented span. Missing or malformed origin retains none, never a salvaged branch. Existing admission/refusal codes, causes, row/member order and bounded accounting remain unchanged. | Test |
 | FR-038-AC-175 | PLANNED / UNRUN (refusal propagation). Every refusal constructor and public reader/dispatch/typed handoff consumer explicitly preserves available declaration_identity/declaration_origin or authentic absence. A located declaration identity may not become an empty/default/inferred URI, a graph digest or an enclosing-owner identity. Pre-node byte/admission failures retain absence and existing code/path/cause/locus/contract_version/document_pointer semantics. Dropping either field, normalizing an origin, inventing a generated span or reclassifying an earlier failure must fail an independent constructor/consumer oracle; no compatibility layer or diagnostic-prose parsing supplies retention. | Test, Inspection |
 | FR-038-AC-176 | PLANNED / UNRUN (IR-654 code). With `QUIRE_SPECIFICATION_DIR` naming the authoritative QSpec checkout, `make conformance-qspec` requires all nine `positive-*.json` packages under `proposals/checked-package-v2/fixtures/`: `positive-all-families.json`, `positive-clause-operations.json`, `positive-control-operations.json`, `positive-nominal-identities.json`, `positive-operation-identities.json`, `positive-recursive-records.json`, `positive-two-owners-a.json`, `positive-two-owners-b.json` and `positive-union-nodes.json`. Each admits through the production reader with its published `package_id`. For a package selecting `acme/orders`, the harness supplies `proposals/checked-package-v2/domain-package-acme-orders.json` from the same checkout under its selected `sha256-jcs` digest and the reader checks the bytes against that selection; this extends AC-107's existing positive read for packages with `model_selections`, not a second skipped read. A missing or malformed document, absent required positive fixture, unknown selected model identity, missing selection digest or non-admitted package fails the run. For the two-owner fixtures, read each node id and owner back through the admitted package's graph accessor and compare with the published graph and identity-projection entries: the corresponding declared structural nodes have different ids across source owners, as AC-153 requires. This checks published wire/admission, not source-owner key re-derivation, which remains IR-630. For every `model_declaration_nodes[*].preimage` in `proposals/checked-package-v2/model-member-type-vectors.json`, compare its `sha256` with the digest from the reader's production `declaration_key` path (`StructuralPreimage`/`structural_key` in `model_members.rs`), or admit its published wire node through that same production derivation; a harness that only hashes the vector's JSON preimage cannot pass. `node-identity-vectors.json` in that proposal remains the separate nominal/application-vector source; `model-effective-declaration-vectors.json` describes another model artifact and is not the structural-key oracle. No fixture document, source pin or digest catalog is copied into this repository. Live QSL emission followed by IR reading belongs to integration work outside this criterion. | Test (TC-048) |
+| FR-038-AC-177 | PLANNED / UNRUN. An admitted structural.eq over supported parameter references returns the actual application and supplied occurrence with two typed operands in argument order, ordinals 0 and 1. Swapping arguments swaps entries; repeating a parameter retains two entries. A second authentic occurrence is retained exactly; an absent occurrence refuses MissingOccurrence with the supplied application and occurrence. | Test |
+| FR-038-AC-178 | PLANNED / UNRUN. A supported closed graph composite literal retains its own GraphChild id and Literal disposition with no introduced positions even under a wider type. A value subtree reading a parameter refuses UnsupportedOperand with enclosing ordinal and reason NonliteralGraphValue; an application subterm refuses reason ApplicationSubterm. Defensive inline integer and noninteger term cases refuse reasons InlineInteger and InlineNonInteger, without fabricated identity or value. No publicly admitted structural.eq integer-inline success is claimed: the owning catalog excludes Integer from structural_kind; future success requires an owning eligibility/value specification. | Test |
+| FR-038-AC-179 | PLANNED / UNRUN. A record containing bounded Sequence of integer-range elements returns its exact field/collection/element paths, Node keys rooted at the operand, and both collection endpoints. Changing only one path's source type changes that descriptor. Bounds beyond i128/u64 retain canonical decimal text; unbounded integer/collection have explicit unbounded descriptors without guessed maxima. | Test |
+| FR-038-AC-180 | PLANNED / UNRUN. Tuple, direct Option and optional-presence record edges preserve the specified ordinals without wrapper segments; List with optional tail has Depth key [] and reentry [1,0]. Tree with two optional self-fields retains both [0,0] and [1,0] at Depth key []; shared nonrecursive siblings retain distinct paths without Depth. Boolean introduces no position. Enum retains ordered flag and exact preimage member order, including unordered Blue, Green, Red. Each of the eleven scalar and seven bounded-domain forms produces its specified descriptor or absence; text_bounds produces one Whole at the wrapper, and population-typed leaves produce Node-keyed Whole without Population key. The complete returned introduced-key set equals an independent enumeration. | Test |
+| FR-038-AC-181 | PLANNED / UNRUN. Every one of the twelve specified error variants exposes exactly its tabled payload and no partial result or panic. Unsupported union, malformed optional wrapper and unanchored cycle carry the actual enclosing ordinal/type locus. Zero and one below measured successful work refuse WorkLimit; that exact budget succeeds. Checked-index failure returns PositionOutOfRange with authentic available ordinal/type metadata. Equivalent package node order and lookup strategy leave logical consumed_work unchanged; an earlier operand refusal or exhausted charge beats a later defect. | Test |
+| FR-038-AC-182 | PLANNED / UNRUN. An external consumer calls the named public accessor and exhaustively matches all named output, descriptor, edge, key and error types using the specified fields without body JSON or a QSL model dependency. Repeated/clone calls yield equal content and unchanged package equality. API inspection finds no harness-bound inputs, coverage verdict or obligation encoder; structural.ne remains a declared consumer gap rather than a silently enabled operation. | Test, Inspection |
 | FR-038-AC-183 | PLANNED / UNRUN (IR-680 code). For an unreferenced owner-free, ungrouped node in each of the `derived_key` closed-shape and `UngroupedPreimage` branches, a retained node id that differs from the production-derived key refuses `invalid_package`/`stale-node-key` at the original `node_id`, keeps that original typed id in `locus`, and returns the distinct derived typed key through `expected_node_id()`. A fresh package whose unreferenced node is rekeyed to that value and whose package identity is refreshed admits; one changed preimage member changes the expected digest. For each of the eight self-typed forms, a changed `node_id` can yield a key only when its `semantic_type` changes with it; a stale `semantic_type`, a non-self-typed shape with inconsistent semantic type, a `collection_bounds` over a noncollection type, and a malformed closed shape yield `None`. AC-185 governs shared retention and absence. | Test (TC-048, TC-226) |
 | FR-038-AC-184 | PLANNED / UNRUN (IR-680 code). An unreferenced application node whose retained key differs from the digest already computed by `validate_application_keys` refuses `invalid_package`/`stale-node-key` at its original `node_id`; `locus` remains that original typed id and `expected_node_id()` returns the distinct computed typed key. A fresh package rekeyed to that value, with package identity refreshed and no referrer to cascade stale keys, admits; changing one application preimage member changes the expected digest. The value comes from the existing application computation, not a second hash or a diagnostic string. AC-185 governs shared retention and absence. | Test (TC-048) |
 | FR-038-AC-185 | PLANNED / UNRUN (IR-680 code). The expected key is a private, bounded `Option<CheckedNodeId>` exposed only by `expected_node_id() -> Option<&CheckedNodeId>`; it participates in derived `Clone`/`Eq`/`PartialEq`, may appear in derived `Debug`, and is absent from Display, document pointer, locus text and serialized forms. A fixed-member model declaration shape failure, a canonical encoding failure and a pre-key-stage refusal return `None`; every IR refusal constructor and public V2/dispatch forwarder preserves an authentic value or absence, and IR's independent test-authored expected values check the actual reader field by field. Existing code, cause, path, locus, first-refusal order, byte/work charges and public key-derivation surface remain unchanged; no public synthetic-refusal constructor or derive/rekey API is added. The key is meaningful only with the reader-returned original `locus`, since callers can mutate public fields on a cloned refusal. | Test, Inspection (TC-048) |
@@ -3600,6 +3823,12 @@ reader does not blanket-refuse those temporal/case forms (FR-038-AC-101).
 IR-661's planned relationship-navigation-only refusal does not reinstate AC-66.
 
 ## Dependencies
+
+The typed composite operand projection supplies package-authored positions to
+[CG FR-033](ix://agent-ix/quire-contract-codegen/FR-033).
+[QSL FR-358](ix://agent-ix/quire-spec-language/FR-358) owns replay domain
+admission and [QSL ADR-013](ix://agent-ix/quire-spec-language/ADR-013) owns
+parity encoding; their drawn proof-bound values are not IR accessor outputs.
 
 QSpec FR-370 (temporal clause body and temporal operation identities) and FR-440
 (union, union value and case nodes) own the encodings that FR-038-AC-96 through
