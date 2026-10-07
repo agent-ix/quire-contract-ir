@@ -1233,56 +1233,67 @@ results.
 Expected: each success and refusal above satisfies FR-038-AC-165 through
 FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
 key only
-where the existing refusal retains its locus. Selected-document declaration
-refusals additionally retain authentic declaration identity and valid origin under
-FR-038-AC-174/175, with absence for missing/malformed origin. Do not parse diagnostic
+where the existing refusal retains its locus. At the private `admit_selection` return, selected-document declaration refusals
+additionally retain authentic declaration identity and valid origin under
+FR-038-AC-174/175, with absence for missing/malformed origin. The existing
+model-intake conversion to `ValidationFailure` retains code/path/cause only;
+these procedures assert no public metadata extension. Do not parse diagnostic
 prose or infer a graph locus from a semantic declaration URI. All outcomes and
 new retention checks remain **PLANNED / UNRUN** until the implementation lane
 records executed evidence.
 
 
-### Planned refusal-origin and propagation checks
+### Planned private intake refusal-origin checks
 
-These independent Test and Inspection procedures back FR-038-AC-174/175 and are
-PLANNED / UNRUN. Use the authoritative owner's supplied read-only refusal-origin
-adverse corpus in place; do not copy schemas, fixtures or source into this repository.
-When that dependency is absent, report an explicit named skip and missing evidence,
-never a passing retention result. When it is available, require the declared source,
-generated and malformed-origin cases and their actual typed refusal results; missing
-cases or differing expectations fail. Keep private owner source/fixture provenance
-in the handoff evidence, not copied into public specification/review custody.
+These Test and Inspection procedures back FR-038-AC-174/175 and are
+PLANNED / UNRUN for IR-663. Exercise the real private model-intake return,
+`admit_selection` yielding `SelectionFailure::Refused(SelectionRefusal)`, in
+crate-local tests. Author minimal domain-package documents in this repository
+and admit their selected bytes through the existing content checks. Follow the
+owning FCD origin contract by reference; do not copy foreign schemas or fixtures.
+No public reader/dispatch/driver metadata observation is allocated.
 
 1. Cause a declaration reference failure with a valid source origin, then with a
-   valid generated origin, through the real selected-document reader. Require the
-   exact authentic referring node identity and valid origin after the document has
-   been released, with the existing code/cause/selection-row path. Use a nested
-   relationship whose identity/origin differ from its enclosing type as a positive
-   control against owner misattribution. Keep graph locus independent.
-2. Independently exercise all four end-coordinate presence combinations (neither,
-   only end line, only end column, both), positive coordinates at the existing
-   selected-document numeric boundary and an otherwise admissible origin whose
-   optional ends would fail an invented paired/order constraint. Preserve the
-   admitted members exactly; do not add a retention-only cap or validation rule.
-   Above-bound inexact input keeps its existing earlier numeric refusal, not a new
-   malformed-origin classification. Include identity/path/version spelling changes
-   and generated input order/repetition; retained values must match the actual node.
-3. Remove origin; supply both branches, an invalid branch and a partial source or
-   generated branch. Require no retained origin with the existing refusal semantics,
-   while any authentic node identity remains retained. No partial branch, source
-   span, empty placeholder or derived identity is accepted as missing metadata.
-4. Audit every public refusal literal and private selected-refusal conversion,
-   including declaration selection and document release. Exercise real reader and
-   version-dispatch forwarding, plus any typed driver handoff retaining the refusal.
-   Independently omit declaration identity, omit valid origin, attach an owner's or
-   foreign node's metadata, normalize supplied members or invent a generated span;
-   each mutant must fail the corresponding typed assertion. Restore and require
-   the positive control. Keep pre-node malformed/byte/capability/admission refusals'
-   genuine absence and existing fields; do not fabricate a node to populate them.
-5. Combine origin retention with existing earlier-row defects and bounded work
-   exhaustion. Require the same first code/cause/row/member-path and incomplete
-   behavior, no partial package, second parse, raised limit or unbounded collection.
-   No consumer may satisfy the check by parsing an English message or by a default
-   origin. Scenario prose and source inspection alone do not close runtime Tests.
+   valid generated origin. At the private intake return after selected-document
+   release, require the authentic referring declaration identity and every supplied
+   origin member, with unchanged refusal code/cause and selection-row member.
+   A nested relationship shall have identity/origin distinct from its parent;
+   require the actual relationship's context, never the owner's or missing target's.
+   Separately check the existing public model-intake conversion's code, cause and
+   selection-row pointer; preserve unrelated public refusal fields and graph locus.
+2. Exercise all four end-coordinate presence combinations, positive coordinates
+   at the existing selected-document numeric boundary, and otherwise valid origins
+   that would fail an invented paired-end or span-order rule. Assert exact values
+   and optional presence. Above-bound input shall retain its earlier numeric refusal,
+   not acquire declaration metadata or a new origin classification. Vary identity,
+   path and version spelling and generated input order/repetition. Assert no span
+   on Generated, with typed exact comparison rather than prose parsing.
+3. Remove origin; supply both branches, unknown members, invalid members and partial
+   source/generated branches. Require None for origin, while retaining any actual
+   supplied declaration identity. Missing/non-string identity shall retain None;
+   an object-id spelling refused by intake shall remain supplied, not repaired.
+   No default string, partial branch or enclosing-owner identity shall pass.
+4. Group duplicate declarations with the same supplied identity and identical valid
+   origins, then with distinct valid origins, then with no valid origin. Require
+   the common identity; retain only an unambiguous valid origin, and None for
+   conflicting valid origins or genuine absence. Permute candidate document order
+   without selecting a different winner or changing the existing conflicting-binding
+   outcome. No malformed candidate branch shall be repaired or partially retained.
+5. Audit every private `SelectionRefusal` constructor and declaration-to-selection
+   conversion. Exercise pre-declaration missing bytes, content mismatch and wrong
+   selection identity; require metadata absence and original code/cause/member.
+   Combine declaration defects with earlier table/member-path defects and bounded
+   work exhaustion; assert the same first refusal or distinct Limit/InexactNumber
+   result and no partial package. Removing available metadata, attaching a foreign
+   declaration's metadata, normalizing members or losing owned values on document
+   release must fail a typed intake-return assertion.
+6. Inspect that the `admit_selection` refusal conversion to `ValidationFailure`
+   still carries existing code/path/cause and adds no declaration metadata fields
+   to `CheckedPackageRefusal`, dispatch or driver handoff. Retained `locus`, expected
+   node key, contract-version and document-pointer behavior elsewhere remain intact.
+   Future concrete typed consumers remain an open owner allocation, not this test's
+   promised interface. No second parse, raised ceiling or diagnostic collection
+   supplies retention. Source inspection alone cannot close the runtime Tests.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
 
