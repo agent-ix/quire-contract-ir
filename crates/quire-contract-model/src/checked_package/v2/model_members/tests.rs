@@ -7,6 +7,64 @@ use crate::checked_package::shared::{
 use crate::checked_package::v2::DOMAIN_PACKAGE_DIGEST;
 use ix_trace_rs::trace;
 
+/// Compare every QSpec model-declaration golden with the exact key function
+/// used when the production reader admits selected domain declarations.
+/// Ordinary workspace tests have no QSpec checkout; the explicit conformance
+/// target supplies one and runs this test alongside the public reader test.
+///
+/// Trace: TC-048, FR-038-AC-176
+#[trace("TC-048", "FR-038-AC-176")]
+#[test]
+fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
+    let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
+        return;
+    };
+    let path = std::path::Path::new(&root)
+        .join("proposals/checked-package-v2/model-member-type-vectors.json");
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
+    let vectors: serde_json::Value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()));
+    let rows = vectors["model_declaration_nodes"]
+        .as_array()
+        .expect("QSpec model_declaration_nodes must be an array");
+    assert_eq!(
+        rows.len(),
+        12,
+        "QSpec must publish all twelve declaration vectors"
+    );
+    for row in rows {
+        let name = row["name"].as_str().expect("vector name");
+        let preimage = &row["preimage"];
+        assert_eq!(preimage["version"], "quire.structural-node/v1", "{name}");
+        assert_eq!(preimage["owner"]["kind"], "model", "{name}");
+        assert_eq!(preimage["body"]["term"], "aggregate", "{name}");
+        assert_eq!(preimage["body"]["members"], serde_json::json!([]), "{name}");
+        assert!(preimage["declaration"].is_null(), "{name}");
+        assert!(preimage["recursion"].is_null(), "{name}");
+        assert!(preimage["semantic_type"].is_null(), "{name}");
+        let form = match (
+            preimage["node_tag"].as_str(),
+            preimage["semantic_form"].as_str(),
+        ) {
+            (Some("model"), Some("object_type")) => DeclarationForm::ObjectType,
+            (Some("model"), Some("systems_interface")) => DeclarationForm::SystemsInterface,
+            (Some("relation"), Some("relationship")) => DeclarationForm::Relationship,
+            other => panic!("{name}: unknown declaration form {other:?}"),
+        };
+        let identity = preimage["owner"]["identity"]
+            .as_str()
+            .expect("model identity");
+        let node = preimage["owner"]["node"].as_str().expect("model node");
+        let expected = row["sha256"].as_str().expect("published SHA-256");
+        assert_eq!(
+            declaration_key(identity, form, node, BYTES).expect("production declaration key"),
+            expected,
+            "{name}: production key must equal QSpec's recorded digest"
+        );
+    }
+}
+
 /// The byte limit these tests read under: far above any document here.
 pub(in crate::checked_package::v2) const BYTES: u64 = 1 << 20;
 

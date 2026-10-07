@@ -73,13 +73,15 @@ test:
 	# `compile_fail` probes of the non-success constructor (FR-030-AC-6).
 	$(CARGO) test $(LOCKED) -p quire-contract-ir --doc
 
-# FR-038-AC-107: QSpec's positive CheckedPackage V2 fixtures admit. Reads the
+# FR-038-AC-107/176: QSpec's CheckedPackage V2 fixtures and recorded model
+# declaration keys agree with the production reader and key derivation. Reads the
 # checkout named by QUIRE_SPECIFICATION_DIR and fails, never skips, when it is
 # unset, empty, or holds no proposals/checked-package-v2/fixtures/, or when a
 # fixture does not admit. Outside `test` and `ci`: they have no checkout.
 .PHONY: conformance-qspec
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --test conformance_qspec
+	$(CARGO) test $(LOCKED) --workspace --lib tc_048_qspec_model_declaration_keys_use_production_derivation
 
 .PHONY: build
 build:

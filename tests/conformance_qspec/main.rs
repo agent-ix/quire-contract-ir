@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038-AC-107, AC-112, AC-113 and AC-154: QSpec's CheckedPackage V2 fixtures and
+//! FR-038-AC-107, AC-112, AC-113, AC-154 and AC-176: QSpec's CheckedPackage V2 fixtures and
 //! vectors against the production reader.
 //!
 //! AC-107: the positive fixtures admit end to end. AC-112: every mutation of
@@ -44,6 +44,22 @@ const POSITIVE: [&str; 3] = [
     "positive-clause-operations.json",
     "positive-union-nodes.json",
 ];
+
+/// The complete published positive set required by FR-038-AC-176.
+const POSITIVE_ALL: [&str; 9] = [
+    "positive-all-families.json",
+    "positive-clause-operations.json",
+    "positive-control-operations.json",
+    "positive-nominal-identities.json",
+    "positive-operation-identities.json",
+    "positive-recursive-records.json",
+    "positive-two-owners-a.json",
+    "positive-two-owners-b.json",
+    "positive-union-nodes.json",
+];
+
+/// The selected domain document in the proposal.
+const DOMAIN_DOCUMENT: &str = "domain-package-acme-orders.json";
 
 /// QSpec's recursive records, including the owner-free derived nodes in each group.
 const RECURSIVE: &str = "positive-recursive-records.json";
@@ -100,6 +116,16 @@ fn read_json(path: &Path) -> Result<Value, String> {
 
 /// Read `package` through the production reader with its declared features.
 fn read_package(package: &Value) -> Result<CheckedPackageV2ReadResult, String> {
+    let document = proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT);
+    read_package_with_document(package, "checked package", &document)
+}
+
+/// The one evidence-backed production read used by old and new conformance cases.
+fn read_package_with_document(
+    package: &Value,
+    name: &str,
+    domain_document: &Path,
+) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
     let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
     let mut evidence = CheckedPackageEvidence::new();
@@ -112,6 +138,28 @@ fn read_package(package: &Value) -> Result<CheckedPackageV2ReadResult, String> {
                 .as_str()
                 .ok_or("a required feature is not a string")?,
         );
+    }
+    let selections = package["lock"]["model_selections"]
+        .as_array()
+        .ok_or_else(|| format!("{name}: lock.model_selections is not an array"))?;
+    for selection in selections {
+        let identity = selection["identity"]
+            .as_str()
+            .ok_or_else(|| format!("{name}: model selection has no identity"))?;
+        if identity != "acme/orders" {
+            return Err(format!(
+                "{name}: unknown selected model identity {identity}"
+            ));
+        }
+        let digest = selection["digest"]
+            .as_str()
+            .filter(|digest| !digest.is_empty())
+            .ok_or_else(|| format!("{name}: model selection {identity} has no digest"))?;
+        let document = std::fs::read(domain_document)
+            .map_err(|error| format!("{} cannot be read: {error}", domain_document.display()))?;
+        serde_json::from_slice::<Value>(&document)
+            .map_err(|error| format!("{} is not JSON: {error}", domain_document.display()))?;
+        evidence.insert_domain_package_document(digest, document);
     }
     Ok(CheckedPackageV2::read(
         &bytes,
@@ -395,37 +443,143 @@ fn base_path_of(vectors: &Value) -> Result<&str, String> {
 #[test]
 fn tc_048_qspec_positive_fixtures_admit() {
     let dir = fixtures_dir();
+    let document = proposal_dir_of(&dir).join(DOMAIN_DOCUMENT);
     for name in POSITIVE {
-        let path = dir.join(name);
-        let text = std::fs::read(&path)
-            .unwrap_or_else(|error| panic!("{name}: {} cannot be read: {error}", path.display()));
-        let package: Value = serde_json::from_slice(&text)
-            .unwrap_or_else(|error| panic!("{name}: not JSON: {error}"));
-        // The reader takes canonical bytes; the published files are indented.
-        let bytes = serde_json::to_vec(&package).expect("a JSON value serializes");
-        let mut evidence = CheckedPackageEvidence::new();
-        for feature in package["lock"]["required_features"]
+        let (package, admitted) =
+            read_positive(&dir, name, &document).unwrap_or_else(|why| panic!("{why}"));
+        let derived = serde_json::to_value(admitted.package_id()).expect("a package id serializes");
+        assert_eq!(
+            derived, package["package_id"],
+            "{name}: recorded package_id"
+        );
+    }
+}
+
+/// Read one QSpec positive package with the selected domain document, if any.
+/// The document is supplied under the selection's own digest; the production
+/// reader verifies that claim against its bytes.
+fn read_positive(
+    fixtures: &Path,
+    name: &str,
+    domain_document: &Path,
+) -> Result<(Value, CheckedPackageV2), String> {
+    let package = read_json(&fixtures.join(name))?;
+    read_positive_package(package, name, domain_document)
+}
+
+/// Admit a published positive package or a single-input adverse mutation of it.
+fn read_positive_package(
+    package: Value,
+    name: &str,
+    domain_document: &Path,
+) -> Result<(Value, CheckedPackageV2), String> {
+    match read_package_with_document(&package, name, domain_document)? {
+        CheckedPackageV2ReadResult::Admitted(admitted) => Ok((package, *admitted)),
+        other => Err(format!("{name}: positive package did not admit: {other:?}")),
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-176
+#[trace("TC-048", "FR-038-AC-176")]
+#[test]
+fn tc_048_qspec_all_positive_packages_and_owner_identities() {
+    let fixtures = fixtures_dir();
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    let mut owners = std::collections::BTreeMap::new();
+    for name in POSITIVE_ALL {
+        let (wire, admitted) =
+            read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
+        assert_eq!(
+            serde_json::to_value(admitted.package_id()).expect("typed package id"),
+            wire["package_id"],
+            "{name}: published package_id"
+        );
+        let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
-            .unwrap_or_else(|| panic!("{name}: lock.required_features is not an array"))
+            .expect("published graph nodes");
+        let projections = wire["identity_preimage"]["identity_projection"]
+            .as_array()
+            .expect("published identity projection");
+        assert_eq!(
+            admitted.graph().nodes.len(),
+            nodes.len(),
+            "{name}: graph length"
+        );
+        assert_eq!(projections.len(), nodes.len(), "{name}: projection length");
+        for ((node, published), projection) in
+            admitted.graph().nodes.iter().zip(nodes).zip(projections)
         {
-            evidence.support_feature(
-                feature
-                    .as_str()
-                    .unwrap_or_else(|| panic!("{name}: a required feature is not a string")),
-            );
-        }
-        match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
-            CheckedPackageV2ReadResult::Admitted(admitted) => {
-                let derived =
-                    serde_json::to_value(admitted.package_id()).expect("a package id serializes");
-                assert_eq!(
-                    derived, package["package_id"],
-                    "{name}: recorded package_id"
-                );
+            let id = serde_json::to_value(&node.node_id).expect("typed node id");
+            let owner = serde_json::to_value(&node.owner).expect("typed owner");
+            assert_eq!(id, published["node_id"], "{name}: graph node id");
+            assert_eq!(owner, published["owner"], "{name}: graph owner");
+            assert_eq!(id, projection["node_id"], "{name}: projection node id");
+            assert_eq!(owner, projection["owner"], "{name}: projection owner");
+            if name.starts_with("positive-two-owners-") {
+                for declaration in ["Point", "List"] {
+                    if published["declaration"]["qualified_name"] == json!([declaration]) {
+                        owners.insert((name, declaration), id.clone());
+                        assert_eq!(owner["kind"], "source", "{name}: {declaration} owner");
+                    }
+                }
             }
-            other => panic!("{name} does not admit: {other:?}"),
         }
     }
+    for declaration in ["Point", "List"] {
+        let a = owners.get(&("positive-two-owners-a.json", declaration));
+        let b = owners.get(&("positive-two-owners-b.json", declaration));
+        assert!(
+            a.is_some() && b.is_some(),
+            "{declaration}: both source owners must occur"
+        );
+        assert_ne!(
+            a, b,
+            "{declaration}: distinct source owners need distinct node ids"
+        );
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-176
+#[trace("TC-048", "FR-038-AC-176")]
+#[test]
+fn tc_048_qspec_positive_inputs_fail_closed() {
+    let fixtures = fixtures_dir();
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    let missing = read_positive(&fixtures, "positive-absent.json", &document)
+        .expect_err("a required fixture must exist");
+    assert!(missing.contains("positive-absent.json"), "{missing}");
+    let base = "positive-all-families.json";
+    let missing_document = read_positive(&fixtures, base, &fixtures.join("absent-domain.json"))
+        .expect_err("the selected document must exist");
+    assert!(
+        missing_document.contains("absent-domain.json"),
+        "{missing_document}"
+    );
+    let scratch = std::env::temp_dir().join(format!("ir-654-domain-{}", std::process::id()));
+    std::fs::write(&scratch, b"not json").expect("write malformed domain document");
+    let malformed = read_positive(&fixtures, base, &scratch)
+        .expect_err("a malformed selected document must fail");
+    std::fs::remove_file(&scratch).expect("remove malformed domain document");
+    assert!(malformed.contains("is not JSON"), "{malformed}");
+    let package = read_json(&fixtures.join(base)).expect("published positive package");
+    let mut unknown = package.clone();
+    unknown["lock"]["model_selections"][0]["identity"] = json!("acme/unknown");
+    let refused = read_positive_package(unknown, base, &document)
+        .expect_err("unknown selected model must fail");
+    assert!(refused.contains("acme/unknown"), "{refused}");
+    let mut absent_digest = package.clone();
+    absent_digest["lock"]["model_selections"][0]
+        .as_object_mut()
+        .expect("published selection")
+        .remove("digest");
+    let refused = read_positive_package(absent_digest, base, &document)
+        .expect_err("selection without digest must fail");
+    assert!(refused.contains("no digest"), "{refused}");
+    let mut changed_package_id = package;
+    changed_package_id["package_id"]["digest"] = json!("0".repeat(64));
+    let refused = read_positive_package(changed_package_id, base, &document)
+        .expect_err("non-admitted positive package must fail");
+    assert!(refused.contains("did not admit"), "{refused}");
 }
 
 /// Trace: FR-038-AC-145
@@ -437,19 +591,19 @@ fn tc_226_qspec_recursive_records_admit() {
     assert_eq!(reading_of(&package).expect("fixture reading"), "admitted");
 }
 
-/// Apply one QSpec derived-shape mutation to its named positive package,
+/// Apply a QSpec derived-shape mutation to every matching node in its positive package,
 /// preserving the node key while refreshing both identity mirrors and the
 /// package id. The fixture and mutation are always read from the QSpec checkout.
-fn derived_shape_mutation(dir: &Path, row: &Value) -> Result<Value, String> {
+fn derived_shape_mutations(dir: &Path, row: &Value) -> Result<Vec<(usize, Value)>, String> {
     let base = text_of(row, "base")?;
-    let mut package = read_json(&dir.join(format!("{base}.json")))?;
+    let original = read_json(&dir.join(format!("{base}.json")))?;
     let tag = row["node"]["node_tag"]
         .as_str()
         .ok_or("mutation has no node_tag")?;
     let form = row["node"]["semantic_form"]
         .as_str()
         .ok_or("mutation has no semantic_form")?;
-    let nodes = package["semantic_graph"]["nodes"]
+    let nodes = original["semantic_graph"]["nodes"]
         .as_array()
         .ok_or("semantic_graph.nodes is not an array")?;
     let matches = nodes
@@ -458,55 +612,58 @@ fn derived_shape_mutation(dir: &Path, row: &Value) -> Result<Value, String> {
         .filter(|(_, node)| node["node_tag"] == tag && node["semantic_form"] == form)
         .map(|(position, _)| position)
         .collect::<Vec<_>>();
-    let [position] = matches.as_slice() else {
-        return Err(format!(
-            "{base}: expected one {tag}/{form} node, found {}",
-            matches.len()
-        ));
-    };
+    if matches.is_empty() {
+        return Err(format!("{base}: no {tag}/{form} node"));
+    }
     let patches = row["patch"]
         .as_array()
         .ok_or("mutation has no patch array")?;
-    for patch in patches {
-        if text_of(patch, "op")? != "replace" {
-            return Err("mutation uses an unsupported patch op".into());
-        }
-        let path = text_of(patch, "path")?;
-        let replacement = patch.get("value").ok_or("patch has no value")?;
-        replace_at(
-            &mut package,
-            &format!("/semantic_graph/nodes/{position}{path}"),
-            replacement,
-        )?;
-    }
-    let changed = package["semantic_graph"]["nodes"][*position].clone();
-    let node_id = changed["node_id"].clone();
-    let projection = package["identity_preimage"]["identity_projection"]
-        .as_array()
-        .ok_or("identity_projection is not an array")?;
-    let mirrors = projection
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| node["node_id"] == node_id)
-        .map(|(position, _)| position)
-        .collect::<Vec<_>>();
-    let [mirror] = mirrors.as_slice() else {
-        return Err(format!(
-            "{base}: expected one identity mirror, found {}",
-            mirrors.len()
-        ));
-    };
-    for member in ["body", "dependencies", "semantic_type"] {
-        let value = changed[member].clone();
-        replace_at(
-            &mut package,
-            &format!("/identity_preimage/identity_projection/{mirror}/{member}"),
-            &value,
-        )?;
-    }
-    let package_id = derived_with(&package, None)?;
-    replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
-    Ok(package)
+    matches
+        .into_iter()
+        .map(|position| {
+            let mut package = original.clone();
+            for patch in patches {
+                if text_of(patch, "op")? != "replace" {
+                    return Err("mutation uses an unsupported patch op".into());
+                }
+                let path = text_of(patch, "path")?;
+                let replacement = patch.get("value").ok_or("patch has no value")?;
+                replace_at(
+                    &mut package,
+                    &format!("/semantic_graph/nodes/{position}{path}"),
+                    replacement,
+                )?;
+            }
+            let changed = package["semantic_graph"]["nodes"][position].clone();
+            let node_id = changed["node_id"].clone();
+            let projection = package["identity_preimage"]["identity_projection"]
+                .as_array()
+                .ok_or("identity_projection is not an array")?;
+            let mirrors = projection
+                .iter()
+                .enumerate()
+                .filter(|(_, node)| node["node_id"] == node_id)
+                .map(|(position, _)| position)
+                .collect::<Vec<_>>();
+            let [mirror] = mirrors.as_slice() else {
+                return Err(format!(
+                    "{base}: expected one identity mirror, found {}",
+                    mirrors.len()
+                ));
+            };
+            for member in ["body", "dependencies", "semantic_type"] {
+                let value = changed[member].clone();
+                replace_at(
+                    &mut package,
+                    &format!("/identity_preimage/identity_projection/{mirror}/{member}"),
+                    &value,
+                )?;
+            }
+            let package_id = derived_with(&package, None)?;
+            replace_at(&mut package, "/package_id/digest", &json!(package_id))?;
+            Ok((position, package))
+        })
+        .collect()
 }
 
 /// Apply a recorded projection-owner patch to its selected node in a fresh
@@ -619,17 +776,20 @@ fn tc_226_qspec_ungrouped_derived_shape_mutations_refuse() {
         row["base"] != "positive-recursive-records" && row["node"]["semantic_form"] != "record"
     }) {
         let id = text_of(row, "id").expect("mutation id");
-        let package = derived_shape_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
+        let packages =
+            derived_shape_mutations(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
         let expected = format!(
             "refused:{}/{}",
             text_of(row, "expected_code").expect("expected code"),
             text_of(row, "expected_cause").expect("expected cause")
         );
-        assert_eq!(
-            reading_of(&package).expect("package reading"),
-            expected,
-            "{id}"
-        );
+        for (position, package) in packages {
+            assert_eq!(
+                reading_of(&package).expect("package reading"),
+                expected,
+                "{id}: node {position}"
+            );
+        }
     }
 }
 
@@ -646,17 +806,20 @@ fn tc_226_qspec_grouped_and_declared_derived_shape_mutations_refuse() {
         row["base"] == "positive-recursive-records" || row["node"]["semantic_form"] == "record"
     }) {
         let id = text_of(row, "id").expect("mutation id");
-        let package = derived_shape_mutation(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
+        let packages =
+            derived_shape_mutations(&dir, row).unwrap_or_else(|why| panic!("{id}: {why}"));
         let expected = format!(
             "refused:{}/{}",
             text_of(row, "expected_code").expect("expected code"),
             text_of(row, "expected_cause").expect("expected cause")
         );
-        assert_eq!(
-            reading_of(&package).expect("package reading"),
-            expected,
-            "{id}"
-        );
+        for (position, package) in packages {
+            assert_eq!(
+                reading_of(&package).expect("package reading"),
+                expected,
+                "{id}: node {position}"
+            );
+        }
     }
 }
 
