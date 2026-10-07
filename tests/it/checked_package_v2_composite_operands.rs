@@ -166,6 +166,32 @@ impl Fixture {
             .expect("definitions")
             .extend(self.definitions.clone());
         rebuild_source_map(&mut wire);
+        // The shared fixture helper maps each node's first occurrence. This
+        // fixture also authors repeated occurrences, each of which admission
+        // requires to have its own source-map entry.
+        let additional = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .zip(wire["source_map"].as_array().expect("source map"))
+            .flat_map(|(node, first)| {
+                node["occurrences"]
+                    .as_array()
+                    .expect("occurrences")
+                    .iter()
+                    .skip(1)
+                    .map(|occurrence| {
+                        let mut entry = first.clone();
+                        entry["role"] = occurrence["role"].clone();
+                        entry["ordinal"] = occurrence["ordinal"].clone();
+                        entry
+                    })
+            })
+            .collect::<Vec<_>>();
+        wire["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .extend(additional);
         refresh_identity(&mut wire);
         wire
     }
