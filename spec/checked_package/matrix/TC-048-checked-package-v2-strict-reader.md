@@ -1200,3 +1200,73 @@ in the handoff evidence, not copied into public specification/review custody.
    behavior, no partial package, second parse, raised limit or unbounded collection.
    No consumer may satisfy the check by parsing an English message or by a default
    origin. Scenario prose and source inspection alone do not close runtime Tests.
+
+## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
+
+This procedure is PLANNED / UNRUN until IR-680 code lands. Exercise the real
+production reader and typed `CheckedPackageRefusal::expected_node_id()`
+accessor. No test-side FR-092 encoder, copied digest, diagnostic parser or
+public derive/rekey API is an oracle. Existing expected refusal values remain
+**test-authored** tuples of the public fields, independent of reader output;
+compare those fields one by one and assert the new accessor separately. For a
+derived expected key, the fresh package's full admission and the changed-key
+control below are the oracle; comparing two reader outputs with each other
+does not pass.
+
+1. For the closed-shape `derived_key` branch, use an unreferenced
+   `integer_range` such as the builder's `base.zero`. Mutate a preimage bound
+   while retaining its old node id, mirror the identity projection and refresh
+   the package identity only. Require `invalid_package`/`stale-node-key` at
+   that original `node_id`, the original typed `locus`, and a distinct typed
+   expected id from the reader. In a fresh package, give this unreferenced
+   node the returned key at every occurrence, including its source-map entry
+   (the existing `rename_node` and `rebuild_source_map` fixture helpers cover
+   these updates), mirror its projection, refresh the package identity
+   and require the **entire package to admit**. A second bound value changes
+   the returned expected digest. Separately, for each of `boolean`, `integer`,
+   `reference`, `option`, `set`, `bag`, `sequence` and `ordered_set`, changing a
+   **unreferenced** self-typed node's retained id while leaving
+   `semantic_type` stale refuses `invalid_package`/`stale-node-key` at that
+   retained id with `None`; changing both id and `semantic_type` to the same
+   new id lets the reader derive `Some` where the body otherwise fits. This
+   is AC-183.
+2. Repeat AC-183 with an unreferenced owner-free, ungrouped form outside the
+   closed-shape table, such as a valid state snapshot or record, so the
+   `UngroupedPreimage` branch must retain its already-computed key. Its fresh
+   rekeyed package with every occurrence, including the source map, updated
+   and its identity refreshed admits. Use `rename_node` and
+   `rebuild_source_map` for the fixture. A test exercising only
+   `integer_range` cannot discharge this branch.
+3. For AC-184, use an application node with no referrer, while its own
+   operands and type remain valid. Change one key-covered preimage member,
+   retain the old id, mirror projection and refresh package identity. Assert
+   the original `locus` and the typed digest `validate_application_keys`
+   already computed. A fresh package rekeyed to that returned id at every
+   occurrence, including its source-map entry, and identity-refreshed admits
+   in full; use `rename_node` and `rebuild_source_map` for the fixture. A
+   second preimage change returns a different expected digest. No referrer is
+   allowed to create a stale-key
+   cascade that masks the positive control.
+4. For AC-185, assert `None` on a malformed structural body with no derived
+   key, a non-self-typed shape whose semantic type is inconsistent, a
+   `collection_bounds` naming a noncollection semantic type, a fixed-member
+   model declaration shape failure, a canonical encoding failure and a
+   pre-key-stage refusal. Require the existing code/cause/path/locus and the
+   original first refusal in each case. Make two independently authored
+   preimage mutations with the same retained id, path, code, cause and locus
+   but different derived keys; require `PartialEq`/`Eq` to distinguish the
+   resulting refusals, after each key has its own admitted positive control;
+   clone a genuine refusal and require the accessor to retain the key. Derived
+   `Debug` may show it; no Display or serialized refusal form is added.
+5. Inspect the six production `CheckedPackageRefusal` construction sites in
+   `checked_package/common.rs`, the two key sites, model-declaration
+   conversion, V2 reader and version dispatch. Each genuine expected value
+   and genuine absence crosses the public boundary unchanged, with no new
+   byte/work charge. Keep the six IR integration-test literals' expected
+   values test-authored (including both current struct-update sites), compare
+   actual reader refusals field by field, and require `expected_node_id()`
+   assertions; no public synthetic constructor is added. A dropped or
+   corrupted expected key mutant fails independently. The expected key is
+   meaningful with the original reader-returned `locus`: code, path, cause and
+   locus remain publicly mutable, and changing them on a clone cannot make
+   the retained private key an authenticated substitution instruction.
