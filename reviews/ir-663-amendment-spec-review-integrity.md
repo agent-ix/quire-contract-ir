@@ -68,3 +68,12 @@ Round 1, fix commit "spec: close IR663 private intake review findings".
 | --- | --- | --- | --- |
 | FND-006 | low | AC-194's line between required 'consumption/release' at the conversion and forbidden 'fake reads solely to suppress unused fields' has no objective test. The only production consumer projects code/path/cause and drops the metadata, so destructure-and-drop there matches both descriptions and two inspectors can disagree. The text does route a gap to owner resolution, so nothing wrong ships, but the Inspection verdict stays a judgment call. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3854 |
 | FND-007 | low | 'Unselected' (group / same-identity type group) is undefined; it reads as a subset of same-identity groups but appears to mean every group of two or more type declarations sharing an identity. Drop the word or define it. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3850 |
+
+## Dispositions (round 2)
+
+Round 2, fix commit "Clarify private intake ownership and atomic context checks".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-006 | fixed | fixed by commit "Clarify private intake ownership and atomic context checks" |
+| FND-007 | fixed | fixed by commit "Clarify private intake ownership and atomic context checks" |

@@ -57,3 +57,11 @@ Round 1, fix commit "spec: close IR663 private intake review findings".
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-004 | low | AC-188 combines two obligations that fail independently: nested field/operation/parameter/relationship-end context retention, and the separate sequential repeated-relationship rule (later offending relationship's metadata). The sequential rule could stand alone or move beside AC-190's contrasting type-group rule. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3848 |
+
+## Dispositions (round 2)
+
+Round 2, fix commit "Clarify private intake ownership and atomic context checks".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-004 | fixed | fixed by commit "Clarify private intake ownership and atomic context checks" |
