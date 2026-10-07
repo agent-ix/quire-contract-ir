@@ -105,8 +105,9 @@ duplicate or noncanonical top-level member refuses as `malformed_wire`,
 `duplicate_member` or `noncanonical_wire` before any version-specific
 decoding. Positive fixtures admit. The owner-free nominal fixture retains its
 recorded pre-owner package id; an owner-bearing fixture derives its package id
-from its owner-bearing identity projection and awaits QSL-638's authoritative
-golden in the planned external conformance row. Every adverse and
+from its owner-bearing identity projection and is compared with QSpec's
+published positive packages and model declaration vectors in the external
+conformance row. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
 package. Excluded edits keep the id and included edits change it. Every nominal
 preimage digest matches its node key; every nominal mutation and contradictory cross-field join
@@ -683,11 +684,22 @@ every node and compare each `ir_id`, the lowered package's `package_id` and its
 canonical bytes with the values recorded from the lowering before the move.
 For owner-bearing fixtures, compare unchanged owner-free nodes with their
 pre-owner golden, assert owner/projection equality and key recomputation in
-TC-228, and leave the authoritative owner-bearing golden for the conformance
-row that consumes QSL-638's emitter output. Compare the canonical bytes of one
+TC-228, and use the authoritative owner-bearing golden from QSpec's published
+positive packages and model declaration vectors in the conformance row.
+Compare the canonical bytes of one
 preimage of each kind with an
 expected byte string written out in the test, not computed by the code under test
-(FR-038-AC-89). Call
+(FR-038-AC-89). Run
+`make conformance-qspec` for FR-038-AC-176 against the authoritative QSpec
+checkout: discover every positive package, provide its selected `acme/orders`
+domain document from the same checkout, and compare admitted identities,
+owners and projection entries with the published wire. Check that the two
+source-owner fixtures identify corresponding declared structural nodes
+differently. Compare model-owned structural preimages with QSpec's
+`model-member-type-vectors.json` recorded digests; no in-repo derivation
+becomes the expected external golden.
+
+Call
 `NominalIdentityPreimage::digest` for a preimage of each of the four versions with
 a limit equal to its canonical length and one byte lower (FR-038-AC-90). A test
 reads `canonical.rs`, `binding.rs`, `output_mapping.rs` and `checked_package/` and
