@@ -1243,11 +1243,16 @@ new retention checks remain **PLANNED / UNRUN** until the implementation lane
 records executed evidence.
 
 
-### Planned private intake refusal-origin checks
+### Private intake refusal-origin checks
 
 These Test and Inspection procedures back FR-038-AC-174/175 and
-FR-038-AC-186 through FR-038-AC-196. They are PLANNED / UNRUN for IR-663;
-existing AC-167/173 trace tags verify refusal/admission semantics only and
+FR-038-AC-186 through FR-038-AC-196. IR-663 implements the private retention
+contract; seven crate-local intake tests have passed, together with the existing
+relationship grammar/read-budget checks and two public refusal-projection controls.
+The added inexact-number precedence case still awaits its preflight, and the
+strengthened exact limit-payload assertions await the full gate; full gates
+remain pending. AC-193/194 are source Inspections, and both Clippy lanes for
+AC-195 have passed. Existing AC-167/173 trace tags verify refusal/admission semantics only and
 supply no evidence for these retention criteria. Exercise the real private model-intake return,
 `admit_selection` yielding `SelectionFailure::Refused(SelectionRefusal)`, in
 crate-local tests. Author minimal domain-package documents in this repository
@@ -1298,7 +1303,12 @@ No public reader/dispatch/driver metadata observation is allocated.
    selection identity; require metadata absence and original code/cause/member.
    Combine declaration defects with earlier table/member-path defects and bounded
    work exhaustion; assert the same first refusal or distinct Limit/InexactNumber
-   result and no partial package. Removing available metadata, attaching a foreign
+   result and no partial package. For the inexact-number control, author bytes
+   with an origin integer above 2^53 and a declaration defect, then supply them
+   through the actual selection-evidence path under their raw-byte digest and
+   under another document's selected digest. The original typed inexact-number
+   result must precede dependency/declaration checks; this is an adverse read,
+   not evidence that inexact input admits. Removing available metadata, attaching a foreign
    declaration's metadata, normalizing members or losing owned values on document
    release must fail a typed intake-return assertion.
 6. Inspect that the `admit_selection` refusal conversion to `ValidationFailure`
@@ -1320,7 +1330,9 @@ No public reader/dispatch/driver metadata observation is allocated.
    also fails. For AC-195, the CODE slice shall run both repository Clippy lanes,
    including the feature-off model-consumer command, and record their actual exits.
    If this ownership lifecycle is unavailable, report the source/API gap rather
-   than claim the criterion satisfied. These code checks remain PLANNED / UNRUN.
+   than claim the criterion satisfied. The code-slice Inspection confirms the
+   named ownership and projection in `model_members.rs` and `v2/mod.rs`; both
+   Clippy commands have exited successfully. Full gates remain pending.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
 

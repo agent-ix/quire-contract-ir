@@ -345,6 +345,8 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
                 failure.limit_kind,
                 crate::checked_package::shared::CheckedPackageLimit::Work
             );
+            assert_eq!(failure.limit, used - 1);
+            assert_eq!(failure.consumed, used);
             assert_eq!(
                 failure.path.as_ref().map(ToString::to_string).as_deref(),
                 Some("/lock/model_selections/3")
@@ -357,9 +359,9 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
 /// Trace: FR-038-AC-175, FR-038-AC-191
 #[test]
 fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
-    let document = document(vec![bad_type(source("unused.md"))]);
-    let bytes = serde_json::to_vec(&document).expect("bytes");
-    let digest = quire_canonical::sha256(&document, quire_canonical::Limits::new(BYTES))
+    let original_document = document(vec![bad_type(source("unused.md"))]);
+    let bytes = serde_json::to_vec(&original_document).expect("bytes");
+    let digest = quire_canonical::sha256(&original_document, quire_canonical::Limits::new(BYTES))
         .expect("digest")
         .to_string();
     for (identity, supplied, cause, member) in [
@@ -398,5 +400,32 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
         assert_eq!(retained.member, Some(member));
         assert_eq!(retained.declaration_identity, None);
         assert_eq!(retained.declaration_origin, None);
+    }
+    // Independently authored bad-number bytes, supplied through the actual
+    // selection evidence path. Number admission precedes both byte identity
+    // comparison and the declaration's bad object-id spelling.
+    let inexact = document(vec![bad_type(json!({"source": {
+        "sourceIdentity": WIDGET, "path": "inexact.md",
+        "startLine": 9007199254740993_u64, "startColumn": 1
+    }}))]);
+    let bytes = serde_json::to_vec(&inexact).expect("authored exact number text");
+    use sha2::{Digest, Sha256};
+    let raw_digest = format!("{:x}", Sha256::digest(&bytes));
+    for selected_digest in [raw_digest, digest] {
+        let selection = CheckedDomainPackageRef {
+            identity: "acme/orders".into(),
+            digest_domain: DOMAIN_PACKAGE_DIGEST.into(),
+            digest: selected_digest.clone().into(),
+        };
+        let mut evidence = CheckedPackageEvidence::new();
+        evidence.insert_domain_package_document(selected_digest, bytes.clone());
+        let mut meter = WorkMeter::new(u64::MAX);
+        match admit_selection(&selection, &evidence, &mut Budget::new(&mut meter, 0, BYTES)) {
+            Err(SelectionFailure::InexactNumber { document_pointer, cause }) => {
+                assert_eq!(document_pointer.to_string(), "/types/0/origin/source/startLine");
+                assert_eq!(cause, Cause::InexactInteger);
+            }
+            other => panic!("expected original number refusal before dependency/declaration checks, got {other:?}"),
+        }
     }
 }
