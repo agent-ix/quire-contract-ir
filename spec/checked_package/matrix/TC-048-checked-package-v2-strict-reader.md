@@ -538,6 +538,54 @@ An external API fixture exhaustively matches the public identity and error
 enums and consumes every result member without JSON access. Repeated calls
 and a package clone return equal values, with package equality unchanged.
 
+## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182)
+
+Admit structural.eq applications using independently authored checked-package
+inputs under the existing reader and published operation catalog. Use graph
+parameter references and graph composite literals; construct no foreign fixture
+copies. Keep authentic application occurrences, including two occurrences of
+one node. Test argument swapping and repeated references to one parameter.
+Assert actual node ids, occurrences, ordinals and source type ids separately
+from each typed domain descriptor (AC177, AC178). Include a graph record value
+whose member references a parameter; it refuses UnsupportedOperand rather than
+being classified as a closed literal.
+
+For AC179, use a record containing a bounded sequence of bounded integers.
+Enumerate its expected child paths independently from the declared fields and
+argument positions. Preserve collection minimum and maximum; include a negative
+integer endpoint beyond i128 and a nonnegative collection maximum beyond u64.
+Assert exact decimal strings, not parsed approximations. Repeat with unbounded
+integer and collection nodes and assert explicit unbounded variants. Changing
+only one field's type must alter that field's descriptor and leave other paths
+unchanged.
+
+For AC180, cover tuple, Option, a shared type reached through two sibling fields,
+a genuinely recursive record/tuple, Boolean, enum and Whole leaf. Assert the
+complete introduced key set and its actual parameter root. Recursion stops only
+at ancestor reentry and records first-entry and reentry paths; no sibling is
+classified recursive. Assert the original enum ordered flag and enumerate its identifiers in declaration order from the input declaration,
+not from the accessor being checked. Assert Whole preserves the exact admitted
+type node/kind and does not acquire a bound or population key.
+
+For AC181, mutate one eligible input at a time to each public failure condition.
+Unknown node, known nonapplication, absent occurrence and ineligible catalogued
+operation use the public admitted-package boundary. Internal mutations may
+exercise catalog-unknown identity, absent child and malformed type body which
+admission ordinarily prevents. Use admitted union/population projection shapes
+for UnsupportedDomain where eligible; do not forge their admission. Assert
+ordinal/type loci and no partial result. Combine an early operand error with a
+later error to verify order. Measure consumed_work from a successful call,
+then run at that exact limit, one less and zero. Exercise checked-index refusal
+at the conversion helper seam; do not allocate a multi-billion-element fixture
+or claim that an admitted small graph reaches it.
+
+For AC182, compile an external API consumer in the normal workspace test lane,
+with exhaustive matches on the published types. It reads no body JSON and
+imports no QSL type through the model. Assert complete typed results for repeated
+calls and a cloned package, along with unchanged package equality. An API/source
+inspection checks that no caller ProofBound/drawn maximum input or proof identity
+encoder is introduced. No test calls QSL to reinterpret authored bounds as draws.
+
 ## Operation leaf count (FR-038-AC-43)
 
 Apply `structural.eq` and `structural.ne` to two parameters of an all-integer
