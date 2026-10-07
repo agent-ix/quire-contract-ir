@@ -593,8 +593,14 @@ assert ordered=true and its semantic preimage member order. No accessor output
 supplies the expected identifier list. Assert the exact introduced key set.
 
 For AC181, exercise all twelve public error variants and their exact tabled fields.
+The changed IneligibleOperator case is PLANNED/UNRUN (IR-690): retarget
+`tc_048_external_error_consumer_retains_authentic_node_and_application_loci`
+from its current structural.ne refusal to a reader-admitted catalogued identity
+outside eq/ne. Preserve its exact public application-locus refusal assertion;
+its existing AC181/182 tags do not verify that replacement case. Other existing
+IR-651 evidence remains unchanged.
 Use public admitted inputs for unknown node, nonapplication, missing occurrence,
-known ineligible identity (including structural.ne), unsupported operands and
+known ineligible identity outside structural.eq/structural.ne, unsupported operands and
 unsupported union projection; retain authentic ordinal/type fields. Crate-internal
 mutations may exercise unknown catalog identity, dangling child, malformed domain
 or optional wrapper and checked-index conversion ordinarily blocked by admission.
@@ -613,7 +619,63 @@ exhaustively matches each named public output/key/descriptor/edge/error type and
 reads the specified fields without body JSON or a QSL model import. Assert repeated
 and clone projections and pre/post package equality. API inspection checks the
 absence of drawn bound inputs, incoming-key validator, coverage verdict or obligation
-encoder. structural.ne remains the declared consumer gap, not an enabled alternative.
+encoder. The structural.ne extension below remains PLANNED/UNRUN; existing eq tests do not back its new criteria.
+
+## Structural inequality operand extension (FR-038-AC-197 through FR-038-AC-201)
+
+All extension procedures and their Test/Inspection evidence are PLANNED/UNRUN.
+Existing IR-651 equality execution does not discharge these rows.
+
+1. For AC197, independently author and admit structural.ne inputs through the
+   production reader and owning catalog, using supported parameters and closed
+   graph composite values. Assert the actual application/selected occurrence,
+   ordinals and original child/type identities. Swap arguments, repeat a child,
+   select a second authentic occurrence and request an absent occurrence (AC199):
+   assert MissingOccurrence with the supplied application and occurrence. Compare
+   with the authored source, never an accessor-produced expected value.
+
+2. For AC198, admit corresponding eq/ne applications over the same operand type
+   graphs: bounded/unbounded collection and integer fields, optional recursive
+   records with separately shared paths, ordered/unordered enum descendants,
+   and closed record/tuple/collection/Option values. Independently enumerate the
+   expected paths, descriptors and identifiers from the original authored input.
+   Compare exact shapes and introduced positions, including decimal values beyond
+   fixed-width ranges. Reject any changed/complemented bound or invented maximum;
+   preserve union and inline limitations rather than admitting new families.
+
+3. For AC199, apply the existing refusal procedures to ne at nonzero operand
+   ordinals: unsupported inline/subterm forms, unsupported union, malformed
+   optional/domain structure and two ordered defects. Assert the exact existing
+   variant and payload, no partial output. Admission-inaccessible branches use
+   explicitly defensive admitted-then-mutated model tests only. A separately
+   authored catalog-ineligible input retains the reader's original refusal;
+   a known admitted non-eq/ne operation returns IneligibleOperator with its actual
+   application id at the accessor. Retarget the existing public AC181/182 error-
+   consumer assertion to that identity without removing or weakening its payload
+   oracle; the current structural.ne refusal is superseded target behavior, not
+   evidence for this planned replacement.
+
+4. For AC200, measure successful actual logical work, assert exact-budget success
+   and zero/minus-one WorkLimit with exact limit and attempted consumed payload.
+   Independently count the existing logical visits/retained bytes for a small
+   authored fixture to detect extra or unpaid work. Change admitted node order
+   and compare corresponding eq/ne accounting; do not derive the expected visit
+   count by invoking the implementation twice.
+
+5. For AC201, inspect the actual production eligibility extension and owner seams:
+   retained admission index; operations::resolve_family_with;
+   operation_catalog().family_fits; structural::reference_target; shared domain
+   walk/meter. Pass only if the existing signature/types and scalar/admission
+   semantics remain and no duplicate derivation, per-call uncharged index,
+   depth ceiling, encoder or dependency is added. This is source Inspection,
+   not runtime or downstream replay evidence.
+
+Expected results: AC197 returns exact authentic positional outputs; AC198
+retains corresponding authored domains without inequality-specific alteration;
+AC199 preserves typed refusal/first-defect semantics; AC200 preserves exact
+logical charges; AC201 finds the single existing owner path. Each missing or
+altered predicate fails its own criterion. No downstream CG/QSL replay,
+new scalar eligibility, harness draw or whole-domain coverage is claimed.
 
 ## Operation leaf count (FR-038-AC-43)
 
