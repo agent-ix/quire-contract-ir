@@ -1213,6 +1213,7 @@ impl SelectionRefusal {
         let mut retained = Self::located(refusal, first, budget)?;
         let mut agrees = retained.declaration_origin.is_some();
         for node in nodes.iter().skip(1) {
+            budget.charge(1)?;
             let origin = retained_origin(node.get("origin"), budget)?;
             agrees &= origin.is_some() && origin == retained.declaration_origin;
         }

@@ -188,9 +188,47 @@ fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target()
     }
 }
 
-/// Trace: FR-038-AC-189, FR-038-AC-190
+/// Trace: FR-038-AC-189, FR-038-AC-190, FR-038-AC-192
 #[test]
 fn tc_048_intake_group_origin_requires_every_valid_equal_candidate() {
+    // Keep document parsing in the same byte-work band. An extra actual
+    // declaration candidate must consume work even when every origin is absent.
+    let missing_origins = |count| {
+        let mut doc = document(vec![object_type(WIDGET, &[], vec![]); count]);
+        doc["constructs"]
+            .as_array_mut()
+            .expect("constructs")
+            .retain(|construct| construct["kind"]["name"] == json!("entity"));
+        doc
+    };
+    assert!(selected(missing_origins(1), u64::MAX)
+        .0
+        .expect("genuine control admits")
+        .object_types
+        .contains_key(WIDGET));
+    let two = missing_origins(2);
+    let three = missing_origins(3);
+    for doc in [&two, &three] {
+        assert!(
+            serde_json::to_vec(doc).expect("bytes").len() <= DOCUMENT_BYTES_PER_WORK,
+            "same document parsing charge is required for this oracle"
+        );
+    }
+    let (two_result, two_work) = selected(two, u64::MAX);
+    let (three_result, three_work) = selected(three, u64::MAX);
+    for result in [two_result, three_result] {
+        let Err(SelectionFailure::Refused(retained)) = result else {
+            panic!("duplicate refusal");
+        };
+        assert_eq!(retained.refusal.cause, Cause::ConflictingBinding);
+        assert_eq!(retained.declaration_identity.as_deref(), Some(WIDGET));
+        assert_eq!(retained.declaration_origin, None);
+    }
+    assert!(
+        three_work > two_work,
+        "the additional missing-origin candidate must be paid"
+    );
+
     let valid = source("same.md");
     let mut different_presence = valid.clone();
     different_presence["source"]
