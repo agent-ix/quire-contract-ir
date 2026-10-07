@@ -4,15 +4,19 @@
 //! FR-038: metered, package-authored domains of structural equality operands.
 
 use super::operation_catalog::operation_catalog;
-use super::structural::{aggregate_members, binding, is_integer_bound, is_non_negative_integer};
+use super::structural::{
+    aggregate_members, binding, checked_node_identity, is_integer_bound, is_non_negative_integer,
+    reference_target,
+};
 use super::{
     BoundedDomainForm, CheckedCollectionKind, CheckedNodeId, CheckedNodeKind, CheckedNodeTag,
     CheckedOccurrence, CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2,
     CompositeTypeForm, NominalIdentityPreimage, ScalarTypeForm, ValueForm,
 };
-use crate::checked_package::common::{is_digest, NODE_DOMAIN};
-use serde::Deserialize;
+#[cfg(test)]
+use crate::checked_package::common::NODE_DOMAIN;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 /// The authentic operands of one selected application occurrence.
@@ -277,6 +281,8 @@ impl Meter {
 
 struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
+    kinds: &'a [CheckedNodeKind],
+    index: &'a BTreeMap<CheckedNodeId, usize>,
 }
 
 impl<'a> Graph<'a> {
@@ -286,32 +292,21 @@ impl<'a> Graph<'a> {
         meter: &mut Meter,
     ) -> Result<Option<&'a CheckedSemanticNodeV2>> {
         meter.charge(1)?;
-        Ok(self.nodes.iter().find(|node| &node.node_id == id))
+        Ok(self
+            .index
+            .get(id)
+            .and_then(|position| self.nodes.get(*position)))
     }
-}
-
-fn kind(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeKind> {
-    CheckedNodeTag::from_wire(&node.node_tag)
-        .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-}
-
-fn typed_id(value: &Value) -> Option<CheckedNodeId> {
-    if value.get("domain").and_then(Value::as_str) != Some(NODE_DOMAIN)
-        || !value
-            .get("digest")
-            .and_then(Value::as_str)
-            .is_some_and(is_digest)
-    {
-        return None;
+    fn kind(&self, node: &CheckedSemanticNodeV2) -> Option<CheckedNodeKind> {
+        self.index
+            .get(&node.node_id)
+            .and_then(|position| self.kinds.get(*position))
+            .copied()
     }
-    CheckedNodeId::deserialize(value).ok()
 }
 
 fn target(term: &Value) -> Option<CheckedNodeId> {
-    if term.get("term").and_then(Value::as_str) != Some("reference") {
-        return None;
-    }
-    typed_id(term.get("target")?)
+    reference_target(term)
 }
 
 fn type_error(ordinal: u64, node: Option<CheckedNodeId>) -> Error {
@@ -361,6 +356,8 @@ impl CheckedPackageV2 {
     ) -> Result<CheckedCompositeOperands> {
         let graph = Graph {
             nodes: &self.wire.semantic_graph.nodes,
+            kinds: &self.kinds,
+            index: &self.node_index,
         };
         let mut meter = Meter {
             limit: work_limit,
@@ -433,19 +430,35 @@ impl CheckedPackageV2 {
             if child.body.get("term").and_then(Value::as_str) == Some("application") {
                 return Err(unsupported(
                     ordinal,
-                    Some(child.semantic_type.clone()),
+                    typed_member(&child.body, "result_type"),
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
-            let family = resolved_kind(&graph, &child.semantic_type, ordinal, &mut meter)?;
-            if !structural_family(family) {
+            let family =
+                super::operations::resolve_family_with(
+                    &child.semantic_type,
+                    |visit| match visit {
+                        super::operations::FamilyVisit::Node(id) => {
+                            graph.node(id, &mut meter).map(|node| {
+                                node.and_then(|node| graph.kind(node).map(|kind| (node, kind)))
+                            })
+                        }
+                        super::operations::FamilyVisit::Forward => {
+                            meter.charge(1)?;
+                            Ok(None)
+                        }
+                    },
+                )?
+                .ok_or_else(|| type_error(ordinal, Some(child.semantic_type.clone())))?;
+            if !operation_catalog().family_fits(family, "structural_kind") {
                 return Err(unsupported(
                     ordinal,
                     Some(child.semantic_type.clone()),
                     CheckedUnsupportedCompositeOperand::NonStructuralType,
                 ));
             }
-            let domain = if kind(child) == Some(CheckedNodeKind::Value(ValueForm::Parameter)) {
+            let domain = if graph.kind(child) == Some(CheckedNodeKind::Value(ValueForm::Parameter))
+            {
                 let (shape, positions) =
                     project_type(&graph, &id, &child.semantic_type, ordinal, &mut meter)?;
                 CheckedCompositeOperandDomain::Parameter { shape, positions }
@@ -470,7 +483,7 @@ impl CheckedPackageV2 {
 }
 
 fn typed_member(value: &Value, member: &str) -> Option<CheckedNodeId> {
-    typed_id(value.get(member)?)
+    checked_node_identity(value.get(member)?)
 }
 
 fn argument_ordinal(index: usize) -> Result<u64> {
@@ -485,22 +498,6 @@ fn child_ordinal(index: usize, ordinal: u64, node: &CheckedNodeId) -> Result<u32
         ordinal: Some(ordinal),
         type_node: Some(node.clone()),
     })
-}
-
-fn structural_family(kind: CheckedNodeKind) -> bool {
-    matches!(
-        kind,
-        CheckedNodeKind::CompositeType(
-            CompositeTypeForm::Option
-                | CompositeTypeForm::Record
-                | CompositeTypeForm::Tuple
-                | CompositeTypeForm::Union
-                | CompositeTypeForm::Sequence
-                | CompositeTypeForm::Set
-                | CompositeTypeForm::Bag
-                | CompositeTypeForm::OrderedSet
-        )
-    )
 }
 
 fn forwarding_target(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> Option<CheckedNodeId> {
@@ -518,7 +515,7 @@ fn forwarding_target(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> Opt
     }
 }
 
-fn resolved_kind(
+fn descriptor_kind(
     graph: &Graph<'_>,
     id: &CheckedNodeId,
     ordinal: u64,
@@ -530,7 +527,9 @@ fn resolved_kind(
         let node = graph
             .node(&current, meter)?
             .ok_or_else(|| type_error(ordinal, Some(current.clone())))?;
-        let kind = kind(node).ok_or_else(|| type_error(ordinal, Some(current.clone())))?;
+        let kind = graph
+            .kind(node)
+            .ok_or_else(|| type_error(ordinal, Some(current.clone())))?;
         if seen.contains(&current) {
             return Err(type_error(ordinal, Some(current)));
         }
@@ -734,7 +733,7 @@ fn descriptor(
             inherited,
         ),
         K::BoundedDomain(BoundedDomainForm::IntegerRange) => {
-            let source = resolved_kind(graph, &node.semantic_type, ordinal, meter)?;
+            let source = descriptor_kind(graph, &node.semantic_type, ordinal, meter)?;
             if source != K::ScalarType(ScalarTypeForm::Integer) {
                 return Err(malformed());
             }
@@ -751,7 +750,7 @@ fn descriptor(
             }
         }
         K::BoundedDomain(BoundedDomainForm::CollectionBounds) => {
-            let source = resolved_kind(graph, &node.semantic_type, ordinal, meter)?;
+            let source = descriptor_kind(graph, &node.semantic_type, ordinal, meter)?;
             let kind = collection(source).ok_or_else(malformed)?;
             if suppress(Suppression::Collection)? {
                 (None, inherited)
@@ -772,7 +771,7 @@ fn descriptor(
             | BoundedDomainForm::FloatRounding
             | BoundedDomainForm::TextBounds,
         ) => {
-            let source = resolved_kind(graph, &node.semantic_type, ordinal, meter)?;
+            let source = descriptor_kind(graph, &node.semantic_type, ordinal, meter)?;
             let valid = matches!(
                 (frame.kind, source),
                 (
@@ -839,7 +838,6 @@ fn descriptor(
 
 fn next_edge(
     frame: &mut TypeFrame<'_>,
-    graph: &Graph<'_>,
     ordinal: u64,
     meter: &mut Meter,
 ) -> Result<Option<CheckedCompositeChildEdge>> {
@@ -902,12 +900,6 @@ fn next_edge(
                 };
                 let inner = binding(optional, "optional").ok_or_else(malformed)?;
                 let target = target(inner).ok_or_else(malformed)?;
-                let ty = graph
-                    .node(&target, meter)?
-                    .ok_or_else(|| type_error(ordinal, Some(target.clone())))?;
-                if kind(ty) != Some(K::CompositeType(CompositeTypeForm::Option)) {
-                    return Err(type_error(ordinal, Some(target)));
-                }
                 (target, Some(name), true)
             } else {
                 (target(value).ok_or_else(malformed)?, Some(name), false)
@@ -954,14 +946,21 @@ fn project_type(
     let mut shape = Vec::new();
     let mut positions = Vec::new();
     let mut stack: Vec<TypeFrame<'_>> = Vec::new();
-    let mut pending = Some((ty.clone(), Vec::new(), Suppression::None));
+    let mut pending = Some((ty.clone(), Vec::new(), Suppression::None, false));
     loop {
-        if let Some((id, path, suppression)) = pending.take() {
+        if let Some((id, path, suppression, optional_presence)) = pending.take() {
             let node = graph
                 .node(&id, meter)?
                 .ok_or_else(|| type_error(ordinal, Some(id.clone())))?;
             meter.charge(1)?;
-            let kind = kind(node).ok_or_else(|| type_error(ordinal, Some(id.clone())))?;
+            let kind = graph
+                .kind(node)
+                .ok_or_else(|| type_error(ordinal, Some(id.clone())))?;
+            if optional_presence
+                && kind != CheckedNodeKind::CompositeType(CompositeTypeForm::Option)
+            {
+                return Err(type_error(ordinal, Some(id)));
+            }
             let shape_index = shape.len();
             shape.push(CheckedCompositeShapeEntry {
                 type_node: id.clone(),
@@ -1007,23 +1006,23 @@ fn project_type(
         let Some(frame) = stack.last_mut() else {
             break;
         };
-        match next_edge(frame, graph, ordinal, meter)? {
+        match next_edge(frame, ordinal, meter)? {
             Some(edge) => {
-                let mut path = meter.path(&frame.path)?;
+                let mut path = frame.path.clone();
                 let suppression = if let Some(index) = edge.ordinal {
-                    meter.charge(1)?;
                     path.push(index);
                     Suppression::None
                 } else {
                     frame.suppression
                 };
                 let id = edge.target.clone();
+                let optional_presence = edge.optional_presence;
                 shape
                     .get_mut(frame.shape)
                     .ok_or_else(|| type_error(ordinal, Some(frame.node.node_id.clone())))?
                     .edges
                     .push(edge);
-                pending = Some((id, path, suppression));
+                pending = Some((id, path, suppression, optional_presence));
             }
             None => {
                 stack.pop();
@@ -1040,7 +1039,7 @@ fn closed_literal(
     meter: &mut Meter,
 ) -> Result<()> {
     if !matches!(
-        kind(root),
+        graph.kind(root),
         Some(CheckedNodeKind::Value(
             ValueForm::RecordValue
                 | ValueForm::TupleValue
@@ -1081,12 +1080,12 @@ fn closed_literal(
                 if ancestors.contains(&&node.node_id) {
                     return Err(nonliteral());
                 }
-                match kind(node) {
+                match graph.kind(node) {
                     Some(CheckedNodeKind::Value(ValueForm::UnionValue)) => {
                         let ty = graph
                             .node(&node.semantic_type, meter)?
                             .ok_or_else(|| type_error(ordinal, Some(node.semantic_type.clone())))?;
-                        if kind(ty)
+                        if graph.kind(ty)
                             != Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Union))
                         {
                             return Err(type_error(ordinal, Some(node.semantic_type.clone())));
@@ -1154,30 +1153,33 @@ fn closed_literal(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CheckedOccurrenceRole, CheckedPackageWireV2, RetainedModels};
+    use super::super::CheckedOccurrenceRole;
     use super::*;
+    use crate::{CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2ReadResult};
     use ix_trace_rs::trace;
     use serde_json::json;
+    use std::sync::OnceLock;
 
-    fn id(digit: char) -> CheckedNodeId {
+    fn raw_id(digit: char) -> CheckedNodeId {
         CheckedNodeId {
             domain: NODE_DOMAIN.into(),
             digest: digit.to_string().repeat(64).into(),
         }
     }
 
-    /// Deliberately not reader-admitted. These private fixtures exercise only
-    /// the defensive post-admission corruptions named by the contract, not
-    /// publicly admitted graph shapes or identities.
-    fn package() -> CheckedPackageV2 {
-        let node = |digit, tag, form, ty, body| {
-            json!({
-            "node_id":id(digit),"schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":tag,"semantic_form":form,"semantic_type":id(ty),"dependencies":[],
-            "occurrences":[{"role":"expression","ordinal":0}],"body":body})
-        };
-        let empty = json!({"term":"aggregate","members":[]});
-        let wire:CheckedPackageWireV2=serde_json::from_value(json!({
+    fn fixture() -> &'static (Value, BTreeMap<char, CheckedNodeId>) {
+        static FIXTURE: OnceLock<(Value, BTreeMap<char, CheckedNodeId>)> = OnceLock::new();
+        FIXTURE.get_or_init(|| {
+            let node = |digit, tag, form, ty, body| {
+                json!({"node_id":raw_id(digit),"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":tag,"semantic_form":form,"semantic_type":raw_id(ty),"dependencies":[],
+                "occurrences":[{"role":if matches!(tag,"value"|"expression") {"expression"} else {"type"},"ordinal":0}],"body":body})
+            };
+            let parameter_body = |name| json!({"term":"aggregate","members":[
+                {"term":"binding","name":"name","value":{"term":"literal","type":raw_id('3'),"value_kind":"text","value":name}},
+                {"term":"binding","name":"level","value":{"term":"literal","type":raw_id('2'),"value_kind":"integer","value":"0"}}]});
+            let empty = json!({"term":"aggregate","members":[]});
+            let mut wire = json!({
             "contract_version":"quire.checked-package/v2",
             "identity_preimage":{"version":"quire.checked-package-id/v2",
                 "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
@@ -1190,20 +1192,85 @@ mod tests {
                 node('2',"scalar_type","integer",'2',empty.clone()),
                 node('3',"scalar_type","text",'3',empty.clone()),
                 node('4',"composite_type","record",'4',json!({"term":"aggregate","members":[
-                    {"term":"binding","name":"ready","value":{"term":"reference","target":id('1')}}]})),
-                node('5',"value","parameter",'4',empty.clone()),
+                    {"term":"binding","name":"ready","value":{"term":"reference","target":raw_id('1')}}]})),
+                node('5',"value","parameter",'4',parameter_body("left")),
                 node('6',"expression","binary",'1',json!({"term":"application","operator":"binary",
                     "operation":{"identity":"quire.op.structural.eq","laws":[],"mode":null,"member":null,"leaves":[]},
-                    "result_type":id('1'),"arguments":[{"term":"reference","target":id('5')},{"term":"reference","target":id('5')}]})),
-                node('7',"composite_type","option",'7',json!({"term":"aggregate","members":[{"term":"reference","target":id('7')}]})),
+                    "result_type":raw_id('1'),"arguments":[{"term":"reference","target":raw_id('5')},{"term":"reference","target":raw_id('8')}]})),
+                node('7',"composite_type","option",'7',json!({"term":"aggregate","members":[{"term":"reference","target":raw_id('1')}]})),
+                node('8',"value","parameter",'4',parameter_body("right")),
             ]},"source_map":[],"capability_report":[],
             "diagnostics":{"catalog":{"authority":"test","identity":"diagnostics"},"entries":[]}
-        })).expect("private defensive fixture");
-        CheckedPackageV2 {
-            wire,
-            kinds: Vec::new(),
-            bytes: 1 << 20,
-            models: RetainedModels::default(),
+        });
+            // Author canonical node identities in dependency order. This is a
+            // test producer; public assertions use independently named paths.
+            let mut ids = BTreeMap::new();
+            for (position, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(5,'6')] {
+                let node = &wire["semantic_graph"]["nodes"][position];
+                let ty = if node["node_id"] == node["semantic_type"] { Value::Null } else { node["semantic_type"].clone() };
+                let preimage = json!({"version":if digit=='6' {"quire.application-node/v1"} else {"quire.structural-node/v1"},
+                    "node_tag":node["node_tag"],"semantic_form":node["semantic_form"],"semantic_type":ty,
+                    "declaration":null,"recursion":null,"body":node["body"]});
+                let fresh = CheckedNodeId { domain:NODE_DOMAIN.into(), digest:quire_canonical::sha256(&preimage,quire_canonical::Limits::new(1<<20)).expect("fixture key").to_string().into() };
+                replace_id(&mut wire, &raw_id(digit), &fresh);
+                ids.insert(digit,fresh);
+            }
+            let source = json!({"authority":"test","identity":"composite","digest_domain":"quire.source.bytes/v1","digest":"a".repeat(64)});
+            wire["lock"]["sources"] = json!([source]);
+            wire["semantic_graph"]["nodes"][3]["dependencies"] = json!([ids[&'1']]);
+            wire["semantic_graph"]["nodes"][6]["dependencies"] = json!([ids[&'1']]);
+            let mut application_dependencies = vec![ids[&'5'].clone(),ids[&'8'].clone()];
+            application_dependencies.sort();
+            wire["semantic_graph"]["nodes"][5]["dependencies"] = json!(application_dependencies);
+            let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+            wire["source_map"] = json!(nodes.iter().enumerate().map(|(position,node)| json!({
+                "node_id":node["node_id"],"role":node["occurrences"][0]["role"],"ordinal":0,
+                "regions":[{"source":source,"start":position,"end":position+1}]})).collect::<Vec<_>>());
+            let mut projection = wire["semantic_graph"]["nodes"].as_array().expect("nodes").clone();
+            for node in &mut projection { node.as_object_mut().expect("node").remove("occurrences"); }
+            wire["identity_preimage"]["identity_projection"] = json!(projection);
+            wire["package_id"]["digest"] = json!(quire_canonical::sha256(&wire["identity_preimage"],quire_canonical::Limits::new(1<<20)).expect("package key").to_string());
+            (wire,ids)
+        })
+    }
+
+    fn replace_id(value: &mut Value, old: &CheckedNodeId, new: &CheckedNodeId) {
+        if *value == json!(old) {
+            *value = json!(new);
+            return;
+        }
+        match value {
+            Value::Array(members) => {
+                for member in members {
+                    replace_id(member, old, new);
+                }
+            }
+            Value::Object(members) => {
+                for member in members.values_mut() {
+                    replace_id(member, old, new);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn id(digit: char) -> CheckedNodeId {
+        fixture()
+            .1
+            .get(&digit)
+            .cloned()
+            .unwrap_or_else(|| raw_id(digit))
+    }
+
+    /// Every corruption below starts from a genuinely reader-admitted package.
+    fn package() -> CheckedPackageV2 {
+        match CheckedPackageV2::read(
+            &serde_json::to_vec(&fixture().0).expect("fixture bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Admitted(package) => *package,
+            other => panic!("defensive fixture must admit before mutation: {other:?}"),
         }
     }
 
@@ -1303,18 +1370,77 @@ mod tests {
             ))
         );
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].body = json!({"term":"application","result_type":id('4')});
+        p.wire.semantic_graph.nodes[4].body = json!({"term":"application","result_type":id('1')});
         assert_eq!(
             read(&p),
             Err(unsupported(
                 0,
-                Some(id('4')),
+                Some(id('1')),
                 CheckedUnsupportedCompositeOperand::ApplicationSubterm
             ))
         );
         let mut p = package();
         p.wire.semantic_graph.nodes[4].semantic_type = id('9');
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
+    }
+
+    // A valid first operand makes these independent second-argument defects
+    // kill any implementation that hard-codes the enclosing ordinal to zero.
+    #[trace("FR-038-AC-181", "FR-038-AC-178", "FR-038-AC-180")]
+    #[test]
+    fn tc_048_second_operand_refusals_retain_nonzero_ordinals_and_type_loci() {
+        let mut p = package();
+        p.wire.semantic_graph.nodes[5].body["arguments"][1]["target"] = json!(id('9'));
+        assert_eq!(
+            read(&p),
+            Err(Error::MissingChild {
+                ordinal: 1,
+                child: id('9')
+            })
+        );
+        let mut p = package();
+        p.wire.semantic_graph.nodes[5].body["arguments"][1] =
+            json!({"term":"application","result_type":id('2')});
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                1,
+                Some(id('2')),
+                CheckedUnsupportedCompositeOperand::ApplicationSubterm
+            ))
+        );
+        let mut p = package();
+        p.wire.semantic_graph.nodes[5].body["arguments"][1] =
+            json!({"term":"literal","type":id('2'),"value_kind":"integer","value":"1"});
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                1,
+                Some(id('2')),
+                CheckedUnsupportedCompositeOperand::InlineInteger
+            ))
+        );
+        let mut p = package();
+        p.wire.semantic_graph.nodes[6].semantic_form = "union".into();
+        p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Union);
+        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        assert_eq!(
+            read(&p),
+            Err(Error::UnsupportedDomain {
+                ordinal: 1,
+                type_node: id('7')
+            })
+        );
+        let mut p = package();
+        p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
+        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
+        let mut p = package();
+        p.wire.semantic_graph.nodes[6].semantic_form = "record".into();
+        p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
+        p.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]});
+        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
     }
 
     #[trace("FR-038-AC-181", "FR-038-AC-180")]
@@ -1325,14 +1451,17 @@ mod tests {
             json!({"term":"aggregate","members":[]});
         assert_eq!(read(&p), Err(type_error(0, Some(id('4')))));
         let mut p = package();
+        p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
         p.wire.semantic_graph.nodes[3].body["members"][0]["value"] =
             json!({"term":"reference","target":id('7')});
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
         p.wire.semantic_graph.nodes[4].semantic_form = "union_value".into();
+        p.kinds[4] = CheckedNodeKind::Value(ValueForm::UnionValue);
         assert_eq!(read(&p), Err(type_error(0, Some(id('4')))));
         let mut p = package();
         p.wire.semantic_graph.nodes[4].semantic_form = "record_value".into();
+        p.kinds[4] = CheckedNodeKind::Value(ValueForm::RecordValue);
         p.wire.semantic_graph.nodes[4].body =
             json!({"term":"aggregate","members":[{"term":"reference","target":id('5')}]});
         assert_eq!(

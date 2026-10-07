@@ -432,6 +432,8 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
+    /// Admission-derived lookup; excluded from content equality.
+    node_index: BTreeMap<CheckedNodeId, usize>,
     /// The byte limit this package was read under: the ceiling of every
     /// encode its lowering makes.
     bytes: u64,
@@ -452,6 +454,15 @@ impl PartialEq for CheckedPackageV2 {
 }
 
 impl Eq for CheckedPackageV2 {}
+
+fn retained_node_index(wire: &CheckedPackageWireV2) -> BTreeMap<CheckedNodeId, usize> {
+    wire.semantic_graph
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (node.node_id.clone(), position))
+        .collect()
+}
 
 /// Cumulative validation work against one caller limit.
 #[derive(Clone, Copy, Debug)]
@@ -694,9 +705,11 @@ impl CheckedPackageV2 {
         intake::attach_terms(&mut wire, terms);
         validate_owner_schema(&wire)?;
         let (kinds, models) = validate(&wire, limits, evidence)?;
+        let node_index = retained_node_index(&wire);
         Ok(Self {
             wire,
             kinds,
+            node_index,
             bytes: limits.bytes,
             models,
         })

@@ -1075,31 +1075,57 @@ fn resolve_family(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
+    let result = resolve_family_with(type_id, |visit| {
+        Ok::<_, std::convert::Infallible>(match visit {
+            FamilyVisit::Node(id) => index
+                .get(id)
+                .and_then(|position| Some((nodes.get(*position)?, *kinds.get(*position)?))),
+            FamilyVisit::Forward => None,
+        })
+    });
+    match result {
+        Ok(family) => family,
+        Err(never) => match never {},
+    }
+}
+
+/// Logical operations in the reader-owned family walk. A caller may charge
+/// these operations without duplicating the catalog's family semantics.
+pub(super) enum FamilyVisit<'a> {
+    Node(&'a CheckedNodeId),
+    Forward,
+}
+
+pub(super) fn resolve_family_with<'a, E>(
+    type_id: &CheckedNodeId,
+    mut visit: impl FnMut(
+        FamilyVisit<'_>,
+    ) -> Result<Option<(&'a CheckedSemanticNodeV2, CheckedNodeKind)>, E>,
+) -> Result<Option<&'static str>, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;
     loop {
-        let position = *index.get(current)?;
-        if !seen.insert(position) {
-            return None;
+        let Some((node, kind)) = visit(FamilyVisit::Node(current))? else {
+            return Ok(None);
+        };
+        if !seen.insert(node.node_id.clone()) {
+            return Ok(None);
         }
-        let node = &nodes[position];
-        let kind = *kinds.get(position)?;
-        // An enum is `ordered_enum` when its nominal preimage is ordered and
-        // `enum` otherwise (QSpec FR-322), which the node's kind alone cannot say.
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
             let ordered = matches!(
                 &node.nominal_identity_preimage,
                 Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
             );
-            return Some(if ordered { "ordered_enum" } else { "enum" });
+            return Ok(Some(if ordered { "ordered_enum" } else { "enum" }));
         }
         let direct = operand_family(kind);
         if direct.is_some() {
-            return direct;
+            return Ok(direct);
         }
         if kind.tag() != CheckedNodeTag::BoundedDomain {
-            return None;
+            return Ok(None);
         }
+        visit(FamilyVisit::Forward)?;
         current = &node.semantic_type;
     }
 }

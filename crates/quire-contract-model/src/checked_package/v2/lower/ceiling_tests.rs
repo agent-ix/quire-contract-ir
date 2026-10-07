@@ -309,6 +309,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     .expect("wire");
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); 4];
     CheckedPackageV2 {
+        node_index: super::super::retained_node_index(&wire),
         wire,
         kinds,
         bytes,

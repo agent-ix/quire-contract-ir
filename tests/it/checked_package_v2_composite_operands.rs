@@ -363,7 +363,7 @@ fn parameter_domain(
 
 #[trace("FR-038-AC-177", "FR-038-AC-182")]
 #[test]
-fn positional_children_and_selected_occurrences_survive_repeated_calls_and_clone() {
+fn tc_048_positional_children_and_selected_occurrences_survive_repeated_calls_and_clone() {
     let mut f = Fixture::new();
     let boolean = f.boolean.clone();
     let record = f.record(&[("ready", &boolean)]);
@@ -422,7 +422,7 @@ fn positional_children_and_selected_occurrences_survive_repeated_calls_and_clone
 
 #[trace("FR-038-AC-179", "FR-038-AC-181")]
 #[test]
-fn exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
+fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
     let mut f = Fixture::new();
     let integer = f.integer.clone();
     let low = "-40000000000000000000000000000000000000000000000000";
@@ -485,13 +485,35 @@ fn exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
     }
     let id = typed_node_id(&app);
     let occurrence = occurrence(0);
-    let consumed = result.consumed_work;
+    // Independent semantic visits for each operand (five shape nodes):
+    // 1 operand + 1 child resolution + 1 family resolution;
+    // 5 shape resolutions + 5 shape visits + 2 position visits;
+    // 4 child/forward edges + 2 descriptor-family resolutions;
+    // 0+1+1+2+2 retained shape path elements + 1+2 position path elements;
+    // field name plus four exact decimal endpoint spellings.
+    let expected_per_operand = 3
+        + 5
+        + 5
+        + 2
+        + 4
+        + 2
+        + 6
+        + 3
+        + u64::try_from("items".len() + "2".len() + maximum.len() + low.len() + high.len())
+            .expect("small strings");
+    let expected = 1 + 2 * expected_per_operand;
+    assert_eq!(result.consumed_work, expected);
+    let consumed = expected;
     assert_eq!(
         package.composite_application_operands(&id, &occurrence, consumed),
         Ok(result.clone())
     );
-    assert!(
-        matches!(package.composite_application_operands(&id,&occurrence,consumed-1),Err(Error::WorkLimit {limit,consumed:cost}) if limit==consumed-1 && cost>limit)
+    assert_eq!(
+        package.composite_application_operands(&id, &occurrence, consumed - 1),
+        Err(Error::WorkLimit {
+            limit: consumed - 1,
+            consumed
+        })
     );
     assert_eq!(
         package.composite_application_operands(&id, &occurrence, 0),
@@ -562,7 +584,7 @@ fn exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
 
 #[trace("FR-038-AC-178", "FR-038-AC-181")]
 #[test]
-fn closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {
+fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {
     let mut f = Fixture::new();
     let boolean = f.boolean.clone();
     let record = f.record(&[("ready", &boolean)]);
@@ -586,6 +608,143 @@ fn closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {
             CheckedScalarOperandChild::GraphChild(typed_node_id(&value))
         );
         assert_eq!(operand.domain, OperandDomain::Literal);
+    }
+    let literal =
+        json!({"term":"literal","type":node_id(&boolean),"value_kind":"boolean","value":true});
+    let tuple = f.ty(
+        "composite_type",
+        "tuple",
+        None,
+        aggregate(vec![reference(&boolean)]),
+    );
+    let sequence = f.collection("sequence", &boolean);
+    let option = f.collection("option", &boolean);
+    for (form, ty) in [
+        ("tuple_value", &tuple),
+        ("collection_value", &sequence),
+        ("option_value", &option),
+    ] {
+        let child = f.graph_value(form, ty, aggregate(vec![literal.clone()]));
+        let application = f.application(
+            vec![reference(&child), reference(&child)],
+            "quire.op.structural.eq",
+        );
+        let projected = project(&f.read(), &application);
+        for operand in projected.operands {
+            assert_eq!(
+                operand.child,
+                CheckedScalarOperandChild::GraphChild(typed_node_id(&child))
+            );
+            assert_eq!(operand.domain, OperandDomain::Literal);
+        }
+    }
+
+    // The owning catalog publishes collection.sequence as a collection-valued
+    // operation. Both graph-reference and inline application cases admit first.
+    let application_body = json!({"term":"application","operator":"collection",
+        "operation":{"identity":"quire.op.collection.sequence","laws":[],"mode":null,"member":null,"leaves":[]},
+        "result_type":node_id(&sequence),"arguments":[literal.clone()]});
+    let expression_key =
+        application_node_key("expression", "collection", &sequence, &application_body);
+    let expression = f.node(
+        expression_key,
+        "expression",
+        "collection",
+        &sequence,
+        application_body.clone(),
+        vec![],
+    );
+    let closed_sequence = f.graph_value(
+        "collection_value",
+        &sequence,
+        aggregate(vec![literal.clone()]),
+    );
+    let referenced_app = f.application(
+        vec![reference(&closed_sequence), reference(&expression)],
+        "quire.op.structural.eq",
+    );
+    let inline_subterm = f.application(
+        vec![reference(&closed_sequence), application_body],
+        "quire.op.structural.eq",
+    );
+    for application in [referenced_app, inline_subterm] {
+        assert_eq!(
+            f.read().composite_application_operands(
+                &typed_node_id(&application),
+                &occurrence(0),
+                100_000
+            ),
+            Err(Error::UnsupportedOperand {
+                ordinal: 1,
+                type_node: Some(typed_node_id(&sequence)),
+                reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+            })
+        );
+    }
+    let containing_record = f.record(&[("items", &sequence)]);
+    let closed_record = f.graph_value(
+        "record_value",
+        &containing_record,
+        aggregate(vec![binding("items", reference(&closed_sequence))]),
+    );
+    let application_member = f.graph_value(
+        "record_value",
+        &containing_record,
+        aggregate(vec![binding("items", reference(&expression))]),
+    );
+    let member_application = f.application(
+        vec![reference(&closed_record), reference(&application_member)],
+        "quire.op.structural.eq",
+    );
+    assert_eq!(
+        f.read().composite_application_operands(
+            &typed_node_id(&member_application),
+            &occurrence(0),
+            100_000
+        ),
+        Err(Error::UnsupportedOperand {
+            ordinal: 1,
+            type_node: Some(typed_node_id(&sequence)),
+            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+        })
+    );
+
+    // This separately authored input goes through admission; it is not a
+    // post-admission defensive mutation or an eligible inline-integer success.
+    let mut integer_input = Fixture::new();
+    let integer_literal = json!({"term":"literal","type":node_id(&integer_input.integer),"value_kind":"integer","value":"1"});
+    let integer_application = integer_input.application(
+        vec![integer_literal.clone(), integer_literal],
+        "quire.op.structural.eq",
+    );
+    let wire = integer_input.wire();
+    let position = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == node_id(&integer_application))
+        .expect("application");
+    match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(
+                refusal.code,
+                quire_contract_ir::CheckedPackageRefusalCode::IllTyped
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(quire_contract_ir::CheckedPackageRefusalCause::OperatorIneligible)
+            );
+            assert_eq!(
+                refusal.path.expect("argument pointer").as_str(),
+                format!("/semantic_graph/nodes/{position}/body/arguments/0")
+            );
+            assert_eq!(refusal.locus, Some(typed_node_id(&integer_application)));
+        }
+        other => panic!("integer inline must retain reader refusal: {other:?}"),
     }
     let free = f.parameter("free", &boolean);
     let open = f.graph_value(
@@ -662,7 +821,33 @@ fn closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {
 
 #[trace("FR-038-AC-180")]
 #[test]
-fn optional_wrapper_paths_and_all_reentries_preserve_distinct_source_routes() {
+fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_routes() {
+    for wrapped in [false, true] {
+        let mut f = Fixture::new();
+        let boolean = f.boolean.clone();
+        let option = f.collection("option", &boolean);
+        let field = if wrapped {
+            aggregate(vec![binding("optional", reference(&option))])
+        } else {
+            reference(&option)
+        };
+        let record = f.ty(
+            "composite_type",
+            "record",
+            None,
+            aggregate(vec![binding("maybe", field)]),
+        );
+        let parameter = f.parameter("optional_budget", &record);
+        let app = f.application(
+            vec![reference(&parameter), reference(&parameter)],
+            "quire.op.structural.eq",
+        );
+        let result = project(&f.read(), &app);
+        // Per operand: operand/child/family=3, three node resolutions+shape
+        // visits=6, two edges=2, retained shape path elements=0+1+2=3,
+        // copied field name=5. The optional wrapper adds no visit or segment.
+        assert_eq!(result.consumed_work, 1 + 2 * (3 + 6 + 2 + 3 + 5));
+    }
     for wrapped in [false, true] {
         let mut f = Fixture::new();
         let integer = f.integer.clone();
@@ -801,7 +986,7 @@ fn optional_wrapper_paths_and_all_reentries_preserve_distinct_source_routes() {
 
 #[trace("FR-038-AC-180", "FR-038-AC-182")]
 #[test]
-fn every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
+fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
     use quire_contract_ir::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
     let mut f = Fixture::new();
     let mut types: BTreeMap<String, String> = BTreeMap::new();
@@ -996,7 +1181,7 @@ fn every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
 
 #[trace("FR-038-AC-180", "FR-038-AC-179")]
 #[test]
-fn collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_order() {
+fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_order() {
     let mut f = Fixture::new();
     let integer = f.integer.clone();
     let mut fields = Vec::new();
@@ -1054,6 +1239,40 @@ fn collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_order() {
             members: ["Red", "Blue", "Green"].map(Into::into).to_vec()
         }
     );
+    let member = json!({"version":"quire.enum-member-node/v1","declaration_node_id":node_id(&color_key),"case":"Blue"});
+    let member_key = sha256_hex(&canonical(&member));
+    let declaration = f.nodes[&color_key]["nominal_identity_preimage"].clone();
+    let nominal = nominal_package(&[
+        (declaration, color_key.clone()),
+        (member, member_key.clone()),
+    ]);
+    for node in nominal["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nominal nodes")
+    {
+        f.nodes.insert(
+            node["node_id"]["digest"].as_str().expect("id").into(),
+            node.clone(),
+        );
+    }
+    let literal = f.graph_value(
+        "record_value",
+        &record,
+        aggregate(vec![binding("priority", reference(&member_key))]),
+    );
+    let app = f.application(
+        vec![reference(&literal), reference(&literal)],
+        "quire.op.structural.eq",
+    );
+    let result = project(&f.read(), &app);
+    assert!(result
+        .operands
+        .iter()
+        .all(|operand| operand.domain == OperandDomain::Literal));
+    assert_eq!(
+        result.operands[0].child,
+        CheckedScalarOperandChild::GraphChild(typed_node_id(&literal))
+    );
 }
 
 /// External exhaustive matches prove the published payloads are readable;
@@ -1101,7 +1320,7 @@ fn error_payload(error: Error) -> (&'static str, Option<u64>, Option<CheckedNode
 
 #[trace("FR-038-AC-181", "FR-038-AC-182")]
 #[test]
-fn external_error_consumer_retains_authentic_node_and_application_loci() {
+fn tc_048_external_error_consumer_retains_authentic_node_and_application_loci() {
     let mut f = Fixture::new();
     let integer = f.integer.clone();
     let record = f.record(&[("number", &integer)]);

@@ -70,12 +70,14 @@ use super::{
     ValueForm,
 };
 use crate::checked_package::common::{
-    application_operator, body_term, exact_members, literal_kind, node_pointer, ValidationFailure,
+    application_operator, body_term, exact_members, is_digest, literal_kind, node_pointer,
+    ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::visit_terms;
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
@@ -649,7 +651,22 @@ pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
     if body_term(term) != Some(BodyTerm::Reference) {
         return None;
     }
-    serde_json::from_value(object.get("target")?.clone()).ok()
+    checked_node_identity(object.get("target")?)
+}
+
+/// The original checked identity available in a body member, without repairing
+/// malformed domains, digests or fields. Both reference and inline metadata
+/// consumers use this one borrowed decoder.
+pub(super) fn checked_node_identity(value: &Value) -> Option<CheckedNodeId> {
+    if value.get("domain").and_then(Value::as_str) != Some(NODE_DOMAIN)
+        || !value
+            .get("digest")
+            .and_then(Value::as_str)
+            .is_some_and(is_digest)
+    {
+        return None;
+    }
+    CheckedNodeId::deserialize(value).ok()
 }
 
 /// A `literal` term's value, when its `value_kind` is `value_kind` and its
