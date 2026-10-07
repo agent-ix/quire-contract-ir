@@ -58,3 +58,12 @@ prose, so no gate catches it. Flip the TC-228 paragraph to name
 `tests/conformance_qspec/main.rs` and the private model test, and keep the IR-630 sentence.
 The FR-038 history note at line 2497 ("now plans to read") is historical narrative and can
 stay.
+
+## Dispositions
+
+Disposition pass 1, run `1434983b-9e92-462d-a089-0d5c3259f8d8`. The fix commit's identity is
+recorded only in the Linear dispositions comment, per this repository's rule.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #319 review-fix commit. TC-228 Status no longer says "PLANNED / UNRUN" or "absent from the executable conformance target". It says AC-176 runs through `tests/conformance_qspec/main.rs` for both two-owner fixtures and through the private `model_members` test for every published declaration key, under `make conformance-qspec`. It keeps the IR-630 sentence. The file has no stale status words left |
