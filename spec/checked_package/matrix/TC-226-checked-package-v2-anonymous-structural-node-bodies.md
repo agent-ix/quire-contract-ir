@@ -76,7 +76,9 @@ packages admit, and a skipped node of a real group is never refused
 AC-131, AC-132 and AC-150 cases do not exist until the gate lifts.
 For AC-183, the tampered, unreferenced `base.zero` node's refusal retains the
 reader-derived expected key and original `locus`; a fresh package with that
-node rekeyed and its package identity refreshed admits in full. A malformed
+node rekeyed at every occurrence, including its source-map entry (using the
+existing `rename_node` and `rebuild_source_map` fixture helpers), and its
+package identity refreshed admits in full. A malformed
 shape with no derivable key has no expected key.
 
 ## Status
@@ -97,7 +99,9 @@ unreferenced `integer_range` `base.zero` tamper case through the production
 reader. Require its `expected_node_id()` to return the key that reader
 derived, while `locus` keeps the tampered key and code/cause/path remain
 unchanged. In a fresh package, replace that unreferenced node's id with the
-returned typed key, mirror its projection, refresh the package identity and
-require the whole package to admit. Change only the bound again and require a
+returned typed key at every occurrence, including its source-map entry (using
+`rename_node` and `rebuild_source_map`), mirror its projection, refresh the
+package identity and require the whole package to admit. Change only the bound
+again and require a
 different returned key. A malformed body shape with no derivable key returns
 `None`; no test-side FR-092 encoder or digest constant is an oracle.

@@ -1219,25 +1219,33 @@ does not pass.
    the package identity only. Require `invalid_package`/`stale-node-key` at
    that original `node_id`, the original typed `locus`, and a distinct typed
    expected id from the reader. In a fresh package, give this unreferenced
-   node the returned key, mirror its projection, refresh the package identity
+   node the returned key at every occurrence, including its source-map entry
+   (the existing `rename_node` and `rebuild_source_map` fixture helpers cover
+   these updates), mirror its projection, refresh the package identity
    and require the **entire package to admit**. A second bound value changes
    the returned expected digest. Separately, for each of `boolean`, `integer`,
    `reference`, `option`, `set`, `bag`, `sequence` and `ordered_set`, changing a
-   self-typed node's retained id while leaving `semantic_type` stale yields
-   `None`; changing both id and `semantic_type` to the same new id lets the
-   reader derive `Some` where the body otherwise fits. This is AC-183.
+   **unreferenced** self-typed node's retained id while leaving
+   `semantic_type` stale refuses `invalid_package`/`stale-node-key` at that
+   retained id with `None`; changing both id and `semantic_type` to the same
+   new id lets the reader derive `Some` where the body otherwise fits. This
+   is AC-183.
 2. Repeat AC-183 with an unreferenced owner-free, ungrouped form outside the
    closed-shape table, such as a valid state snapshot or record, so the
    `UngroupedPreimage` branch must retain its already-computed key. Its fresh
-   rekeyed and identity-refreshed package admits. A test exercising only
+   rekeyed package with every occurrence, including the source map, updated
+   and its identity refreshed admits. Use `rename_node` and
+   `rebuild_source_map` for the fixture. A test exercising only
    `integer_range` cannot discharge this branch.
 3. For AC-184, use an application node with no referrer, while its own
    operands and type remain valid. Change one key-covered preimage member,
    retain the old id, mirror projection and refresh package identity. Assert
    the original `locus` and the typed digest `validate_application_keys`
-   already computed. A fresh package rekeyed to that returned id and
-   identity-refreshed admits in full; a second preimage change returns a
-   different expected digest. No referrer is allowed to create a stale-key
+   already computed. A fresh package rekeyed to that returned id at every
+   occurrence, including its source-map entry, and identity-refreshed admits
+   in full; use `rename_node` and `rebuild_source_map` for the fixture. A
+   second preimage change returns a different expected digest. No referrer is
+   allowed to create a stale-key
    cascade that masks the positive control.
 4. For AC-185, assert `None` on a malformed structural body with no derived
    key, a non-self-typed shape whose semantic type is inconsistent, a

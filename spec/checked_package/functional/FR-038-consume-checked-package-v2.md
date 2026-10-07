@@ -3408,9 +3408,10 @@ update: `quire-contract-codegen/src/kani/generate/outcome.rs` and
 `quire-driver/tests/drive.rs` can use a genuine malformed-byte refusal with no
 path; `quire-contract-codegen/src/oracle/scalar/mod.rs` requests the impossible combination
 `invalid_semantic_graph` with no path and needs a redesigned assertion. These
-are test migrations, not an IR compatibility API. QSL and driver forwarding
-paths shall retain an authentic typed key or absence without diagnostic-prose
-parsing. Existing code, cause, pointer, locus, first-refusal order, byte/work
+are test migrations, not an IR compatibility API. Note to the CG IR-664 and
+driver lock-refresh owners: verify their QSL and driver forwarding paths retain
+an authentic typed key or absence without diagnostic-prose parsing. Existing
+code, cause, pointer, locus, first-refusal order, byte/work
 limits and the public key-derivation surface remain unchanged.
 
 ## Acceptance Criteria
