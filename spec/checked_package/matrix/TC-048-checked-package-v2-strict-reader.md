@@ -1235,7 +1235,7 @@ FR-038-AC-173. Compare typed code, cause and pointer, and the calling graph-node
 key only
 where the existing refusal retains its locus. At the private `admit_selection` return, selected-document declaration refusals
 additionally retain authentic declaration identity and valid origin under
-FR-038-AC-174/175, with absence for missing/malformed origin. The existing
+FR-038-AC-174/175 and FR-038-AC-186 through FR-038-AC-195, with absence for missing/malformed origin. The existing
 model-intake conversion to `ValidationFailure` retains code/path/cause only;
 these procedures assert no public metadata extension. Do not parse diagnostic
 prose or infer a graph locus from a semantic declaration URI. All outcomes and
@@ -1245,8 +1245,10 @@ records executed evidence.
 
 ### Planned private intake refusal-origin checks
 
-These Test and Inspection procedures back FR-038-AC-174/175 and are
-PLANNED / UNRUN for IR-663. Exercise the real private model-intake return,
+These Test and Inspection procedures back FR-038-AC-174/175 and
+FR-038-AC-186 through FR-038-AC-195. They are PLANNED / UNRUN for IR-663;
+existing AC-167/173 trace tags verify refusal/admission semantics only and
+supply no evidence for these retention criteria. Exercise the real private model-intake return,
 `admit_selection` yielding `SelectionFailure::Refused(SelectionRefusal)`, in
 crate-local tests. Author minimal domain-package documents in this repository
 and admit their selected bytes through the existing content checks. Follow the
@@ -1259,6 +1261,11 @@ No public reader/dispatch/driver metadata observation is allocated.
    origin member, with unchanged refusal code/cause and selection-row member.
    A nested relationship shall have identity/origin distinct from its parent;
    require the actual relationship's context, never the owner's or missing target's.
+   Independently cause an unresolved field type, operation return type and parameter
+   type, each with its own identity/origin different from the containing type and
+   operation. Require the field, operation and parameter context respectively;
+   remove each nested identity/origin to require genuine None rather than owner
+   substitution. These are existing intake declaration forms, not new admissions.
    Separately check the existing public model-intake conversion's code, cause and
    selection-row pointer; preserve unrelated public refusal fields and graph locus.
 2. Exercise all four end-coordinate presence combinations, positive coordinates
@@ -1273,12 +1280,19 @@ No public reader/dispatch/driver metadata observation is allocated.
    supplied declaration identity. Missing/non-string identity shall retain None;
    an object-id spelling refused by intake shall remain supplied, not repaired.
    No default string, partial branch or enclosing-owner identity shall pass.
-4. Group duplicate declarations with the same supplied identity and identical valid
-   origins, then with distinct valid origins, then with no valid origin. Require
-   the common identity; retain only an unambiguous valid origin, and None for
-   conflicting valid origins or genuine absence. Permute candidate document order
-   without selecting a different winner or changing the existing conflicting-binding
-   outcome. No malformed candidate branch shall be repaired or partially retained.
+4. Group same-identity type declarations with identical valid origins, distinct
+   valid origins, no valid origins, one valid plus missing origin, and one valid
+   plus malformed origin. Require the common identity. Retain origin only if
+   every candidate is valid and every typed value/presence agrees; otherwise
+   require None. Repeat these cases both for conflicting-binding and for a
+   malformed-declaration group (bad common object-id spelling or bad candidate
+   kind). Permute candidate order without changing origin or first refusal.
+   Separately repeat a valid relationship identity under two owners with different
+   origins: in the existing sequential node/member-path order require the later
+   actual offending relationship's metadata, not the earlier node or owner.
+   Give that later relationship missing/malformed origin to require None with
+   its existing first refusal. This control must not use type-group consensus.
+
 5. Audit every private `SelectionRefusal` constructor and declaration-to-selection
    conversion. Exercise pre-declaration missing bytes, content mismatch and wrong
    selection identity; require metadata absence and original code/cause/member.
@@ -1289,11 +1303,18 @@ No public reader/dispatch/driver metadata observation is allocated.
    release must fail a typed intake-return assertion.
 6. Inspect that the `admit_selection` refusal conversion to `ValidationFailure`
    still carries existing code/path/cause and adds no declaration metadata fields
-   to `CheckedPackageRefusal`, dispatch or driver handoff. Retained `locus`, expected
+   to `CheckedPackageRefusal` or the IR-owned dispatch result. Retained `locus`, expected
    node key, contract-version and document-pointer behavior elsewhere remain intact.
    Future concrete typed consumers remain an open owner allocation, not this test's
    promised interface. No second parse, raised ceiling or diagnostic collection
    supplies retention. Source inspection alone cannot close the runtime Tests.
+7. For AC-194, inspect real production full typed-origin equality in group resolution and
+   owned-metadata consumption/release at the existing public projection boundary.
+   No fake read, blanket dead-code allowance, observer or public metadata field
+   may supply the use. For AC-195, the CODE slice shall run both repository Clippy lanes,
+   including the feature-off model-consumer command, and record their actual exits.
+   If safe concrete consumption is unavailable, report the source/API gap rather
+   than claim the criterion satisfied. These code checks remain PLANNED / UNRUN.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
 

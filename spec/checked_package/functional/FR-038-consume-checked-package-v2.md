@@ -93,9 +93,9 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   `invalid_model_binding` — and the node key of the offending entry or, for a
   canonical-order defect, of the frame node itself, so a caller need not
   re-derive from the path alone why admission failed or at which node.
-  Located model-declaration refusals additionally retain authentic declaration
-  identity and valid typed origin under the PLANNED / UNRUN retention contract
-  below; missing/malformed origin and pre-node unavailable identity stay absent.
+  The public model-intake refusal conversion retains its existing code, cause
+  and selection-row pointer. Declaration identity/origin retention below is
+  PLANNED / UNRUN at the private intake return, not part of this public output.
 - One lowering record per requested item, drawn from a closed seven-member
   vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
   `failed`, `invalid_body` and `body_incomplete`. The last two are defensive:
@@ -1034,9 +1034,10 @@ against those authoritative schema definitions, including the origin's
 referenced common-schema branch and closed shape. An absent, null,
 wrong-typed, unsupported-enum or otherwise schema-invalid non-end member
 refuses `invalid_model_binding`/`malformed-declaration` in step 1 at the
-selection row with its typed code, cause and RFC 6901 pointer. The refusal
-does not retain FCD origin, sourceIdentity, path, span or artifact metadata;
-a generated origin has no source span. The schema is
+selection row with its typed code, cause and RFC 6901 pointer. This public
+conversion does not retain FCD origin or declaration identity; the private
+intake return's planned retention is governed below. A generated origin has
+no source span. The schema is
 referenced, never copied into this repository. The reader SHALL
 read each end's `type` and `multiplicity`, the required non-empty string
 `sourceEnd.role`, and `targetEnd.role` only when present. An absent target role
@@ -1124,8 +1125,8 @@ owner responsibility; this reader checks the static package binding only.
 
 These declaration checks run in step 1 above, including for an otherwise
 unused relationship. Their outer pointer is `/lock/model_selections/<i>`.
-The private intake refusal SHALL retain the selected declaration's authentic
-identity and valid origin under the retention contract below. A nested relationship
+The reader SHALL retain the selected declaration's authentic
+identity and valid origin in the private intake refusal under the retention contract below. A nested relationship
 refusal shall retain that relationship's context, not its enclosing object type.
 The current public conversion preserves code, cause and the selection-row pointer;
 it does not expose declaration identity or origin. A selected-document declaration
@@ -1147,16 +1148,16 @@ graph argument target; it does not necessarily report the selection row.
 
 ### Declaration-refusal identity and origin retention
 
-When FR-154 model intake refuses a located declaration, the private
-`SelectionRefusal` returned as `SelectionFailure::Refused` from `admit_selection`
-SHALL retain the authentic FCD node identity and the node's valid FCD origin.
+When FR-154 model intake refuses a located declaration, the reader SHALL retain
+the authentic FCD node identity and the node's valid FCD origin in the private
+`SelectionRefusal` returned as `SelectionFailure::Refused` from `admit_selection`.
 This is PLANNED / UNRUN diagnostic metadata work. The selected,
 content-authenticated domain package document shall supply the metadata before
 its owned document is released. The private refusal shall own its retained values
 so that document release does not invalidate them. It shall keep the existing
 `refusal` code/cause and optional selection-row `member` unchanged.
 
-The private refusal shall carry `declaration_identity: Option<Box<str>>` and
+The reader shall populate the private refusal with `declaration_identity: Option<Box<str>>` and
 `declaration_origin: Option<IntakeDeclarationOrigin>`. `IntakeDeclarationOrigin`
 is an IR-owned private typed representation of FCD
 [`common.schema.json`, `$defs.origin`](https://github.com/agent-ix/filament-core-data/blob/main/schema/semantic/v1/common.schema.json).
@@ -1167,52 +1168,79 @@ It shall distinguish exactly these forms:
 - `Generated { generator_identity: Box<str>, generator_version: Box<str>,
   input_identities: Vec<Box<str>> }`.
 
-The private field names map directly to FCD's `sourceIdentity`, `startLine`,
-`startColumn`, `endLine`, `endColumn`, `generatorIdentity`, `generatorVersion`
-and `inputIdentities`. Retention shall preserve every valid supplied member's
-value and optional-member presence exactly. Source start coordinates are positive;
-end coordinates are independently optional and positive when present. Existing
-selected-document exact-number admission precedes declaration intake and already
-refuses integer magnitudes above 2^53. Retention shall introduce no smaller numeric
-ceiling, paired-end requirement or span-order rule. Generated origin shall retain
-version text and input identity order/multiplicity exactly, with no source span.
+The reader shall preserve every valid supplied origin member's value and
+optional-member presence exactly according to the referenced FCD schema.
+Existing selected-document exact-number admission precedes declaration intake and already
+refuses integer magnitudes above 2^53. The reader shall introduce no smaller numeric
+ceiling, paired-end requirement or span-order rule for retention. It shall retain
+generated version text and input identity order/multiplicity exactly, with no source span.
 This is preservation of typed member values, not a copy of document formatting.
 
-An available identity shall be the actual offending node's supplied identity,
-including an identity refused for its object-id spelling. Missing or non-string
-identity shall retain None. The reader SHALL NOT infer or repair identity from
+When an offending node supplies a string identity, the reader shall retain that
+exact identity, including one refused for its object-id spelling. When identity
+is missing or non-string, the reader shall retain None. The reader SHALL NOT infer or repair identity from
 an artifact title, member lookup, selection-row pointer, graph digest or enclosing
-owner; FCD supplies no separate artifact-id field. A defect of a nested declaration
-shall retain that declaration's own context. An unresolved reference shall identify
-the declaration containing the offending reference, not fabricate the absent target.
+owner; FCD supplies no separate artifact-id field. When a field's own declaration
+or type reference fails, the reader shall retain that field's identity/origin;
+when an operation's own declaration or return type fails, it shall retain that
+operation's identity/origin; when a parameter's own declaration or type reference
+fails, it shall retain that parameter's identity/origin. An unavailable nested
+identity or origin shall remain None, never replaced by the containing operation
+or object type. A relationship-end defect shall retain the relationship's own
+identity/origin. An unresolved reference shall identify its containing declaration,
+not fabricate the absent target. These rules allocate refusal context for existing
+intake forms, not admission of new declaration forms.
 
-Missing or malformed origin shall retain None, including both branches, partial
-branches, unknown members and invalid members; no partial branch shall be salvaged.
-For a grouped duplicate-identity refusal, the common supplied identity shall be
-retained when available. Origin shall be retained only when one valid origin is
-unambiguous across the candidate nodes: distinct valid origins require None,
-never an arbitrarily chosen winner. This rule shall not repair any malformed
-candidate origin or reorder the existing conflicting-binding refusal.
+When origin is missing or malformed, including both branches, partial branches,
+unknown members or invalid members, the reader shall retain None and shall not
+salvage a partial branch.
+For an unselected group of type declarations with the same supplied identity,
+the reader shall retain that common identity when available. It shall retain an
+origin only when every candidate has a valid origin and all those typed origins
+are equal in every supplied value and optional-member presence. Any missing or
+malformed candidate origin, or any different valid origin, requires None. This
+rule applies whether the group's existing refusal is conflicting-binding or
+malformed-declaration; the reader shall not select a candidate winner or change
+the first refusal. This conservative ambiguity rule is an IR-local refinement
+of the multi-node case left unspecified by FR-154's per-node retention rule.
 
-Pre-declaration byte, digest, package-identity or shape refusals made without an
-identified declaration shall retain None for both fields. Existing distinct
+A relationship identity repeated sequentially, including under different owners,
+is not an unselected type group. For that duplicate refusal the reader shall
+retain the later actual offending relationship's supplied identity and its own
+valid origin, or None for its missing/malformed origin, in the existing
+node/member-path order. It shall not substitute the earlier relationship or
+containing owner's metadata.
+
+When byte, digest, package-identity or shape admission fails before identifying a
+declaration, the reader shall retain None for both fields. Existing distinct
 `SelectionFailure::Limit` and `SelectionFailure::InexactNumber` results shall keep
-their current values and precedence. Declaration checks shall retain their existing
-node/table/member-path order, code/cause/member choice and first-refusal behavior.
-Metadata shall be acquired from the existing read and charged to the existing
+their current values and precedence. The reader shall keep declaration checks in their existing
+node/table/member-path order, with the same code/cause/member choice and first-refusal behavior.
+It shall acquire metadata from the existing read and charge it to the existing
 bounded document/read/work accounting. No second parse, raised ceiling, unbounded
 diagnostic collection, default origin or diagnostic-prose parsing is allocated.
 
+The reader shall compare full valid typed origin values in production when
+resolving an unselected group's origin ambiguity. At the existing private
+intake-to-`ValidationFailure` conversion, it shall deliberately consume and
+release owned declaration metadata within the existing accounted lifetime,
+while preserving the existing refusal projection. Required CODE duties are
+real production use and bounded ownership release. Fake reads to suppress
+unused fields, a blanket `dead_code` allowance or a new observer/public API do not satisfy them.
+Its feature-off model-consumer Clippy gate remains mandatory. Open CODE gate: concrete safe production consumption and ownership release
+remain to be established; a source/API gap requires owner resolution rather than
+an undocumented suppression. No compiler pass is claimed here.
+
 The retention boundary is the private intake return above. The current conversion
-of that return to `ValidationFailure` carries code, path and cause only; this
-amendment SHALL NOT extend `CheckedPackageRefusal`, a dispatch result or a driver
-handoff with declaration metadata. Their existing `locus`, `contract_version` and
-`document_pointer` meanings remain unchanged. Public reader metadata observability
+of that return to `ValidationFailure` carries code, path and cause only. The
+reader SHALL NOT add declaration metadata to `CheckedPackageRefusal` or the
+IR-owned dispatch result under this contract. Existing `locus`, expected-node-key,
+`contract_version` and `document_pointer` behavior elsewhere remains unchanged. Public reader metadata observability
 is not claimed by this contract.
 
-Open item: if a concrete typed driver, CG or runtime consumer later requires these
-intake values, its owner shall allocate a separate consumer contract and ticket
-when that consumer exists. This amendment allocates no such public API or consumer.
+Open item: a future concrete typed driver, CG or runtime consumer needing these
+values would require a separately owned consumer contract and ticket. No such
+consumer or public API is allocated here.
 Private origin/identity lifetime, refusal-constructor and intake-return assertions
 remain CODE gates, not evidence supplied by this specification.
 
@@ -3796,15 +3824,15 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-164 | An external Rust API fixture calls the accessor with `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively matches the child-identity and error enums, and reads each ordinal, node id or inline selector and range through typed fields; it does not read `graph().nodes[*].body` or deserialize JSON. Repeated calls and a cloned admitted package return equal results, and neither call changes package equality. | Test (TC-048) |
 | FR-038-AC-165 | PLANNED / UNRUN (IR-661). A selected, independently authored FCD-shaped document with a global `relationship` slot identity admits, while an owner-nested relationship, a foreign-package identity and a wrong-slot identity each refuse `invalid_model_binding`/`malformed-declaration`. Owner-nested fields, operations and operation parameters still admit; moving a field or operation into the global relationship slot refuses `invalid_model_binding`/`malformed-declaration`. | Test |
 | FR-038-AC-166 | PLANNED / UNRUN (IR-661). Changing only an authored role makes the old name refuse `missing_declaration`/`missing-name` and the new name resolve on the same selected relationship. Destination-type and multiplicity changes are observed through the admitted navigation result nodes of AC-170, not through an unspecified retention accessor. Omitting only `targetEnd.role` admits the document with only its forward named end. Removing `sourceEnd.role`, or setting either present role to null, empty or a non-string, refuses `invalid_model_binding`/`malformed-declaration`; no role is synthesized or checked against an inverse registry. | Test |
-| FR-038-AC-167 | PLANNED / UNRUN (IR-661; private retention IR-663). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal keeps its code, cause and selection-row pointer. At the private `admit_selection` refusal return, a nested relationship retains its own authentic supplied identity and valid origin, not its owner's or the unresolved target's metadata. Public conversion remains code/path/cause-only; graph locus remains separate. Retention assertions remain PLANNED / UNRUN. | Test |
+| FR-038-AC-167 | PLANNED / UNRUN (IR-661). An unresolved `sourceEnd.type` or `targetEnd.type` refuses `missing_declaration`/`missing-name`; a type naming a relationship or another declaration of the wrong meaning refuses `invalid_model_binding`/`malformed-declaration`, independent of declaration order. A source end naming another owning type, a malformed end or multiplicity refuses `invalid_model_binding`/`malformed-declaration`; `lower > upper` alone refuses `invalid_model_binding`/`unpreserved-model-meaning`. Each declaration refusal keeps its typed code, cause and selection-row pointer. This criterion verifies refusal semantics only; private metadata retention is verified separately by the dedicated criteria under the declaration-refusal retention contract. | Test |
 | FR-038-AC-168 | PLANNED / UNRUN (IR-661). Repeating a relationship identity, including under two different owners, refuses `invalid_model_binding`/`conflicting-binding` at the selection row. Two missing relationship identities are malformed declarations, not conflicting identities. A malformed role beats an unresolved end type and reversed multiplicity on that relationship; an unresolved end type beats reversed multiplicity. Referencing a node refused for identity or kind keeps its own refusal rather than reporting a missing end type. With other limits sufficient, the measured successful selection-stage work admits that stage; one below its cumulative charge threshold returns `incomplete` at `/lock/model_selections/<i>` with no admitted package. This is separate from AC-171's total-reader work limit. | Test |
 | FR-038-AC-169 | PLANNED / UNRUN (IR-661). `relationship_end.declaration` names the selected relationship's `relation`/`relationship` graph node and resolves through its content-only `ModelOwner`, with an empty body; a valid source or target object node used as its declaration refuses `ill_typed`/`operator-ineligible` at `member.declaration` after owner recovery and before role lookup, without invalidating that object owner. Source role lookup yields the forward end and a present target role yields the inverse end, by exact role bytes rather than the terminal identity segment. An unknown role or absent inverse refuses `missing_declaration`/`missing-name` at the member's `name` before receiver, direction or result checks; two matching roles refuse `ambiguous_declaration`/`ambiguous-name`. A wrong-kind or missing relationship owner keeps the existing owner-join refusal, with no role fallback. | Test |
 | FR-038-AC-170 | PLANNED / UNRUN (IR-661). Forward and inverse navigation choose opposite receiver/destination endpoints and admit the canonical result nodes specified by QSpec FR-152 Navigation. The independently authored finite cases in TC-048 exercise Reference, Option, Set and Bag results; changing only destination type or bounds changes which result node admits. An inherited end admits on a subtype receiver with the same destination type; an unrelated object receiver refuses `ill_typed`/`operator-ineligible`. Wrong result or direction refuses `ill_typed`/`operator-ineligible` at the declared IR path. An eligible direction with an unbounded or ordered destination refuses `unsupported_construct`/`expression-form` at `member.name`, using the relationship-navigation-only variants named in AC-101. A named inverse on a source-to-target relationship refuses direction before unsupported destination multiplicity. | Test |
 | FR-038-AC-171 | PLANNED / UNRUN (IR-661). For `quire.op.model.navigate`, the new relationship-end checks follow the specified operation-step order, explicit calling-node locus and RFC 6901 paths: owner recovery and declaration-kind eligibility before roles; roles before receiver, direction, multiplicity and result comparison. A missing role combined with a wrong receiver, disallowed direction and wrong result reports `missing_declaration`/`missing-name` at `.../operation/member/name`; a valid role with wrong receiver reports at `.../body/arguments/0`; a mismatched result reports at `.../body/result_type`. A successful complete read admits at its measured exact total work limit. One less returns `incomplete` at the first unpayable charge in the existing stage order, without a partial package: operation validation precedes later graph-body reference-edge charges, so the pointer may be `.../body/arguments/0/target`, not the selection row. Selection-stage-minus-one has the separate selection-row oracle of AC-168. | Test |
 | FR-038-AC-172 | PLANNED / UNRUN (IR-661). A homogeneous self-relationship with a resolved forward or inverse end and an eligible Reference or Option destination admits `quire.op.model.reaches` with two references conforming to its static endpoint owner and Boolean result, including subtype operands. An unrelated operand, heterogeneous destination or otherwise ineligible Set/Bag edge refuses `ill_typed`/`operator-ineligible` at its operand or member-name path. Missing role and object-node declaration produce AC-169's respective typed outcomes; a wrong result node refuses at `body.result_type`. No operand is treated as Reference to the relationship graph node. | Test |
-| FR-038-AC-173 | PLANNED / UNRUN (IR-661; private retention IR-663). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before application resolution. Code/cause/pointer and check order remain unchanged. The private intake refusal retains any actual supplied declaration identity; missing or malformed origin, including both branches or partial branches, retains None. Schema-valid source and generated origins admit without a default direction, and a later declaration refusal retains their exact values at the private intake return without a generated span. No public metadata exposure is asserted. | Test |
-| FR-038-AC-174 | PLANNED / UNRUN (IR-663 private intake retention). A located FR-154 declaration refusal returned by `admit_selection` as `SelectionFailure::Refused` retains its authentic supplied FCD identity and valid typed Source or Generated origin after selected-document release. A nested relationship retains its own context. Source coordinates and independently optional end members remain exact through the existing admitted 2^53 boundary; generated version text and input identity order/multiplicity remain exact with no span. Missing/malformed origin retains None without branch salvage. A grouped duplicate identity retains its common identity; distinct valid candidate origins retain None, and one unambiguous valid origin is retained without selecting an arbitrary winner. Existing first refusal and bounded accounting remain unchanged. | Test |
-| FR-038-AC-175 | PLANNED / UNRUN (IR-663 private intake constructors). Every `SelectionRefusal` constructor and declaration-to-`SelectionFailure::Refused` conversion explicitly preserves available authentic declaration identity/origin or None through the private `admit_selection` return. Pre-declaration admission failures retain absence; distinct Limit/InexactNumber results are unchanged. Dropping either available value, attaching an owner's or foreign node's metadata, normalizing origin members or inventing a generated span fails the corresponding independent intake-return assertion. Inspection confirms the current public `ValidationFailure` conversion remains code/path/cause-only and no `CheckedPackageRefusal` or handoff field is added. No default or diagnostic-prose parsing supplies metadata. | Test, Inspection |
+| FR-038-AC-173 | PLANNED / UNRUN (IR-661). Removing direction, category, composite or origin, setting each to null or a wrong type, using an unsupported direction/category value, or supplying a malformed common-schema origin branch refuses `invalid_model_binding`/`malformed-declaration` at the selection row before application resolution. Code/cause/pointer and check order remain unchanged. Schema-valid source and generated origins admit without a default direction. This criterion verifies origin validation and admission/refusal semantics only; private metadata retention is verified separately by the dedicated criteria under the declaration-refusal retention contract. | Test |
+| FR-038-AC-174 | PLANNED / UNRUN (IR-663 identity retention). When FR-154 intake selects an offending declaration with a supplied string identity, the reader retains that exact FCD identity in the private refusal returned by `admit_selection`, including refused object-id spelling. Missing or non-string identity yields None; no graph digest, inferred owner, repaired string or separate artifact id supplies it. | Test |
+| FR-038-AC-175 | PLANNED / UNRUN (IR-663 private constructors). Each private `SelectionRefusal` constructor and declaration-to-`SelectionFailure::Refused` conversion preserves the selected retained metadata record through the private `admit_selection` return after document release. Independently dropping available identity/origin or substituting a different declaration's record fails the typed return assertion. Pre-declaration constructors preserve genuine metadata absence. | Test |
 | FR-038-AC-176 | IMPLEMENTED (IR-654 code; external conformance target passes). With `QUIRE_SPECIFICATION_DIR` naming the authoritative QSpec checkout, `make conformance-qspec` requires all nine `positive-*.json` packages under `proposals/checked-package-v2/fixtures/`: `positive-all-families.json`, `positive-clause-operations.json`, `positive-control-operations.json`, `positive-nominal-identities.json`, `positive-operation-identities.json`, `positive-recursive-records.json`, `positive-two-owners-a.json`, `positive-two-owners-b.json` and `positive-union-nodes.json`. Each admits through the production reader with its published `package_id`. For a package selecting `acme/orders`, the harness supplies `proposals/checked-package-v2/domain-package-acme-orders.json` from the same checkout under its selected `sha256-jcs` digest and the reader checks the bytes against that selection; this extends AC-107's existing positive read for packages with `model_selections`, not a second skipped read. A missing or malformed document, absent required positive fixture, unknown selected model identity, missing selection digest or non-admitted package fails the run. For the two-owner fixtures, read each node id and owner back through the admitted package's graph accessor and compare with the published graph and identity-projection entries: the corresponding declared structural nodes have different ids across source owners, as AC-153 requires. This checks published wire/admission, not source-owner key re-derivation, which remains IR-630. For every `model_declaration_nodes[*].preimage` in `proposals/checked-package-v2/model-member-type-vectors.json`, compare its `sha256` with the digest from the reader's production `declaration_key` path (`StructuralPreimage`/`structural_key` in `model_members.rs`), or admit its published wire node through that same production derivation; a harness that only hashes the vector's JSON preimage cannot pass. `node-identity-vectors.json` in that proposal remains the separate nominal/application-vector source; `model-effective-declaration-vectors.json` describes another model artifact and is not the structural-key oracle. No fixture document, source pin or digest catalog is copied into this repository. Live QSL emission followed by IR reading belongs to integration work outside this criterion. | Test (TC-048) |
 | FR-038-AC-177 | Implemented by `composite_application_operands`; verified by the TC-048 composite operand tests. An admitted structural.eq over supported parameter references returns the actual application and supplied occurrence with two typed operands in argument order, ordinals 0 and 1. Swapping arguments swaps entries; repeating a parameter retains two entries. A second authentic occurrence is retained exactly; an absent occurrence refuses MissingOccurrence with the supplied application and occurrence. | Test |
 | FR-038-AC-178 | Implemented by `composite_application_operands`; verified by the TC-048 composite operand tests. A supported closed graph composite literal retains its own GraphChild id and Literal disposition with no introduced positions even under a wider type. A value subtree reading a parameter refuses UnsupportedOperand with enclosing ordinal and reason NonliteralGraphValue; an application subterm refuses reason ApplicationSubterm. Defensive inline integer and noninteger term cases refuse reasons InlineInteger and InlineNonInteger, without fabricated identity or value. No publicly admitted structural.eq integer-inline success is claimed: the owning catalog excludes Integer from structural_kind; future success requires an owning eligibility/value specification. | Test |
@@ -3815,6 +3843,16 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-183 | Implemented and verified by TC-048 and TC-226 (IR-680 code). For an unreferenced owner-free, ungrouped node in each of the `derived_key` closed-shape and `UngroupedPreimage` branches, a retained node id that differs from the production-derived key refuses `invalid_package`/`stale-node-key` at the original `node_id`, keeps that original typed id in `locus`, and returns the distinct derived typed key through `expected_node_id()`. A fresh package whose unreferenced node is rekeyed to that value and whose package identity is refreshed admits; one changed preimage member changes the expected digest. For each of the eight self-typed forms, a changed `node_id` can yield a key only when its `semantic_type` changes with it; a stale `semantic_type`, a non-self-typed shape with inconsistent semantic type, a `collection_bounds` over a noncollection type, and a malformed closed shape yield `None`. AC-185 governs shared retention and absence. | Test (TC-048, TC-226) |
 | FR-038-AC-184 | Implemented and verified by TC-048 (IR-680 code). An unreferenced application node whose retained key differs from the digest already computed by `validate_application_keys` refuses `invalid_package`/`stale-node-key` at its original `node_id`; `locus` remains that original typed id and `expected_node_id()` returns the distinct computed typed key. A fresh package rekeyed to that value, with package identity refreshed and no referrer to cascade stale keys, admits; changing one application preimage member changes the expected digest. The value comes from the existing application computation, not a second hash or a diagnostic string. AC-185 governs shared retention and absence. | Test (TC-048) |
 | FR-038-AC-185 | Implemented and verified by TC-048 (IR-680 code). The expected key is a private, bounded `Option<CheckedNodeId>` exposed only by `expected_node_id() -> Option<&CheckedNodeId>`; it participates in derived `Clone`/`Eq`/`PartialEq`, may appear in derived `Debug`, and is absent from Display, document pointer, locus text and serialized forms. A fixed-member model declaration shape failure, a canonical encoding failure and a pre-key-stage refusal return `None`; every IR refusal constructor and public V2/dispatch forwarder preserves an authentic value or absence, and IR's independent test-authored expected values check the actual reader field by field. Existing code, cause, path, locus, first-refusal order, byte/work charges and public key-derivation surface remain unchanged; no public synthetic-refusal constructor or derive/rekey API is added. The key is meaningful only with the reader-returned original `locus`, since callers can mutate public fields on a cloned refusal. | Test, Inspection (TC-048) |
+| FR-038-AC-186 | PLANNED / UNRUN (IR-663 source origin). Given a located refusal with a valid FCD Source origin, the reader returns its exact typed source member values and optional-member presence at the private intake boundary, including all four end-coordinate presence combinations and the existing admitted 2^53 boundary. Retention adds no paired-end or span-order constraint. | Test |
+| FR-038-AC-187 | PLANNED / UNRUN (IR-663 generated origin). Given a located refusal with a valid FCD Generated origin, the reader returns exact generator identity/version text and input identity sequence at the private intake boundary. Input order/repetition remains unchanged and no source span is present. | Test |
+| FR-038-AC-188 | PLANNED / UNRUN (IR-663 selected nested context). When an existing field declaration/type reference, operation declaration/return type, parameter declaration/type reference or relationship-end check refuses, the reader retains the actual offending field, operation, parameter or relationship's supplied identity and valid origin. A sequential repeated relationship, including across two owners, retains the later actual offending relationship's context under the existing order. Missing nested metadata remains None; an owner, earlier relationship or unresolved target cannot substitute. | Test |
+| FR-038-AC-189 | PLANNED / UNRUN (IR-663 origin absence). Given a located refusal with missing or malformed origin, the reader returns None for origin while independently retaining any available declaration identity. Both-branch, partial-branch, unknown-member and invalid-member cases cannot yield a salvaged branch or default origin. | Test |
+| FR-038-AC-190 | PLANNED / UNRUN (IR-663 unselected type-group refinement). For every unselected same-identity type group, including malformed-declaration and conflicting-binding refusals, the reader retains its common supplied identity and retains origin only if every candidate has a valid origin and all typed values and optional-member presence agree. Any missing, malformed or different valid candidate origin yields None. Candidate permutation cannot select a winner. This IR-local ambiguity refinement does not apply type-group consensus to a sequential relationship refusal. | Test |
+| FR-038-AC-191 | PLANNED / UNRUN (IR-663 refusal precedence). Retaining metadata does not change the existing first code, cause or selection-row member in node/table/member-path order. Combining declaration defects preserves that exact first refusal; distinct Limit and InexactNumber alternatives retain their current payloads and precedence. | Test |
+| FR-038-AC-192 | PLANNED / UNRUN (IR-663 bounded retention). Retained metadata is acquired and released within the existing bounded document/read/work accounting, without a second parse, raised ceiling or unbounded diagnostic collection. Exact sufficient work succeeds; the first unpayable charge preserves the existing incomplete result and no partial package. | Test |
+| FR-038-AC-193 | PLANNED / UNRUN (IR-663 public boundary exclusion). Inspection of the IR-owned model-intake conversion confirms that it projects code/path/cause to ValidationFailure and adds no declaration metadata field to CheckedPackageRefusal or the IR-owned dispatch result. Unrelated locus, expected-node-key, contract-version and document-pointer behavior remains intact. | Inspection |
+| FR-038-AC-194 | PLANNED / UNRUN (IR-663 production ownership). Inspection confirms that production group-origin resolution compares full valid typed origin values and the existing private-to-public conversion consumes/releases owned metadata within the accounted lifetime. Fake reads solely to suppress unused fields, blanket dead_code allowances, an observer or new public API cannot supply that production use. | Inspection |
+| FR-038-AC-195 | PLANNED / UNRUN (IR-663 consumer lint gate). The CODE slice passes the repository's model-consumer Clippy lane with test-only fault injection disabled and warnings denied, as well as the workspace all-target lane. A compiler failure remains an open code gate rather than permission for a suppression or fake observer. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
