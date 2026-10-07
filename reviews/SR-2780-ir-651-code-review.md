@@ -116,3 +116,81 @@ FR-038's locus rule reads: "`type_node` shall identify ... the application
 subterm's result type". The inline branch at line 422 reads `result_type`, but the
 graph-node branch uses the node's `semantic_type`. The only test that covers this
 branch sets both to the same id, so a wrong-field mutant survives.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | The FND-002 fix maps every type with no operand family (unit, dimension, compound_unit, alias, relation forms) and every bounded-domain cycle to `MalformedDomain` at the operand's semantic type, not `NonStructuralType`; before the fix these refused `NonStructuralType` | crates/quire-contract-model/src/checked_package/v2/composite_operands.rs:437-452 |
+
+### FND-006 detail
+
+`resolve_family_with(..)?.ok_or_else(|| type_error(ordinal, Some(child.semantic_type.clone())))`
+turns the reader's `None`, which covers a missing node, a bounded-domain cycle
+and a valid type with no operand family, into `MalformedDomain`. FR-038 says
+"nonstructural operand types shall refuse reason `NonStructuralType`", and it
+keeps `MalformedDomain` for a missing type, malformed structure or an unanchored
+cycle. A post-admission mutation that retypes a parameter to a `compound_unit`
+node now returns `MalformedDomain { ordinal, type_node: Some(<unit type>) }` where
+FR-038 expects `UnsupportedOperand { reason: NonStructuralType }`. A cycle
+reports the operand's type instead of the first malformed node. Admission already
+refuses these operands, so only the defensive path is affected. No test covers a
+family-less valid type.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-002 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-003 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-004 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-005 | fixed | commit "Close IR651 composite accessor review findings" |
+
+## Disposition evidence
+
+Round 1. A static re-check of the fast-forward fix head against the original
+reviewed head. No cargo was run, and the author reports that the repaired exact
+test and Clippy have not run yet, so every runtime claim below needs the second
+full gate.
+
+- FND-001: `CheckedPackageV2` now keeps a private `node_index:
+  BTreeMap<CheckedNodeId, usize>`, built once at admission and left out of
+  `PartialEq`. `Graph::node` charges 1 and then makes an O(log n) map lookup, and
+  `Graph::kind` reads the reader's retained `kinds` through the same index. No
+  linear scan of the node array remains. Every in-crate struct literal sets the
+  new field. Mutant killed: a linear `find` is no longer present, and the
+  per-charge cost is logarithmic.
+- FND-002: family eligibility now calls the reader's
+  `operations::resolve_family_with` (`resolve_family` delegates to it) and
+  `operation_catalog().family_fits(family, "structural_kind")`. `structural_family`
+  is deleted, and `target` and `typed_member` delegate to
+  `structural::reference_target` and `structural::checked_node_identity`. The
+  reader's `reference_target` now validates domain and digest. Intake
+  (`common::visit_reference`) already refuses any body reference that fails those
+  checks before any stage that calls `reference_target`, so admission behaviour is
+  unchanged. Residual risk: confirm with the full gate.
+- FND-003: the transient path clone is no longer charged (`frame.path.clone()`),
+  the separate pushed-index charge is gone, and the optional-presence target is
+  resolved once, during its own visit, where its Option kind is checked. Two
+  integration tests assert `consumed_work` against hand-derived totals
+  (`1 + 2*(3+5+5+2+4+2+6+3+text)` and `1 + 2*(3+6+2+3+5)`). I re-derived both from
+  the code's charge sites and they match. The exact-budget, one-below (exact
+  payload) and zero cases follow. Mutants killed: double path charging and a
+  double optional resolution both change the asserted totals.
+- FND-004: the unit fixture is now a wire with test-derived canonical keys,
+  admitted through `CheckedPackageV2::read`, with corruptions applied afterwards
+  (`kinds` is updated with every form mutation). Admission is checked at runtime
+  only (`panic!` if refused) and has not yet run.
+- FND-005: the graph-reference ApplicationSubterm branch now reads
+  `typed_member(&child.body, "result_type")`. The unit test uses
+  result_type != semantic_type, which kills the wrong-field mutant, and the public
+  integration case asserts the application's result type.
+
+Regression checks: the public API is unchanged (no new `pub` item; the new helpers
+are `pub(super)`). There is no new unwrap, expect, index or unchecked arithmetic
+in production code, and no recursion or depth cap. The IR-680 AC-183 through
+AC-185 paths are untouched: the `resolve_family` refactor keeps its semantics,
+with `seen` keyed by node id instead of position. Strict coverage reports 25
+unbacked rows and 0 contradicted at the fix head, the same as round 0. The one new
+low finding is FND-006.

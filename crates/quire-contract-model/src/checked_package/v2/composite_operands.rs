@@ -434,23 +434,30 @@ impl CheckedPackageV2 {
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
-            let family =
-                super::operations::resolve_family_with(
-                    &child.semantic_type,
-                    |visit| match visit {
-                        super::operations::FamilyVisit::Node(id) => {
-                            graph.node(id, &mut meter).map(|node| {
-                                node.and_then(|node| graph.kind(node).map(|kind| (node, kind)))
-                            })
-                        }
-                        super::operations::FamilyVisit::Forward => {
-                            meter.charge(1)?;
-                            Ok(None)
-                        }
-                    },
-                )?
-                .ok_or_else(|| type_error(ordinal, Some(child.semantic_type.clone())))?;
-            if !operation_catalog().family_fits(family, "structural_kind") {
+            let resolution = super::operations::resolve_family_with(
+                &child.semantic_type,
+                |visit| match visit {
+                    super::operations::FamilyVisit::Node(id) => {
+                        graph.node(id, &mut meter).map(|node| {
+                            node.and_then(|node| graph.kind(node).map(|kind| (node, kind)))
+                        })
+                    }
+                    super::operations::FamilyVisit::Forward => {
+                        meter.charge(1)?;
+                        Ok(None)
+                    }
+                },
+            )?;
+            let family = match resolution {
+                super::operations::FamilyResolution::Family(family) => Some(family),
+                super::operations::FamilyResolution::NoFamily => None,
+                super::operations::FamilyResolution::Malformed(type_node) => {
+                    return Err(type_error(ordinal, Some(type_node)));
+                }
+            };
+            if !family
+                .is_some_and(|family| operation_catalog().family_fits(family, "structural_kind"))
+            {
                 return Err(unsupported(
                     ordinal,
                     Some(child.semantic_type.clone()),
@@ -1199,13 +1206,14 @@ mod tests {
                     "result_type":raw_id('1'),"arguments":[{"term":"reference","target":raw_id('5')},{"term":"reference","target":raw_id('8')}]})),
                 node('7',"composite_type","option",'7',json!({"term":"aggregate","members":[{"term":"reference","target":raw_id('1')}]})),
                 node('8',"value","parameter",'4',parameter_body("right")),
+                node('a',"scalar_type","compound_unit",'a',empty.clone()),
             ]},"source_map":[],"capability_report":[],
             "diagnostics":{"catalog":{"authority":"test","identity":"diagnostics"},"entries":[]}
         });
             // Author canonical node identities in dependency order. This is a
             // test producer; public assertions use independently named paths.
             let mut ids = BTreeMap::new();
-            for (position, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(5,'6')] {
+            for (position, digit) in [(0,'1'),(1,'2'),(2,'3'),(3,'4'),(4,'5'),(6,'7'),(7,'8'),(8,'a'),(5,'6')] {
                 let node = &wire["semantic_graph"]["nodes"][position];
                 let ty = if node["node_id"] == node["semantic_type"] { Value::Null } else { node["semantic_type"].clone() };
                 let preimage = json!({"version":if digit=='6' {"quire.application-node/v1"} else {"quire.structural-node/v1"},
@@ -1369,6 +1377,27 @@ mod tests {
                 CheckedUnsupportedCompositeOperand::NonStructuralType
             ))
         );
+        // The compound-unit node is present in the genuinely admitted fixture;
+        // only the parameter's type is changed after admission.
+        let mut p = package();
+        p.wire.semantic_graph.nodes[4].semantic_type = id('a');
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                0,
+                Some(id('a')),
+                CheckedUnsupportedCompositeOperand::NonStructuralType
+            ))
+        );
+        // A bounded-domain chain that enters a cycle reports the actual repeated
+        // type, rather than the parameter's original entry type.
+        let mut p = package();
+        for index in [3, 6] {
+            p.wire.semantic_graph.nodes[index].semantic_form = "integer_range".into();
+            p.kinds[index] = CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange);
+            p.wire.semantic_graph.nodes[index].semantic_type = id('7');
+        }
+        assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
         p.wire.semantic_graph.nodes[4].body = json!({"term":"application","result_type":id('1')});
         assert_eq!(

@@ -1084,7 +1084,8 @@ fn resolve_family(
         })
     });
     match result {
-        Ok(family) => family,
+        Ok(FamilyResolution::Family(family)) => Some(family),
+        Ok(FamilyResolution::NoFamily | FamilyResolution::Malformed(_)) => None,
         Err(never) => match never {},
     }
 }
@@ -1096,34 +1097,45 @@ pub(super) enum FamilyVisit<'a> {
     Forward,
 }
 
+/// Distinguishes absent/cyclic targets from present types outside the catalog's families.
+pub(super) enum FamilyResolution {
+    Family(&'static str),
+    NoFamily,
+    Malformed(CheckedNodeId),
+}
+
 pub(super) fn resolve_family_with<'a, E>(
     type_id: &CheckedNodeId,
     mut visit: impl FnMut(
         FamilyVisit<'_>,
     ) -> Result<Option<(&'a CheckedSemanticNodeV2, CheckedNodeKind)>, E>,
-) -> Result<Option<&'static str>, E> {
+) -> Result<FamilyResolution, E> {
     let mut seen = BTreeSet::new();
     let mut current = type_id;
     loop {
         let Some((node, kind)) = visit(FamilyVisit::Node(current))? else {
-            return Ok(None);
+            return Ok(FamilyResolution::Malformed(current.clone()));
         };
         if !seen.insert(node.node_id.clone()) {
-            return Ok(None);
+            return Ok(FamilyResolution::Malformed(node.node_id.clone()));
         }
         if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) {
             let ordered = matches!(
                 &node.nominal_identity_preimage,
                 Some(NominalIdentityPreimage::EnumDeclaration(declaration)) if declaration.ordered
             );
-            return Ok(Some(if ordered { "ordered_enum" } else { "enum" }));
+            return Ok(FamilyResolution::Family(if ordered {
+                "ordered_enum"
+            } else {
+                "enum"
+            }));
         }
         let direct = operand_family(kind);
-        if direct.is_some() {
-            return Ok(direct);
+        if let Some(family) = direct {
+            return Ok(FamilyResolution::Family(family));
         }
         if kind.tag() != CheckedNodeTag::BoundedDomain {
-            return Ok(None);
+            return Ok(FamilyResolution::NoFamily);
         }
         visit(FamilyVisit::Forward)?;
         current = &node.semantic_type;

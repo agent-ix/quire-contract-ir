@@ -149,3 +149,68 @@ Plan completion: not assessed. Measured with quire 0.36.1 (engine 0.50.1).
 Matrix and coverage runs exited with the installed module's
 `semantic.inline-data-schema`, `DuplicateArchetype` and `DuplicateInverseEdge`
 notices, which are the same at the head and at the base.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-002 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-003 | fixed | commits "Close IR651 composite accessor review findings" and "test: preserve flat-wire admission for nested applications" |
+| FND-004 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-005 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-006 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-007 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-008 | fixed | commit "Close IR651 composite accessor review findings" |
+
+## Disposition evidence
+
+Round 1, a static re-check at the fast-forward fix head. No cargo was run. The
+author reports that the repaired exact test and Clippy have not yet run, so every
+runtime behaviour below depends on the second full gate.
+
+- FND-001: the AC-177 through AC-182 rows now read "Implemented by
+  `composite_application_operands`; verified by the TC-048 composite operand
+  tests". TC-048's section now reads "Implemented ... exercised by the `tc_048_`
+  composite operand integration tests". The `spec/checked_package/matrix/tests.md`
+  FR-038 row and the `spec/tests.md` Checked package row now call AC-177 through
+  AC-182 implemented and verified. `quire validate` over the four touched spec docs
+  exits 0 with only the installed module's notices.
+- FND-002: the model unit
+  `tc_048_second_operand_refusals_retain_nonzero_ordinals_and_type_loci` admits a
+  package with a distinct valid operand 0 and corrupts only argument 1. It asserts
+  `ordinal: 1` for MissingChild, inline ApplicationSubterm, InlineInteger,
+  UnsupportedDomain, the unanchored-cycle MalformedDomain and the
+  malformed-optional-wrapper MalformedDomain. The integration test also asserts
+  ordinal 1 for the public ApplicationSubterm and NonliteralGraphValue cases.
+  Mutant killed: a hard-coded `ordinal: 0`.
+- FND-003: the inline branch is now exercised at ordinal 1 by the unit test above.
+  A public admitted `structural.eq` over a graph reference to a
+  `quire.op.collection.sequence` expression refuses ApplicationSubterm with the
+  application's result type. A record value whose member references that
+  expression refuses NonliteralGraphValue. An independently authored nested inline
+  application keeps the reader's `malformed_wire` refusal, which shows the inline
+  form is reachable only after admission. Mutant killed: deleting the inline branch
+  now fails the unit test.
+- FND-004: an independently authored `structural.eq(1, 1)` over inline integer
+  literals is asserted to refuse at the reader with `ill_typed`,
+  `operator-ineligible`, path `/semantic_graph/nodes/<n>/body/arguments/0` and the
+  application as locus.
+- FND-005: `tuple_value`, `collection_value` and `option_value` closed literals
+  each project as `Literal` with their own GraphChild identity, and a
+  `record_value` with an `enum_value` member does too.
+- FND-006: the one-below check is now `assert_eq!` with the exact `WorkLimit`
+  payload. `consumed_work` is asserted against a hand-derived charge total, which
+  I re-derived from the code and found to match.
+- FND-007: all 7 integration tests now carry the `tc_048_` prefix.
+- FND-008: the conflict residue at the end of the FR-038-AC-185 row is gone. A
+  grep for conflict markers across `*.md` and `*.rs` finds only quoted text inside
+  reviews/ SpecReview files.
+
+Matrix at the fix head (`quire matrix --scope . --format tsv`, quire 0.36.1,
+engine 0.50.1): all 336 ids remain, and only AC-177 through AC-182 differ from
+the base (untagged to tagged). `quire coverage --scope . --strict` reports 25
+unbacked rows and 0 contradicted, against 31 at the base. The committed
+`reviews/` SR files and every added diff line contain no hex commit id (the only
+7+ hex-class match is a long decimal collection bound in a test). The new
+code-side finding from this round is SR-2780 FND-006.
