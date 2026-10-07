@@ -10,8 +10,8 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-123 through FR-038-AC-135 and FR-038-AC-145 through
-FR-038-AC-150 (IR-627): the reader re-derives the
+Verify FR-038-AC-123 through FR-038-AC-135, FR-038-AC-145 through
+FR-038-AC-150 (IR-627), and the closed-shape part of FR-038-AC-183 (IR-680): the reader re-derives the
 node key of the ten anonymous node shapes `MemberType::node_key` already
 derives (`scalar_type` `boolean` and `integer`, `composite_type` `reference`,
 `option`, `set`, `bag`, `sequence` and `ordered_set`, `bounded_domain`
@@ -25,6 +25,8 @@ re-derived whatever label they carry, that a label or a dependency makes no
 cycle, that the limit is recorded and that a skipped node is charged, and
 AC-150 (gated on the declared member's `SourceOwner`) verifies the in-group keys
 of QSL FR-092.
+AC-183 checks that an actual derived key is retained in the typed refusal;
+TC-048 also covers its separate `UngroupedPreimage` branch.
 
 ## Test Procedure
 
@@ -72,6 +74,10 @@ packages admit, and a skipped node of a real group is never refused
 `stale-node-key` by this stage, while a labelled `integer_range`, `boolean`,
 `integer` or `reference` node, and a labelled node off a names cycle, is. The
 AC-131, AC-132 and AC-150 cases do not exist until the gate lifts.
+For AC-183, the tampered, unreferenced `base.zero` node's refusal retains the
+reader-derived expected key and original `locus`; a fresh package with that
+node rekeyed and its package identity refreshed admits in full. A malformed
+shape with no derivable key has no expected key.
 
 ## Status
 
@@ -80,15 +86,18 @@ AC-150 awaits the answer to IR-627-Q1 and Q4. AC-123 through AC-130 await the co
 adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
 AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
 await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code
-change is ordered after them.
+change is ordered after them. The AC-183 extension is planned / unrun until
+IR-680 code lands; it does not turn these older planned rows into completed
+evidence.
 
 ## Retained derived-key refusal (FR-038-AC-183)
 
-Planned / unrun until IR-680 code lands. Run the owner-free, ungrouped
-`integer_range` tamper case through the production reader. Require the typed
-refusal's `expected_node_id()` to equal the key this same reader derived, while
-`locus` keeps the tampered key and code/cause/path remain unchanged. Use the
-returned typed key in a fresh package and require the key stage to pass. Change
-only the bound again and require a different returned key. Give a malformed
-body shape that the reader cannot derive and require `None`; no test-side
-FR-092 encoder or digest constant is an oracle.
+Planned / unrun until IR-680 code lands. Run the owner-free, ungrouped,
+unreferenced `integer_range` `base.zero` tamper case through the production
+reader. Require its `expected_node_id()` to return the key that reader
+derived, while `locus` keeps the tampered key and code/cause/path remain
+unchanged. In a fresh package, replace that unreferenced node's id with the
+returned typed key, mirror its projection, refresh the package identity and
+require the whole package to admit. Change only the bound again and require a
+different returned key. A malformed body shape with no derivable key returns
+`None`; no test-side FR-092 encoder or digest constant is an oracle.
