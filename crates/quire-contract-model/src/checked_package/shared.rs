@@ -329,6 +329,58 @@ pub struct CheckedPackageRefusal {
     /// locates the row; this pointer resolves in the supplied document, not in
     /// the package.
     pub document_pointer: Option<JsonPointer>,
+    /// The key already derived at a stale-node-key refusal site, when one
+    /// exists. It is meaningful only with the original reader-returned locus.
+    expected_node_id: Option<CheckedNodeId>,
+}
+
+/// Named fields for constructing a refusal inside this crate. The expected
+/// key is set only by the dedicated stale-key constructor.
+pub(crate) struct RefusalFields {
+    pub(crate) code: CheckedPackageRefusalCode,
+    pub(crate) path: Option<JsonPointer>,
+    pub(crate) cause: Option<CheckedPackageRefusalCause>,
+    pub(crate) locus: Option<CheckedNodeId>,
+    pub(crate) contract_version: Option<Box<str>>,
+    pub(crate) document_pointer: Option<JsonPointer>,
+}
+
+impl CheckedPackageRefusal {
+    pub(crate) fn new(fields: RefusalFields) -> Self {
+        Self {
+            code: fields.code,
+            path: fields.path,
+            cause: fields.cause,
+            locus: fields.locus,
+            contract_version: fields.contract_version,
+            document_pointer: fields.document_pointer,
+            expected_node_id: None,
+        }
+    }
+
+    pub(crate) fn stale_node_key(
+        path: JsonPointer,
+        locus: CheckedNodeId,
+        expected_node_id: CheckedNodeId,
+    ) -> Self {
+        let mut refusal = Self::new(RefusalFields {
+            code: CheckedPackageRefusalCode::InvalidPackage,
+            path: Some(path),
+            cause: Some(CheckedPackageRefusalCause::StaleNodeKey),
+            locus: Some(locus),
+            contract_version: None,
+            document_pointer: None,
+        });
+        refusal.expected_node_id = Some(expected_node_id);
+        refusal
+    }
+
+    /// The production-derived node key retained with a stale-key refusal, if
+    /// the reader could derive one. The original [`Self::locus`] identifies the
+    /// stored key that refused.
+    pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
+        self.expected_node_id.as_ref()
+    }
 }
 
 /// A typed non-conclusive outcome caused by the first exhausted limit.

@@ -389,12 +389,12 @@ fn tc_048_wrapped_optional_record_fields_keep_their_leaf_order() {
     );
     assert_eq!(
         read(&package, limits),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &leaves_pointer(&package, &id),
             Some(CheckedPackageRefusalCause::OperationLawMissing),
             &id,
-        )),
+        ),
     );
 
     let mut direct = wrapped_list(&["label"]);
@@ -443,12 +443,12 @@ fn tc_048_malformed_optional_record_fields_refuse_at_operation_leaves() {
         let (package, id) = equality_package(types, "list", list_leaves(&["label"]));
         assert_eq!(
             read(&package, CheckedPackageReadLimits::bounded()),
-            CheckedPackageV2ReadResult::Refused(refusal_at(
+            refusal_at(
                 CheckedPackageRefusalCode::IllTyped,
                 &leaves_pointer(&package, &id),
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 &id,
-            )),
+            ),
             "malformed next: {}",
             package["semantic_graph"]["nodes"],
         );
@@ -478,12 +478,12 @@ fn tc_226_a_severed_only_cycle_rederives_the_former_group_member_first() {
         .expect("option key");
     assert_eq!(
         read(&package, CheckedPackageReadLimits::bounded()),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("/semantic_graph/nodes/{option}/node_id"),
             Some(CheckedPackageRefusalCause::StaleNodeKey),
             key,
-        )),
+        ),
     );
 }
 
@@ -515,12 +515,12 @@ fn tc_048_the_reader_admits_equality_over_a_recursive_record() {
     let (package, id) = equality_package(node_types(), "node", vec![label.clone()]);
     assert_eq!(
         read(&package, limits),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &leaves_pointer(&package, &id),
             Some(CheckedPackageRefusalCause::OperationLawMissing),
             &id,
-        )),
+        ),
         "the text leaf alone"
     );
 
@@ -528,12 +528,12 @@ fn tc_048_the_reader_admits_equality_over_a_recursive_record() {
         equality_package(node_types(), "node", vec![label.clone(), recursion, label]);
     assert_eq!(
         read(&package, limits),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("{}/2", leaves_pointer(&package, &id)),
             Some(CheckedPackageRefusalCause::OperationLawMismatch),
             &id,
-        )),
+        ),
         "a text leaf with no place left"
     );
 }
@@ -593,24 +593,24 @@ fn tc_048_the_reader_admits_equality_over_a_record_cycling_through_a_tuple() {
     let (package, id) = equality_package(types(), "cell", vec![text.clone()]);
     assert_eq!(
         read(&package, limits),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &leaves_pointer(&package, &id),
             Some(CheckedPackageRefusalCause::OperationLawMissing),
             &id,
-        )),
+        ),
         "the text leaf alone"
     );
 
     let (package, id) = equality_package(types(), "cell", vec![text, recursion("recursion:1")]);
     assert_eq!(
         read(&package, limits),
-        CheckedPackageV2ReadResult::Refused(refusal_at(
+        refusal_at(
             CheckedPackageRefusalCode::InvalidPackage,
             &format!("{}/1/path", leaves_pointer(&package, &id)),
             Some(CheckedPackageRefusalCause::OperationLawMismatch),
             &id,
-        )),
+        ),
         "a recursion leaf with the wrong depth"
     );
 }

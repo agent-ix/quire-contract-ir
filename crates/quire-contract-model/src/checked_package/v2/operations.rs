@@ -75,7 +75,7 @@ use super::{
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
-    application_operator, body_term, decoder_pointer, node_pointer,
+    application_operator, body_term, decoder_pointer, node_pointer, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -162,11 +162,15 @@ pub(super) fn validate_application_keys(
                     application.node_id(),
                 )
             })?;
-        if computed.to_string() != node_id.digest.as_ref() {
-            return Err(application.refuse(
-                CheckedPackageRefusalCode::InvalidPackage,
+        let computed_digest = computed.to_string();
+        if computed_digest != node_id.digest.as_ref() {
+            return Err(ValidationFailure::refused_stale_node_key(
                 application.node_id(),
-                CheckedPackageRefusalCause::StaleNodeKey,
+                node_id.clone(),
+                CheckedNodeId {
+                    domain: NODE_DOMAIN.into(),
+                    digest: computed_digest.into(),
+                },
             ));
         }
     }
@@ -6987,8 +6991,8 @@ mod tests {
     /// the two are separate stages (see the module doc), and nothing above
     /// reaches this one.
     ///
-    /// Tracing: TC-048, FR-038-AC-88
-    #[trace("TC-048", "FR-038-AC-88")]
+    /// Trace: TC-048, FR-038-AC-88, FR-038-AC-184
+    #[trace("TC-048", "FR-038-AC-88", "FR-038-AC-184")]
     #[test]
     fn tc_048_validate_application_keys_refuses_a_stale_node_key() {
         let node = application_node(CATALOGUED_IDENTITY, "binary");
@@ -6999,16 +7003,35 @@ mod tests {
 
         let result = validate_application_keys(nodes, &index, &mut meter, 1 << 20);
 
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("a placeholder node key must refuse: {result:?}");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
         assert_eq!(
-            result,
-            Err(refused_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                "/semantic_graph/nodes/0/node_id",
-                Some(CheckedPackageRefusalCause::StaleNodeKey),
-                node.node_id.clone(),
-            )),
-            "a node_id that is not the JCS SHA-256 of the node's own preimage must be \
-             refused as stale-node-key, got {result:?}"
+            refusal.path,
+            Some(pointer("/semantic_graph/nodes/0/node_id"))
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::StaleNodeKey)
+        );
+        assert_eq!(refusal.locus, Some(node.node_id.clone()));
+        assert_eq!(refusal.contract_version, None);
+        assert_eq!(refusal.document_pointer, None);
+        let expected = refusal.expected_node_id().cloned().expect("computed key");
+        assert_eq!(expected.domain.as_ref(), NODE_DOMAIN);
+        assert_ne!(expected, node.node_id);
+
+        // The returned key is checked by the same production stage. The
+        // fixture does not recompute an expected digest in test code.
+        let mut rekeyed = node;
+        rekeyed.node_id = expected;
+        let mut index = BTreeMap::new();
+        index.insert(&rekeyed.node_id, 0);
+        let mut meter = WorkMeter::new(1_000);
+        assert_eq!(
+            validate_application_keys(std::slice::from_ref(&rekeyed), &index, &mut meter, 1 << 20),
+            Ok(())
         );
     }
 

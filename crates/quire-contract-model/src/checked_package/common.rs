@@ -10,7 +10,7 @@ use super::shared::{
     CheckedArtifactLocator, CheckedArtifactRef, CheckedNodeId, CheckedOccurrence,
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticId,
-    CheckedSourceMapEntry, CheckedSourceRef, JsonPointer,
+    CheckedSourceMapEntry, CheckedSourceRef, JsonPointer, RefusalFields,
 };
 use super::terms::{subterms, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
@@ -38,14 +38,14 @@ pub(super) enum ValidationFailure {
 impl ValidationFailure {
     /// A refusal about the value at `path`.
     pub(super) fn refused(code: CheckedPackageRefusalCode, path: JsonPointer) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code,
             path: Some(path),
             cause: None,
             locus: None,
             contract_version: None,
             document_pointer: None,
-        })
+        }))
     }
 
     /// `noncanonical_wire` about the number at `document_pointer` inside a
@@ -56,14 +56,14 @@ impl ValidationFailure {
         document_pointer: JsonPointer,
         cause: CheckedPackageRefusalCause,
     ) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code: CheckedPackageRefusalCode::NoncanonicalWire,
             path: Some(path),
             cause: Some(cause),
             locus: None,
             contract_version: None,
             document_pointer: Some(document_pointer),
-        })
+        }))
     }
 
     /// A refusal about the value at `path` carrying the cause this stage
@@ -73,27 +73,27 @@ impl ValidationFailure {
         path: JsonPointer,
         cause: CheckedPackageRefusalCause,
     ) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code,
             path: Some(path),
             cause: Some(cause),
             locus: None,
             contract_version: None,
             document_pointer: None,
-        })
+        }))
     }
 
     /// A refusal about the byte stream rather than any value: malformed JSON
     /// or non-canonical bytes.
     pub(super) fn refused_bytes(code: CheckedPackageRefusalCode) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code,
             path: None,
             cause: None,
             locus: None,
             contract_version: None,
             document_pointer: None,
-        })
+        }))
     }
 
     /// A refusal located at a specific graph node, carrying the cause tag
@@ -105,27 +105,40 @@ impl ValidationFailure {
         cause: Option<CheckedPackageRefusalCause>,
         locus: CheckedNodeId,
     ) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code,
             path: Some(path),
             cause,
             locus: Some(locus),
             contract_version: None,
             document_pointer: None,
-        })
+        }))
+    }
+
+    /// A stale node key with the different key already derived by this stage.
+    pub(super) fn refused_stale_node_key(
+        path: JsonPointer,
+        locus: CheckedNodeId,
+        expected_node_id: CheckedNodeId,
+    ) -> Self {
+        Self::Refused(CheckedPackageRefusal::stale_node_key(
+            path,
+            locus,
+            expected_node_id,
+        ))
     }
 
     /// `unknown_contract_version` for the version string actually read at
     /// the document's `contract_version` member.
     pub(super) fn unknown_contract_version(version: &str) -> Self {
-        Self::Refused(CheckedPackageRefusal {
+        Self::Refused(CheckedPackageRefusal::new(RefusalFields {
             code: CheckedPackageRefusalCode::UnknownContractVersion,
             path: Some(JsonPointer::root().key("contract_version")),
             cause: None,
             locus: None,
             contract_version: Some(version.into()),
             document_pointer: None,
-        })
+        }))
     }
 
     /// The first exhausted limit, charged at the value `path` names (absent

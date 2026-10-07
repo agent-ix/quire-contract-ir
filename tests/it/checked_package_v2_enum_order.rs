@@ -14,7 +14,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, node_id, nominal_package, rebuild_source_map, refresh_identity,
-    refusal_at, sha256_hex,
+    refusal_at, sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -248,7 +248,7 @@ fn admits(package: &Value) -> bool {
 /// The refusal an operation over operands the catalog family rejects gets:
 /// `ill_typed`/`operator_ineligible` at the argument that fails, located at
 /// the application node.
-fn ineligible(package: &Value, argument: usize) -> CheckedPackageRefusal {
+fn ineligible(package: &Value, argument: usize) -> ExpectedRefusal {
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");

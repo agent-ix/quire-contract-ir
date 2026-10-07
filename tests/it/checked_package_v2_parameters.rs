@@ -13,7 +13,7 @@
 use crate::support::checked_package::{
     canonical, evidence_for, fixture_source, mint_ungrouped_structural_keys, node_id,
     nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, refusal,
-    refusal_at, sha256_hex, source_owner,
+    refusal_at, sha256_hex, source_owner, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -324,7 +324,7 @@ fn mutated(position: usize, mutate: impl Fn(&mut Value)) -> Value {
 
 /// `invalid_semantic_graph` at the node at `position`, pointing at `member`
 /// (a pointer suffix below that node).
-fn invalid_at(package: &Value, position: usize, member: &str) -> CheckedPackageRefusal {
+fn invalid_at(package: &Value, position: usize, member: &str) -> ExpectedRefusal {
     refusal_at(
         CheckedPackageRefusalCode::InvalidSemanticGraph,
         &format!("/semantic_graph/nodes/{position}{member}"),
