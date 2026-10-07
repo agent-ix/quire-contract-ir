@@ -706,8 +706,7 @@ For every `model_declaration_nodes[*].preimage` and `.sha256` pair in
 production model-declaration key path in `model_members.rs`, or admit the
 vector's published wire node through that path, and compare the production
 digest with the recorded `.sha256`. Hashing only the vector's JSON preimage
-cannot pass. Keep `node-identity-vectors.json` distinct from
-`model-effective-declaration-vectors.json`, which describes another artifact.
+cannot pass.
 Fail the run when the selected domain document is missing or malformed, a
 required positive fixture is absent, a model selection names an unknown
 identity or lacks its digest, or a positive package is not admitted. For each
