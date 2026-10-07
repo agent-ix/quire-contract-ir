@@ -68,36 +68,85 @@ fn tc_048_intake_retains_source_values_after_authentic_document_release() {
         value.declaration_origin,
         Some(expected_source("types/source.md"))
     );
-    // Independent optional presence: no end-pair/span-order rule may be invented.
-    let mut origin = source("types/end-line.md");
-    let members = origin["source"].as_object_mut().expect("source");
-    members.remove("endColumn");
-    members.insert("endLine".into(), json!(1));
-    let retained = refusal(document(vec![bad_type(origin)]));
-    assert!(matches!(
-        retained.declaration_origin,
-        Some(IntakeDeclarationOrigin::Source {
-            start_line: 9007199254740992,
-            end_line: Some(1),
-            end_column: None,
-            ..
-        })
-    ));
+    // All four optional-presence combinations retain the whole typed record;
+    // no paired-end or span-order rule may be invented.
+    for (end_line, end_column) in [
+        (None, None),
+        (Some(1), None),
+        (None, Some(3)),
+        (Some(1), Some(3)),
+    ] {
+        let mut origin = source("types/end-coordinates.md");
+        let members = origin["source"].as_object_mut().expect("source");
+        members.remove("endColumn");
+        if let Some(line) = end_line {
+            members.insert("endLine".into(), json!(line));
+        }
+        if let Some(column) = end_column {
+            members.insert("endColumn".into(), json!(column));
+        }
+        let retained = refusal(document(vec![bad_type(origin)]));
+        assert_eq!(
+            retained.declaration_origin,
+            Some(IntakeDeclarationOrigin::Source {
+                source_identity: WIDGET.into(),
+                path: "types/end-coordinates.md".into(),
+                start_line: 9007199254740992,
+                start_column: 7,
+                end_line,
+                end_column,
+            })
+        );
+    }
 }
 
 /// Trace: FR-038-AC-187
 #[test]
 fn tc_048_intake_retains_generated_version_and_ordered_repeated_inputs() {
-    let origin = json!({"generated": {"generatorIdentity": GADGET,
-        "generatorVersion": "1.2.3-alpha.7+build.09",
-        "inputIdentities": [WIDGET, GADGET, WIDGET]}});
+    for (generator, version, inputs) in [
+        (
+            GADGET,
+            "1.2.3-alpha.7+build.09",
+            vec![WIDGET, GADGET, WIDGET],
+        ),
+        (
+            WIDGET,
+            "1.2.3-alpha.7+Build.09",
+            vec![GADGET, WIDGET, GADGET],
+        ),
+    ] {
+        let origin = json!({"generated": {"generatorIdentity": generator,
+            "generatorVersion": version, "inputIdentities": inputs}});
+        // A genuine declaration reference failure, not merely a bad identity.
+        let mut node = field(WIDGET, "generated", "ix://acme/orders/Missing");
+        node["origin"] = origin;
+        let retained = refusal(document(vec![object_type(WIDGET, &[], vec![node])]));
+        assert_eq!(retained.refusal, ModelRefusal::missing_name());
+        assert_eq!(
+            retained.declaration_identity.as_deref(),
+            Some("ix://acme/orders/Widget/generated")
+        );
+        assert_eq!(
+            retained.declaration_origin,
+            Some(IntakeDeclarationOrigin::Generated {
+                generator_identity: generator.into(),
+                generator_version: version.into(),
+                input_identities: inputs.into_iter().map(Box::from).collect(),
+            })
+        );
+    }
+    let mut origin = source("Types/Spelling.md");
+    origin["source"]["sourceIdentity"] = json!(GADGET);
     let retained = refusal(document(vec![bad_type(origin)]));
     assert_eq!(
         retained.declaration_origin,
-        Some(IntakeDeclarationOrigin::Generated {
-            generator_identity: GADGET.into(),
-            generator_version: "1.2.3-alpha.7+build.09".into(),
-            input_identities: vec![WIDGET.into(), GADGET.into(), WIDGET.into()],
+        Some(IntakeDeclarationOrigin::Source {
+            source_identity: GADGET.into(),
+            path: "Types/Spelling.md".into(),
+            start_line: 9007199254740992,
+            start_column: 7,
+            end_line: None,
+            end_column: Some(3),
         })
     );
 }
@@ -175,6 +224,69 @@ fn tc_048_intake_retains_actual_nested_declaration_not_owner_or_missing_target()
         retained.declaration_origin,
         Some(expected_source("nested/relationship.md"))
     );
+
+    // Each valid preceding nested list must cease to be the current context
+    // before a later owner's list/supertype or operation-return defect.
+    let mut valid_field = field(WIDGET, "valid", "ix://quire/native/Integer");
+    valid_field["origin"] = source("wrong-field-context.md");
+    let valid_param = json!({"identity":"ix://acme/orders/Widget/perform/argument",
+        "typeRef":"ix://quire/native/Integer", "multiplicity":multiplicity(1,Some(1)),
+        "origin":source("wrong-param-context.md")});
+    let valid_operation = json!({"identity":"ix://acme/orders/Widget/perform", "name":"perform",
+        "params":[valid_param], "origin":source("operation-reset.md")});
+    let mut owner = object_type(WIDGET, &[], vec![valid_field]);
+    owner["origin"] = source("owner-reset.md");
+    owner["operations"] = json!(false);
+    let mut after_operations = object_type(WIDGET, &[], vec![]);
+    after_operations["origin"] = source("owner-reset.md");
+    after_operations["operations"] = json!([valid_operation.clone()]);
+    after_operations["relationships"] = json!(false);
+    let mut after_relationships = relationship_document(vec![relationship()]);
+    after_relationships["types"][0]["origin"] = source("owner-reset.md");
+    after_relationships["types"][0]["supertypes"] = json!([missing]);
+    for doc in [
+        document(vec![owner]),
+        document(vec![after_operations]),
+        after_relationships,
+    ] {
+        let retained = refusal(doc);
+        assert_eq!(retained.declaration_identity.as_deref(), Some(WIDGET));
+        assert_eq!(
+            retained.declaration_origin,
+            Some(expected_source("owner-reset.md"))
+        );
+    }
+    let mut operation = valid_operation;
+    operation["returns"] = json!({"typeRef":missing,"multiplicity":multiplicity(1,Some(1))});
+    let mut owner = object_type(WIDGET, &[], vec![]);
+    owner["operations"] = json!([operation]);
+    let retained = refusal(document(vec![owner]));
+    assert_eq!(
+        retained.declaration_identity.as_deref(),
+        Some("ix://acme/orders/Widget/perform")
+    );
+    assert_eq!(
+        retained.declaration_origin,
+        Some(expected_source("operation-reset.md"))
+    );
+
+    // Missing actual field/operation metadata cannot acquire enclosing context.
+    let mut field_node = field(WIDGET, "absent", missing);
+    field_node
+        .as_object_mut()
+        .expect("field")
+        .remove("identity");
+    let mut owner = object_type(WIDGET, &[], vec![field_node]);
+    owner["origin"] = source("wrong-owner.md");
+    let mut operation_owner = object_type(WIDGET, &[], vec![]);
+    operation_owner["origin"] = source("wrong-owner.md");
+    operation_owner["operations"] = json!([{"params":[],"returns":{"typeRef":missing,
+        "multiplicity":multiplicity(1,Some(1))}}]);
+    for owner in [owner, operation_owner] {
+        let retained = refusal(document(vec![owner]));
+        assert_eq!(retained.declaration_identity, None);
+        assert_eq!(retained.declaration_origin, None);
+    }
 
     for identity in [Value::Null, json!(42)] {
         let mut node = bad_type(source("no-identity.md"));
@@ -286,11 +398,19 @@ fn tc_048_intake_group_origin_requires_every_valid_equal_candidate() {
     );
     for origin in [
         Value::Null,
-        json!({"source": {}, "generated": {}}),
+        json!({"source": source("valid-branch.md")["source"], "generated": {}}),
+        json!({"source": {}, "generated": {"generatorIdentity":GADGET,"generatorVersion":"1.0.0","inputIdentities":[WIDGET]}}),
+        json!({"source": {"path":"partial.md"}}),
+        json!({"generated": {"generatorIdentity":GADGET,"inputIdentities":[WIDGET]}}),
+        json!({"generated": {"generatorIdentity":GADGET,"generatorVersion":"1.0.0","inputIdentities":[WIDGET],"extra":0}}),
         json!({"source": {"sourceIdentity": WIDGET, "path":"ok.md", "startLine":1, "startColumn":1, "extra":0}}),
         json!({"generated": {"generatorIdentity": WIDGET, "generatorVersion":"1.0.0", "inputIdentities":[]}}),
     ] {
         let retained = refusal(document(vec![bad_type(origin)]));
+        assert_eq!(
+            retained.declaration_identity.as_deref(),
+            Some("ix://acme/orders/bad-id")
+        );
         assert_eq!(retained.declaration_origin, None);
     }
     let mut node = bad_type(valid);
@@ -324,6 +444,8 @@ fn tc_048_intake_sequential_relationship_uses_later_actual_context() {
     widget["relationships"] = json!([later.clone()]);
     let retained = refusal(document(vec![widget.clone(), gadget.clone()]));
     assert_eq!(retained.refusal.cause, Cause::ConflictingBinding);
+    assert_eq!(retained.declaration_identity.as_deref(), Some(LINK));
+    assert_eq!(retained.member, None);
     assert_eq!(
         retained.declaration_origin,
         Some(expected_source("later.md"))
@@ -339,9 +461,79 @@ fn tc_048_intake_sequential_relationship_uses_later_actual_context() {
     assert_eq!(retained.declaration_origin, None);
 }
 
+fn assert_work_limit(result: Result<DomainModel, SelectionFailure>, limit: u64, consumed: u64) {
+    let Err(SelectionFailure::Limit(failure)) = result else {
+        panic!("expected work limit");
+    };
+    assert_retention_work_limit(failure, limit, consumed);
+}
+
+fn assert_retention_work_limit(failure: ValidationFailure, limit: u64, consumed: u64) {
+    let ValidationFailure::Incomplete(record) = failure else {
+        panic!("expected incomplete");
+    };
+    assert_eq!(
+        record.limit_kind,
+        crate::checked_package::shared::CheckedPackageLimit::Work
+    );
+    assert_eq!(record.limit, limit);
+    assert_eq!(record.consumed, consumed);
+    assert_eq!(
+        record.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/lock/model_selections/3")
+    );
+}
+
 /// Trace: FR-038-AC-191, FR-038-AC-192
 #[test]
 fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
+    // Independent expected logical charges for fixed authored records, separate
+    // from document parsing and semantic admission. This is not a measurement
+    // reused as an oracle: deleting any identity/origin charge changes equality.
+    // Source: origin+branch+five members, and identity/path UTF8 bytes.
+    // Generated: origin+branch+three members+three input visits and all text bytes.
+    let source_origin = source("charge.md");
+    let generated_origin = json!({"generated":{"generatorIdentity":GADGET,
+        "generatorVersion":"1.2.3","inputIdentities":[WIDGET,GADGET,WIDGET]}});
+    for (origin, expected_origin_work) in [
+        (
+            source_origin,
+            1 + 1 + 5 + u64::try_from(WIDGET.len() + "charge.md".len()).expect("finite"),
+        ),
+        (
+            generated_origin,
+            1 + 1
+                + 3
+                + 3
+                + u64::try_from(
+                    GADGET.len() + "1.2.3".len() + WIDGET.len() + GADGET.len() + WIDGET.len(),
+                )
+                .expect("finite"),
+        ),
+    ] {
+        let node = json!({"identity":"ix://acme/orders/bad-id","origin":origin});
+        let expected = 1
+            + u64::try_from("ix://acme/orders/bad-id".len()).expect("finite")
+            + expected_origin_work;
+        let mut meter = WorkMeter::new(expected);
+        let retained = SelectionRefusal::located(
+            ModelRefusal::malformed(),
+            &node,
+            &mut Budget::new(&mut meter, 3, BYTES),
+        )
+        .expect("exact independent budget");
+        assert_eq!(meter.consumed(), expected);
+        assert!(retained.declaration_origin.is_some());
+        let mut tight = WorkMeter::new(expected - 1);
+        let Err(failure) = SelectionRefusal::located(
+            ModelRefusal::malformed(),
+            &node,
+            &mut Budget::new(&mut tight, 3, BYTES),
+        ) else {
+            panic!("unpayable original retention charge");
+        };
+        assert_retention_work_limit(failure, expected - 1, expected);
+    }
     let mut admitted_node = object_type(WIDGET, &[], vec![]);
     admitted_node["origin"] = source("valid.md");
     let admitted_document = document(vec![admitted_node]);
@@ -351,10 +543,7 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
         .object_types
         .contains_key(WIDGET));
     assert!(selected(admitted_document.clone(), used).0.is_ok());
-    assert!(matches!(
-        selected(admitted_document, used - 1).0,
-        Err(SelectionFailure::Limit(_))
-    ));
+    assert_work_limit(selected(admitted_document, used - 1).0, used - 1, used);
     let mut good = field(WIDGET, "good", "ix://quire/native/Integer");
     good["origin"] = source("wrong.md");
     let mut first = field(WIDGET, "first", "ix://acme/orders/Missing");

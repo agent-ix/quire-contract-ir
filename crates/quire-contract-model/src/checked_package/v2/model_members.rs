@@ -2028,6 +2028,11 @@ pub(super) fn read_semantic_ir(
                 }
                 objects.push((node, object));
                 for (identity, relationship) in declared_relationships {
+                    // Unreachable for an admitted object: semantic_ir_object_type
+                    // records every known/local duplicate at the later actual
+                    // relationship before defects.first returns. AC-196 tests
+                    // pin both same-owner and cross-owner first-refusal contexts.
+                    // This defensive insertion check must not replace that pass.
                     if relationships.insert(identity, relationship).is_some() {
                         return Err(ModelRefusal::new(
                             CheckedPackageRefusalCode::InvalidModelBinding,

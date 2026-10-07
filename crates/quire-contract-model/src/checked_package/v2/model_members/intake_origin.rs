@@ -102,6 +102,9 @@ impl<'v> OriginView<'v> {
                 {
                     return None;
                 }
+                // Immutable inputs are nonempty and every element is a validated
+                // semantic-identity string. The borrowed view preserves that
+                // invariant until into_owned; it performs no second parse.
                 Some(Self::Generated {
                     generator_identity,
                     generator_version,
@@ -136,7 +139,10 @@ impl<'v> OriginView<'v> {
             } => IntakeDeclarationOrigin::Generated {
                 generator_identity: generator_identity.into(),
                 generator_version: generator_version.into(),
-                // decode has already validated every input. No default or repaired identity.
+                // Every input was validated by decode and the borrowed slice
+                // cannot change before this copy. The fallible collection is
+                // deliberately fail-closed if that shared decoder invariant
+                // changes: no element is skipped, defaulted or repaired.
                 input_identities: inputs
                     .iter()
                     .map(|input| input.as_str().map(Box::from))

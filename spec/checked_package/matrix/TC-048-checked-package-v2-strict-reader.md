@@ -1247,12 +1247,9 @@ records executed evidence.
 
 These Test and Inspection procedures back FR-038-AC-174/175 and
 FR-038-AC-186 through FR-038-AC-196. IR-663 implements the private retention
-contract; seven crate-local intake tests have passed, together with the existing
-relationship grammar/read-budget checks and two public refusal-projection controls.
-The added inexact-number precedence case still awaits its preflight, and the
-strengthened exact limit-payload assertions await the full gate; full gates
-remain pending. AC-193/194 are source Inspections, and both Clippy lanes for
-AC-195 have passed. Existing AC-167/173 trace tags verify refusal/admission semantics only and
+contract. The final-head runtime tests and both Clippy lanes are UNRUN; full
+pre-PR and premerge gates remain pending. AC-193/194 are source Inspections.
+Existing AC-167/173 trace tags verify refusal/admission semantics only and
 supply no evidence for these retention criteria. Exercise the real private model-intake return,
 `admit_selection` yielding `SelectionFailure::Refused(SelectionRefusal)`, in
 crate-local tests. Author minimal domain-package documents in this repository
@@ -1330,9 +1327,9 @@ No public reader/dispatch/driver metadata observation is allocated.
    also fails. For AC-195, the CODE slice shall run both repository Clippy lanes,
    including the feature-off model-consumer command, and record their actual exits.
    If this ownership lifecycle is unavailable, report the source/API gap rather
-   than claim the criterion satisfied. The code-slice Inspection confirms the
-   named ownership and projection in `model_members.rs` and `v2/mod.rs`; both
-   Clippy commands have exited successfully. Full gates remain pending.
+   than claim the criterion satisfied. Inspect the named ownership and projection
+   in `model_members.rs` and `v2/mod.rs`. Final-head runtime/Clippy checks are
+   UNRUN; full gates remain pending.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
 
