@@ -2905,13 +2905,13 @@ key; the operand identity is not a new obligation preimage member. QSL
 confirmed the two-variant operand identity for this seam while its FR-357 and
 ADR-013 wording is being amended (QSL-641).
 
-### Typed authored domains of composite equality operands
+### Typed authored domains of composite equality and inequality operands
 
-When supplied an admitted `quire.op.structural.eq` application node id, an
-occurrence belonging to that node, and a finite accessor work limit,
+When supplied an admitted `quire.op.structural.eq` or `quire.op.structural.ne`
+application node id, an occurrence belonging to that node, and a finite accessor work limit,
 `CheckedPackageV2::composite_application_operands` shall return the application's
 authentic operands and their package-authored domain structure through public
-Rust types. The accessor shall admit only this operation identity and the
+Rust types. The accessor shall admit only these two operation identities and the
 package's admitted structural-kind operand families. Its eligibility does not
 expand the owning checked-operation catalog. The existing scalar accessor's
 clauses, four operations, types and errors remain unchanged.
@@ -3054,7 +3054,7 @@ identity is `None`, never a fabricated node.
 | `NotApplication` | `node: CheckedNodeId` | Requested node is not an application |
 | `MissingOccurrence` | `application: CheckedNodeId, occurrence: CheckedOccurrence` | Supplied occurrence absent from application |
 | `UnknownOperator` | `application: CheckedNodeId` | Missing or unknown catalog identity |
-| `IneligibleOperator` | `application: CheckedNodeId` | Known identity other than structural.eq, including structural.ne |
+| `IneligibleOperator` | `application: CheckedNodeId` | Known identity other than structural.eq or structural.ne |
 | `MissingChild` | `ordinal: u64, child: CheckedNodeId` | Valid typed reference target names an absent value child |
 | `MalformedChild` | `ordinal: u64` | Reference target is absent or cannot decode as CheckedNodeId; no child identity is invented |
 | `UnsupportedOperand` | `ordinal: u64, type_node: Option<CheckedNodeId>, reason: CheckedUnsupportedCompositeOperand` | The unsupported forms named above |
@@ -3106,10 +3106,26 @@ acquire a QSL dependency; owner integration belongs in the root bridge. This
 accessor shall mint no obligation identity, incoming-key validator or coverage
 verdict. Its declared type/position output does not prove harness coverage.
 
-`structural.ne` remains ineligible here. [CG FR-033](ix://agent-ix/quire-contract-codegen/FR-033)
-AC-12 and [QSL FR-358](ix://agent-ix/quire-spec-language/FR-358) include NotEqual;
-that arm still requires an owning follow-on allocation for its operand accessor.
-This allocation does not claim to enable all Eq/Ne or scalar equality claims.
+The `structural.ne` extension (IR-690) is PLANNED/UNRUN. The current accessor
+admits only `structural.eq`; a reader-admitted `structural.ne` application
+currently returns `IneligibleOperator`. When extending eligibility, the accessor
+shall use the same retained admission-derived lookup index and the existing
+reader family/catalog/reference-resolution owners used for structural.eq.
+The extension shall add no second domain derivation, caller-drawn bounds,
+recursion ceiling, schema, encoder or public type. Each operation shall retain
+its own actual application identity and selected occurrence; corresponding
+operand types and child positions shall follow the same authored-domain rules
+above, without treating inequality as a complement domain or negating bounds.
+The extension shall preserve reader admission and first-refusal order and the
+existing per-logical-visit work accounting. Equality behavior and scalar
+accessor eligibility shall remain unchanged.
+
+This closes only the declared operand-accessor eligibility gap for NotEqual in
+[CG FR-033](ix://agent-ix/quire-contract-codegen/FR-033) AC-12 and
+[QSL FR-358](ix://agent-ix/quire-spec-language/FR-358). It shall not claim that
+these consumers, their runtime replay, whole-domain coverage or all scalar
+Eq/Ne operations are enabled. Catalog/reader admission remains a prerequisite;
+this extension shall not admit an operand or operation refused by that owner.
 
 ### Application node keys
 
@@ -3865,6 +3881,11 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-194 | IMPLEMENTED; source Inspection completed (IR-663 production ownership). Inspection passes only when full typed-origin equality determines production group-origin retention, metadata is owned by SelectionRefusal through SelectionFailure::Refused after admit_selection releases the document, and that owner is released by the end of the existing SelectionFailure::Refused(refused) mapping arm to ValidationFailure in checked_package/v2/mod.rs. Explicit teardown or ordinary scoped-owner destruction passes; a field read affecting neither origin retention nor ownership transfer, a read solely to silence lint, a blanket dead_code allowance or a new observer/public API fails. | Inspection |
 | FR-038-AC-195 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 consumer lint gate). The CODE slice passes the repository's model-consumer Clippy lane with test-only fault injection disabled and warnings denied, as well as the workspace all-target lane. A compiler failure remains an open code gate rather than permission for a suppression or fake observer. | Test |
 | FR-038-AC-196 | IMPLEMENTED; final-head runtime/Clippy checks UNRUN, full gates pending (IR-663 sequential relationship context). A relationship identity repeated sequentially, including under two different owners, retains the later actual offending relationship's supplied identity and its own valid origin under the existing node/member-path order. Its missing or malformed origin yields None. The earlier relationship or enclosing owner cannot substitute, and type-group origin consensus does not apply. | Test |
+| FR-038-AC-197 | PLANNED/UNRUN (IR-690). An admitted structural.ne application over supported parameter or closed graph-value operands returns its actual application, selected authentic occurrence and positional child entries; swapping and repeating arguments preserves their exact ordered identities without deduplication. | Test |
+| FR-038-AC-198 | PLANNED/UNRUN (IR-690). Corresponding independently admitted structural.eq and structural.ne operands with the same authored types and child structure return identical authored-domain shapes and introduced positions, including exact canonical bound text, optional/reentry paths, enum order and closed-literal disposition; inequality supplies no complement, drawn maximum or altered domain. | Test |
+| FR-038-AC-199 | PLANNED/UNRUN (IR-690). A structural.ne projection preserves the existing closed refusal variants, exact ordinal/type-node payloads and first-defect order for unsupported inline/subterm/nonstructural operands, unsupported union and malformed domains; it returns no partial result. A catalogued identity outside structural.eq/structural.ne remains IneligibleOperator. Defensive post-admission mutations are not reader-admission evidence. | Test |
+| FR-038-AC-200 | PLANNED/UNRUN (IR-690). Structural.ne uses the existing logical-work charges: a successful projection's exact consumed_work limit succeeds, one less and zero return WorkLimit with the specified limit and attempted cumulative consumed charge. Corresponding eq/ne operand projections consume the same logical work independently of admitted graph-node order. | Test |
+| FR-038-AC-201 | PLANNED/UNRUN (IR-690). Inspection of the production extension finds one shared retained-index/family/catalog/reference-resolution and domain-projection owner for eq/ne, with the existing public signature/types and scalar/admission boundaries unchanged; no per-call uncharged index, second traversal owner, depth ceiling, encoder or new dependency is introduced. | Inspection |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
