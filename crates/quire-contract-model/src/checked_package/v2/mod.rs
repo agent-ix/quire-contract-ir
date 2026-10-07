@@ -8,6 +8,7 @@
 //! definition byte artifacts.
 
 mod abstraction;
+mod composite_operands;
 mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
@@ -29,6 +30,12 @@ mod structural;
 mod temporal;
 mod vocabulary;
 
+pub use composite_operands::{
+    CheckedAuthoredCompositeDomain, CheckedCanonicalIntegerBound, CheckedCompositeChildEdge,
+    CheckedCompositeDomainKey, CheckedCompositeDomainPosition, CheckedCompositeOperand,
+    CheckedCompositeOperandDomain, CheckedCompositeOperandError, CheckedCompositeOperands,
+    CheckedCompositeShapeEntry, CheckedUnsupportedCompositeOperand,
+};
 pub use identity::*;
 pub use lower::*;
 pub use model_fields::{
