@@ -8,7 +8,7 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, mint_ungrouped_structural_keys, positive_operation_identities,
-    refresh_identity, refusal, refusal_bytes, v2_all_families, v2_nominal,
+    refresh_identity, refusal, refusal_bytes, v2_all_families, v2_nominal, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
@@ -614,11 +614,11 @@ fn read_bytes(bytes: &[u8], package: &Value) -> CheckedPackageRefusal {
     }
 }
 
-fn noncanonical() -> CheckedPackageRefusal {
+fn noncanonical() -> ExpectedRefusal {
     refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
 }
 
-fn stale() -> CheckedPackageRefusal {
+fn stale() -> ExpectedRefusal {
     refusal(
         CheckedPackageRefusalCode::StaleDependency,
         "/package_id/digest",

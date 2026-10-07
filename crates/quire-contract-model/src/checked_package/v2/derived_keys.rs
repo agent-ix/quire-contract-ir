@@ -442,12 +442,22 @@ pub(super) fn validate_derived_keys(
             ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at())
         })?;
         if derived.as_deref() != Some(node_id.digest.as_ref()) {
-            return Err(ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                at(),
-                Some(CheckedPackageRefusalCause::StaleNodeKey),
-                node_id.clone(),
-            ));
+            return Err(match derived {
+                Some(digest) => ValidationFailure::refused_stale_node_key(
+                    at(),
+                    node_id.clone(),
+                    CheckedNodeId {
+                        domain: NODE_DOMAIN.into(),
+                        digest: digest.into(),
+                    },
+                ),
+                None => ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    at(),
+                    Some(CheckedPackageRefusalCause::StaleNodeKey),
+                    node_id.clone(),
+                ),
+            });
         }
     }
     Ok(())

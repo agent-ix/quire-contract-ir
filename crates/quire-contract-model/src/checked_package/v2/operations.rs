@@ -75,7 +75,7 @@ use super::{
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
-    application_operator, body_term, decoder_pointer, node_pointer,
+    application_operator, body_term, decoder_pointer, node_pointer, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -162,11 +162,15 @@ pub(super) fn validate_application_keys(
                     application.node_id(),
                 )
             })?;
-        if computed.to_string() != node_id.digest.as_ref() {
-            return Err(application.refuse(
-                CheckedPackageRefusalCode::InvalidPackage,
+        let computed_digest = computed.to_string();
+        if computed_digest != node_id.digest.as_ref() {
+            return Err(ValidationFailure::refused_stale_node_key(
                 application.node_id(),
-                CheckedPackageRefusalCause::StaleNodeKey,
+                node_id.clone(),
+                CheckedNodeId {
+                    domain: NODE_DOMAIN.into(),
+                    digest: computed_digest.into(),
+                },
             ));
         }
     }

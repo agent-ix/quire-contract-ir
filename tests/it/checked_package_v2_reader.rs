@@ -9,7 +9,7 @@ use crate::support::checked_package::{
     evidence_for, incomplete, nominal_fixture_members, nominal_package, pointer as support_pointer,
     positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes,
     refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families, v2_nominal,
-    COMPLETE_VALUE_FEATURE,
+    ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -67,7 +67,7 @@ fn replace_everywhere(value: &mut Value, from: &Value, to: &Value) {
 
 /// `invalid_semantic_graph`, the code of every nominal-stage refusal, at
 /// `path`.
-fn nominal(path: &str) -> CheckedPackageRefusal {
+fn nominal(path: &str) -> ExpectedRefusal {
     refusal(CheckedPackageRefusalCode::InvalidSemanticGraph, path)
 }
 
@@ -75,7 +75,7 @@ fn dispatch(bytes: &[u8], evidence: &CheckedPackageEvidence) -> CheckedPackageDi
     read_checked_package(bytes, CheckedPackageReadLimits::bounded(), evidence)
 }
 
-fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: CheckedPackageRefusal) {
+fn assert_dispatch_refused(result: CheckedPackageDispatchResult, expected: ExpectedRefusal) {
     match result {
         CheckedPackageDispatchResult::Refused(actual) => assert_eq!(actual, expected),
         other => panic!("expected {expected:?}, got {other:?}"),
@@ -332,7 +332,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         refusal_bytes(CheckedPackageRefusalCode::NoncanonicalWire)
     );
 
-    let cases: Vec<(&str, Mutation, CheckedPackageRefusal)> = vec![
+    let cases: Vec<(&str, Mutation, ExpectedRefusal)> = vec![
         (
             "unknown top-level member",
             Box::new(|v| v["future"] = json!(1)),
@@ -2157,18 +2157,17 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
             .expect("application digest"),
     );
 
-    let assert_self_cycle_refused =
-        |position: usize, body: Value, expected: CheckedPackageRefusal| {
-            let mut mutated = base.clone();
-            mutated["semantic_graph"]["nodes"][position]["semantic_type"] =
-                mutated["semantic_graph"]["nodes"][position]["node_id"].clone();
-            mutated["semantic_graph"]["nodes"][position]["body"] = body;
-            if position == application_position {
-                mutated["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
-            }
-            refresh_identity(&mut mutated);
-            assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
-        };
+    let assert_self_cycle_refused = |position: usize, body: Value, expected: ExpectedRefusal| {
+        let mut mutated = base.clone();
+        mutated["semantic_graph"]["nodes"][position]["semantic_type"] =
+            mutated["semantic_graph"]["nodes"][position]["node_id"].clone();
+        mutated["semantic_graph"]["nodes"][position]["body"] = body;
+        if position == application_position {
+            mutated["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
+        }
+        refresh_identity(&mut mutated);
+        assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
+    };
 
     // Negative: a self-typed node whose body is a `reference` term naming
     // itself is a genuine 1-node cycle, not the carve-out's case. The carve-
@@ -2332,7 +2331,7 @@ fn tc_048_deleting_a_declared_wire_member_refuses_before_the_projection_compare(
         .expect("an application node");
 
     type Delete = fn(&mut Value, usize);
-    let cases: [(&str, usize, Delete, CheckedPackageRefusal); 4] = [
+    let cases: [(&str, usize, Delete, ExpectedRefusal); 4] = [
         (
             "declaration",
             declaring_node,

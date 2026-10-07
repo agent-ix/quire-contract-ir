@@ -24,7 +24,7 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_ir::{
-    CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedNodeId, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
 };
@@ -541,15 +541,65 @@ pub fn pointer(text: &str) -> JsonPointer {
     JsonPointer::parse(text).unwrap_or_else(|| panic!("not an RFC 6901 pointer: {text:?}"))
 }
 
+/// Independently authored expected reader fields. Tests build this value from
+/// their chosen input and compare each public field with the real refusal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExpectedNodeId {
+    Absent,
+    Present,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpectedRefusal {
+    pub code: CheckedPackageRefusalCode,
+    pub path: Option<JsonPointer>,
+    pub cause: Option<CheckedPackageRefusalCause>,
+    pub locus: Option<CheckedNodeId>,
+    pub contract_version: Option<Box<str>>,
+    pub document_pointer: Option<JsonPointer>,
+    pub expected_node_id: ExpectedNodeId,
+}
+
+impl PartialEq<ExpectedRefusal> for CheckedPackageRefusal {
+    fn eq(&self, expected: &ExpectedRefusal) -> bool {
+        self.code == expected.code
+            && self.path == expected.path
+            && self.cause == expected.cause
+            && self.locus == expected.locus
+            && self.contract_version == expected.contract_version
+            && self.document_pointer == expected.document_pointer
+            && match expected.expected_node_id {
+                ExpectedNodeId::Absent => self.expected_node_id().is_none(),
+                ExpectedNodeId::Present => self.expected_node_id().is_some(),
+            }
+    }
+}
+
+impl PartialEq<CheckedPackageRefusal> for ExpectedRefusal {
+    fn eq(&self, actual: &CheckedPackageRefusal) -> bool {
+        actual == self
+    }
+}
+
+impl PartialEq<ExpectedRefusal> for CheckedPackageV2ReadResult {
+    fn eq(&self, expected: &ExpectedRefusal) -> bool {
+        match self {
+            Self::Refused(actual) => actual == expected,
+            Self::Admitted(_) | Self::Incomplete(_) => false,
+        }
+    }
+}
+
 /// A refusal about the value at the RFC 6901 pointer `path`.
-pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+pub fn refusal(code: CheckedPackageRefusalCode, path: &str) -> ExpectedRefusal {
+    ExpectedRefusal {
         code,
         path: Some(pointer(path)),
         cause: None,
         locus: None,
         contract_version: None,
         document_pointer: None,
+        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
@@ -558,35 +608,37 @@ pub fn refusal_cause(
     code: CheckedPackageRefusalCode,
     path: &str,
     cause: CheckedPackageRefusalCause,
-) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+) -> ExpectedRefusal {
+    ExpectedRefusal {
         cause: Some(cause),
         ..refusal(code, path)
     }
 }
 
 /// A refusal about the byte stream rather than a value: it carries no path.
-pub fn refusal_bytes(code: CheckedPackageRefusalCode) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+pub fn refusal_bytes(code: CheckedPackageRefusalCode) -> ExpectedRefusal {
+    ExpectedRefusal {
         code,
         path: None,
         cause: None,
         locus: None,
         contract_version: None,
         document_pointer: None,
+        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
 /// `unknown_contract_version` at `/contract_version`, carrying the version
 /// string the reader read there.
-pub fn unknown_version(version: &str) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+pub fn unknown_version(version: &str) -> ExpectedRefusal {
+    ExpectedRefusal {
         code: CheckedPackageRefusalCode::UnknownContractVersion,
         path: Some(pointer("/contract_version")),
         cause: None,
         locus: None,
         contract_version: Some(version.into()),
         document_pointer: None,
+        expected_node_id: ExpectedNodeId::Absent,
     }
 }
 
@@ -598,14 +650,21 @@ pub fn refusal_at(
     path: &str,
     cause: Option<CheckedPackageRefusalCause>,
     locus_digest: &str,
-) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+) -> ExpectedRefusal {
+    ExpectedRefusal {
         code,
         path: Some(pointer(path)),
         cause,
         locus: Some(typed_node_id(locus_digest)),
         contract_version: None,
         document_pointer: None,
+        expected_node_id: if code == CheckedPackageRefusalCode::InvalidPackage
+            && cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
+        {
+            ExpectedNodeId::Present
+        } else {
+            ExpectedNodeId::Absent
+        },
     }
 }
 

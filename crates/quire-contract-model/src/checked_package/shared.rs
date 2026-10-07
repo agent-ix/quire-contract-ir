@@ -329,6 +329,54 @@ pub struct CheckedPackageRefusal {
     /// locates the row; this pointer resolves in the supplied document, not in
     /// the package.
     pub document_pointer: Option<JsonPointer>,
+    /// The key already derived at a stale-node-key refusal site, when one
+    /// exists. It is meaningful only with the original reader-returned locus.
+    expected_node_id: Option<CheckedNodeId>,
+}
+
+impl CheckedPackageRefusal {
+    pub(crate) fn new(
+        code: CheckedPackageRefusalCode,
+        path: Option<JsonPointer>,
+        cause: Option<CheckedPackageRefusalCause>,
+        locus: Option<CheckedNodeId>,
+        contract_version: Option<Box<str>>,
+        document_pointer: Option<JsonPointer>,
+    ) -> Self {
+        Self {
+            code,
+            path,
+            cause,
+            locus,
+            contract_version,
+            document_pointer,
+            expected_node_id: None,
+        }
+    }
+
+    pub(crate) fn stale_node_key(
+        path: JsonPointer,
+        locus: CheckedNodeId,
+        expected_node_id: CheckedNodeId,
+    ) -> Self {
+        let mut refusal = Self::new(
+            CheckedPackageRefusalCode::InvalidPackage,
+            Some(path),
+            Some(CheckedPackageRefusalCause::StaleNodeKey),
+            Some(locus),
+            None,
+            None,
+        );
+        refusal.expected_node_id = Some(expected_node_id);
+        refusal
+    }
+
+    /// The production-derived node key retained with a stale-key refusal, if
+    /// the reader could derive one. The original [`Self::locus`] identifies the
+    /// stored key that refused.
+    pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
+        self.expected_node_id.as_ref()
+    }
 }
 
 /// A typed non-conclusive outcome caused by the first exhausted limit.

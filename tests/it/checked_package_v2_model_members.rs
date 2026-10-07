@@ -14,7 +14,7 @@
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, node_id, nominal_package,
     over_body, pointer, rebuild_source_map, refresh_identity, refusal_bytes, refusal_cause,
-    sha256_hex,
+    sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
@@ -954,6 +954,36 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
     }
 }
 
+/// Trace: FR-038-AC-185, TC-048
+#[trace("FR-038-AC-185", "TC-048")]
+#[test]
+fn tc_048_selected_model_declaration_shape_has_no_derived_expected_key() {
+    let (mut package, evidence) = package_over(&domain_document(json!({})), "total");
+    let position = 2;
+    let original = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    package["semantic_graph"]["nodes"][position]["semantic_type"] =
+        package["semantic_graph"]["nodes"][0]["node_id"].clone();
+    refresh_identity(&mut package);
+    let refusal = match read(&package, &evidence) {
+        CheckedPackageV2ReadResult::Refused(refusal) => refusal,
+        other => panic!("selected model declaration must refuse: {other:?}"),
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(ToString::to_string),
+        Some("/semantic_graph/nodes/6/body/operation/member/declaration".to_owned())
+    );
+    assert_eq!(
+        refusal.locus.as_ref().expect("node locus").digest.as_ref(),
+        original["digest"].as_str().expect("original digest")
+    );
+    assert_eq!(refusal.expected_node_id(), None);
+}
+
 /// Tracing: TC-048, FR-038-AC-45
 #[trace("TC-048", "FR-038-AC-45")]
 #[test]
@@ -1168,11 +1198,8 @@ fn read_selecting(digest: &str, bytes: &[u8]) -> CheckedPackageV2ReadResult {
     read(&package, &evidence)
 }
 
-fn number_refusal(
-    document_pointer: &str,
-    cause: CheckedPackageRefusalCause,
-) -> CheckedPackageRefusal {
-    CheckedPackageRefusal {
+fn number_refusal(document_pointer: &str, cause: CheckedPackageRefusalCause) -> ExpectedRefusal {
+    ExpectedRefusal {
         document_pointer: Some(pointer(document_pointer)),
         ..refusal_cause(
             CheckedPackageRefusalCode::NoncanonicalWire,
@@ -1481,7 +1508,7 @@ fn tc_048_a_number_past_the_double_range_refuses_inexact_integer_with_its_pointe
 
 /// The refusal of a model document the reader does not parse: the digest is
 /// taken over the raw bytes, so it matches no `sha256-jcs` digest.
-fn raw_digest_refusal() -> CheckedPackageRefusal {
+fn raw_digest_refusal() -> ExpectedRefusal {
     refusal_cause(
         CheckedPackageRefusalCode::StaleDependency,
         "/lock/model_selections/0/digest",
@@ -1498,7 +1525,7 @@ fn tc_048_the_first_reader_fault_decides_when_faults_coexist() {
     // member name only when its object closes. Hand-written expectations.
     let number = |pointer: &str, cause| number_refusal(pointer, cause);
     let led = |members: &str| document_bytes_led_by(members);
-    let cases: [(Vec<u8>, CheckedPackageRefusal); 11] = [
+    let cases: [(Vec<u8>, ExpectedRefusal); 11] = [
         // The reader checks that the whole input is UTF-8 before it reads any
         // value, so invalid UTF-8 after the number is the first fault.
         (b"[1e400,\"\xFF\"]".to_vec(), raw_digest_refusal()),

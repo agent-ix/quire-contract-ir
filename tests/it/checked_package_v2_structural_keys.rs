@@ -18,13 +18,13 @@ use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, family_key, integer_range_key,
     model_owner, node_id, nominal_package, over_body, owned_structural_node, rebuild_source_map,
     refresh_identity, refusal_at, rename_node, settle, sha256_hex, structural_key, typed_node_id,
-    v2_all_families, v2_nominal, BOOLEAN_KEY, INTEGER_KEY,
+    v2_all_families, v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_ir::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -77,7 +77,7 @@ fn at(package: &Value, key: &str) -> usize {
 
 /// The refusal the reader must give a node it cannot re-derive: the cause it
 /// already uses for a key that does not match its node, at the node.
-fn stale_at(package: &Value, key: &str) -> CheckedPackageRefusal {
+fn stale_at(package: &Value, key: &str) -> ExpectedRefusal {
     refusal_at(
         Code::InvalidPackage,
         &format!("/semantic_graph/nodes/{}/node_id", at(package, key)),
@@ -90,6 +90,16 @@ fn assert_stale(what: &str, package: &Value, key: &str) {
     assert_eq!(
         refusal_of(what, package, &evidence_for(package)),
         stale_at(package, key),
+        "{what}"
+    );
+}
+
+fn assert_stale_absent(what: &str, package: &Value, key: &str) {
+    let mut expected = stale_at(package, key);
+    expected.expected_node_id = ExpectedNodeId::Absent;
+    assert_eq!(
+        refusal_of(what, package, &evidence_for(package)),
+        expected,
         "{what}"
     );
 }
@@ -818,14 +828,14 @@ fn tc_226_a_body_off_the_closed_form_has_no_derivable_key() {
             ("collection_bounds", base.sequence_bounds.clone()),
         ] {
             let (package, fresh) = rekeyed(package, &key, edit);
-            assert_stale(&format!("{form}: {row}"), &package, &fresh);
+            assert_stale_absent(&format!("{form}: {row}"), &package, &fresh);
         }
     }
     // A collection bound is a count: a negative `min` has no derivable key.
     let (negative_count, fresh) = rekeyed(package, &base.sequence_bounds, |n| {
         set_bound(n, "min", "-1");
     });
-    assert_stale("collection_bounds: min -1", &negative_count, &fresh);
+    assert_stale_absent("collection_bounds: min -1", &negative_count, &fresh);
 
     // A `scalar_type`/`integer` node with a non-empty body, and a `reference`,
     // `option` or collection node with no member, two members or a member that
@@ -833,7 +843,7 @@ fn tc_226_a_body_off_the_closed_form_has_no_derivable_key() {
     let integer = tampered(package, INTEGER_KEY, |n| {
         n["body"] = over_body(&family_key("a1a1"));
     });
-    assert_stale("integer with a body", &integer, INTEGER_KEY);
+    assert_stale_absent("integer with a body", &integer, INTEGER_KEY);
     for (what, key) in [
         ("reference", base.reference.clone()),
         ("option", base.option.clone()),
@@ -863,7 +873,7 @@ fn tc_226_a_body_off_the_closed_form_has_no_derivable_key() {
         ];
         for (row, edit) in rows {
             let (package, fresh) = rekeyed(package, &key, edit);
-            assert_stale(&format!("{what}: {row}"), &package, &fresh);
+            assert_stale_absent(&format!("{what}: {row}"), &package, &fresh);
         }
     }
 }
@@ -878,22 +888,22 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
     let retype = |key: &str, ty: &str| tampered(package, key, |n| n["semantic_type"] = node_id(ty));
     // A scalar or composite node of a derived shape typed at another node
     // refuses although its key is unchanged.
-    assert_stale(
+    assert_stale_absent(
         "boolean typed at Integer",
         &retype(BOOLEAN_KEY, INTEGER_KEY),
         BOOLEAN_KEY,
     );
-    assert_stale(
+    assert_stale_absent(
         "integer typed at Boolean",
         &retype(INTEGER_KEY, BOOLEAN_KEY),
         INTEGER_KEY,
     );
-    assert_stale(
+    assert_stale_absent(
         "set typed at its element",
         &retype(&base.set, &base.wide),
         &base.set,
     );
-    assert_stale(
+    assert_stale_absent(
         "option typed at Boolean",
         &retype(&family_key("bbbb"), BOOLEAN_KEY),
         &family_key("bbbb"),
@@ -905,7 +915,7 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
         &retype(&base.sequence_bounds, &base.narrow_sequence),
         &base.sequence_bounds,
     );
-    assert_stale(
+    assert_stale_absent(
         "integer_range re-pointed at Boolean",
         &retype(&base.zero, BOOLEAN_KEY),
         &base.zero,
@@ -919,7 +929,7 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
         let (package, fresh) = rekeyed(package, key, |n| {
             n["semantic_type"] = node_id(BOOLEAN_KEY);
         });
-        assert_stale(what, &package, &fresh);
+        assert_stale_absent(what, &package, &fresh);
     }
     // The literal `type` of `min` and `max` re-pointed at a genuinely keyed
     // node of another type.
@@ -929,7 +939,7 @@ fn tc_226_a_node_is_its_own_type_and_the_key_covers_semantic_type_and_literal_ty
                 member["value"]["type"] = node_id(BOOLEAN_KEY);
             }
         });
-        assert_stale("literal type re-pointed", &package, key);
+        assert_stale_absent("literal type re-pointed", &package, key);
     }
 }
 
@@ -1348,11 +1358,11 @@ fn tc_226_the_in_repo_fixtures_carry_derived_keys_and_closed_bodies() {
     let unmigrated_body = tampered(&base, &option, |n| {
         n["body"] = json!({"term": "aggregate", "members": []});
     });
-    assert_stale("the body left unmigrated", &unmigrated_body, &option);
+    assert_stale_absent("the body left unmigrated", &unmigrated_body, &option);
     let unmigrated_type = tampered(&base, &option, |n| {
         n["semantic_type"] = node_id(BOOLEAN_KEY);
     });
-    assert_stale(
+    assert_stale_absent(
         "the semantic type left unmigrated",
         &unmigrated_type,
         &option,
@@ -1362,7 +1372,7 @@ fn tc_226_the_in_repo_fixtures_carry_derived_keys_and_closed_bodies() {
         n["semantic_type"] = node_id(BOOLEAN_KEY);
         n["body"] = json!({"term": "aggregate", "members": []});
     });
-    assert_stale("the old shape keyed again", &old_shape, &fresh);
+    assert_stale_absent("the old shape keyed again", &old_shape, &fresh);
 }
 
 /// The scalar keys the fixtures record as literals are the derived ones.
@@ -1669,4 +1679,223 @@ fn tc_226_a_forged_names_cycle_through_collection_bounds_is_admitted_the_recorde
         set_bound(n, "max", "10");
     });
     assert_stale("a labelled integer_range", &range, &base.wide);
+}
+
+/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048, TC-226
+#[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048", "TC-226")]
+#[test]
+fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
+    let base = base();
+    let (parameter_key, parameter_node) = parameter("free", "1", &base.wide);
+    let package = with_nodes(base.package, vec![parameter_node]);
+    admitted("unreferenced parameter", &package);
+
+    for (key, edit) in [
+        (
+            base.zero.as_str(),
+            (|node: &mut Value| set_bound(node, "max", "1")) as fn(&mut Value),
+        ),
+        (parameter_key.as_str(), |node: &mut Value| {
+            node["body"]["members"][1]["value"]["value"] = json!("2");
+        }),
+    ] {
+        let stale = tampered(&package, key, edit);
+        let refusal = refusal_of("derived key", &stale, &evidence_for(&stale));
+        assert_eq!(refusal, stale_at(&stale, key));
+        let expected = refusal.expected_node_id().expect("derived key");
+        assert_ne!(expected.digest.as_ref(), key);
+        let mut rekeyed = stale.clone();
+        rename_node(&mut rekeyed, key, &expected.digest);
+        rebuild_source_map(&mut rekeyed);
+        refresh_identity(&mut rekeyed);
+        admitted("fresh package with returned key", &rekeyed);
+    }
+
+    let changed_once = tampered(&package, &base.zero, |node| set_bound(node, "max", "1"));
+    let changed_twice = tampered(&package, &base.zero, |node| set_bound(node, "max", "2"));
+    let first = refusal_of("first bound", &changed_once, &evidence_for(&changed_once));
+    let second = refusal_of(
+        "second bound",
+        &changed_twice,
+        &evidence_for(&changed_twice),
+    );
+    assert_eq!(first.code, second.code);
+    assert_eq!(first.path, second.path);
+    assert_eq!(first.cause, second.cause);
+    assert_eq!(first.locus, second.locus);
+    assert_ne!(first.expected_node_id(), second.expected_node_id());
+    assert_ne!(first, second, "the private key participates in Eq");
+    assert_eq!(first.clone().expected_node_id(), first.expected_node_id());
+    let mut rekeyed_second = changed_twice;
+    rename_node(
+        &mut rekeyed_second,
+        &base.zero,
+        &second
+            .expected_node_id()
+            .expect("second derived key")
+            .digest,
+    );
+    rebuild_source_map(&mut rekeyed_second);
+    refresh_identity(&mut rekeyed_second);
+    admitted("second bound with returned key", &rekeyed_second);
+}
+
+/// Trace: FR-038-AC-184, FR-038-AC-185, TC-048
+#[trace("FR-038-AC-184", "FR-038-AC-185", "TC-048")]
+#[test]
+fn tc_048_application_expected_key_survives_reader_and_dispatch() {
+    let base = base();
+    admitted("base application", &base.package);
+    let stale = tampered(&base.package, &base.add, |node| {
+        node["body"]["arguments"][1]["value"] = json!("2");
+    });
+    let refusal = refusal_of("application key", &stale, &evidence_for(&stale));
+    assert_eq!(refusal, stale_at(&stale, &base.add));
+    let expected = refusal.expected_node_id().expect("application key");
+    assert_ne!(expected.digest.as_ref(), base.add);
+
+    let dispatched = read_checked_package(
+        &canonical(&stale),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&stale),
+    );
+    let CheckedPackageDispatchResult::Refused(forwarded) = dispatched else {
+        panic!("dispatch did not forward the refusal");
+    };
+    assert_eq!(forwarded.code, Code::InvalidPackage);
+    assert_eq!(forwarded.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(forwarded.locus, Some(typed_node_id(&base.add)));
+    assert_eq!(forwarded.expected_node_id(), Some(expected));
+
+    let mut rekeyed = stale.clone();
+    rename_node(&mut rekeyed, &base.add, &expected.digest);
+    rebuild_source_map(&mut rekeyed);
+    refresh_identity(&mut rekeyed);
+    admitted("application with returned key", &rekeyed);
+
+    let another = tampered(&base.package, &base.add, |node| {
+        node["body"]["arguments"][1]["value"] = json!("3");
+    });
+    let another_refusal = refusal_of("second application key", &another, &evidence_for(&another));
+    assert_eq!(another_refusal, stale_at(&another, &base.add));
+    assert_ne!(
+        another_refusal.expected_node_id(),
+        refusal.expected_node_id()
+    );
+    let mut rekeyed_another = another;
+    rename_node(
+        &mut rekeyed_another,
+        &base.add,
+        &another_refusal
+            .expected_node_id()
+            .expect("second application key")
+            .digest,
+    );
+    rebuild_source_map(&mut rekeyed_another);
+    refresh_identity(&mut rekeyed_another);
+    admitted("second application with returned key", &rekeyed_another);
+}
+
+/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048
+#[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048")]
+#[test]
+fn tc_048_nonderivable_stale_keys_retain_absence() {
+    let base = base();
+    let (option_key, option_node) = collection("option", &base.zero);
+    let package = with_nodes(base.package, vec![option_node]);
+    admitted("unreferenced option", &package);
+
+    let fresh = family_key("eded");
+    let mut stale_self_type = package.clone();
+    rename_node(&mut stale_self_type, &option_key, &fresh);
+    let position = at(&stale_self_type, &fresh);
+    stale_self_type["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&option_key);
+    rebuild_source_map(&mut stale_self_type);
+    refresh_identity(&mut stale_self_type);
+    let refusal = refusal_of(
+        "stale self type",
+        &stale_self_type,
+        &evidence_for(&stale_self_type),
+    );
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(refusal.locus, Some(typed_node_id(&fresh)));
+    assert_eq!(refusal.expected_node_id(), None);
+
+    let noncollection = tampered(&package, &base.sequence_bounds, |node| {
+        node["semantic_type"] = node_id(BOOLEAN_KEY);
+    });
+    let refusal = refusal_of(
+        "noncollection bounds",
+        &noncollection,
+        &evidence_for(&noncollection),
+    );
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(refusal.locus, Some(typed_node_id(&base.sequence_bounds)));
+    assert_eq!(refusal.expected_node_id(), None);
+
+    let malformed = tampered(&package, &base.zero, |node| {
+        node["body"] = json!({"term":"aggregate", "members":[]});
+    });
+    let refusal = refusal_of(
+        "malformed closed shape",
+        &malformed,
+        &evidence_for(&malformed),
+    );
+    assert_eq!(refusal.code, Code::InvalidPackage);
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey));
+    assert_eq!(refusal.expected_node_id(), None);
+}
+
+/// Trace: FR-038-AC-183, FR-038-AC-185, TC-048
+#[trace("FR-038-AC-183", "FR-038-AC-185", "TC-048")]
+#[test]
+fn tc_048_each_self_typed_shape_needs_its_id_and_type_changed_together() {
+    let base = base();
+    let empty = json!({"term":"aggregate", "members":[]});
+    for form in ["boolean", "integer"] {
+        let key = structural_key("scalar_type", form, None, &empty);
+        let package = with_nodes(
+            nominal_package(&[]),
+            vec![node(&key, "scalar_type", form, &key, &[], empty.clone())],
+        );
+        assert_self_type_control(form, &package, &key);
+    }
+    for form in [
+        "reference",
+        "option",
+        "set",
+        "bag",
+        "sequence",
+        "ordered_set",
+    ] {
+        let (key, member) = collection(form, &base.zero);
+        let package = with_nodes(base.package.clone(), vec![member]);
+        assert_self_type_control(form, &package, &key);
+    }
+}
+
+fn assert_self_type_control(form: &str, package: &Value, key: &str) {
+    admitted(form, package);
+    let changed = family_key("eded");
+    let mut stale_type = package.clone();
+    rename_node(&mut stale_type, key, &changed);
+    let position = at(&stale_type, &changed);
+    stale_type["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(key);
+    rebuild_source_map(&mut stale_type);
+    refresh_identity(&mut stale_type);
+    let refusal = refusal_of(form, &stale_type, &evidence_for(&stale_type));
+    assert_eq!(refusal.code, Code::InvalidPackage, "{form}");
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey), "{form}");
+    assert_eq!(refusal.locus, Some(typed_node_id(&changed)), "{form}");
+    assert_eq!(refusal.expected_node_id(), None, "{form}");
+
+    stale_type["semantic_graph"]["nodes"][position]["semantic_type"] = node_id(&changed);
+    refresh_identity(&mut stale_type);
+    let refusal = refusal_of(form, &stale_type, &evidence_for(&stale_type));
+    assert_eq!(refusal.code, Code::InvalidPackage, "{form}");
+    assert_eq!(refusal.cause, Some(Cause::StaleNodeKey), "{form}");
+    assert_eq!(refusal.locus, Some(typed_node_id(&changed)), "{form}");
+    assert!(refusal.expected_node_id().is_some(), "{form}");
 }
