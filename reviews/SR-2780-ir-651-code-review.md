@@ -146,6 +146,7 @@ family-less valid type.
 | FND-003 | fixed | commit "Close IR651 composite accessor review findings" |
 | FND-004 | fixed | commit "Close IR651 composite accessor review findings" |
 | FND-005 | fixed | commit "Close IR651 composite accessor review findings" |
+| FND-006 | fixed | commit "fix: distinguish familyless composite operand types" |
 
 ## Disposition evidence
 
@@ -194,3 +195,25 @@ AC-185 paths are untouched: the `resolve_family` refactor keeps its semantics,
 with `seen` keyed by node id instead of position. Strict coverage reports 25
 unbacked rows and 0 contradicted at the fix head, the same as round 0. The one new
 low finding is FND-006.
+
+### Round 2 evidence
+
+A static re-check of the fix commit "fix: distinguish familyless composite
+operand types", a fast-forward over the round-1 head. No cargo was run.
+
+- FND-006: `resolve_family_with` now returns `FamilyResolution::{Family, NoFamily,
+  Malformed(id)}`. The reader's `resolve_family` maps `NoFamily` and `Malformed` to
+  `None`, as before, so admission is unchanged. The accessor maps `NoFamily` to
+  `UnsupportedOperand { reason: NonStructuralType }` at the operand's semantic type,
+  and `Malformed(id)` to `MalformedDomain` at the actual failing node: the missing
+  id, or the repeated node of a bounded-domain cycle.
+- Tests: an admitted fixture is retyped to a `compound_unit` node and expects
+  `NonStructuralType`. Two record/option nodes rewritten as `integer_range` form a
+  cycle and expect `MalformedDomain` at the repeated node, not at the entry type.
+  The missing-type case expects `MalformedDomain` at the absent id. Mutants killed:
+  collapsing `NoFamily` into `MalformedDomain`, and reporting the entry type for a
+  cycle.
+- Regression checks: the new enum is `pub(super)`, so the public API is unchanged.
+  No production unwrap, expect or index was added. The earlier 12 fixes are
+  untouched by this commit. The committed SpecReview files match the round-1
+  exports and contain no hex commit id. There are no conflict markers.
