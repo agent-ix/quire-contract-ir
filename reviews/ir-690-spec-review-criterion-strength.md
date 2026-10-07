@@ -55,3 +55,11 @@ Judged manually over the specification text. Jev was not used.
 CONDITIONAL. Four of the five criteria can fail and have independent oracles.
 FND-001 is a missing expected outcome for a case the procedure already
 exercises, and needs one clause.
+
+## Dispositions
+
+Round 1, fix commit "Clarify inequality eligibility targets and pending refusal evidence".
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": AC-199 now begins "An absent structural.ne occurrence refuses MissingOccurrence with the supplied application and occurrence", and TC-048 step 1 asserts it under AC199 |

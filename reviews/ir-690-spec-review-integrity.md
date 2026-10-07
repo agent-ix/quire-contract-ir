@@ -53,3 +53,20 @@ one-to-one to TC-048 steps 1 to 5. FND-001 must be fixed before merge: as
 written, FR-038 states contradictory normative behavior for structural.ne.
 FND-002 should be fixed in the same round. FND-003 and FND-004 are
 clarifications.
+
+## Dispositions
+
+Round 1, fix commit "Clarify inequality eligibility targets and pending refusal evidence". Each fix checked against the actual delta. A grep of FR-038, TC-048 and tests.md finds no remaining "declared consumer gap" or "including structural.ne" wording. The only statement of current eq-only behavior is the explicit current-versus-target paragraph of the extension.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": AC-182 now says structural.ne eligibility is allocated only by the PLANNED/UNRUN IR-690 extension in AC-197 through AC-201 |
+| FND-002 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": the IneligibleOperator row is qualified as the PLANNED IR-690 target and says current eq-only code still refuses ne; AC-181, the TC-048 AC181 paragraph and both matrix rows record the pending retarget of the tagged public error-consumer test with no replacement credit |
+| FND-003 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": the inline-integer rationale and AC-178 now cover structural.eq and structural.ne and say both catalog entries require structural_kind |
+| FND-004 | fixed | fixed by commit "Clarify inequality eligibility targets and pending refusal evidence": the stray space before the comma and the double space are removed |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | The retarget note appended to the tests.md FR-038 status cell runs on without a sentence break: "Frame lowering to `kani::modifies` places is not part of this FR IR-690 CODE must retarget ...". Add a period after "this FR". | spec/checked_package/matrix/tests.md:16 |
