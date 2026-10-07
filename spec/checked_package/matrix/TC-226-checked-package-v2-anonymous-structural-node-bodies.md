@@ -88,13 +88,13 @@ AC-150 awaits the answer to IR-627-Q1 and Q4. AC-123 through AC-130 await the co
 adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
 AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
 await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code
-change is ordered after them. The AC-183 extension is planned / unrun until
-IR-680 code lands; it does not turn these older planned rows into completed
-evidence.
+change is ordered after them. The AC-183 extension is implemented and run by
+`tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches`; it
+does not turn these older planned rows into completed evidence.
 
 ## Retained derived-key refusal (FR-038-AC-183)
 
-Planned / unrun until IR-680 code lands. Run the owner-free, ungrouped,
+Implemented and run by `tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches`. Run the owner-free, ungrouped,
 unreferenced `integer_range` `base.zero` tamper case through the production
 reader. Require its `expected_node_id()` to return the key that reader
 derived, while `locus` keeps the tampered key and code/cause/path remain

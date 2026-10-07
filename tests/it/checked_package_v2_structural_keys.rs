@@ -1703,6 +1703,7 @@ fn tc_048_derived_expected_keys_rekey_unreferenced_nodes_in_both_branches() {
         let refusal = refusal_of("derived key", &stale, &evidence_for(&stale));
         assert_eq!(refusal, stale_at(&stale, key));
         let expected = refusal.expected_node_id().expect("derived key");
+        assert_eq!(expected, &typed_node_id(&expected.digest));
         assert_ne!(expected.digest.as_ref(), key);
         let mut rekeyed = stale.clone();
         rename_node(&mut rekeyed, key, &expected.digest);
@@ -1897,5 +1898,6 @@ fn assert_self_type_control(form: &str, package: &Value, key: &str) {
     assert_eq!(refusal.code, Code::InvalidPackage, "{form}");
     assert_eq!(refusal.cause, Some(Cause::StaleNodeKey), "{form}");
     assert_eq!(refusal.locus, Some(typed_node_id(&changed)), "{form}");
-    assert!(refusal.expected_node_id().is_some(), "{form}");
+    let expected = refusal.expected_node_id().expect("self-typed derived key");
+    assert_eq!(expected, &typed_node_id(&expected.digest), "{form}");
 }

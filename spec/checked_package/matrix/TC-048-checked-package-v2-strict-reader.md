@@ -1279,9 +1279,10 @@ in the handoff evidence, not copied into public specification/review custody.
 
 ## Retained expected node key (FR-038-AC-183 through FR-038-AC-185)
 
-This procedure is PLANNED / UNRUN until IR-680 code lands. Exercise the real
-production reader and typed `CheckedPackageRefusal::expected_node_id()`
-accessor. No test-side FR-092 encoder, copied digest, diagnostic parser or
+Implemented and run by the tagged `checked_package_v2_structural_keys` and
+`checked_package_v2_model_members` integration tests, and the application-key
+unit test. Exercise the real production reader and typed
+`CheckedPackageRefusal::expected_node_id()` accessor. No test-side FR-092 encoder, copied digest, diagnostic parser or
 public derive/rekey API is an oracle. Existing expected refusal values remain
 **test-authored** tuples of the public fields, independent of reader output;
 compare those fields one by one and assert the new accessor separately. For a

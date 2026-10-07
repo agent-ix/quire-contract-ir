@@ -334,22 +334,26 @@ pub struct CheckedPackageRefusal {
     expected_node_id: Option<CheckedNodeId>,
 }
 
+/// Named fields for constructing a refusal inside this crate. The expected
+/// key is set only by the dedicated stale-key constructor.
+pub(crate) struct RefusalFields {
+    pub(crate) code: CheckedPackageRefusalCode,
+    pub(crate) path: Option<JsonPointer>,
+    pub(crate) cause: Option<CheckedPackageRefusalCause>,
+    pub(crate) locus: Option<CheckedNodeId>,
+    pub(crate) contract_version: Option<Box<str>>,
+    pub(crate) document_pointer: Option<JsonPointer>,
+}
+
 impl CheckedPackageRefusal {
-    pub(crate) fn new(
-        code: CheckedPackageRefusalCode,
-        path: Option<JsonPointer>,
-        cause: Option<CheckedPackageRefusalCause>,
-        locus: Option<CheckedNodeId>,
-        contract_version: Option<Box<str>>,
-        document_pointer: Option<JsonPointer>,
-    ) -> Self {
+    pub(crate) fn new(fields: RefusalFields) -> Self {
         Self {
-            code,
-            path,
-            cause,
-            locus,
-            contract_version,
-            document_pointer,
+            code: fields.code,
+            path: fields.path,
+            cause: fields.cause,
+            locus: fields.locus,
+            contract_version: fields.contract_version,
+            document_pointer: fields.document_pointer,
             expected_node_id: None,
         }
     }
@@ -359,14 +363,14 @@ impl CheckedPackageRefusal {
         locus: CheckedNodeId,
         expected_node_id: CheckedNodeId,
     ) -> Self {
-        let mut refusal = Self::new(
-            CheckedPackageRefusalCode::InvalidPackage,
-            Some(path),
-            Some(CheckedPackageRefusalCause::StaleNodeKey),
-            Some(locus),
-            None,
-            None,
-        );
+        let mut refusal = Self::new(RefusalFields {
+            code: CheckedPackageRefusalCode::InvalidPackage,
+            path: Some(path),
+            cause: Some(CheckedPackageRefusalCause::StaleNodeKey),
+            locus: Some(locus),
+            contract_version: None,
+            document_pointer: None,
+        });
         refusal.expected_node_id = Some(expected_node_id);
         refusal
     }
