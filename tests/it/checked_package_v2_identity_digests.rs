@@ -364,25 +364,108 @@ pub(crate) fn production_source(text: &str) -> String {
     kept
 }
 
-/// Every source file under `checked_package/`, without its `#[cfg(test)]`
-/// items and without the out-of-line test files.
+/// Out-of-line module names under this repository's one-line default module
+/// layout. Inline modules stay with their parent. Unrecognized layouts cannot
+/// exclude a file: the physical source inventory is always scanned by default.
+fn out_of_line_modules(text: &str) -> std::collections::BTreeSet<&str> {
+    // This scan does not interpret path overrides. Keep every physical file
+    // when a module's layout is not the actual default layout handled below.
+    if text
+        .lines()
+        .any(|line| line.trim_start().starts_with("#[path"))
+    {
+        return std::collections::BTreeSet::new();
+    }
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let (visibility, declaration) = line.split_once("mod ")?;
+            if !visibility.is_empty() && !visibility.trim().starts_with("pub") {
+                return None;
+            }
+            let name = declaration.strip_suffix(';')?.trim();
+            (!name.is_empty() && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'))
+                .then_some(name)
+        })
+        .collect()
+}
+
+/// Resolve only actual default-layout module files from this source inventory.
+fn module_file(
+    parent: &Path,
+    name: &str,
+    sources: &std::collections::BTreeMap<PathBuf, String>,
+) -> Option<PathBuf> {
+    let directory = if parent.file_name().is_some_and(|file| file == "mod.rs") {
+        parent.parent()?.to_path_buf()
+    } else {
+        parent.parent()?.join(parent.file_stem()?)
+    };
+    let file = directory.join(name).with_extension("rs");
+    let directory_file = directory.join(name).join("mod.rs");
+    match (
+        sources.contains_key(&file),
+        sources.contains_key(&directory_file),
+    ) {
+        (true, false) => Some(file),
+        (false, true) => Some(directory_file),
+        // Missing, ambiguous or nondefault layouts receive no exclusion.
+        _ => None,
+    }
+}
+
+/// Derive exclusions from actual cfg(test) module ancestry, never filenames.
+/// A child's test-only status is inherited only through an actual declaration.
+fn test_only_module_files(
+    sources: &std::collections::BTreeMap<PathBuf, String>,
+) -> std::collections::BTreeSet<PathBuf> {
+    let mut excluded = std::collections::BTreeSet::new();
+    let mut pending = Vec::new();
+    for (path, raw) in sources {
+        let production = production_source(raw);
+        let all = out_of_line_modules(raw);
+        let live = out_of_line_modules(&production);
+        for name in all.difference(&live) {
+            if let Some(child) = module_file(path, name, sources) {
+                pending.push(child);
+            }
+        }
+    }
+    while let Some(path) = pending.pop() {
+        if !excluded.insert(path.clone()) {
+            continue;
+        }
+        if let Some(raw) = sources.get(&path) {
+            for name in out_of_line_modules(raw) {
+                if let Some(child) = module_file(&path, name, sources) {
+                    pending.push(child);
+                }
+            }
+        }
+    }
+    excluded
+}
+
+/// Every physical source file under checked_package, except actual cfg(test)
+/// modules and their declared descendants, with inline cfg(test) items removed.
 fn checked_package_sources() -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
     rust_files_under(
         &repository_path("crates/quire-contract-model/src/checked_package"),
         &mut files,
     );
-    files
+    let sources: std::collections::BTreeMap<_, _> = files
         .into_iter()
-        .filter(|path| {
-            path.file_name()
-                .is_some_and(|name| name != "tests.rs" && name != "ceiling_tests.rs")
-        })
         .map(|path| {
             let text = fs::read_to_string(&path).expect("source reads");
-            let production = production_source(&text);
-            (path, production)
+            (path, text)
         })
+        .collect();
+    let test_only = test_only_module_files(&sources);
+    sources
+        .into_iter()
+        .filter(|(path, _)| !test_only.contains(path))
+        .map(|(path, text)| (path, production_source(&text)))
         .collect()
 }
 
@@ -395,6 +478,36 @@ fn tc_048_the_checked_package_source_holds_no_encoder_of_its_own() {
     assert!(
         sources.len() > 10,
         "the scan reads the checked-package files"
+    );
+    // Actual nested unit fixtures inherit the cfg(test) of model_members' module.
+    // The production origin decoder remains in the scan.
+    assert!(!sources
+        .iter()
+        .any(|(path, _)| path.ends_with("model_members/tests/intake_retention.rs")));
+    assert!(sources
+        .iter()
+        .any(|(path, _)| path.ends_with("model_members/intake_origin.rs")));
+    // Negative control: a production module named tests is still production,
+    // including a nested child and the same serializer forbidden below.
+    let root = PathBuf::from("synthetic/mod.rs");
+    let production = PathBuf::from("synthetic/tests.rs");
+    let nested = PathBuf::from("synthetic/tests/nested.rs");
+    let control = std::collections::BTreeMap::from([
+        (root, "mod tests;\n".to_owned()),
+        (production.clone(), "mod nested;\n".to_owned()),
+        (
+            nested.clone(),
+            "fn encode() { serde_json::to_vec(&value); }\n".to_owned(),
+        ),
+    ]);
+    let test_only = test_only_module_files(&control);
+    assert!(!test_only.contains(&production));
+    assert!(!test_only.contains(&nested));
+    assert_eq!(
+        production_source(&control[&nested])
+            .matches("serde_json::to_vec")
+            .count(),
+        1
     );
     for symbol in [
         "CanonicalWriter",
