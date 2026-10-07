@@ -278,6 +278,7 @@ mod tests {
         }))
         .expect("private package fixture");
         CheckedPackageV2 {
+            node_index: super::super::retained_node_index(&wire),
             wire,
             kinds: Vec::new(),
             bytes: 1 << 20,

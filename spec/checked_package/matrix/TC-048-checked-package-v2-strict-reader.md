@@ -540,7 +540,8 @@ and a package clone return equal values, with package equality unchanged.
 
 ## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182)
 
-All cases remain PLANNED / UNRUN. Admit structural.eq applications through the
+Implemented by `composite_application_operands` and exercised by the `tc_048_`
+composite operand integration tests and narrowly scoped model-unit tests. Admit structural.eq applications through the
 production reader and published catalog using independently authored inputs.
 Use authentic parameter and closed graph-composite value references, with two
 actual occurrences of one application. Assert the tabled application, occurrence,

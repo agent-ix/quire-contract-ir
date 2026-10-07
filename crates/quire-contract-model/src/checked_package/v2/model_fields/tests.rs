@@ -438,6 +438,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); nodes_len(&wire)];
     Fixture {
         package: CheckedPackageV2 {
+            node_index: super::super::retained_node_index(&wire),
             wire,
             kinds,
             bytes: BYTES,
