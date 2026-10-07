@@ -551,7 +551,10 @@ For AC178, compare a supported closed record/tuple/collection/Option graph value
 with its original node identity and assert Literal disposition/no positions.
 Include a graph value whose member reads a parameter and an application subterm;
 assert UnsupportedOperand with exact reason, enclosing ordinal and available
-type identity. Use a reader-admitted noninteger inline term with structural type
+type identity. A closed union-value root and one nested in a closed record value
+shall instead refuse UnsupportedDomain with the enclosing ordinal and original
+union semantic-type identity, never NonliteralGraphValue or Literal success.
+Use a reader-admitted noninteger inline term with structural type
 where possible, such as an inline none term typed at Option, to exercise
 InlineNonInteger. Defensive inline integer handling may use a crate-internal
 post-admission mutation only: the catalog excludes Integer from structural_kind,
@@ -588,12 +591,15 @@ Red with ordered=false, independent of its source spelling. For an ordered enum,
 assert ordered=true and its semantic preimage member order. No accessor output
 supplies the expected identifier list. Assert the exact introduced key set.
 
-For AC181, exercise all eleven public error variants and their exact tabled fields.
+For AC181, exercise all twelve public error variants and their exact tabled fields.
 Use public admitted inputs for unknown node, nonapplication, missing occurrence,
 known ineligible identity (including structural.ne), unsupported operands and
 unsupported union projection; retain authentic ordinal/type fields. Crate-internal
 mutations may exercise unknown catalog identity, dangling child, malformed domain
 or optional wrapper and checked-index conversion ordinarily blocked by admission.
+For a reference with a valid but absent target, assert MissingChild and the actual
+child id; for an absent or malformed target id, assert MalformedChild with only
+the enclosing ordinal, without fabricating or salvaging a child identity.
 Do not allocate a multi-billion-element graph to test the conversion helper.
 An unanchored forwarding/Option/collection cycle refuses MalformedDomain, not a
 fabricated depth. Pair an early operand defect with a later one to assert order.
