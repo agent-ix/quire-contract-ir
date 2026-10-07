@@ -3361,6 +3361,39 @@ appears in
 three lists as written, so an independent re-derivation of `ir_id` that treats
 the three as disjoint disagrees byte for byte.
 
+### Retain a production-derived expected node key
+
+When the reader refuses a graph node as `invalid_package` with cause
+`stale-node-key` because its retained `node_id` differs from a key the reader
+actually derived, `CheckedPackageRefusal` shall privately retain that derived
+identity and expose `expected_node_id() -> Option<&CheckedNodeId>`. The value has the same
+`quire.checked-semantic-node/v1` domain and digest spelling as a graph node id;
+the reader obtains it from its existing structural-key or application-key
+derivation at the refusal site, not by parsing a diagnostic message or running
+another key algorithm. `locus` remains the offending retained node id, never
+the expected one. Retention adds a fixed node domain and one 64-character
+lowercase SHA-256 digest, bounded by the already-computed value, without a
+second derivation or work charge. The two identities have different meanings even when a caller
+subsequently substitutes one for the other.
+
+`expected_node_id()` returns `None` when the reader cannot derive a key. This includes
+an owner-free structural node whose shape has no derivable key and a
+model-declaration node rejected for its fixed-member shape by FR-322 step 2.
+It is also absent on every other refusal, including a pre-derivation wire or
+schema failure and a canonical encoder failure. An absent value does not
+authorize a downstream caller to guess a key. The new field changes neither
+the existing code, cause, pointer, locus or refusal ordering nor any byte or
+work charge. It adds no public derive or rekey operation. The expected key is
+not inserted into `Display`, a document pointer, `locus` text or any serialized
+refusal form. The six refusal constructors in `checked_package/common.rs`
+initialize genuine absence through an in-crate constructor or equivalent
+visibility that does not expose the field to downstream crates. IR integration
+tests that construct a refusal literal shall instead assert on genuine reader
+refusals. Downstream synthetic refusal literals must migrate when their owner
+updates to this contract; no public construction or compatibility API is added.
+Constructors and forwarding conversions retain the authentic value or absence
+without inferring either from prose.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -3535,6 +3568,8 @@ the three as disjoint disagrees byte for byte.
 | FR-038-AC-174 | PLANNED / UNRUN (refusal origin retention). Every located model-declaration refusal retains its authentic IR node identity and valid full typed Source or Generated origin through selected-document release and the public CheckedPackageRefusal boundary. A nested relationship retains its own metadata, not its owner's. Source coordinates and independently optional end members remain exact, including the existing admitted 2^53 boundary; generated input identity order/multiplicity and version text remain exact with no invented span. Missing or malformed origin retains none, never a salvaged branch. Existing admission/refusal codes, causes, row/member order and bounded accounting remain unchanged. | Test |
 | FR-038-AC-175 | PLANNED / UNRUN (refusal propagation). Every refusal constructor and public reader/dispatch/typed handoff consumer explicitly preserves available declaration_identity/declaration_origin or authentic absence. A located declaration identity may not become an empty/default/inferred URI, a graph digest or an enclosing-owner identity. Pre-node byte/admission failures retain absence and existing code/path/cause/locus/contract_version/document_pointer semantics. Dropping either field, normalizing an origin, inventing a generated span or reclassifying an earlier failure must fail an independent constructor/consumer oracle; no compatibility layer or diagnostic-prose parsing supplies retention. | Test, Inspection |
 | FR-038-AC-176 | PLANNED / UNRUN (IR-654 code). With `QUIRE_SPECIFICATION_DIR` naming the authoritative QSpec checkout, `make conformance-qspec` requires all nine `positive-*.json` packages under `proposals/checked-package-v2/fixtures/`: `positive-all-families.json`, `positive-clause-operations.json`, `positive-control-operations.json`, `positive-nominal-identities.json`, `positive-operation-identities.json`, `positive-recursive-records.json`, `positive-two-owners-a.json`, `positive-two-owners-b.json` and `positive-union-nodes.json`. Each admits through the production reader with its published `package_id`. For a package selecting `acme/orders`, the harness supplies `proposals/checked-package-v2/domain-package-acme-orders.json` from the same checkout under its selected `sha256-jcs` digest and the reader checks the bytes against that selection; this extends AC-107's existing positive read for packages with `model_selections`, not a second skipped read. A missing or malformed document, absent required positive fixture, unknown selected model identity, missing selection digest or non-admitted package fails the run. For the two-owner fixtures, read each node id and owner back through the admitted package's graph accessor and compare with the published graph and identity-projection entries: the corresponding declared structural nodes have different ids across source owners, as AC-153 requires. This checks published wire/admission, not source-owner key re-derivation, which remains IR-630. For every `model_declaration_nodes[*].preimage` in `proposals/checked-package-v2/model-member-type-vectors.json`, compare its `sha256` with the digest from the reader's production `declaration_key` path (`StructuralPreimage`/`structural_key` in `model_members.rs`), or admit its published wire node through that same production derivation; a harness that only hashes the vector's JSON preimage cannot pass. `node-identity-vectors.json` in that proposal remains the separate nominal/application-vector source; `model-effective-declaration-vectors.json` describes another model artifact and is not the structural-key oracle. No fixture document, source pin or digest catalog is copied into this repository. Live QSL emission followed by IR reading belongs to integration work outside this criterion. | Test (TC-048) |
+| FR-038-AC-183 | PLANNED / UNRUN (IR-680 code). An owner-free, ungrouped structural node whose retained key differs from the key actually derived by `derived_keys.rs` refuses `invalid_package`/`stale-node-key` at the original `node_id`. Its public refusal keeps that original typed node id in `locus`, while its private bounded retention yields the distinct, correct typed key through `expected_node_id() -> Option<&CheckedNodeId>`. Replacing the node id with that key, with the preimage unchanged, passes this key stage; changing a preimage member changes the expected digest. A malformed shape with no derivable key returns `None`, even when it has the same code and cause. The value comes from the production derivation, with unchanged code, cause, path, locus, precedence, byte limit and work charges. | Test (TC-048, TC-226) |
+| FR-038-AC-184 | PLANNED / UNRUN (IR-680 code). An application node whose retained key differs from the digest already computed by `validate_application_keys` refuses `invalid_package`/`stale-node-key` at its original `node_id`; `locus` remains that original typed id and `expected_node_id()` returns the distinct computed typed key. Re-keying an otherwise unchanged application with that value passes the key stage, and a preimage-member change changes the expected digest. A fixed-member model declaration shape failure, a canonical encoding failure and a refusal before either key stage return `None`; all other refusal constructors and forwarding paths in IR preserve a genuine expected key or its absence. The expected key is private and bounded, absent from Display, document pointer, locus text and serialized forms, and never reconstructed from prose. Code, cause, path, locus, precedence, byte/work charges and the public key-derivation surface remain unchanged. | Test, Inspection (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

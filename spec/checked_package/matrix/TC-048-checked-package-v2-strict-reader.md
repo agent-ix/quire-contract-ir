@@ -1200,3 +1200,41 @@ in the handoff evidence, not copied into public specification/review custody.
    behavior, no partial package, second parse, raised limit or unbounded collection.
    No consumer may satisfy the check by parsing an English message or by a default
    origin. Scenario prose and source inspection alone do not close runtime Tests.
+
+## Retained expected node key (FR-038-AC-183 and FR-038-AC-184)
+
+This procedure is PLANNED / UNRUN until IR-680 code lands. Use the production
+reader and typed `CheckedPackageRefusal::expected_node_id()` accessor; do not
+compute an expected key in the test, parse diagnostic prose, or add a public
+key derivation or rekey API.
+
+1. Starting from a valid owner-free ungrouped structural node, replace only its
+   stored node id with a different well-formed id and preserve a package that
+   reaches the derived-key stage. Require `invalid_package`/`stale-node-key` at
+   `node_id`, the original stored id in `locus`, and the actual production-derived
+   typed id from `expected_node_id()`. Replace the stored id with that value in
+   a fresh package and require this key stage to pass. Change one preimage
+   member and require the returned expected digest to change. This is AC-183.
+2. Repeat with a valid application node whose preimage is checked by
+   `validate_application_keys`. Require the same code, cause, pointer, original
+   `locus` and distinct expected id, then the fresh re-keyed positive control.
+   Change one application preimage member and require a different expected
+   digest. This is AC-184; the key must be the digest the application stage
+   already computed, with no second derivation.
+3. Give the owner-free structural stage a malformed shape that has no derivable
+   key. Require its existing `stale-node-key` refusal with
+   `expected_node_id() == None`. A model declaration node failing its fixed
+   member check, a canonical encoding failure and a pre-key-stage refusal each
+   return `None`. These controls prevent a caller treating every stale-key
+   cause as a usable substitution.
+4. Inspect all six `CheckedPackageRefusal` construction sites in
+   `checked_package/common.rs`, the derived-key and application-key sites, the
+   model-declaration conversion and each public reader/dispatch forwarder.
+   Replace IR integration-test refusal literals with assertions on real reader
+   refusals; no public synthetic-refusal constructor is introduced. Assert every
+   available expected id is retained, every unavailable id remains absent, and
+   existing code, cause, path, locus, first-refusal precedence,
+   byte limit and work charges are unchanged. The field remains inaccessible
+   to downstream struct construction and absent from Display, document-pointer,
+   locus-text and serialized forms. A downstream caller reads only the typed
+   accessor; no English diagnostic can satisfy the check.

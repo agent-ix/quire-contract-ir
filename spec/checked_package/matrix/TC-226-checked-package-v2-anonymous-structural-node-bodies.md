@@ -81,3 +81,14 @@ adds the re-derivation stage and regenerates the in-repo fixtures (AC-134);
 AC-131 and AC-132 await the answers to IR-627-Q1 to Q4; AC-133 and AC-135
 await QSpec's three fixtures carrying derived keys (IR-627-Q5), and the code
 change is ordered after them.
+
+## Retained derived-key refusal (FR-038-AC-183)
+
+Planned / unrun until IR-680 code lands. Run the owner-free, ungrouped
+`integer_range` tamper case through the production reader. Require the typed
+refusal's `expected_node_id()` to equal the key this same reader derived, while
+`locus` keeps the tampered key and code/cause/path remain unchanged. Use the
+returned typed key in a fresh package and require the key stage to pass. Change
+only the bound again and require a different returned key. Give a malformed
+body shape that the reader cannot derive and require `None`; no test-side
+FR-092 encoder or digest constant is an oracle.
