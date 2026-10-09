@@ -651,8 +651,8 @@ not discharge these rows.
    a known admitted non-eq/ne operation returns IneligibleOperator with its actual
    application id at the accessor. Retarget the existing public AC181/182 error-
    consumer assertion to that identity without removing or weakening its payload
-   oracle; the current structural.ne refusal is superseded target behavior, not
-   evidence for this planned replacement.
+   oracle. The former structural.ne refusal was superseded; the retargeted public
+   assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.
 
 4. For AC200, measure successful actual logical work, assert exact-budget success
    and zero/minus-one WorkLimit with exact limit and attempted consumed payload.
