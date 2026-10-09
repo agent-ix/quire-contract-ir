@@ -2852,6 +2852,81 @@ settled until the owner confirms):
    have an accessor? Decided no: no consumer reads them (CG's frame object is an
    object type); they return `NotModelObjectType`.
 
+### Typed direct integer comparisons in a postcondition
+
+For a caller-supplied `state`/`state_clause` node id and one authentic `claim`
+occurrence of that node, `CheckedPackageV2` shall expose a typed accessor for a
+direct integer comparison in its Boolean condition. The accessor shall require
+the clause member `postcondition`; follow the clause body's third argument, a
+reference to the comparison application node; and admit only the catalogued
+identities `quire.op.integer.eq`, `.ne`, `.lt`, `.le`, `.gt` and `.ge`, with
+exactly two arguments. It shall return the actual clause id, supplied claim
+occurrence, comparison node id, closed comparison operator, and two typed
+operand entries in authored `body.arguments` order with ordinals 0 and 1. It
+does not evaluate the predicate or construct a codegen obligation.
+
+The eligible operand grammar is deliberately narrow: each comparison argument
+shall reference a `quire.op.record.project` application for a model field read,
+or a `quire.op.state.pre` application with one reference to that same project
+shape. The project shall have a `field` member naming its declaring
+`model`/`object_type` node and field name, and one reference to a
+`quire.op.model.deref` application whose sole referenced operand is the
+clause's level-0 `self` parameter node. The clause's parameter aggregate,
+parameter name `self`, binder level 0 and parameter type establish that root;
+the word `self` in an unrelated parameter node does not. The project and deref
+references shall resolve to their actual checked graph ids. A `let` alias,
+another parameter, nested projection, other wrapper, inline term or arbitrary
+expression is outside this accessor's grammar and yields a typed
+`IneligibleOperand` refusal at its first offending operand path. A caller may
+ask another IR accessor about those forms; this one shall not infer their
+provenance.
+
+The result shall mark a direct project as `Post` and a project reached through
+`quire.op.state.pre` as `Pre`. These labels arise from the path starting at
+this clause's condition, not from a property of the project node. A
+content-addressed project may be reached both directly and through `pre` in
+the same comparison; the two returned operand entries then retain the same
+project id and have different labels. The accessor shall not attach a
+snapshot label to a graph node globally.
+
+Each operand entry shall carry its actual project child id, declaration id,
+field name and exact finite inclusive `(lower, upper)` bounds as `i128`. The
+bounds shall come from the admitted selected model's effective field type,
+using the same retained field table as `model_object_fields` and the read's
+admission-checked declaration/name join. Only an `IntRange` member type is
+eligible. An absent field or a member type that the retained table cannot
+represent (including a finite bound outside `i128`) yields `MissingRange`;
+an `Integer` member type yields `UnboundedRange`. No endpoint is rounded,
+clamped or inferred from an unverified node body. Either failure returns no
+partial result. The reader's model-member join does not admit a direct read
+whose derived member type is absent; `MissingRange` covers defensive
+post-admission inconsistencies, not a promised admitted out-of-range read. The accessor
+does not promise ranges for a generic parameter or literal.
+
+Its closed typed refusal shall distinguish `UnknownClause`, `NotStateClause`,
+`MissingClaimOccurrence`, `NotPostcondition`, `MissingComparison`,
+`UnknownOperator`, `IneligibleOperator`, `InvalidComparisonShape`,
+`IneligibleOperand`, `MissingChild`, `MissingRange` and `UnboundedRange`.
+Every refusal shall carry the supplied
+clause id and claim occurrence plus a deterministic path into that clause's
+condition and, when a graph child was reached, its actual node id. The path is
+an ordinal/term path, not a claimed unique source region. Refusal precedence
+shall be clause existence, clause form, claim occurrence, postcondition kind,
+condition reference, comparison identity/arity, then operand 0 before operand
+1; within an operand, shape and child joins precede field type and bounds.
+Malformed post-admission graph mutations shall return the applicable typed
+refusal without panic or a partial result. Admission and its refusal order do
+not change.
+
+A `claim` occurrence identifies the supplied clause occurrence, but the V2
+reference edges contain node ids without child occurrence keys. The accessor
+therefore does not select or return a comparison or project `expression`
+occurrence from that claim, nor assert that a child's source-map region is
+uniquely associated with it. Source-map regions remain available by a separate
+lookup. An external Rust consumer shall use public typed inputs and outputs
+without decoding `body` JSON. Repeated calls and a cloned package shall return
+equal results without changing package equality or any wire metadata.
+
 ### Typed scalar application operands
 
 When a caller supplies an admitted application node id and one of that node's
@@ -3887,6 +3962,14 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-199 | PLANNED/UNRUN (IR-690). An absent structural.ne occurrence refuses MissingOccurrence with the supplied application and occurrence. A structural.ne projection preserves the existing closed refusal variants, exact ordinal/type-node payloads and first-defect order for unsupported inline/subterm/nonstructural operands, unsupported union and malformed domains; it returns no partial result. A catalogued identity outside structural.eq/structural.ne remains IneligibleOperator. Defensive post-admission mutations are not reader-admission evidence. | Test |
 | FR-038-AC-200 | PLANNED/UNRUN (IR-690). Structural.ne uses the existing logical-work charges: a successful projection's exact consumed_work limit succeeds, one less and zero return WorkLimit with the specified limit and attempted cumulative consumed charge. Corresponding eq/ne operand projections consume the same logical work independently of admitted graph-node order. | Test |
 | FR-038-AC-201 | PLANNED/UNRUN (IR-690). Inspection of the production extension finds one shared retained-index/family/catalog/reference-resolution and domain-projection owner for eq/ne, with the existing public signature/types and scalar/admission boundaries unchanged; no per-call uncharged index, second traversal owner, depth ceiling, encoder or new dependency is introduced. | Inspection |
+| FR-038-AC-202 | PLANNED/UNRUN (IR-703). For a postcondition `state_clause` id and authentic claim occurrence, whose condition references an admitted binary application of each of integer.eq/ne/lt/le/gt/ge, the typed direct-comparison accessor returns that actual clause id, claim occurrence, comparison id and closed operator; a comparison id alone is never used to infer a snapshot. | Test (TC-445) |
+| FR-038-AC-203 | PLANNED/UNRUN (IR-703). For two eligible direct `self.field` operands, the accessor returns exactly ordinals 0 and 1 in authored comparison argument order, each with its actual project id, model declaration id, field name and `Post` label. Reversing the arguments reverses the entries without sorting or deduplicating them. | Test (TC-445) |
+| FR-038-AC-204 | PLANNED/UNRUN (IR-703). For the admitted QSL `ConfigVersion` postcondition `self.versionNumber = pre(self.versionNumber)`, the shared `record.project` node id occurs in both result entries; the left path is `Post` and the right `state.pre` path is `Pre`. A repeated project id cannot force either label on the other entry. | Test (TC-445) |
+| FR-038-AC-205 | PLANNED/UNRUN (IR-703). An eligible field whose selected model table declares `IntRange` returns its exact inclusive `i128` endpoints, including `i128::MIN` and `i128::MAX`; another admitted bounded range produces its own endpoints. An admitted unbounded `Integer` returns `UnboundedRange`; a post-admission absent or unrepresentable member type returns defensive `MissingRange`, with no partial result, saturation or value inferred from a node body. | Test (TC-445) |
+| FR-038-AC-206 | PLANNED/UNRUN (IR-703). The accessor follows only a project over deref of this clause's level-0 `self` parameter, with optional one `state.pre` wrapper. A `let` alias to the same root, another parameter, nested project, extra wrapper and inline term each return `IneligibleOperand` at the offending operand path. A parameter's name, level and semantic type are read as V2 properties; no V1 Input/State kind is inferred. | Test (TC-445) |
+| FR-038-AC-207 | PLANNED/UNRUN (IR-703). Unknown clause, wrong node form, absent claim occurrence, non-postcondition clause, missing condition comparison, unknown or ineligible comparison operator, invalid comparison arity and missing child return their distinct typed refusal variants in the stated first-defect order. Each refusal carries clause id, supplied occurrence, deterministic condition/operand path and any reached child id; it names no unique child source region. A malformed post-admission graph yields no panic or partial result. | Test (TC-445) |
+| FR-038-AC-208 | PLANNED/UNRUN (IR-703). Two clause claim occurrences over one content-addressed comparison produce equal contextual operands apart from the returned supplied claim occurrence. The accessor returns no comparison or project expression occurrence and does not claim a claim-to-child source-map association; a separate source-map lookup may enumerate child regions. | Test (TC-445) |
+| FR-038-AC-209 | PLANNED/UNRUN (IR-703). An external Rust consumer calls the public accessor with `&CheckedNodeId` and `&CheckedOccurrence`, exhaustively matches the closed operator, snapshot and refusal types and reads every result member without JSON access. Repeated calls and a clone return equal values, and package equality and admission are unchanged. | Test (TC-445) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
