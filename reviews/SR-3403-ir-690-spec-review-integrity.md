@@ -41,3 +41,11 @@ Ticket: IR-690. Exact frozen candidate 71abb07c7bb23785edfccb0c2ac75ef3a64a32ad.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | TC-048 now says the Ne extension and the AC-181/182 retarget are implemented, but step 3 still calls that retarget a “planned replacement.” Update the final phrase to reflect completed evidence. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:654-655 |
+
+## Dispositions
+
+Round 1 checked local unpublished fix head `b6d3db8d0bdbe5d71c51592126f0346fb2c504d3` against the original reviewed head. The only prose change replaces the stale planned phrase with the implemented assertion; the five initial review exports were copied byte-exact. No regression was found in the six-path fix delta.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | b6d3db8d0bdbe5d71c51592126f0346fb2c504d3: “The former structural.ne refusal was superseded; the retargeted public assertion now verifies IneligibleOperator for an admitted non-eq/ne operation.” |
