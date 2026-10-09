@@ -23,8 +23,11 @@ construction paths. Inspect the types accepted and returned by the unary and
 binary numeric operator dispatch and checker functions. For each integer and
 rational path, determine whether Rust's type checker rejects construction or
 passage of a numeric operand with an absent range or the other numeric kind's
-range. Compare the public expression signatures and invalid-operand diagnostic
-codes and spans with FR-014-AC-1.
+range. Compare the public `DeclarationEnvironment::check_expression` signature
+in `crates/quire-contract-model/src/expression.rs` and the returned
+`TypedExpression`/`Diagnostic` types with their pre-change forms. Compare
+invalid-operand codes and spans with FR-014 Behavior and STD-001; retain
+TC-016 as the behavioral evidence for those diagnostics.
 
 ## Expected Results
 
