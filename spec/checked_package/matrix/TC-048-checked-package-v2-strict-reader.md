@@ -593,12 +593,10 @@ assert ordered=true and its semantic preimage member order. No accessor output
 supplies the expected identifier list. Assert the exact introduced key set.
 
 For AC181, exercise all twelve public error variants and their exact tabled fields.
-The changed IneligibleOperator case is PLANNED/UNRUN (IR-690): retarget
+The changed IneligibleOperator case is implemented (IR-690):
 `tc_048_external_error_consumer_retains_authentic_node_and_application_loci`
-from its current structural.ne refusal to a reader-admitted catalogued identity
-outside eq/ne. Preserve its exact public application-locus refusal assertion;
-its existing AC181/182 tags do not verify that replacement case. Other existing
-IR-651 evidence remains unchanged.
+uses a reader-admitted `boolean.and` application outside eq/ne and asserts its
+exact public application-locus refusal. Other existing IR-651 evidence remains unchanged.
 Use public admitted inputs for unknown node, nonapplication, missing occurrence,
 known ineligible identity outside structural.eq/structural.ne, unsupported operands and
 unsupported union projection; retain authentic ordinal/type fields. Crate-internal
@@ -619,12 +617,13 @@ exhaustively matches each named public output/key/descriptor/edge/error type and
 reads the specified fields without body JSON or a QSL model import. Assert repeated
 and clone projections and pre/post package equality. API inspection checks the
 absence of drawn bound inputs, incoming-key validator, coverage verdict or obligation
-encoder. The structural.ne extension below remains PLANNED/UNRUN; existing eq tests do not back its new criteria.
+encoder. The structural.ne extension below is verified by separately tagged Ne assertions.
 
 ## Structural inequality operand extension (FR-038-AC-197 through FR-038-AC-201)
 
-All extension procedures and their Test/Inspection evidence are PLANNED/UNRUN.
-Existing IR-651 equality execution does not discharge these rows.
+The extension procedures are implemented by the TC-048 composite operand tests
+and source inspection (IR-690). Existing IR-651 equality execution alone does
+not discharge these rows.
 
 1. For AC197, independently author and admit structural.ne inputs through the
    production reader and owning catalog, using supported parameters and closed

@@ -361,7 +361,7 @@ fn parameter_domain(
     }
 }
 
-#[trace("FR-038-AC-177", "FR-038-AC-182")]
+#[trace("FR-038-AC-177", "FR-038-AC-182", "FR-038-AC-197")]
 #[test]
 fn tc_048_positional_children_and_selected_occurrences_survive_repeated_calls_and_clone() {
     let mut f = Fixture::new();
@@ -411,6 +411,20 @@ fn tc_048_positional_children_and_selected_occurrences_survive_repeated_calls_an
         vec![reference(&left), reference(&left)],
         "quire.op.structural.eq",
     );
+    let ne = f.application(
+        vec![reference(&left), reference(&right)],
+        "quire.op.structural.ne",
+    );
+    f.nodes.get_mut(&ne).expect("inequality application")["occurrences"] = json!([
+        {"role":"expression","ordinal":0},{"role":"expression","ordinal":1}]);
+    let ne_swapped = f.application(
+        vec![reference(&right), reference(&left)],
+        "quire.op.structural.ne",
+    );
+    let ne_repeated = f.application(
+        vec![reference(&left), reference(&left)],
+        "quire.op.structural.ne",
+    );
     let package = f.read();
     let swap = project(&package, &swapped);
     let repeat = project(&package, &repeated);
@@ -418,9 +432,29 @@ fn tc_048_positional_children_and_selected_occurrences_survive_repeated_calls_an
     assert_eq!(swap.operands[1].child, result.operands[0].child);
     assert_eq!(repeat.operands[0].child, repeat.operands[1].child);
     assert_ne!(repeat.operands[0].ordinal, repeat.operands[1].ordinal);
+    let inequality = project(&package, &ne);
+    assert_eq!(inequality.application, typed_node_id(&ne));
+    assert_eq!(inequality.occurrence, occurrence(0));
+    assert_eq!(inequality.operands, result.operands);
+    let selected = package
+        .composite_application_operands(&typed_node_id(&ne), &occurrence(1), 100_000)
+        .expect("second authentic inequality occurrence");
+    assert_eq!(selected.occurrence, occurrence(1));
+    assert_eq!(selected.operands, inequality.operands);
+    assert_eq!(
+        package.composite_application_operands(&typed_node_id(&ne), &occurrence(2), 100_000),
+        Err(Error::MissingOccurrence {
+            application: typed_node_id(&ne),
+            occurrence: occurrence(2)
+        })
+    );
+    let swap_ne = project(&package, &ne_swapped);
+    let repeat_ne = project(&package, &ne_repeated);
+    assert_eq!(swap_ne.operands, swap.operands);
+    assert_eq!(repeat_ne.operands, repeat.operands);
 }
 
-#[trace("FR-038-AC-179", "FR-038-AC-181")]
+#[trace("FR-038-AC-179", "FR-038-AC-181", "FR-038-AC-198", "FR-038-AC-200")]
 #[test]
 fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_boundary() {
     let mut f = Fixture::new();
@@ -444,8 +478,12 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
     let record = f.record(&[("items", &bounded)]);
     let p = f.parameter("p", &record);
     let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
+    let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
     let package = f.read();
     let result = project(&package, &app);
+    let inequality = project(&package, &ne);
+    assert_eq!(inequality.operands, result.operands);
+    assert_eq!(inequality.consumed_work, result.consumed_work);
     let (shape, positions) = parameter_domain(&result, 0);
     assert_eq!(
         shape
@@ -503,6 +541,7 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
             .expect("small strings");
     let expected = 1 + 2 * expected_per_operand;
     assert_eq!(result.consumed_work, expected);
+    assert_eq!(inequality.consumed_work, expected);
     let consumed = expected;
     assert_eq!(
         package.composite_application_operands(&id, &occurrence, consumed),
@@ -522,6 +561,25 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
             consumed: 1
         })
     );
+    let ne_id = typed_node_id(&ne);
+    assert_eq!(
+        package.composite_application_operands(&ne_id, &occurrence, expected),
+        Ok(inequality.clone())
+    );
+    assert_eq!(
+        package.composite_application_operands(&ne_id, &occurrence, expected - 1),
+        Err(Error::WorkLimit {
+            limit: expected - 1,
+            consumed: expected
+        })
+    );
+    assert_eq!(
+        package.composite_application_operands(&ne_id, &occurrence, 0),
+        Err(Error::WorkLimit {
+            limit: 0,
+            consumed: 1
+        })
+    );
     let mut reversed = f.wire();
     reversed["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -530,6 +588,7 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
     rebuild_source_map(&mut reversed);
     refresh_identity(&mut reversed);
     assert_eq!(project(&admit(&reversed), &app), result);
+    assert_eq!(project(&admit(&reversed), &ne), inequality);
 
     // Re-author only the element range's lower endpoint and derive all parent
     // identities again. Its collection descriptor remains the same, while
@@ -582,7 +641,13 @@ fn tc_048_exact_authored_decimal_bounds_and_paths_have_a_reproducible_work_bound
     }
 }
 
-#[trace("FR-038-AC-178", "FR-038-AC-181")]
+#[trace(
+    "FR-038-AC-178",
+    "FR-038-AC-181",
+    "FR-038-AC-197",
+    "FR-038-AC-198",
+    "FR-038-AC-199"
+)]
 #[test]
 fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_refuse() {
     let mut f = Fixture::new();
@@ -600,8 +665,13 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         vec![reference(&value), reference(&value)],
         "quire.op.structural.eq",
     );
+    let ne = f.application(
+        vec![reference(&value), reference(&value)],
+        "quire.op.structural.ne",
+    );
     let package = f.read();
     let result = project(&package, &app);
+    assert_eq!(project(&package, &ne).operands, result.operands);
     for operand in &result.operands {
         assert_eq!(
             operand.child,
@@ -629,7 +699,13 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
             vec![reference(&child), reference(&child)],
             "quire.op.structural.eq",
         );
-        let projected = project(&f.read(), &application);
+        let ne = f.application(
+            vec![reference(&child), reference(&child)],
+            "quire.op.structural.ne",
+        );
+        let package = f.read();
+        let projected = project(&package, &application);
+        assert_eq!(project(&package, &ne).operands, projected.operands);
         for operand in projected.operands {
             assert_eq!(
                 operand.child,
@@ -663,9 +739,25 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         vec![reference(&closed_sequence), reference(&expression)],
         "quire.op.structural.eq",
     );
+    let referenced_ne = f.application(
+        vec![reference(&closed_sequence), reference(&expression)],
+        "quire.op.structural.ne",
+    );
     assert_eq!(
         f.read().composite_application_operands(
             &typed_node_id(&referenced_app),
+            &occurrence(0),
+            100_000
+        ),
+        Err(Error::UnsupportedOperand {
+            ordinal: 1,
+            type_node: Some(typed_node_id(&sequence)),
+            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+        })
+    );
+    assert_eq!(
+        f.read().composite_application_operands(
+            &typed_node_id(&referenced_ne),
             &occurrence(0),
             100_000
         ),
@@ -822,8 +914,12 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         vec![reference(&union_parameter), reference(&union_parameter)],
         "quire.op.structural.eq",
     );
+    let union_ne = f.application(
+        vec![reference(&union_parameter), reference(&union_parameter)],
+        "quire.op.structural.ne",
+    );
     let package = f.read();
-    for app in [union_app, nested_app, parameter_app] {
+    for app in [union_app, nested_app, parameter_app, union_ne] {
         assert_eq!(
             package.composite_application_operands(&typed_node_id(&app), &occurrence(0), 100_000),
             Err(Error::UnsupportedDomain {
@@ -834,7 +930,12 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
     }
     let option = f.collection("option", &boolean);
     let none = json!({"term":"literal","type":node_id(&option),"value_kind":"none","value":null});
-    let inline_app = f.application(vec![none.clone(), none], "quire.op.structural.eq");
+    let inline_app = f.application(vec![none.clone(), none.clone()], "quire.op.structural.eq");
+    let closed_option = f.graph_value("option_value", &option, aggregate(vec![literal]));
+    let inline_ne = f.application(
+        vec![reference(&closed_option), none],
+        "quire.op.structural.ne",
+    );
     assert_eq!(
         f.read().composite_application_operands(
             &typed_node_id(&inline_app),
@@ -847,9 +948,21 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
             reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineNonInteger
         })
     );
+    assert_eq!(
+        f.read().composite_application_operands(
+            &typed_node_id(&inline_ne),
+            &occurrence(0),
+            100_000
+        ),
+        Err(Error::UnsupportedOperand {
+            ordinal: 1,
+            type_node: Some(typed_node_id(&option)),
+            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineNonInteger
+        })
+    );
 }
 
-#[trace("FR-038-AC-180")]
+#[trace("FR-038-AC-180", "FR-038-AC-198")]
 #[test]
 fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_routes() {
     for wrapped in [false, true] {
@@ -872,7 +985,13 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
             vec![reference(&parameter), reference(&parameter)],
             "quire.op.structural.eq",
         );
-        let result = project(&f.read(), &app);
+        let ne = f.application(
+            vec![reference(&parameter), reference(&parameter)],
+            "quire.op.structural.ne",
+        );
+        let package = f.read();
+        let result = project(&package, &app);
+        assert_eq!(project(&package, &ne).operands, result.operands);
         // Per operand: operand/child/family=3, three node resolutions+shape
         // visits=6, two edges=2, retained shape path elements=0+1+2=3,
         // copied field name=5. The optional wrapper adds no visit or segment.
@@ -914,7 +1033,10 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
         }
         let p = f.parameter("list", &list);
         let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
-        let result = project(&f.read(), &app);
+        let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
+        let package = f.read();
+        let result = project(&package, &app);
+        assert_eq!(project(&package, &ne).operands, result.operands);
         let (shape, positions) = parameter_domain(&result, 0);
         assert_eq!(shape[0].edges[1].optional_presence, wrapped);
         assert_eq!(shape[0].edges[1].ordinal, Some(1));
@@ -1014,7 +1136,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
         .all(|p| p.authored == Domain::UnboundedInteger));
 }
 
-#[trace("FR-038-AC-180", "FR-038-AC-182")]
+#[trace("FR-038-AC-180", "FR-038-AC-182", "FR-038-AC-198")]
 #[test]
 fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
     use quire_contract_ir::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
@@ -1117,9 +1239,16 @@ fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_k
     let app = f.application_with_leaves(
         vec![reference(&p), reference(&p)],
         "quire.op.structural.eq",
+        leaves.clone(),
+    );
+    let ne = f.application_with_leaves(
+        vec![reference(&p), reference(&p)],
+        "quire.op.structural.ne",
         leaves,
     );
-    let result = project(&f.read(), &app);
+    let package = f.read();
+    let result = project(&package, &app);
+    assert_eq!(project(&package, &ne).operands, result.operands);
     let (_, positions) = parameter_domain(&result, 0);
     // This key oracle comes from authored fields and expected form semantics.
     let expected = names
@@ -1209,7 +1338,7 @@ fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_k
     }
 }
 
-#[trace("FR-038-AC-180", "FR-038-AC-179")]
+#[trace("FR-038-AC-180", "FR-038-AC-179", "FR-038-AC-198")]
 #[test]
 fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_order() {
     let mut f = Fixture::new();
@@ -1232,7 +1361,10 @@ fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_orde
     );
     let p = f.parameter("collections", &root);
     let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
-    let result = project(&f.read(), &app);
+    let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
+    let package = f.read();
+    let result = project(&package, &app);
+    assert_eq!(project(&package, &ne).operands, result.operands);
     let (_, positions) = parameter_domain(&result, 0);
     assert_eq!(positions.len(), 8);
     for (index, (_, id, kind)) in fields.iter().enumerate() {
@@ -1259,7 +1391,10 @@ fn tc_048_collection_kinds_remain_unbounded_and_ordered_enums_keep_semantic_orde
     let record = f.record(&[("priority", &color_key)]);
     let p = f.parameter("priority", &record);
     let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
-    let result = project(&f.read(), &app);
+    let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
+    let package = f.read();
+    let result = project(&package, &app);
+    assert_eq!(project(&package, &ne).operands, result.operands);
     let (_, positions) = parameter_domain(&result, 0);
     assert_eq!(positions.len(), 1);
     assert_eq!(
@@ -1348,7 +1483,7 @@ fn error_payload(error: Error) -> (&'static str, Option<u64>, Option<CheckedNode
     }
 }
 
-#[trace("FR-038-AC-181", "FR-038-AC-182")]
+#[trace("FR-038-AC-181", "FR-038-AC-182", "FR-038-AC-199")]
 #[test]
 fn tc_048_external_error_consumer_retains_authentic_node_and_application_loci() {
     let mut f = Fixture::new();
@@ -1356,7 +1491,11 @@ fn tc_048_external_error_consumer_retains_authentic_node_and_application_loci() 
     let record = f.record(&[("number", &integer)]);
     let p = f.parameter("p", &record);
     let eq = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
-    let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
+    let bool_parameter = f.parameter("flag", &f.boolean.clone());
+    let ineligible = f.application(
+        vec![reference(&bool_parameter), reference(&bool_parameter)],
+        "quire.op.boolean.and",
+    );
     let package = f.read();
     let unknown = typed_node_id(&sha256_hex(b"absent application"));
     let err = package
@@ -1378,10 +1517,10 @@ fn tc_048_external_error_consumer_retains_authentic_node_and_application_loci() 
         ("occurrence", None, Some(typed_node_id(&eq)))
     );
     let err = package
-        .composite_application_operands(&typed_node_id(&ne), &occurrence(0), 100_000)
-        .expect_err("no ne allocation");
+        .composite_application_operands(&typed_node_id(&ineligible), &occurrence(0), 100_000)
+        .expect_err("admitted nonstructural operation");
     assert_eq!(
         error_payload(err),
-        ("ineligible", None, Some(typed_node_id(&ne)))
+        ("ineligible", None, Some(typed_node_id(&ineligible)))
     );
 }
