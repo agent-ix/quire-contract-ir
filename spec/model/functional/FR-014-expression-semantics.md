@@ -117,6 +117,13 @@ later operator applied to a widened set can produce a set that contains zero eve
 the exact set does not, so a defined divisor can report the divisor's own
 `non_zero_divisor` obligation.
 
+The expression checker shall represent each successfully checked numeric operand
+with its concrete integer or rational type paired with a range of the same kind.
+Its private constructors and numeric operator signatures shall make an absent or
+cross-kind range for a numeric operand impossible to construct or pass in
+well-typed Rust. The public expression API and the diagnostics for invalid
+numeric operands retain their existing form.
+
 The typed expression implements the FR-012 dependency-source contract. A state
 dependency contains its exact requirement/declaration identity and
 `current`/`pre`/`post` observation; an input dependency uses `current`; a field
@@ -140,6 +147,7 @@ scalar value; a shorter equal prefix sorts first.
 | FR-014-AC-6 | Typed expression fixtures derive exact input/state-observation, field-owner, enum-variant, and pure-function dependencies once in structural order, satisfying FR-012-AC-5. | Test (TC-016) |
 | FR-014-AC-7 | A guarded product of 120 leaves checks successfully for integer and rational operands because range intervals merge; a sum of more than 64 guarded leaves checks successfully because the range set is widened to a superset with the same minimum and maximum; a divisor whose resulting set contains zero reports `non_zero_divisor`; and every case returns a typed result or diagnostic without panic. | Test (TC-016) |
 | FR-014-AC-8 | With matching declared types, integer literal nodes at `i64::MAX + 1`, `u64::MAX`, `i128::MIN` and `i128::MAX` and rational literal nodes with `i128::MIN/1`, `i128::MAX/1` and `1/i128::MAX` retain those exact values in typed output; the `i128::MIN` node has no numeric-negate child, while negation of `i128::MAX` remains a distinct node. A literal outside its declared type reports `invalid_numeric_bounds` at that literal's span. | Test (TC-016) |
+| FR-014-AC-9 | Inspection of every private checked-numeric constructor and numeric operator signature shows that the integer case pairs `IntegerType` with integer interval ranges and the rational case pairs `RationalType` with rational interval ranges; a numeric operand with no range or the other kind's range cannot be constructed or passed to an operator in well-typed Rust. Public expression signatures and invalid-operand diagnostic codes and spans remain as specified by FR-014-AC-1. | Inspection (TC-444) |
 
 ## Dependencies
 
