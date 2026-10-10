@@ -3,6 +3,17 @@
 //! Semantic-family lowerings deliberately live outside this module.  This
 //! boundary validates a finite offered population before any harness can add a
 //! symbolic constraint, and preserves every non-success result as non-Boolean.
+//!
+//! FR-039-AC-3, TC-055: QSL owns the terminal result and record, so neither
+//! provider type is available through this module:
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::KaniProviderResult;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::kani::KaniProviderRecord;
+//! ```
 
 mod abi;
 mod arithmetic;
@@ -21,9 +32,7 @@ pub use collections::{lower_query, CollectionLowering, CollectionQuery, QueryKin
 pub use dispatch::{DispatchError, DispatchIndex, ModuleDescriptor, SemanticFamily};
 pub use objects::{lower_reaches, GraphLowering, GraphRequest};
 use outcome::NonSuccessKind;
-pub use outcome::{
-    KaniOutcome, KaniOutcomeError, KaniOutcomeKind, KaniProviderRecord, KaniProviderResult,
-};
+pub use outcome::{KaniOutcome, KaniOutcomeError, KaniOutcomeKind};
 pub use profile::{
     CapabilityDisposition, CapabilityEntry, KaniProfile, ProfileError, ProfileSelection,
 };

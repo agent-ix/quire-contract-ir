@@ -83,8 +83,8 @@ The seam is described as what crosses it, how identity is asserted, which way de
 
 IR depends on nothing of QSpec's code or QSL. QSL depends on the `quire-contract-model` package
 (under the dependency name `quire-contract-ir`) and calls `read_checked_package` through it. CG
-reaches the reader through IR's root crate, which re-exports the model (see Current state); the
-driver reads through the model crate. The direction is QSpec (text) to IR (reader) to QSL, CG,
+and the driver read through the model crate directly; IR's root crate does not re-export it.
+The direction is QSpec (text) to IR (reader) to QSL, CG,
 driver (consumers); no arrow points back to IR. IR's one other inbound edge is the operation
 catalog: the reader depends on `quire-verification-contracts` for `quire.checked-operation-catalog/v1`
 and does not copy it.
@@ -196,13 +196,11 @@ What is measured today, what is open and with whom, and what is routed.
   apply here.
 - QSpec ids: two QSpec documents carry `id: FR-341`: "checked-package state clause body" and
   "infinite-trace result disposition". IR FR-040 disambiguates by title.
-- IR's root crate has `pub use quire_contract_model::*` (`src/lib.rs:12`) while AD-001 says the
-  root re-exports nothing from the model; CG imports `CheckedNodeId` and `CheckedPackageV2`
-  through that glob. The root crate also still exports `KaniProviderResult` and
-  `KaniProviderRecord` (`src/kani/mod.rs:23`) although FR-039 lists them as not part of its
-  interface, and the kani outcome code strings cross as free strings. IR-347 (reopened) already
-  carries the glob removal, the `KaniProvider*` removal and the free-string cause codes. This AD
-  files nothing new for them and only notes that any consumer of this reader meets the glob.
+- At this AD's original measurement, IR's root crate had `pub use quire_contract_model::*`
+  while AD-001 said the root re-exported nothing from the model; CG imported `CheckedNodeId` and
+  `CheckedPackageV2` through that glob. IR-347 subsequently removed the glob and the root crate's
+  `KaniProviderResult` and `KaniProviderRecord` exports, which FR-039 excludes; IR-605 made the
+  Kani outcome codes typed. This AD files nothing new for them.
 
 ### Open questions
 
@@ -245,8 +243,8 @@ IR-owned items, defined here because other seam ADs cite them:
 
 | Id | Stated need | Where it is tracked |
 | --- | --- | --- |
-| R-I1 | Delete `KaniProviderResult` and `KaniProviderRecord` and the `provider_result` map from the root crate (`src/kani/outcome.rs`, `src/kani/mod.rs:23`); they duplicate the terminal map CG owns. | IR-347 reopened scope |
+| R-I1 | Delete `KaniProviderResult` and `KaniProviderRecord` and the `provider_result` map from the root crate; they duplicate the terminal map CG owns. | IR-347: removed |
 | R-I2 | Export cause-code constants or a typed cause enum: the kani cause codes cross as bare strings that consumers re-spell. | Overlaps IR-347's free-string cause codes |
-| R-I3 | Remove `pub use quire_contract_model::*` (`src/lib.rs:12`) together with CG adding a direct `quire-contract-model` dependency; CG imports model types through the glob. | IR-347 reopened scope |
+| R-I3 | Remove `pub use quire_contract_model::*` together with CG adding a direct `quire-contract-model` dependency. | IR-347: removed; CG imports the model directly |
 
 No new ticket is filed for them.

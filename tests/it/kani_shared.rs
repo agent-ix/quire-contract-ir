@@ -1,9 +1,8 @@
 use ix_trace_rs::trace;
 use quire_contract_ir::kani::{
     CapabilityDisposition, CapabilityEntry, DispatchError, DispatchIndex, FiniteInput,
-    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile, KaniProviderResult,
-    ModuleDescriptor, PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily,
-    PROFILE,
+    FiniteObject, FiniteReference, KaniOutcome, KaniOutcomeKind, KaniProfile, ModuleDescriptor,
+    PopulationCompleteness, ProfileSelection, ResourceBounds, SemanticFamily, PROFILE,
 };
 use quire_contract_model::{std001_code, Std001Code};
 
@@ -235,39 +234,6 @@ fn a_proved_run_with_zero_success_checks_settles_inconclusive_as_vacuous() {
     assert_eq!(genuine.boolean_claim(), Some(true));
 }
 
-/// The O-16 proof column, one row per kind. The exhaustive match (no
-/// wildcard) makes a new `KaniOutcomeKind` a compile error here until its row
-/// is written, and `every_kind` lists each variant the match names.
-fn o16_row(kind: &KaniOutcomeKind) -> (KaniProviderResult, &'static str) {
-    match kind {
-        KaniOutcomeKind::Proved => (KaniProviderResult::Proved, "proved"),
-        KaniOutcomeKind::Counterexample => (KaniProviderResult::Refuted, "refuted"),
-        KaniOutcomeKind::Refused
-        | KaniOutcomeKind::InvalidInput
-        | KaniOutcomeKind::IncompleteInput => (KaniProviderResult::Declined, "declined"),
-        KaniOutcomeKind::Unavailable => (KaniProviderResult::Unsupported, "unsupported"),
-        KaniOutcomeKind::TimedOut
-        | KaniOutcomeKind::ResourceExhausted
-        | KaniOutcomeKind::Cancelled => (KaniProviderResult::Incomplete, "incomplete"),
-        KaniOutcomeKind::Inconclusive => (KaniProviderResult::Inconclusive, "inconclusive"),
-    }
-}
-
-fn every_kind() -> [KaniOutcomeKind; 10] {
-    [
-        KaniOutcomeKind::Proved,
-        KaniOutcomeKind::Counterexample,
-        KaniOutcomeKind::Refused,
-        KaniOutcomeKind::InvalidInput,
-        KaniOutcomeKind::IncompleteInput,
-        KaniOutcomeKind::Unavailable,
-        KaniOutcomeKind::TimedOut,
-        KaniOutcomeKind::ResourceExhausted,
-        KaniOutcomeKind::Cancelled,
-        KaniOutcomeKind::Inconclusive,
-    ]
-}
-
 /// FR-030-AC-6: the outcome's code is the typed `Std001Code`. The string-argument
 /// probes of the non-success constructor, which must fail to compile, are
 /// `compile_fail` doctests on `KaniOutcome::non_success`.
@@ -316,52 +282,4 @@ fn tc_443_the_outcome_and_its_error_carry_a_typed_std001_code() {
         serde_json::from_str::<KaniOutcome>(&text).expect("a well-formed outcome reads"),
         vacuous
     );
-}
-
-// Not a TC-223 test: it verifies the retired `KaniProviderResult` map, and the
-// TC-223 matrix row stays planned until the SUCCESS count and cause codes land.
-#[test]
-fn kani_outcome_kinds_map_to_their_one_fr331_result() {
-    for kind in every_kind() {
-        let (result, wire) = o16_row(&kind);
-        assert_eq!(kind.provider_result(), result, "{kind:?}");
-        assert_eq!(
-            serde_json::to_value(result).expect("result"),
-            serde_json::json!(wire)
-        );
-    }
-    // The record keeps each outcome's cause, so kinds sharing a result stay
-    // apart.
-    let declined = [
-        (
-            KaniOutcomeKind::Refused,
-            Std001Code::KANI_CAPABILITY_MISSING,
-        ),
-        (
-            KaniOutcomeKind::InvalidInput,
-            Std001Code::KANI_IDENTITY_INVALID,
-        ),
-        (
-            KaniOutcomeKind::IncompleteInput,
-            Std001Code::KANI_POPULATION_INCOMPLETE,
-        ),
-    ]
-    .map(|(kind, code)| {
-        KaniOutcome::non_success(kind, code, "source", "context")
-            .expect("a non-success kind")
-            .provider_record()
-    });
-    assert!(declined
-        .iter()
-        .all(|record| record.result == KaniProviderResult::Declined));
-    let causes = declined
-        .iter()
-        .map(|record| record.cause.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(causes.len(), 3);
-    // A zero-check proof built through `proved_from_checks` is already
-    // `Inconclusive`, so it records `inconclusive` with its vacuity cause.
-    let vacuous = KaniOutcome::proved_from_checks(0, "source", "context").provider_record();
-    assert_eq!(vacuous.result, KaniProviderResult::Inconclusive);
-    assert_eq!(vacuous.cause, Std001Code::KANI_VACUOUS_PROOF);
 }

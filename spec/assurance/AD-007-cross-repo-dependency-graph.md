@@ -64,7 +64,7 @@ or no with how it is declared. Kind: N normal, D dev, B build.
 
 | From | To (crate) | Kind | Declared | Rule | Disposition |
 | --- | --- | --- | --- | --- | --- |
-| QSL root, `qsl-package` | IR (`quire-contract-model`) | N | git, `branch = "main"` | yes | keep (AD-005); the dependency key is now the crate's real name |
+| QSL root, `qsl-package` | IR (`quire-contract-model`) | N | git, `branch = "main"` | yes | keep the model edge (AD-005); the local dependency key remains `quire-contract-ir` pending QSL-owned R3-Q1 naming cleanup |
 | QSL (7 crates) | quire-canonical | N | git, `branch = "main"`, workspace dependency | yes | keep |
 | QSL `qsl-forms`, `qsl-semantics` | quire-walk | N | git, `branch = "main"`, workspace dependency | yes | keep |
 | QSL (every crate except `qsl-attrs` and `qsl-bench`) | `ix-trace-rs` | D | git, `branch = "main"` | yes | keep |
@@ -133,7 +133,7 @@ owners or a copy is a finding.
 | Exact scalar, text, composite kernel, `Meter`, `Outcome` | `quire-exact` | RT `src/exact` (23 files, 12,080 lines) is a second implementation | two owners; 124 `pub struct` or `enum` names are shared between RT `src/exact` and `quire-exact` plus `quire-semantic-value` (same-named, not proven identical), among them `Meter`, `Integer`, `Decimal`, `Text`, `Outcome`, `ScalarLimits`; RT's own edge to `quire-exact` is declared and unused (IR-349) |
 | Semantic value (declaration, containment, unit, quantity, enumeration, origin and location, checking limits) | `quire-semantic-value` | RT holds same-named copies; no RT edge to it | two owners, as above: RT's copies are defects to delete under IR-349 (with QSL-358); no exception exists (decision A) |
 | One-copy lock check (`scripts/check_one_copy.awk`) | none named | the same 9-line script is committed in IR, CG and RT, byte-identical on each `main` (QSL has no equivalent: no `duplicate-revisions` check exists on QSL `main`; its `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone) | a copy between repositories, which this AD treats as a finding, not as the design; no owner is named and none is decided here (O-4) |
-| Replay, witness, envelope, terminal record, obligation identity | `qsl-replay` | IR root still exports `KaniProviderResult` and `KaniProviderRecord` | two owners until IR-347 removes them (FR-039, AD-005 D-3) |
+| Replay, witness, envelope, terminal record, obligation identity | `qsl-replay` | IR-347 removed the IR-root `KaniProviderResult` and `KaniProviderRecord` exports | none for these IR types (FR-039, AD-005 D-3) |
 | Kani outcome type (`KaniOutcome`) | IR root crate | one owner | none |
 | Checked-package wire types, strict reader, lowering | IR model (wire contract is QSpec's) | one owner | none |
 | Compile-side checked package and emitter | `qsl-package` | `qsl-package` owns `CheckedPackage` and `EmittedPackage`; its I2 reader delegates to IR's; the QSL root crate also defines a public `CheckedPackage<'a>` (`src/checking.rs`, over IR's authored-contract model) | a second same-named type until QSL's M-6c retires the root crate's lane (QSL's; not a copy of `qsl-package`'s); `CheckedPackageV2` is IR's wire type, a different one |
@@ -212,7 +212,7 @@ What is measured today, what is open and with whom, and what is routed.
 | Item | Owner | Where |
 | --- | --- | --- |
 | RT `src/exact` duplicates `quire-exact` and `quire-semantic-value` (124 shared public names) | RT | IR-349 |
-| IR root exports `KaniProviderResult` and `KaniProviderRecord` | IR | IR-347 |
+| IR root's former `KaniProviderResult` and `KaniProviderRecord` exports were removed | IR | IR-347 |
 | IR `deny.toml` has no name-level `bans` for CG, RT or QSL crates, and `tc_041` does not check the model crate by `qsl-*` name or source; a git edge to those repositories already fails `unknown-git` (decision B) | IR | IR-343 |
 | QVC has a second RFC 8785 path (`jcs_canonicalize`, `jcs_equal`, `jcs_sha256`) | QVC, quire-canonical | R-3, VER-52 (Backlog) |
 | `check_one_copy.awk` is copied, byte-identical, into IR, CG and RT | no owner named | O-4 |

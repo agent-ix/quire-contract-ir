@@ -14,17 +14,17 @@ type: TestMatrix
 | FR-031 | FR-031-AC-1 | TC-042 | 🚧 AC-1 implemented and verified by TC-042. FR-031-AC-5, the `KaniOutcome` to QSL `qsl_replay::TerminalValue` map, is retired and its ID is not reused (ADR-0056): the map is owned by agent-ix/quire-contract-codegen, tracked there under Linear IR-358. The family lowerings (`src/kani/arithmetic.rs`, `collections.rs`, `objects.rs`) are codegen's backend adapter's and still live here. |
 | FR-036 | FR-036-AC-1 through FR-036-AC-5 | TC-045 | 🚧 planned; shared by Contract IR's `ContractPackage` and the codegen provider, neither implemented |
 | FR-037 | FR-037-AC-6 | TC-055 | 🚧 planned: TC-055's public-surface and source checks also show that Contract IR defines no replay envelope or witness, has no `replay` or `witness` module and calls no executor; the replay and witness modules no longer exist, and the row stays planned until TC-055's checks are authored. |
-| FR-039 | FR-039-AC-1 through FR-039-AC-4 | TC-055 | 🚧 planned; the root crate still re-exports the whole model with `pub use quire_contract_model::*`, exports the family lowerings codegen owns, and exports `KaniProviderRecord` and `KaniProviderResult`, which FR-039 lists among the items QSL owns |
+| FR-039 | FR-039-AC-1 through FR-039-AC-4 | TC-055 | 🚧 planned; the root crate no longer re-exports the model or the QSL-owned `KaniProviderRecord` and `KaniProviderResult`; it still exports the family lowerings codegen owns, and TC-055's complete public-inventory and negative-corpus checks remain to be authored |
 
 ## Test Case Summary
 
 | Test ID | Title | Type | Priority | Traces To | Status |
 |---|---|---|---|---|---|
 | TC-042 | Versioned bounded-Kani profile, finite input/outcome firewall and module dispatch conform | Integration | P0 | FR-029, FR-030-AC-1, FR-030-AC-2, FR-030-AC-3, FR-031-AC-1 | 🚧 FR-029-AC-2's `unsupported` negotiation disposition is planned; profile, firewall and dispatch implemented across the shared, arithmetic, graph and collection suites; the arithmetic, graph and collection lowering suites belong with the family lowerings in codegen's backend adapter |
-| TC-223 | Kani outcomes are built only by validated constructors, with their check count and cause codes | Integration | P0 | FR-030-AC-4, FR-030-AC-5 | 🚧 planned; no test is tagged for it; `kani_outcome_kinds_map_to_their_one_fr331_result` in `tests/it/kani_shared.rs` verifies the retired `KaniProviderResult` map and does not back this case |
+| TC-223 | Kani outcomes are built only by validated constructors, with their check count and cause codes | Integration | P0 | FR-030-AC-4, FR-030-AC-5 | 🚧 planned; no test is tagged for it; the obsolete IR-owned `KaniProviderResult` map and its test were removed under IR-347 and did not back this case |
 | TC-443 | A Kani outcome and its error carry a typed STD-001 code | Integration | P0 | FR-030-AC-6 | 🚧 partly implemented: `tc_443_the_outcome_and_its_error_carry_a_typed_std001_code` in `tests/it/kani_shared.rs`; the string-argument probes are `compile_fail` doctests on `KaniOutcome::non_success`, run by `make test`; the clause for a `proved` request with a count of zero is planned with FR-030-AC-4 |
 | TC-045 | Exact backend capability negotiation conforms | Integration | P0 | FR-036 | 🚧 planned; mirrors quire-specification:TC-218; binds the no-advertised-capability absence path (quire-specification:FR-290 vocabulary) |
-| TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | 🚧 planned |
+| TC-055 | The root crate's public interface is exactly the listed items and names no QSL-owned replay type | Integration | P0 | FR-039, FR-037-AC-6 | 🚧 planned; the two removed provider types have compile-fail doctest probes, but the complete inventory and remaining cases are not implemented |
 
 ## Coverage Design
 

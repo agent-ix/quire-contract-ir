@@ -58,15 +58,14 @@ Measured at the commits of QSL and IR this AD was written against.
 
 What does not cross, as a target: no replay, witness, envelope, terminal-record or obligation-identity
 type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QSL type reaches IR
-(FR-028). Current: the root crate still exports two such items, `KaniProviderResult` and
-`KaniProviderRecord` (D-3), to be removed under IR-347; QSL does not use them.
+(FR-028). IR-347 removed the root crate's former `KaniProviderResult` and
+`KaniProviderRecord` exports (D-3); QSL did not use them.
 
 ### Identity and versions on this seam
 
-- QSL depends on the model package by Cargo git source, `branch = "main"`, declared under the
-  dependency name `quire-contract-ir` with `package = "quire-contract-model"` when this AD was
-  written; QSL's `Cargo.toml` and `qsl-package/Cargo.toml` now key it as `quire-contract-model`
-  (R3-Q1 is done; measured in IR-346, AD-007). The crate has no published semantic version
+- QSL depends on the model package by Cargo git source, `branch = "main"`. Its current
+  `Cargo.toml` and `qsl-package/Cargo.toml` both declare the local dependency name
+  `quire-contract-ir` with `package = "quire-contract-model"`. The crate has no published semantic version
   (`publish = false`, version `0.1.0`). On the Rust types the assertion is the compiler plus
   one resolved copy in QSL's own lock; there is no version record to maintain and none is
   proposed.
@@ -98,7 +97,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | IR model to QSL | no | `tests/it/cycle_free_model.rs`: the model's production dependency names are checked against the `forbidden` list in that test and every one must be non-optional | by name only; no source check for the model package in `tc_041` (a git edge to the QSL repository is caught by `unknown-git`, not by this test) |
 | IR root to QSL | no | the same file, root package checked by name prefix `qsl-` and by git source of the QSL repository (the loop over the root package's dependencies) | none for QSL |
 | QSL to the model crate | yes | QSL ADR-011 section 6.1 lists it as an external edge of layer 4 beside `quire-canonical` (`qsl-package/Cargo.toml` comment); QSL TC-390 pins that layer's other workspace edges | none |
-| QSL to the IR root crate | no | nothing in IR; QSL's manifests name the model package | none: QSL's manifests now key the dependency as `quire-contract-model` (R3-Q1 done); it was once aliased `quire-contract-ir`, which read as the root crate |
+| QSL to the IR root crate | no | QSL's manifests select `package = "quire-contract-model"`, so their `quire-contract-ir` local alias resolves to the model package | the alias still reads as the root crate; R3-Q1's QSL-owned naming cleanup remains open |
 | IR to codegen, IR to runtime | no | a git edge to either repository fails `make deny` today: `[sources]` `unknown-git = "deny"` with an `allow-git` list that names neither (IR-346, AD-007); decision D adds name-level `bans` (IR-343) | no check by crate name, and the forbidden list in `tc_041` names neither `quire-contract-codegen` nor `quire-contract-runtime` (D-2) |
 | any cycle among QSL, IR, runtime, codegen | no | QSL's `arch-lint direction` (FB-05, FB-11) over local checkouts, run on request and not part of QSL's `make ci` (QSL `Makefile`, `arch-lint-direction`) | runs only when someone supplies the clones |
 | two copies of one first-party crate | no | IR `scripts/check_one_copy.awk` over IR's lock via `make deny`. QSL has no general check: its `arch-lint duplicate-revisions` no longer exists on QSL `main`, and `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone (IR-346, AD-007) | each guards its own lock only; QSL's lock has no one-entry-per-first-party-crate check (routed to QSL, AD-007 R-1) |
@@ -151,12 +150,11 @@ Local labels; the repository assigns requirement ids when one is authored.
   edge; by name, a cargo-deny `bans` failure is the target (IR-343), and `tc_041`'s lists are
   to name both crates.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
-  obligation-identity type. Current: not true. The root crate exports `KaniProviderResult` and
-  `KaniProviderRecord` (defined in `src/kani/outcome.rs`, re-exported by `src/kani/mod.rs`; the
-  record's doc calls itself an FR-331 terminal record), which FR-039 assigns to QSL. Target:
-  removed from IR under IR-347 (FR-039-AC-3, planned in TC-055).
+  obligation-identity type. IR-347 removed `KaniProviderResult` and `KaniProviderRecord` from
+  `src/kani/outcome.rs` and their re-exports from `src/kani/mod.rs` (FR-039-AC-3). The complete
+  TC-055 public-inventory check remains planned.
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
-  glob (statement FR-019; not true today, see Current state).
+  glob (FR-019; implemented under IR-347).
 - D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted at
   the `package_id` QSL wrote (runs in QSL; routed as R-Q6 of IR-324).
 - D-6. For a record QSL classifies unbounded, IR lowers with `require_bounds` set and reports
@@ -168,17 +166,11 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Current state and gaps
 
-- The model crate's own root uses glob re-exports for seven modules
-  (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no
-  glob"). The set of items a consumer such as QSL may rely on is therefore whatever the globs
-  expose, not FR-019's table. IR-347 (reopened) carries glob removal; not restated here.
-- The IR root crate is a re-export bridge: `src/lib.rs` holds `pub use quire_contract_model::*;`
-  and its crate doc calls it a "compatibility bridge", although AD-001 and FR-039 say it re-exports
-  nothing. `tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single`
-  (in `tests/it/cycle_free_model.rs`) asserts the bridge, the opposite of FR-039-AC-1, whose
-  test (TC-055) is planned and does not exist. The decision is that the test goes with the
-  IR-347 work (retag or remove `tc_041`'s bridge test); FR-039-AC-1 is not changed. QSL does not
-  use the bridge; the consumer that does is codegen (AD-006).
+- IR-347 replaced the model crate's seven root glob re-exports with the named FR-019 public
+  inventory. QSL depends on that model package under the local name `quire-contract-ir`.
+- IR-347 removed the IR root crate's model re-export and the obsolete `tc_041` bridge test.
+  Codegen imports the model crate directly (AD-006). FR-039-AC-1 still needs TC-055's complete
+  root public-inventory check; removing the bridge alone does not back that criterion.
 - D-2 has no by-name check. AD-001 says runtime has no dependency in either direction with IR; codegen
   depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
   is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or
@@ -216,7 +208,7 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R3-Q1 | Done (QSL's manifests now key it `quire-contract-model`, measured in IR-346). It asked QSL to key the dependency as `quire-contract-model`, not `quire-contract-ir`, so the manifest does not read as a dependency on IR's root crate (which QSL must never depend on) (relayed by the IR planner; QSL-owned change). |
+| R3-Q1 | Open on current QSL main: `Cargo.toml` and `qsl-package/Cargo.toml` still use the local key `quire-contract-ir` with `package = "quire-contract-model"`. The package selection is the model, but the alias reads as the root crate. QSL owns changing the local key to `quire-contract-model` so the manifest names the package it actually uses. |
 | R3-Q4 | Track the ignored TC-440 quantity case (the emitter omits the record) until an emitted quantity can be compared: QSL-247 and QSL-238, and IR-450 on the IR side. |
 
 Answered, no longer routed (QSL's answer as relayed by the IR planner, untrusted until QSL signs off): R3-Q2, QSL reads only the layer-4 set (decision A); R3-Q3, the one-encoder rule binds IR (decision C); R3-Q5, no CI option, IR guards its own edges (decision D).

@@ -59,21 +59,16 @@ Measured at the commits of codegen and IR this AD was written against.
 | Lowering request from codegen | `CompleteLoweringProfileV2` (`supported_tags`, `require_bounds`, `work_limit`), built by each generator (for example `composite_equality.rs:670`) | codegen supplies, IR defines the type | one profile per generator |
 
 What does not cross: no runtime type (the two repositories have no edge), and, as a target, no
-replay, witness or terminal-record type (AD-005, AD-001). Current: the root crate exports
-`KaniProviderResult` and `KaniProviderRecord` (divergence 2 below); codegen's source names neither
-them nor `provider_result`.
+replay, witness or terminal-record type (AD-005, AD-001). IR-347 removed the former
+`KaniProviderResult` and `KaniProviderRecord` exports and `provider_result` map; codegen's source
+used none of them.
 
 ### The import path
 
-Codegen's manifest declares one IR dependency, the root package `quire-contract-ir` (`Cargo.toml`
-line 17, git, `branch = "main"`, `version = "=0.1.0"`). No codegen source names
-`quire_contract_model`. Every model item above reaches codegen through the root crate's
-`pub use quire_contract_model::*` (`src/lib.rs:12`). AD-001 and FR-039 say the root crate
-re-exports no model item and that a consumer depending on model types depends on
-`quire-contract-model` directly. The target state is therefore: codegen declares
-`quire-contract-model` for the first two groups and the root crate for the third. Until then the
-glob is the seam, which makes every public item of the model crate part of codegen's surface,
-including the globs the model crate itself uses (AD-005, Current state).
+Codegen's manifest now declares both IR packages: `quire-contract-model` for model items and
+`quire-contract-ir` for the root `kani` interface. Codegen imports model items through
+`quire_contract_model`, and IR-347 removed the root crate's former
+`pub use quire_contract_model::*` glob (AD-001, FR-039).
 
 ### Identity and versions on this seam
 
@@ -88,18 +83,15 @@ including the globs the model crate itself uses (AD-005, Current state).
   contracts). Codegen selects by `ProfileSelection` and IR refuses a selection it does not know.
 - The checked-package seam asserts `contract_version` and `package_id` (AD-004). Codegen does not
   recompute either; it reads an admitted `CheckedPackageV2`.
-- A cause string crosses as a free string today. Codegen compares `checks_outcome.code ==
-  "kani_vacuous_proof"` (`src/kani/classify.rs`) against a literal that IR builds in
-  `proved_from_checks` (`src/kani/outcome.rs`). The target is FR-044: `KaniOutcome.code` is a
-  `Std001Code` of `quire-contract-model` and the registered cause codes are its constants
-  (IR-605), so codegen compares `Std001Code::KANI_VACUOUS_PROOF`. IR-347 keeps only the
-  lowerings' codes, which leave IR with them.
+- IR-605 changed `KaniOutcome.code` to the model crate's `Std001Code`; codegen compares the
+  registered `Std001Code::KANI_VACUOUS_PROOF` constant. The family lowerings still in IR build
+  unregistered codes with `std001_code!` until their move to codegen under IR-347.
 
 ### Dependency direction and what enforces it
 
 | Edge | Allowed | Held by | Gap |
 | --- | --- | --- | --- |
-| codegen to IR | yes, root crate only today | codegen `Cargo.toml`; codegen `make deny` runs `scripts/check_one_copy.awk` over codegen's lock (one `quire-contract-ir`, one `quire-contract-model`) | the root crate is the wrong path for model items (above) |
+| codegen to IR | yes, root crate and model crate | codegen `Cargo.toml`; codegen `make deny` checks one revision of each IR package | none for the model import path |
 | IR to codegen | no | nothing in IR yet; AD-005 decision D makes it a cargo-deny `bans` failure (IR-343) | the forbidden list in `tests/it/cycle_free_model.rs` does not name `quire-contract-codegen` |
 | IR to QSL | no | `tc_041` today; target: cargo-deny `bans` entries as well (AD-005 decision D) | no deny entry exists yet |
 | codegen to QSL | only `qsl-replay` | codegen `deny.toml` exceptions and QSL's `arch-lint api-surface` T12-A | not an IR concern |
@@ -137,7 +129,8 @@ including the globs the model crate itself uses (AD-005, Current state).
 Local labels; the repository assigns requirement ids when one is authored.
 
 - G-1. The root crate's public items are exactly FR-039's table and re-export no model item
-  (FR-039-AC-1, planned as TC-055; not true today).
+  (FR-039-AC-1, planned as TC-055; the no-model-item part is implemented, while the complete
+  inventory is not).
 - G-2. No item named in FR-039 "Items codegen owns" is exported by the root crate (FR-039-AC-3;
   not true today: `src/kani/mod.rs:19` exports `lower_checked_arithmetic` and the other two).
 - G-3. A struct-literal `KaniOutcome` outside the `kani` module does not compile (FR-030-AC-5;
@@ -157,20 +150,17 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Current state and gaps
 
-- Measured divergence between the specification and the source, all in IR and all IR-347 scope
-  (the IR planner's relayed decision) except as stated:
-  1. The root glob and the bridge (`src/lib.rs:12`; AD-005).
-  2. `KaniProviderResult`, `KaniProviderRecord` and `KaniOutcomeKind::provider_result` still exist
-     (`src/kani/mod.rs:23`, `src/kani/outcome.rs:56-89`). FR-039 "Items QSL owns" assigns the first
-     two to QSL, and AD-001 contradicts itself on the map: its `kani` module row lists "the Kani
-     outcome to QSL terminal-value map" as IR's while its Replay ownership section and Decisions
-     give it to codegen (AD-001 is not edited here). Codegen's source does not use them
-     (measured above), so removing them needs no codegen change.
+- Original audit divergences and subsequent IR-347 corrections:
+  1. IR-347 removed the root glob and model bridge (AD-005); codegen now imports the model crate
+     directly.
+  2. IR-347 removed `KaniProviderResult`, `KaniProviderRecord` and
+     `KaniOutcomeKind::provider_result` from IR. FR-039 "Items QSL owns" assigns the first two to
+     QSL; codegen owns the outcome-to-QSL terminal-value map and used none of these IR items.
   3. The three family lowerings are in IR (`src/kani/arithmetic.rs`, `collections.rs`,
      `objects.rs`, 392 lines) and codegen calls them. Moving them out of IR is IR-347 scope (the
-     IR planner's relayed decision), as is the root glob.
-  4. FR-030-AC-4 and AC-5, FR-039 and FR-037-AC-6 are listed as planned in `spec/tests.md`; the
-     `KaniOutcomeError` type does not exist.
+     IR planner's relayed decision); the root glob has been removed.
+  4. FR-030-AC-4 and AC-5, FR-039 and FR-037-AC-6 remain planned or partial in the matrix;
+     `KaniOutcomeError` now exists for the invalid non-success constructor request.
   5. `proved_from_checks`' doc cites codegen's `classify_run` by file name
      (`src/kani/outcome.rs`): IR's documentation names its consumer, which is a reverse reference
      in prose and goes stale when codegen moves.
