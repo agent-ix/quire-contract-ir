@@ -145,6 +145,7 @@ pub struct CheckedSemanticNodeV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed public semantic term.
+    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_value")]
     pub body: Value,
 }
 
@@ -177,6 +178,7 @@ pub struct CheckedNodeProjectionV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed semantic term.
+    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_value")]
     pub body: Value,
 }
 
@@ -383,6 +385,7 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
+    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_values")]
     pub details: Vec<Value>,
     /// Source loci under locked sources.
     pub loci: Vec<CheckedSourceRegion>,
