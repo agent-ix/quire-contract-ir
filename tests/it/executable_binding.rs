@@ -1,7 +1,7 @@
 //! Synthetic derived projections assembled from shared corpus wire forms.
 //! These tests qualify the public binder, not a source-language frontend.
 use ix_trace_rs::trace;
-use quire_contract_ir::{BoundPackage, DiagnosticCode, EXECUTABLE_PROJECTION_FORMAT};
+use quire_contract_model::{BoundPackage, DiagnosticCode, EXECUTABLE_PROJECTION_FORMAT};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -35,7 +35,7 @@ fn projection() -> Value {
     json!({"format":EXECUTABLE_PROJECTION_FORMAT,"package":package,"bindings":bindings})
 }
 
-fn decode(value: &Value) -> Result<BoundPackage, Vec<quire_contract_ir::Diagnostic>> {
+fn decode(value: &Value) -> Result<BoundPackage, Vec<quire_contract_model::Diagnostic>> {
     BoundPackage::from_json_bytes(&serde_json::to_vec(value).unwrap())
 }
 
@@ -79,7 +79,7 @@ fn tc_035_public_consumer_preserves_complete_population() {
         );
         assert_eq!(
             clause.expression().value_type(),
-            &quire_contract_ir::ValueType::Boolean
+            &quire_contract_model::ValueType::Boolean
         );
         assert_ne!(clause.declaration_digest(), clause.expression_digest());
     }
@@ -210,7 +210,7 @@ fn tc_035_strict_wire_boundary() {
     bytes.extend_from_slice(b" {}");
     assert!(BoundPackage::from_json_bytes(&bytes).is_err());
     assert!(BoundPackage::from_json_bytes(&[0xff]).is_err());
-    let huge = vec![b' '; quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES as usize + 1];
+    let huge = vec![b' '; quire_contract_model::MAX_CONFORMANCE_FILE_BYTES as usize + 1];
     assert_eq!(
         BoundPackage::from_json_bytes(&huge).unwrap_err()[0].code,
         DiagnosticCode::SemanticInputTooLarge
@@ -433,7 +433,7 @@ fn tc_035_declaration_semantics_change_identity_without_changing_expression() {
 #[trace("TC-035", "FR-023-AC-3")]
 #[test]
 fn tc_035_bound_digest_matches_an_independently_written_canonical_envelope() {
-    use quire_contract_ir::CanonicalProfile;
+    use quire_contract_model::CanonicalProfile;
     let bound = decode(&projection()).unwrap();
     let quote = |text: &str| serde_json::to_string(text).unwrap();
     let mut expected_clauses: Vec<_> = bound.clauses().iter().collect();
@@ -535,7 +535,7 @@ fn tc_035_semantic_budget_is_aggregate_and_individual_nodes_are_bounded() {
     let mut aggregate = minimal_projection(2);
     declarations(&mut aggregate, 6500, 0);
     let encoded = serde_json::to_vec(&aggregate).unwrap();
-    assert!(encoded.len() < quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES as usize);
+    assert!(encoded.len() < quire_contract_model::MAX_CONFORMANCE_FILE_BYTES as usize);
     let errors = decode(&aggregate).unwrap_err();
     assert!(
         errors
@@ -578,7 +578,7 @@ fn tc_035_expression_node_limit_is_not_replaced_by_the_larger_semantic_budget() 
         }
         value["bindings"][0]["expression"]["expression"] = level.pop().unwrap();
         let bytes = serde_json::to_vec(&value).unwrap();
-        assert!(bytes.len() < quire_contract_ir::MAX_CONFORMANCE_FILE_BYTES as usize);
+        assert!(bytes.len() < quire_contract_model::MAX_CONFORMANCE_FILE_BYTES as usize);
         let outcome = BoundPackage::from_json_bytes(&bytes);
         if accepted {
             assert!(outcome.is_ok(), "9999 AST nodes refused: {outcome:?}");

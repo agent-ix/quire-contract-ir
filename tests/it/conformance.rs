@@ -7,7 +7,7 @@ use std::{
     process::{Command, Output},
 };
 
-use quire_contract_ir::{
+use quire_contract_model::{
     expected_inventory, ContractPackage, DeclarationEnvironment, DiagnosticCode, PackageId,
     RequirementId, RequirementRef, RequirementRevision, SourceDocumentId, SourceIdentity,
     SourceLocation, SourceRevision, SourceSpan, SymbolName, ValidationOptions, ValueDeclaration,
@@ -142,7 +142,7 @@ fn input_count(corpus: &Path) -> usize {
 fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
     // FR-019-AC-3: expected_inventory is exactly the five published registries
     // under their five stable prefixes, sorted, and nothing else.
-    let mut rebuilt = quire_contract_ir::PUBLIC_CONSTRUCT_TAGS
+    let mut rebuilt = quire_contract_model::PUBLIC_CONSTRUCT_TAGS
         .iter()
         .map(|tag| format!("construct:{tag}"))
         .chain(
@@ -161,12 +161,12 @@ fn tc_018_the_corpus_runs_deterministically_and_every_fixture_matches() {
             .map(|obligation| format!("obligation:{obligation}")),
         )
         .chain(
-            quire_contract_ir::CONFORMANCE_BOUNDARIES
+            quire_contract_model::CONFORMANCE_BOUNDARIES
                 .iter()
                 .map(|boundary| format!("boundary:{boundary}")),
         )
         .chain(
-            quire_contract_ir::ConformanceOperation::ALL
+            quire_contract_model::ConformanceOperation::ALL
                 .iter()
                 .map(|operation| format!("operation:{}", operation.as_str())),
         )
@@ -501,14 +501,14 @@ fn tc_018_runner_refuses_unsafe_paths_foreign_schemas_and_stray_entries() {
 /// FR-019-AC-2.
 #[test]
 fn tc_018_semantic_depth_and_collection_edges_preflight_without_panic() {
-    let linked_run = catch_unwind(|| quire_contract_ir::run_corpus(&corpus(), &schemas()));
+    let linked_run = catch_unwind(|| quire_contract_model::run_corpus(&corpus(), &schemas()));
     let linked_results = linked_run
         .expect("the linked runner panicked over the complete corpus")
         .expect("the linked runner rejected the published corpus");
     assert_eq!(linked_results.len(), input_count(&corpus()));
     assert!(linked_results
         .iter()
-        .all(|result| result.status() == quire_contract_ir::FixtureStatus::Match));
+        .all(|result| result.status() == quire_contract_model::FixtureStatus::Match));
 
     let mut deeply_nested_package = String::from(
         r#"{"id":"agent-ix/depth","schema_version":{"major":1,"minor":1},"source":{"document":"depth","revision":1},"requirements":[],"ignored":"#,

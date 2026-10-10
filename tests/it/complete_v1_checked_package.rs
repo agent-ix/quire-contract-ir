@@ -15,7 +15,7 @@ use crate::support::checked_package::{
     NODE_DOMAIN,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteContractNodeV2, CompleteLoweringProfileV2,

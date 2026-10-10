@@ -1,6 +1,6 @@
 # quire-contract-ir
 
-Cycle-free semantic contract model and compatibility bridge for assurance tooling.
+Cycle-free semantic contract model and bounded-Kani interface for assurance tooling.
 
 ## Hash / digest / pin antipattern: do not introduce
 
@@ -41,14 +41,14 @@ make use-remote     # delete the patch config and restore Cargo.lock from that s
 
 ```
 crates/quire-contract-model/ # cycle-free semantic substrate and sole model source
-src/lib.rs             # compatibility bridge and model API re-export
-src/bin/               # compatibility-package conformance runner
+src/lib.rs             # bounded-Kani crate root; model API lives in quire-contract-model
+src/bin/               # conformance runner
 tests/fixtures/        # test data (Kani playback, native rule model)
 spec/                  # requirements artifacts
 scripts/               # local tooling
 ```
 
 `quire-contract-model` must not acquire QSL, observation, protocol, TL, or
-`quire-contract-ir` dependencies. Owner integrations belong in the root bridge
+`quire-contract-ir` dependencies. Bounded-Kani integrations belong in the root
 package so the production graph remains acyclic. All Cargo gates must use
 `--workspace`; a root-package-only result is incomplete.

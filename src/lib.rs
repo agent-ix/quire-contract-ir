@@ -1,12 +1,20 @@
-//! Compatibility bridge for the Quire contract intermediate representation.
+//! Versioned bounded-Kani interface for the Quire contract intermediate representation.
 //!
-//! The stable semantic substrate lives in [`quire_contract_model`]. This
-//! package re-exports that API so existing `quire_contract_ir` imports keep
-//! their source and type identity while owner integrations remain downstream
-//! of the cycle-free model package.
+//! The semantic model is owned by the separate `quire_contract_model` crate.
+//!
+//! A model item is available through the model crate:
+//!
+//! ```
+//! use quire_contract_model::SchemaVersion;
+//! let _ = SchemaVersion::V1_1;
+//! ```
+//!
+//! The root crate does not export that item (FR-019-AC-5, TC-058):
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::SchemaVersion;
+//! ```
 
 #![forbid(unsafe_code)]
 
 pub mod kani;
-
-pub use quire_contract_model::*;

@@ -23,7 +23,7 @@
 
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedPackageEvidence, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, JsonPointer,
@@ -224,7 +224,7 @@ pub fn owned_structural_node(mut node: Value, owner: Value) -> Value {
     node
 }
 
-pub fn typed_node_id(digest: &str) -> quire_contract_ir::CheckedNodeId {
+pub fn typed_node_id(digest: &str) -> quire_contract_model::CheckedNodeId {
     serde_json::from_value(node_id(digest)).expect("node id")
 }
 

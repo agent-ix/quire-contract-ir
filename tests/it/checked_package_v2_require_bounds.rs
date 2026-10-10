@@ -11,7 +11,7 @@ use crate::support::checked_package::{
     structural_key, typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };

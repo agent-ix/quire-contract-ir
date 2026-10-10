@@ -5,7 +5,7 @@ use std::{
     process::ExitCode,
 };
 
-use quire_contract_ir::{
+use quire_contract_model::{
     run_corpus, FixtureStatus, RunnerError, RunnerErrorCode, CONFORMANCE_PROTOCOL,
 };
 

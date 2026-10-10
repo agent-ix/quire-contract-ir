@@ -7,7 +7,7 @@ use crate::support::checked_package::{
     canonical, evidence_for, node_id, refresh_identity, sha256_hex, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult,
 };

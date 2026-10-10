@@ -17,7 +17,7 @@ use crate::support::checked_package::{
     refusal_at, sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };

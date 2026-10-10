@@ -1,13 +1,11 @@
 use ix_trace_rs::trace;
-use quire_contract_ir::{
-    kani::{
-        lower_checked_arithmetic, CapabilityDisposition, CapabilityEntry, DispatchIndex,
-        FiniteInput, KaniOutcomeKind, KaniProfile, ModuleDescriptor, PopulationCompleteness,
-        ProfileSelection, ResourceBounds, SemanticFamily, PROFILE,
-    },
-    NumericOperator,
+use quire_contract_ir::kani::{
+    lower_checked_arithmetic, CapabilityDisposition, CapabilityEntry, DispatchIndex, FiniteInput,
+    KaniOutcomeKind, KaniProfile, ModuleDescriptor, PopulationCompleteness, ProfileSelection,
+    ResourceBounds, SemanticFamily, PROFILE,
 };
 use quire_contract_model::std001_code;
+use quire_contract_model::NumericOperator;
 
 fn selection() -> ProfileSelection {
     ProfileSelection {

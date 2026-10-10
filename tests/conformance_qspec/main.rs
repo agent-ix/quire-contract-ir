@@ -24,7 +24,7 @@
 
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageIdentityPreimageV2, CheckedPackageLockV2,
     CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,

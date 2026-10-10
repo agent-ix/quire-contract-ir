@@ -10,7 +10,7 @@ use crate::support::checked_package::{
     structural_key, typed_node_id, v2_all_families,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteContractPackageV2, CompleteLoweringProfileV2,
     CompleteLoweringRecordV2, CompleteLoweringResultV2, CONTRACT_PACKAGE_VERSION,
@@ -266,7 +266,7 @@ fn tc_047_a_call_that_lowers_nothing_emits_an_empty_package() {
     assert_eq!(package.version(), CONTRACT_PACKAGE_VERSION);
 }
 
-fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_ir::CompleteContractNodeV2 {
+fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::CompleteContractNodeV2 {
     match record {
         CompleteLoweringRecordV2::Lowered { node } => node,
         other => panic!("expected lowered record, got {other:?}"),

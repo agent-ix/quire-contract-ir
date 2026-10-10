@@ -12,7 +12,7 @@ use crate::support::checked_package::{
     sha256_hex,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
     CheckedNodeId, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
@@ -731,7 +731,7 @@ fn scalar_fixture_child_id(form: &str, value: &str) -> Value {
 )]
 #[test]
 fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
-    use quire_contract_ir::{
+    use quire_contract_model::{
         CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperand, CheckedScalarOperandChild,
         CheckedScalarOperandError,
     };
@@ -893,7 +893,9 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
 #[trace("TC-048", "FR-038-AC-161", "FR-038-AC-162")]
 #[test]
 fn tc_048_scalar_operands_refuse_unknown_node_nonapplication_and_missing_occurrence() {
-    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    use quire_contract_model::{
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError,
+    };
     let integer = structural("scalar_type", "integer", None, None, &empty());
     let inline = json!({"term": "literal", "type": node_id(&integer),
         "value_kind": "integer", "value": "7"});
@@ -934,7 +936,9 @@ fn tc_048_scalar_operands_refuse_unknown_node_nonapplication_and_missing_occurre
 #[trace("TC-048", "FR-038-AC-159", "FR-038-AC-163")]
 #[test]
 fn tc_048_scalar_operand_eligibility_uses_catalogued_integer_operations() {
-    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    use quire_contract_model::{
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError,
+    };
     let occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,
@@ -975,7 +979,9 @@ fn tc_048_scalar_operand_eligibility_uses_catalogued_integer_operations() {
 #[trace("TC-048", "FR-038-AC-162")]
 #[test]
 fn tc_048_scalar_operands_refuse_unbounded_and_out_of_i128_ranges() {
-    use quire_contract_ir::{CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError};
+    use quire_contract_model::{
+        CheckedOccurrence, CheckedOccurrenceRole, CheckedScalarOperandError,
+    };
     let occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
         ordinal: 0,

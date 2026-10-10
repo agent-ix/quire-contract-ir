@@ -1,4 +1,4 @@
-use quire_contract_ir::{
+use quire_contract_model::{
     AnchorName, BooleanOperator, CollectionType, ComparisonOperator, DeclarationEnvironment,
     DefinednessObligationKind, DependencyKind, DiagnosticCode, EnumDeclaration,
     EnumVariantDeclaration, ExecutionPoint, Expression, ExpressionKind, FunctionParameter,
@@ -111,7 +111,7 @@ fn boolean(value: bool, at: u64) -> Expression {
 }
 
 fn assert_code(
-    result: Result<quire_contract_ir::TypedExpression, Vec<quire_contract_ir::Diagnostic>>,
+    result: Result<quire_contract_model::TypedExpression, Vec<quire_contract_model::Diagnostic>>,
     code: DiagnosticCode,
 ) {
     assert_eq!(result.unwrap_err()[0].code, code);
@@ -192,8 +192,8 @@ fn environment() -> DeclarationEnvironment {
     DeclarationEnvironment::new(
         RequirementRef::new(
             PackageId::new("agent-ix/contract").unwrap(),
-            quire_contract_ir::RequirementId::new("REQ_expression").unwrap(),
-            quire_contract_ir::RequirementRevision::new(1).unwrap(),
+            quire_contract_model::RequirementId::new("REQ_expression").unwrap(),
+            quire_contract_model::RequirementRevision::new(1).unwrap(),
         ),
         vec![
             TypeDeclaration::Enum { declaration: color },
@@ -1271,7 +1271,7 @@ fn tc_016_scope_guard_flow_call_ranges_and_diagnostic_invariants_conform() {
         "path":"expression",
         "obligation_kind":"checked_range"
     }"#;
-    assert!(serde_json::from_str::<quire_contract_ir::Diagnostic>(invalid_wire).is_err());
+    assert!(serde_json::from_str::<quire_contract_model::Diagnostic>(invalid_wire).is_err());
 
     let call = |at| {
         Expression::new(
@@ -1378,7 +1378,7 @@ fn tc_016_mixed_dependencies_implement_the_structural_source_contract() {
 
     assert_eq!(
         checked.dependencies(),
-        &quire_contract_ir::DependencySource::dependencies(&checked)
+        &quire_contract_model::DependencySource::dependencies(&checked)
     );
     let actual = checked
         .dependencies()
@@ -1613,8 +1613,8 @@ impl Numeric {
         DeclarationEnvironment::new(
             RequirementRef::new(
                 PackageId::new("agent-ix/contract").unwrap(),
-                quire_contract_ir::RequirementId::new("REQ_range_sets").unwrap(),
-                quire_contract_ir::RequirementRevision::new(1).unwrap(),
+                quire_contract_model::RequirementId::new("REQ_range_sets").unwrap(),
+                quire_contract_model::RequirementRevision::new(1).unwrap(),
             ),
             Vec::new(),
             vec![ValueDeclaration::new(
@@ -1684,7 +1684,7 @@ impl Numeric {
         })
     }
 
-    fn check(&self, expression: &Expression) -> Result<(), Vec<quire_contract_ir::Diagnostic>> {
+    fn check(&self, expression: &Expression) -> Result<(), Vec<quire_contract_model::Diagnostic>> {
         self.environment()
             .check_expression(expression, &ValueType::Boolean, &pre(), true)
             .map(|_| ())

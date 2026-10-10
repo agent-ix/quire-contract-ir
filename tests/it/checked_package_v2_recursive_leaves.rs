@@ -16,7 +16,7 @@ use crate::support::checked_package::{
     sha256_hex, structural_key, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
