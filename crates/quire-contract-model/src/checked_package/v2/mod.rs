@@ -16,6 +16,7 @@ mod flat_wire;
 mod frame;
 mod identity;
 mod intake;
+mod lossless;
 mod lower;
 mod model_fields;
 mod model_members;
@@ -706,11 +707,11 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let mut wire = intake::decode_borrowed_wire(bytes)
+        let wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| locate_in_preimage_bytes(failure, bytes))
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
-        intake::check_lossless_source(bytes, &mut wire)?;
+        intake::check_lossless_source(bytes, &wire)?;
         validate_owner_schema(&wire)?;
         let (kinds, models) = validate(&wire, limits, evidence)?;
         let node_index = retained_node_index(&wire);
