@@ -81,7 +81,6 @@ diagnostic_codes! {
     UnsupportedSchemaVersion => "unsupported_schema_version",
     CanonicalizationResourceExhausted => "canonicalization_resource_exhausted",
     DuplicateArtifactTrace => "duplicate_artifact_trace",
-    StaleTraceDigest => "stale_trace_digest",
     SemanticInputTooLarge => "semantic_input_too_large",
 }
 

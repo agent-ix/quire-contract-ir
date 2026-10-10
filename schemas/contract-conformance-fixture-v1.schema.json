@@ -146,7 +146,7 @@
             "orphaned_value_reference", "orphaned_function_reference", "invalid_state_observation", "invalid_scope", "arity_mismatch",
             "ill_typed_expression", "result_type_mismatch", "non_boolean_clause_root", "potentially_undefined", "expression_too_large",
             "unsupported_schema_version", "canonicalization_resource_exhausted", "duplicate_artifact_trace",
-            "stale_trace_digest", "semantic_input_too_large"
+            "semantic_input_too_large"
           ]
         },
         "severity": { "const": "error" },
@@ -439,14 +439,8 @@
       "additionalProperties": false,
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["shallow", "deep"] },
-        "requirement_digest": { "$ref": "#/definitions/digest" },
-        "digest_span": { "$ref": "#/definitions/sourceSpan" }
-      },
-      "oneOf": [
-        { "properties": { "kind": { "const": "shallow" } }, "minProperties": 1, "maxProperties": 1 },
-        { "properties": { "kind": { "const": "deep" } }, "required": ["requirement_digest", "digest_span"], "minProperties": 3, "maxProperties": 3 }
-      ]
+        "kind": { "enum": ["shallow", "deep"] }
+      }
     },
     "artifactTrace": {
       "type": "object",
@@ -509,7 +503,7 @@
         "artifact_id": { "$ref": "#/definitions/identifier" },
         "target": { "$ref": "#/definitions/requirementRef" },
         "class": { "enum": ["shallow", "deep", "orphaned"] },
-        "orphan_reason": { "type": ["string", "null"], "enum": ["cross_package", "missing_requirement", "stale_revision", "duplicate_artifact", "digest_mismatch", null] }
+        "orphan_reason": { "type": ["string", "null"], "enum": ["cross_package", "missing_requirement", "stale_revision", "duplicate_artifact", null] }
       },
       "allOf": [
         {

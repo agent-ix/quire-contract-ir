@@ -11,10 +11,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::{
-    classify_coverage, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalOutput,
-    CanonicalProfile, ClauseRef, ContractPackage, Diagnostic, DiagnosticCode, ReferenceBody,
-    RequirementRef, SourceSpan, MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH,
-    MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
+    classify_coverage, ArtifactId, ArtifactTrace, CanonicalOutput, CanonicalProfile, ClauseRef,
+    ContractPackage, Diagnostic, DiagnosticCode, ReferenceBody, RequirementRef, SourceSpan,
+    MAX_SEMANTIC_COLLECTION_ITEMS, MAX_SEMANTIC_DEPTH, MAX_SEMANTIC_NODES, MAX_WIRE_JSON_DEPTH,
 };
 
 pub const CONFORMANCE_PROTOCOL: &str = "quire.contract.conformance-jsonl/v1";
@@ -106,7 +105,6 @@ pub const PUBLIC_CONSTRUCT_TAGS: &[&str] = &[
 
 pub const CONFORMANCE_BOUNDARIES: &[&str] = &[
     "artifact.cross_package",
-    "artifact.digest_mismatch",
     "artifact.duplicate",
     "artifact.missing",
     "artifact.stale",
@@ -1143,9 +1141,6 @@ fn observe_diagnostic_boundaries(
             &["artifact.stale", "revision.stale"]
         }
         "stale_requirement_revision" => &["revision.stale"],
-        "stale_trace_digest" if operation == ConformanceOperation::Coverage => {
-            &["artifact.digest_mismatch"]
-        }
         _ => &[],
     };
     observed.extend(
@@ -1758,9 +1753,7 @@ fn observe_constructs(input: &Value, actual: &Value, observed: &mut BTreeSet<Str
                     {
                         observed.insert(format!("construct:execution.{kind}"));
                     }
-                    if matches!(kind, "shallow" | "deep")
-                        && (object.len() == 1 || object.contains_key("requirement_digest"))
-                    {
+                    if matches!(kind, "shallow" | "deep") && object.len() == 1 {
                         observed.insert(format!("construct:artifact.depth.{kind}"));
                     }
                 }
@@ -2007,10 +2000,7 @@ struct WireArtifactTrace {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum WireTraceDepth {
     Shallow,
-    Deep {
-        requirement_digest: CanonicalDigest,
-        digest_span: SourceSpan,
-    },
+    Deep,
 }
 
 impl WireArtifactTrace {
@@ -2020,17 +2010,9 @@ impl WireArtifactTrace {
             WireTraceDepth::Shallow => {
                 ArtifactTrace::shallow(artifact_id, self.source, self.target, self.target_span)
             }
-            WireTraceDepth::Deep {
-                requirement_digest,
-                digest_span,
-            } => ArtifactTrace::deep(
-                artifact_id,
-                self.source,
-                self.target,
-                self.target_span,
-                requirement_digest,
-                digest_span,
-            ),
+            WireTraceDepth::Deep => {
+                ArtifactTrace::deep(artifact_id, self.source, self.target, self.target_span)
+            }
         })
     }
 }
@@ -2053,7 +2035,7 @@ fn execute_coverage(input: Value) -> Value {
         Ok(traces) => traces,
         Err(diagnostic) => return coverage_invalid_actual(vec![diagnostic]),
     };
-    match classify_coverage(&package, &traces, CanonicalProfile::V1) {
+    match classify_coverage(&package, &traces) {
         Ok(result) => json!({
             "diagnostics": diagnostics_value(result.diagnostics()),
             "coverage": result.report(),

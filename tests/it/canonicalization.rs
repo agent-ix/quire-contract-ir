@@ -712,14 +712,6 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     let source = source("traces");
     let req_a = reference(&package, "REQ_a", 1);
     let req_b = reference(&package, "REQ_b", 2);
-    let req_a_digest = package
-        .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
-        .unwrap()
-        .digest();
-    let wrong_digest = quire_contract_model::CanonicalDigest::parse(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
     let make_span = |at| span(&source, at, at + 1);
     let traces = vec![
         ArtifactTrace::shallow(
@@ -733,8 +725,6 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
             make_span(2),
             req_a.clone(),
             make_span(3),
-            req_a_digest,
-            make_span(4),
         ),
         ArtifactTrace::shallow(
             ArtifactId::new("art_cross").unwrap(),
@@ -748,19 +738,11 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
             reference(&package, "REQ_missing", 1),
             make_span(8),
         ),
-        ArtifactTrace::shallow(
+        ArtifactTrace::deep(
             ArtifactId::new("art_stale").unwrap(),
             make_span(9),
             reference(&package, "REQ_a", 9),
             make_span(10),
-        ),
-        ArtifactTrace::deep(
-            ArtifactId::new("art_wrong_digest").unwrap(),
-            make_span(11),
-            req_a.clone(),
-            make_span(12),
-            wrong_digest,
-            make_span(13),
         ),
         ArtifactTrace::shallow(
             ArtifactId::new("art_duplicate").unwrap(),
@@ -775,7 +757,7 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
             make_span(17),
         ),
     ];
-    let result = classify_coverage(&package, &traces, CanonicalProfile::V1).unwrap();
+    let result = classify_coverage(&package, &traces).unwrap();
     assert_eq!(result.report().requirements().len(), 2);
     assert_eq!(result.report().requirements()[0].reference(), &req_a);
     assert_eq!(
@@ -786,7 +768,7 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
         result.report().requirements()[1].class(),
         CoverageClass::Uncovered
     );
-    assert_eq!(result.report().artifacts().len(), 7);
+    assert_eq!(result.report().artifacts().len(), 6);
     assert!(result
         .report()
         .artifacts()
@@ -813,16 +795,11 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
             DiagnosticCode::CrossPackageReference,
             DiagnosticCode::OrphanedRequirementReference,
             DiagnosticCode::StaleRequirementRevision,
-            DiagnosticCode::StaleTraceDigest,
             DiagnosticCode::DuplicateArtifactTrace,
         ]
     );
     assert_eq!(
         result.diagnostics()[3].span.as_deref(),
-        Some(&make_span(13))
-    );
-    assert_eq!(
-        result.diagnostics()[4].span.as_deref(),
         Some(&make_span(16))
     );
     let reasons = result
@@ -835,5 +812,4 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
     assert!(reasons.contains(&OrphanReason::MissingRequirement));
     assert!(reasons.contains(&OrphanReason::StaleRevision));
     assert!(reasons.contains(&OrphanReason::DuplicateArtifact));
-    assert!(reasons.contains(&OrphanReason::DigestMismatch));
 }

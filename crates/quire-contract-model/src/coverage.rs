@@ -3,8 +3,7 @@ use std::{collections::BTreeMap, fmt};
 use serde::Serialize;
 
 use crate::{
-    CanonicalBody, CanonicalDigest, CanonicalProfile, ContractPackage, Diagnostic, DiagnosticCode,
-    RequirementRef, SourceSpan,
+    CanonicalBody, ContractPackage, Diagnostic, DiagnosticCode, RequirementRef, SourceSpan,
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -44,10 +43,7 @@ impl fmt::Display for ArtifactId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TraceDepth {
     Shallow,
-    Deep {
-        requirement_digest: CanonicalDigest,
-        digest_span: SourceSpan,
-    },
+    Deep,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,18 +76,13 @@ impl ArtifactTrace {
         source: SourceSpan,
         target: RequirementRef,
         target_span: SourceSpan,
-        requirement_digest: CanonicalDigest,
-        digest_span: SourceSpan,
     ) -> Self {
         Self {
             artifact_id,
             source,
             target,
             target_span,
-            depth: TraceDepth::Deep {
-                requirement_digest,
-                digest_span,
-            },
+            depth: TraceDepth::Deep,
         }
     }
 
@@ -132,7 +123,6 @@ pub enum OrphanReason {
     MissingRequirement,
     StaleRevision,
     DuplicateArtifact,
-    DigestMismatch,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -212,7 +202,6 @@ impl CoverageResult {
 pub fn classify_coverage<B: CanonicalBody>(
     package: &ContractPackage<B>,
     traces: &[ArtifactTrace],
-    profile: CanonicalProfile,
 ) -> Result<CoverageResult, Diagnostic> {
     if traces.len() > crate::MAX_SEMANTIC_COLLECTION_ITEMS as usize {
         return Err(Diagnostic::error(
@@ -262,52 +251,23 @@ pub fn classify_coverage<B: CanonicalBody>(
             continue;
         }
 
-        let requirement =
-            match package.resolve_requirement(trace.target(), Some(trace.target_span())) {
-                Ok(requirement) => requirement,
-                Err(diagnostic) => {
-                    let Some(reason) = orphan_reason(diagnostic.code) else {
-                        return Err(diagnostic);
-                    };
-                    diagnostics.push(diagnostic);
-                    artifact_rows.insert(
-                        trace.artifact_id.clone(),
-                        artifact_row(trace, CoverageClass::Orphaned, Some(reason)),
-                    );
-                    continue;
-                }
+        if let Err(diagnostic) =
+            package.resolve_requirement(trace.target(), Some(trace.target_span()))
+        {
+            let Some(reason) = orphan_reason(diagnostic.code) else {
+                return Err(diagnostic);
             };
+            diagnostics.push(diagnostic);
+            artifact_rows.insert(
+                trace.artifact_id.clone(),
+                artifact_row(trace, CoverageClass::Orphaned, Some(reason)),
+            );
+            continue;
+        }
 
         let class = match trace.depth() {
             TraceDepth::Shallow => CoverageClass::Shallow,
-            TraceDepth::Deep {
-                requirement_digest,
-                digest_span,
-            } => {
-                let current = package
-                    .canonical_requirement(requirement, profile)?
-                    .digest();
-                if current != *requirement_digest {
-                    diagnostics.push(
-                        Diagnostic::error(
-                            DiagnosticCode::StaleTraceDigest,
-                            "trace digest differs from the current requirement digest",
-                            "artifact.depth.digest",
-                        )
-                        .at_span(digest_span),
-                    );
-                    artifact_rows.insert(
-                        trace.artifact_id.clone(),
-                        artifact_row(
-                            trace,
-                            CoverageClass::Orphaned,
-                            Some(OrphanReason::DigestMismatch),
-                        ),
-                    );
-                    continue;
-                }
-                CoverageClass::Deep
-            }
+            TraceDepth::Deep => CoverageClass::Deep,
         };
 
         if let Some(current) = requirement_rows.get_mut(trace.target()) {

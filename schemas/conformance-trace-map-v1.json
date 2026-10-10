@@ -93,6 +93,6 @@
   },
   {
     "trace_ids": ["FR-017-AC-2"],
-    "covers": ["boundary:artifact.cross_package", "boundary:artifact.digest_mismatch", "boundary:artifact.duplicate", "boundary:artifact.missing", "boundary:artifact.stale", "construct:artifact.depth.deep", "construct:artifact.depth.shallow", "construct:coverage.class.deep", "construct:coverage.class.orphaned", "construct:coverage.class.shallow", "construct:coverage.class.uncovered", "diagnostic:duplicate_artifact_trace", "diagnostic:stale_trace_digest"]
+    "covers": ["boundary:artifact.cross_package", "boundary:artifact.duplicate", "boundary:artifact.missing", "boundary:artifact.stale", "construct:artifact.depth.deep", "construct:artifact.depth.shallow", "construct:coverage.class.deep", "construct:coverage.class.orphaned", "construct:coverage.class.shallow", "construct:coverage.class.uncovered", "diagnostic:duplicate_artifact_trace"]
   }
 ]
