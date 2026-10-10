@@ -1,4 +1,4 @@
-use quire_contract_ir::SchemaVersion;
+use quire_contract_model::SchemaVersion;
 
 /// Tracing: TC-015
 /// TC-015.

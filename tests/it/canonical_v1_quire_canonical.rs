@@ -11,7 +11,7 @@
 
 use crate::checked_package_v2_identity_digests::{production_source, repository_path};
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     AnchorName, CanonicalKind, CanonicalOutput, CanonicalProfile, Clause, ClauseId, ClauseKind,
     CollectionType, ContractPackage, DeclarationEnvironment, DiagnosticCode, ExecutionPoint,
     Expression, ExpressionKind, IntegerDomain, IntegerType, OverflowPolicy, PackageId,
@@ -195,7 +195,8 @@ fn expression_fixture() -> TypedExpression {
 
 /// One fixture of each of the five kinds, with the bytes it must produce and
 /// a closure that asks for them under a byte limit.
-type Budgeted<'a> = Box<dyn Fn(u64) -> Result<CanonicalOutput, quire_contract_ir::Diagnostic> + 'a>;
+type Budgeted<'a> =
+    Box<dyn Fn(u64) -> Result<CanonicalOutput, quire_contract_model::Diagnostic> + 'a>;
 
 /// Tracing: TC-017.
 /// ACs: FR-016-AC-5, FR-016-AC-6

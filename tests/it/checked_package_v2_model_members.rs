@@ -17,7 +17,7 @@ use crate::support::checked_package::{
     sha256_hex, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult,
@@ -154,7 +154,7 @@ fn domain_document(extra: Value) -> Value {
 fn package_over(
     document: &Value,
     name: &str,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let digest = sha256_hex(&canonical(document));
     let package = package_selecting(name, &digest);
     let mut evidence = evidence_for(&package);
@@ -240,7 +240,7 @@ fn package_selecting(name: &str, digest: &str) -> Value {
 
 fn read(
     package: &Value,
-    evidence: &quire_contract_ir::CheckedPackageEvidence,
+    evidence: &quire_contract_model::CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(package),
@@ -251,7 +251,7 @@ fn read(
 
 fn refused(
     package: &Value,
-    evidence: &quire_contract_ir::CheckedPackageEvidence,
+    evidence: &quire_contract_model::CheckedPackageEvidence,
 ) -> CheckedPackageRefusal {
     match read(package, evidence) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
@@ -280,7 +280,7 @@ fn authored_relationship() -> Value {
 fn relationship_package(
     relationship: Value,
     role: &str,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     relationship_operation_package(relationship, role, false)
 }
 
@@ -288,7 +288,7 @@ fn relationship_operation_package(
     relationship: Value,
     role: &str,
     reaches: bool,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let document = domain_document(json!({"relationships": [relationship]}));
     let digest = sha256_hex(&canonical(&document));
     let mut package = package_selecting("total", &digest);
@@ -399,7 +399,7 @@ enum NavigationResult {
 fn navigation_with_result(
     relationship: Value,
     result: NavigationResult,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let (mut package, _) = relationship_package(relationship.clone(), "links");
     let mut document = domain_document(json!({"relationships": [relationship.clone()]}));
     let destination = relationship["targetEnd"]["type"]
@@ -523,7 +523,7 @@ fn navigation_with_result(
 fn reaches_with_operands(
     first_type: &str,
     second_type: &str,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence) {
     let relation = authored_relationship();
     let (mut package, _) = relationship_operation_package(relation.clone(), "links", true);
     let mut document = domain_document(json!({"relationships": [relation]}));
@@ -1853,7 +1853,7 @@ fn reaches_package(
     name: &str,
     source: Operand,
     target: Operand,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence, usize) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence, usize) {
     let document = edge_document();
     let digest = sha256_hex(&canonical(&document));
     let mut package = nominal_package(&[]);
@@ -1993,7 +1993,7 @@ fn reaches(
     name: &str,
     source: &'static str,
     target: &'static str,
-) -> (Value, quire_contract_ir::CheckedPackageEvidence, usize) {
+) -> (Value, quire_contract_model::CheckedPackageEvidence, usize) {
     reaches_package(
         (declaring, SELECTED),
         name,

@@ -18,7 +18,7 @@ use crate::support::checked_package::{
     v2_nominal,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult,
 };

@@ -17,7 +17,7 @@ use crate::support::checked_package::{
     canonical, evidence_for, pointer, refresh_identity, rekey_application_node, v2_all_families,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
 };
@@ -83,7 +83,7 @@ fn ineligible(
 ) -> (
     CheckedPackageRefusalCode,
     Option<CheckedPackageRefusalCause>,
-    Option<quire_contract_ir::JsonPointer>,
+    Option<quire_contract_model::JsonPointer>,
 ) {
     (
         CheckedPackageRefusalCode::IllTyped,

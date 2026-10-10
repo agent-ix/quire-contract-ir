@@ -8,7 +8,7 @@ use crate::support::checked_package::{
     sha256_hex, typed_node_id, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     CONTRACT_IR_SEMANTIC_DOMAIN,
@@ -67,7 +67,7 @@ fn profile(work_limit: u64) -> CompleteLoweringProfileV2 {
     }
 }
 
-fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_ir::CompleteContractNodeV2 {
+fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::CompleteContractNodeV2 {
     match record {
         CompleteLoweringRecordV2::Lowered { node } => node,
         other => panic!("expected lowered record, got {other:?}"),

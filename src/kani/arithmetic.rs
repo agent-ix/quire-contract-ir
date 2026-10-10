@@ -2,7 +2,7 @@
 
 use quire_contract_model::std001_code;
 
-use crate::NumericOperator;
+use quire_contract_model::NumericOperator;
 
 use super::{
     CapabilityDisposition, DispatchIndex, KaniOutcome, KaniProfile, NonSuccessKind, SemanticFamily,

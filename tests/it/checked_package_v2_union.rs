@@ -15,7 +15,7 @@ use crate::support::checked_package::{
     structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, CONTRACT_IR_SEMANTIC_DOMAIN,
@@ -982,7 +982,10 @@ fn reference_to_key(digest: &str) -> Value {
 
 /// The identity the lowerer derives for `node`, from the admitted wire alone
 /// (as for every node).
-fn derived_identity(wire: &Value, lowered: &quire_contract_ir::CompleteContractNodeV2) -> String {
+fn derived_identity(
+    wire: &Value,
+    lowered: &quire_contract_model::CompleteContractNodeV2,
+) -> String {
     let mut projection = wire.clone();
     projection
         .as_object_mut()

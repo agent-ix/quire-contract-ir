@@ -18,7 +18,7 @@ use crate::support::checked_package::{
     settle, sha256_hex, structural_key, typed_node_id, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,

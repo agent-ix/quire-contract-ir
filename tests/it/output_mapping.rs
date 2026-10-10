@@ -1,7 +1,7 @@
 //! TC-043 exercises the target-neutral FS06 output-mapping foundation.
 
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     assemble_output_package, map_admitted_request, map_admitted_request_controlled,
     AdmittedMappingObligation, AdmittedMappingRequest, BoundPackage, ClauseId, ClauseRef,
     DiagnosticCode, MappingAllocationPoint, MappingCancellation, MappingCancellationToken,
@@ -154,7 +154,7 @@ fn admit(
     obligations: Vec<RequestedMappingObligation>,
     profile: OutputMappingProfile,
     limits: MappingLimits,
-) -> Result<AdmittedMappingRequest, quire_contract_ir::MappingRequestError> {
+) -> Result<AdmittedMappingRequest, quire_contract_model::MappingRequestError> {
     let (native, model, semantic) = selections();
     AdmittedMappingRequest::admit(
         package,
@@ -852,7 +852,7 @@ impl OutputMapper for OperationalFailureMapper {
 fn mapped_record_id(
     request: &AdmittedMappingRequest,
     candidate: MappingCandidate,
-) -> quire_contract_ir::MappingRecordId {
+) -> quire_contract_model::MappingRecordId {
     let mut mapper = FixedMapper {
         profile: request.profile().clone(),
         candidate,
@@ -1431,7 +1431,10 @@ fn generator() -> OutputGeneratorIdentity {
     OutputGeneratorIdentity::new("agent-ix/quire-contract-ir").expect("Rust generator identity")
 }
 
-fn mapped(package: &BoundPackage, limits: MappingLimits) -> quire_contract_ir::CompletedMappings {
+fn mapped(
+    package: &BoundPackage,
+    limits: MappingLimits,
+) -> quire_contract_model::CompletedMappings {
     let request = admit(package, requested(package), ocl_profile(), limits)
         .expect("admitted mapping request");
     let mut mapper = DeterministicMapper::new(ocl_profile());
@@ -1941,7 +1944,7 @@ fn limits_with_request_bytes(maximum_request_bytes: u64) -> MappingLimits {
 fn long_condition_record(
     package: &BoundPackage,
     maximum_request_bytes: u64,
-) -> Result<quire_contract_ir::CompletedMappings, MappingRequestError> {
+) -> Result<quire_contract_model::CompletedMappings, MappingRequestError> {
     let request = admit(
         package,
         vec![RequestedMappingObligation::new(
@@ -1991,7 +1994,7 @@ fn tc_043_record_identity_material_is_metered_by_the_request_byte_limit() {
 fn long_generator_package(
     package: &BoundPackage,
     maximum_request_bytes: u64,
-) -> Result<quire_contract_ir::GeneratedOutputPackage, MappingRequestError> {
+) -> Result<quire_contract_model::GeneratedOutputPackage, MappingRequestError> {
     let request = admit(
         package,
         requested(package).into_iter().take(1).collect(),

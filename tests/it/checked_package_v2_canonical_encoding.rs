@@ -12,7 +12,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedCapability, CheckedCapabilityDisposition, CheckedDependencySelection,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId, CheckedNodeProjectionV2,
     CheckedPackageIdentityPreimageV2, CheckedPackageLockV2, CheckedPackageReadLimits,

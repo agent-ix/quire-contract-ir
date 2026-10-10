@@ -14,7 +14,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Error, LimitKind};
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     CompleteContractNodeV2, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     NominalIdentityPreimage,

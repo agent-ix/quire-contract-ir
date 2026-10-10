@@ -21,7 +21,7 @@ use crate::support::checked_package::{
     v2_all_families, v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,

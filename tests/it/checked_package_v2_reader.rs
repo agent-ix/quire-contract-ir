@@ -12,7 +12,7 @@ use crate::support::checked_package::{
     ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,

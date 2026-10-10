@@ -1,4 +1,4 @@
-use quire_contract_ir::{
+use quire_contract_model::{
     classify_coverage, AnchorName, ArtifactId, ArtifactTrace, CanonicalDigest, CanonicalKind,
     CanonicalProfile, Clause, ClauseId, ClauseKind, CollectionType, ContractPackage, CoverageClass,
     DeclarationEnvironment, DiagnosticCode, EnumDeclaration, EnumVariantDeclaration,
@@ -716,7 +716,7 @@ fn tc_017_coverage_classes_orphans_diagnostics_and_sorting_conform() {
         .canonical_requirement(&package.requirements()[0], CanonicalProfile::V1)
         .unwrap()
         .digest();
-    let wrong_digest = quire_contract_ir::CanonicalDigest::parse(
+    let wrong_digest = quire_contract_model::CanonicalDigest::parse(
         "0000000000000000000000000000000000000000000000000000000000000000",
     )
     .unwrap();

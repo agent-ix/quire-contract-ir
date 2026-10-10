@@ -50,4 +50,5 @@ mod kani_collections;
 mod kani_objects;
 mod kani_shared;
 mod output_mapping;
+mod public_interface;
 mod std001_code;

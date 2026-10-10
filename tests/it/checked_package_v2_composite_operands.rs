@@ -9,7 +9,7 @@ use crate::support::checked_package::{
     sha256_hex, source_owner, structural_key, typed_node_id,
 };
 use ix_trace_rs::trace;
-use quire_contract_ir::{
+use quire_contract_model::{
     CheckedAuthoredCompositeDomain as Domain, CheckedCollectionKind, CheckedCompositeDomainKey,
     CheckedCompositeOperandDomain as OperandDomain, CheckedCompositeOperandError as Error,
     CheckedCompositeOperands, CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole,
@@ -248,7 +248,7 @@ fn project(package: &CheckedPackageV2, application: &str) -> CheckedCompositeOpe
 /// Exhaustive external patterns make every promised field and variant a
 /// compile-time API obligation, without exposing or reading the wire body.
 fn inspect_public_fields(result: &CheckedCompositeOperands) {
-    use quire_contract_ir::{
+    use quire_contract_model::{
         CheckedCompositeChildEdge, CheckedCompositeDomainPosition, CheckedCompositeOperand,
         CheckedCompositeShapeEntry,
     };
@@ -352,8 +352,8 @@ fn parameter_domain(
     result: &CheckedCompositeOperands,
     operand: usize,
 ) -> (
-    &[quire_contract_ir::CheckedCompositeShapeEntry],
-    &[quire_contract_ir::CheckedCompositeDomainPosition],
+    &[quire_contract_model::CheckedCompositeShapeEntry],
+    &[quire_contract_model::CheckedCompositeDomainPosition],
 ) {
     match &result.operands[operand].domain {
         OperandDomain::Parameter { shape, positions } => (shape, positions),
@@ -752,7 +752,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 1,
             type_node: Some(typed_node_id(&sequence)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::ApplicationSubterm
         })
     );
     assert_eq!(
@@ -764,7 +764,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 1,
             type_node: Some(typed_node_id(&sequence)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::ApplicationSubterm
         })
     );
     // An independently authored nested application is rejected by the reader's
@@ -789,7 +789,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         CheckedPackageV2ReadResult::Refused(refusal) => {
             assert_eq!(
                 refusal.code,
-                quire_contract_ir::CheckedPackageRefusalCode::MalformedWire
+                quire_contract_model::CheckedPackageRefusalCode::MalformedWire
             );
             assert_eq!(refusal.cause, None);
             assert_eq!(
@@ -827,7 +827,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 1,
             type_node: Some(typed_node_id(&sequence)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::NonliteralGraphValue
         })
     );
 
@@ -854,11 +854,11 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         CheckedPackageV2ReadResult::Refused(refusal) => {
             assert_eq!(
                 refusal.code,
-                quire_contract_ir::CheckedPackageRefusalCode::IllTyped
+                quire_contract_model::CheckedPackageRefusalCode::IllTyped
             );
             assert_eq!(
                 refusal.cause,
-                Some(quire_contract_ir::CheckedPackageRefusalCause::OperatorIneligible)
+                Some(quire_contract_model::CheckedPackageRefusalCause::OperatorIneligible)
             );
             assert_eq!(
                 refusal.path.expect("argument pointer").as_str(),
@@ -884,7 +884,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 0,
             type_node: Some(typed_node_id(&boolean)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::NonliteralGraphValue
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::NonliteralGraphValue
         })
     );
     let union = f.ty(
@@ -945,7 +945,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 0,
             type_node: Some(typed_node_id(&option)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineNonInteger
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::InlineNonInteger
         })
     );
     assert_eq!(
@@ -957,7 +957,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         Err(Error::UnsupportedOperand {
             ordinal: 1,
             type_node: Some(typed_node_id(&option)),
-            reason: quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineNonInteger
+            reason: quire_contract_model::CheckedUnsupportedCompositeOperand::InlineNonInteger
         })
     );
 }
@@ -1139,7 +1139,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
 #[trace("FR-038-AC-180", "FR-038-AC-182", "FR-038-AC-198")]
 #[test]
 fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
-    use quire_contract_ir::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
+    use quire_contract_model::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
     let mut f = Fixture::new();
     let mut types: BTreeMap<String, String> = BTreeMap::new();
     for form in [
@@ -1463,11 +1463,12 @@ fn error_payload(error: Error) -> (&'static str, Option<u64>, Option<CheckedNode
             reason,
         } => {
             match reason {
-                quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineInteger
-                | quire_contract_ir::CheckedUnsupportedCompositeOperand::InlineNonInteger
-                | quire_contract_ir::CheckedUnsupportedCompositeOperand::ApplicationSubterm
-                | quire_contract_ir::CheckedUnsupportedCompositeOperand::NonStructuralType
-                | quire_contract_ir::CheckedUnsupportedCompositeOperand::NonliteralGraphValue => {}
+                quire_contract_model::CheckedUnsupportedCompositeOperand::InlineInteger
+                | quire_contract_model::CheckedUnsupportedCompositeOperand::InlineNonInteger
+                | quire_contract_model::CheckedUnsupportedCompositeOperand::ApplicationSubterm
+                | quire_contract_model::CheckedUnsupportedCompositeOperand::NonStructuralType
+                | quire_contract_model::CheckedUnsupportedCompositeOperand::NonliteralGraphValue => {
+                }
             }
             ("operand", Some(ordinal), type_node)
         }

@@ -1,4 +1,4 @@
-use quire_contract_ir::{
+use quire_contract_model::{
     AnchorName, Clause, ClauseId, ClauseKind, ClauseRef, ContractPackage, DependencyIdentity,
     DependencyKind, DependencyName, DependencySource, DiagnosticCode, ExecutionPoint, PackageId,
     ReferenceBody, Requirement, RequirementId, RequirementRef, RequirementRevision, SchemaVersion,
@@ -100,7 +100,7 @@ fn valid_package() -> ContractPackage<ReferenceBody> {
     valid_package_at(3)
 }
 
-fn package_error(value: &serde_json::Value) -> Vec<quire_contract_ir::Diagnostic> {
+fn package_error(value: &serde_json::Value) -> Vec<quire_contract_model::Diagnostic> {
     ContractPackage::from_json_str(
         &serde_json::to_string(value).unwrap(),
         ValidationOptions::strict(),
@@ -109,7 +109,7 @@ fn package_error(value: &serde_json::Value) -> Vec<quire_contract_ir::Diagnostic
 }
 
 fn diagnostic_code<T: std::fmt::Debug>(
-    result: Result<T, quire_contract_ir::Diagnostic>,
+    result: Result<T, quire_contract_model::Diagnostic>,
 ) -> DiagnosticCode {
     result.unwrap_err().code
 }
