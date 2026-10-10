@@ -30,6 +30,8 @@ or canonicalization semantics.
   including explicit supported/refused/unsupported capability classification,
   finite input validation, the dispatch index, typed outcomes, and
   the map from each outcome to its QSL terminal value.
+- A source-derived, method-qualified proof-coverage baseline with distinct
+  requirement, module, function, and obligation views.
 - A target-neutral output-mapping request, per-obligation loss record, bounded
   mapper seam, atomic generated-package assembler, and downstream observer reference.
 
@@ -105,6 +107,10 @@ staged verification.
 
 FR-028 makes the model/owner/root dependency graph implementable without a
 Cargo cycle.
+StR-004 and FR-045 define reviewable proof-coverage accounting across owner
+inventories; AD-008 records its identity, eligibility, evidence and projection
+rules. TC-446 is planned. The first baseline is an observation; no numeric
+coverage target is specified before it is measured and reviewed.
 
 ## Subsystems
 
@@ -112,7 +118,7 @@ Cargo cycle.
 
 | Subsystem | Path | Role | Owning crates/modules | ADs | Owner |
 | --- | --- | --- | --- | --- | --- |
-| Core | `spec/core/` | Stakeholder needs, package, anchor, clause and dependency identity, resource limits, the diagnostic code registry, and the determinism, portability and diagnostic-integrity properties every subsystem shares | `quire-contract-model::identity`, `quire-contract-model::limits` | AD-001, ADR-0056 | Contract IR lane |
+| Core | `spec/core/` | Stakeholder needs, package, anchor, clause and dependency identity, resource limits, the diagnostic code registry, proof-coverage accounting, and the determinism, portability and diagnostic-integrity properties every subsystem shares | `quire-contract-model::identity`, `quire-contract-model::limits`; proof-coverage implementation planned | AD-001, AD-008, ADR-0056 | Contract IR lane |
 | Model | `spec/model/` | The type system, expression semantics, definedness, canonical encoding and digests, version and orphan handling, executable-projection binding, the model crate's public interface and the cycle-free model/root package split | `quire-contract-model::expression`, `quire-contract-model::canonical`, `quire-contract-model::wire`, `quire-contract-model::coverage`, `quire-contract-model::binding` | AD-001, AD-005, ADR-0053, ADR-0054 | Contract IR lane |
 | Conformance | `spec/conformance/` | The conformance corpus and the JSON conformance interface | `quire-contract-model::conformance`, `quire-contract-ir` binary `quire-contract-conformance` | AD-001 | Contract IR lane |
 | Checked package | `spec/checked_package/` | The strict `quire.checked-package/v2` reader, its frame, anchor and state-clause admission, the refusal of unadmitted ADR-002 members, and complete-V1 ContractPackage lowering from that input | `quire-contract-model::checked_package` | AD-001, AD-003, AD-004 | Contract IR lane |
@@ -131,3 +137,4 @@ Cargo cycle.
 - [IR to QSL seam: what QSL takes from the model crate](assurance/AD-005-qsl-consumption-seam.md).
 - [IR to codegen seam: what codegen consumes](assurance/AD-006-codegen-consumption-seam.md).
 - [Cross-repo dependency graph](assurance/AD-007-cross-repo-dependency-graph.md).
+- [Proof coverage accounting](assurance/AD-008-proof-coverage-accounting.md).
