@@ -335,12 +335,13 @@ pub(super) fn read_typed_prefix(
             None,
         ));
     }
-    strict_shape(bytes)?;
-    // Keep serde_json's 128-level refusal before canonicality. IgnoredAny
-    // visits the input but retains none of its members or scalar values.
-    let mut parser = serde_json::Deserializer::from_slice(bytes);
-    serde::de::IgnoredAny::deserialize(&mut parser)
-        .map_err(|_| ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire))?;
+    // Keep serde_json's 128-level refusal before canonicality. The strict
+    // scan completes first, so a later syntax or duplicate defect still wins.
+    if strict_shape_depth(bytes)? >= 128 {
+        return Err(ValidationFailure::refused_bytes(
+            CheckedPackageRefusalCode::MalformedWire,
+        ));
+    }
     require_canonical_tokens(bytes)
 }
 
@@ -1247,15 +1248,22 @@ impl Open {
 /// exactly the parser's. No value is built. Trailing bytes are left for the
 /// canonical-bytes comparison to refuse.
 fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
+    strict_shape_depth(input).map(|_| ())
+}
+
+/// The strict shape and deepest container, counted without native recursion.
+fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     let malformed = || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire);
     let mut scan = Scan {
         input,
         at: 0,
         open: Vec::new(),
     };
+    let mut deepest = 0;
     loop {
         let opens = match scan.peek().ok_or_else(malformed)? {
             b'[' => {
+                deepest = deepest.max(scan.open.len().saturating_add(1));
                 scan.at += 1;
                 if scan.peek() == Some(b']') {
                     scan.at += 1;
@@ -1266,6 +1274,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
                 }
             }
             b'{' => {
+                deepest = deepest.max(scan.open.len().saturating_add(1));
                 scan.at += 1;
                 if scan.peek() == Some(b'}') {
                     scan.at += 1;
@@ -1297,7 +1306,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
         // then read the next sibling, if any.
         loop {
             let Some(top) = scan.open.last() else {
-                return Ok(());
+                return Ok(deepest);
             };
             let in_array = matches!(top, Open::Array { .. });
             if matches!(top, Open::Object { repeated: true, .. }) {
