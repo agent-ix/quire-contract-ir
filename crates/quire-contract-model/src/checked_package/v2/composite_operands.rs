@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-038: metered, package-authored domains of structural equality operands.
+//! FR-038: metered, package-authored domains of structural comparison operands.
 
 use super::operation_catalog::operation_catalog;
 use super::structural::{
@@ -199,7 +199,7 @@ pub enum CheckedCompositeOperandError {
     /// Catalog identity is missing or unknown.
     #[error("unknown application operation")]
     UnknownOperator { application: CheckedNodeId },
-    /// Catalog operation is not structural.eq.
+    /// Catalog operation is neither structural.eq nor structural.ne.
     #[error("ineligible application operation")]
     IneligibleOperator { application: CheckedNodeId },
     /// Valid typed target names an absent graph value.
@@ -343,7 +343,7 @@ fn collection(kind: CheckedNodeKind) -> Option<CheckedCollectionKind> {
 }
 
 impl CheckedPackageV2 {
-    /// Returns authored domains of `structural.eq` operands in argument order.
+    /// Returns authored domains of `structural.eq` or `structural.ne` operands in argument order.
     ///
     /// The supplied occurrence must belong to the application. The finite work
     /// limit bounds logical graph visits, retained paths and copied text. No
@@ -387,7 +387,10 @@ impl CheckedPackageV2 {
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
-        if identity != "quire.op.structural.eq" {
+        if !matches!(
+            identity,
+            "quire.op.structural.eq" | "quire.op.structural.ne"
+        ) {
             return Err(Error::IneligibleOperator {
                 application: application.clone(),
             });
@@ -1282,6 +1285,14 @@ mod tests {
         }
     }
 
+    // Defensive probes below mutate only after the original eq fixture admits.
+    fn ne_package() -> CheckedPackageV2 {
+        let mut package = package();
+        package.wire.semantic_graph.nodes[5].body["operation"]["identity"] =
+            json!("quire.op.structural.ne");
+        package
+    }
+
     fn read(package: &CheckedPackageV2) -> Result<CheckedCompositeOperands> {
         package.composite_application_operands(
             &id('6'),
@@ -1415,10 +1426,15 @@ mod tests {
 
     // A valid first operand makes these independent second-argument defects
     // kill any implementation that hard-codes the enclosing ordinal to zero.
-    #[trace("FR-038-AC-181", "FR-038-AC-178", "FR-038-AC-180")]
+    #[trace("FR-038-AC-181", "FR-038-AC-178", "FR-038-AC-180", "FR-038-AC-199")]
     #[test]
     fn tc_048_second_operand_refusals_retain_nonzero_ordinals_and_type_loci() {
-        let mut p = package();
+        second_operand_refusals(package());
+        second_operand_refusals(ne_package());
+    }
+
+    fn second_operand_refusals(original: CheckedPackageV2) {
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[5].body["arguments"][1]["target"] = json!(id('9'));
         assert_eq!(
             read(&p),
@@ -1427,7 +1443,7 @@ mod tests {
                 child: id('9')
             })
         );
-        let mut p = package();
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[5].body["arguments"][1] =
             json!({"term":"application","result_type":id('2')});
         assert_eq!(
@@ -1438,7 +1454,7 @@ mod tests {
                 CheckedUnsupportedCompositeOperand::ApplicationSubterm
             ))
         );
-        let mut p = package();
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[5].body["arguments"][1] =
             json!({"term":"literal","type":id('2'),"value_kind":"integer","value":"1"});
         assert_eq!(
@@ -1449,7 +1465,7 @@ mod tests {
                 CheckedUnsupportedCompositeOperand::InlineInteger
             ))
         );
-        let mut p = package();
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[6].semantic_form = "union".into();
         p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Union);
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
@@ -1460,16 +1476,31 @@ mod tests {
                 type_node: id('7')
             })
         );
-        let mut p = package();
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[6].body["members"][0]["target"] = json!(id('7'));
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
-        let mut p = package();
+        let mut p = original.clone();
+        p.wire.semantic_graph.nodes[7].semantic_type = id('1');
+        assert_eq!(
+            read(&p),
+            Err(unsupported(
+                1,
+                Some(id('1')),
+                CheckedUnsupportedCompositeOperand::NonStructuralType
+            ))
+        );
+        let mut p = original.clone();
         p.wire.semantic_graph.nodes[6].semantic_form = "record".into();
         p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
         p.wire.semantic_graph.nodes[6].body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]});
         p.wire.semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
+        let mut p = original.clone();
+        p.wire.semantic_graph.nodes[4].semantic_type = id('9');
+        p.wire.semantic_graph.nodes[5].body["arguments"][1] =
+            json!({"term":"literal","type":id('2'),"value_kind":"integer","value":"1"});
+        assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }
 
     #[trace("FR-038-AC-181", "FR-038-AC-180")]
