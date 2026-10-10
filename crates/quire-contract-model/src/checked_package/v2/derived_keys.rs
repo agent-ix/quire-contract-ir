@@ -1,96 +1,29 @@
-//! FR-038 structural-node key validation (IR-627): the reader re-derives
-//! owner-free, ungrouped structural keys from each node's semantic type and
-//! body, including the ten shapes [`MemberType::node_key`] already derives.
-//! Owner-bearing keys need the owner in their preimage and remain with
-//! IR-630's grouped and owner-bearing follow-up.
-//!
-//! The shapes are `scalar_type` `boolean` and `integer`; `composite_type`
-//! `reference`, `option`, `set`, `bag`, `sequence` and `ordered_set`; and
-//! `bounded_domain` `integer_range` and `collection_bounds`. A node whose
-//! body is not exactly the closed body of its form, whose `semantic_type` is
-//! not its own key (a scalar or composite), whose bounds are outside their
-//! form's grammar, or whose literal `type` is not the `Integer` key, has no
-//! derivable key and is refused like a stale one:
-//! `invalid_package`/`stale-node-key` at the node's own `node_id`.
-//!
-//! **A node of a real recursion group is skipped**, neither verified nor
-//! refused: QSL keys the `Option` or collection of a recursive record, and its
-//! `collection_bounds`, under a group digest this reader cannot compute, since
-//! it needs the declared member's `SourceOwner` (IR-627-Q4). A node is skipped
-//! if and only if its shape is one of those six, it carries a
-//! `recursion_group`, it lies on a cycle of the names graph (body references,
-//! `semantic_type` unless self, literal and result types; `dependencies` are
-//! not edges) and every member of its component in that graph carries the same
-//! label. Any other labelled node of those ten shapes is verified as an
-//! ungrouped node. Other grouped nodes remain with IR-630. A skipped node is
-//! still charged one work unit.
-//!
-//! Stated soundness limit: the key, and so the body, of a skipped node is NOT
-//! verified, and a tamperer who forges a names cycle through a collection and a
-//! `collection_bounds` node and labels both is skipped too. A `collection_bounds`
-//! count or an element type read through such a node rests on the package
-//! producer; a range read from an `integer_range` node is always verified.
-//! A skipped node still passes every other check, including the cycle rule
-//! that refuses a cycle outside a declared `recursion_group`.
-//!
-//! The ten legacy shapes use [`anonymous`], the one function
-//! [`MemberType::node_key`] calls; other ungrouped shapes use the FR-092
-//! structural preimage. Bounds enter as decimal strings, never parsed to a
-//! fixed-width integer or a float.
-//!
-//! This is its own stage of `validate_graph`: after the graph-shape and
-//! application key stages, before the nominal key stage and every
-//! declaration, frame, state, temporal, abstraction and operation step, in
-//! ascending node-id digest order, one work unit per node it derives for.
-//! Nominal, application, model, relation, FR-451 abstraction-relation,
-//! declared, owner-bearing and most grouped nodes have separate stages or
-//! remain for IR-630.
+//! FR-038 structural key authentication using QSL FR-092/FR-094's shared
+//! preimage authority. Retained labels select all same-label wire members.
+//! Every structural key is checked before any group-label digest is checked;
+//! no membership is inferred from a names cycle.
 
-use super::model_members::{anonymous, CollectionKind, MemberType, StructuralBody};
+use super::encode::GroupBody;
+use super::model_members::{
+    structural_key, CollectionKind, MemberType, StructuralPreimage, StructuralRecursion,
+    StructuralType,
+};
 use super::structural::{
     aggregate_members, binding, is_integer_bound, is_non_negative_integer, reference_target,
 };
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm, LiteralKind,
-    ScalarTypeForm, WorkMeter,
+    BodyTerm, BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, CompositeTypeForm,
+    LiteralKind, ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN};
+use crate::checked_package::common::{
+    body_term, literal_kind, node_pointer, ValidationFailure, NODE_DOMAIN,
+};
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde_json::Value;
 use std::collections::BTreeMap;
-
-/// The QSL FR-092 structural preimage for an owner-free, ungrouped node.
-/// `Value` uses quire-canonical's heap-stack encoder, so body depth does not
-/// consume the native call stack.
-struct UngroupedPreimage<'a>(&'a CheckedSemanticNodeV2);
-
-impl Encode for UngroupedPreimage<'_> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        let node = self.0;
-        writer.begin_object()?;
-        writer.name("version")?;
-        writer.string("quire.structural-node/v1")?;
-        writer.name("node_tag")?;
-        writer.string(&node.node_tag)?;
-        writer.name("semantic_form")?;
-        writer.string(&node.semantic_form)?;
-        writer.name("semantic_type")?;
-        if node.semantic_type == node.node_id {
-            writer.null()?;
-        } else {
-            writer.serialize(&node.semantic_type)?;
-        }
-        writer.name("declaration")?;
-        writer.null()?;
-        writer.name("recursion")?;
-        writer.null()?;
-        super::encode::value(writer, "body", &node.body)?;
-        writer.end_object()
-    }
-}
 
 /// One of the ten shapes whose key the reader derives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,39 +90,6 @@ impl Shape {
         }
     }
 
-    const fn tag(self) -> &'static str {
-        match self {
-            Self::Boolean | Self::Integer => "scalar_type",
-            Self::Reference | Self::Option | Self::Collection(_) => "composite_type",
-            Self::IntegerRange | Self::CollectionBounds => "bounded_domain",
-        }
-    }
-
-    const fn form(self) -> &'static str {
-        match self {
-            Self::Boolean => "boolean",
-            Self::Integer => "integer",
-            Self::Reference => "reference",
-            Self::Option => "option",
-            Self::Collection(kind) => kind.form(),
-            Self::IntegerRange => "integer_range",
-            Self::CollectionBounds => "collection_bounds",
-        }
-    }
-
-    /// Whether a node of this shape can legitimately be a member of a
-    /// recursion group (QSL FR-092): the recursive field's `option` or
-    /// collection, and the `collection_bounds` over it. A `boolean`, `integer`,
-    /// `integer_range` or `reference` names only the `Integer` node or an
-    /// empty-body model node, so no path leads back to it, and it is verified
-    /// whatever label it carries.
-    const fn can_sit_in_group(self) -> bool {
-        match self {
-            Self::Option | Self::Collection(_) | Self::CollectionBounds => true,
-            Self::Boolean | Self::Integer | Self::Reference | Self::IntegerRange => false,
-        }
-    }
-
     /// Whether the preimage records `semantic_type` as `null` (a node typed
     /// by itself) rather than as a node key.
     const fn is_self_typed(self) -> bool {
@@ -204,55 +104,37 @@ impl Shape {
     }
 }
 
-/// The key `node` would carry if its body, `semantic_type` and recursion are
-/// the closed form of `shape`, or `None` when they are not.
-///
-/// # Errors
-///
-/// The encoder's refusal when the preimage's canonical bytes exceed `bytes`.
-fn derived_key(
-    node: &CheckedSemanticNodeV2,
-    shape: Shape,
-    bytes: u64,
-) -> Result<Option<String>, quire_canonical::Error> {
+/// Validates the closed body without trusting a supplied node key.
+fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: &str) -> bool {
     if shape.is_self_typed() && node.semantic_type != node.node_id {
-        return Ok(None);
+        return false;
     }
     let Some(members) = aggregate_members(&node.body) else {
-        return Ok(None);
+        return false;
     };
     match (shape, members) {
-        (Shape::Boolean | Shape::Integer, []) => anonymous(
-            shape.tag(),
-            shape.form(),
-            None,
-            StructuralBody::Empty,
-            bytes,
-        )
-        .map(Some),
+        (Shape::Boolean | Shape::Integer, []) => true,
         (Shape::Reference | Shape::Option | Shape::Collection(_), [member]) => {
-            let Some(target) = reference_target(member) else {
-                return Ok(None);
+            reference_target(member).is_some()
+        }
+        (Shape::IntegerRange | Shape::CollectionBounds, [lower, upper]) => {
+            let over = if shape == Shape::IntegerRange {
+                BoundsOver::Integer
+            } else {
+                BoundsOver::Collection
             };
-            anonymous(
-                shape.tag(),
-                shape.form(),
-                None,
-                StructuralBody::Over(&target.digest),
-                bytes,
-            )
-            .map(Some)
+            if matches!(over, BoundsOver::Integer)
+                && (node.semantic_type.domain.as_ref() != NODE_DOMAIN
+                    || node.semantic_type.digest.as_ref() != integer)
+            {
+                return false;
+            }
+            let typed = |id: &CheckedNodeId| {
+                id.domain.as_ref() == NODE_DOMAIN && id.digest.as_ref() == integer
+            };
+            bound(lower, "min", &typed, over).is_some()
+                && bound(upper, "max", &typed, over).is_some()
         }
-        // An `integer_range` bound is a signed integer.
-        (Shape::IntegerRange, [lower, upper]) => {
-            bounded_key(node, shape, [lower, upper], BoundsOver::Integer, bytes)
-        }
-        // A `collection_bounds` bound is a count. The `semantic_type` of a
-        // bounded domain is in the preimage, so the key covers it.
-        (Shape::CollectionBounds, [lower, upper]) => {
-            bounded_key(node, shape, [lower, upper], BoundsOver::Collection, bytes)
-        }
-        // A body of any other arity is not the closed body of its form.
         (
             Shape::Boolean
             | Shape::Integer
@@ -262,7 +144,7 @@ fn derived_key(
             | Shape::IntegerRange
             | Shape::CollectionBounds,
             _,
-        ) => Ok(None),
+        ) => false,
     }
 }
 
@@ -282,49 +164,6 @@ impl BoundsOver {
             Self::Collection => is_non_negative_integer(value),
         }
     }
-}
-
-/// The key of the bounded domain `node` of `shape` when its two members are
-/// the `min` and `max` bindings of `over`'s grammar, each an `integer`
-/// literal typed at the `Integer` key.
-///
-/// # Errors
-///
-/// The encoder's refusal when the preimage's canonical bytes exceed `bytes`.
-fn bounded_key(
-    node: &CheckedSemanticNodeV2,
-    shape: Shape,
-    [lower, upper]: [&Value; 2],
-    over: BoundsOver,
-    bytes: u64,
-) -> Result<Option<String>, quire_canonical::Error> {
-    let integer = MemberType::Integer.node_key(bytes)?;
-    if matches!(over, BoundsOver::Integer)
-        && (node.semantic_type.domain.as_ref() != NODE_DOMAIN
-            || node.semantic_type.digest.as_ref() != integer)
-    {
-        return Ok(None);
-    }
-    let typed_at_integer =
-        |id: &CheckedNodeId| id.domain.as_ref() == NODE_DOMAIN && *id.digest == *integer;
-    let (Some(lower), Some(upper)) = (
-        bound(lower, "min", &typed_at_integer, over),
-        bound(upper, "max", &typed_at_integer, over),
-    ) else {
-        return Ok(None);
-    };
-    anonymous(
-        shape.tag(),
-        shape.form(),
-        Some(&node.semantic_type.digest),
-        StructuralBody::Bounds {
-            integer: &integer,
-            lower,
-            upper,
-        },
-        bytes,
-    )
-    .map(Some)
 }
 
 /// The decimal string of the `binding` named `name` when it is an `integer`
@@ -347,292 +186,265 @@ fn bound<'a>(
         .filter(|value| over.is_bound(value))
 }
 
-/// Every owner-free, ungrouped structural node re-derived from its own body, in
-/// ascending node-id digest order, reporting the first stale one.
-///
-/// Each key is hashed through `quire-canonical` under `bytes`, the reader's
-/// byte limit; a preimage whose canonical bytes exceed it refuses
-/// `invalid_semantic_graph` at the node's `node_id`.
-///
-/// `references` are the body references of each node as the per-node walk read
-/// them; with each node's `semantic_type` they are the names graph the group
-/// skip reads.
-pub(super) fn validate_derived_keys(
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-    references: &[Vec<super::BodyReference>],
+/// A labelled group's members and ordinals, retained in graph array order.
+struct Group<'a> {
+    members: Vec<usize>,
+    ordinals: BTreeMap<&'a CheckedNodeId, usize>,
+    least: usize,
+}
+
+fn node_preimage<'a>(
+    node: &'a CheckedSemanticNodeV2,
+    group: Option<&'a Group<'a>>,
+    label: Option<&'a str>,
+) -> StructuralPreimage<'a, GroupBody<'a>> {
+    // The empty map is shared for all ungrouped bodies without allocating.
+    static EMPTY: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+    let ordinals = group.map_or(&EMPTY, |group| &group.ordinals);
+    let semantic_type = if node.semantic_type == node.node_id {
+        None
+    } else {
+        Some(ordinals.get(&node.semantic_type).copied().map_or_else(
+            || StructuralType::node(&node.semantic_type),
+            StructuralType::group,
+        ))
+    };
+    StructuralPreimage {
+        node_tag: &node.node_tag,
+        semantic_form: &node.semantic_form,
+        owner: node.owner.as_ref(),
+        declaration: node.declaration.as_ref(),
+        semantic_type,
+        recursion: group.and_then(|group| {
+            group
+                .ordinals
+                .get(&node.node_id)
+                .copied()
+                .map(|ordinal| StructuralRecursion {
+                    size: group.members.len(),
+                    ordinal,
+                    group: label,
+                })
+        }),
+        body: GroupBody {
+            body: &node.body,
+            ordinals,
+        },
+    }
+}
+
+/// Charges each actual term visit before inspecting or scheduling its children.
+fn charge_terms(
+    body: &Value,
+    position: usize,
     meter: &mut WorkMeter,
-    bytes: u64,
 ) -> Result<(), ValidationFailure> {
-    let grouped = GroupedNodes::new(nodes, kinds, index, references);
-    for (&node_id, &position) in index {
-        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
-            continue;
-        };
-        // Nominal and application nodes have their own preceding key stages.
-        // Model declaration nodes have their own owner-join stage.
-        if node.nominal_identity_preimage.is_some()
-            || node.body.get("term").and_then(Value::as_str) == Some("application")
-            || matches!(
-                kind,
-                CheckedNodeKind::Model(_) | CheckedNodeKind::Relation(_)
-            )
-            || matches!(
-                kind,
-                CheckedNodeKind::Correspondence(super::CorrespondenceForm::AbstractionRelation)
-            )
-        {
-            continue;
-        }
-        // Owner-bearing keys include SourceOwner or ModelOwner and belong to
-        // the IR-630 derivation stage, including undeclared model-owned nodes.
-        if node.owner.is_some()
-            || node.declaration.is_some()
-            || node.recursion_group.is_some() && Shape::of(kind).is_none()
-        {
-            continue;
-        }
-        let shape = Shape::of(kind);
-        let at = || node_pointer(position).key("node_id");
-        meter.charge(1, at)?;
-        // A node of a real recursion group is keyed under a group digest the
-        // reader cannot compute: skipped, and still charged (see the module
-        // docs for the soundness limit).
-        if shape.is_some_and(|shape| grouped.skips(position, shape)) {
-            continue;
-        }
-        let bounded_type_matches = match shape {
-            Some(Shape::CollectionBounds) => index
-                .get(&node.semantic_type)
-                .and_then(|&target| kinds.get(target))
-                .is_some_and(|kind| {
-                    matches!(
-                        kind,
-                        CheckedNodeKind::CompositeType(
-                            CompositeTypeForm::Set
-                                | CompositeTypeForm::Bag
-                                | CompositeTypeForm::Sequence
-                                | CompositeTypeForm::OrderedSet
-                        )
-                    )
-                }),
+    let mut pending = vec![(body, node_pointer(position).key("body"))];
+    while let Some((term, at)) = pending.pop() {
+        meter.charge(1, || at.clone())?;
+        match body_term(term) {
+            Some(BodyTerm::Aggregate | BodyTerm::Application) => {
+                let name = if body_term(term) == Some(BodyTerm::Aggregate) {
+                    "members"
+                } else {
+                    "arguments"
+                };
+                if let Some(items) = term.get(name).and_then(Value::as_array) {
+                    for (ordinal, item) in items.iter().enumerate().rev() {
+                        pending.push((item, at.clone().key(name).index(ordinal)));
+                    }
+                }
+            }
+            Some(BodyTerm::Binding) => {
+                if let Some(value) = term.get("value") {
+                    pending.push((value, at.key("value")));
+                }
+            }
             Some(
-                Shape::Boolean
-                | Shape::Integer
-                | Shape::Reference
-                | Shape::Option
-                | Shape::Collection(_)
-                | Shape::IntegerRange,
+                BodyTerm::Literal
+                | BodyTerm::Reference
+                | BodyTerm::DependencyReference
+                | BodyTerm::Frame
+                | BodyTerm::AbstractionRelation,
             )
-            | None => true,
-        };
-        let derived = if !bounded_type_matches {
-            Ok(None)
-        } else if let Some(shape) = shape {
-            derived_key(node, shape, bytes)
-        } else {
-            quire_canonical::sha256(
-                &UngroupedPreimage(node),
-                quire_canonical::Limits::new(bytes),
-            )
-            .map(|digest| Some(digest.to_string()))
-        }
-        .map_err(|_| {
-            ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at())
-        })?;
-        if derived.as_deref() != Some(node_id.digest.as_ref()) {
-            return Err(match derived {
-                Some(digest) => ValidationFailure::refused_stale_node_key(
-                    at(),
-                    node_id.clone(),
-                    CheckedNodeId {
-                        domain: NODE_DOMAIN.into(),
-                        digest: digest.into(),
-                    },
-                ),
-                None => ValidationFailure::refused_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    at(),
-                    Some(CheckedPackageRefusalCause::StaleNodeKey),
-                    node_id.clone(),
-                ),
-            });
+            | None => {}
         }
     }
     Ok(())
 }
 
-/// The nodes the stage skips: those that stand as members of a real recursion
-/// group of QSL FR-092's names graph.
-///
-/// The names graph has an edge from a node to each node its body names (a
-/// body `reference`, a literal `type`, a `result_type`) and to its
-/// `semantic_type` unless it is its own; `dependencies` are not edges. A node
-/// is skipped if and only if its shape can sit in a group, it carries a
-/// `recursion_group`, it lies on a cycle of the names graph, and every member
-/// of the strongly connected component holding it carries the same label. Any
-/// other labelled node is verified as an ungrouped node.
-struct GroupedNodes {
-    /// Whether the node at each position is skipped.
-    skipped: Vec<bool>,
+fn encoder_failure(at: JsonPointer) -> ValidationFailure {
+    ValidationFailure::refused(CheckedPackageRefusalCode::InvalidSemanticGraph, at)
 }
 
-impl GroupedNodes {
-    fn new(
-        nodes: &[CheckedSemanticNodeV2],
-        kinds: &[CheckedNodeKind],
-        index: &BTreeMap<&CheckedNodeId, usize>,
-        references: &[Vec<super::BodyReference>],
-    ) -> Self {
-        let mut skipped = vec![false; nodes.len()];
-        let candidate = |position: usize| {
-            nodes
-                .get(position)
-                .zip(kinds.get(position))
-                .is_some_and(|(node, kind)| {
-                    node.recursion_group.is_some()
-                        && Shape::of(*kind).is_some_and(Shape::can_sit_in_group)
-                })
+fn stale(at: JsonPointer, node: &CheckedNodeId, derived: Option<String>) -> ValidationFailure {
+    match derived {
+        Some(digest) => ValidationFailure::refused_stale_node_key(
+            at,
+            node.clone(),
+            CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: digest.into(),
+            },
+        ),
+        None => ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidPackage,
+            at,
+            Some(CheckedPackageRefusalCause::StaleNodeKey),
+            node.clone(),
+        ),
+    }
+}
+
+/// Authenticate every structural key, then independently authenticate each label.
+/// The existing entrypoint preserves owner/graph/application stage precedence.
+pub(super) fn validate_derived_keys(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    _references: &[Vec<super::BodyReference>],
+    meter: &mut WorkMeter,
+    bytes: u64,
+) -> Result<(), ValidationFailure> {
+    let mut groups: BTreeMap<&str, Group<'_>> = BTreeMap::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if let Some(label) = node.recursion_group.as_deref() {
+            meter.charge(1, || node_pointer(position).key("recursion_group"))?;
+            let group = groups.entry(label).or_insert_with(|| Group {
+                members: Vec::new(),
+                ordinals: BTreeMap::new(),
+                least: position,
+            });
+            let ordinal = group.members.len();
+            group.members.push(position);
+            group.ordinals.insert(&node.node_id, ordinal);
+            if nodes
+                .get(group.least)
+                .is_some_and(|least| node.node_id < least.node_id)
+            {
+                group.least = position;
+            }
+        }
+    }
+    for (&node_id, &position) in index {
+        let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
+            continue;
         };
-        if !(0..nodes.len()).any(candidate) {
-            return Self { skipped };
-        }
-        let adjacency: Vec<Vec<usize>> = nodes
-            .iter()
-            .zip(references)
-            .enumerate()
-            .map(|(position, (node, named))| {
-                let own = (node.semantic_type != node.node_id).then_some(&node.semantic_type);
-                named
-                    .iter()
-                    .map(|(target, _)| target)
-                    .chain(own)
-                    .filter_map(|target| index.get(target).copied())
-                    .filter(|target| *target != position || named_by_body(named, &node.node_id))
-                    .collect()
-            })
-            .collect();
-        let component = components(&adjacency);
-        let mut size = vec![0_usize; nodes.len()];
-        let mut component_label = vec![None; nodes.len()];
-        let mut same_label = vec![true; nodes.len()];
-        for (&id, node) in component.iter().zip(nodes) {
-            if let Some(count) = size.get_mut(id) {
-                *count = count.saturating_add(1);
-            }
-            if let Some(slot) = same_label.get_mut(id) {
-                match (component_label.get_mut(id), node.recursion_group.as_deref()) {
-                    (Some(saved @ None), Some(current)) => *saved = Some(current),
-                    (Some(Some(saved)), Some(current)) if *saved == current => {}
-                    _ => *slot = false,
-                }
-            }
-        }
-        for position in (0..nodes.len()).filter(|position| candidate(*position)) {
-            let (Some(node), Some(&id)) = (nodes.get(position), component.get(position)) else {
-                continue;
-            };
-            let members = size.get(id).copied().unwrap_or(0);
-            let on_cycle = members > 1
-                || adjacency
-                    .get(position)
-                    .is_some_and(|edges| edges.contains(&position));
-            let label = node.recursion_group.as_deref();
-            let component_is_the_group = on_cycle
-                && same_label.get(id) == Some(&true)
-                && component_label.get(id).copied().flatten() == label;
-            if let Some(slot) = skipped.get_mut(position) {
-                *slot = component_is_the_group;
-            }
-        }
-        Self { skipped }
-    }
-
-    fn skips(&self, position: usize, shape: Shape) -> bool {
-        shape.can_sit_in_group() && self.skipped.get(position).copied().unwrap_or(false)
-    }
-}
-
-/// Whether a body reference of the node names the node itself (a self-typed
-/// node's own `semantic_type` is not an edge, a body reference to itself is).
-fn named_by_body(named: &[super::BodyReference], own: &CheckedNodeId) -> bool {
-    named.iter().any(|(target, _)| target == own)
-}
-
-/// The strongly connected component of each vertex of `adjacency`: iterative
-/// Tarjan on a heap stack, so a deep graph cannot overflow the call stack.
-fn components(adjacency: &[Vec<usize>]) -> Vec<usize> {
-    const UNVISITED: usize = usize::MAX;
-    let size = adjacency.len();
-    let mut order = vec![UNVISITED; size];
-    let mut low = vec![0_usize; size];
-    let mut on_stack = vec![false; size];
-    let mut component = vec![UNVISITED; size];
-    let mut stack: Vec<usize> = Vec::new();
-    let mut calls: Vec<(usize, usize)> = Vec::new();
-    let (mut next, mut components) = (0_usize, 0_usize);
-    for root in 0..size {
-        if order.get(root) != Some(&UNVISITED) {
+        if node.nominal_identity_preimage.is_some()
+            || body_term(&node.body) == Some(BodyTerm::Application)
+            || kind
+                == CheckedNodeKind::Correspondence(super::CorrespondenceForm::AbstractionRelation)
+        {
             continue;
         }
-        calls.push((root, 0));
-        while let Some((vertex, edge)) = calls.last().copied() {
-            if edge == 0 && order.get(vertex) == Some(&UNVISITED) {
-                if let (Some(o), Some(l), Some(s)) = (
-                    order.get_mut(vertex),
-                    low.get_mut(vertex),
-                    on_stack.get_mut(vertex),
-                ) {
-                    *o = next;
-                    *l = next;
-                    *s = true;
-                }
-                next = next.saturating_add(1);
-                stack.push(vertex);
+        let at = || node_pointer(position).key("node_id");
+        meter.charge(1, at)?;
+        if let Some(shape) = Shape::of(kind) {
+            // A bounds literal's type is authenticated against the shared Integer authority.
+            let integer = if matches!(shape, Shape::IntegerRange | Shape::CollectionBounds) {
+                meter.charge(1, at)?;
+                MemberType::Integer
+                    .node_key(bytes)
+                    .map_err(|_| encoder_failure(at()))?
+            } else {
+                String::new()
+            };
+            let bounded_type_matches = shape != Shape::CollectionBounds
+                || index
+                    .get(&node.semantic_type)
+                    .and_then(|&target| kinds.get(target))
+                    .is_some_and(|kind| {
+                        matches!(
+                            kind,
+                            CheckedNodeKind::CompositeType(
+                                CompositeTypeForm::Set
+                                    | CompositeTypeForm::Bag
+                                    | CompositeTypeForm::Sequence
+                                    | CompositeTypeForm::OrderedSet
+                            )
+                        )
+                    });
+            if !bounded_type_matches || !closed_shape(node, shape, &integer) {
+                return Err(stale(at(), node_id, None));
             }
-            let successor = adjacency
-                .get(vertex)
-                .and_then(|edges| edges.get(edge))
-                .copied();
-            if let Some(successor) = successor {
-                if let Some(frame) = calls.last_mut() {
-                    frame.1 = edge.saturating_add(1);
-                }
-                if order.get(successor) == Some(&UNVISITED) {
-                    calls.push((successor, 0));
-                } else if on_stack.get(successor) == Some(&true) {
-                    let reached = order.get(successor).copied().unwrap_or(UNVISITED);
-                    if let Some(current) = low.get_mut(vertex) {
-                        *current = (*current).min(reached);
-                    }
-                }
+        }
+        // FR-094 model declarations retain their closed, ungrouped shape.
+        if matches!(
+            kind,
+            CheckedNodeKind::Model(
+                super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
+            ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+        ) && (node.semantic_type != node.node_id
+            || node.declaration.is_some()
+            || node.recursion_group.is_some()
+            || aggregate_members(&node.body).is_none_or(|members| !members.is_empty()))
+        {
+            return Err(stale(at(), node_id, None));
+        }
+        let group = node
+            .recursion_group
+            .as_deref()
+            .and_then(|label| groups.get(label));
+        charge_terms(&node.body, position, meter)?;
+        meter.charge(1, at)?;
+        let derived = structural_key(
+            &node_preimage(node, group, node.recursion_group.as_deref()),
+            bytes,
+        )
+        .map_err(|_| encoder_failure(at()))?;
+        if derived != node_id.digest.as_ref() {
+            return Err(stale(at(), node_id, Some(derived)));
+        }
+    }
+    // Sorting by retained member identity is independent of retained labels.
+    let mut ordered: Vec<_> = groups.iter().collect();
+    ordered.sort_by_key(|(_, group)| nodes.get(group.least).map(|node| &node.node_id));
+    for (&label, group) in ordered {
+        let mut local = Vec::with_capacity(group.members.len());
+        for &position in &group.members {
+            let Some(node) = nodes.get(position) else {
                 continue;
-            }
-            calls.pop();
-            let vertex_low = low.get(vertex).copied().unwrap_or(0);
-            if let Some((parent, _)) = calls.last() {
-                if let Some(parent_low) = low.get_mut(*parent) {
-                    *parent_low = (*parent_low).min(vertex_low);
-                }
-            }
-            if order.get(vertex) == Some(&vertex_low) {
-                while let Some(member) = stack.pop() {
-                    if let Some(flag) = on_stack.get_mut(member) {
-                        *flag = false;
-                    }
-                    if let Some(slot) = component.get_mut(member) {
-                        *slot = components;
-                    }
-                    if member == vertex {
-                        break;
-                    }
-                }
-                components = components.saturating_add(1);
+            };
+            charge_terms(&node.body, position, meter)?;
+            meter.charge(1, || node_pointer(position).key("node_id"))?;
+            let digest = if body_term(&node.body) == Some(BodyTerm::Application) {
+                let members: Vec<_> = group
+                    .members
+                    .iter()
+                    .filter_map(|&member| nodes.get(member).map(|node| &node.node_id))
+                    .collect();
+                super::operations::application_local_digest(node, position, &members, bytes)?
+            } else {
+                structural_key(&node_preimage(node, Some(group), None), bytes)
+                    .map_err(|_| encoder_failure(node_pointer(position).key("node_id")))?
+            };
+            local.push(digest);
+        }
+        let at = || node_pointer(group.least).key("node_id");
+        meter.charge(1, at)?;
+        let digest =
+            quire_canonical::sha256(&LocalDigests(&local), quire_canonical::Limits::new(bytes))
+                .map_err(|_| encoder_failure(at()))?
+                .to_string();
+        if digest != label {
+            if let Some(node) = nodes.get(group.least) {
+                return Err(stale(at(), &node.node_id, None));
             }
         }
     }
-    component
+    Ok(())
+}
+
+/// QSL's group digest array consists of lowercase member-local digests.
+struct LocalDigests<'a>(&'a [String]);
+impl Encode for LocalDigests<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_array()?;
+        for digest in self.0 {
+            writer.string(digest)?;
+        }
+        writer.end_array()
+    }
 }
 
 #[cfg(test)]
@@ -788,9 +600,14 @@ mod tests {
         for member in each_shape() {
             let (node, kind) = node_of(&member);
             let shape = Shape::of(kind).expect("a derived shape");
-            shapes.insert(format!("{}/{}", shape.tag(), shape.form()));
+            assert!(closed_shape(
+                &node,
+                shape,
+                &MemberType::Integer.node_key(BYTES).expect("integer")
+            ));
+            shapes.insert(format!("{}/{}", node.node_tag, node.semantic_form));
             assert_eq!(
-                derived_key(&node, shape, BYTES).expect("derives"),
+                Some(structural_key(&node_preimage(&node, None, None), BYTES).expect("derives")),
                 Some(member.node_key(BYTES).expect("key")),
                 "{member:?}"
             );
@@ -833,117 +650,46 @@ mod tests {
         .is_err());
     }
 
-    /// An `option` over itself in the group `g`: on a names cycle of one,
-    /// carrying the label its whole component shares.
-    fn lone_group_option() -> (Vec<CheckedSemanticNodeV2>, Vec<CheckedNodeKind>) {
-        let key = "cd".repeat(32);
+    /// Trace: FR-038-AC-145, FR-038-AC-148
+    #[trace("FR-038-AC-145", "FR-038-AC-148")]
+    #[test]
+    fn genuine_self_option_group_authenticates_both_passes() {
+        // Independently derive G1's local body and digest array, with no retained key in it.
+        let local = json!({
+            "version": "quire.structural-node/v1", "node_tag": "composite_type",
+            "semantic_form": "option", "semantic_type": null, "declaration": null,
+            "recursion": {"size": 1, "ordinal": 0},
+            "body": {"term": "aggregate", "members": [{"term": "group_reference", "ordinal": 0}]},
+        });
+        let local_digest = quire_canonical::sha256(&local, quire_canonical::Limits::new(BYTES))
+            .expect("local")
+            .to_string();
+        let label =
+            quire_canonical::sha256(&json!([local_digest]), quire_canonical::Limits::new(BYTES))
+                .expect("group")
+                .to_string();
+        let mut full = local;
+        full["recursion"]["group"] = json!(label);
+        let key = quire_canonical::sha256(&full, quire_canonical::Limits::new(BYTES))
+            .expect("key")
+            .to_string();
         let (mut node, kind) = wire(&key, "composite_type", "option", &key, over(&key));
-        node.recursion_group = Some("g".into());
-        (vec![node], vec![kind])
-    }
-
-    fn run(
-        graph: &[CheckedSemanticNodeV2],
-        kinds: &[CheckedNodeKind],
-        named: Vec<Vec<super::super::BodyReference>>,
-        limit: u64,
-    ) -> Result<(), ValidationFailure> {
-        let index: BTreeMap<&CheckedNodeId, usize> = graph
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
-        validate_derived_keys(
-            graph,
-            kinds,
-            &index,
-            &named,
-            &mut WorkMeter::new(limit),
-            BYTES,
-        )
-    }
-
-    fn self_reference(node: &CheckedSemanticNodeV2) -> Vec<Vec<super::super::BodyReference>> {
-        use crate::checked_package::common::{ReferenceMember, ReferenceSite};
-        vec![vec![(
-            node.node_id.clone(),
-            ReferenceSite {
-                member: ReferenceMember::Target,
-                is_body_root: false,
-            },
-        )]]
-    }
-
-    /// A node of a real group is skipped, and a skipped node is still charged
-    /// one work unit; the same node with no names cycle (its body reference
-    /// not read) is verified, and its placeholder key refuses.
-    ///
-    /// Tracing: TC-226
-    #[trace("TC-226")]
-    #[test]
-    fn tc_226_a_skipped_group_node_is_charged_one_unit_and_an_acyclic_one_is_verified() {
-        let (graph, kinds) = lone_group_option();
-        let named = || self_reference(&graph[0]);
-        assert!(run(&graph, &kinds, named(), 1).is_ok());
+        node.recursion_group = Some(label.into());
+        let graph = [node];
+        let index = BTreeMap::from([(&graph[0].node_id, 0)]);
+        let mut meter = WorkMeter::new(9);
         assert!(
-            run(&graph, &kinds, named(), 0).is_err(),
-            "a skipped node is charged"
+            validate_derived_keys(&graph, &[kind], &index, &[vec![]], &mut meter, BYTES).is_ok()
         );
-        // No names edge: the node is on no cycle, so it is verified as
-        // ungrouped, and a placeholder key is stale.
-        let refusal = run(&graph, &kinds, vec![Vec::new()], 1).expect_err("verified");
-        assert!(
-            format!("{refusal:?}").contains("StaleNodeKey"),
-            "{refusal:?}"
+        assert_eq!(
+            meter.consumed(),
+            9,
+            "membership + visit + two terms/two digests + group digest"
         );
-    }
-
-    /// Focused performance lane: one large SCC gives the former per-candidate
-    /// component scan quadratic work. Every member is skipped but still
-    /// consumes exactly one unit of the reader's work budget.
-    ///
-    /// Tracing: TC-226, FR-038-AC-149
-    #[trace("TC-226", "FR-038-AC-149")]
-    #[test]
-    #[ignore = "focused grouped-key performance lane"]
-    fn tc_226_large_group_classification_stays_linear_and_budgeted() {
-        use crate::checked_package::common::{ReferenceMember, ReferenceSite};
-        use std::time::{Duration, Instant};
-
-        const COUNT: usize = 12_000;
-        let keys = (0..COUNT)
-            .map(|index| format!("{index:064x}"))
-            .collect::<Vec<_>>();
-        let mut graph = Vec::with_capacity(COUNT);
-        let mut kinds = Vec::with_capacity(COUNT);
-        let mut named = Vec::with_capacity(COUNT);
-        for position in 0..COUNT {
-            let next = (position + 1) % COUNT;
-            let (mut node, kind) = wire(
-                &keys[position],
-                "composite_type",
-                "option",
-                &keys[position],
-                over(&keys[next]),
-            );
-            node.recursion_group = Some("g".into());
-            graph.push(node);
-            kinds.push(kind);
-            named.push(vec![(
-                serde_json::from_value(id(&keys[next])).expect("node id"),
-                ReferenceSite {
-                    member: ReferenceMember::Target,
-                    is_body_root: false,
-                },
-            )]);
-        }
-        let started = Instant::now();
-        let budget = u64::try_from(COUNT).expect("count");
-        assert!(run(&graph, &kinds, named.clone(), budget).is_ok());
-        assert!(run(&graph, &kinds, named, budget - 1).is_err());
-        assert!(
-            started.elapsed() < Duration::from_secs(3),
-            "group classification regressed to a per-candidate component scan"
-        );
+        let mut unpaid = WorkMeter::new(8);
+        assert!(matches!(
+            validate_derived_keys(&graph, &[kind], &index, &[vec![]], &mut unpaid, BYTES),
+            Err(ValidationFailure::Incomplete(_))
+        ));
     }
 }

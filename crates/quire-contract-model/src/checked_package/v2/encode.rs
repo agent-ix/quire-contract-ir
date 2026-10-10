@@ -28,6 +28,7 @@ use crate::checked_package::shared::CheckedNodeId;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde_json::Value;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// `quire.application-node/v1`, the version of the application node preimage.
 pub(super) const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
@@ -82,6 +83,64 @@ impl Encode for ApplicationNodePreimage<'_> {
         }
         value(writer, "body", &self.body)?;
         writer.end_object()
+    }
+}
+
+/// A borrowed body with references to group members encoded as wire ordinals.
+/// The explicit event stack neither clones nor recursively drops input JSON.
+pub(super) struct GroupBody<'a> {
+    pub(super) body: &'a Value,
+    pub(super) ordinals: &'a BTreeMap<&'a CheckedNodeId, usize>,
+}
+
+impl Encode for GroupBody<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        enum Event<'a> {
+            Value(&'a Value),
+            Name(&'a str),
+            EndObject,
+            EndArray,
+        }
+        let mut pending = vec![Event::Value(self.body)];
+        while let Some(event) = pending.pop() {
+            match event {
+                Event::Name(name) => writer.name(name)?,
+                Event::EndObject => writer.end_object()?,
+                Event::EndArray => writer.end_array()?,
+                Event::Value(value) => {
+                    let ordinal = super::structural::reference_target(value)
+                        .and_then(|target| self.ordinals.get(&target).copied());
+                    if let Some(ordinal) = ordinal {
+                        writer.begin_object()?;
+                        writer.name("term")?;
+                        writer.string("group_reference")?;
+                        writer.name("ordinal")?;
+                        writer.integer(integer(ordinal)?)?;
+                        writer.end_object()?;
+                        continue;
+                    }
+                    match value {
+                        Value::Object(members) => {
+                            writer.begin_object()?;
+                            pending.push(Event::EndObject);
+                            for (name, member) in members.iter().rev() {
+                                pending.push(Event::Value(member));
+                                pending.push(Event::Name(name));
+                            }
+                        }
+                        Value::Array(items) => {
+                            writer.begin_array()?;
+                            pending.push(Event::EndArray);
+                            pending.extend(items.iter().rev().map(Event::Value));
+                        }
+                        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                            value.encode_into(writer)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

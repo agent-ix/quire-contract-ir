@@ -1901,3 +1901,50 @@ fn assert_self_type_control(form: &str, package: &Value, key: &str) {
     let expected = refusal.expected_node_id().expect("self-typed derived key");
     assert_eq!(expected, &typed_node_id(&expected.digest), "{form}");
 }
+
+/// Trace: FR-038-AC-145, FR-038-AC-148
+#[trace("FR-038-AC-145", "FR-038-AC-148")]
+#[test]
+fn genuine_g1_admits_and_retained_old_key_forged_self_option_refuses() {
+    // Independent FR-092 derivation, never the reader's preimage constructor.
+    let local = json!({
+        "version": "quire.structural-node/v1", "node_tag": "composite_type",
+        "semantic_form": "option", "semantic_type": null, "declaration": null,
+        "recursion": {"size": 1, "ordinal": 0},
+        "body": {"term": "aggregate", "members": [{"term": "group_reference", "ordinal": 0}]},
+    });
+    let local_digest = sha256_hex(&canonical(&local));
+    let label = sha256_hex(&canonical(&json!([local_digest])));
+    let mut preimage = local;
+    preimage["recursion"]["group"] = json!(label);
+    let key = sha256_hex(&canonical(&preimage));
+    let mut genuine = node(
+        &key,
+        "composite_type",
+        "option",
+        &key,
+        &[&key],
+        over_body(&key),
+    );
+    genuine["recursion_group"] = json!(label);
+    let package = with_nodes(v2_all_families(), vec![genuine]);
+    admitted("genuine G1", &package);
+
+    let (old_key, option) = collection("option", INTEGER_KEY);
+    let ungrouped = with_nodes(v2_all_families(), vec![option]);
+    admitted("original Option<Integer>", &ungrouped);
+    let forged = tampered(&ungrouped, &old_key, |node| {
+        node["body"]["members"][0]["target"] = node_id(&old_key);
+        node["dependencies"] = json!([node_id(&old_key)]);
+        node["recursion_group"] = json!(label);
+    });
+    assert_eq!(
+        forged["semantic_graph"]["nodes"][at(&forged, &old_key)]["node_id"],
+        node_id(&old_key)
+    );
+    assert_ne!(
+        forged["package_id"], ungrouped["package_id"],
+        "independently refreshed identity"
+    );
+    assert_stale("forgedSelfOption retains its old key", &forged, &old_key);
+}

@@ -40,15 +40,15 @@
 
 use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
-    member_pointer, CheckedDomainPackageRef, CheckedNodeTag, CheckedSemanticNodeV2,
-    ValidationFailure, WorkMeter,
+    member_pointer, CheckedDeclaration, CheckedDomainPackageRef, CheckedNodeOwner, CheckedNodeTag,
+    CheckedSemanticNodeV2, ValidationFailure, WorkMeter,
 };
 use crate::checked_package::common::{pointer_from_steps, Step, NODE_DOMAIN};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedPackageLimit, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use quire_canonical::FixedShape;
+use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -336,59 +336,93 @@ pub(super) fn declaration_key(
     node: &str,
     bytes: u64,
 ) -> Result<String, quire_canonical::Error> {
+    let owner = CheckedNodeOwner::Model {
+        identity: identity.into(),
+        node: node.into(),
+    };
     structural_key(
         &StructuralPreimage {
-            version: STRUCTURAL_NODE,
             node_tag: form.tag(),
             semantic_form: form.form(),
             semantic_type: None,
-            declaration: (),
-            recursion: (),
-            owner: Some(ModelOwnerPreimage {
-                kind: "model",
-                identity,
-                node,
-            }),
+            declaration: None,
+            recursion: None,
+            owner: Some(&owner),
             body: aggregate(Vec::new()),
         },
         bytes,
     )
 }
 
-/// The SHA-256 of `preimage`'s canonical bytes, by `quire-canonical`.
-fn structural_key(
-    preimage: &StructuralPreimage<'_>,
+/// The SHA-256 of the one structural preimage, through `quire-canonical`.
+pub(super) fn structural_key<B: Encode>(
+    preimage: &StructuralPreimage<'_, B>,
     bytes: u64,
-) -> Result<String, quire_canonical::Error> {
+) -> Result<String, Error> {
     quire_canonical::sha256(preimage, quire_canonical::Limits::new(bytes))
         .map(|digest| digest.to_string())
 }
 
-/// `quire.structural-node/v1`'s closed preimage of one node. Its depth is
-/// fixed by its type, so it derives `FixedShape` and holds no `Value`: a member
-/// that later grows a recursive or `Value` member stops compiling.
-#[derive(Serialize, FixedShape)]
-struct StructuralPreimage<'a> {
-    version: &'static str,
-    node_tag: &'a str,
-    semantic_form: &'a str,
-    semantic_type: Option<NodeRef<'a>>,
-    /// Always `null`: no structural node carries a `declaration`.
-    declaration: (),
-    /// Always `null`: no structural node is in a recursion group.
-    recursion: (),
-    /// Present for a model declaration node and absent for an anonymous type.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    owner: Option<ModelOwnerPreimage<'a>>,
-    body: AggregateBody<'a>,
+/// QSL FR-092/FR-094's structural preimage, shared by member-type keys,
+/// model declaration keys and the reader's actual node keys.
+pub(super) struct StructuralPreimage<'a, B> {
+    pub(super) node_tag: &'a str,
+    pub(super) semantic_form: &'a str,
+    pub(super) semantic_type: Option<StructuralType<'a>>,
+    pub(super) declaration: Option<&'a CheckedDeclaration>,
+    pub(super) recursion: Option<StructuralRecursion<'a>>,
+    pub(super) owner: Option<&'a CheckedNodeOwner>,
+    pub(super) body: B,
 }
 
-/// QSpec's `ModelOwner`: a declaration of a selected domain package.
+/// A semantic type is an external identity or a group's wire ordinal.
 #[derive(Serialize, FixedShape)]
-struct ModelOwnerPreimage<'a> {
-    kind: &'static str,
-    identity: &'a str,
-    node: &'a str,
+#[serde(untagged)]
+pub(super) enum StructuralType<'a> {
+    Node { domain: &'a str, digest: &'a str },
+    Group { term: &'static str, ordinal: usize },
+}
+
+impl<'a> StructuralType<'a> {
+    pub(super) fn node(id: &'a super::CheckedNodeId) -> Self {
+        Self::Node {
+            domain: &id.domain,
+            digest: &id.digest,
+        }
+    }
+
+    pub(super) const fn group(ordinal: usize) -> Self {
+        Self::Group {
+            term: "group_reference",
+            ordinal,
+        }
+    }
+}
+
+/// The retained label is present for a node key and absent for its local digest.
+#[derive(Serialize, FixedShape)]
+pub(super) struct StructuralRecursion<'a> {
+    pub(super) size: usize,
+    pub(super) ordinal: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) group: Option<&'a str>,
+}
+
+impl<B: Encode> Encode for StructuralPreimage<'_, B> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.begin_object()?;
+        super::encode::member(writer, "version", STRUCTURAL_NODE)?;
+        if let Some(owner) = self.owner {
+            super::encode::member(writer, "owner", owner)?;
+        }
+        super::encode::member(writer, "node_tag", self.node_tag)?;
+        super::encode::member(writer, "semantic_form", self.semantic_form)?;
+        super::encode::member(writer, "semantic_type", &self.semantic_type)?;
+        super::encode::member(writer, "declaration", &self.declaration)?;
+        super::encode::member(writer, "recursion", &self.recursion)?;
+        super::encode::encoded(writer, "body", &self.body)?;
+        writer.end_object()
+    }
 }
 
 /// A reference to a node by its key.
@@ -410,6 +444,12 @@ fn node_ref(digest: &str) -> NodeRef<'_> {
 struct AggregateBody<'a> {
     term: &'static str,
     members: Vec<BodyMember<'a>>,
+}
+
+impl Encode for AggregateBody<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        writer.serialize(self)
+    }
 }
 
 fn aggregate(members: Vec<BodyMember<'_>>) -> AggregateBody<'_> {
@@ -634,12 +674,14 @@ pub(super) fn anonymous(
 ) -> Result<String, quire_canonical::Error> {
     structural_key(
         &StructuralPreimage {
-            version: STRUCTURAL_NODE,
             node_tag,
             semantic_form,
-            semantic_type: semantic_type.map(node_ref),
-            declaration: (),
-            recursion: (),
+            semantic_type: semantic_type.map(|digest| StructuralType::Node {
+                domain: NODE_DOMAIN,
+                digest,
+            }),
+            declaration: None,
+            recursion: None,
             owner: None,
             body: body.aggregate(),
         },
