@@ -20,3 +20,13 @@ CONDITIONAL. Treat `unsupported` as a negotiation disposition joined to the sour
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | AD-008 lists `refused/unsupported` among admissible Kani result states and FR-045-AC-5 groups them as producer states. FR-029 says `unsupported` settles at profile negotiation and emits no artifact or `KaniOutcome`; FR-030's terminal kinds omit it. A baseline that consumes only Kani result records can therefore misclassify an unsupported candidate as missing, or demand an impossible result. Specify a separate negotiation-disposition join and test it. | spec/assurance/AD-008-proof-coverage-accounting.md:68; spec/core/functional/FR-045-derive-proof-coverage-baseline.md:67 |
+
+## Dispositions
+
+Round 1 reviewed at f9bf82c7f62728cbcc60f994541735b4f366834a. Scoped fix review found no new defect.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | f9bf82c7f62728cbcc60f994541735b4f366834a: AD-008 and FR-045 now join FR-029 unsupported at negotiation with capability and reason, no artifact/run/Kani outcome; refusals retain producer and stage. FR-045-AC-5 and TC-446 cover the distinction. |
+
+After excerpt: “An FR-029 `unsupported` decision joins the source candidate at capability negotiation. It records the unsupported capability and reason, with no artifact, run or Kani outcome.”

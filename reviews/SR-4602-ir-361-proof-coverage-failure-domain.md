@@ -20,3 +20,13 @@ CONDITIONAL. Require at least one eligible mapped obligation for full criterion/
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Full criterion/module/function credit is defined as every eligible mapped obligation qualifying. For an eligible source entity with zero mapped obligations, that condition is vacuously true, despite the separate promise that missing mappings remain gaps. AC-4 tests a one-of-two partial case but not zero mappings, so two conforming implementations could credit or gap the same unmapped function. | spec/assurance/AD-008-proof-coverage-accounting.md:77; spec/core/functional/FR-045-derive-proof-coverage-baseline.md:54; spec/core/functional/FR-045-derive-proof-coverage-baseline.md:66 |
+
+## Dispositions
+
+Round 1 reviewed at f9bf82c7f62728cbcc60f994541735b4f366834a. Scoped fix review found no new defect.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | f9bf82c7f62728cbcc60f994541735b4f366834a: AD-008 and FR-045 now require at least one eligible mapped obligation for full credit, mark zero-mapping entities as gaps, and cover that case in FR-045-AC-4 and TC-446. |
+
+After excerpt: “An entity with zero eligible mapped obligations remains a visible mapping gap, never full credit; a partial result is reported as a gap with the qualified subset visible.”
