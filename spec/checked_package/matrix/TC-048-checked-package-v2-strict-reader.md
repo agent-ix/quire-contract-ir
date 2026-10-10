@@ -1101,7 +1101,8 @@ empty of them.
 
 ## Reader peak memory (FR-038-AC-214)
 
-PLANNED/UNRUN for IR-575. In a separate fixture-generator process, build the
+CODE-GATED for IR-575: the isolated 2026-10-10 measurement passed; final repository
+gates are pending. In a separate fixture-generator process, build the
 same in-repo canonical 100000-node reference chain as AC-117 and save its bytes
 in an owned temporary file. In each of three fresh Linux x86_64 reader
 processes, load those bytes and prepare the selected-model evidence before
@@ -1134,6 +1135,13 @@ from input/evidence or lowering cannot be counted as reader use. Requiring
 pre-read VmHWM to equal pre-read VmRSS prevents an earlier setup peak from
 masking a transient read peak that the sampler misses; post-read VmHWM then
 catches that peak even when the sampler does not.
+
+Measured on Linux 6.17.0-20-generic x86_64 with rustc 1.98.1, debug profile
+and the default System allocator: the separately generated fixture was
+176923194 bytes and each fresh reader admitted 100022 nodes. All three had
+pre-read VmHWM equal to VmRSS; their additional peaks were 698516, 698396 and
+698416 KiB. The criterion-backed measurement source is the explicit
+`ir575_reader_memory` test target.
 
 ## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
 
