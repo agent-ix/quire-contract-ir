@@ -74,10 +74,13 @@ Boolean; read valid `quantity.add` and `quantity.eq` packages end to end,
 then place a declared-unit quantity in `integer.add` argument 0 and change
 `quantity.pow`'s integer exponent to a quantity at the operation step. Compare two quantity branches and then a quantity/Integer branch
 of `control.if`. Supply valid aggregate terms in the catalogued positions of
-`temporal.clause` and `state.clause`, then replace each one separately with a
-Boolean reference; also place an aggregate in `boolean.and` argument 0. Supply literal `value_kind`/`type` pairs for Integer, enum,
-ordered enum and option, and pairs whose declared type disagrees with the
-value kind, including a literal in an `any_value` position so the enclosing
+`temporal.clause` and `state.clause`, then place an aggregate in
+`boolean.and` argument 0 as the family-skip adverse case. Replace the first
+`state.clause` aggregate by a Boolean reference separately to check the
+earlier structural-shape refusal, not the operation-family check. Supply
+literal `value_kind`/`type` pairs for Integer, enum, ordered enum and option,
+and mismatches including an integer literal declared at a unit type and a
+literal in an `any_value` position so the enclosing
 operand check cannot conceal the literal defect. Finally, apply `exact` and
 `toward-zero` rounding to otherwise identical valid quantity conversion and
 sum applications. Re-derive every affected node and package identity after
@@ -124,9 +127,12 @@ node under another domain package's identity and re-read: it refuses
 
 ## Expected Results
 
-The positive controls above admit. A wrong quantity or aggregate operand, or
-a mixed-family `control.if` branch, refuses `ill_typed` with cause
-`operator-ineligible` at the first offending argument. A mismatched literal
+The positive controls above admit. A wrong quantity operand, an aggregate in
+a Boolean operand slot, or a mixed-family `control.if` branch refuses
+`ill_typed` with cause `operator-ineligible` at the first offending argument.
+A Boolean reference in the first `state.clause` position refuses
+`invalid_semantic_graph` at that node's body during structural validation,
+before the operation check. A mismatched literal
 kind/type pair refuses the same way at that literal's `type`. A quantity
 conversion or sum with a rounding mode that disagrees with its quantity type
 refuses `invalid_package` with cause `operation-mode-type-mismatch` at
