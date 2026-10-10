@@ -450,9 +450,8 @@ def build_cases() -> list:
                  "diagnostic:unsupported_schema_version", boundary)
 
     coverage_package = package(2)
-    requirement_digest = "534e1e3e27345bd9a9fc7a9723793b76b9dfc6f3b35a43c23ba811bf0ef39046"
-    def trace(artifact: str, target: dict, at: int, deep: str | None = None) -> dict:
-        depth = {"kind": "shallow"} if deep is None else {"kind": "deep", "requirement_digest": deep, "digest_span": span(at + 1, "trace")}
+    def trace(artifact: str, target: dict, at: int, deep: bool = False) -> dict:
+        depth = {"kind": "deep" if deep else "shallow"}
         return {"artifact_id": artifact, "source": span(at, "trace"), "target": target, "target_span": span(at + 1, "trace"), "depth": depth}
     req_a = copy.deepcopy(OWNER)
     req_b = {"package": "agent-ix/conformance", "requirement": "REQ_1", "revision": 1}
@@ -460,7 +459,7 @@ def build_cases() -> list:
              {"package": coverage_package, "traces": [trace("shallow", req_a, 1)]},
              "construct:artifact.depth.shallow", "construct:coverage.class.shallow")
     add_case(cases, "coverage-deep", "coverage",
-             {"package": coverage_package, "traces": [trace("deep", req_a, 3, requirement_digest)]},
+             {"package": coverage_package, "traces": [trace("deep", req_a, 3, True)]},
              "construct:artifact.depth.deep", "construct:coverage.class.deep")
     add_case(cases, "coverage-uncovered", "coverage",
              {"package": coverage_package, "traces": []},
@@ -473,11 +472,8 @@ def build_cases() -> list:
              {"package": coverage_package, "traces": [trace("missing", {**req_a, "requirement": "REQ_missing"}, 7)]},
              "diagnostic:orphaned_requirement_reference", "boundary:artifact.missing")
     add_case(cases, "coverage-stale", "coverage",
-             {"package": coverage_package, "traces": [trace("stale", {**req_a, "revision": 9}, 9)]},
+             {"package": coverage_package, "traces": [trace("stale", {**req_a, "revision": 9}, 9, True)]},
              "diagnostic:stale_requirement_revision", "boundary:artifact.stale")
-    add_case(cases, "coverage-digest", "coverage",
-             {"package": coverage_package, "traces": [trace("digest", req_a, 11, "0" * 64)]},
-             "diagnostic:stale_trace_digest", "boundary:artifact.digest_mismatch")
     add_case(cases, "coverage-duplicate", "coverage",
              {"package": coverage_package, "traces": [trace("duplicate", req_b, 13), trace("duplicate", req_b, 15)]},
              "diagnostic:duplicate_artifact_trace", "boundary:artifact.duplicate")

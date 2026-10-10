@@ -330,9 +330,16 @@ fn tc_018_all_mismatch_kinds_and_exit_classes_are_stable() {
     .unwrap();
     assert_eq!(error_code(&unknown_operation.run()), "invalid_corpus");
 
+    let digest_field = Scratch::corpus("old-depth-digest");
+    let input_path = digest_field.0.join("inputs/coverage-deep.json");
+    let mut input = read_json(&input_path);
+    input["traces"][0]["depth"]["requirement_digest"] = json!("0".repeat(64));
+    write_json(&input_path, &input);
+    assert_eq!(error_code(&digest_field.run()), "invalid_corpus");
+
     let uncovered = Scratch::corpus("uncovered");
     for directory in ["inputs", "expectations"] {
-        fs::remove_file(uncovered.0.join(directory).join("coverage-digest.json")).unwrap();
+        fs::remove_file(uncovered.0.join(directory).join("coverage-deep.json")).unwrap();
     }
     assert_eq!(error_code(&uncovered.run()), "invalid_corpus");
 

@@ -126,7 +126,7 @@ The closed boundary registry is `source_span.minimum`, `source_span.reversed`,
 `semantic_collection.over_maximum`, `canonical.escape_controls`,
 `canonical.semantic_set_order`, `canonical.sequence_order`,
 `canonical.resource_failure`, `artifact.cross_package`, `artifact.missing`,
-`artifact.stale`, `artifact.duplicate`, and `artifact.digest_mismatch`.
+`artifact.stale` and `artifact.duplicate`.
 The decoder registry also includes `wire.depth.maximum` and
 `wire.depth.over_maximum`; raw-text package probes exercise exactly 576 and 577
 levels without requiring the fixture decoder to materialize the nested value. The at-limit probe

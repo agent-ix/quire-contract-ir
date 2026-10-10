@@ -167,28 +167,7 @@
         }
       },
       "depth": {
-        "kind": "deep",
-        "requirement_digest": "534e1e3e27345bd9a9fc7a9723793b76b9dfc6f3b35a43c23ba811bf0ef39046",
-        "digest_span": {
-          "start": {
-            "source": {
-              "document": "trace",
-              "revision": 1
-            },
-            "line": 1,
-            "column": 5,
-            "byte_offset": 4
-          },
-          "end": {
-            "source": {
-              "document": "trace",
-              "revision": 1
-            },
-            "line": 1,
-            "column": 6,
-            "byte_offset": 5
-          }
-        }
+        "kind": "deep"
       }
     }
   ]
