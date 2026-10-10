@@ -44,11 +44,14 @@ keys and evidence-qualification rules.
 
 ### Claim and population
 
-The accounting unit is a semantic claim, identified by its owning requirement criterion,
-source obligation, source module and function when applicable, proof subject, method,
-backend/profile revision, and declared domain. A requirement criterion can generate
-several obligations, and an obligation can mention several functions. These are explicit
-many-to-many links, with a recorded reason when there is no production function. A
+The accounting unit is a source-semantic candidate claim, keyed by its owning
+requirement criterion, semantic-obligation identity, source identity at the selected
+source state, and declared domain. Method, proof subject, backend/profile revision,
+assumptions, run identity, and effective bounds describe evidence attempts joined to
+that candidate; changing or adding any of them cannot mint or remove a candidate.
+A requirement criterion can generate several obligations, and an obligation can mention
+several source modules or functions. These are explicit many-to-many projection links,
+with a recorded reason when there is no production function. A
 function is credited only when the evidence identifies a load-bearing assertion or
 property about its production behavior and establishes the function's reachability in
 the proved path; incidental call-graph presence is insufficient. Duplicate evidence
@@ -65,20 +68,28 @@ hash, SHA, or pin catalog determines membership.
 
 ### Evidence and projections
 
-Each result joins the exact claim and declared domain to an artifact/run identity,
-source and profile identity, assumptions, method, effective bounds, proof subject,
-terminal state and reason. The admissible Kani states distinguish proved,
-counterexample, refused/unsupported, invalid/incomplete input, unavailable, timed out,
-resource exhausted, cancelled, inconclusive and missing. A producer's unfamiliar state
-is a visible unclassified gap. A positive Kani SUCCESS-check count is necessary under
+An FR-029 `unsupported` decision joins the source candidate at capability negotiation.
+It records the unsupported capability and reason, with no artifact, run or Kani outcome.
+Pre-execution or generation refusal joins with its producer and stage; a Kani `refused`
+outcome joins only if execution reaches the FR-030 boundary. An absent decision or
+result remains a missing gap, never an inferred unsupported disposition.
+
+Each execution result joins the exact candidate and declared domain to an artifact/run
+identity, source and profile identity, assumptions, method, effective bounds, proof
+subject, terminal state and reason. The FR-030 Kani outcome states distinguish proved,
+counterexample, refused, invalid/incomplete input, unavailable, timed out, resource
+exhausted, cancelled and inconclusive; missing is an accounting gap, not a Kani outcome.
+A producer's unfamiliar state is a visible unclassified gap. A positive Kani SUCCESS-check count is necessary under
 FR-030 but is not sufficient proof-coverage evidence: the check must bind the claim,
 reach the asserted production behavior, and pass the method's nonvacuity conditions.
 
 Requirement, module, function, and obligation views project the same joined claim
 population under explicit per-level eligibility rules. Within a method and declared
 domain, an eligible requirement criterion, module, or function receives full qualified
-credit only if every eligible obligation mapped to it is qualified for that scope; a
-partial result is reported as a gap with the qualified subset visible. A view reports
+credit only if it has at least one eligible mapped obligation and every such obligation
+is qualified for that scope. An entity with zero eligible mapped obligations remains a
+visible mapping gap, never full credit; a partial result is reported as a gap with the
+qualified subset visible. A view reports
 its numerator, denominator, gaps and exclusions with reasons. No blended percentage
 combines levels or methods. The baseline is an observation to review before choosing
 any numeric target or ratchet floor.
@@ -100,8 +111,10 @@ enter a proof numerator on their own.
 
 - Derive the denominator before joining results, using source inventories and a
   reviewed eligibility policy. Preserve missing, refused and inconclusive rows.
-- Use one semantic claim identity and explicit many-to-many projection links; do not
+- Use one source-semantic candidate identity and explicit many-to-many projection links; do not
   count harness tags, test presence, SUCCESS-check totals, or a reached callee alone.
+- Join negotiation dispositions separately from execution results. `unsupported`
+  requires no Kani outcome or run; preserve each refusal's producer and stage.
 - Separate method, proof subject, production/shadow strength, declared/effective
   domain, and sampled refinement in every result and aggregate.
 - Publish the first baseline with gaps and reasons. A numeric target follows its

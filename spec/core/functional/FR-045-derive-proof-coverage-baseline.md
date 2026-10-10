@@ -26,8 +26,9 @@ requirement, module, function, and obligation projections with reasons for gaps.
 - Selected source state and its owning requirement/criterion, semantic-obligation,
   production-module, and production-function inventories.
 - Reviewed eligibility policy and explicit claim-to-obligation-to-source mappings.
-- Producer result records, including method, source/profile, proof subject,
-  assumptions, declared/effective bounds, run identity, terminal state and reason.
+- Capability-negotiation dispositions and pre-execution refusals with their producer,
+  stage and reason; producer execution results with method, source/profile, proof
+  subject, assumptions, declared/effective bounds, run identity, terminal state and reason.
 
 ## Outputs
 
@@ -36,11 +37,18 @@ evidence joins, per-level numerators and denominators, and all gaps and exclusio
 
 ## Behavior
 
-The boundary shall enumerate candidates and eligibility before considering result
-success. It shall preserve each candidate that lacks a mapping, capability, or result
-with an explicit reason. It shall reject duplicate or mismatched result joins as
-proof credit without dropping the candidate. It shall credit a Kani result only when
-its exact claim, source/profile, proof subject, declared domain and effective bounds
+The boundary shall key each candidate by owning criterion, semantic obligation,
+source identity at the selected source state, and declared domain, and enumerate
+candidates and eligibility before considering evidence. It shall keep method, proof
+subject, backend/profile revision, assumptions and run identity in joined evidence,
+so adding or changing an attempt cannot alter the source-derived denominator. The
+boundary shall preserve each candidate that lacks a mapping, capability decision or result
+with an explicit reason. It shall join an FR-029 `unsupported` negotiation
+disposition without requiring an artifact, run or Kani outcome, and shall record
+pre-execution refusals with their producer and stage. It shall reject duplicate or
+mismatched result joins as proof credit without dropping the candidate. It shall
+credit a Kani result only when its exact candidate, source/profile, proof subject,
+declared domain and effective bounds
 match, its terminal result is proved, and its nonvacuity and production reachability
 evidence identify a load-bearing check for that claim. It shall record the selected
 method and evidence strength separately from the claim's eligibility.
@@ -52,19 +60,20 @@ observations, test tags and SUCCESS-check totals alone shall not receive proof c
 Each projection shall report its own eligible denominator, qualified numerator,
 missing/refused/inconclusive and other terminal gaps, exclusions and reasons. Within
 one method and declared domain, a criterion, module or function shall receive full
-credit only when every eligible obligation mapped to it qualifies; a partly proved
-entity shall show its qualified subset and remain a gap.
+credit only when it has at least one eligible mapped obligation and every such
+obligation qualifies; zero-mapping and partly proved entities shall remain gaps,
+with qualified subsets shown where present.
 No numeric target or floor is specified by this requirement.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-045-AC-1 | From a fixture whose inventories contain two criteria, three obligations and two production functions in one module, the baseline emits every candidate and explicit mappings or unmapped reasons before joining results; removing a result changes gaps but does not reduce any eligible denominator. | Test |
+| FR-045-AC-1 | From a fixture whose inventories contain two criteria, three obligations and two production functions in one module, the baseline emits every source-semantic candidate and explicit mappings or unmapped reasons before joining results; removing a result or adding/changing a method, proof subject or backend/profile attempt changes evidence or gaps but not any eligible denominator. | Test |
 | FR-045-AC-2 | A proved production Kani result credits only its exactly matched claim and declared finite domain when a load-bearing check and production reachability are evidenced; a zero-check result, tag-only record, LLVM probe-only record, duplicate result, or mismatched source/profile/subject/domain receives no proof credit and has a stated reason. | Test |
 | FR-045-AC-3 | An effective bound narrower than declared is reported only for that narrower domain; a shadow proof without refinement is a production-proof gap, and a shadow proof with separately executed sampled native refinement is labeled conditional and sampled, never unqualified production-proof credit. | Test |
-| FR-045-AC-4 | Requirement, module, function and obligation reports have separately derived eligible denominators and qualified numerators; an entity with one of two eligible mapped obligations proved remains a gap with one qualified subset, and no cross-level or cross-method blended percentage is emitted. | Test |
-| FR-045-AC-5 | Missing, unsupported/refused, counterexample, invalid/incomplete input, unavailable, timed out, resource exhausted, cancelled, inconclusive and unfamiliar producer states remain visible with stable reasons; an ineligible candidate remains visible with its policy reason and is excluded only from its applicable denominator. | Test |
+| FR-045-AC-4 | Requirement, module, function and obligation reports have separately derived eligible denominators and qualified numerators; an eligible entity with zero eligible mapped obligations remains a visible mapping gap, one with one of two eligible mapped obligations proved remains a partial gap, and no cross-level or cross-method blended percentage is emitted. | Test |
+| FR-045-AC-5 | An FR-029 `unsupported` negotiation disposition remains visible with its capability and reason and requires no Kani outcome or run; pre-execution and Kani refusals retain producer and stage. Missing, counterexample, invalid/incomplete input, unavailable, timed out, resource exhausted, cancelled, inconclusive and unfamiliar producer states remain visible with reasons; an ineligible candidate remains visible with its policy reason and is excluded only from its applicable denominator. | Test |
 | FR-045-AC-6 | Repeating a baseline on unchanged authoritative inventories, policy and results produces the same rows and totals; changing an inventory updates candidates without editing a separate list of file hashes, SHAs, tool pins or snapshots. | Test |
 
 ## Dependencies
