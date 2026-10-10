@@ -58,8 +58,32 @@ terms, the refusal of a negative, malformed or non-reduced bound, a null upper b
 an open end with equal bounds and a missing or extra member, and the profile fit.
 FR-038-AC-159 through FR-038-AC-164 verify the typed scalar operand accessor
 over admitted application nodes and explicit post-admission mutation rows.
+FR-038-AC-210 through FR-038-AC-213 are planned reader-admission cases for
+the published operation catalog's declared-unit quantity, aggregate,
+same-family, literal-kind and rounding-mode rules; they are not counted as
+executed evidence until the IR-484 code slice adds tagged tests.
 
 ## Test Procedure
+
+For AC-210 through AC-213, start with valid checked V2 packages, not a
+post-admission mutation of an in-memory graph. Build a self-typed declared
+unit, two values of its type, a Boolean, an Integer, and the selected laws and
+members each operation needs. Exercise the operand check of every `quire.op.quantity.*` identity
+against its published operand list, changing its first quantity operand to
+Boolean; read valid `quantity.add` and `quantity.eq` packages end to end, and
+change `quantity.pow`'s integer exponent to a quantity at the operation step. Compare two quantity branches and then a quantity/Integer branch
+of `control.if`. Supply valid aggregate terms in the catalogued positions of
+`temporal.clause` and `state.clause`, then replace each one separately with a
+Boolean reference. Supply literal `value_kind`/`type` pairs for Integer, enum,
+ordered enum and option, and pairs whose declared type disagrees with the
+value kind, including a literal in an `any_value` position so the enclosing
+operand check cannot conceal the literal defect. Finally, apply `exact` and
+`toward-zero` rounding to otherwise identical valid quantity conversion and
+sum applications. Re-derive every affected node and package identity after
+each authored change. Compare the public reader's code, cause and exact
+argument, literal-type or mode-value pointer; require each positive control
+to admit. Keep `compound_unit`, enum aliases and `model_population` out of
+these admission claims until FR-322 defines their family behavior.
 
 Dispatch an unknown, empty, absent and malformed `contract_version`, and
 independently a malformed document, a duplicate top-level member and
@@ -98,6 +122,15 @@ node under another domain package's identity and re-read: it refuses
 `missing_declaration`/`missing-selection` at the member's `declaration`.
 
 ## Expected Results
+
+The positive controls above admit. A wrong quantity or aggregate operand, or
+a mixed-family `control.if` branch, refuses `ill_typed` with cause
+`operator-ineligible` at the first offending argument. A mismatched literal
+kind/type pair refuses the same way at that literal's `type`. A quantity
+conversion or sum with a rounding mode that disagrees with its quantity type
+refuses `invalid_package` with cause `operation-mode-type-mismatch` at
+`operation.mode/value`. No changed control can pass merely because the
+reader lacked a family or skipped a default `exact` pin.
 
 An unknown, empty or absent `contract_version` refuses as
 `unknown_contract_version`; a malformed `contract_version`, document, or a
