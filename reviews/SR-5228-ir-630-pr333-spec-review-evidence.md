@@ -235,3 +235,21 @@ Frozen base ee116d87774572bb45633a77f2e267bc3bf77396; exactly two documents, 232
 The existing reader charges recursion edges after the key stage (crates/quire-contract-model/src/checked_package/v2/mod.rs:1937 and :2000). A Tree read necessarily has such edges; therefore the entire-read boundary can fail after the group work has already completed. Keep the total boundary and add a charge failure inside the group stage with pending work.
 
 Advisor limit: quoin 0.28.3 / quire 0.36.2 (engine 0.50.2), installed executables, quoin advise --repo <frozen-worktree> --json exited 0. Existing AC-124 regex pipes cause its authored method to be extracted as a regex fragment rather than Test. This baseline extraction issue is disclosed to the lead; its advice is not trusted as a method verdict. The ten other selected rows are authored Test, inconclusive false, mismatch false. No method is changed by this reviewer.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 6742c1100de2c5f316db9b672447447e3b27b5fc; round 1, AC-149 and TC-226 add a denied charge within production group work while a later visit or digest remains pending, a sufficient-budget witness of that pending work, a continuation mutant that fails the event assertion and restored immediate propagation that passes. These controls remain PLANNED and UNRUN. |
+
+## Disposition Pass 1
+
+Reviewed 6742c1100de2c5f316db9b672447447e3b27b5fc against its parent 47861328129cc60638217f0fd858402b3815a30b. The original finding text and original scope are unchanged. Only AC-149, TC-226 and custody of the nine original review files were checked; no broad review sweep or runtime/build/gates ran.
+
+**PASS** — FND-001 is fixed in the test specification; no new finding. This is not runtime qualification.
+
+After excerpt (FR-038-AC-149, verbatim):
+
+```text
+Separately, select a charge inside group-local preimage or group-digest work on the valid Tree, with at least one later group visit or digest still pending, and set the existing work ceiling so that this selected charge is denied. The result is work-incomplete at that failed charge's pointer with no admitted package; observations of actual group visits and digest computations show none after the denied charge. A genuine mutant that continues the production group walk after this unpaid charge makes the pending visit or digest observable and fails this control; restoring immediate prop
+```
