@@ -15,7 +15,7 @@ use super::shared::{
 use super::terms::{subterms, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use quire_walk::{walk, Children, Walk};
-use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
@@ -261,8 +261,8 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
         .index(position)
 }
 
-/// Measures, parses and canonicalizes untrusted bytes, then hands the value
-/// to `admit`.
+/// Test control for the former full-document parser. The production V2 reader
+/// uses [`read_typed_prefix`] and borrowed closed-schema decoding.
 ///
 /// Order, as FR-322 states it: byte limit, strict syntax and member
 /// validation, canonical bytes. There is no depth limit (FR-038-AC-117).
@@ -273,6 +273,7 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
 /// document as `malformed_wire` with no pointer before it recurses deeper, so
 /// the parse never needs more stack than 128 levels. The closed body grammar
 /// ("The flat wire") fixes the depth of every in-grammar package at far less.
+#[cfg(test)]
 pub(super) fn read_value<T>(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -298,6 +299,7 @@ pub(super) fn read_value<T>(
 /// check does not recurse over it. A document whose bytes differ, and one
 /// `quire-canonical` refuses to encode (an integer past 2^53, a canonical text
 /// past the ceiling) refuse `noncanonical_wire`, with no pointer.
+#[cfg(test)]
 fn require_canonical_bytes(
     bytes: &[u8],
     value: &Value,
@@ -317,6 +319,179 @@ fn require_canonical_bytes(
             CheckedPackageRefusalCode::NoncanonicalWire,
         )),
     }
+}
+
+/// The V2 intake checks canonical source text without building a document
+/// value or asking the canonical writer to buffer the enclosing object. That
+/// writer buffers every open object's members, including the entire package;
+/// each scalar below is instead checked independently by the same encoder.
+pub(super) fn read_typed_prefix(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+) -> Result<(), ValidationFailure> {
+    if exceeds(bytes.len(), limits.bytes) {
+        return Err(ValidationFailure::incomplete(
+            CheckedPackageLimit::Bytes,
+            limits.bytes,
+            bytes.len(),
+            None,
+        ));
+    }
+    // Keep serde_json's 128-level refusal before canonicality. The strict
+    // scan completes first, so a later syntax or duplicate defect still wins.
+    if strict_shape_depth(bytes)? >= 128 {
+        return Err(ValidationFailure::refused_bytes(
+            CheckedPackageRefusalCode::MalformedWire,
+        ));
+    }
+    require_canonical_tokens(bytes)
+}
+
+/// A sink comparing one scalar's canonical bytes with its original token.
+struct TokenSink<'a> {
+    original: &'a [u8],
+    at: usize,
+    agrees: bool,
+}
+
+impl quire_canonical::Sink for TokenSink<'_> {
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), quire_canonical::Error> {
+        let end = self.at.checked_add(bytes.len());
+        if end.and_then(|end| self.original.get(self.at..end)) != Some(bytes) {
+            self.agrees = false;
+        }
+        self.at = end.unwrap_or(usize::MAX);
+        Ok(())
+    }
+}
+
+fn canonical_token(value: &Value, original: &[u8]) -> bool {
+    let mut sink = TokenSink {
+        original,
+        at: 0,
+        agrees: true,
+    };
+    quire_canonical::encode(
+        &mut sink,
+        value,
+        quire_canonical::Limits::new(u64::try_from(original.len()).unwrap_or(u64::MAX)),
+    )
+    .is_ok()
+        && sink.agrees
+        && sink.at == original.len()
+}
+
+enum CanonicalOpen {
+    Array,
+    Object { previous: String },
+}
+
+/// The strict scan has already proved syntax and duplicate-member validity.
+/// This second, allocation-bounded scan checks the ordering of object members
+/// and compares each scalar spelling with `quire-canonical`'s own spelling.
+fn require_canonical_tokens(input: &[u8]) -> Result<(), ValidationFailure> {
+    let noncanonical =
+        || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
+    let mut scan = Scan {
+        input,
+        at: 0,
+        open: Vec::new(),
+    };
+    let mut open = Vec::new();
+    loop {
+        match input.get(scan.at).copied().ok_or_else(noncanonical)? {
+            b'[' => {
+                scan.at += 1;
+                if input.get(scan.at) != Some(&b']') {
+                    open.push(CanonicalOpen::Array);
+                    continue;
+                }
+                scan.at += 1;
+            }
+            b'{' => {
+                scan.at += 1;
+                if input.get(scan.at) != Some(&b'}') {
+                    let previous = canonical_member(&mut scan)?;
+                    // With arbitrary-precision serde_json, this private key
+                    // as the first member decodes as a number, not an object.
+                    if previous == SERDE_JSON_NUMBER_TOKEN {
+                        return Err(noncanonical());
+                    }
+                    open.push(CanonicalOpen::Object { previous });
+                    continue;
+                }
+                scan.at += 1;
+            }
+            _ => {
+                let start = scan.at;
+                let mut scalar = scan.token::<Value>().map_err(|_| noncanonical())?;
+                if matches!(input[start], b'-' | b'0'..=b'9') {
+                    let text =
+                        std::str::from_utf8(&input[start..scan.at]).map_err(|_| noncanonical())?;
+                    scalar =
+                        number_from_token::<serde_json::Error>(text).map_err(|_| noncanonical())?;
+                }
+                if holds_float_integer_past_2_pow_53(&scalar)
+                    || !canonical_token(&scalar, &input[start..scan.at])
+                {
+                    return Err(noncanonical());
+                }
+            }
+        }
+        loop {
+            match open.last_mut() {
+                None => {
+                    return if scan.at == input.len() {
+                        Ok(())
+                    } else {
+                        Err(noncanonical())
+                    };
+                }
+                Some(CanonicalOpen::Array) => match input.get(scan.at) {
+                    Some(b']') => {
+                        scan.at += 1;
+                        open.pop();
+                    }
+                    Some(b',') => {
+                        scan.at += 1;
+                        break;
+                    }
+                    _ => return Err(noncanonical()),
+                },
+                Some(CanonicalOpen::Object { previous }) => match input.get(scan.at) {
+                    Some(b'}') => {
+                        scan.at += 1;
+                        open.pop();
+                    }
+                    Some(b',') => {
+                        scan.at += 1;
+                        let next = canonical_member(&mut scan)?;
+                        if previous.encode_utf16().cmp(next.encode_utf16()).is_ge() {
+                            return Err(noncanonical());
+                        }
+                        *previous = next;
+                        break;
+                    }
+                    _ => return Err(noncanonical()),
+                },
+            }
+        }
+    }
+}
+
+fn canonical_member(scan: &mut Scan<'_>) -> Result<String, ValidationFailure> {
+    let noncanonical =
+        || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
+    let start = scan.at;
+    let member = scan.member_name().map_err(|_| noncanonical())?;
+    // `member_name` consumed the colon; the key token ends one byte before it.
+    let key_end = scan.at.checked_sub(1).ok_or_else(noncanonical)?;
+    if scan.input.get(key_end) != Some(&b':')
+        || !canonical_token(&Value::String(member.clone()), &scan.input[start..key_end])
+    {
+        return Err(noncanonical());
+    }
+    Ok(member)
 }
 
 /// Whether `value` holds, at any depth, a number that is no `i64` or `u64` but
@@ -354,19 +529,35 @@ pub(super) fn canonical_value(
     read_value(bytes, limits, Ok)
 }
 
-/// Decodes a closed wire value, classifying closed-schema member violations
-/// and locating each at the position the decoder had reached: an unknown
-/// member at that member, a missing member at the object lacking it, and a
-/// wrongly typed value at that value.
-pub(super) fn decode_closed<T: DeserializeOwned>(value: &Value) -> Result<T, ValidationFailure> {
-    serde_path_to_error::deserialize::<_, T>(value).map_err(|error| {
-        let code = if error.inner().to_string().contains("unknown field") {
-            CheckedPackageRefusalCode::UnknownMember
-        } else {
-            CheckedPackageRefusalCode::MalformedWire
-        };
-        ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
-    })
+/// Decode a closed package straight from its validated bytes. This uses the
+/// established error classification and pointer mapping, without first
+/// materializing the complete package as a `Value`.
+pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
+    bytes: &'de [u8],
+) -> Result<T, ValidationFailure> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    match T::deserialize(&mut deserializer) {
+        Ok(decoded) => Ok(decoded),
+        Err(_) => {
+            // The traced wrapper adds a native frame per nested value. Use it
+            // only after a failed closed decode, to locate the offending
+            // shallow wire member without charging a valid deep term's stack.
+            let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+            serde_path_to_error::deserialize::<_, T>(&mut deserializer)
+                .map_err(classify_closed_error)
+        }
+    }
+}
+
+fn classify_closed_error<E: fmt::Display>(
+    error: serde_path_to_error::Error<E>,
+) -> ValidationFailure {
+    let code = if error.inner().to_string().contains("unknown field") {
+        CheckedPackageRefusalCode::UnknownMember
+    } else {
+        CheckedPackageRefusalCode::MalformedWire
+    };
+    ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.
@@ -1001,10 +1192,10 @@ pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure
 /// Parses `input` into a value under serde_json's own recursion limit of 128,
 /// which stops the parse with an error before it recurses deeper: a document
 /// nested past it refuses `malformed_wire` with no pointer, as malformed JSON
-/// does (FR-038-AC-117). [`strict_shape`] has already refused every syntax and
+/// does (FR-038-AC-117). [`strict_shape_depth`] has already refused every syntax and
 /// duplicate-member defect, so the recursion limit is the one error this parse
 /// can return.
-fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
+pub(super) fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
     let duplicate = RefCell::new(None);
     let mut deserializer = serde_json::Deserializer::from_slice(input);
     let parsed = StrictSeed::root(&duplicate).deserialize(&mut deserializer);
@@ -1060,16 +1251,24 @@ impl Open {
 /// Scalars and member names are read by serde_json itself, so their grammar is
 /// exactly the parser's. No value is built. Trailing bytes are left for the
 /// canonical-bytes comparison to refuse.
+#[cfg(test)]
 fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
+    strict_shape_depth(input).map(|_| ())
+}
+
+/// The strict shape and deepest container, counted without native recursion.
+fn strict_shape_depth(input: &[u8]) -> Result<usize, ValidationFailure> {
     let malformed = || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire);
     let mut scan = Scan {
         input,
         at: 0,
         open: Vec::new(),
     };
+    let mut deepest = 0;
     loop {
         let opens = match scan.peek().ok_or_else(malformed)? {
             b'[' => {
+                deepest = deepest.max(scan.open.len().saturating_add(1));
                 scan.at += 1;
                 if scan.peek() == Some(b']') {
                     scan.at += 1;
@@ -1080,6 +1279,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
                 }
             }
             b'{' => {
+                deepest = deepest.max(scan.open.len().saturating_add(1));
                 scan.at += 1;
                 if scan.peek() == Some(b'}') {
                     scan.at += 1;
@@ -1111,7 +1311,7 @@ fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
         // then read the next sibling, if any.
         loop {
             let Some(top) = scan.open.last() else {
-                return Ok(());
+                return Ok(deepest);
             };
             let in_array = matches!(top, Open::Array { .. });
             if matches!(top, Open::Object { repeated: true, .. }) {

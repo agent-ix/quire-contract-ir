@@ -818,6 +818,29 @@ fn tc_048_members_in_utf16_code_unit_order_pass_the_canonical_bytes_check() {
     assert_eq!(read_bytes(text.as_bytes(), &package), noncanonical());
 }
 
+/// The direct typed reader compares scalar tokens with the same canonical
+/// writer used for identity bytes, including escaping and numeric spelling.
+/// Trace: FR-038-AC-214
+#[trace("TC-048", "FR-038-AC-214")]
+#[test]
+fn tc_048_direct_reader_refuses_noncanonical_scalar_spellings_before_a_stale_id() {
+    let package = package_with_body(json!({"term": "bogus", "n": 1000, "text": "é"}));
+    let canonical = String::from_utf8(canonical(&package)).expect("UTF-8");
+    for (from, to) in [
+        ("\"n\":1000", "\"n\":1e3"),
+        ("\"n\":1000", "\"n\":-0"),
+        ("\"text\":\"é\"", "\"text\":\"\\u00e9\""),
+    ] {
+        assert_eq!(canonical.matches(from).count(), 2, "graph and projection");
+        let bytes = canonical.replace(from, to);
+        assert_eq!(
+            read_bytes(bytes.as_bytes(), &package),
+            noncanonical(),
+            "{to}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FR-038-AC-80: where each type sits, read from the manifests and the source.
 // ---------------------------------------------------------------------------
