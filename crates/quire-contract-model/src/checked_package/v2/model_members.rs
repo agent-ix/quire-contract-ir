@@ -446,12 +446,6 @@ struct AggregateBody<'a> {
     members: Vec<BodyMember<'a>>,
 }
 
-impl Encode for AggregateBody<'_> {
-    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        writer.serialize(self)
-    }
-}
-
 fn aggregate(members: Vec<BodyMember<'_>>) -> AggregateBody<'_> {
     AggregateBody {
         term: "aggregate",
