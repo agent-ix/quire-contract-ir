@@ -49,6 +49,6 @@ Planned. No test is tagged for this case. The count-bearing `proved` request, th
 `Unavailable` and `Inconclusive` cause rules and the struct-literal probe
 (FR-030-AC-4, AC-5) are not built. The `non_success` refusal of a `proved` or
 `counterexample` request is built and is asserted by the TC-443 test, but this
-case does not claim it until the rest of AC-5 lands. The test
-`kani_outcome_kinds_map_to_their_one_fr331_result` verifies the retired
-`KaniProviderResult` map and does not back this case.
+case does not claim it until the rest of AC-5 lands. The obsolete
+`kani_outcome_kinds_map_to_their_one_fr331_result` test of the IR-owned
+`KaniProviderResult` map was removed under IR-347; it did not back this case.

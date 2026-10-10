@@ -58,8 +58,8 @@ Measured at the commits of QSL and IR this AD was written against.
 
 What does not cross, as a target: no replay, witness, envelope, terminal-record or obligation-identity
 type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QSL type reaches IR
-(FR-028). Current: the root crate still exports two such items, `KaniProviderResult` and
-`KaniProviderRecord` (D-3), to be removed under IR-347; QSL does not use them.
+(FR-028). IR-347 removed the root crate's former `KaniProviderResult` and
+`KaniProviderRecord` exports (D-3); QSL did not use them.
 
 ### Identity and versions on this seam
 
@@ -151,12 +151,11 @@ Local labels; the repository assigns requirement ids when one is authored.
   edge; by name, a cargo-deny `bans` failure is the target (IR-343), and `tc_041`'s lists are
   to name both crates.
 - D-3. No public item of either IR crate is a replay, witness, envelope, terminal-record or
-  obligation-identity type. Current: not true. The root crate exports `KaniProviderResult` and
-  `KaniProviderRecord` (defined in `src/kani/outcome.rs`, re-exported by `src/kani/mod.rs`; the
-  record's doc calls itself an FR-331 terminal record), which FR-039 assigns to QSL. Target:
-  removed from IR under IR-347 (FR-039-AC-3, planned in TC-055).
+  obligation-identity type. IR-347 removed `KaniProviderResult` and `KaniProviderRecord` from
+  `src/kani/outcome.rs` and their re-exports from `src/kani/mod.rs` (FR-039-AC-3). The complete
+  TC-055 public-inventory check remains planned.
 - D-4. Every public item QSL reads is exported by name from the model crate's root, with no
-  glob (statement FR-019; not true today, see Current state).
+  glob (FR-019; implemented under IR-347).
 - D-5. A package QSL emits for each node family and semantic form QSL can produce is admitted at
   the `package_id` QSL wrote (runs in QSL; routed as R-Q6 of IR-324).
 - D-6. For a record QSL classifies unbounded, IR lowers with `require_bounds` set and reports

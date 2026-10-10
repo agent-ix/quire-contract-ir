@@ -145,10 +145,9 @@ The family lowerings still in this repository (`src/kani/arithmetic.rs`,
 `collections.rs`, `objects.rs`) emit their codes through the non-success
 constructor, so until IR-347 removes them they build those codes with
 `std001_code!`, unregistered, and IR-347 deletes them with the lowerings; the
-IR-605 code change does not wait for IR-347. `KaniProviderRecord`, whose `cause`
-is a `String` today, is QSL's item and is removed from this repository
-(FR-039-AC-3); until it is removed its `cause` is a `Std001Code` and no `String`
-copy of an outcome's code remains.
+IR-605 code change does not wait for IR-347. IR-347 removed
+`KaniProviderRecord`, whose `cause` was a `Std001Code`, from this repository
+(FR-039-AC-3); no `String` copy of an outcome's code remains.
 
 ## Acceptance Criteria
 
@@ -174,7 +173,7 @@ guarantees".
 
 Implemented through AC-1 to AC-5, verified by TC-442. The `code` module of
 `quire-contract-model` exports `Std001Code`, `Std001CodeError` and `std001_code!`;
-`KaniOutcome.code`, `KaniOutcomeError.code`, `KaniProviderRecord.cause` and the
+`KaniOutcome.code`, `KaniOutcomeError.code` and the
 `CapabilityDisposition` codes are `Std001Code`, and the family lowerings build
 their unregistered codes with `std001_code!` (IR-347 removes them). The
 `compile_fail` probes of AC-4 are doctests on the `code` module, paired with the

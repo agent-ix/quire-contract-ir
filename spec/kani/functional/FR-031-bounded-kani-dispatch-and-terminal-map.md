@@ -101,8 +101,8 @@ structural equality, collection-set, or bounded graph search semantics.
 FR-031-AC-5 is retired and its ID is not reused (ADR-0056). It required only
 the `KaniOutcome` to `TerminalValue` map, which moved: the map from a `KaniOutcome` to a QSL `TerminalValue` moved
 to `agent-ix/quire-contract-codegen`, tracked there under Linear IR-358.
-Today `KaniOutcomeKind::provider_result`
-maps to this crate's own `KaniProviderResult`; that type and
-`KaniProviderRecord` are not part of the root crate's interface (FR-039).
+IR-347 removed the IR-owned `KaniOutcomeKind::provider_result` map and its
+`KaniProviderResult` and `KaniProviderRecord` types (FR-039). Codegen owns
+the outcome-to-QSL terminal-value map.
 The family lowerings `src/kani/arithmetic.rs`, `collections.rs` and
 `objects.rs` are in this crate today and are codegen's by this requirement.
