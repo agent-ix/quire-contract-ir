@@ -538,8 +538,8 @@ pub(super) fn decode_closed<T: DeserializeOwned>(value: &Value) -> Result<T, Val
 /// Decode a closed package straight from its validated bytes. This uses the
 /// same error classification and pointer mapping as [`decode_closed`], without
 /// first materializing the complete package as a `Value`.
-pub(super) fn decode_closed_bytes<T: DeserializeOwned>(
-    bytes: &[u8],
+pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
+    bytes: &'de [u8],
 ) -> Result<T, ValidationFailure> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     match T::deserialize(&mut deserializer) {
@@ -1201,35 +1201,11 @@ pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure
 /// does (FR-038-AC-117). [`strict_shape`] has already refused every syntax and
 /// duplicate-member defect, so the recursion limit is the one error this parse
 /// can return.
-fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
+pub(super) fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
     let duplicate = RefCell::new(None);
     let mut deserializer = serde_json::Deserializer::from_slice(input);
     let parsed = StrictSeed::root(&duplicate).deserialize(&mut deserializer);
     finish(parsed, duplicate)
-}
-
-/// Decode one arbitrary term with the same shallow-stack visitor used by the
-/// strict package parse. The preceding strict scan has already located any
-/// duplicate member; this preserves its number semantics while a typed wire
-/// is read directly from the caller's bytes.
-pub(super) fn deserialize_strict_value<'de, D>(deserializer: D) -> Result<Value, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let duplicate = RefCell::new(None);
-    StrictSeed::root(&duplicate).deserialize(deserializer)
-}
-
-#[derive(Deserialize)]
-struct StrictValue(#[serde(deserialize_with = "deserialize_strict_value")] Value);
-
-/// Decode a diagnostic's terms with the same visitor, one at a time.
-pub(super) fn deserialize_strict_values<'de, D>(deserializer: D) -> Result<Vec<Value>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Vec::<StrictValue>::deserialize(deserializer)
-        .map(|items| items.into_iter().map(|item| item.0).collect())
 }
 
 /// Maps a finished parse to the reader's outcome. Trailing bytes are left for

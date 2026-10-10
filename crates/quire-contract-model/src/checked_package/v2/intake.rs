@@ -17,13 +17,214 @@
 //! compares them element by element, so no second copy of the whole document is
 //! built.
 
-use super::{CheckedPackageWireV2, ValidationFailure};
-use crate::checked_package::common::first_difference;
+use super::{
+    CheckedDeclaration, CheckedDependencySelection, CheckedDiagnosticCause, CheckedDiagnosticCode,
+    CheckedDiagnosticStage, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedDomainPackageRef,
+    CheckedNodeOwner, CheckedNodeProjectionV2, CheckedPackageIdentityPreimageV2,
+    CheckedPackageLockV2, CheckedPackageWireV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
+    NominalIdentityPreimage, ValidationFailure,
+};
+use crate::checked_package::common::{decode_closed_bytes, first_difference, strict_parse};
+use crate::checked_package::shared::{
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSelection,
+    CheckedSemanticId, CheckedSourceMapEntry, CheckedSourceRegion,
+};
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+// The borrowed intake mirrors only the closed containers that contain an
+// arbitrary JSON term. Those terms are decoded after the outer typed wire
+// frame has returned, keeping their recursion off its call stack. Every other
+// member is decoded by the same public type as the admitted wire.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedWire<'a> {
+    contract_version: Box<str>,
+    #[serde(borrow)]
+    identity_preimage: BorrowedPreimage<'a>,
+    package_id: CheckedSemanticId,
+    lock: CheckedPackageLockV2,
+    #[serde(borrow)]
+    semantic_graph: BorrowedGraph<'a>,
+    source_map: Vec<CheckedSourceMapEntry>,
+    capability_report: Vec<CheckedCapability>,
+    #[serde(borrow)]
+    diagnostics: BorrowedDiagnostics<'a>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedPreimage<'a> {
+    version: Box<str>,
+    edition: CheckedSelection,
+    profile_selections: Vec<CheckedSelection>,
+    definition_selections: Vec<CheckedArtifactRef>,
+    model_selections: Vec<CheckedDomainPackageRef>,
+    required_features: Vec<Box<str>>,
+    dependency_selections: Vec<CheckedDependencySelection>,
+    #[serde(borrow)]
+    identity_projection: Vec<BorrowedProjection<'a>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedGraph<'a> {
+    graph_version: Box<str>,
+    #[serde(borrow)]
+    nodes: Vec<BorrowedNode<'a>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedNode<'a> {
+    node_id: CheckedNodeId,
+    schema_version: Box<str>,
+    node_tag: Box<str>,
+    semantic_form: Box<str>,
+    semantic_type: CheckedNodeId,
+    dependencies: Vec<CheckedNodeId>,
+    occurrences: Vec<CheckedOccurrence>,
+    #[serde(default)]
+    recursion_group: Option<Box<str>>,
+    #[serde(default)]
+    nominal_identity_preimage: Option<NominalIdentityPreimage>,
+    #[serde(default)]
+    declaration: Option<CheckedDeclaration>,
+    #[serde(default)]
+    owner: Option<CheckedNodeOwner>,
+    #[serde(borrow)]
+    body: &'a RawValue,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedProjection<'a> {
+    node_id: CheckedNodeId,
+    schema_version: Box<str>,
+    node_tag: Box<str>,
+    semantic_form: Box<str>,
+    semantic_type: CheckedNodeId,
+    dependencies: Vec<CheckedNodeId>,
+    #[serde(default)]
+    recursion_group: Option<Box<str>>,
+    #[serde(default)]
+    nominal_identity_preimage: Option<NominalIdentityPreimage>,
+    #[serde(default)]
+    declaration: Option<CheckedDeclaration>,
+    #[serde(default)]
+    owner: Option<CheckedNodeOwner>,
+    #[serde(borrow)]
+    body: &'a RawValue,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedDiagnostics<'a> {
+    catalog: CheckedArtifactRef,
+    #[serde(borrow)]
+    entries: Vec<BorrowedDiagnostic<'a>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedDiagnostic<'a> {
+    stage: CheckedDiagnosticStage,
+    code: CheckedDiagnosticCode,
+    cause_tag: CheckedDiagnosticCause,
+    #[serde(borrow)]
+    details: Vec<&'a RawValue>,
+    loci: Vec<CheckedSourceRegion>,
+}
+
+pub(super) fn decode_borrowed_wire(
+    bytes: &[u8],
+) -> Result<CheckedPackageWireV2, ValidationFailure> {
+    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes)?;
+    let preimage = wire.identity_preimage;
+    let graph = wire.semantic_graph;
+    let diagnostics = wire.diagnostics;
+    Ok(CheckedPackageWireV2 {
+        contract_version: wire.contract_version,
+        identity_preimage: CheckedPackageIdentityPreimageV2 {
+            version: preimage.version,
+            edition: preimage.edition,
+            profile_selections: preimage.profile_selections,
+            definition_selections: preimage.definition_selections,
+            model_selections: preimage.model_selections,
+            required_features: preimage.required_features,
+            dependency_selections: preimage.dependency_selections,
+            identity_projection: preimage
+                .identity_projection
+                .into_iter()
+                .map(|node| {
+                    Ok(CheckedNodeProjectionV2 {
+                        node_id: node.node_id,
+                        schema_version: node.schema_version,
+                        node_tag: node.node_tag,
+                        semantic_form: node.semantic_form,
+                        semantic_type: node.semantic_type,
+                        dependencies: node.dependencies,
+                        recursion_group: node.recursion_group,
+                        nominal_identity_preimage: node.nominal_identity_preimage,
+                        declaration: node.declaration,
+                        owner: node.owner,
+                        body: strict_parse(node.body.get().as_bytes())?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+        },
+        package_id: wire.package_id,
+        lock: wire.lock,
+        semantic_graph: CheckedSemanticGraphV2 {
+            graph_version: graph.graph_version,
+            nodes: graph
+                .nodes
+                .into_iter()
+                .map(|node| {
+                    Ok(CheckedSemanticNodeV2 {
+                        node_id: node.node_id,
+                        schema_version: node.schema_version,
+                        node_tag: node.node_tag,
+                        semantic_form: node.semantic_form,
+                        semantic_type: node.semantic_type,
+                        dependencies: node.dependencies,
+                        occurrences: node.occurrences,
+                        recursion_group: node.recursion_group,
+                        nominal_identity_preimage: node.nominal_identity_preimage,
+                        declaration: node.declaration,
+                        owner: node.owner,
+                        body: strict_parse(node.body.get().as_bytes())?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+        },
+        source_map: wire.source_map,
+        capability_report: wire.capability_report,
+        diagnostics: CheckedDiagnosticsV2 {
+            catalog: diagnostics.catalog,
+            entries: diagnostics
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    Ok(CheckedDiagnosticV2 {
+                        stage: entry.stage,
+                        code: entry.code,
+                        cause_tag: entry.cause_tag,
+                        details: entry
+                            .details
+                            .into_iter()
+                            .map(|term| strict_parse(term.get().as_bytes()))
+                            .collect::<Result<Vec<_>, ValidationFailure>>()?,
+                        loci: entry.loci,
+                    })
+                })
+                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+        },
+    })
+}
 
 /// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
 /// slices of the caller's bytes; no ancestor is decoded into a `Value`.

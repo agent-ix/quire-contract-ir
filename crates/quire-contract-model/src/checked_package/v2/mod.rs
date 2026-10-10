@@ -56,8 +56,8 @@ use structural::validate_structural_nodes;
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
-    count, decode_closed, decode_closed_bytes, exceeds, first_difference, is_digest, is_nonempty,
-    node_pointer, read_typed_prefix, validate_definition_ref, validate_locked_artifact,
+    count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
+    read_typed_prefix, validate_definition_ref, validate_locked_artifact,
     validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
     Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
@@ -145,7 +145,6 @@ pub struct CheckedSemanticNodeV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed public semantic term.
-    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_value")]
     pub body: Value,
 }
 
@@ -178,7 +177,6 @@ pub struct CheckedNodeProjectionV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<CheckedNodeOwner>,
     /// Typed semantic term.
-    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_value")]
     pub body: Value,
 }
 
@@ -385,7 +383,6 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
-    #[serde(deserialize_with = "crate::checked_package::common::deserialize_strict_values")]
     pub details: Vec<Value>,
     /// Source loci under locked sources.
     pub loci: Vec<CheckedSourceRegion>,
@@ -717,7 +714,7 @@ impl CheckedPackageV2 {
                 ))
             }
         }
-        let mut wire = decode_closed_bytes::<CheckedPackageWireV2>(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| locate_in_preimage_bytes(failure, bytes))
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
