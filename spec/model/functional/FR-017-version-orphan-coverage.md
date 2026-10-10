@@ -78,9 +78,12 @@ contribute coverage.
 
 Coverage returns a report plus ordered diagnostics instead of discarding valid
 rows when some artifacts are orphaned. Requirement rows never use `orphaned`;
-artifact rows never use `uncovered`. Diagnostics use the trace span and follow
-authored trace order. Repeating or permuting unique trace inputs produces the
-same sorted rows; diagnostics remain authored-order evidence for invalid input.
+artifact rows never use `uncovered`. Cross-package, missing-requirement, and
+stale-revision diagnostics use the failing target reference's span; each
+duplicate-ID diagnostic uses the later occurrence's trace source span.
+Diagnostics follow authored trace order. Repeating or permuting unique trace
+inputs produces the same sorted rows; diagnostics remain authored-order evidence
+for invalid input.
 Package requirements, requirement clauses, and artifact-trace inputs are also
 subject to FR-019's semantic node/depth/collection preflight before
 canonicalization or coverage recursion begins.
@@ -91,6 +94,10 @@ canonicalization or coverage recursion begins.
 |---|---|---|
 | FR-017-AC-1 | Version preflight accepts schema 1.1; schemas 1.0, 1.2 and 2.0 each fail `unsupported_schema_version` at the specified path, and a zero major fails `invalid_schema_version`, all before semantic interpretation. | Test (TC-017) |
 | FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale revision, missing, cross-package, duplicate, and over-limit inputs retain distinct diagnostics and cannot make a current requirement appear covered. Deep traces name the current requirement revision and carry no digest. | Test (TC-017, TC-018) |
+| FR-017-AC-3 | With traces authored out of key order, the report orders requirement rows by package namespace, requirement ID, then ascending numeric revision and artifact rows by artifact ID; text comparisons use Unicode scalar value order. | Test (TC-017) |
+| FR-017-AC-4 | For the same current requirement, a valid deep trace yields `deep` coverage regardless of whether a valid shallow trace appears before or after it. | Test (TC-017) |
+| FR-017-AC-5 | Every repeated artifact ID produces exactly one `orphaned`/`duplicate_artifact` artifact row and contributes no coverage, including when its first occurrence would otherwise be valid. | Test (TC-017) |
+| FR-017-AC-6 | For every artifact ID occurring more than once, exactly one `duplicate_artifact_trace` diagnostic is emitted per occurrence after the first; all coverage diagnostics retain authored trace order, including when duplicate and reference errors are interleaved. | Test (TC-017) |
 
 ## Dependencies
 

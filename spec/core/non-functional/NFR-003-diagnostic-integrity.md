@@ -26,6 +26,7 @@ coverage classification, and the conformance runner.
 |---|---|---|---|
 | Public panic paths for untrusted input | 0 | Any path fails | Negative corpus plus panic-free API review |
 | Failure classes with stable code | 100% | Any unnamed class fails | Diagnostic registry/corpus reconciliation |
+| Coverage diagnostic locus accuracy | 100% | Any coverage reference error without its exact target-reference span, or any later duplicate-ID error without its exact occurrence source span, fails | unit-testing |
 | Orphans counted as covered | 0 | Any false coverage fails | Orphan fixture assertions |
 
 ## Acceptance Criteria
@@ -34,6 +35,7 @@ coverage classification, and the conformance runner.
 |---|---|---|
 | NFR-003-AC-1 | Every declared invalid-input class returns a stable diagnostic code and no public panic. | Test (TC-019) |
 | NFR-003-AC-2 | No malformed, unsupported, stale, undefined, or orphaned input contributes successful canonical identity or covered status. | Test (TC-019) |
+| NFR-003-AC-3 | Given artifact traces whose source and target-reference spans differ, each cross-package, missing-requirement, and stale-revision diagnostic retains the exact target-reference span of its trace; each `duplicate_artifact_trace` diagnostic retains the exact source span of the later duplicate occurrence. | Test (TC-017) |
 
 ## Verification
 

@@ -18,24 +18,25 @@ dependency versions are fixed.
 
 ## Scope
 
-The public Rust library, JSON interface, corpus runner, and golden fixtures.
+The public Rust library, JSON interface, and conformance corpus.
 
 ## Measurement and Evaluation
 
 | Metric | Target | Threshold | Method |
 |---|---|---|---|
 | Cross-run byte equality | 100% | Any mismatch fails: repeat the complete corpus twice and compare the two outputs byte for byte | metamorphic-testing |
-| Cross-platform golden digest equality | 100% | Any mismatch fails: compare Linux, macOS, and Windows corpus outputs against the checked-in golden digests when CI is enabled | golden-approval-testing |
-| Diagnostic order equality | 100% | Any reorder fails: compare the ordered diagnostic code/path tuples against the checked-in golden outputs | golden-approval-testing |
+| Cross-platform canonical byte equality | 100% | Any mismatch fails: compare canonical bytes produced from the same fixed corpus inputs and profiles on Linux, macOS, and Windows when cross-platform CI is enabled | metamorphic-testing |
+| Ordered diagnostic code/path tuple equality | 100% | Any difference fails: compare the complete ordered sequence of diagnostic `(code, path)` tuples from the same fixed inputs and profiles across repeated runs and supported operating systems | metamorphic-testing |
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |---|---|---|
 | NFR-001-AC-1 | Two complete corpus runs over fixed inputs and profiles produce byte-identical results. | Test (TC-019) |
-| NFR-001-AC-2 | Linux, macOS, and Windows produce identical declared golden digests when cross-platform CI is later enabled. | Test (TC-019) |
+| NFR-001-AC-2 | For each fixed corpus input and profile, Linux, macOS, and Windows produce byte-identical canonical output when cross-platform CI is enabled; compare the canonical bytes directly. | Test (TC-019) |
+| NFR-001-AC-3 | For each fixed invalid corpus input and profile, repeated runs and supported operating systems produce exactly the same complete ordered sequence of diagnostic `(code, path)` tuples. | Test (TC-019) |
 
 ## Verification
 
-Golden fixtures, seeded repetition, and canonicalization property tests (TC-017,
-TC-019).
+Direct output comparison, seeded repetition, and canonicalization property tests
+(TC-017, TC-019).
