@@ -13,7 +13,9 @@ use super::{
     CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
     ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{decoder_pointer, node_pointer, ValidationFailure};
+use crate::checked_package::common::{
+    decoder_pointer, locate_closed_value_failure, node_pointer, ValidationFailure,
+};
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -154,31 +156,34 @@ where
 /// from a buffer it does not track. Decodes the variant the preimage's own
 /// `version` selects, with the tag removed, and then the internally tagged
 /// `owner` the same way, so the pointer names the member at fault. `at` is
-/// the preimage's pointer and `preimage` its value.
+/// the preimage's pointer and `preimage` its value. The boolean records a
+/// rejected unknown member rather than interpreting Serde's error text.
 pub(in crate::checked_package) fn locate_preimage_failure(
     at: JsonPointer,
     preimage: &Value,
-) -> JsonPointer {
+) -> (JsonPointer, bool) {
     let Some(object) = preimage.as_object() else {
-        return at;
+        return (at, false);
     };
     let version = match object.get("version") {
         Some(Value::String(version)) => version.as_str(),
-        Some(_) => return at.key("version"),
-        None => return at,
+        Some(_) => return (at.key("version"), false),
+        None => return (at, false),
     };
     let mut members = object.clone();
     members.remove("version");
     let members = Value::Object(members);
     let failure = match version {
-        "quire.enum-declaration-node/v1" => decode_failure::<EnumDeclarationPreimage>(&members),
-        "quire.enum-member-node/v1" => decode_failure::<EnumMemberPreimage>(&members),
-        "quire.dimension-node/v1" => decode_failure::<DimensionPreimage>(&members),
-        "quire.unit-node/v1" => decode_failure::<UnitPreimage>(&members),
-        _ => return at.key("version"),
+        "quire.enum-declaration-node/v1" => {
+            locate_closed_value_failure::<EnumDeclarationPreimage>(&members)
+        }
+        "quire.enum-member-node/v1" => locate_closed_value_failure::<EnumMemberPreimage>(&members),
+        "quire.dimension-node/v1" => locate_closed_value_failure::<DimensionPreimage>(&members),
+        "quire.unit-node/v1" => locate_closed_value_failure::<UnitPreimage>(&members),
+        _ => return (at.key("version"), false),
     };
-    let Some(path) = failure else {
-        return at;
+    let Some((path, unknown_member)) = failure else {
+        return (at, false);
     };
     let located = decoder_pointer(at.clone(), &path);
     if located == at.clone().key("owner") {
@@ -186,39 +191,31 @@ pub(in crate::checked_package) fn locate_preimage_failure(
             return locate_owner_failure(located, owner);
         }
     }
-    located
-}
-
-fn decode_failure<T: serde::de::DeserializeOwned>(
-    value: &Value,
-) -> Option<serde_path_to_error::Path> {
-    serde_path_to_error::deserialize::<_, T>(value)
-        .err()
-        .map(|error| error.path().clone())
+    (located, unknown_member)
 }
 
 /// Locates a decode failure inside an internally tagged [`NominalOwner`] at
 /// `at`, checking members in the order the decoder reads them: the first
 /// member outside the `kind`'s closed set or not a string, else the owner
 /// itself for a missing member.
-fn locate_owner_failure(at: JsonPointer, owner: &Value) -> JsonPointer {
+fn locate_owner_failure(at: JsonPointer, owner: &Value) -> (JsonPointer, bool) {
     let Some(object) = owner.as_object() else {
-        return at;
+        return (at, false);
     };
     let members: &[&str] = match object.get("kind") {
         Some(Value::String(kind)) if kind == "source" || kind == "definition" => {
             &["kind", "authority", "identity"]
         }
         Some(Value::String(kind)) if kind == "model" => &["kind", "identity", "node"],
-        Some(_) => return at.key("kind"),
-        None => return at,
+        Some(_) => return (at.key("kind"), false),
+        None => return (at, false),
     };
     match object
         .iter()
         .find(|(key, value)| !members.contains(&key.as_str()) || !value.is_string())
     {
-        Some((key, _)) => at.key(key),
-        None => at,
+        Some((key, _)) => (at.key(key), !members.contains(&key.as_str())),
+        None => (at, false),
     }
 }
 

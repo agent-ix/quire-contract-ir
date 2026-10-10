@@ -355,6 +355,16 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             ),
         ),
         (
+            "occurrence role spelled like a decoder message",
+            Box::new(|v| {
+                v["semantic_graph"]["nodes"][0]["occurrences"][0]["role"] = json!("unknown field")
+            }),
+            refusal(
+                CheckedPackageRefusalCode::MalformedWire,
+                "/semantic_graph/nodes/0/occurrences/0/role",
+            ),
+        ),
+        (
             "missing member",
             Box::new(|v| {
                 v["diagnostics"]

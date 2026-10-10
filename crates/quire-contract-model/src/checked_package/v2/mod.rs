@@ -650,10 +650,13 @@ fn locate_in_preimage_with(
                 // refuses (a missing member, a value of the wrong kind) is an
                 // invalid graph node, as QSpec's nominal mutations fix; an
                 // unknown member keeps its own code.
-                if refusal.code == CheckedPackageRefusalCode::MalformedWire {
+                let (located, unknown_member) = identity::locate_preimage_failure(path, &preimage);
+                if unknown_member {
+                    refusal.code = CheckedPackageRefusalCode::UnknownMember;
+                } else if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                     refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
                 }
-                identity::locate_preimage_failure(path, &preimage)
+                located
             } else {
                 path
             }
