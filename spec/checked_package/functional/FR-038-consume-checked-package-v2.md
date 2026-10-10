@@ -98,7 +98,7 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   implemented at the private intake return and checked by crate-local tests,
   not part of this public output.
   A `stale_dependency` refusal with cause `content-mismatch` or
-  `byte-digest-mismatch` also carries the two digests it compares, as
+  `byte-digest-mismatch` also carries the two typed digest identities it compares, as
   `expected` and `actual` ("Digest mismatches: content and byte").
 - One lowering record per requested item, drawn from a closed seven-member
   vocabulary: `lowered`, `unsupported`, `requires_bound`, `invalid_input`,
@@ -1377,32 +1377,40 @@ dependency package the evidence does not supply, already refuses
 pointer names the member of the package that requests it, and the requested
 digest record is the row that member belongs to (FR-038-AC-27, AC-37).
 
-Both mismatches carry the two values they compare, as `expected` and
-`actual` on the refusal: each a lowercase 64-character hexadecimal SHA-256
-string, both present or both absent, absent on every other refusal.
-`content-mismatch` carries `expected`, the digest the package selected or
-pinned (the row's `digest`, the entry's `package_id.digest`), and `actual`,
-the recomputed one (the document's RFC 8785 SHA-256, the supplied package's
-`package_id.digest`). `byte-digest-mismatch` carries `expected`, the row's
-`digest`, and `actual`, the plain SHA-256 of the supplied bytes. The digest
-domain of each value follows from the refusal's code, cause and path
-(`sha256-jcs` for a model document row, `quire.package.semantic/v2` for a
-dependency entry) and is not carried, as the row's domain is checked before
-any document is read and an entry's `package_id` shape is fixed (FR-038-AC-32).
+Both mismatches carry `expected` and `actual` as `CheckedSemanticId` values:
+each has its own domain, the `sha256` algorithm and a lowercase 64-character
+hexadecimal digest. Both are present or both absent; every other refusal has
+neither. For a readable selected model document, `content-mismatch` carries
+the row's selected `sha256-jcs` digest as `expected` and the document's
+recomputed RFC 8785 `sha256-jcs` digest as `actual`. For a dependency package,
+`content-mismatch` carries the entry's complete
+`quire.package.semantic/v2` `package_id` as `expected` and the admitted
+package's complete recomputed `package_id` as `actual`. For unreadable model
+bytes, `byte-digest-mismatch` carries the row's selected `sha256-jcs` digest
+as `expected` and the plain SHA-256 of the supplied bytes under
+`raw-artifact-digest` as `actual`. QSL FR-056's raw-byte digest comparison
+chooses which *refusal* follows a failed read; even equal digest bytes do not
+make the raw identity a `sha256-jcs` identity, admit a declaration or erase
+the domain difference. Two typed identities with equal algorithm and digest
+but different domains compare unequal (QSpec FR-201), including that
+`sha256-jcs`/`raw-artifact-digest` pair.
 
-The two values live in two new members of `CheckedPackageRefusal`, `expected`
-and `actual`, beside `document_pointer`, which is the precedent: a
-cause-specific payload that is neither the code, the location nor the node.
-They are not in the cause, because the cause is the closed tag FR-322's
-`DiagnosticCausePairing` pairs with a code, a `Copy` value every caller
-compares by equality, and a payload on two of its members would turn each of
-those comparisons into a pattern match; QSpec's canonical cause payload
-contract names the same two values `expected` and `actual` beside the tag, so
-the members mirror its flat shape. They are not in the pointer, because a
-pointer locates a value in the package document and neither digest is
-recoverable from it: the recomputed digest is not in the document, and
-`document_pointer` already is the one second pointer, into the supplied
-document. The cause gains the member `content-mismatch`.
+`CheckedPackageRefusal` gains two public `Option<CheckedSemanticId>` members,
+`expected` and `actual`, beside `document_pointer`; the latter is a location
+inside a supplied document, whereas the two new members are identities and
+neither can be recovered from the package pointer. The existing
+`CheckedPackageRefusalCause` remains a `Copy` tag and gains `ContentMismatch`.
+This is an IR public-layout choice, not QSpec's cause representation: QSpec
+FR-272's cause identity is the tuple (`code`, cause tag, required payload).
+For either mismatch, its required payload is the ordered pair of complete
+`expected` and `actual` identities. A consumer projecting an IR refusal into
+that QSpec cause key SHALL include the pair and compare each identity's
+domain, algorithm and digest; comparing the `cause` tag alone compares only
+tags. Two mismatch refusals with the same code and tag but different pairs
+have different cause keys. The whole `CheckedPackageRefusal` value retains
+its derived componentwise equality, including the pair and its location;
+location is not part of the QSpec cause key. A missing member of the required
+pair is not a valid mismatch refusal and is never defaulted.
 
 This is a break in the crate's public API and behaviour, with no
 compatibility layer: `CheckedPackageRefusal` gains two public members (an
@@ -4056,10 +4064,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-213 | PLANNED/UNRUN (IR-484). `quire.op.quantity.convert` over a declared-unit quantity and a selected quantity `type_argument` admits mode `{kind: rounding, value: exact}`; `toward-zero` on otherwise identical operands and result refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`, even though the unit type has no explicit rounding binding. The result type alone pins this conversion to the declared-unit default `exact`. The same mode check applies to `quire.op.collection.sum.quantity` when its quantity binder and member are valid. | Test (TC-048) |
 | FR-038-AC-214 | PLANNED/UNRUN (IR-575). The production `CheckedPackageV2::read` path directly decodes the closed wire into the typed package without ever constructing a full-document `serde_json::Value` tree or allocating a second full-document canonical byte buffer; `Value` terms inside the typed wire remain permitted. Source inspection and the real-reader adverse corpus confirm unchanged duplicate-member, noncanonical-byte, unknown-member and first-refusal code/pointer outcomes, unchanged identity and source-map content, and the same public typed result. In three fresh Linux x86_64 reader processes built with the repository's debug `cargo test --locked --test` profile and Rust's default System allocator, using this repository's canonical 100000-reference-chain fixture prebuilt by a separate generator process, `CheckedPackageV2::read` admits the full package under nonbinding limits and uses at most 1.50 GiB (1572864 KiB) additional peak resident memory during the call. Each reader loads input bytes and prepares evidence before recording baseline VmRSS and VmHWM. A run whose pre-read VmHWM differs from pre-read VmRSS is invalid setup and must be recorded and retried in a fresh process, never counted as passing. For each valid run, sample VmRSS during `read`, record VmHWM immediately after return while retaining the admitted package, and compute additional peak as `max(sampled peak VmRSS, post-read VmHWM) - pre-read VmRSS`. Fixture generation, lowering and runtime startup lie outside the interval. Every valid run records input size, admitted node count, baseline/peak/post RSS and HWM, elapsed read time, compiler version, allocator and platform; an over-ceiling run fails. The existing AC-117 admission and stack obligations remain. | Test, Inspection |
 
-| FR-038-AC-215 | A selected model document that reads as strict JSON, supplied under its row's `digest`, then edited in one member value so that its RFC 8785 SHA-256 is another digest, refuses `stale_dependency`/`content-mismatch` at `/lock/model_selections/0/digest` with `expected` equal to the row's `digest` and `actual` equal to the edited document's RFC 8785 SHA-256 (an expected digest written out in the test, not recomputed by the reader's own digest function), before its identity is compared and before any declaration is read, and never `byte-digest-mismatch`; the unedited document admits, and a whitespace-respelled copy of it, read under the digest of its RFC 8785 form, admits; a parseable document selected under the plain SHA-256 of its raw bytes, where that differs from its RFC 8785 SHA-256, refuses `content-mismatch` and not `wrong-model-selection`; and a document holding a number FR-038-AC-93 or FR-038-AC-109 refuses `noncanonical_wire` ahead of the digest comparison. | Test (TC-048) |
-| FR-038-AC-216 | Bytes of a selected model document that `quire_canonical::read` refuses (a truncated array, invalid UTF-8, `{"a":1,"a":2}`, a lone surrogate escape), supplied under a row `digest` that is not their plain SHA-256, refuse `stale_dependency`/`byte-digest-mismatch` at `/lock/model_selections/0/digest` with `expected` equal to the row's `digest` and `actual` equal to the plain SHA-256 of the supplied bytes; the same bytes supplied under the row whose `digest` is their plain SHA-256 refuse `invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity` with neither `expected` nor `actual`, admit no declaration and read no identity from the bytes; the outcomes of FR-038-AC-93, AC-109 and AC-110 for a number past the double range, and of FR-038-AC-26 for the byte limit, are unchanged by the raw digest. | Test (TC-048) |
-| FR-038-AC-217 | A `dependency_selections` entry whose supplied admitted package recomputes to another `package_id` than the entry's refuses `stale_dependency`/`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` with `expected` equal to the entry's `package_id.digest` and `actual` equal to the supplied package's own `package_id.digest`, and never `byte-digest-mismatch`; the entry with no package supplied refuses `missing_import`/`missing-selection` at `/lock/dependency_selections/0` with neither `expected` nor `actual`; and the entry whose supplied package has its `package_id` admits. | Test (TC-048) |
-| FR-038-AC-218 | `expected` and `actual` of a refusal are both absent or both a lowercase 64-character hexadecimal string, and are present exactly when the cause is `content-mismatch` or `byte-digest-mismatch`: a `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither, and the cause `content-mismatch` is a member of `CheckedPackageRefusalCause` paired only with `stale_dependency`. | Test (TC-048) |
+| FR-038-AC-215 | A selected model document that reads as strict JSON, supplied under its row's `digest`, then edited in one member value so that its RFC 8785 SHA-256 changes, refuses `stale_dependency`/`content-mismatch` at `/lock/model_selections/0/digest` with `expected` equal to `{domain: "sha256-jcs", algorithm: "sha256", digest: <row digest>}` and `actual` equal to the edited document's RFC 8785 identity under that same domain and algorithm (the expected digest bytes are written out in the test, not recomputed by the reader's digest function), before identity or declaration checks and never as `byte-digest-mismatch`; the unedited document and a whitespace-respelled copy under their RFC 8785 digest admit; a parseable document selected under the plain SHA-256 of its raw bytes when that differs from its RFC 8785 SHA-256 refuses `content-mismatch`, not `wrong-model-selection`; a document holding a number FR-038-AC-93 or FR-038-AC-109 refuses `noncanonical_wire` first. | Test (TC-048) |
+| FR-038-AC-216 | Bytes of a selected model document that `quire_canonical::read` refuses (a truncated array, invalid UTF-8, `{"a":1,"a":2}`, a lone surrogate escape), supplied under a row `digest` other than their plain SHA-256, refuse `stale_dependency`/`byte-digest-mismatch` at `/lock/model_selections/0/digest` with `expected` `{domain: "sha256-jcs", algorithm: "sha256", digest: <row digest>}` and `actual` `{domain: "raw-artifact-digest", algorithm: "sha256", digest: <plain SHA-256 of supplied bytes>}`; the same bytes supplied under the row whose digest bytes equal their plain SHA-256 refuse `invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity` with neither payload, admit no declaration and read no identity from the bytes. Equal digest bytes in those different domains remain unequal typed identities. The outcomes of FR-038-AC-93, AC-109 and AC-110 for a number past the double range and of FR-038-AC-26 for the byte limit are unchanged by the raw digest. | Test (TC-048) |
+| FR-038-AC-217 | A `dependency_selections` entry whose supplied admitted package recomputes to another `package_id` than the entry's refuses `stale_dependency`/`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` with `expected` equal to the entry's complete `CheckedSemanticId` (`quire.package.semantic/v2`, `sha256`, its digest) and `actual` equal to the supplied package's complete recomputed `package_id`, and never `byte-digest-mismatch`; no package supplied refuses `missing_import`/`missing-selection` at `/lock/dependency_selections/0` with neither payload, and a supplied package with the selected `package_id` admits. | Test (TC-048) |
+| FR-038-AC-218 | The `expected` and `actual` members of `CheckedPackageRefusal` are either both absent or both complete `CheckedSemanticId` values with exact domain, `sha256` algorithm and lowercase 64-character hexadecimal digest, and are present exactly for `stale_dependency`/`content-mismatch` and `stale_dependency`/`byte-digest-mismatch`. A `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither. `ContentMismatch` is paired only with `StaleDependency`; two mismatch refusals with the same code and cause tag but different expected/actual identities have different QSpec FR-272 cause keys, while changing only path leaves that cause key unchanged. Typed identities with equal algorithm and digest but different `sha256-jcs` and `raw-artifact-digest` domains compare unequal. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

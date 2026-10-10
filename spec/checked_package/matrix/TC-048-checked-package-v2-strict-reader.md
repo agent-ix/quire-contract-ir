@@ -1554,6 +1554,7 @@ does not pass.
    meaningful with the original reader-returned `locus`: code, path, cause and
    locus remain publicly mutable, and changing them on a clone cannot make
    the retained private key an authenticated substitution instruction.
+
 ## Content and byte digest mismatches (FR-038-AC-215 through FR-038-AC-218)
 
 Read a self-built package whose one `model_selections` row selects a self-built
@@ -1566,20 +1567,28 @@ under their plain SHA-256. Supply a document holding a number AC-93 refuses, and
 one past the byte limit. Read a package whose one `dependency_selections` entry
 selects a self-built dependency, supplying a dependency package with another
 `package_id`, none, and the matching one. Compare `code`, `cause`, `path`,
-`expected`, `actual` and `document_pointer` of every refusal, and the cause set of
-`CheckedPackageRefusalCause`.
+`expected`, `actual` and `document_pointer` of every refusal, including each
+identity's domain, algorithm and digest, and the cause set of
+`CheckedPackageRefusalCause`. Compare the QSpec FR-272 cause-key projection
+(`code`, tag, ordered expected/actual pair) separately from whole-refusal equality:
+two mismatch refusals with one tag and distinct pairs have distinct cause keys,
+changing only path does not change that key, and two typed identities with
+equal SHA-256 bytes under `sha256-jcs` and `raw-artifact-digest` compare unequal.
 
 Expected: the edited document refuses `stale_dependency`/`content-mismatch` at
-`/lock/model_selections/0/digest` carrying the row's digest and the written-out
-digest of the edited document; the unedited and respelled documents admit; the
+`/lock/model_selections/0/digest` carrying the row's selected and the
+written-out edited-document RFC 8785 digests, both under `sha256-jcs`/`sha256`;
+the unedited and respelled documents admit; the
 raw-digest selection of a parseable document whose raw and RFC 8785 digests differ
 refuses `content-mismatch`; each unreadable input under another digest refuses
-`byte-digest-mismatch` at that `digest` carrying the row's digest and the plain
-SHA-256 of the bytes, and under its own plain SHA-256 refuses
+`byte-digest-mismatch` at that `digest` carrying the selected
+`sha256-jcs` identity and the bytes' `raw-artifact-digest` identity, and under
+its own plain SHA-256 refuses
 `invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity`
 with no `expected` or `actual`; the AC-93 number refuses `noncanonical_wire` and the
 oversize document `incomplete` as before; the other dependency package refuses
 `content-mismatch` at `/lock/dependency_selections/0/package_id/digest` carrying the
-entry's digest and the supplied package's, none refuses `missing_import`/
+entry's and supplied package's complete `quire.package.semantic/v2` identities;
+none refuses `missing_import`/
 `missing-selection` at the entry, and the matching one admits; and no other refusal
 carries `expected` or `actual`.
