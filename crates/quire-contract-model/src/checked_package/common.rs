@@ -15,7 +15,7 @@ use super::shared::{
 use super::terms::{subterms, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, PACKAGE_DOMAIN_V2};
 use quire_walk::{walk, Children, Walk};
-use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
@@ -261,8 +261,8 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
         .index(position)
 }
 
-/// Measures, parses and canonicalizes untrusted bytes, then hands the value
-/// to `admit`.
+/// Test control for the former full-document parser. The production V2 reader
+/// uses [`read_typed_prefix`] and borrowed closed-schema decoding.
 ///
 /// Order, as FR-322 states it: byte limit, strict syntax and member
 /// validation, canonical bytes. There is no depth limit (FR-038-AC-117).
@@ -273,6 +273,7 @@ pub(super) fn node_pointer(position: usize) -> JsonPointer {
 /// document as `malformed_wire` with no pointer before it recurses deeper, so
 /// the parse never needs more stack than 128 levels. The closed body grammar
 /// ("The flat wire") fixes the depth of every in-grammar package at far less.
+#[cfg(test)]
 pub(super) fn read_value<T>(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -298,6 +299,7 @@ pub(super) fn read_value<T>(
 /// check does not recurse over it. A document whose bytes differ, and one
 /// `quire-canonical` refuses to encode (an integer past 2^53, a canonical text
 /// past the ceiling) refuse `noncanonical_wire`, with no pointer.
+#[cfg(test)]
 fn require_canonical_bytes(
     bytes: &[u8],
     value: &Value,
@@ -527,17 +529,9 @@ pub(super) fn canonical_value(
     read_value(bytes, limits, Ok)
 }
 
-/// Decodes a closed wire value, classifying closed-schema member violations
-/// and locating each at the position the decoder had reached: an unknown
-/// member at that member, a missing member at the object lacking it, and a
-/// wrongly typed value at that value.
-pub(super) fn decode_closed<T: DeserializeOwned>(value: &Value) -> Result<T, ValidationFailure> {
-    serde_path_to_error::deserialize::<_, T>(value).map_err(classify_closed_error)
-}
-
 /// Decode a closed package straight from its validated bytes. This uses the
-/// same error classification and pointer mapping as [`decode_closed`], without
-/// first materializing the complete package as a `Value`.
+/// established error classification and pointer mapping, without first
+/// materializing the complete package as a `Value`.
 pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
     bytes: &'de [u8],
 ) -> Result<T, ValidationFailure> {
@@ -1257,6 +1251,7 @@ impl Open {
 /// Scalars and member names are read by serde_json itself, so their grammar is
 /// exactly the parser's. No value is built. Trailing bytes are left for the
 /// canonical-bytes comparison to refuse.
+#[cfg(test)]
 fn strict_shape(input: &[u8]) -> Result<(), ValidationFailure> {
     strict_shape_depth(input).map(|_| ())
 }
