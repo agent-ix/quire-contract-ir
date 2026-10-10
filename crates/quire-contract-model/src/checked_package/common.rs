@@ -542,7 +542,17 @@ pub(super) fn decode_closed_bytes<T: DeserializeOwned>(
     bytes: &[u8],
 ) -> Result<T, ValidationFailure> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    serde_path_to_error::deserialize::<_, T>(&mut deserializer).map_err(classify_closed_error)
+    match T::deserialize(&mut deserializer) {
+        Ok(decoded) => Ok(decoded),
+        Err(_) => {
+            // The traced wrapper adds a native frame per nested value. Use it
+            // only after a failed closed decode, to locate the offending
+            // shallow wire member without charging a valid deep term's stack.
+            let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+            serde_path_to_error::deserialize::<_, T>(&mut deserializer)
+                .map_err(classify_closed_error)
+        }
+    }
 }
 
 fn classify_closed_error<E: fmt::Display>(
