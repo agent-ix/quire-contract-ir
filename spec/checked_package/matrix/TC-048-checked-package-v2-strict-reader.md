@@ -1087,6 +1087,37 @@ limit, at the first value outside the body grammar, with no stack overflow; and 
 `body_grammar_mutations` refuses `malformed_wire` with the expected-failure list
 empty of them.
 
+## Reader peak memory (FR-038-AC-214)
+
+PLANNED/UNRUN for IR-575. In a separate fixture-generator process, build the
+same in-repo canonical 100000-node reference chain as AC-117 and save its bytes
+in an owned temporary file. In each of three fresh Linux x86_64 reader
+processes, load those bytes and prepare the selected-model evidence before
+taking baseline VmRSS and VmHWM. Build the reader process with the repository's
+debug `cargo test --locked --test` profile and Rust's default System allocator.
+Start a 2 ms VmRSS sampler, call only `CheckedPackageV2::read` with limits that
+do not decide the outcome, stop the sampler on return and read VmHWM before
+dropping the admitted package. Record the input byte count, admitted node count,
+pre-call RSS/HWM, sampled peak, post-call RSS/HWM, read time, Linux platform,
+compiler version and allocator. For each process, compute additional peak
+resident memory as the larger of sampled RSS minus pre-call RSS and post-call
+HWM minus pre-call HWM. Fixture generation, process startup, evidence
+construction and lowering are outside the read interval.
+
+Inspect the production read path for direct typed decode and the absence of a
+full-document `serde_json::Value` tree or duplicate full-document canonical
+byte buffer; `Value` terms inside typed wire nodes are allowed. Run the
+existing real-reader adverse tests for duplicate members, noncanonical bytes,
+unknown members, refusal precedence and pointers, identities and source-map
+content, and compare their exact existing assertions. Keep AC-117's separate
+256 KiB-stack admission and lowering test for this same chain.
+
+Expected: all three calls admit the full package; each additional peak is at
+most 1.50 GiB (1572864 KiB). Direct decoding preserves the named refusal,
+canonicality, identity, source-map and typed-result behavior. An allocation
+from input/evidence or lowering cannot be counted as reader use, and the
+post-read VmHWM catches a transient peak missed by the sampler.
+
 ## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
 
 Implemented (IR-551). Bounds are written `{numerator, denominator}` as `{n, d}`.
