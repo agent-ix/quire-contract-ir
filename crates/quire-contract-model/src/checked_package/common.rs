@@ -1198,6 +1198,30 @@ fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
     finish(parsed, duplicate)
 }
 
+/// Decode one arbitrary term with the same shallow-stack visitor used by the
+/// strict package parse. The preceding strict scan has already located any
+/// duplicate member; this preserves its number semantics while a typed wire
+/// is read directly from the caller's bytes.
+pub(super) fn deserialize_strict_value<'de, D>(deserializer: D) -> Result<Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let duplicate = RefCell::new(None);
+    StrictSeed::root(&duplicate).deserialize(deserializer)
+}
+
+#[derive(Deserialize)]
+struct StrictValue(#[serde(deserialize_with = "deserialize_strict_value")] Value);
+
+/// Decode a diagnostic's terms with the same visitor, one at a time.
+pub(super) fn deserialize_strict_values<'de, D>(deserializer: D) -> Result<Vec<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Vec::<StrictValue>::deserialize(deserializer)
+        .map(|items| items.into_iter().map(|item| item.0).collect())
+}
+
 /// Maps a finished parse to the reader's outcome. Trailing bytes are left for
 /// the canonical-bytes comparison to refuse.
 fn finish<T>(
