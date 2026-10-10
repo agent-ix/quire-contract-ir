@@ -428,7 +428,9 @@ fn require_canonical_tokens(input: &[u8]) -> Result<(), ValidationFailure> {
                     scalar =
                         number_from_token::<serde_json::Error>(text).map_err(|_| noncanonical())?;
                 }
-                if !canonical_token(&scalar, &input[start..scan.at]) {
+                if holds_float_integer_past_2_pow_53(&scalar)
+                    || !canonical_token(&scalar, &input[start..scan.at])
+                {
                     return Err(noncanonical());
                 }
             }
