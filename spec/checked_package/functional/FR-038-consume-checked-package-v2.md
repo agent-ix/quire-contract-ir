@@ -3299,6 +3299,29 @@ absent rounding spelling, which FR-322 applies to the pin); the reader checks th
   `relation` or `function`, or it is an `expression`/`reference` or a
   `temporal`/`formula`.
 
+  The declared `scalar_type`/`unit` is also a quantity type: a reference to a
+  value typed by that node has family `quantity`. The current closed
+  `literal.value_kind` vocabulary has no quantity member, so a unit-typed
+  literal is not a positive quantity case. An `aggregate` argument has family `aggregate` from its
+  term, without resolving a type node. Neither may become an unchecked
+  argument merely because its family is absent from the old table. The
+  catalog's `same_family` comparison uses the resolved family of each named
+  argument, including a quantity branch of `quire.op.control.if`; the twelve
+  `quire.op.quantity.*` entries use their published operand positions. These
+  are checks of the published operation catalog, not new operations.
+
+  Three emitted shapes need an upstream FR-322 family ruling before this
+  reader claims their admission semantics: QSL FR-094 emits a
+  `scalar_type`/`compound_unit` as a quantity type and a
+  `bounded_domain`/`model_population` over `Set<Reference<T>>`, while FR-322's
+  current family paragraph names `unit` but not `compound_unit`, and its
+  bounded-domain forwarding would classify that population node by its set
+  base. FR-322 also does not say whether `composite_type`/`alias` forwards to
+  its named enum; the present reader stops at the alias. These are not
+  silently classified as `quantity`, `population` or `ordered_enum` by this
+  amendment. The later implementation and its tests shall use the upstream
+  ruling for each shape rather than infer a family from the node name.
+
 ### Operation leaves
 
 For a catalog entry that names a leaf source, QSpec FR-322 has `operation.leaves`
@@ -3938,6 +3961,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-207 | PLANNED/UNRUN (IR-703). Unknown clause, wrong node form, absent claim, unsupported clause kind, missing comparison, unknown or ineligible operator, invalid arity, missing child and malformed operand yield their respective typed refusals in the stated first-defect order. Each carries clause id, claim, structural condition/operand path and reached child id when available, without a claimed unique child source region or partial result; malformed post-admission graph never panics. | Test (TC-445) |
 | FR-038-AC-208 | PLANNED/UNRUN (IR-703). Two clause claim occurrences over one content-addressed comparison produce equal contextual operands apart from the supplied claim. The accessor returns no comparison, project or literal expression occurrence and claims no claim-to-child source-map association; a separate source-map lookup may enumerate regions. | Test (TC-445) |
 | FR-038-AC-209 | PLANNED/UNRUN (IR-703). An external Rust consumer calls the public accessor with &CheckedNodeId and &CheckedOccurrence and exhaustively matches closed operator, provenance, observation, operand identity and refusal types without body JSON. Repeated and cloned calls return equal values and preserve package equality and admission; CG needs no private V2 decoder or new per-use wire member. | Test (TC-445) |
+| FR-038-AC-210 | PLANNED/UNRUN (IR-484). For a valid self-typed declared `unit` node, references to distinct values typed by that node resolve to `quantity`: all twelve catalogued `quire.op.quantity.*` entries resolve each required quantity position and reject a Boolean at the first one, independent of their later result, member and dimension obligations; `quantity.add` and `quantity.eq` with valid same-unit operands also admit end to end. Replacing a required quantity argument by Boolean refuses `ill_typed`/`operator-ineligible` at that argument; placing a declared-unit quantity in the first `integer.add` position also refuses at `arguments/0`, so a missing quantity family cannot turn the rejection into a skip. `quire.op.quantity.pow` refuses a quantity rather than an integer exponent at `arguments/1`. The operation identity and package identity are re-derived after every mutation, and the positive controls admit through the public reader. | Test (TC-048) |
+| FR-038-AC-211 | PLANNED/UNRUN (IR-484). `quire.op.control.if` over a Boolean condition and two values of the same declared-unit quantity type admits, while replacing the second branch with an Integer value refuses `ill_typed`/`operator-ineligible` at `arguments/2` under its `same_family` constraint. A valid `aggregate` in each of the three aggregate positions of `quire.op.temporal.clause` and in the first position of `quire.op.state.clause` fits `aggregate` at the operation step after earlier shape checks. Placing an aggregate in the first `boolean.and` argument refuses `ill_typed`/`operator-ineligible` at `arguments/0`, so a missing aggregate family cannot make the check pass. Replacing the first `state.clause` aggregate by a Boolean reference instead refuses `invalid_semantic_graph` at that node's body during the earlier structural stage, never as an operation-family refusal. Each control supplies the other catalogued arguments, law and member and has a freshly derived identity. | Test (TC-048) |
+| FR-038-AC-212 | PLANNED/UNRUN (IR-484). A body-root or argument literal whose `value_kind` is `integer` and whose `type` names an Integer node admits when the enclosing operation is otherwise valid; retaining that value kind while changing only its declared type to a Boolean node and re-deriving identities refuses `ill_typed`/`operator-ineligible` at the literal's `type`, even if the enclosing operand position accepts either family. An enum literal accepts either `enum` or `ordered_enum` type according to its nominal declaration, and a `none` literal accepts an option type; each mismatched kind/type pair, including an integer literal declared at a unit type, refuses at its own `type`. | Test (TC-048) |
+| FR-038-AC-213 | PLANNED/UNRUN (IR-484). `quire.op.quantity.convert` over a declared-unit quantity and a selected quantity `type_argument` admits mode `{kind: rounding, value: exact}`; `toward-zero` on otherwise identical operands and result refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`, even though the unit type has no explicit rounding binding. The result type alone pins this conversion to the declared-unit default `exact`. The same mode check applies to `quire.op.collection.sum.quantity` when its quantity binder and member are valid. | Test (TC-048) |
 
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every

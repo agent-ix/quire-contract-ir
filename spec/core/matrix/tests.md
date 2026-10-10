@@ -10,8 +10,8 @@ type: TestMatrix
 | Stakeholder Req | Trace to US/FR | Test/Validation | Status |
 |---|---|---|---|
 | StR-001 | FR-011 through FR-015, FR-019, FR-023, FR-028 through FR-040, FR-044, FR-344, FR-346 | TC-015 through TC-018, TC-035, TC-041 through TC-045, TC-047, TC-048, TC-050 through TC-053, TC-055, TC-056, TC-058, TC-222, TC-223, TC-225, TC-226, TC-227, TC-442, TC-443 | 🚧 bounded-Kani profile, firewall and dispatch, the target-neutral output-mapping foundation, complete-V1 ContractPackage lowering, the V2 reader and its frame entries, operation anchors and state clauses are implemented; the typed `Std001Code` (FR-044) is implemented and its use as `KaniOutcome.code` (FR-030-AC-6, TC-443) is partly implemented, its `proved`-with-count-zero error clause being planned with FR-030-AC-4; the proof check count, the `Unavailable` cause split, provider negotiation, the root and model crate interfaces with no root re-export of the model and the FR-344 refusals are planned |
-| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018 | ✅ implemented |
-| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-018, TC-058 | 🚧 implemented except FR-019-AC-5, the model crate's explicit public item list (TC-058, planned; FR-019-AC-6, the artifact-reference member sets, is implemented) |
+| StR-002 | FR-016 through FR-018, FR-020 | TC-017, TC-018, TC-019 | 🚧 existing canonicalization and coverage behavior implemented; FR-017-AC-3 through AC-6 and cross-platform NFR-001 criteria await direct evidence |
+| StR-003 | FR-012, FR-014, FR-015, FR-017 through FR-020 | TC-015, TC-016, TC-017, TC-018, TC-058 | 🚧 existing behavior implemented; FR-017-AC-3 through AC-6 and NFR-003-AC-3 await exact test evidence |
 | StR-004 | FR-045 | TC-446 | 🚧 planned; no derived proof-coverage baseline exists |
 
 ## Functional Requirement Coverage
@@ -27,9 +27,9 @@ type: TestMatrix
 
 | Non-Functional Req | Verification Method | Evidence/Test Cases | Status |
 |---|---|---|---|
-| NFR-001 | repeated golden corpus and cross-platform comparison | TC-017, TC-019 | same-process goldens implemented (TC-017); cross-platform comparison (TC-019) planned |
+| NFR-001 | repeated corpus runs, direct canonical byte comparison for admitted inputs, and ordered diagnostic tuple comparison for rejected inputs | TC-017, TC-019 | 🚧 same-process canonical fixtures exist (TC-017); cross-platform canonical byte equality (AC-2) and ordered diagnostic `(code, path)` equality (AC-3) await direct TC-019 evidence |
 | NFR-002 | vocabulary, schema and API inspection | TC-015, TC-016, TC-019 | AC-3/4 implemented; cross-platform AC-1 planned |
-| NFR-003 | negative corpus, mutation, panic-free, and orphan checks | TC-017 through TC-019 | version and orphan fail-closed checks implemented (TC-017, TC-018); threshold analysis (TC-019) planned |
+| NFR-003 | negative corpus, mutation, panic-free, orphan, and exact-span checks | TC-017 through TC-019 | 🚧 version and orphan fail-closed checks implemented (TC-017, TC-018); exact source/target span checks (AC-3) and threshold analysis (TC-019) planned |
 
 ## Diagnostic Registry Coverage
 
@@ -44,4 +44,4 @@ type: TestMatrix
 | TC-015 | Package, revision, anchor, clause, dependency, and diagnostic identities conform | Integration | P0 | FR-011, FR-012, NFR-002, STD-001 | ✅ implemented |
 | TC-442 | `Std001Code` is built only by validation, a checked literal, a registered constant or a `DiagnosticCode`, serializes as the bare string and spells every registered code once | Unit | P0 | FR-044 | ✅ implemented |
 | TC-446 | Proof-coverage baseline retains the population and qualifies evidence | Integration | P0 | FR-045 | 🚧 planned; no executable test |
-| TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: cross-platform determinism, portability and fail-closed threshold analysis has no executable test |
+| TC-019 | Determinism, portability, and fail-closed metrics meet thresholds | Analysis | P0 | NFR-001..NFR-003 | 🚧 planned: direct admitted-input canonical byte comparison, rejected-input ordered diagnostic tuple comparison, portability and fail-closed threshold analysis have no executable test |
