@@ -211,6 +211,10 @@ pub(super) fn check_lossless_source(
         &["identity_preimage", "identity_projection"],
     )?;
     let source_map = raw_array(root.get("source_map").copied(), &["source_map"])?;
+    let diagnostic_entries = raw_array(
+        raw_member(root.get("diagnostics").copied(), "entries"),
+        &["diagnostics", "entries"],
+    )?;
 
     let mut original = serde_json::Map::new();
     for (key, raw) in &root {
@@ -218,6 +222,7 @@ pub(super) fn check_lossless_source(
             "semantic_graph" => reduced_object(raw, "nodes")?,
             "identity_preimage" => reduced_object(raw, "identity_projection")?,
             "source_map" => Value::Array(Vec::new()),
+            "diagnostics" => reduced_object(raw, "entries")?,
             _ => serde_json::from_str(raw.get()).map_err(|_| malformed(JsonPointer::root()))?,
         };
         original.insert(key.clone(), value);
@@ -226,6 +231,7 @@ pub(super) fn check_lossless_source(
     let mut typed_nodes = std::mem::take(&mut wire.semantic_graph.nodes);
     let mut typed_projection = std::mem::take(&mut wire.identity_preimage.identity_projection);
     let typed_source_map = std::mem::take(&mut wire.source_map);
+    let mut typed_diagnostics = std::mem::take(&mut wire.diagnostics.entries);
     let outcome = (|| {
         let rest = serde_json::to_value(&*wire).map_err(|_| malformed(JsonPointer::root()))?;
         let original = Value::Object(original);
@@ -242,11 +248,17 @@ pub(super) fn check_lossless_source(
             &mut typed_projection,
         )?;
         compare_bodies(&["semantic_graph", "nodes"], &nodes, &mut typed_nodes)?;
-        compare_raw_items(&["source_map"], &source_map, &typed_source_map)
+        compare_raw_items(&["source_map"], &source_map, &typed_source_map)?;
+        compare_details(
+            &["diagnostics", "entries"],
+            &diagnostic_entries,
+            &mut typed_diagnostics,
+        )
     })();
     wire.semantic_graph.nodes = typed_nodes;
     wire.identity_preimage.identity_projection = typed_projection;
     wire.source_map = typed_source_map;
+    wire.diagnostics.entries = typed_diagnostics;
     outcome
 }
 
@@ -339,16 +351,56 @@ fn compare_bodies<T: BodyHolder>(
     }
     for (index, (original, typed)) in originals.iter().zip(typed).enumerate() {
         let at = pointer.clone().index(index);
-        let mut original: Value =
-            serde_json::from_str(original.get()).map_err(|_| malformed(at.clone()))?;
-        if let Some(object) = original.as_object_mut() {
-            if object.contains_key("body") {
-                object.insert("body".to_owned(), Value::Null);
-            }
-        }
+        let original = reduced_object_value(original, "body", Value::Null)?;
         let body = std::mem::take(typed.body_mut());
         let decoded = serde_json::to_value(&*typed);
         *typed.body_mut() = body;
+        let decoded = decoded.map_err(|_| malformed(at.clone()))?;
+        if original != decoded {
+            return Err(malformed(first_difference(at, &original, &decoded)));
+        }
+    }
+    Ok(())
+}
+
+fn reduced_object_value(
+    raw: &RawValue,
+    omitted: &str,
+    replacement: Value,
+) -> Result<Value, ValidationFailure> {
+    let members: BTreeMap<String, &RawValue> =
+        serde_json::from_str(raw.get()).map_err(|_| malformed(JsonPointer::root()))?;
+    let mut value = serde_json::Map::new();
+    for (key, raw) in members {
+        value.insert(
+            key.clone(),
+            if key == omitted {
+                replacement.clone()
+            } else {
+                serde_json::from_str(raw.get()).map_err(|_| malformed(JsonPointer::root()))?
+            },
+        );
+    }
+    Ok(Value::Object(value))
+}
+
+fn compare_details(
+    path: &[&str],
+    originals: &[&RawValue],
+    typed: &mut [super::CheckedDiagnosticV2],
+) -> Result<(), ValidationFailure> {
+    let pointer = path
+        .iter()
+        .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
+    if originals.len() != typed.len() {
+        return Err(malformed(pointer));
+    }
+    for (index, (original, typed)) in originals.iter().zip(typed).enumerate() {
+        let at = pointer.clone().index(index);
+        let original = reduced_object_value(original, "details", Value::Array(Vec::new()))?;
+        let details = std::mem::take(&mut typed.details);
+        let decoded = serde_json::to_value(&*typed);
+        typed.details = details;
         let decoded = decoded.map_err(|_| malformed(at.clone()))?;
         if original != decoded {
             return Err(malformed(first_difference(at, &original, &decoded)));
