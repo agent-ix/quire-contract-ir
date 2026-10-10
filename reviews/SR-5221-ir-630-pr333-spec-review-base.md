@@ -231,3 +231,11 @@ scope:
 ## Evidence and Limits
 
 Frozen base ee116d87774572bb45633a77f2e267bc3bf77396; exactly two documents, 232 additions and 260 deletions. Targeted Quire validation exited 0; 2/2 grammar-clean, zero grammar findings. All new controls remain PLANNED and UNRUN. No Cargo, Kani, builds, runtime probes, full CI or branch edits were performed. Rust-review checklist loaded before prospective algorithm/API examination; formal Rust source lane and production gap-analysis are inapplicable to this spec-only diff. No applicable AssuranceProfile was found. Jev and Filament executables are unavailable; semantic judgments are manual, not solver verdicts. Actual model/native identity is unavailable in the harness. Canonical private upstream content was read locally and not copied or excerpted here.
+
+## Narrow Encoding Confirmation
+
+**PASS** — Reviewed 6dcb7bb39188b7173fc988be514973a8c99b02a5 against parent b2ba7364ea630fafb9071deb176510918dde28a2, only the two added backslashes in FR-038-AC-124. Removing those two Markdown-table pipe escapes yields byte-identical normative text; both regex alternations keep their meaning. No parser code, runtime contract, criterion outcome or evidence status changes. No new finding.
+
+The lead-produced ac124-escaped-advise.json was inspected: AC-124 authored Test, uncatalogued false, inconclusive false, mismatch false; its paired stderr file is empty. This is captured tooling output, not a reviewer runtime or gate run. The original advisor report remains historical evidence of the baseline extraction defect.
+
+The original Findings section and review scope are preserved. SR-5228/FND-001 remains fixed by round 1; this confirmation does not reopen it. All IR-630 runtime controls remain PLANNED and UNRUN. No broad review sweep, builds or runtime/gate runs were performed.
