@@ -220,6 +220,53 @@ const WIDGET: &str = "ix://acme/orders/Widget";
 const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
+/// Trace: FR-038-AC-103
+#[trace("TC-048", "FR-038-AC-103")]
+#[test]
+fn operation_redefinitions_select_the_most_derived_member() {
+    const CHILD: &str = "ix://acme/orders/Child";
+    let mut types = vec![
+        object_type(WIDGET, &[], vec![]),
+        object_type(GADGET, &[WIDGET], vec![]),
+        object_type(CHILD, &[GADGET], vec![]),
+    ];
+    for (position, owner) in [WIDGET, GADGET, CHILD].into_iter().enumerate() {
+        let mut operation = json!({"identity": format!("{owner}/act"), "params": []});
+        if owner != WIDGET {
+            operation["redefines"] = json!(format!("{WIDGET}/act"));
+        }
+        types[position]["operations"] = json!([operation]);
+    }
+    let model = read(&document(types)).expect("operation declarations read");
+    let resolved = resolve(&model, CHILD, MemberKind::Operation, "act")
+        .expect("the most-derived operation is unambiguous");
+    assert_eq!(resolved.identity(), "ix://acme/orders/Child/act");
+}
+
+/// Trace: FR-038-AC-28
+#[trace("TC-048", "FR-038-AC-28")]
+#[test]
+fn operation_redefinitions_refuse_malformed_and_missing_targets() {
+    for (target, parameter, expected) in [
+        (
+            Value::Null,
+            json!({"typeRef": "ix://acme/orders/Absent", "multiplicity": multiplicity(1, Some(1))}),
+            ModelRefusal::malformed(),
+        ),
+        (
+            json!("ix://acme/orders/Absent/act"),
+            json!({"typeRef": "ix://quire/native/Integer", "multiplicity": multiplicity(3, Some(1))}),
+            ModelRefusal::missing_name(),
+        ),
+    ] {
+        let mut declared = object_type(WIDGET, &[], vec![]);
+        declared["operations"] = json!([
+            {"identity": format!("{WIDGET}/act"), "params": [parameter], "redefines": target},
+        ]);
+        assert_eq!(read(&document(vec![declared])).map(|_| ()), Err(expected));
+    }
+}
+
 pub(in crate::checked_package::v2) fn relationship() -> Value {
     json!({
         "identity": LINK,
