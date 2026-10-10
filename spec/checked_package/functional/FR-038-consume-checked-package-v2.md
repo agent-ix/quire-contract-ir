@@ -212,21 +212,26 @@ reader after the strict parse (the body grammar, the term walks, the preimage, t
 closure and dependency walks and the lowering walk) recurses on the call stack at any
 depth: each runs on an explicit heap stack, a term walk in document pre-order on the
 shared `quire-walk` crate's, so a chain of nodes 100000 deep is read and lowered on a
-thread whose stack is 256 KiB. The closed-schema decode does not read a node
-`body`, an identity-projection `body` or a diagnostic `details` term, which can
-nest as deep as the strict parse reads: they are taken out of the document before it
-and put into the decoded wire after it, and the lossless-decode check compares the
-long arrays one element at a time, so a body nested between the grammar and the
-parse's limit (a window of about 90 to 126 JSON levels) refuses at the body grammar on
-a 256 KiB stack in a debug build, and no copy of the whole document is built beside
-it. The recursion over such a value that remains is bounded by the strict parse's
-limit of 128 levels: the parse's own, its drop, and the comparison of an
-identity-projection body (which the body grammar does not check) with its node's body
-when the projection is stale, which compares the `Value`s and serializes them with
-`serde_json::to_value` once per level before the iterative `first_difference` locates
-the member; a stale projection body nested at the parse's limit refuses on a 256 KiB
-stack in a debug build. Every value an admitted package holds nests to a
-depth the grammar fixes, so its clone, comparison, `Debug` rendering, lowering and drop
+thread whose stack is 256 KiB. The closed-schema decoder shall decode the
+document directly into the typed V2 wire. It shall not build or retain a
+full-document `serde_json::Value` tree or allocate a second full-document
+canonical byte buffer. A node `body`, an identity-projection `body` or a
+diagnostic `details` term may remain a `Value` inside the typed wire; its
+recursion stays bounded by the strict parse's limit of 128 levels. A body
+nested between the grammar and the parse's limit (a window of about 90 to
+126 JSON levels) refuses at the body grammar on a 256 KiB stack in a debug
+build; a stale identity-projection body at the parse's limit also refuses on
+that stack. Direct decoding shall retain the same strict syntax and
+duplicate-member refusal, canonical-byte decision, closed-wire losslessness
+and unknown-member refusal, first-refusal precedence and JSON pointers,
+identity checks, source-map content and admitted typed public API. For the
+flat 100000-node chain, the additional reader peak resident memory shall
+meet FR-038-AC-214 under its isolated measurement procedure; fixture
+generation, caller-owned input bytes, selected evidence, lowering and
+runtime startup are outside that measured call.
+
+Every value an admitted package holds nests to a depth the grammar fixes, so its
+clone, comparison, `Debug` rendering, lowering and drop
 need no stack that follows the package's size, and the V2 reader has no `stacker`,
 `serde_stacker` or `on_stack_for`. It shall
 admit only `quire.checked-package/v2`; any other version, or a missing or
@@ -3965,6 +3970,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-211 | PLANNED/UNRUN (IR-484). `quire.op.control.if` over a Boolean condition and two values of the same declared-unit quantity type admits, while replacing the second branch with an Integer value refuses `ill_typed`/`operator-ineligible` at `arguments/2` under its `same_family` constraint. A valid `aggregate` in each of the three aggregate positions of `quire.op.temporal.clause` and in the first position of `quire.op.state.clause` fits `aggregate` at the operation step after earlier shape checks. Placing an aggregate in the first `boolean.and` argument refuses `ill_typed`/`operator-ineligible` at `arguments/0`, so a missing aggregate family cannot make the check pass. Replacing the first `state.clause` aggregate by a Boolean reference instead refuses `invalid_semantic_graph` at that node's body during the earlier structural stage, never as an operation-family refusal. Each control supplies the other catalogued arguments, law and member and has a freshly derived identity. | Test (TC-048) |
 | FR-038-AC-212 | PLANNED/UNRUN (IR-484). A body-root or argument literal whose `value_kind` is `integer` and whose `type` names an Integer node admits when the enclosing operation is otherwise valid; retaining that value kind while changing only its declared type to a Boolean node and re-deriving identities refuses `ill_typed`/`operator-ineligible` at the literal's `type`, even if the enclosing operand position accepts either family. An enum literal accepts either `enum` or `ordered_enum` type according to its nominal declaration, and a `none` literal accepts an option type; each mismatched kind/type pair, including an integer literal declared at a unit type, refuses at its own `type`. | Test (TC-048) |
 | FR-038-AC-213 | PLANNED/UNRUN (IR-484). `quire.op.quantity.convert` over a declared-unit quantity and a selected quantity `type_argument` admits mode `{kind: rounding, value: exact}`; `toward-zero` on otherwise identical operands and result refuses `invalid_package`/`operation-mode-type-mismatch` at `operation.mode/value`, even though the unit type has no explicit rounding binding. The result type alone pins this conversion to the declared-unit default `exact`. The same mode check applies to `quire.op.collection.sum.quantity` when its quantity binder and member are valid. | Test (TC-048) |
+| FR-038-AC-214 | PLANNED/UNRUN (IR-575). The production `CheckedPackageV2::read` path directly decodes the closed wire into the typed package without ever constructing a full-document `serde_json::Value` tree or allocating a second full-document canonical byte buffer; `Value` terms inside the typed wire remain permitted. Source inspection and the real-reader adverse corpus confirm unchanged duplicate-member, noncanonical-byte, unknown-member and first-refusal code/pointer outcomes, unchanged identity and source-map content, and the same public typed result. In three fresh Linux x86_64 reader processes built with the repository's debug `cargo test --locked --test` profile and Rust's default System allocator, using this repository's canonical 100000-reference-chain fixture prebuilt by a separate generator process, `CheckedPackageV2::read` admits the full package under nonbinding limits and uses at most 1.50 GiB (1572864 KiB) additional peak resident memory during the call. Each reader loads input bytes and prepares evidence before recording baseline VmRSS and VmHWM. A run whose pre-read VmHWM differs from pre-read VmRSS is invalid setup and must be recorded and retried in a fresh process, never counted as passing. For each valid run, sample VmRSS during `read`, record VmHWM immediately after return while retaining the admitted package, and compute additional peak as `max(sampled peak VmRSS, post-read VmHWM) - pre-read VmRSS`. Fixture generation, lowering and runtime startup lie outside the interval. Every valid run records input size, admitted node count, baseline/peak/post RSS and HWM, elapsed read time, compiler version, allocator and platform; an over-ceiling run fails. The existing AC-117 admission and stack obligations remain. | Test, Inspection |
 
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
