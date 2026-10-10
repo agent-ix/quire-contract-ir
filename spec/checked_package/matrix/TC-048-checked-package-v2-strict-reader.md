@@ -70,11 +70,12 @@ post-admission mutation of an in-memory graph. Build a self-typed declared
 unit, two values of its type, a Boolean, an Integer, and the selected laws and
 members each operation needs. Exercise the operand check of every `quire.op.quantity.*` identity
 against its published operand list, changing its first quantity operand to
-Boolean; read valid `quantity.add` and `quantity.eq` packages end to end, and
-change `quantity.pow`'s integer exponent to a quantity at the operation step. Compare two quantity branches and then a quantity/Integer branch
+Boolean; read valid `quantity.add` and `quantity.eq` packages end to end,
+then place a declared-unit quantity in `integer.add` argument 0 and change
+`quantity.pow`'s integer exponent to a quantity at the operation step. Compare two quantity branches and then a quantity/Integer branch
 of `control.if`. Supply valid aggregate terms in the catalogued positions of
 `temporal.clause` and `state.clause`, then replace each one separately with a
-Boolean reference. Supply literal `value_kind`/`type` pairs for Integer, enum,
+Boolean reference; also place an aggregate in `boolean.and` argument 0. Supply literal `value_kind`/`type` pairs for Integer, enum,
 ordered enum and option, and pairs whose declared type disagrees with the
 value kind, including a literal in an `any_value` position so the enclosing
 operand check cannot conceal the literal defect. Finally, apply `exact` and
