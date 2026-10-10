@@ -53,7 +53,7 @@ use derived_keys::validate_derived_keys;
 use operations::{validate_application_keys, validate_operations};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::validate_structural_nodes;
-use temporal::{references_refused_node, validate_temporal, validate_timed_bounds_reduced};
+use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
     count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
@@ -1863,7 +1863,15 @@ fn validate_graph(
     let declarations = owners.index();
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(&graph.nodes, &kinds, &index, &owners, meter)?;
-    validate_temporal(&graph.nodes, &kinds, &index, &owners, &wire.lock, meter)?;
+    validate_temporal(
+        &graph.nodes,
+        &kinds,
+        &index,
+        &owners,
+        &wire.lock,
+        &wire.diagnostics.entries,
+        meter,
+    )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, limits.bytes, meter)?;
     validate_operations(
         &graph.nodes,
@@ -2165,26 +2173,6 @@ fn validate_diagnostics(
         .iter()
         .map(|node| &node.node_id)
         .collect::<BTreeSet<_>>();
-    // The nodes a `details` term may not reference: a formula, a fairness node
-    // and a `case` node (merged FR-370-AC-12; a union or union value node is an
-    // ordinary reference).
-    let never_referenced = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .filter(|node| {
-            CheckedNodeTag::from_wire(&node.node_tag)
-                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-                .is_some_and(|kind| {
-                    matches!(
-                        kind,
-                        CheckedNodeKind::Temporal(TemporalForm::Formula | TemporalForm::Fairness)
-                            | CheckedNodeKind::Expression(ExpressionForm::Case)
-                    )
-                })
-        })
-        .map(|node| &node.node_id)
-        .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
             let detail_steps = [
@@ -2208,16 +2196,6 @@ fn validate_diagnostics(
                 },
             )?;
             meter.charge(work, || detail_at.pointer())?;
-            // A `details` term is no node's body: a reference to a formula,
-            // fairness or `case` node is refused at the entry. An application
-            // in it was refused ahead of every identity check (`flat_wire`).
-            if references_refused_node(detail, |target| never_referenced.contains(target)) {
-                return Err(ValidationFailure::refused_because(
-                    CheckedPackageRefusalCode::IllTyped,
-                    detail_at.pointer(),
-                    CheckedPackageRefusalCause::OperatorIneligible,
-                ));
-            }
             if let Some(path) = unresolved {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
