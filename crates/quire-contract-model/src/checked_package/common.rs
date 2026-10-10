@@ -1192,7 +1192,7 @@ pub(super) fn strict_json_value(input: &[u8]) -> Result<Value, ValidationFailure
 /// Parses `input` into a value under serde_json's own recursion limit of 128,
 /// which stops the parse with an error before it recurses deeper: a document
 /// nested past it refuses `malformed_wire` with no pointer, as malformed JSON
-/// does (FR-038-AC-117). [`strict_shape`] has already refused every syntax and
+/// does (FR-038-AC-117). [`strict_shape_depth`] has already refused every syntax and
 /// duplicate-member defect, so the recursion limit is the one error this parse
 /// can return.
 pub(super) fn strict_parse(input: &[u8]) -> Result<Value, ValidationFailure> {
