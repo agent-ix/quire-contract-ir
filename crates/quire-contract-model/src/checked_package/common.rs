@@ -319,6 +319,180 @@ fn require_canonical_bytes(
     }
 }
 
+/// The V2 intake checks canonical source text without building a document
+/// value or asking the canonical writer to buffer the enclosing object. That
+/// writer buffers every open object's members, including the entire package;
+/// each scalar below is instead checked independently by the same encoder.
+pub(super) fn read_typed_prefix(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+) -> Result<(), ValidationFailure> {
+    if exceeds(bytes.len(), limits.bytes) {
+        return Err(ValidationFailure::incomplete(
+            CheckedPackageLimit::Bytes,
+            limits.bytes,
+            bytes.len(),
+            None,
+        ));
+    }
+    strict_shape(bytes)?;
+    // Keep serde_json's 128-level refusal before canonicality. IgnoredAny
+    // visits the input but retains none of its members or scalar values.
+    let mut parser = serde_json::Deserializer::from_slice(bytes);
+    serde::de::IgnoredAny::deserialize(&mut parser)
+        .map_err(|_| ValidationFailure::refused_bytes(CheckedPackageRefusalCode::MalformedWire))?;
+    require_canonical_tokens(bytes)
+}
+
+/// A sink comparing one scalar's canonical bytes with its original token.
+struct TokenSink<'a> {
+    original: &'a [u8],
+    at: usize,
+    agrees: bool,
+}
+
+impl quire_canonical::Sink for TokenSink<'_> {
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), quire_canonical::Error> {
+        let end = self.at.checked_add(bytes.len());
+        if end.and_then(|end| self.original.get(self.at..end)) != Some(bytes) {
+            self.agrees = false;
+        }
+        self.at = end.unwrap_or(usize::MAX);
+        Ok(())
+    }
+}
+
+fn canonical_token(value: &Value, original: &[u8]) -> bool {
+    let mut sink = TokenSink {
+        original,
+        at: 0,
+        agrees: true,
+    };
+    quire_canonical::encode(
+        &mut sink,
+        value,
+        quire_canonical::Limits::new(u64::try_from(original.len()).unwrap_or(u64::MAX)),
+    )
+    .is_ok()
+        && sink.agrees
+        && sink.at == original.len()
+}
+
+enum CanonicalOpen {
+    Array,
+    Object { previous: String },
+}
+
+/// The strict scan has already proved syntax and duplicate-member validity.
+/// This second, allocation-bounded scan checks the ordering of object members
+/// and compares each scalar spelling with `quire-canonical`'s own spelling.
+fn require_canonical_tokens(input: &[u8]) -> Result<(), ValidationFailure> {
+    let noncanonical =
+        || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
+    let mut scan = Scan {
+        input,
+        at: 0,
+        open: Vec::new(),
+    };
+    let mut open = Vec::new();
+    loop {
+        match input.get(scan.at).copied().ok_or_else(noncanonical)? {
+            b'[' => {
+                scan.at += 1;
+                if input.get(scan.at) != Some(&b']') {
+                    open.push(CanonicalOpen::Array);
+                    continue;
+                }
+                scan.at += 1;
+            }
+            b'{' => {
+                scan.at += 1;
+                if input.get(scan.at) != Some(&b'}') {
+                    let previous = canonical_member(&mut scan)?;
+                    // With arbitrary-precision serde_json, this private key
+                    // as the first member decodes as a number, not an object.
+                    if previous == SERDE_JSON_NUMBER_TOKEN {
+                        return Err(noncanonical());
+                    }
+                    open.push(CanonicalOpen::Object { previous });
+                    continue;
+                }
+                scan.at += 1;
+            }
+            _ => {
+                let start = scan.at;
+                let mut scalar = scan.token::<Value>().map_err(|_| noncanonical())?;
+                if matches!(input[start], b'-' | b'0'..=b'9') {
+                    let text =
+                        std::str::from_utf8(&input[start..scan.at]).map_err(|_| noncanonical())?;
+                    scalar =
+                        number_from_token::<serde_json::Error>(text).map_err(|_| noncanonical())?;
+                }
+                if !canonical_token(&scalar, &input[start..scan.at]) {
+                    return Err(noncanonical());
+                }
+            }
+        }
+        loop {
+            match open.last_mut() {
+                None => {
+                    return if scan.at == input.len() {
+                        Ok(())
+                    } else {
+                        Err(noncanonical())
+                    };
+                }
+                Some(CanonicalOpen::Array) => match input.get(scan.at) {
+                    Some(b']') => {
+                        scan.at += 1;
+                        open.pop();
+                    }
+                    Some(b',') => {
+                        scan.at += 1;
+                        break;
+                    }
+                    _ => return Err(noncanonical()),
+                },
+                Some(CanonicalOpen::Object { previous }) => match input.get(scan.at) {
+                    Some(b'}') => {
+                        scan.at += 1;
+                        open.pop();
+                    }
+                    Some(b',') => {
+                        scan.at += 1;
+                        let next = canonical_member(&mut scan)?;
+                        if previous.encode_utf16().cmp(next.encode_utf16()).is_ge() {
+                            return Err(noncanonical());
+                        }
+                        *previous = next;
+                        break;
+                    }
+                    _ => return Err(noncanonical()),
+                },
+            }
+        }
+    }
+}
+
+fn canonical_member(scan: &mut Scan<'_>) -> Result<String, ValidationFailure> {
+    let noncanonical =
+        || ValidationFailure::refused_bytes(CheckedPackageRefusalCode::NoncanonicalWire);
+    let start = scan.at;
+    let member = scan.member_name().map_err(|_| noncanonical())?;
+    // `member_name` consumed the colon; the key token ends one byte before it.
+    let key_end = scan.at.checked_sub(1).ok_or_else(noncanonical)?;
+    if input_byte(scan.input, key_end) != Some(b':')
+        || !canonical_token(&Value::String(member.clone()), &scan.input[start..key_end])
+    {
+        return Err(noncanonical());
+    }
+    Ok(member)
+}
+
+fn input_byte(input: &[u8], at: usize) -> Option<u8> {
+    input.get(at).copied()
+}
+
 /// Whether `value` holds, at any depth, a number that is no `i64` or `u64` but
 /// is whole with a magnitude above 2^53: an integer spelled past the 64-bit
 /// range. Walks with an explicit stack.
@@ -359,14 +533,28 @@ pub(super) fn canonical_value(
 /// member at that member, a missing member at the object lacking it, and a
 /// wrongly typed value at that value.
 pub(super) fn decode_closed<T: DeserializeOwned>(value: &Value) -> Result<T, ValidationFailure> {
-    serde_path_to_error::deserialize::<_, T>(value).map_err(|error| {
-        let code = if error.inner().to_string().contains("unknown field") {
-            CheckedPackageRefusalCode::UnknownMember
-        } else {
-            CheckedPackageRefusalCode::MalformedWire
-        };
-        ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
-    })
+    serde_path_to_error::deserialize::<_, T>(value).map_err(classify_closed_error)
+}
+
+/// Decode a closed package straight from its validated bytes. This uses the
+/// same error classification and pointer mapping as [`decode_closed`], without
+/// first materializing the complete package as a `Value`.
+pub(super) fn decode_closed_bytes<T: DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<T, ValidationFailure> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    serde_path_to_error::deserialize::<_, T>(&mut deserializer).map_err(classify_closed_error)
+}
+
+fn classify_closed_error<E: fmt::Display>(
+    error: serde_path_to_error::Error<E>,
+) -> ValidationFailure {
+    let code = if error.inner().to_string().contains("unknown field") {
+        CheckedPackageRefusalCode::UnknownMember
+    } else {
+        CheckedPackageRefusalCode::MalformedWire
+    };
+    ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.

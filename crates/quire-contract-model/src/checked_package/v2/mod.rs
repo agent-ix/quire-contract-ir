@@ -56,10 +56,10 @@ use structural::validate_structural_nodes;
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
-    count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
-    read_value, validate_definition_ref, validate_locked_artifact, validate_source_map_entries,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
-    ValidationFailure, NODE_DOMAIN,
+    count, decode_closed, decode_closed_bytes, exceeds, first_difference, is_digest, is_nonempty,
+    node_pointer, read_typed_prefix, validate_definition_ref, validate_locked_artifact,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -526,11 +526,22 @@ fn member_pointer(keys: &[&str]) -> JsonPointer {
 /// Carries a decode refusal the decoder located at a nominal preimage down to
 /// the member at fault (see [`identity::locate_preimage_failure`]).
 fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFailure {
+    locate_in_preimage_with(failure, |path| value.pointer(path.as_str()).cloned())
+}
+
+fn locate_in_preimage_bytes(failure: ValidationFailure, bytes: &[u8]) -> ValidationFailure {
+    locate_in_preimage_with(failure, |path| intake::source_value(bytes, path))
+}
+
+fn locate_in_preimage_with(
+    failure: ValidationFailure,
+    source: impl Fn(&JsonPointer) -> Option<Value>,
+) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
     };
     if let Some(path) = refusal.path.take() {
-        refusal.path = Some(match value.pointer(path.as_str()) {
+        refusal.path = Some(match source(&path) {
             Some(preimage) if is_typed_preimage_position(&path) => {
                 // A nominal preimage whose shape the closed preimage schema
                 // refuses (a missing member, a value of the wrong kind) is an
@@ -539,7 +550,7 @@ fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFa
                 if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                     refusal.code = CheckedPackageRefusalCode::InvalidSemanticGraph;
                 }
-                identity::locate_preimage_failure(path, preimage)
+                identity::locate_preimage_failure(path, &preimage)
             }
             _ => path,
         });
@@ -557,6 +568,20 @@ const DEPENDENCY_SELECTION_MEMBERS: [&str; 2] = ["identity", "package_id"];
 /// whichever extra member the decoder met first. An entry carrying every
 /// required member keeps the decoder's `unknown_member` at the extra member.
 fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) -> ValidationFailure {
+    classify_dependency_entry_shape_with(failure, |path| value.pointer(path.as_str()).cloned())
+}
+
+fn classify_dependency_entry_shape_bytes(
+    failure: ValidationFailure,
+    bytes: &[u8],
+) -> ValidationFailure {
+    classify_dependency_entry_shape_with(failure, |path| intake::source_value(bytes, path))
+}
+
+fn classify_dependency_entry_shape_with(
+    failure: ValidationFailure,
+    source: impl Fn(&JsonPointer) -> Option<Value>,
+) -> ValidationFailure {
     let ValidationFailure::Refused(mut refusal) = failure else {
         return failure;
     };
@@ -582,9 +607,9 @@ fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) ->
         .map(|(entry, _)| entry.to_owned())
     });
     if let Some(entry) = entry {
-        let lacks_member = value
-            .pointer(&entry)
-            .and_then(Value::as_object)
+        let lacks_member = JsonPointer::parse(&entry)
+            .and_then(|pointer| source(&pointer))
+            .and_then(|value| value.as_object().cloned())
             .is_some_and(|object| {
                 DEPENDENCY_SELECTION_MEMBERS
                     .iter()
@@ -653,15 +678,54 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        match read_value(bytes, limits, |value| {
-            Self::admit_value(value, limits, evidence)
-        }) {
+        match Self::admit_bytes(bytes, limits, evidence) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(
                 CheckedPackageV2ReadResult::Refused,
                 CheckedPackageV2ReadResult::Incomplete,
             ),
         }
+    }
+
+    fn admit_bytes(
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> Result<Self, ValidationFailure> {
+        read_typed_prefix(bytes, limits)?;
+        match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
+            Some(Value::String(version)) if version == CHECKED_PACKAGE_V2 => {}
+            Some(Value::String(version)) => {
+                return Err(ValidationFailure::unknown_contract_version(&version))
+            }
+            Some(_) => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    member_pointer(&["contract_version"]),
+                ))
+            }
+            None => {
+                return Err(refuse(
+                    CheckedPackageRefusalCode::MalformedWire,
+                    JsonPointer::root(),
+                ))
+            }
+        }
+        let mut wire = decode_closed_bytes::<CheckedPackageWireV2>(bytes)
+            .map_err(|failure| locate_in_preimage_bytes(failure, bytes))
+            .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
+            .map_err(classify_owner_shape)?;
+        intake::check_lossless_source(bytes, &mut wire)?;
+        validate_owner_schema(&wire)?;
+        let (kinds, models) = validate(&wire, limits, evidence)?;
+        let node_index = retained_node_index(&wire);
+        Ok(Self {
+            wire,
+            kinds,
+            node_index,
+            bytes: limits.bytes,
+            models,
+        })
     }
 
     /// Selects V2 exactly, decodes the closed wire, and validates it.
