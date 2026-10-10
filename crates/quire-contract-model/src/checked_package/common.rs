@@ -483,16 +483,12 @@ fn canonical_member(scan: &mut Scan<'_>) -> Result<String, ValidationFailure> {
     let member = scan.member_name().map_err(|_| noncanonical())?;
     // `member_name` consumed the colon; the key token ends one byte before it.
     let key_end = scan.at.checked_sub(1).ok_or_else(noncanonical)?;
-    if input_byte(scan.input, key_end) != Some(b':')
+    if scan.input.get(key_end) != Some(&b':')
         || !canonical_token(&Value::String(member.clone()), &scan.input[start..key_end])
     {
         return Err(noncanonical());
     }
     Ok(member)
-}
-
-fn input_byte(input: &[u8], at: usize) -> Option<u8> {
-    input.get(at).copied()
 }
 
 /// Whether `value` holds, at any depth, a number that is no `i64` or `u64` but
