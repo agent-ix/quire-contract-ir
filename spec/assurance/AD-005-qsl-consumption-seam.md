@@ -63,10 +63,9 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 
 ### Identity and versions on this seam
 
-- QSL depends on the model package by Cargo git source, `branch = "main"`, declared under the
-  dependency name `quire-contract-ir` with `package = "quire-contract-model"` when this AD was
-  written; QSL's `Cargo.toml` and `qsl-package/Cargo.toml` now key it as `quire-contract-model`
-  (R3-Q1 is done; measured in IR-346, AD-007). The crate has no published semantic version
+- QSL depends on the model package by Cargo git source, `branch = "main"`. Its current
+  `Cargo.toml` and `qsl-package/Cargo.toml` both declare the local dependency name
+  `quire-contract-ir` with `package = "quire-contract-model"`. The crate has no published semantic version
   (`publish = false`, version `0.1.0`). On the Rust types the assertion is the compiler plus
   one resolved copy in QSL's own lock; there is no version record to maintain and none is
   proposed.
@@ -98,7 +97,7 @@ type comes from IR (AD-001 Replay ownership; FR-039 "Items QSL owns"), and no QS
 | IR model to QSL | no | `tests/it/cycle_free_model.rs`: the model's production dependency names are checked against the `forbidden` list in that test and every one must be non-optional | by name only; no source check for the model package in `tc_041` (a git edge to the QSL repository is caught by `unknown-git`, not by this test) |
 | IR root to QSL | no | the same file, root package checked by name prefix `qsl-` and by git source of the QSL repository (the loop over the root package's dependencies) | none for QSL |
 | QSL to the model crate | yes | QSL ADR-011 section 6.1 lists it as an external edge of layer 4 beside `quire-canonical` (`qsl-package/Cargo.toml` comment); QSL TC-390 pins that layer's other workspace edges | none |
-| QSL to the IR root crate | no | nothing in IR; QSL's manifests name the model package | none: QSL's manifests now key the dependency as `quire-contract-model` (R3-Q1 done); it was once aliased `quire-contract-ir`, which read as the root crate |
+| QSL to the IR root crate | no | QSL's manifests select `package = "quire-contract-model"`, so their `quire-contract-ir` local alias resolves to the model package | the alias still reads as the root crate; R3-Q1's QSL-owned naming cleanup remains open |
 | IR to codegen, IR to runtime | no | a git edge to either repository fails `make deny` today: `[sources]` `unknown-git = "deny"` with an `allow-git` list that names neither (IR-346, AD-007); decision D adds name-level `bans` (IR-343) | no check by crate name, and the forbidden list in `tc_041` names neither `quire-contract-codegen` nor `quire-contract-runtime` (D-2) |
 | any cycle among QSL, IR, runtime, codegen | no | QSL's `arch-lint direction` (FB-05, FB-11) over local checkouts, run on request and not part of QSL's `make ci` (QSL `Makefile`, `arch-lint-direction`) | runs only when someone supplies the clones |
 | two copies of one first-party crate | no | IR `scripts/check_one_copy.awk` over IR's lock via `make deny`. QSL has no general check: its `arch-lint duplicate-revisions` no longer exists on QSL `main`, and `deny.toml` `deny-multiple-versions` covers `quire-canonical` alone (IR-346, AD-007) | each guards its own lock only; QSL's lock has no one-entry-per-first-party-crate check (routed to QSL, AD-007 R-1) |
@@ -209,7 +208,7 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R3-Q1 | Done (QSL's manifests now key it `quire-contract-model`, measured in IR-346). It asked QSL to key the dependency as `quire-contract-model`, not `quire-contract-ir`, so the manifest does not read as a dependency on IR's root crate (which QSL must never depend on) (relayed by the IR planner; QSL-owned change). |
+| R3-Q1 | Open on current QSL main: `Cargo.toml` and `qsl-package/Cargo.toml` still use the local key `quire-contract-ir` with `package = "quire-contract-model"`. The package selection is the model, but the alias reads as the root crate. QSL owns changing the local key to `quire-contract-model` so the manifest names the package it actually uses. |
 | R3-Q4 | Track the ignored TC-440 quantity case (the emitter omits the record) until an emitted quantity can be compared: QSL-247 and QSL-238, and IR-450 on the IR side. |
 
 Answered, no longer routed (QSL's answer as relayed by the IR planner, untrusted until QSL signs off): R3-Q2, QSL reads only the layer-4 set (decision A); R3-Q3, the one-encoder rule binds IR (decision C); R3-Q5, no CI option, IR guards its own edges (decision D).

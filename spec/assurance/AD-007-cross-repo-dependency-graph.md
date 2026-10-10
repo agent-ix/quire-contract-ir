@@ -64,7 +64,7 @@ or no with how it is declared. Kind: N normal, D dev, B build.
 
 | From | To (crate) | Kind | Declared | Rule | Disposition |
 | --- | --- | --- | --- | --- | --- |
-| QSL root, `qsl-package` | IR (`quire-contract-model`) | N | git, `branch = "main"` | yes | keep (AD-005); the dependency key is now the crate's real name |
+| QSL root, `qsl-package` | IR (`quire-contract-model`) | N | git, `branch = "main"` | yes | keep the model edge (AD-005); the local dependency key remains `quire-contract-ir` pending QSL-owned R3-Q1 naming cleanup |
 | QSL (7 crates) | quire-canonical | N | git, `branch = "main"`, workspace dependency | yes | keep |
 | QSL `qsl-forms`, `qsl-semantics` | quire-walk | N | git, `branch = "main"`, workspace dependency | yes | keep |
 | QSL (every crate except `qsl-attrs` and `qsl-bench`) | `ix-trace-rs` | D | git, `branch = "main"` | yes | keep |
