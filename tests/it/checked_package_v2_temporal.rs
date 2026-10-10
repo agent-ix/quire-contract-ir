@@ -101,10 +101,16 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
 }
 
 fn read_limited(package: &Value, limits: CheckedPackageReadLimits) -> CheckedPackageV2ReadResult {
-    let document = orders_document();
+    read_with_model(package, &orders_document(), limits)
+}
+
+fn read_with_model(
+    package: &Value,
+    document: &Value,
+    limits: CheckedPackageReadLimits,
+) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(package);
-    evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 
@@ -1912,6 +1918,55 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
             ),
             &declaration,
         );
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-103
+#[trace("TC-048", "FR-038-AC-103")]
+#[test]
+fn fairness_resolves_the_most_derived_operation_redefinition() {
+    for redefined in [true, false] {
+        let mut document = orders_document();
+        for (position, owner) in [(1, SUB_NODE), (4, BOTH_NODE)] {
+            let mut operation = json!({"identity": format!("{owner}/scaled"), "params": []});
+            if redefined {
+                operation["redefines"] = json!(format!("{ORDER_NODE}/scaled"));
+            }
+            document["types"][position]["operations"] = json!([operation]);
+        }
+        document["types"][4]["supertypes"] = json!([SUB_NODE]);
+        let declaration = model_key(BOTH_NODE);
+        let (mut package, _) = with_fairness(INFINITE, fairness_member(&declaration, "scaled"));
+        let selection = package["lock"]["model_selections"]
+            .as_array_mut()
+            .expect("model selections")
+            .iter_mut()
+            .find(|row| row["identity"] == ORDERS)
+            .expect("orders selection");
+        selection["digest"] = json!(sha256_hex(&canonical(&document)));
+        settle(&mut package);
+        let result = read_with_model(&package, &document, CheckedPackageReadLimits::bounded());
+        if redefined {
+            assert!(
+                matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+                "most-derived redefinition must admit: {result:?}"
+            );
+        } else {
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("unredefined operations must remain ambiguous: {result:?}");
+            };
+            assert_eq!(refusal.code, Code::AmbiguousDeclaration);
+            assert_eq!(refusal.cause, Some(Cause::AmbiguousName));
+            let fair = find_identity(&package, &temporal_identity("fair"));
+            assert_eq!(
+                refusal.path.map(|path| path.to_string()),
+                Some(at_node(fair, "/body/operation/member/name"))
+            );
+            assert_eq!(
+                refusal.locus.map(|locus| locus.digest.to_string()),
+                Some(declaration)
+            );
+        }
     }
 }
 

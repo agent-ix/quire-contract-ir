@@ -32,12 +32,11 @@
 //!
 //! Scope. [`read_semantic_ir`] reads the declarations these steps consult:
 //! object types, systems interfaces, integer value types and relationship
-//! declarations, with their fields, operations, supertypes and field
+//! declarations, with their fields, operations, supertypes and member
 //! redefinitions. A type of any other FR-208 meaning is recorded as declared,
 //! so a `typeRef` naming it resolves to a declaration with no element type,
-//! but its own body is not read. Semantic IR 2.0.0 operations carry no
-//! `redefines`, so every operation a document declares is its own effective
-//! member.
+//! but its own body is not read. Field and operation `redefines` references
+//! contribute to the effective-member resolution.
 
 use super::model_fields::{DeclarationIndex, DeclaredNode, FieldTables, Selected};
 use super::{
@@ -2127,6 +2126,27 @@ impl References<'_> {
         }
     }
 
+    /// Reads a field or operation's optional redefinition reference.
+    fn redefinition(
+        &self,
+        member: &Value,
+        base: &[Segment],
+        defects: &mut Defects,
+    ) -> Option<Box<str>> {
+        let path = joined(base, Segment::Name("redefines"));
+        match member.get("redefines").map(Value::as_str) {
+            None => None,
+            Some(Some(target)) => {
+                self.check_redefines(target, &path, defects);
+                Some(Box::from(target))
+            }
+            Some(None) => {
+                defects.push(Row::Meaning, &path, ModelRefusal::malformed());
+                None
+            }
+        }
+    }
+
     /// A `typeRef` with a multiplicity: a field, parameter or result.
     fn slot(&self, value: &Value, base: &[Segment], defects: &mut Defects) -> TypedSlot {
         let type_ref = match text(value, "typeRef") {
@@ -2424,18 +2444,7 @@ fn semantic_ir_object_type<'v>(
                 false
             }
         };
-        let redefines_path = joined(&base, Segment::Name("redefines"));
-        let redefines = match field.get("redefines").map(Value::as_str) {
-            None => None,
-            Some(Some(target)) => {
-                references.check_redefines(target, &redefines_path, defects);
-                Some(Box::from(target))
-            }
-            Some(None) => {
-                defects.push(Row::Meaning, &redefines_path, ModelRefusal::malformed());
-                None
-            }
-        };
+        let redefines = references.redefinition(field, &base, defects);
         fields.push(FieldDecl {
             identity: identity_of(field, node, &base, defects),
             slot: references.slot(field, &base, defects),
@@ -2468,7 +2477,7 @@ fn semantic_ir_object_type<'v>(
             identity: operation_identity,
             parameters,
             result,
-            redefines: None,
+            redefines: references.redefinition(operation, &base, defects),
         });
     }
     defects.context(value);
