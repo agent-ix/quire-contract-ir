@@ -38,4 +38,9 @@ the `quire_contract_ir` probe fails to compile.
 
 ## Status
 
-Planned.
+Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
+`tc_058_fault_injection_adds_only_its_named_export`, and
+`tc_058_root_crate_exposes_only_its_kani_module` in
+`tests/it/public_interface.rs` check the source inventories and root boundary.
+The positive model-path and negative root-path doctests in `src/lib.rs` check
+that one table item builds only through `quire_contract_model`.

@@ -140,7 +140,7 @@ fn tc_058_fault_injection_adds_only_its_named_export() {
     );
 }
 
-#[trace("TC-058", "FR-019-AC-5", "FR-039-AC-1")]
+#[trace("TC-058", "FR-019-AC-5")]
 #[test]
 fn tc_058_root_crate_exposes_only_its_kani_module() {
     let public: Vec<_> = BRIDGE_ROOT
