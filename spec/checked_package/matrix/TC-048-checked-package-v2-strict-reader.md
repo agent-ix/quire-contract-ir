@@ -1029,6 +1029,18 @@ name holds both. Dispatch the unknown versions again and read the version
 each refusal carries. For each one-over limit, compare the pointer the
 `incomplete` outcome carries and check that it resolves.
 
+From an otherwise admitted V2 package with node 0's first occurrence role
+`generated`, replace only that role value with the literal string `unknown field`
+and read the canonical bytes. Require `malformed_wire` at
+`/semantic_graph/nodes/0/occurrences/0/role`, with no admitted package. In
+separate mutations of the same admitted package, add a genuine extra top-level
+member and change node 0's `dependencies` array to a string. Require
+`unknown_member` at the extra member and `malformed_wire` at
+`/semantic_graph/nodes/0/dependencies`, respectively; each pointer must
+resolve in its own mutated document. The role value's resemblance to decoder
+error text cannot change its code, and these controls retain the ordinary
+closed-schema code and pointer precedence.
+
 Each refusal points at exactly the value its mutation changed, with `~`
 escaped as `~0`, `/` as `~1`, and array elements by index. A missing member
 is located at the object that lacks it. Malformed JSON and non-canonical
