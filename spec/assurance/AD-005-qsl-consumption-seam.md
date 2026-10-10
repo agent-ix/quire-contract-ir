@@ -167,17 +167,11 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Current state and gaps
 
-- The model crate's own root uses glob re-exports for seven modules
-  (the `pub use` lines of `crates/quire-contract-model/src/lib.rs`), against AD-001 and FR-019 ("by name, no
-  glob"). The set of items a consumer such as QSL may rely on is therefore whatever the globs
-  expose, not FR-019's table. IR-347 (reopened) carries glob removal; not restated here.
-- The IR root crate is a re-export bridge: `src/lib.rs` holds `pub use quire_contract_model::*;`
-  and its crate doc calls it a "compatibility bridge", although AD-001 and FR-039 say it re-exports
-  nothing. `tc_041_bridge_reexports_the_exact_model_api_and_keeps_model_sources_single`
-  (in `tests/it/cycle_free_model.rs`) asserts the bridge, the opposite of FR-039-AC-1, whose
-  test (TC-055) is planned and does not exist. The decision is that the test goes with the
-  IR-347 work (retag or remove `tc_041`'s bridge test); FR-039-AC-1 is not changed. QSL does not
-  use the bridge; the consumer that does is codegen (AD-006).
+- IR-347 replaced the model crate's seven root glob re-exports with the named FR-019 public
+  inventory. QSL depends on that model package under the local name `quire-contract-ir`.
+- IR-347 removed the IR root crate's model re-export and the obsolete `tc_041` bridge test.
+  Codegen imports the model crate directly (AD-006). FR-039-AC-1 still needs TC-055's complete
+  root public-inventory check; removing the bridge alone does not back that criterion.
 - D-2 has no by-name check. AD-001 says runtime has no dependency in either direction with IR; codegen
   depends on IR and would close a cycle if IR depended on it. Today nothing in IR fails if an edge
   is added by name (`deny.toml` `[bans]` has no `deny` list); a git edge to the QSL, codegen or

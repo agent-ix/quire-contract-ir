@@ -83,8 +83,8 @@ The seam is described as what crosses it, how identity is asserted, which way de
 
 IR depends on nothing of QSpec's code or QSL. QSL depends on the `quire-contract-model` package
 (under the dependency name `quire-contract-ir`) and calls `read_checked_package` through it. CG
-reaches the reader through IR's root crate, which re-exports the model (see Current state); the
-driver reads through the model crate. The direction is QSpec (text) to IR (reader) to QSL, CG,
+and the driver read through the model crate directly; IR's root crate does not re-export it.
+The direction is QSpec (text) to IR (reader) to QSL, CG,
 driver (consumers); no arrow points back to IR. IR's one other inbound edge is the operation
 catalog: the reader depends on `quire-verification-contracts` for `quire.checked-operation-catalog/v1`
 and does not copy it.
