@@ -1,13 +1,11 @@
-//! Exact I04 contract-version refusal before any decode.
+//! Exact I04 contract-version refusal on the direct V2 byte reader.
 
-use super::common::{read_value, ValidationFailure};
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, JsonPointer,
+    CheckedPackageRefusalCode,
 };
-use super::v2::{CheckedPackageV2, CHECKED_PACKAGE_V2};
-use serde_json::Value;
+use super::v2::{CheckedPackageV2, CheckedPackageV2ReadResult};
 
 /// The closed result of dispatching untrusted checked-package bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,8 +18,9 @@ pub enum CheckedPackageDispatchResult {
     Incomplete(CheckedPackageIncomplete),
 }
 
-/// Parses bytes once, reads `contract_version` once, and either admits the
-/// current contract or refuses any other version with a typed
+/// Reads `contract_version` from borrowed source bytes after strict syntax and
+/// canonical checks, then either admits the current contract or refuses any
+/// other version with a typed
 /// [`CheckedPackageRefusalCode::UnknownContractVersion`] code. This is a
 /// refusal control, not a compatibility layer: it never relabels or widens
 /// the admitted contract.
@@ -30,59 +29,15 @@ pub fn read_checked_package(
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
 ) -> CheckedPackageDispatchResult {
-    match dispatch(bytes, limits, evidence) {
-        Ok(result) => result,
-        Err(stop) => stop.into_result(
-            CheckedPackageDispatchResult::Refused,
-            CheckedPackageDispatchResult::Incomplete,
-        ),
-    }
-}
-
-// The reader's version dispatch: the one read of `contract_version`.
-fn dispatch(
-    bytes: &[u8],
-    limits: CheckedPackageReadLimits,
-    evidence: &CheckedPackageEvidence,
-) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
-    read_value(bytes, limits, |value| {
-        dispatch_value(value, limits, evidence)
-    })
-}
-
-fn dispatch_value(
-    value: Value,
-    limits: CheckedPackageReadLimits,
-    evidence: &CheckedPackageEvidence,
-) -> Result<CheckedPackageDispatchResult, ValidationFailure> {
-    let version = match &value {
-        Value::Object(members) => match members.get("contract_version") {
-            Some(Value::String(version)) => version.clone(),
-            // Present with the wrong kind: the member is the value at fault.
-            Some(_) => {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    JsonPointer::root().key("contract_version"),
-                ))
-            }
-            // Absent: the document lacks it.
-            None => {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    JsonPointer::root(),
-                ))
-            }
-        },
-        _ => {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                JsonPointer::root(),
-            ))
+    match CheckedPackageV2::read(bytes, limits, evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => {
+            CheckedPackageDispatchResult::AdmittedV2(package)
         }
-    };
-    match version.as_str() {
-        CHECKED_PACKAGE_V2 => CheckedPackageV2::admit_value(value, limits, evidence)
-            .map(|package| CheckedPackageDispatchResult::AdmittedV2(Box::new(package))),
-        _ => Err(ValidationFailure::unknown_contract_version(&version)),
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            CheckedPackageDispatchResult::Refused(refusal)
+        }
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            CheckedPackageDispatchResult::Incomplete(incomplete)
+        }
     }
 }
