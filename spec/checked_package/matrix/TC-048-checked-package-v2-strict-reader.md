@@ -132,8 +132,8 @@ a Boolean operand slot, or a mixed-family `control.if` branch refuses
 `ill_typed` with cause `operator-ineligible` at the first offending argument.
 A Boolean reference in the first `state.clause` position refuses
 `invalid_semantic_graph` at that node's body during structural validation,
-before the operation check. A mismatched literal
-kind/type pair refuses the same way at that literal's `type`. A quantity
+before the operation check. A mismatched literal kind/type pair refuses
+`ill_typed` with cause `operator-ineligible` at that literal's `type`. A quantity
 conversion or sum with a rounding mode that disagrees with its quantity type
 refuses `invalid_package` with cause `operation-mode-type-mismatch` at
 `operation.mode/value`. No changed control can pass merely because the
