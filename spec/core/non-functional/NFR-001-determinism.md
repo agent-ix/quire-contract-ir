@@ -25,7 +25,7 @@ The public Rust library, JSON interface, and conformance corpus.
 | Metric | Target | Threshold | Method |
 |---|---|---|---|
 | Cross-run byte equality | 100% | Any mismatch fails: repeat the complete corpus twice and compare the two outputs byte for byte | metamorphic-testing |
-| Cross-platform canonical byte equality | 100% | Any mismatch fails: compare canonical bytes produced from the same fixed corpus inputs and profiles on Linux, macOS, and Windows when cross-platform CI is enabled | metamorphic-testing |
+| Cross-platform canonical byte equality | 100% | Any mismatch fails: compare canonical bytes produced from the same fixed admitted corpus inputs and profiles on Linux, macOS, and Windows when cross-platform CI is enabled | metamorphic-testing |
 | Ordered diagnostic code/path tuple equality | 100% | Any difference fails: compare the complete ordered sequence of diagnostic `(code, path)` tuples from the same fixed inputs and profiles across repeated runs and supported operating systems | metamorphic-testing |
 
 ## Acceptance Criteria
@@ -33,8 +33,8 @@ The public Rust library, JSON interface, and conformance corpus.
 | ID | Criteria | Verification |
 |---|---|---|
 | NFR-001-AC-1 | Two complete corpus runs over fixed inputs and profiles produce byte-identical results. | Test (TC-019) |
-| NFR-001-AC-2 | For each fixed corpus input and profile, Linux, macOS, and Windows produce byte-identical canonical output when cross-platform CI is enabled; compare the canonical bytes directly. | Test (TC-019) |
-| NFR-001-AC-3 | For each fixed invalid corpus input and profile, repeated runs and supported operating systems produce exactly the same complete ordered sequence of diagnostic `(code, path)` tuples. | Test (TC-019) |
+| NFR-001-AC-2 | For each fixed admitted corpus input and supported profile that yields canonical output, Linux, macOS, and Windows produce byte-identical canonical bytes when cross-platform CI is enabled; compare those bytes directly. | Test (TC-019) |
+| NFR-001-AC-3 | For each fixed rejected corpus input and profile, repeated runs and supported operating systems produce exactly the same complete ordered sequence of diagnostic `(code, path)` tuples. | Test (TC-019) |
 
 ## Verification
 

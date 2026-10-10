@@ -44,10 +44,11 @@ retained in a trace. Artifact IDs must be unique within one classification
 input; every occurrence of a duplicated ID is orphaned and
 `duplicate_artifact_trace` is emitted at each later occurrence.
 
-Classification resolves traces in authored order, then emits requirement rows
-sorted by the composite key package namespace, requirement ID, and numeric
-revision, in that order. Namespace and identifier comparison is Unicode scalar
-value order and revision comparison is ascending unsigned numeric order.
+Classification resolves traces in authored order for one validated package,
+then emits that package's current requirement rows sorted by requirement ID in
+Unicode scalar value order. Every row in one report has the same package
+namespace, and each requirement ID has only its current revision; sorting
+across namespaces or revisions is outside this classification operation.
 Artifact rows sort by artifact ID in Unicode scalar value order. No locale,
 host map order, or encoded-byte collation participates. A
 valid shallow trace contributes `shallow`; a valid deep trace contributes
@@ -94,7 +95,7 @@ canonicalization or coverage recursion begins.
 |---|---|---|
 | FR-017-AC-1 | Version preflight accepts schema 1.1; schemas 1.0, 1.2 and 2.0 each fail `unsupported_schema_version` at the specified path, and a zero major fails `invalid_schema_version`, all before semantic interpretation. | Test (TC-017) |
 | FR-017-AC-2 | Shallow, deep, uncovered, and each closed orphan reason have positive/negative fixtures; stale revision, missing, cross-package, duplicate, and over-limit inputs retain distinct diagnostics and cannot make a current requirement appear covered. Deep traces name the current requirement revision and carry no digest. | Test (TC-017, TC-018) |
-| FR-017-AC-3 | With traces authored out of key order, the report orders requirement rows by package namespace, requirement ID, then ascending numeric revision and artifact rows by artifact ID; text comparisons use Unicode scalar value order. | Test (TC-017) |
+| FR-017-AC-3 | With package requirements and traces authored out of key order, the single-package report orders its current requirement rows by requirement ID and artifact rows by artifact ID, both in Unicode scalar value order. | Test (TC-017) |
 | FR-017-AC-4 | For the same current requirement, a valid deep trace yields `deep` coverage regardless of whether a valid shallow trace appears before or after it. | Test (TC-017) |
 | FR-017-AC-5 | Every repeated artifact ID produces exactly one `orphaned`/`duplicate_artifact` artifact row and contributes no coverage, including when its first occurrence would otherwise be valid. | Test (TC-017) |
 | FR-017-AC-6 | For every artifact ID occurring more than once, exactly one `duplicate_artifact_trace` diagnostic is emitted per occurrence after the first; all coverage diagnostics retain authored trace order, including when duplicate and reference errors are interleaved. | Test (TC-017) |
