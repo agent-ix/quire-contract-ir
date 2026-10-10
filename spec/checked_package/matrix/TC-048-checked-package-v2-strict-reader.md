@@ -1093,15 +1093,18 @@ PLANNED/UNRUN for IR-575. In a separate fixture-generator process, build the
 same in-repo canonical 100000-node reference chain as AC-117 and save its bytes
 in an owned temporary file. In each of three fresh Linux x86_64 reader
 processes, load those bytes and prepare the selected-model evidence before
-taking baseline VmRSS and VmHWM. Build the reader process with the repository's
-debug `cargo test --locked --test` profile and Rust's default System allocator.
-Start a 2 ms VmRSS sampler, call only `CheckedPackageV2::read` with limits that
+taking baseline VmRSS and VmHWM. If pre-read VmHWM differs from pre-read VmRSS,
+record the invalid setup and retry in a fresh process; do not count that run
+among the three. Build the reader process with the repository's debug
+`cargo test --locked --test` profile and Rust's default System allocator.
+For a valid run, start a 2 ms VmRSS sampler and call only
+`CheckedPackageV2::read` with limits that
 do not decide the outcome, stop the sampler on return and read VmHWM before
 dropping the admitted package. Record the input byte count, admitted node count,
 pre-call RSS/HWM, sampled peak, post-call RSS/HWM, read time, Linux platform,
-compiler version and allocator. For each process, compute additional peak
-resident memory as the larger of sampled RSS minus pre-call RSS and post-call
-HWM minus pre-call HWM. Fixture generation, process startup, evidence
+compiler version and allocator. For each valid process, compute additional
+peak resident memory as `max(sampled peak VmRSS, post-read VmHWM) - pre-read VmRSS`.
+Fixture generation, process startup, evidence
 construction and lowering are outside the read interval.
 
 Inspect the production read path for direct typed decode and the absence of a
@@ -1115,8 +1118,10 @@ content, and compare their exact existing assertions. Keep AC-117's separate
 Expected: all three calls admit the full package; each additional peak is at
 most 1.50 GiB (1572864 KiB). Direct decoding preserves the named refusal,
 canonicality, identity, source-map and typed-result behavior. An allocation
-from input/evidence or lowering cannot be counted as reader use, and the
-post-read VmHWM catches a transient peak missed by the sampler.
+from input/evidence or lowering cannot be counted as reader use. Requiring
+pre-read VmHWM to equal pre-read VmRSS prevents an earlier setup peak from
+masking a transient read peak that the sampler misses; post-read VmHWM then
+catches that peak even when the sampler does not.
 
 ## Timed interval form (FR-038-AC-119 through FR-038-AC-122)
 
