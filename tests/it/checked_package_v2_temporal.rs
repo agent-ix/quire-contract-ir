@@ -1178,6 +1178,37 @@ fn tc_048_a_details_reference_to_a_formula_or_fairness_node_refuses_at_the_entry
     }
 }
 
+/// Forbidden diagnostic references precede the clause's unknown profile,
+/// retaining the detail pointer and no node locus.
+///
+/// Trace: FR-038-AC-100, FR-038-AC-102
+#[trace("TC-048", "FR-038-AC-100", "FR-038-AC-102")]
+#[test]
+fn forbidden_diagnostic_reference_precedes_unknown_temporal_profile() {
+    let mut package = v2_all_families();
+    select_profile(&mut package, "quire.fixture.temporal-profile/v1");
+    settle(&mut package);
+    let formula = digest(
+        &package,
+        find_identity(&package, &temporal_identity("eventually")),
+    );
+    package["diagnostics"]["entries"] = json!([{
+        "stage": "type_checking", "code": "ill_typed", "cause_tag": "invalid-value",
+        "details": [refer(&formula)], "loci": [],
+    }]);
+    assert_eq!(
+        refusal_of("a forbidden detail beside an unknown profile", &package),
+        (
+            (
+                Code::IllTyped,
+                Some(Cause::OperatorIneligible),
+                Some("/diagnostics/entries/0/details/0".to_owned()),
+            ),
+            None,
+        ),
+    );
+}
+
 /// A diagnostics entry whose `code` is `unsupported_construct` reads, as QSpec's
 /// schema allows: the diagnostics wire vocabulary keeps the word.
 ///
@@ -1287,6 +1318,24 @@ fn tc_048_a_placement_defect_is_reported_ahead_of_every_other_defect() {
             placement,
         );
     }
+    // Graph placement also precedes a forbidden diagnostic reference.
+    let mut package = v2_all_families();
+    let placement = push(&mut package, misplaced_formula(LOWEST));
+    settle(&mut package);
+    let formula = digest(
+        &package,
+        find_identity(&package, &temporal_identity("eventually")),
+    );
+    package["diagnostics"]["entries"] = json!([{
+        "stage": "type_checking", "code": "ill_typed", "cause_tag": "invalid-value",
+        "details": [refer(&formula)], "loci": [],
+    }]);
+    misplaced(
+        "beside a forbidden diagnostic reference",
+        &package,
+        placement,
+    );
+
     // Two placement defects: the lower digest.
     let mut package = v2_all_families();
     let low = push(&mut package, misplaced_formula(LOWEST));

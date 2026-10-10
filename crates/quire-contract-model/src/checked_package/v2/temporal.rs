@@ -6,7 +6,8 @@
 //!    and `temporal_fairness`; `case` is placed by the operation step), and of every `reference` to a
 //!    `temporal`/`formula` or `temporal`/`fairness` node, over the whole graph in
 //!    ascending node-id digest order;
-//! 2. then each `temporal`/`temporal_clause` node in ascending node-id digest
+//! 2. forbidden references in diagnostic details, in entry and detail order;
+//! 3. then each `temporal`/`temporal_clause` node in ascending node-id digest
 //!    order, each taken through its checks before the next clause is read:
 //!    the profile identity (`unknown_profile`), the `over` reference, each
 //!    fairness member's resolution, the profile fit of every interval and of the
@@ -32,9 +33,10 @@ use super::operation_catalog::operation_catalog;
 use super::operations::OperationWire;
 use super::structural::reference_target;
 use super::{
-    ApplicationOperator, BodyTerm, CheckedNodeKind, CheckedPackageLockV2, CheckedSelectionRole,
-    CheckedSemanticNodeV2, FairnessGranularity, FairnessKind, IntervalEnd, IntervalFit, LawRole,
-    ModelForm, OperationMemberKind, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
+    member_pointer, ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, FairnessGranularity,
+    FairnessKind, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind, TemporalForm,
+    TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
     application_operator, body_term, node_pointer, ValidationFailure,
@@ -432,6 +434,7 @@ pub(super) fn validate_temporal(
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
     lock: &CheckedPackageLockV2,
+    diagnostics: &[CheckedDiagnosticV2],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = StepGraph {
@@ -445,6 +448,7 @@ pub(super) fn validate_temporal(
             return Err(failure);
         }
     }
+    validate_diagnostic_references(nodes, kinds, diagnostics)?;
     let mut covered = BTreeSet::new();
     for &position in index.values() {
         if graph.kinds.get(position)
@@ -461,6 +465,42 @@ pub(super) fn validate_temporal(
         {
             if let Some(interval) = interval_of(position, &graph) {
                 check_bounds(position, &interval, &graph, meter)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Only forbidden reference placement belongs to the temporal step; other
+/// diagnostic validation remains at the diagnostics stage.
+fn validate_diagnostic_references(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    diagnostics: &[CheckedDiagnosticV2],
+) -> Result<(), ValidationFailure> {
+    let never_referenced = nodes
+        .iter()
+        .zip(kinds)
+        .filter(|(_, kind)| {
+            matches!(
+                kind,
+                CheckedNodeKind::Temporal(TemporalForm::Formula | TemporalForm::Fairness)
+                    | CheckedNodeKind::Expression(super::ExpressionForm::Case)
+            )
+        })
+        .map(|(node, _)| &node.node_id)
+        .collect::<BTreeSet<_>>();
+    for (entry_index, entry) in diagnostics.iter().enumerate() {
+        for (detail_index, detail) in entry.details.iter().enumerate() {
+            if references_refused_node(detail, |target| never_referenced.contains(target)) {
+                return Err(ValidationFailure::refused_because(
+                    CheckedPackageRefusalCode::IllTyped,
+                    member_pointer(&["diagnostics", "entries"])
+                        .index(entry_index)
+                        .key("details")
+                        .index(detail_index),
+                    CheckedPackageRefusalCause::OperatorIneligible,
+                ));
             }
         }
     }
@@ -1125,6 +1165,7 @@ mod tests {
             &index,
             &ModelOwners::default(),
             &lock(),
+            &[],
             &mut WorkMeter::new(1_000),
         )
     }
