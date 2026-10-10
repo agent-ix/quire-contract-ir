@@ -33,13 +33,13 @@ use super::operation_catalog::operation_catalog;
 use super::operations::OperationWire;
 use super::structural::reference_target;
 use super::{
-    ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind, CheckedPackageLockV2,
-    CheckedSelectionRole, CheckedSemanticNodeV2, FairnessGranularity, FairnessKind, IntervalEnd,
-    IntervalFit, LawRole, ModelForm, OperationMemberKind, TemporalForm, TemporalProfile, ValueForm,
-    WorkMeter,
+    member_pointer, ApplicationOperator, BodyTerm, CheckedDiagnosticV2, CheckedNodeKind,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedSemanticNodeV2, FairnessGranularity,
+    FairnessKind, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind, TemporalForm,
+    TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    application_operator, body_term, member_pointer, node_pointer, ValidationFailure,
+    application_operator, body_term, node_pointer, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
