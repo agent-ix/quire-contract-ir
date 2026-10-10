@@ -56,10 +56,10 @@ use structural::validate_structural_nodes;
 use temporal::{validate_temporal, validate_timed_bounds_reduced};
 
 use super::common::{
-    count, decode_closed, exceeds, first_difference, is_digest, is_nonempty, node_pointer,
-    read_typed_prefix, validate_definition_ref, validate_locked_artifact,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure, NODE_DOMAIN,
+    count, exceeds, first_difference, is_digest, is_nonempty, node_pointer, read_typed_prefix,
+    validate_definition_ref, validate_locked_artifact, validate_source_map_entries, validate_term,
+    ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
+    NODE_DOMAIN,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -525,10 +525,6 @@ fn member_pointer(keys: &[&str]) -> JsonPointer {
 
 /// Carries a decode refusal the decoder located at a nominal preimage down to
 /// the member at fault (see [`identity::locate_preimage_failure`]).
-fn locate_in_preimage(failure: ValidationFailure, value: &Value) -> ValidationFailure {
-    locate_in_preimage_with(failure, |path| value.pointer(path.as_str()).cloned())
-}
-
 fn locate_in_preimage_bytes(failure: ValidationFailure, bytes: &[u8]) -> ValidationFailure {
     locate_in_preimage_with(failure, |path| intake::source_value(bytes, path))
 }
@@ -570,10 +566,6 @@ const DEPENDENCY_SELECTION_MEMBERS: [&str; 2] = ["identity", "package_id"];
 /// as a whole: `malformed_wire` at the entry, not `unknown_member` at
 /// whichever extra member the decoder met first. An entry carrying every
 /// required member keeps the decoder's `unknown_member` at the extra member.
-fn classify_dependency_entry_shape(failure: ValidationFailure, value: &Value) -> ValidationFailure {
-    classify_dependency_entry_shape_with(failure, |path| value.pointer(path.as_str()).cloned())
-}
-
 fn classify_dependency_entry_shape_bytes(
     failure: ValidationFailure,
     bytes: &[u8],
@@ -719,57 +711,6 @@ impl CheckedPackageV2 {
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &mut wire)?;
-        validate_owner_schema(&wire)?;
-        let (kinds, models) = validate(&wire, limits, evidence)?;
-        let node_index = retained_node_index(&wire);
-        Ok(Self {
-            wire,
-            kinds,
-            node_index,
-            bytes: limits.bytes,
-            models,
-        })
-    }
-
-    /// Selects V2 exactly, decodes the closed wire, and validates it.
-    // Intake: reads `contract_version` before any decode.
-    pub(in crate::checked_package) fn admit_value(
-        mut value: Value,
-        limits: CheckedPackageReadLimits,
-        evidence: &CheckedPackageEvidence,
-    ) -> Result<Self, ValidationFailure> {
-        match value.get("contract_version") {
-            Some(Value::String(version)) if version == CHECKED_PACKAGE_V2 => {}
-            Some(Value::String(version)) => {
-                return Err(ValidationFailure::unknown_contract_version(version))
-            }
-            Some(_) => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    member_pointer(&["contract_version"]),
-                ))
-            }
-            // Absent, or the document is not an object: the document is the
-            // value at fault.
-            None => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    JsonPointer::root(),
-                ))
-            }
-        }
-        // The bodies and `details` terms, which a closed decode reads as
-        // `Value`s of any shape, are not read by it: they are taken out, and
-        // put into the wire after it (see `intake`).
-        let terms = intake::detach_terms(&mut value);
-        let mut wire = decode_closed::<CheckedPackageWireV2>(&value)
-            .map_err(|failure| locate_in_preimage(failure, &value))
-            .map_err(|failure| classify_dependency_entry_shape(failure, &value))
-            .map_err(classify_owner_shape)?;
-        // A lossless decode: no member was defaulted, nulled or dropped.
-        intake::check_lossless(&mut value, &mut wire)?;
-        drop(value);
-        intake::attach_terms(&mut wire, terms);
         validate_owner_schema(&wire)?;
         let (kinds, models) = validate(&wire, limits, evidence)?;
         let node_index = retained_node_index(&wire);

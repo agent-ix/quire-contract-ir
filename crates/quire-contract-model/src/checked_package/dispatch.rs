@@ -1,10 +1,7 @@
 //! Exact I04 contract-version refusal on the direct V2 byte reader.
 
 use super::evidence::CheckedPackageEvidence;
-use super::shared::{
-    CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode,
-};
+use super::shared::{CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal};
 use super::v2::{CheckedPackageV2, CheckedPackageV2ReadResult};
 
 /// The closed result of dispatching untrusted checked-package bytes.
@@ -21,7 +18,7 @@ pub enum CheckedPackageDispatchResult {
 /// Reads `contract_version` from borrowed source bytes after strict syntax and
 /// canonical checks, then either admits the current contract or refuses any
 /// other version with a typed
-/// [`CheckedPackageRefusalCode::UnknownContractVersion`] code. This is a
+/// [`super::shared::CheckedPackageRefusalCode::UnknownContractVersion`] code. This is a
 /// refusal control, not a compatibility layer: it never relabels or widens
 /// the admitted contract.
 pub fn read_checked_package(
