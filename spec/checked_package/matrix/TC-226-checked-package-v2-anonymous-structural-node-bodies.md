@@ -90,9 +90,27 @@ retained member and compare multiple failing groups by their least members.
 For a fully valid `Tree` read, account independently for membership entries,
 node visits, local-preimage term visits and digest computations. Determine the
 exact smallest sufficient work limit M; read with M and M-1 and compare the
-incomplete accounting and first unpaid pointer. A crate-local counter observes
-that no later group work occurs after exhaustion. These controls are planned;
-no limit increase, new cancellation surface or test-only bypass is allowed.
+incomplete accounting and first unpaid pointer. Keep this whole-read boundary
+control; M-1 may exhaust at a later reader stage after group work is complete.
+
+Separately select a charge inside the production group-local preimage or
+group-digest work for valid `Tree`, with a later group visit or digest still
+pending. Set the existing work ceiling so that this selected group charge is
+denied. Record the attempted charge's value pointer and actual group visit and
+digest events. Require work-incomplete at that failed-charge pointer, no
+admitted package, and no subsequent group visit or digest event. The pending
+work must be observable on a sufficient-budget control using the same group;
+an empty remainder cannot prove early termination.
+
+Exercise a genuine continue-after-unpaid-charge mutant in the production group
+walk: let it perform pending group work instead of immediately propagating
+the selected charge error. Require the same observation-based control to fail
+because a later group visit or digest occurs, even if the final outcome remains
+incomplete. Restore immediate propagation and require the control to pass with
+the failed-charge pointer and no package. These internal-group exhaustion,
+mutant and restored controls are PLANNED and UNRUN. They do not replace the
+whole-read M/M-1 control. No limit increase, new cancellation surface or
+test-only bypass of the production group walk is allowed.
 
 The required regression test is the IR-627 tamper probe: the `Int[0, 1000]`
 node with `max` changed to `10`, and separately to `5000`, each refused.
@@ -110,7 +128,11 @@ The forgedSelfOption refuses at the old option node's `node_id`; genuine G1
 admits. Closed-shape defects with no derivable key retain no expected key.
 A fully rekeyed wire permutation is not refused solely for its order.
 Exact sufficient work admits; the first unpayable charge returns work-incomplete
-with existing accounting and no partial package or continued group work.
+with existing accounting and no partial package. For the separate selected
+internal-group denied charge, the result names that failed charge's pointer;
+no pending group visit or digest occurs. The genuine continuation mutant
+violates this event assertion, and the restored immediate-return control
+satisfies it. These outcomes remain PLANNED and UNRUN.
 
 The re-pointed model selection still refuses `missing_import`/
 `missing-selection` without its document and admits with matching evidence;
