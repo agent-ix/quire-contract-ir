@@ -145,11 +145,12 @@ PLANNED/UNRUN. They borrow a draft node and its ordered graph context, and retur
 only a candidate key. A provisional self selector is not a verified semantic
 identity. The explicit canonical byte ceiling does not bound graph-context
 validation or body-copy memory. Reader admission remains required after
-final-key/reference substitution. Upon implementation, `quire_contract_model`
-shall export the function `derive_application_node_id` and types
-`ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`
-and `ApplicationIdentityError` as required by that contract. These planned
-items are not present exports; the table below lists the implemented interface.
+final-key/reference substitution.
+
+When the FR-046 candidate application identity API is implemented, the quire-contract-model crate SHALL export the function `derive_application_node_id` and types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId` and `ApplicationIdentityError`.
+
+These planned items are not present exports; the table below lists the
+implemented interface.
 
 ### Public items
 
