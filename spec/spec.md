@@ -103,6 +103,10 @@ versioning description; AD-002 and AD-003 are views inside it.
 defines a typed pre-read candidate boundary for the reader's structural keys
 and recursion-group labels. Final checked-package admission remains with
 [FR-038](checked_package/functional/FR-038-consume-checked-package-v2.md).
+[FR-049](checked_package/functional/FR-049-admitted-scalar-result-context.md)
+defines the planned admitted-package reverse consumer context for an exact
+requested scalar expression; [TC-447](checked_package/matrix/TC-447-admitted-scalar-result-context.md)
+defines its reader-admitted QSL and adverse controls.
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
 carries, and STD-003 is the closed
