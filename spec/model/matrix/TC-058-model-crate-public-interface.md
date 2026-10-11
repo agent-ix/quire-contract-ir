@@ -47,14 +47,15 @@ Implemented: `tc_058_model_root_exports_exactly_the_fr_019_public_items`,
 The positive model-path and negative root-path doctests in `src/lib.rs` check
 that one table item builds only through `quire_contract_model`.
 
-## Compiled candidate application API consumer (planned/unrun)
+## Compiled candidate application API consumer
 
-PLANNED/UNRUN (IR-738). Verify
+Implemented (IR-738). The compiled public consumer controls and the three
+source/spec inventory controls have passed. Verify
 [FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),
-AC-1, and the planned API paragraph before Public items in
+AC-1, and the candidate application identity row under Public items in
 [FR-019](../functional/FR-019-rust-library-interface.md).
-Keep the existing source/spec inventory procedure scoped to its legacy items;
-this slice does not extend that source-inspection gate to the new candidate API.
+The source/spec inventory includes the five named candidate API exports;
+its source inspection remains separate from the compiled consumer checks.
 Compile and execute an external consumer probe that creates a borrowed `ApplicationNodeDraft`,
 constructs `ApplicationIdentityContext`, calls `derive_application_node_id`,
 obtains `CandidateApplicationNodeId::candidate_node_id()` and exhaustively
@@ -62,5 +63,5 @@ matches `ApplicationIdentityError`. The consumer assembles a candidate before
 reading any package; no helper result constructs or substitutes for an admitted
 `CheckedPackageV2`. Preserve the existing model-only/root-crate path checks.
 Assert the candidate node key and each specified typed error outcome through
-the compiled public interface. This additional procedure supplies no executed
-evidence until implementation; source-text inventory matching cannot satisfy it.
+the compiled public interface. Source-text inventory matching alone cannot
+satisfy this compiled consumer procedure.

@@ -11,6 +11,8 @@
 
 mod support;
 
+mod application_node_identity;
+
 mod canonical_v1_quire_canonical;
 mod canonicalization;
 mod checked_package_v2_abstraction_relation;

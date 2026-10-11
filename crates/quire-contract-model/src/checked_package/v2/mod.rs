@@ -8,6 +8,7 @@
 //! definition byte artifacts.
 
 mod abstraction;
+mod application_identity;
 mod comparison_operands;
 mod composite_operands;
 mod dependency_references;
@@ -32,6 +33,10 @@ mod structural;
 mod temporal;
 mod vocabulary;
 
+pub use application_identity::{
+    derive_application_node_id, ApplicationIdentityContext, ApplicationIdentityError,
+    ApplicationNodeDraft, CandidateApplicationNodeId,
+};
 pub use comparison_operands::{
     CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,
     CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,

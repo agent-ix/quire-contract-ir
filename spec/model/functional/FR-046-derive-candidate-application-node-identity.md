@@ -14,9 +14,9 @@ relationships:
 
 ## Description
 
-PLANNED/UNRUN (IR-738). The API and its acceptance controls below are required
-upon implementation; this specification does not claim present exports or
-executed runtime evidence.
+Implemented (IR-738). Six public application-identity controls, five focused
+reader/preimage regression tests, the private-construction compile-fail doctest
+and three public-inventory controls have passed.
 
 When a caller supplies a draft application before checked-package reader
 admission, `quire-contract-model` SHALL derive its candidate canonical node
@@ -144,13 +144,13 @@ when encoding refuses early. Canonical encoding retains its existing
 heap-stack costs. This changes no preimage bytes and imposes no new depth cap.
 These costs are bounded by the actual supplied input, not by `byte_limit`:
 that limit constrains canonical output and does not bound context scans,
-the draft graph, body cloning or traversal allocations. This contract makes
-no new recoverable-allocation guarantee for the existing body clone or encoder;
+the draft graph, body copying or traversal allocations. This contract makes
+no new recoverable-allocation guarantee for the body copy or encoder;
 an allocator exhaustion outside their typed error surface is not a fabricated
 `CanonicalEncoding` refusal. Context key scans allocate no graph copy; structural equality may allocate the
 explicit O(D) heap stack. No new recoverable-allocation guarantee is added for
-that stack either. The present recursive body clone is an implementation gap
-to close before this pre-read surface ships, not a stack-safety exemption.
+that stack either. The implementation uses the iterative body copy and
+nonrecursive cleanup described above.
 
 The reader SHALL retain its existing application ordering, authenticated graph
 context, refusal translation and one reader work-unit charge before preimage
@@ -182,7 +182,7 @@ candidate after a body change remains subject to the reader's stale-key refusal.
 | FR-046-AC-3 | A group containing applications and nonapplication nodes uses every group node in graph order. Self and internal references through application arguments, aggregate members and binding values produce the expected ordinals; provisional-to-final key substitution preserves the candidate. Outside-group and dependency references remain unchanged, and changing an outside target changes the candidate. | Test |
 | FR-046-AC-4 | Missing grouped context, absent target, repeated graph key, mismatching target fields or context from another draft return their exact typed variants/payloads and no hash candidate. Repetition order is deterministic; nonapplication input refuses. Inspection confirms borrowed immutable constant-size context, checked counters and the stated scan bounds, without a new cap or hidden graph copy. On a 256 KiB thread stack, grouped and ungrouped in-memory application drafts with 100000 nested JSON levels complete structural equality and hashing under a sufficient byte limit, refuse CanonicalEncoding under a tiny limit, and distinguish an otherwise matching target with a differing deepest value as ContextMismatch; no helper comparison, copy, rewrite or temporary cleanup overflows the stack. Fixture assembly and caller-owned teardown are iterative, so they cannot mask helper failure. These adversarial candidate controls do not claim reader admission. | Test, Inspection |
 | FR-046-AC-5 | For an independently encoded preimage of C canonical bytes, byte limits C and C+1 produce the same candidate; C-1 and zero refuse CanonicalEncoding with the canonical byte-limit error. A canonical nonencodable-number control retains its typed encoder error. The byte ceiling is not asserted to bound graph/context/body-copy memory or work. | Test, Inspection |
-| FR-046-AC-6 | After correct final-key/reference substitution, reader-admissible ordinary and grouped controls read successfully with the helper candidate. Changing the body while retaining that key produces the reader's stale-node-key outcome and distinct expected key. Inspection finds one authoritative preimage/encoder and unchanged reader charge-before-hash ordering; an exhausted existing work charge wins before an otherwise failing application hash. Public context validation adds no reader refusal or work charge. All runtime procedures remain planned/unrun until implementation. | Test, Inspection |
+| FR-046-AC-6 | After correct final-key/reference substitution, reader-admissible ordinary and grouped controls read successfully with the helper candidate. Changing the body while retaining that key produces the reader's stale-node-key outcome and distinct expected key. Inspection finds one authoritative preimage/encoder and unchanged reader charge-before-hash ordering; an exhausted existing work charge wins before an otherwise failing application hash. Public context validation adds no reader refusal or work charge. The implementation and focused checks have passed. | Test, Inspection |
 
 ## Dependencies
 
@@ -192,6 +192,6 @@ owns the cycle-free substrate boundary. [FR-038](../../checked_package/functiona
 owns reader admission, application-key preimage semantics and stale-key refusal.
 The existing [TC-048](../../checked_package/matrix/TC-048-checked-package-v2-strict-reader.md)
 and [TC-058](../matrix/TC-058-model-crate-public-interface.md) are the intended
-procedure artifacts; the new runtime controls are PLANNED/UNRUN. This slice
+procedure artifacts. The implementation and focused checks have passed. This slice
 adds no compatibility layer, schema, downstream engine dependency, operation
 law, package identity helper or reader gate.
