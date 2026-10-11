@@ -615,13 +615,12 @@ impl CheckedPackageV2 {
         // reachable-excluding-self set that `dependencies` is drawn from, so
         // every key in `bounds` and every key in `claims` also appears in
         // `dependencies` — the requested node is never its own bound or claim.
-        let bounds = ordered
-            .iter()
-            .filter(|(candidate, kind)| {
-                kind.tag() == CheckedNodeTag::BoundedDomain && candidate.node_id != node.node_id
-            })
-            .map(|(candidate, _)| candidate.node_id.clone())
-            .collect::<Vec<_>>();
+        let (bounds, claims) = classify_reached_keys(
+            &node.node_id,
+            ordered
+                .iter()
+                .map(|(candidate, kind)| (&candidate.node_id, kind.tag())),
+        );
         if profile.require_bounds {
             let quantities = quantity_position_ends(&positions, &ordered);
             if let Some((node, _)) = ordered.iter().find(|(node, kind)| {
@@ -640,13 +639,6 @@ impl CheckedPackageV2 {
         let dependencies = ordered
             .iter()
             .filter(|(candidate, _)| candidate.node_id != node.node_id)
-            .map(|(candidate, _)| candidate.node_id.clone())
-            .collect::<Vec<_>>();
-        let claims = ordered
-            .iter()
-            .filter(|(candidate, kind)| {
-                kind.tag() == CheckedNodeTag::Claim && candidate.node_id != node.node_id
-            })
             .map(|(candidate, _)| candidate.node_id.clone())
             .collect::<Vec<_>>();
         let preimage = LoweredNodePreimage {
@@ -686,6 +678,37 @@ impl CheckedPackageV2 {
             }),
         }
     }
+}
+
+/// The two typed subsets of one reached closure, shared by lowering and the
+/// admitted package view. Input is in typed-key order.
+pub(super) fn classify_reached_keys<'a>(
+    root: &CheckedNodeId,
+    reached: impl IntoIterator<Item = (&'a CheckedNodeId, CheckedNodeTag)>,
+) -> (Vec<CheckedNodeId>, Vec<CheckedNodeId>) {
+    let mut bounds = Vec::new();
+    let mut claims = Vec::new();
+    for (key, tag) in reached {
+        if key == root {
+            continue;
+        }
+        match tag {
+            CheckedNodeTag::BoundedDomain => bounds.push(key.clone()),
+            CheckedNodeTag::Claim => claims.push(key.clone()),
+            CheckedNodeTag::ScalarType
+            | CheckedNodeTag::CompositeType
+            | CheckedNodeTag::Value
+            | CheckedNodeTag::Expression
+            | CheckedNodeTag::Function
+            | CheckedNodeTag::Model
+            | CheckedNodeTag::Relation
+            | CheckedNodeTag::State
+            | CheckedNodeTag::Temporal
+            | CheckedNodeTag::Protocol
+            | CheckedNodeTag::Correspondence => {}
+        }
+    }
+    (bounds, claims)
 }
 
 fn wire_tag<S: Serializer>(tag: &CheckedNodeTag, serializer: S) -> Result<S::Ok, S::Error> {

@@ -18,11 +18,12 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Typed = (String, Value);
 
@@ -1230,6 +1231,117 @@ fn node_types() -> Vec<Typed> {
         in_group(record("node", &[("label", "nfc"), ("next", "node_next")])),
         in_group(some_of("node_next", "node")),
     ]
+}
+
+/// Trace: FR-035-AC-6
+#[trace("TC-047", "FR-035-AC-6")]
+#[test]
+fn reached_view_visits_an_admitted_recursion_group_once() {
+    let [some, payload] = some_segments();
+    let (source, application) = equality_package(
+        node_types(),
+        "node",
+        vec![
+            text_leaf(&[field("label")]),
+            recursion_leaf(&[field("next"), some, payload, "recursion:0".into()]),
+        ],
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read(&source, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("recursion group must admit");
+    };
+    let root: CheckedNodeId = serde_json::from_value(node_id(&application)).expect("root key");
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = admitted.lower(std::slice::from_ref(&root), &profile);
+    let ContractRootViewV1::Lowered(view) = result
+        .package
+        .wire()
+        .expect("wire")
+        .reached_closure(&root)
+        .expect("view")
+    else {
+        panic!("recursive request must lower");
+    };
+    let keys = view
+        .nodes
+        .iter()
+        .map(|entry| entry.node.node_id.clone())
+        .collect::<Vec<_>>();
+    assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(
+        keys.iter().cloned().collect::<BTreeSet<_>>().len(),
+        keys.len()
+    );
+    let nodes = admitted
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| (&node.node_id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut independent = BTreeSet::new();
+    let mut pending = VecDeque::from([root.clone()]);
+    while let Some(key) = pending.pop_front() {
+        if !independent.insert(key.clone()) {
+            continue;
+        }
+        let node = nodes.get(&key).expect("admitted local edge");
+        pending.push_back(node.semantic_type.clone());
+        pending.extend(node.dependencies.iter().cloned());
+        fn body_targets(value: &Value, pending: &mut VecDeque<CheckedNodeId>) {
+            match value {
+                Value::Object(object) => {
+                    if let Some(term) = object.get("term").and_then(Value::as_str) {
+                        let member = match term {
+                            "reference" => Some("target"),
+                            "literal" => Some("type"),
+                            "application" => Some("result_type"),
+                            _ => None,
+                        };
+                        if let Some(target) = member.and_then(|member| object.get(member)) {
+                            pending.push_back(
+                                serde_json::from_value(target.clone()).expect("body key"),
+                            );
+                        }
+                    }
+                    for child in object.values() {
+                        body_targets(child, pending);
+                    }
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        body_targets(item, pending);
+                    }
+                }
+                _ => {}
+            }
+        }
+        body_targets(&node.body, &mut pending);
+    }
+    assert_eq!(keys.iter().cloned().collect::<BTreeSet<_>>(), independent);
+    let grouped = view
+        .nodes
+        .iter()
+        .filter(|entry| entry.node.recursion_group.is_some())
+        .map(|entry| entry.node.node_id.clone())
+        .collect::<BTreeSet<_>>();
+    let admitted_group = admitted
+        .graph()
+        .nodes
+        .iter()
+        .filter(|node| node.recursion_group.is_some())
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(grouped, admitted_group);
+    assert_eq!(grouped.len(), 2);
 }
 
 /// The QSL record-field encoding of `next?: List` contributes one field edge.

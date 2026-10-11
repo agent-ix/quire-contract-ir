@@ -12,10 +12,10 @@ use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     ContractDependencies, ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1,
-    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    ContractRootViewV1, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 fn id(prefix: &str) -> CheckedNodeId {
     if matches!(prefix, "1010" | "dddd") {
@@ -130,6 +130,168 @@ fn read(bytes: &[u8]) -> ContractPackageReadResult {
         CheckedPackageReadLimits::bounded(),
         &ContractDependencies::new(),
     )
+}
+
+fn body_keys(value: &Value, keys: &mut Vec<CheckedNodeId>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("term").and_then(Value::as_str) == Some("reference") {
+                keys.push(
+                    serde_json::from_value(object["target"].clone()).expect("reference target"),
+                );
+            }
+            for child in object.values() {
+                body_keys(child, keys);
+            }
+        }
+        Value::Array(array) => {
+            for child in array {
+                body_keys(child, keys);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn independent_closure(
+    admitted: &CheckedPackageV2,
+    root: &CheckedNodeId,
+) -> BTreeSet<CheckedNodeId> {
+    let by_key = admitted
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| (&node.node_id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut reached = BTreeSet::new();
+    let mut pending = VecDeque::from([root.clone()]);
+    while let Some(key) = pending.pop_front() {
+        if !reached.insert(key.clone()) {
+            continue;
+        }
+        let node = by_key.get(&key).expect("admitted edge target");
+        pending.push_back(node.semantic_type.clone());
+        pending.extend(node.dependencies.iter().cloned());
+        let mut body = Vec::new();
+        body_keys(&node.body, &mut body);
+        pending.extend(body);
+    }
+    reached
+}
+
+/// Trace: FR-035-AC-6, FR-035-AC-7, FR-035-AC-8
+#[trace("TC-047", "FR-035-AC-6", "FR-035-AC-7", "FR-035-AC-8")]
+#[test]
+fn reached_view_uses_all_three_edges_and_preserves_sources_and_identity() {
+    let mut input = mixed_fixture();
+    let expression = input["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference expression");
+    // The body target is deliberately absent from the declared dependencies.
+    expression["dependencies"] = json!([
+        checked_package::node_id(&checked_package::family_key("cccc")),
+        checked_package::node_id(&checked_package::family_key("6060")),
+    ]);
+    mint_ungrouped_structural_keys(&mut input);
+    settle(&mut input);
+    let admitted = admit(&input);
+    let root = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "expression" && node.semantic_form.as_ref() == "reference"
+        })
+        .expect("root")
+        .node_id
+        .clone();
+    let result = admitted.lower(&[root.clone(), id("7070"), missing()], &profile());
+    let package = result.package.wire().expect("wire");
+    let before = package.wire().clone();
+    let ContractRootViewV1::Lowered(view) = package.reached_closure(&root).expect("view") else {
+        panic!("lowered root must have a view");
+    };
+    assert_eq!(view.root.node_id, root);
+    let keys = view
+        .nodes
+        .iter()
+        .map(|entry| entry.node.node_id.clone())
+        .collect::<Vec<_>>();
+    assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(
+        keys.iter().cloned().collect::<BTreeSet<_>>(),
+        independent_closure(&admitted, &root)
+    );
+    for entry in &view.nodes {
+        let original = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.node_id == entry.node.node_id)
+            .expect("source node");
+        assert_eq!(entry.node, original);
+        let sources = admitted
+            .source_map()
+            .iter()
+            .filter(|source| source.node_id == entry.node.node_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(entry.sources, sources);
+    }
+    assert!(view.selected_references.is_empty());
+    assert_eq!(view.bounds, vec![id("cccc")]);
+    assert_eq!(view.claims, vec![id("6060")]);
+    let CompleteLoweringRecordV2::Lowered { node: lowered } = &result.records[0] else {
+        panic!("root must lower");
+    };
+    assert_eq!(view.bounds, lowered.bounds);
+    assert_eq!(view.claims, lowered.claims);
+    assert!(
+        matches!(package.reached_closure(&id("7070")).expect("refused"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::Unsupported)
+    );
+    assert!(
+        matches!(package.reached_closure(&missing()).expect("missing"), ContractRootViewV1::NonLowered(record) if record.disposition() == ContractDispositionV1::InvalidInput)
+    );
+    assert!(matches!(
+        package.reached_closure(&id("dddd")).expect("reached only"),
+        ContractRootViewV1::Absent
+    ));
+    assert_eq!(package.wire(), &before);
+    assert_eq!(package.identity(), &before.identity);
+}
+
+/// Trace: FR-035-AC-7, FR-035-AC-8
+#[trace("TC-047", "FR-035-AC-7", "FR-035-AC-8")]
+#[test]
+fn reached_view_exposes_empty_subsets_and_absent_keys() {
+    let admitted = admit(&v2_all_families());
+    let root = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_tag.as_ref() == "value" && node.semantic_form.as_ref() == "literal")
+        .expect("literal")
+        .node_id
+        .clone();
+    let result = admitted.lower(std::slice::from_ref(&root), &profile());
+    let package = result.package.wire().expect("wire");
+    let ContractRootViewV1::Lowered(view) = package.reached_closure(&root).expect("view") else {
+        panic!("lowered root must have a view");
+    };
+    assert!(view.bounds.is_empty());
+    assert!(view.claims.is_empty());
+    let CompleteLoweringRecordV2::Lowered { node: lowered } = &result.records[0] else {
+        panic!("root must lower");
+    };
+    assert_eq!(view.bounds, lowered.bounds);
+    assert_eq!(view.claims, lowered.claims);
+    assert!(matches!(
+        package.reached_closure(&missing()).expect("absent"),
+        ContractRootViewV1::Absent
+    ));
 }
 
 /// Trace: FR-035-AC-5
