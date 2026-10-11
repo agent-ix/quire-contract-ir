@@ -572,6 +572,20 @@ fn residual_compared_type_reaching_ieee_refuses_but_integer_control_admits() {
                 "option" | "sequence" => collection_of("r", shape, ieee),
                 _ => unreachable!("test table is exhaustive"),
             };
+            let (base, _) = equality_package(vec![outer.clone(), scalar(ieee, ieee)], "r", vec![]);
+            let mut graph_only = base;
+            graph_only["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .retain(|node| node["node_tag"] != "expression");
+            settle(&mut graph_only);
+            assert!(
+                matches!(
+                    read(&graph_only, CheckedPackageReadLimits::bounded()),
+                    CheckedPackageV2ReadResult::Admitted(_)
+                ),
+                "{shape}<{ieee}> has an independently admitted graph"
+            );
             for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
                 for leaves in [vec![], vec![text_leaf(&[field("value")])]] {
                     let (mut package, _) =
@@ -608,6 +622,60 @@ fn residual_compared_type_reaching_ieee_refuses_but_integer_control_admits() {
             ),
             "{shape}<Integer> is the admitted control"
         );
+    }
+}
+
+/// Trace: FR-038-AC-180, FR-038-AC-231
+#[trace("FR-038-AC-180", "FR-038-AC-231")]
+#[test]
+fn residual_float_rounding_compared_type_refuses_after_graph_admission() {
+    for ieee in ["float32", "float64"] {
+        let rounded = node(
+            "rounded",
+            "bounded_domain",
+            "float_rounding",
+            ieee,
+            [ieee],
+            "type",
+            empty(),
+        );
+        let types = vec![
+            scalar(ieee, ieee),
+            rounded,
+            record("r", &[("value", "rounded")]),
+        ];
+        let (base, _) = equality_package(types.clone(), "r", vec![]);
+        let mut graph_only = base;
+        graph_only["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .retain(|node| node["node_tag"] != "expression");
+        settle(&mut graph_only);
+        assert!(
+            matches!(
+                read(&graph_only, CheckedPackageReadLimits::bounded()),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "float_rounding<{ieee}> has an independently admitted graph"
+        );
+        for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
+            for leaves in [vec![], vec![text_leaf(&[field("value")])]] {
+                let (mut package, _) = equality_package(types.clone(), "r", leaves);
+                let application = edit_application(&mut package, |node| {
+                    node["body"]["operation"]["identity"] = json!(identity);
+                });
+                assert_eq!(
+                    read(&package, CheckedPackageReadLimits::bounded()),
+                    refusal_at(
+                        CheckedPackageRefusalCode::IllTyped,
+                        &leaves_pointer(&package, &application),
+                        Some(CheckedPackageRefusalCause::OperatorIneligible),
+                        &application,
+                    ),
+                    "float_rounding<{ieee}> under {identity} is not equality eligible"
+                );
+            }
+        }
     }
 }
 
