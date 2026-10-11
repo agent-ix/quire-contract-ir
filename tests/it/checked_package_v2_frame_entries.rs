@@ -129,22 +129,78 @@ type JoinCase<'a> = (
 /// An edit of one clause body.
 type Edit = Box<dyn Fn(&mut Value)>;
 
-const OBJECT: &str = "1515151515151515151515151515151515151515151515151515151515151515";
-const PROCESS: &str = "1616161616161616161616161616161616161616161616161616161616161616";
-const RELATIONSHIP: &str = "2020202020202020202020202020202020202020202020202020202020202020";
-const NAMESPACE: &str = "1010101010101010101010101010101010101010101010101010101010101010";
+/// FR-092/FR-094 keys computed here from the declared preimages, independent
+/// of the shared fixture's `family_key` mapping and the reader.
+fn fixture_key(tag: &str, form: &str, ty: Option<&str>, owner: Option<Value>) -> String {
+    let mut preimage = json!({
+        "version": "quire.structural-node/v1", "node_tag": tag,
+        "semantic_form": form, "semantic_type": ty.map(node_id),
+        "declaration": null, "recursion": null,
+        "body": {"term": "aggregate", "members": []},
+    });
+    if let Some(owner) = owner {
+        preimage["owner"] = owner;
+    }
+    sha256_hex(&canonical(&preimage))
+}
+
+fn object_key() -> &'static str {
+    static KEY: LazyLock<String> = LazyLock::new(|| {
+        fixture_key(
+            "model",
+            "object_type",
+            None,
+            Some(json!({
+                "kind": "model", "identity": "test/families",
+                "node": "ix://test/families/Account",
+            })),
+        )
+    });
+    &KEY
+}
+
+fn process_key() -> &'static str {
+    static KEY: LazyLock<String> =
+        LazyLock::new(|| fixture_key("model", "process", Some(BOOLEAN_KEY), None));
+    &KEY
+}
+
+fn relationship_key() -> &'static str {
+    static KEY: LazyLock<String> = LazyLock::new(|| {
+        fixture_key(
+            "relation",
+            "relationship",
+            None,
+            Some(json!({
+                "kind": "model", "identity": "test/families",
+                "node": "ix://test/families/relationship/Account-balance-Account",
+            })),
+        )
+    });
+    &KEY
+}
+
+fn namespace_key() -> &'static str {
+    static KEY: LazyLock<String> =
+        LazyLock::new(|| fixture_key("model", "namespace", Some(BOOLEAN_KEY), None));
+    &KEY
+}
 
 /// Tracing: TC-056
 /// ACs: FR-040-AC-1
 #[trace("TC-056", "FR-040-AC-1")]
 #[test]
 fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
-    // The base frame holds a field entry and a relationship entry.
+    // The base frame holds both kinds in FR-340 declaration-digest order.
     let base = v2_all_families();
     let frame = position(&base, "state", "frame");
+    assert!(relationship_key() < object_key());
     assert_eq!(
         nodes(&base)[frame]["body"]["modifies"],
-        json!([field(OBJECT, "balance"), relationship(RELATIONSHIP)])
+        json!([
+            relationship(relationship_key()),
+            field(object_key(), "balance")
+        ])
     );
     admits(&base);
     let (empty, _) = frame_mutation(|frame| {
@@ -154,26 +210,26 @@ fn tc_056_modifies_entries_admit_in_their_closed_shape_only() {
     admits(&empty);
     let entry = |value: Value| frame_mutation(move |frame| frame["body"]["modifies"][1] = value);
     for (case, value) in [
-        ("a bare node key", node_id(RELATIONSHIP)),
+        ("a bare node key", node_id(relationship_key())),
         (
             "another kind",
-            json!({"kind": "operation", "declaration": node_id(RELATIONSHIP)}),
+            json!({"kind": "operation", "declaration": node_id(relationship_key())}),
         ),
         (
             "a field entry without name",
-            json!({"kind": "field", "declaration": node_id(RELATIONSHIP)}),
+            json!({"kind": "field", "declaration": node_id(relationship_key())}),
         ),
         (
             "a relationship entry carrying name",
-            json!({"kind": "relationship", "declaration": node_id(RELATIONSHIP), "name": "x"}),
+            json!({"kind": "relationship", "declaration": node_id(relationship_key()), "name": "x"}),
         ),
         (
             "an extra member",
-            json!({"kind": "relationship", "declaration": node_id(RELATIONSHIP), "at": 1}),
+            json!({"kind": "relationship", "declaration": node_id(relationship_key()), "at": 1}),
         ),
         (
             "a field name that is not an identifier",
-            json!({"kind": "field", "declaration": node_id(OBJECT), "name": "a b"}),
+            json!({"kind": "field", "declaration": node_id(object_key()), "name": "a b"}),
         ),
     ] {
         let (value, frame) = entry(value);
@@ -199,56 +255,56 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     let cases: [JoinCase<'_>; 6] = [
         (
             "a relationship entry naming an object type",
-            json!([relationship(OBJECT)]),
+            json!([relationship(object_key())]),
             json!([]),
-            json!([node_id(OBJECT)]),
+            json!([node_id(object_key())]),
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            OBJECT,
+            object_key(),
             "modifies",
             0,
         ),
         (
             "a field entry on a process",
-            json!([field(PROCESS, "x")]),
+            json!([field(process_key(), "x")]),
             json!([]),
-            json!([node_id(PROCESS)]),
+            json!([node_id(process_key())]),
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            PROCESS,
+            process_key(),
             "modifies",
             0,
         ),
         (
             "a field entry on a relationship",
-            json!([field(RELATIONSHIP, "x")]),
+            json!([field(relationship_key(), "x")]),
             json!([]),
-            json!([node_id(RELATIONSHIP)]),
+            json!([node_id(relationship_key())]),
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            RELATIONSHIP,
+            relationship_key(),
             "modifies",
             0,
         ),
         (
             "a creates entry naming a relationship",
             json!([]),
-            json!([node_id(RELATIONSHIP)]),
-            json!([node_id(RELATIONSHIP)]),
+            json!([node_id(relationship_key())]),
+            json!([node_id(relationship_key())]),
             Code::InvalidModelBinding,
             Cause::MalformedDeclaration,
-            RELATIONSHIP,
+            relationship_key(),
             "creates",
             0,
         ),
         (
             "an entry naming no declared dependency",
-            json!([relationship(RELATIONSHIP)]),
+            json!([relationship(relationship_key())]),
             json!([]),
             json!([]),
             Code::MissingDeclaration,
             Cause::MissingName,
-            RELATIONSHIP,
+            relationship_key(),
             "modifies",
             0,
         ),
@@ -283,8 +339,8 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
     // A `semantic_type` that is not an object type refuses before an entry
     // defect.
     let (value, frame) = frame_mutation(|frame| {
-        frame["semantic_type"] = node_id(PROCESS);
-        frame["body"]["modifies"] = json!([relationship(OBJECT)]);
+        frame["semantic_type"] = node_id(process_key());
+        frame["body"]["modifies"] = json!([relationship(object_key())]);
     });
     expect(
         "semantic_type naming a process",
@@ -292,7 +348,7 @@ fn tc_056_frame_entries_and_semantic_type_join_declared_dependencies() {
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{frame}/semantic_type"),
-        Some(PROCESS),
+        Some(process_key()),
     );
     let (value, frame) = frame_mutation(|frame| frame["semantic_type"] = node_id(&"ab".repeat(32)));
     expect(
@@ -324,11 +380,13 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
     // Two field entries of one declaring node, ascending by name, admit;
     // descending refuses at the frame body, located at the frame.
     let (ascending, _) = frame_mutation(|frame| {
-        frame["body"]["modifies"] = json!([field(OBJECT, "balance"), field(OBJECT, "total")]);
+        frame["body"]["modifies"] =
+            json!([field(object_key(), "balance"), field(object_key(), "total")]);
     });
     admits(&ascending);
     let (descending, frame) = frame_mutation(|frame| {
-        frame["body"]["modifies"] = json!([field(OBJECT, "total"), field(OBJECT, "balance")]);
+        frame["body"]["modifies"] =
+            json!([field(object_key(), "total"), field(object_key(), "balance")]);
     });
     let frame_digest = digest(&descending, frame);
     expect(
@@ -342,8 +400,9 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
     // A meaning-join defect in `deletes` outranks an order defect in
     // `modifies`, wherever each sits.
     let (both, frame) = frame_mutation(|frame| {
-        frame["body"]["modifies"] = json!([field(OBJECT, "total"), field(OBJECT, "balance")]);
-        frame["body"]["deletes"] = json!([node_id(RELATIONSHIP)]);
+        frame["body"]["modifies"] =
+            json!([field(object_key(), "total"), field(object_key(), "balance")]);
+        frame["body"]["deletes"] = json!([node_id(relationship_key())]);
     });
     expect(
         "meaning join over order",
@@ -351,14 +410,20 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &format!("/semantic_graph/nodes/{frame}/body/deletes/0"),
-        Some(RELATIONSHIP),
+        Some(relationship_key()),
     );
-    // A field entry on a source-declared object type is not resolved against
-    // a domain package.
-    let (unresolved, _) = frame_mutation(|frame| {
-        frame["body"]["modifies"][0] = field(OBJECT, "anything");
+    // The selected model owns this object, so an undeclared field name refuses.
+    let (missing, frame) = frame_mutation(|frame| {
+        frame["body"]["modifies"] = json!([field(object_key(), "anything")]);
     });
-    admits(&unresolved);
+    expect(
+        "a model-owned missing field",
+        &missing,
+        Code::MissingDeclaration,
+        Some(Cause::MissingName),
+        &format!("/semantic_graph/nodes/{frame}/body/modifies/0"),
+        Some(object_key()),
+    );
 }
 
 /// Tracing: TC-056
@@ -369,28 +434,44 @@ fn tc_056_record_value_type_field_entries_admit_unresolved() {
     let base = v2_all_families();
     let record = nodes(&base)
         .iter()
-        .position(|node| node["node_id"]["digest"] == NAMESPACE)
+        .position(|node| node["node_id"]["digest"] == namespace_key())
         .expect("the namespace node");
     let with_record = |declared: bool| {
         let mut value = base.clone();
         let node = &mut value["semantic_graph"]["nodes"][record];
         node["semantic_form"] = json!("record_value_type");
+        let mut preimage = json!({
+            "version": "quire.structural-node/v1", "node_tag": "model",
+            "semantic_form": "record_value_type", "semantic_type": node_id(BOOLEAN_KEY),
+            "declaration": null, "recursion": null,
+            "body": {"term": "aggregate", "members": []},
+        });
         if declared {
             node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
             node["declaration"] = json!({"qualified_name": ["Example", "Address"]});
             node["owner"] = source_owner(&fixture_source());
+            preimage["declaration"] = node["declaration"].clone();
+            preimage["owner"] = node["owner"].clone();
         }
+        let record_key = sha256_hex(&canonical(&preimage));
+        rename_node(&mut value, namespace_key(), &record_key);
         let frame = position(&value, "state", "frame");
         let frame = &mut value["semantic_graph"]["nodes"][frame];
         frame["dependencies"]
             .as_array_mut()
             .expect("frame dependencies")
-            .push(node_id(NAMESPACE));
-        frame["body"]["modifies"] = json!([
-            field(NAMESPACE, "street"),
-            field(OBJECT, "balance"),
-            relationship(RELATIONSHIP)
-        ]);
+            .push(node_id(&record_key));
+        let mut modifies = vec![
+            field(&record_key, "street"),
+            field(object_key(), "balance"),
+            relationship(relationship_key()),
+        ];
+        modifies.sort_by(|left, right| {
+            left["declaration"]["digest"]
+                .as_str()
+                .cmp(&right["declaration"]["digest"].as_str())
+        });
+        frame["body"]["modifies"] = json!(modifies);
         frame["dependencies"]
             .as_array_mut()
             .expect("frame dependencies")
@@ -413,18 +494,29 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     let base = v2_all_families();
     let model = nodes(&base)
         .iter()
-        .position(|node| node["node_id"]["digest"] == NAMESPACE)
+        .position(|node| node["node_id"]["digest"] == namespace_key())
         .expect("the namespace node");
     let with_form = |form: &str| {
+        if matches!(form, "object_type" | "process" | "namespace") {
+            // The shared fixture already holds these admitted forms.
+            return base.clone();
+        }
         let mut value = base.clone();
         value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
-        if matches!(form, "object_type" | "systems_interface") {
+        if form == "systems_interface" {
             let node = &mut value["semantic_graph"]["nodes"][model];
-            node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
-            node["declaration"] = json!({"qualified_name": ["Example", "ChangedModel"]});
-            node["owner"] = source_owner(&fixture_source());
-            rebuild_source_map(&mut value);
+            node["owner"] = json!({
+                "kind": "model", "identity": "test/families",
+                "node": "ix://test/families/Interface",
+            });
+            let key = fixture_key("model", form, None, Some(node["owner"].clone()));
+            rename_node(&mut value, namespace_key(), &key);
+            value["semantic_graph"]["nodes"][model]["semantic_type"] = node_id(&key);
+        } else {
+            let key = fixture_key("model", form, Some(BOOLEAN_KEY), None);
+            rename_node(&mut value, namespace_key(), &key);
         }
+        rebuild_source_map(&mut value);
         refresh_identity(&mut value);
         value
     };
@@ -509,7 +601,7 @@ fn plain(
 
 fn self_key() -> &'static str {
     static KEY: LazyLock<String> = LazyLock::new(|| {
-        let ty = reference_key(OBJECT);
+        let ty = reference_key(object_key());
         let body = json!({"term": "aggregate", "members": [
             binding("name", text("self")),
             binding("level", json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "0"})),
@@ -523,8 +615,8 @@ fn anchor_key() -> &'static str {
     static KEY: LazyLock<String> = LazyLock::new(|| {
         let package = v2_all_families();
         let frame = position(&package, "state", "frame");
-        let body = anchor_body(OBJECT, text("deposit"), &digest(&package, frame));
-        structural_key("state", "operation_anchor", Some(OBJECT), &body)
+        let body = anchor_body(object_key(), text("deposit"), &digest(&package, frame));
+        structural_key("state", "operation_anchor", Some(object_key()), &body)
     });
     &KEY
 }
@@ -609,16 +701,16 @@ impl StatePackage {
         let mut value = v2_all_families();
         let frame = position(&value, "state", "frame");
         let frame_key = digest(&value, frame);
-        let reference_type = reference_key(OBJECT);
+        let reference_type = reference_key(object_key());
         let added = [
             plain(
                 &reference_type,
                 "composite_type",
                 "reference",
                 &reference_type,
-                &[OBJECT],
+                &[object_key()],
                 "type",
-                json!({"term": "aggregate", "members": [reference(OBJECT)]}),
+                json!({"term": "aggregate", "members": [reference(object_key())]}),
             ),
             plain(
                 self_key(),
@@ -636,12 +728,12 @@ impl StatePackage {
                 anchor_key(),
                 "state",
                 "operation_anchor",
-                OBJECT,
-                &[OBJECT, &frame_key],
+                object_key(),
+                &[object_key(), &frame_key],
                 "anchor",
-                anchor_body(OBJECT, text("deposit"), &frame_key),
+                anchor_body(object_key(), text("deposit"), &frame_key),
             ),
-            clause_node("invariant", &[self_key()], OBJECT),
+            clause_node("invariant", &[self_key()], object_key()),
             clause_node("precondition", &[self_key()], anchor_key()),
         ];
         value["semantic_graph"]["nodes"]
@@ -696,14 +788,14 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
             "reordered bindings",
             json!({"term": "aggregate", "members": [
                 binding("operation", text("deposit")),
-                binding("context", reference(OBJECT)),
+                binding("context", reference(object_key())),
                 binding("frame", reference(&frame_key)),
             ]}),
         ),
         (
             "a non-text operation",
             anchor_body(
-                OBJECT,
+                object_key(),
                 json!({"term": "literal", "type": node_id(INTEGER), "value_kind": "integer", "value": "1"}),
                 &frame_key,
             ),
@@ -711,17 +803,17 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         (
             "a missing binding",
             json!({"term": "aggregate", "members": [
-                binding("context", reference(OBJECT)),
+                binding("context", reference(object_key())),
                 binding("operation", text("deposit")),
             ]}),
         ),
         (
             "an extra binding",
             json!({"term": "aggregate", "members": [
-                binding("context", reference(OBJECT)),
+                binding("context", reference(object_key())),
                 binding("operation", text("deposit")),
                 binding("frame", reference(&frame_key)),
-                binding("extra", reference(OBJECT)),
+                binding("extra", reference(object_key())),
             ]}),
         ),
     ];
@@ -768,7 +860,7 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
     );
     let value = StatePackage::new()
         .edit(anchor, |node| {
-            node["body"] = anchor_body(OBJECT, text("deposit"), OBJECT)
+            node["body"] = anchor_body(object_key(), text("deposit"), object_key())
         })
         .value;
     expect(
@@ -777,11 +869,11 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Code::InvalidModelBinding,
         Some(Cause::MalformedDeclaration),
         &target(2),
-        Some(OBJECT),
+        Some(object_key()),
     );
     let value = StatePackage::new()
         .edit(anchor, |node| {
-            node["dependencies"] = json!([node_id(OBJECT)])
+            node["dependencies"] = json!([node_id(object_key())])
         })
         .value;
     expect(
@@ -793,7 +885,9 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
         Some(&frame_key),
     );
     let value = StatePackage::new()
-        .edit(anchor, |node| node["semantic_type"] = node_id(PROCESS))
+        .edit(anchor, |node| {
+            node["semantic_type"] = node_id(process_key())
+        })
         .value;
     expect(
         "an anchor typed at another node",
@@ -822,7 +916,7 @@ fn tc_056_operation_anchors_admit_their_three_bindings_and_joins() {
                 json!({"term": "frame", "modifies": [], "creates": [], "deletes": []});
             alternate_frame["dependencies"] = json!([]);
             second["body"]["members"][2]["value"]["target"] = node_id(&alternate_key);
-            second["dependencies"] = json!([node_id(OBJECT), node_id(&alternate_key)]);
+            second["dependencies"] = json!([node_id(object_key()), node_id(&alternate_key)]);
             package.value["semantic_graph"]["nodes"]
                 .as_array_mut()
                 .expect("nodes")
@@ -870,7 +964,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
             "a precondition at an object type",
             precondition,
             "precondition",
-            OBJECT,
+            object_key(),
         ),
     ] {
         let value = StatePackage::new()
@@ -894,7 +988,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     // A parameter reference to a node that is not a parameter.
     let value = StatePackage::new()
         .edit(invariant, |node| {
-            *node = clause_node("invariant", &[INTEGER], OBJECT)
+            *node = clause_node("invariant", &[INTEGER], object_key())
         })
         .value;
     let clause = StatePackage {
@@ -938,7 +1032,8 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         (
             "a second argument that is not a reference",
             Box::new(|body| {
-                body["arguments"][1] = json!({"term": "aggregate", "members": [reference(OBJECT)]});
+                body["arguments"][1] =
+                    json!({"term": "aggregate", "members": [reference(object_key())]});
             }),
         ),
     ];
@@ -983,7 +1078,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     // Signature: `self` of another object type, and an invariant binding a
     // second parameter, refuse at the clause.
     let mut other_self = StatePackage::new();
-    let other_reference = reference_key(PROCESS);
+    let other_reference = reference_key(process_key());
     let other_self_key = "b8".repeat(32);
     let reference_node =
         nodes(&other_self.value)[other_self.at("composite_type", "reference")].clone();
@@ -991,8 +1086,9 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
     let mut other_reference_node = reference_node;
     other_reference_node["node_id"] = node_id(&other_reference);
     other_reference_node["semantic_type"] = node_id(&other_reference);
-    other_reference_node["dependencies"] = json!([node_id(PROCESS)]);
-    other_reference_node["body"] = json!({"term": "aggregate", "members": [reference(PROCESS)]});
+    other_reference_node["dependencies"] = json!([node_id(process_key())]);
+    other_reference_node["body"] =
+        json!({"term": "aggregate", "members": [reference(process_key())]});
     let mut other_self_node = self_node;
     other_self_node["node_id"] = node_id(&other_self_key);
     other_self_node["semantic_type"] = node_id(&other_reference);
@@ -1001,7 +1097,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         .expect("nodes")
         .extend([other_reference_node, other_self_node]);
     let other_self = other_self.edit(invariant, |node| {
-        *node = clause_node("invariant", &[&other_self_key], OBJECT);
+        *node = clause_node("invariant", &[&other_self_key], object_key());
     });
     let clause = other_self.clause("invariant");
     expect(
@@ -1023,7 +1119,7 @@ fn tc_056_state_clauses_admit_their_body_and_join_anchor_and_parameters() {
         .expect("nodes")
         .push(extra);
     let second = second.edit(invariant, |node| {
-        *node = clause_node("invariant", &[self_key(), &extra_key], OBJECT);
+        *node = clause_node("invariant", &[self_key(), &extra_key], object_key());
     });
     let clause = second.clause("invariant");
     expect(
@@ -1089,7 +1185,7 @@ fn tc_056_a_state_clause_application_stands_only_as_a_clause_body_root() {
     let non_boolean = StatePackage::new()
         .edit(invariant, |node| {
             node["body"]["arguments"][2] = reference(INTEGER);
-            let deps = clause_dependencies(&[self_key()], OBJECT);
+            let deps = clause_dependencies(&[self_key()], object_key());
             let mut deps: Vec<String> = deps
                 .into_iter()
                 .filter(|d| *d != condition())
@@ -1178,9 +1274,11 @@ fn tc_056_frame_state_and_operation_steps_report_in_reader_order() {
     let frame = package.at("state", "frame");
     let anchor = package.at("state", "operation_anchor");
     let invariant = package.clause("invariant");
-    let frame_defect = |node: &mut Value| node["body"]["deletes"] = json!([node_id(RELATIONSHIP)]);
-    let anchor_defect = |node: &mut Value| node["semantic_type"] = node_id(PROCESS);
-    let clause_defect = |node: &mut Value| *node = clause_node("invariant", &[INTEGER], OBJECT);
+    let frame_defect =
+        |node: &mut Value| node["body"]["deletes"] = json!([node_id(relationship_key())]);
+    let anchor_defect = |node: &mut Value| node["semantic_type"] = node_id(process_key());
+    let clause_defect =
+        |node: &mut Value| *node = clause_node("invariant", &[INTEGER], object_key());
     let operation_defect = |node: &mut Value| node["body"]["result_type"] = node_id(INTEGER);
 
     let value = StatePackage::new()
@@ -1438,7 +1536,7 @@ impl ModelPackage {
             .expect("nodes");
         for node in nodes.iter_mut() {
             let key = node["node_id"]["digest"].as_str().expect("key").to_owned();
-            if key == reference_key(OBJECT) {
+            if key == reference_key(object_key()) {
                 node["dependencies"] = json!([node_id(&order)]);
                 node["body"] = json!({"term": "aggregate", "members": [reference(&order)]});
             } else if key == frame_key {
@@ -1468,7 +1566,7 @@ impl ModelPackage {
         // derived key changes with its body.
         rename_node(
             &mut state.value,
-            &reference_key(OBJECT),
+            &reference_key(object_key()),
             &reference_key(&order),
         );
         mint_ungrouped_structural_keys(&mut state.value);

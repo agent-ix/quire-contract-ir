@@ -35,28 +35,42 @@ pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 const FAMILY_OBJECT: &str = "ix://test/families/Account";
+const FAMILY_INTERFACE: &str = "ix://test/families/Interface";
 const FAMILY_RELATIONSHIP: &str = "ix://test/families/relationship/Account-balance-Account";
 
 pub fn family_model_document() -> Value {
+    let fields = ["balance", "total"]
+        .into_iter()
+        .map(|name| {
+            json!({
+                "identity": format!("{FAMILY_OBJECT}/{name}"),
+                "name": name, "typeRef": "ix://quire/native/Integer",
+                "presence": "required", "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+            })
+        })
+        .collect::<Vec<_>>();
+    let operations = ["deposit", "withdraw"]
+        .into_iter()
+        .map(|name| json!({"identity": format!("{FAMILY_OBJECT}/{name}"), "params": []}))
+        .collect::<Vec<_>>();
     json!({
         "contractVersion": "2.0.0",
         "package": {"identity": FAMILY_MODEL_IDENTITY, "version": "1"},
         "constructs": [{
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }, {
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
+            "construct": {"meaning": "quire.meaning.systems.interface/v1"},
         }],
         "types": [{
             "identity": FAMILY_OBJECT, "displayName": "Account",
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [],
-            "fields": [{
-                "identity": format!("{FAMILY_OBJECT}/balance"),
-                "name": "balance", "typeRef": "ix://quire/native/Integer",
-                "presence": "required", "nullable": false, "defaultKind": "none",
-                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
-            }],
-            "operations": [],
+            "fields": fields,
+            "operations": operations,
             "relationships": [{
                 "identity": FAMILY_RELATIONSHIP,
                 "category": "structural", "composite": false, "direction": "bidirectional",
@@ -67,6 +81,11 @@ pub fn family_model_document() -> Value {
                 "origin": {"source": {"sourceIdentity": FAMILY_OBJECT,
                     "path": "models/Account.md", "startLine": 1, "startColumn": 1}},
             }],
+        }, {
+            "identity": FAMILY_INTERFACE, "displayName": "Interface",
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [], "fields": [], "operations": [],
         }],
     })
 }
@@ -1657,12 +1676,22 @@ fn build_v2_all_families() -> Value {
     let f8080 = family_key("8080");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
+    // FR-340 orders frame modifications by declaration digest, then field
+    // name. The model declaration digests can change with their preimages.
+    let mut modifies = [
+        (
+            &f1515,
+            json!({"kind": "field", "declaration": node_id(&f1515), "name": "balance"}),
+        ),
+        (
+            &f2020,
+            json!({"kind": "relationship", "declaration": node_id(&f2020)}),
+        ),
+    ];
+    modifies.sort_by(|left, right| left.0.cmp(right.0));
     let frame_body = json!({
         "term": "frame",
-        "modifies": [
-            {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
-            {"kind": "relationship", "declaration": node_id(&f2020)},
-        ],
+        "modifies": modifies.into_iter().map(|(_, entry)| entry).collect::<Vec<_>>(),
         "creates": [node_id(&f1515)],
         "deletes": [node_id(&f1616)],
     });
