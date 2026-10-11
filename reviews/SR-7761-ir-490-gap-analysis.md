@@ -29,3 +29,14 @@ Examined FR-038-AC-224 against all seven new tagged tests and the changed resolv
 FND-001: `structural_forwarding_is_paid_once_across_both_leaf_passes` checks that `resolved.len()` remains 300 after placement, but a second pass could charge those 300 entries again and leave that size unchanged. The admitted operation's total limit is measured from the same implementation, so its exact and one-less assertions also pass with that overcharge. Measure `meter.consumed()` before and after each leaf pass and separate the expected leaf-visit/pin charges from the structural delta.
 
 FND-002: `inner_result_and_leaf_edges_propagate_structural_work` invokes `inner_type`, `LeafWalk::edge`, and `check_leaf_count` directly. Its `contains` and `flatten` application nodes have empty argument arrays, and the exact helper cases use a generous limit of 100 rather than a measured operation limit. A regression in `operation_defect` ordering or public-reader propagation could leave these assertions green. Use otherwise valid applications and assert the public reader's ordinary exact-limit result and typed `incomplete`/`work` at one less for each route.
+
+## Dispositions
+
+Both findings were fixed on `8c2885d076eaddb55f8fde3daae9f9c5ecd57b78` in the same review round.
+
+| ID | Disposition | Evidence |
+| --- | --- | --- |
+| FND-001 | fixed | `structural_forwarding_is_paid_once_across_both_leaf_passes` now records the meter before count, after count, and after placement. It attributes count work to two expanded nodes, 301 leaf visits, 300 independent profile-pin units and 300 structural-forwarding units; placement asserts exactly 301 leaf visits and zero additional forwarding/pin units. The measured lawful operation still checks exact and one-less total limits. Focused `structural_` unit run passed 8/8. |
+| FND-002 | fixed | `inner_result_and_leaf_edges_propagate_structural_work` now runs complete, otherwise-valid `contains`, `flatten` and `structural.eq` operations through `operation_defect`, measuring each operation's exact and one-less limit and asserting typed Work. `structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries` builds keyed packages for the same routes, reads them through public `CheckedPackageV2::read`, asserts admission at measured total work, typed Work one below, and a public Work refusal at each operation's path. Focused integration run passed 1/1. |
+
+The focused checks on this head also passed scoped Clippy with `-D warnings` and the text-profile-pin unit filter (2/2). Full repository gates and an independent disposition review remain outside this coder round.
