@@ -5,7 +5,7 @@
 
 use crate::support::checked_package::{
     self, canonical, evidence_for, mint_ungrouped_structural_keys, refresh_identity, settle,
-    sha256_hex, typed_node_id, v2_all_families, v2_nominal,
+    sha256_hex, structural_key, typed_node_id, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -46,6 +46,16 @@ fn key(prefix: &str) -> String {
 
 fn id(prefix: &str) -> CheckedNodeId {
     typed_node_id(&key(prefix))
+}
+
+/// FR-092 key of the namespace after `integer_typed` retypes it at Integer.
+fn integer_typed_namespace_id() -> CheckedNodeId {
+    typed_node_id(&structural_key(
+        "model",
+        "namespace",
+        Some(&key("a3a3")),
+        &json!({"term": "aggregate", "members": []}),
+    ))
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
@@ -98,6 +108,7 @@ fn tc_050_every_family_lowers_with_its_exact_closure_and_identity() {
         // `aaaa`.
         let expected_type = match *prefix {
             "bbbb" => id("bbbb"),
+            "2020" => id("2020"),
             "cccc" => id("a3a3"),
             _ => id("aaaa"),
         };
@@ -332,13 +343,17 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
         .and_then(|node| node["node_id"]["digest"].as_str())
         .expect("value key");
     let result = package.lower(
-        &[id("1010"), typed_node_id(value_key), id("cccc")],
+        &[
+            integer_typed_namespace_id(),
+            typed_node_id(value_key),
+            id("cccc"),
+        ],
         &bounded,
     );
     assert_eq!(
         result.records[0],
         CompleteLoweringRecordV2::RequiresBound {
-            node_id: id("1010"),
+            node_id: integer_typed_namespace_id(),
             unbounded_type: id("a3a3"),
         }
     );
@@ -353,7 +368,7 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     assert!(lowered(&result.records[2]).bounds.is_empty());
 
     // Without the bound requirement the same request lowers.
-    let unbounded = package.lower(&[id("1010")], &profile(u64::MAX));
+    let unbounded = package.lower(&[integer_typed_namespace_id()], &profile(u64::MAX));
     assert!(unbounded.records[0] != result.records[0]);
     assert!(lowered(&unbounded.records[0]).bounds.is_empty());
 }
@@ -462,7 +477,11 @@ fn tc_052_record_vocabulary_is_seven_and_defensive_kinds_are_unreachable() {
     let observed = [
         record_kind(&package.lower(&[id("aaaa")], &profile(u64::MAX)).records[0]),
         record_kind(&package.lower(&[id("dddd")], &narrow).records[0]),
-        record_kind(&integer_package.lower(&[id("1010")], &bounded).records[0]),
+        record_kind(
+            &integer_package
+                .lower(&[integer_typed_namespace_id()], &bounded)
+                .records[0],
+        ),
         record_kind(
             &package
                 .lower(

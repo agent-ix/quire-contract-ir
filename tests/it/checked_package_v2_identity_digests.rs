@@ -882,9 +882,14 @@ fn tc_048_preimages_take_the_path_their_depth_allows() {
                     })
         })
     };
-    for fixed in ["NominalIdentityPreimage", "StructuralPreimage"] {
-        assert!(derives_fixed_shape(fixed), "{fixed} derives FixedShape");
-    }
+    assert!(
+        derives_fixed_shape("NominalIdentityPreimage"),
+        "nominal identity derives FixedShape"
+    );
+    assert!(
+        all.contains("impl<B: Encode> Encode for StructuralPreimage"),
+        "group bodies require a fallible streaming structural preimage"
+    );
     for encoded in [
         "ApplicationNodePreimage",
         "LoweredNodePreimage",

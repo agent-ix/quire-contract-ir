@@ -621,14 +621,12 @@ fn tc_228_operation_and_invariant_clause_owners_join_only_their_kind() {
     }
 }
 
-/// This is the IR-627/IR-630 boundary: IR-627 validates only owner-free
-/// structural keys. IR-630 must make this stale owner-bearing function key
-/// refuse; admission here is not evidence of FR-092 owner-key validation.
+/// An owner-bearing function's body participates in its FR-092 key.
 ///
 /// Trace: TC-228
-#[trace("TC-228")]
+#[trace("TC-228", "FR-038-AC-148")]
 #[test]
-fn tc_228_owner_bearing_function_key_remains_for_ir_630() {
+fn tc_228_owner_bearing_function_refuses_a_stale_body_key() {
     let (base, mut document) = model_package();
     let operation = "ix://acme/owners/Point/op";
     document["types"][0]["operations"] = json!([{"identity": operation, "params": []}]);
@@ -652,10 +650,26 @@ fn tc_228_owner_bearing_function_key_remains_for_ir_630() {
     })));
     assert_ne!(node["node_id"]["digest"], would_be_key);
     refresh_identity(&mut package);
-    assert!(matches!(
-        read_with_model(&package, &document),
-        CheckedPackageV2ReadResult::Admitted(_)
-    ));
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_with_model(&package, &document) else {
+        panic!("changed owner-bearing function must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+    );
+    assert_eq!(
+        refusal
+            .expected_node_id()
+            .expect("derived key")
+            .digest
+            .as_ref(),
+        would_be_key
+    );
 }
 
 /// Trace: FR-038-AC-155
@@ -688,11 +702,16 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
             assert_eq!(incomplete.consumed, work + 1);
             limits.work = work + 1;
             let next = CheckedPackageV2::read(&bytes, limits, &evidence);
-            assert!(
-                !matches!(next, CheckedPackageV2ReadResult::Incomplete(ref incomplete)
-                    if incomplete.path.as_ref().is_some_and(|path| path.as_str() == owner_path)),
-                "the one-visit owner lookup completes at the next limit"
+            // The owner join uses this charge. FR-038-AC-150 subsequently
+            // charges the structural key at the same node_id pointer.
+            let CheckedPackageV2ReadResult::Incomplete(key_charge) = next else {
+                panic!("the structural-key visit follows the owner lookup");
+            };
+            assert_eq!(
+                key_charge.path.as_ref().map(|path| path.as_str()),
+                Some(owner_path.as_str())
             );
+            assert_eq!(key_charge.consumed, work + 2);
             return;
         }
     }
