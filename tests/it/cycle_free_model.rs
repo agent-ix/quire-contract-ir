@@ -168,6 +168,17 @@ fn resolved_production_graph_is_acyclic_and_owner_free_in_each_feature_configura
             .collect();
         combinations.extend(additions);
     }
+    // Workspace metadata may unify the root's dev-dependency features into the
+    // model even for --no-default-features. These graphs are conservative
+    // supersets, not claims about which features a production build disables.
+    // The all-feature graph must activate every advertised model feature; its
+    // owner-free acyclic production edges cover every feature subset as well.
+    let all_features: BTreeSet<_> = model["features"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
     let mut configurations = vec![Vec::new(), vec!["--all-features".to_owned()]];
     configurations.extend(combinations.into_iter().map(|features| {
         let mut args = vec!["--no-default-features".to_owned()];
@@ -181,6 +192,24 @@ fn resolved_production_graph_is_acyclic_and_owner_free_in_each_feature_configura
         let model_id = package(&resolved, "quire-contract-model")["id"]
             .as_str()
             .unwrap();
+        if configuration.iter().any(|arg| arg == "--all-features") {
+            let node = resolved["resolve"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|node| node["id"] == model_id)
+                .unwrap();
+            let activated: BTreeSet<_> = node["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().to_owned())
+                .collect();
+            assert!(
+                all_features.is_subset(&activated),
+                "all-feature graph must cover the model's complete declared feature set"
+            );
+        }
         production_graph(&resolved, model_id, true)
             .unwrap_or_else(|error| panic!("{configuration:?}: {error}"));
         for member in resolved["workspace_members"].as_array().unwrap() {
@@ -295,7 +324,7 @@ fn runner(schemas: &Path) -> Output {
         .unwrap()
 }
 
-fn jsonl(rows: &[Value]) -> Vec<u8> {
+fn jsonl<T: serde::Serialize>(rows: &[T]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for row in rows {
         serde_json::to_writer(&mut bytes, row).unwrap();
@@ -356,8 +385,17 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
         String::from_utf8_lossy(&root.stderr)
     );
     assert!(root.stderr.is_empty());
-    let model_bytes = jsonl(&rows);
+    // Serialize the actual typed results in the same declaration order as the
+    // CLI. Converting structs to Value first changes object-key order.
+    let model_bytes = jsonl(&results);
     assert_eq!(root.stdout, model_bytes);
+    let root_rows: Vec<Value> = root
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|row| !row.is_empty())
+        .map(|row| serde_json::from_slice(row).unwrap())
+        .collect();
+    assert_eq!(rows, root_rows);
     // Each named result category participates in the byte comparison.
     for pointer in [
         "/actual/canonical/0/bytes",
@@ -370,7 +408,7 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
             .find(|row| row.pointer(pointer).is_some())
             .unwrap();
         *row.pointer_mut(pointer).unwrap() = json!("adverse-result");
-        assert_ne!(jsonl(&changed), root.stdout, "{pointer}");
+        assert_ne!(changed, root_rows, "{pointer}");
     }
     let mut changed = rows.clone();
     let row = changed
@@ -378,9 +416,9 @@ fn model_and_root_runner_agree_on_schema_canonical_identity_diagnostic_and_corpu
         .find(|row| row.pointer("/actual/diagnostics/0/code").is_some())
         .unwrap();
     *row.pointer_mut("/actual/diagnostics/0/code").unwrap() = json!("adverse-diagnostic");
-    assert_ne!(jsonl(&changed), root.stdout);
+    assert_ne!(changed, root_rows);
     changed[0]["fixture_id"] = json!("adverse-corpus-row");
-    assert_ne!(jsonl(&changed), root.stdout);
+    assert_ne!(changed, root_rows);
 }
 
 struct ScratchSchemas(PathBuf);
