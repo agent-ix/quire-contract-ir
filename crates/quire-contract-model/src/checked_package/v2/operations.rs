@@ -45,14 +45,10 @@
 //! `body` is an application term at its root. An application stands nowhere
 //! else: the flat wire refuses one nested in another term, ahead of every
 //! identity check (`flat_wire`), so every application's key and its own
-//! `operation` are checked here; `operation.mode`
-//! is checked for `kind` only — its `value` is never checked against the
-//! catalog's closed `modes` vocabulary; a catalogued entry's `result` is
-//! never checked against the catalog's `result_forms`; `argument_family`
-//! resolves only `reference` and `binding` argument terms, so a `literal` or
-//! `aggregate` argument resolves to no family and
-//! silently bypasses every operand-family check ([`check_operands`],
-//! [`check_mode_type`], [`check_leaf_count`]) that consults it.
+//! `operation` are checked here; `operation.mode` is checked for kind and
+//! type pins, but its value is not checked against the catalog's closed
+//! `modes` vocabulary; a catalogued entry's `result` is not checked against
+//! the catalog's `result_forms`.
 
 use super::application_identity::{application_digest, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
@@ -68,17 +64,19 @@ use super::temporal::member_is_well_formed;
 use super::{
     ApplicationOperator, BodyTerm, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId,
     CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedSemanticNodeV2, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, ModelForm,
-    NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind, OperationModeKind,
-    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
+    CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind,
+    ModelForm, NominalIdentityPreimage, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
+    ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::common::{
-    application_operator, body_term, decoder_pointer, node_pointer, NODE_DOMAIN,
+    application_operator, body_term, decoder_pointer, literal_kind, node_pointer, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use crate::checked_package::terms::subterms;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -291,6 +289,9 @@ pub(super) fn validate_operations(
                 return Err(failure);
             }
             references.walk_body(Referrer { node, position }, meter)?;
+            if let Some(failure) = literal_type_defect(node, position, &graph) {
+                return Err(failure);
+            }
             continue;
         }
         let application = Application { node, position };
@@ -307,6 +308,61 @@ pub(super) fn validate_operations(
         }
     }
     Ok(())
+}
+
+/// Check every literal against its own declared type, including body roots and
+/// arguments in `any_value` positions. The heap stack retains the authored
+/// path so a mismatch points at this literal's `type`.
+fn literal_type_defect(
+    node: &CheckedSemanticNodeV2,
+    position: usize,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    let mut pending = vec![(&node.body, node_pointer(position).key("body"))];
+    while let Some((term, path)) = pending.pop() {
+        if body_term(term) == Some(BodyTerm::Literal) {
+            let Some(kind) = literal_kind(term) else {
+                continue;
+            };
+            let Some(type_id) = term
+                .get("type")
+                .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok())
+            else {
+                continue;
+            };
+            let Some(family) = resolve_family(&type_id, graph.nodes, graph.kinds, graph.index)
+            else {
+                continue;
+            };
+            let fits = match kind {
+                LiteralKind::Boolean => family == "boolean",
+                LiteralKind::Integer => family == "integer",
+                LiteralKind::Rational => family == "rational",
+                LiteralKind::Decimal => family == "decimal",
+                LiteralKind::Float32Bits => family == "float32",
+                LiteralKind::Float64Bits => family == "float64",
+                LiteralKind::Text => family == "text",
+                LiteralKind::Enum => matches!(family, "enum" | "ordered_enum"),
+                LiteralKind::None => family == "option",
+            };
+            if !fits {
+                return Some(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::IllTyped,
+                    path.key("type"),
+                    Some(CheckedPackageRefusalCause::OperatorIneligible),
+                    node.node_id.clone(),
+                ));
+            }
+        }
+        for child in subterms(term).collect::<Vec<_>>().into_iter().rev() {
+            let child_path = path.clone().key(child.key);
+            let child_path = child
+                .index
+                .map_or(child_path.clone(), |index| child_path.index(index));
+            pending.push((child.value, child_path));
+        }
+    }
+    None
 }
 
 /// The admitted graph an application's checks read.
@@ -578,6 +634,10 @@ fn operation_defect(
         meter,
     )?;
 
+    if let Some(failure) = literal_type_defect(node, application.position, graph) {
+        return Ok(Some(failure));
+    }
+
     let arguments = body
         .get("arguments")
         .and_then(Value::as_array)
@@ -723,16 +783,12 @@ fn argument_family(
             resolve_family(&type_node, nodes, kinds, index)
         }
         Some(BodyTerm::Binding) => Some("binder"),
+        Some(BodyTerm::Aggregate) => Some("aggregate"),
         // A `dependency_reference` callee has family `function` (FR-322), and
         // the dependency-reference walk (step 7), which runs before the
         // operand checks, has already refused it anywhere but a
         // `quire.op.function.call` callee, so no operand check reads it.
-        Some(
-            BodyTerm::Aggregate
-            | BodyTerm::DependencyReference
-            | BodyTerm::Frame
-            | BodyTerm::AbstractionRelation,
-        )
+        Some(BodyTerm::DependencyReference | BodyTerm::Frame | BodyTerm::AbstractionRelation)
         | None => None,
     }
 }
@@ -773,9 +829,8 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Text
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
-        K::ScalarType(
-            ScalarTypeForm::Dimension | ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit,
-        ) => None,
+        K::ScalarType(ScalarTypeForm::Unit) => Some("quantity"),
+        K::ScalarType(ScalarTypeForm::Dimension | ScalarTypeForm::CompoundUnit) => None,
         K::CompositeType(
             form @ (CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -2187,25 +2242,46 @@ fn check_mode_type(
     if !catalog.is_type_pinned_mode(mode_kind) {
         return None;
     }
-    for (position, expected) in entry.operands.iter().enumerate() {
-        let argument = arguments.get(position)?;
-        let Some(type_id) = operand_type_node(argument, nodes, kinds, index) else {
+    let result_type: Option<CheckedNodeId> = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let operand_types = entry
+        .operands
+        .iter()
+        .enumerate()
+        .filter_map(|(position, expected)| {
+            let type_id = operand_type_node(arguments.get(position)?, nodes, kinds, index)?;
+            let family = resolve_family(&type_id, nodes, kinds, index)?;
+            catalog.family_fits(family, expected).then_some(type_id)
+        });
+    // A conversion is pinned by its result alone. Other operations compare
+    // every participating operand and their result against the same mode.
+    let types = result_type.into_iter().chain(
+        (entry.operator != ApplicationOperator::Convert)
+            .then_some(operand_types)
+            .into_iter()
+            .flatten(),
+    );
+    for type_id in types {
+        let Some(family) = resolve_family(&type_id, nodes, kinds, index) else {
             continue;
         };
-        let Some(actual_family) = resolve_family(&type_id, nodes, kinds, index) else {
-            continue;
-        };
-        if !catalog.family_fits(actual_family, expected) {
-            continue;
-        }
-        if let Some(pinned) = type_pin(&type_id, mode_kind, nodes, index) {
-            if pinned.as_ref() != mode.value.as_ref() {
-                return Some(application.refuse(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    application.body(&["operation", "mode", "value"]),
-                    CheckedPackageRefusalCause::OperationModeTypeMismatch,
-                ));
-            }
+        let pin = type_pin(&type_id, mode_kind, nodes, index).or_else(|| {
+            (mode_kind == OperationModeKind::Rounding
+                && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
+            .then(|| Box::from("exact"))
+        });
+        if pin
+            .as_deref()
+            .is_some_and(|pinned| pinned != mode.value.as_ref())
+        {
+            return Some(application.refuse(
+                CheckedPackageRefusalCode::InvalidPackage,
+                application.body(&["operation", "mode", "value"]),
+                CheckedPackageRefusalCause::OperationModeTypeMismatch,
+            ));
         }
     }
     None
@@ -4181,6 +4257,7 @@ mod tests {
                 ("scalar_type", "float32", "float32"),
                 ("scalar_type", "float64", "float64"),
                 ("scalar_type", "text", "text"),
+                ("scalar_type", "unit", "quantity"),
                 ("scalar_type", "enum", "enum"),
                 ("composite_type", "option", "option"),
                 ("composite_type", "sequence", "sequence"),

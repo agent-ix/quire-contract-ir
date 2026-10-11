@@ -32,6 +32,7 @@ mod checked_package_v2_identity_digests;
 mod checked_package_v2_lowering;
 mod checked_package_v2_model_fields;
 mod checked_package_v2_model_members;
+mod checked_package_v2_operand_families;
 mod checked_package_v2_owners;
 mod checked_package_v2_parameters;
 mod checked_package_v2_reader;
