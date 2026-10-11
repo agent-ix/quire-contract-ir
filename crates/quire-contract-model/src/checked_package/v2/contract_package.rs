@@ -7,16 +7,20 @@ use super::lower::{
     ContractPackageDependencyV2, LoweringProfileRef, NodeSourceMaps, CONTRACT_IR_SEMANTIC_DOMAIN,
     CONTRACT_PACKAGE_VERSION,
 };
-use super::{CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSemanticNodeV2};
+use super::{
+    CheckedNodeTag, CheckedPackageLockV2, CheckedPackageV2, CheckedSelectionRole,
+    CheckedSemanticNodeV2,
+};
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure, NODE_DOMAIN,
 };
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedSemanticId, CheckedSourceMapEntry, JsonPointer,
+    CheckedNodeId, CheckedOccurrenceRole, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedSemanticId, CheckedSourceMapEntry, JsonPointer,
 };
 use quire_canonical::{Encode, Error as CanonicalError, FixedShape, Sink, Writer};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -600,6 +604,28 @@ fn string(value: &Value, path: JsonPointer) -> Result<&str, ValidationFailure> {
         .ok_or_else(|| malformed(path, CheckedPackageRefusalCause::WrongValueKind))
 }
 
+fn enum_string<T: DeserializeOwned>(
+    value: &Value,
+    path: JsonPointer,
+) -> Result<(), ValidationFailure> {
+    string(value, path.clone())?;
+    T::deserialize(value)
+        .map(|_| ())
+        .map_err(|_| malformed(path, CheckedPackageRefusalCause::InvalidValue))
+}
+
+fn occurrence_roles(values: &[Value], at: JsonPointer) -> Result<(), ValidationFailure> {
+    for (index, value) in values.iter().enumerate() {
+        let entry_at = at.clone().index(index);
+        let entry = object(value, entry_at.clone())?;
+        enum_string::<CheckedOccurrenceRole>(
+            member(entry, "role", &entry_at)?,
+            entry_at.key("role"),
+        )?;
+    }
+    Ok(())
+}
+
 fn member<'a>(
     object: &'a Map<String, Value>,
     name: &str,
@@ -727,6 +753,27 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
     ] {
         array(member(lock, name, &lock_at)?, lock_at.clone().key(name))?;
     }
+    let edition_at = lock_at.clone().key("edition");
+    let edition = object(member(lock, "edition", &lock_at)?, edition_at.clone())?;
+    enum_string::<CheckedSelectionRole>(
+        member(edition, "role", &edition_at)?,
+        edition_at.key("role"),
+    )?;
+    let selections_at = lock_at.clone().key("profile_selections");
+    for (index, value) in array(
+        member(lock, "profile_selections", &lock_at)?,
+        selections_at.clone(),
+    )?
+    .iter()
+    .enumerate()
+    {
+        let entry_at = selections_at.clone().index(index);
+        let entry = object(value, entry_at.clone())?;
+        enum_string::<CheckedSelectionRole>(
+            member(entry, "role", &entry_at)?,
+            entry_at.key("role"),
+        )?;
+    }
     let profile_at = package_at.clone().key("lowering_profile");
     let profile = shape(
         member(package, "lowering_profile", &package_at)?,
@@ -793,6 +840,11 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
         for name in ["dependencies", "occurrences"] {
             array(member(node, name, &at)?, at.clone().key(name))?;
         }
+        let occurrences_at = at.clone().key("occurrences");
+        occurrence_roles(
+            array(member(node, "occurrences", &at)?, occurrences_at.clone())?,
+            occurrences_at,
+        )?;
     }
     let map_at = root.clone().key("source_map");
     let map = shape(
@@ -818,9 +870,19 @@ fn validate_shapes(value: &Value) -> Result<(), ValidationFailure> {
                 &[subject, "occurrences"]
             };
             let entry = shape(entry, entry_at.clone(), required, &[])?;
-            array(
-                member(entry, "occurrences", &entry_at)?,
-                entry_at.key("occurrences"),
+            if extra.is_some() {
+                enum_string::<ContractDispositionV1>(
+                    member(entry, "disposition", &entry_at)?,
+                    entry_at.clone().key("disposition"),
+                )?;
+            }
+            let occurrences_at = entry_at.clone().key("occurrences");
+            occurrence_roles(
+                array(
+                    member(entry, "occurrences", &entry_at)?,
+                    occurrences_at.clone(),
+                )?,
+                occurrences_at,
             )?;
         }
     }

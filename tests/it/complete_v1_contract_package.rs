@@ -349,6 +349,35 @@ fn reader_locates_malformed_nested_source_value() {
 /// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
+fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    for (role, cause) in [
+        (json!("bogus"), Cause::InvalidValue),
+        (json!(4), Cause::WrongValueKind),
+    ] {
+        let mut changed = wire.clone();
+        changed["source_map"]["nodes"][0]["occurrences"][0]["role"] = role;
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
+            panic!("invalid occurrence role must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(cause))
+        );
+        assert_eq!(
+            refusal.path.expect("role pointer").as_str(),
+            "/source_map/nodes/0/occurrences/0/role"
+        );
+    }
+}
+
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
 fn reader_requires_total_source_correspondence_and_request_order() {
     use quire_contract_model::{
         CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,

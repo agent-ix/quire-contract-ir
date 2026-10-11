@@ -13,8 +13,8 @@ relationships:
 ## Description
 
 Verify FR-035-AC-5 and the aggregate FR-330 package separately from TC-044's
-per-item semantic and refusal tests. The FR-330 emitter cases are planned and
-have not run.
+per-item semantic and refusal tests. Focused FR-330 emitter and strict-reader
+controls run in `tests/it/complete_v1_contract_package.rs`.
 
 ## Test Procedure
 
@@ -45,11 +45,10 @@ represented meaning, profile or an accounting result changes the digest;
 changing only a valid source-map location preserves it. Corrupt or incomplete
 source correspondence refuses admission despite its exclusion from the digest.
 Missing properties, duplicate or disordered keys, extra graph partitions and
-wrong contract versions refuse before consumption. No output from the current
-IR-only package shape counts as this result.
+wrong contract versions refuse before consumption.
 
 ## Status
 
-Planned / unrun for the FR-330 package emitter. The existing
-`tests/it/complete_v1_contract_package.rs` asserts the earlier IR package
-shape and cannot discharge this test until IR-743 updates it.
+Implemented with focused tests in `tests/it/complete_v1_contract_package.rs`
+for the six-field FR-330 emitter, strict reader, canonical semantic identity,
+closed accounting and source-map correspondence. Aggregate gates remain pending.

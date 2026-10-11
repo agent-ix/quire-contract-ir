@@ -288,6 +288,40 @@ fn lowered_ids(records: &[CompleteLoweringRecordV2]) -> Vec<&CheckedNodeId> {
         .collect()
 }
 
+/// The emitter's graph input order is not part of semantic identity: keyed
+/// nodes are ordered by their identities before the four-member projection is
+/// hashed. Request order remains fixed in the accounting records.
+///
+/// Trace: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
+    let source = package(u64::MAX);
+    let selected = profile();
+    let result = source.lower(&requested(), &selected);
+    let source_maps = super::NodeSourceMaps::new(&source.wire.source_map);
+    let encode = |nodes: &[CompleteContractNodeV2]| {
+        super::super::contract_package::ContractPackageWireV1::from_lowering(
+            &source,
+            &selected,
+            &result.records,
+            nodes,
+            result.package.dependencies(),
+            &source_maps,
+            u64::MAX,
+        )
+        .expect("package encodes")
+    };
+    let original = result.package.lowered();
+    let mut reversed = original.to_vec();
+    reversed.reverse();
+    assert_ne!(original, reversed, "the graph inputs differ in order");
+    let (first, first_bytes) = encode(original);
+    let (second, second_bytes) = encode(&reversed);
+    assert_eq!(first.identity(), second.identity());
+    assert_eq!(first_bytes, second_bytes);
+}
+
 /// A lowered package over the ceiling returns nothing of the call: every
 /// requested record `failed` for the `bytes` limit with the ceiling as `limit`
 /// and a `consumed` above it, no lowered node, no dependency node, no bytes and

@@ -23,8 +23,7 @@ relationships:
 When Contract IR lowers an admitted checked complete-V1 request, the lowerer SHALL produce one immutable QSpec FR-330 `ContractPackage` under
 `quire.contract-package/v1` and one exact disposition for each requested item.
 The package is the single published target-neutral lowering value for backend
-consumption. Emission of this wire is planned; the current implementation
-emits a different package and does not satisfy this requirement.
+consumption. Contract IR emits this wire; codegen consumption remains IR-744.
 
 ## Inputs
 
@@ -100,5 +99,5 @@ owns the cycle-free model boundary. QSpec FR-330 and I12 own the one published
 ContractPackage contract. QSpec FR-322 owns the checked graph's node forms,
 keys, recursion and selected dependency-reference rules; FR-195 owns
 complete-V1 lowering semantics. This FR applies those contracts at the IR
-lowering boundary. The FR-330 package emitter and its backend adoption remain
-planned in IR-743 and IR-744 respectively.
+lowering boundary. Contract IR implements the FR-330 package emitter and strict
+reader under IR-743; backend adoption remains planned in IR-744.
