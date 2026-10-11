@@ -36,9 +36,13 @@ type, an own scalar type, and a wrong-form own bounded type. Exercise QSL
 incompatible target, and unrelated represented conversions or other local
 consumers. Confirm only the selected occurrence determines the result. In
 defensive IR cases, change one supplied `Some` occurrence at a time to an
-absent, non-lowered, wrong-role, wrong-ordinal, wrong-shape or
-wrong-argument conversion, and assert `IncompleteContext` before any bound
-is returned. Preserve each admitted source-map key and region without
+absent, non-lowered, wrong-role or wrong-ordinal key with no admitted
+source-map entry, wrong-shape or wrong-argument conversion, and assert
+`IncompleteContext` before any bound is returned. Supply an application
+occurrence absent from the source map or naming another expression key and
+assert typed refusal; a different represented application occurrence of the
+same add key remains structurally valid to IR. Preserve each admitted
+source-map key and region without
 requiring the application's and narrow's regions to be equal. Check QSL's
 zero/multiple directly wrapping narrow failure as
 a QSL pre-admission refusal, rather than manufacturing an admitted IR package
@@ -51,7 +55,8 @@ conversion occurrences. Assert that the QSL driver preserves this pairing
 by request index and occurrence key. Show that substituting the other
 represented direct narrow over the shared add key is not detectably invalid
 from the IR package and pair alone; do not expect an IR refusal for that
-substitution. Exercise non-lowered,
+substitution or for replacing one application occurrence with the other's
+represented occurrence over the same add key. Exercise non-lowered,
 unrequested and absent expression keys, post-admission inconsistent
 source/body edges and work-limit failures. Include a selected external
 reference, an identically keyed local node, and missing, stale and wrong

@@ -80,8 +80,9 @@ exactly one occurrence-scoped result-context outcome:
 `IncompleteContext` is a typed refusal when the supplied `Some` occurrence is
 not an admitted, represented, lowered direct narrow over the exact expression
 key, including when its root is absent, non-lowered or only an
-identically keyed local collision. A missing or mismatched application
-occurrence also refuses before a bound is selected. An inconsistent admitted
+identically keyed local collision. An application occurrence that is absent
+from the admitted source map or does not name the requested expression key
+also refuses before a bound is selected. An inconsistent admitted
 graph, failed shared body validation or exhausted work limit returns the
 existing typed view error without a partial result or guessed bound.
 
@@ -118,8 +119,9 @@ claim-map entry or proof obligation.
 
 ### Admitted result-context query
 
-Contract IR SHALL authenticate the supplied application occurrence against
-the expression's admitted source-map entries. For `Some`, it SHALL find the
+Contract IR SHALL verify that the supplied application occurrence names the
+requested expression key and is present among that expression's admitted
+source-map entries. For `Some`, it SHALL find the
 exact conversion occurrence in the admitted source map, its key in a `lowered`
 FR-035 feature-accounting record, and that key's represented local node. The
 node SHALL be an `expression` of form `conversion` whose `convert`
@@ -127,11 +129,14 @@ application has operation identity exactly `quire.op.numeric.narrow` and one
 argument directly referencing the supplied expression key. The selected
 conversion occurrence and application occurrence are distinct source-map
 keys; IR SHALL preserve both without requiring their source regions to be
-equal. A missing, non-lowered, wrong-occurrence or wrong-shape context returns
+equal. A missing, non-lowered, nonrepresented or wrong-shape context returns
 `IncompleteContext` before bound selection. A different represented direct
 narrow over the same expression key passes these IR structural checks; only
 the QSL checked request establishes which one belongs to the application
-occurrence. Contract IR SHALL use its
+occurrence. Another represented application occurrence of that same
+expression key likewise passes the IR source-map check; only the QSL checked
+request establishes which application occurrence belongs to the item.
+Contract IR SHALL use its
 existing admitted body and operation knowledge for that check, not a copied
 grammar in CG.
 
@@ -203,8 +208,8 @@ which conversion occurrence belongs to which application occurrence.
 | --- | --- | --- |
 | FR-049-AC-1 | For the reader-admitted QSL source `function f using v(a: Int[0, 9]): Int[0, 10] pure { a + 1 }`, the one QSL driver item supplies its application occurrence and `Some` of the directly wrapping narrow occurrence. One IR lowering over roots `[item.node(), conversion_context.node()]` represents the narrow and result `Int[0, 10]` with two lowered records; the add's forward closure still has its original six nodes and operand `Int[0, 9]`. The admitted query for that same item returns `Narrowed` with result `[0, 10]` against independent QSL source intervals. Plain `lower([add])` remains an admitted six-field package with no narrow or `[0, 10]` and returns `IncompleteContext` for that `Some` request. | Test |
 | FR-049-AC-2 | For a QSL item with `None`, the expression's own readable bounded result type yields `DirectBounded` with its exact key and sources, a scalar own type yields `Unnarrowed`, and a wrong-form own bounded type yields `MissingBound`. For `Some`, one matching lowered direct narrow yields `Narrowed` from its target even when the expression also has an own bounded type; an invalid target yields `MissingBound`. An unrelated represented narrow, including another occurrence's narrow over the same expression key, changes none of these outcomes. | Test |
-| FR-049-AC-3 | For `Some`, an absent, non-lowered or unrepresented conversion root, a conversion occurrence not in the admitted source map, a wrong role or ordinal, a wrong operation/form, or an argument that does not directly reference the supplied expression key returns typed `IncompleteContext` with no selected bound. Distinct source regions for a valid application and its direct narrow do not cause refusal. A local consumer other than the selected direct narrow cannot be substituted to satisfy `Some` or turn a QSL `None` into `Narrowed`. QSL `check` refuses a narrowed site with zero or multiple matching direct narrow occurrences before IR receives an admitted package. | Test |
-| FR-049-AC-4 | A non-lowered expression root returns its exact disposition, and an unrequested or absent expression key returns typed absence. A context-only root receives its own FR-035 accounting record but no additional QSL routed item or claim. An absent or mismatched application occurrence, non-lowered required context root, inconsistent post-admission edge or exhausted work limit returns typed refusal/error without partial result context. | Test |
+| FR-049-AC-3 | For `Some`, an absent, non-lowered or unrepresented conversion root, a conversion occurrence absent from the admitted source map (including a role or ordinal with no matching entry), a wrong operation/form, or an argument that does not directly reference the supplied expression key returns typed `IncompleteContext` with no selected bound. A different admitted ordinal that names another represented direct narrow over the same expression key is structurally valid in IR; the QSL driver supplies the occurrence belonging to this item. Distinct source regions for a valid application and its direct narrow do not cause refusal. A local consumer that fails the direct-narrow checks cannot satisfy `Some` or turn a QSL `None` into `Narrowed`. QSL `check` refuses a narrowed site with zero or multiple matching direct narrow occurrences before IR receives an admitted package. | Test |
+| FR-049-AC-4 | A non-lowered expression root returns its exact disposition, and an unrequested or absent expression key returns typed absence. A context-only root receives its own FR-035 accounting record but no additional QSL routed item or claim. An application occurrence absent from the admitted source map or naming a different expression key, a non-lowered required context root, an inconsistent post-admission edge or an exhausted work limit returns typed refusal/error without partial result context. Another represented application occurrence of the same expression key is not an IR-detectable mismatch; the QSL driver preserves the checked item's exact application occurrence. | Test |
 | FR-049-AC-5 | The result identifies the exact application and selected conversion occurrences, expression key, source package and lowering profile, with admitted source-map entries for expression, conversion and result bound. Two QSL items sharing one expression key but carrying different direct-narrow occurrences and result bounds retain distinct outcomes when the driver supplies each item's own QSL checked occurrence/context pair, even when both narrows are represented in one package. IR does not claim to detect a swap between two represented direct narrows over that shared key without an IR-visible binding witness. A selected external reference retains its package/key pair; an identically keyed local node cannot satisfy it, and an unavailable selected package or target is refused at reader admission. | Test |
 | FR-049-AC-6 | Contextual lowering emits exactly the existing six FR-330 fields, with one accounting record per expression or context root; adding a context root changes the graph, accounting and canonical identity as FR-035 requires. A read-only query with the QSL item occurrence and optional conversion occurrence mutates none of those fields or the identity, and the add's forward closure does not grow to include its reverse consumer. CG consumes the IR result without an original checked graph or second lowering pass. | Test |
 
