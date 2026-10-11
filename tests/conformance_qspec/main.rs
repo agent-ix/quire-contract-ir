@@ -598,34 +598,49 @@ fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() 
             Some(fresh.as_str())
         );
     }
-    let mut changed = base.clone();
-    changed["semantic_graph"]["nodes"][10]["body"]["members"][0]["value"]["members"]
-        .as_array_mut()
-        .expect("Rect payload")
-        .swap(0, 1);
-    changed["identity_preimage"]["identity_projection"][10]["body"] =
-        changed["semantic_graph"]["nodes"][10]["body"].clone();
-    changed["package_id"]["digest"] = json!(derived_with(&changed, None).expect("package id"));
-    let expected = canonical_digest(&union_value_preimage(
-        &changed["semantic_graph"]["nodes"][10],
-    ));
-    assert_ne!(
-        expected,
-        base["semantic_graph"]["nodes"][10]["node_id"]["digest"]
-    );
-    let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package(&changed).expect("reader result")
-    else {
-        panic!("body mutation with a retained key admitted");
-    };
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
-    );
-    assert_eq!(
-        refusal.expected_node_id().map(|id| id.digest.as_ref()),
-        Some(expected.as_str())
-    );
+    for position in [10, 11] {
+        let mut changed = base.clone();
+        if position == 10 {
+            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["members"]
+                .as_array_mut()
+                .expect("Rect payload")
+                .swap(0, 1);
+        } else {
+            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["name"] =
+                json!("Rect");
+        }
+        changed["identity_preimage"]["identity_projection"][position]["body"] =
+            changed["semantic_graph"]["nodes"][position]["body"].clone();
+        changed["package_id"]["digest"] = json!(derived_with(&changed, None).expect("package id"));
+        let expected = canonical_digest(&union_value_preimage(
+            &changed["semantic_graph"]["nodes"][position],
+        ));
+        let retained = base["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("retained key");
+        assert_ne!(expected, retained);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&changed).expect("reader result")
+        else {
+            panic!("body mutation of node {position} with a retained key admitted");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+        );
+        assert_eq!(
+            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+            Some(retained)
+        );
+        assert_eq!(
+            refusal.expected_node_id().map(|id| id.digest.as_ref()),
+            Some(expected.as_str())
+        );
+    }
 }
 
 /// Read one QSpec positive package with the selected domain document, if any.
