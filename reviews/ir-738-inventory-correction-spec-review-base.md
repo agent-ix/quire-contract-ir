@@ -108,3 +108,27 @@ No Rust source, Cargo policy, CI, dependency edge, schema, reader admission rule
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | TC-058 still names the corresponding planned row in FR-019, but this change removes that row. Replace the locator with the planned API paragraph so the consumer procedure points to the requirement that remains. | spec/model/matrix/TC-058-model-crate-public-interface.md:52 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed 7eb07671c951bf3693495f6948b12b7cef3ec444 | TC-058 now locates the planned API paragraph before Public items, where FR-019 retains the required five future exports. |
+
+## Disposition round 1 verdict
+
+**PASS** — Rechecked the recorded defect and directly affected fix at `7eb07671c951bf3693495f6948b12b7cef3ec444`. No new finding. Original review text remains unchanged.
+
+```yaml
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 7eb07671c951bf3693495f6948b12b7cef3ec444
+  after_excerpt: 'PLANNED/UNRUN (IR-738). Verify
+
+    [FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),
+
+    AC-1, and the planned API paragraph before Public items in
+
+    [FR-019](../functional/FR-019-rust-library-interface.md).'
+```

@@ -108,3 +108,24 @@ No Rust source, Cargo policy, CI, dependency edge, schema, reader admission rule
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The new export obligation starts with 'Upon implementation', a noncanonical EARS trigger; selected validation emits unclassifiable and missing-subject warnings. State the implementation condition with a canonical When/Where clause and a named model-crate subject, retaining the five required exports and PLANNED/UNRUN state. | spec/model/functional/FR-019-rust-library-interface.md:149 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed 7eb07671c951bf3693495f6948b12b7cef3ec444 | Canonical When condition names the quire-contract-model crate before SHALL. The planned status and all five required names remain; selected FR-019/TC-058 validation has zero EARS warnings. |
+
+## Disposition round 1 verdict
+
+**PASS** — Rechecked the recorded defect and directly affected fix at `7eb07671c951bf3693495f6948b12b7cef3ec444`. No new finding. Original review text remains unchanged.
+
+```yaml
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 7eb07671c951bf3693495f6948b12b7cef3ec444
+  after_excerpt: When the FR-046 candidate application identity API is implemented,
+    the quire-contract-model crate SHALL export the function `derive_application_node_id`
+    and types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`
+    and `ApplicationIdentityError`.
+```
