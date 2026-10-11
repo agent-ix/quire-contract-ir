@@ -38,7 +38,8 @@
 //! and `fairness` members are checked for their closed shape here and by
 //! [`super::temporal`] for their meaning); a `constraints`
 //! entry other than `same_family`/`same_type`/`conforming_reference`/
-//! `reference_edge`/`union_arms` is not enforced; leaf-path
+//! `reference_edge`/`union_arms` is not enforced except the two IEEE
+//! conversion entries' `member_family` constraint; leaf-path
 //! resolution covers exactly one shape, `["field:<name>"]` against the first
 //! operand's record type, the one the upstream vectors exercise;
 //! [`validate_application_keys`] re-derives a key for a node whose own
@@ -47,8 +48,9 @@
 //! identity check (`flat_wire`), so every application's key and its own
 //! `operation` are checked here; `operation.mode` is checked for kind and
 //! type pins, but its value is not checked against the catalog's closed
-//! `modes` vocabulary; a catalogued entry's `result` is not checked against
-//! the catalog's `result_forms`.
+//! `modes` vocabulary. The catalog's `member` result form and `member_family`
+//! constraint are checked for the two cross-width IEEE conversions; other
+//! result forms and member-family constraints remain unenforced.
 
 use super::application_identity::{application_digest, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
@@ -509,6 +511,59 @@ impl StructuralTypes {
     }
 }
 
+/// IEEE cross-width conversions take their result from the type-argument
+/// member. The member's family comes from the catalogued constraint, not from
+/// an operation name or an independently maintained result table.
+fn check_ieee_member_result(
+    application: Application<'_>,
+    operation: &OperationWire,
+    entry: &OperationCatalogEntry,
+    graph: &Graph<'_>,
+    catalog: &OperationCatalog,
+) -> Option<ValidationFailure> {
+    if !matches!(
+        entry.identity.as_ref(),
+        "quire.op.ieee.to_float32" | "quire.op.ieee.to_float64"
+    ) || entry.result.as_ref() != "member"
+        || entry.member != Some(OperationMemberKind::TypeArgument)
+    {
+        return None;
+    }
+    let refuse = || {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            application.body(&["result_type"]),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    };
+    let expected_family = entry
+        .constraints
+        .iter()
+        .find(|constraint| constraint.kind == OperationConstraintKind::MemberFamily)
+        .and_then(|constraint| constraint.family.as_deref());
+    let Some(expected_family) = expected_family else {
+        return Some(refuse());
+    };
+    let Some(member) = member_declaration(operation) else {
+        return Some(refuse());
+    };
+    let result: Option<CheckedNodeId> = application
+        .node
+        .body
+        .get("result_type")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let Some(result) = result else {
+        return Some(refuse());
+    };
+    let family = resolve_family(&member, graph.nodes, graph.kinds, graph.index);
+    if result == member && family.is_some_and(|family| catalog.family_fits(family, expected_family))
+    {
+        None
+    } else {
+        Some(refuse())
+    }
+}
+
 fn operation_defect(
     application: Application<'_>,
     graph: &Graph<'_>,
@@ -704,7 +759,6 @@ fn operation_defect(
         },
         meter,
     )?;
-
     if let Some(failure) = literal_defect(node, application.position, graph) {
         return Ok(Some(failure));
     }
@@ -727,6 +781,10 @@ fn operation_defect(
             structural: &mut structural,
         },
     )? {
+        return Ok(Some(failure));
+    }
+    if let Some(failure) = check_ieee_member_result(application, &operation, entry, graph, catalog)
+    {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_inner_result(application, entry, &arguments, graph) {
