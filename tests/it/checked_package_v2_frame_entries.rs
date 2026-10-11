@@ -16,7 +16,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedComparisonPath, CheckedComparisonRefusal, CheckedNodeId, CheckedNodeTag,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
@@ -1906,6 +1907,77 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
             &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
         );
     }
+}
+
+/// Trace: FR-038-AC-203, FR-038-AC-205, FR-038-AC-207
+#[trace("FR-038-AC-203", "FR-038-AC-205", "FR-038-AC-207")]
+#[test]
+fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
+    let mut source = StatePackage::new();
+    let input = "e1".repeat(32);
+    let comparison = "e2".repeat(32);
+    source.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend([
+            plain(
+                &input,
+                "value",
+                "parameter",
+                INTEGER,
+                &[],
+                "expression",
+                json!({"term": "aggregate", "members": [
+                    binding("name", text("delta")),
+                    binding("level", json!({"term": "literal", "type": node_id(INTEGER),
+                        "value_kind": "integer", "value": "0"})),
+                ]}),
+            ),
+            plain(
+                &comparison,
+                "expression",
+                "binary",
+                &boolean(),
+                &[&input],
+                "expression",
+                json!({"term": "application", "operator": "binary",
+                    "operation": {"identity": "quire.op.integer.eq", "laws": [],
+                        "mode": null, "member": null, "leaves": []},
+                    "result_type": node_id(&boolean()),
+                    "arguments": [reference(&input),
+                        {"term": "literal", "type": node_id(INTEGER),
+                            "value_kind": "integer", "value": "0"}]}),
+            ),
+        ]);
+    let pre = source.clause("precondition");
+    source.value["semantic_graph"]["nodes"][pre]["body"]["arguments"][0]["members"]
+        .as_array_mut()
+        .expect("parameter aggregate")
+        .push(reference(&input));
+    source.value["semantic_graph"]["nodes"][pre]["body"]["arguments"][2] = reference(&comparison);
+    mint_ungrouped_structural_keys(&mut source.value);
+    settle(&mut source.value);
+    let admitted = match read(&source.value) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("source-declared input fixture must admit: {other:?}"),
+    };
+    let clause: CheckedNodeId =
+        serde_json::from_value(source.value["semantic_graph"]["nodes"][pre]["node_id"].clone())
+            .expect("clause id");
+    let node = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == clause)
+        .expect("admitted clause");
+    let claim = node.occurrences.first().expect("authentic claim");
+    let refusal = admitted
+        .direct_integer_comparison(&clause, claim)
+        .expect_err("no selected operation slot bound");
+    assert_eq!(refusal.kind, CheckedComparisonRefusal::MissingRange);
+    assert_eq!(refusal.path, CheckedComparisonPath::Operand(0));
+    assert_eq!(refusal.clause, clause);
+    assert_eq!(&refusal.claim, claim);
 }
 
 /// Tracing: TC-050, FR-038-AC-6
