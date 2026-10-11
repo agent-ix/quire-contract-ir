@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 
 /// One of the ten shapes whose key the reader derives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Shape {
+pub(super) enum Shape {
     Boolean,
     Integer,
     Reference,
@@ -42,7 +42,7 @@ impl Shape {
     /// The shape of `kind`, or `None` for a form this stage does not derive.
     /// Every form of the three tags is listed, so a new form is a compile
     /// error here until its shape is decided.
-    fn of(kind: CheckedNodeKind) -> Option<Self> {
+    pub(super) fn of(kind: CheckedNodeKind) -> Option<Self> {
         match kind {
             CheckedNodeKind::ScalarType(form) => match form {
                 ScalarTypeForm::Boolean => Some(Self::Boolean),
@@ -106,7 +106,7 @@ impl Shape {
 }
 
 /// Validates the closed body without trusting a supplied node key.
-fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: &str) -> bool {
+pub(super) fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: &str) -> bool {
     if shape.is_self_typed() && node.semantic_type != node.node_id {
         return false;
     }
@@ -149,6 +149,46 @@ fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: &str) -> bo
     }
 }
 
+/// The reader's complete early structural-key shape rule, shared with the
+/// pre-read candidate API. The caller resolves `semantic_type_kind` from its
+/// own complete graph without altering reader lookup or charge order.
+pub(super) fn valid_derived_shape(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    integer: &str,
+    semantic_type_kind: Option<CheckedNodeKind>,
+) -> bool {
+    if let Some(shape) = Shape::of(kind) {
+        let bounded_type_matches = shape != Shape::CollectionBounds
+            || semantic_type_kind.is_some_and(|kind| {
+                matches!(
+                    kind,
+                    CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Set
+                            | CompositeTypeForm::Bag
+                            | CompositeTypeForm::Sequence
+                            | CompositeTypeForm::OrderedSet
+                    )
+                )
+            });
+        if !bounded_type_matches || !closed_shape(node, shape, integer) {
+            return false;
+        }
+    }
+    // FR-094's fixed model-owned shape applies only without a source
+    // declaration. Declared nodes retain the ordinary structural preimage.
+    !(node.declaration.is_none()
+        && matches!(
+            kind,
+            CheckedNodeKind::Model(
+                super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
+            ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+        )
+        && (node.semantic_type != node.node_id
+            || node.recursion_group.is_some()
+            || aggregate_members(&node.body).is_none_or(|members| !members.is_empty())))
+}
+
 /// What a bounded domain bounds, which fixes the grammar of its bounds.
 #[derive(Clone, Copy)]
 enum BoundsOver {
@@ -188,13 +228,13 @@ fn bound<'a>(
 }
 
 /// A labelled group's members and ordinals, retained in graph array order.
-struct Group<'a> {
-    members: Vec<usize>,
-    ordinals: BTreeMap<&'a CheckedNodeId, usize>,
-    least: usize,
+pub(super) struct Group<'a> {
+    pub(super) members: Vec<usize>,
+    pub(super) ordinals: BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) least: usize,
 }
 
-fn node_preimage<'a>(
+pub(super) fn node_preimage<'a>(
     node: &'a CheckedSemanticNodeV2,
     group: Option<&'a Group<'a>>,
     label: Option<&'a str>,
@@ -340,49 +380,21 @@ pub(super) fn validate_derived_keys(
         }
         let at = || node_pointer(position).key("node_id");
         meter.charge(1, at)?;
-        if let Some(shape) = Shape::of(kind) {
+        let shape = Shape::of(kind);
+        let integer = if matches!(shape, Some(Shape::IntegerRange | Shape::CollectionBounds)) {
             // A bounds literal's type is authenticated against the shared Integer authority.
-            let integer = if matches!(shape, Shape::IntegerRange | Shape::CollectionBounds) {
-                meter.charge(1, at)?;
-                MemberType::Integer
-                    .node_key(bytes)
-                    .map_err(|_| encoder_failure(at()))?
-            } else {
-                String::new()
-            };
-            let bounded_type_matches = shape != Shape::CollectionBounds
-                || index
-                    .get(&node.semantic_type)
-                    .and_then(|&target| kinds.get(target))
-                    .is_some_and(|kind| {
-                        matches!(
-                            kind,
-                            CheckedNodeKind::CompositeType(
-                                CompositeTypeForm::Set
-                                    | CompositeTypeForm::Bag
-                                    | CompositeTypeForm::Sequence
-                                    | CompositeTypeForm::OrderedSet
-                            )
-                        )
-                    });
-            if !bounded_type_matches || !closed_shape(node, shape, &integer) {
-                return Err(stale(at(), node_id, None));
-            }
-        }
-        // FR-094's fixed model-owned shape applies only without a source
-        // declaration. A declared node keeps its SourceOwner, external type
-        // and declaration in the ordinary structural preimage.
-        if node.declaration.is_none()
-            && matches!(
-                kind,
-                CheckedNodeKind::Model(
-                    super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
-                ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
-            )
-            && (node.semantic_type != node.node_id
-                || node.recursion_group.is_some()
-                || aggregate_members(&node.body).is_none_or(|members| !members.is_empty()))
-        {
+            meter.charge(1, at)?;
+            MemberType::Integer
+                .node_key(bytes)
+                .map_err(|_| encoder_failure(at()))?
+        } else {
+            String::new()
+        };
+        let semantic_type_kind = index
+            .get(&node.semantic_type)
+            .and_then(|&target| kinds.get(target))
+            .copied();
+        if !valid_derived_shape(node, kind, &integer, semantic_type_kind) {
             return Err(stale(at(), node_id, None));
         }
         let group = node
@@ -443,7 +455,7 @@ pub(super) fn validate_derived_keys(
 }
 
 /// QSL's group digest array consists of lowercase member-local digests.
-struct LocalDigests<'a>(&'a [String]);
+pub(super) struct LocalDigests<'a>(pub(super) &'a [String]);
 impl Encode for LocalDigests<'_> {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
         writer.begin_array()?;

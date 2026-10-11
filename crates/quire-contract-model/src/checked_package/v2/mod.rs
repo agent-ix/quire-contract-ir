@@ -31,6 +31,7 @@ mod rust_spelling;
 mod scalar_operands;
 mod state;
 mod structural;
+mod structural_candidates;
 mod temporal;
 mod vocabulary;
 
@@ -66,6 +67,10 @@ pub use model_fields::{
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,
     CheckedScalarOperandRange,
+};
+pub use structural_candidates::{
+    derive_structural_candidates, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
+    StructuralCandidateError, StructuralCandidates,
 };
 pub use vocabulary::*;
 

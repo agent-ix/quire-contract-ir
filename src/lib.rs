@@ -14,6 +14,12 @@
 //! ```compile_fail,E0432
 //! use quire_contract_ir::SchemaVersion;
 //! ```
+//!
+//! Candidate structural identities also remain model-crate only:
+//!
+//! ```compile_fail,E0432
+//! use quire_contract_ir::derive_structural_candidates;
+//! ```
 
 #![forbid(unsafe_code)]
 

@@ -23,10 +23,10 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    derive_structural_candidates, read_checked_package, CheckedPackageDispatchResult,
+    CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, CheckedSemanticNodeV2, StructuralCandidateError,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1497,6 +1497,468 @@ fn recursive() -> Recursive {
         tree: key_at(base_len + 2),
         package,
     }
+}
+
+/// The public pre-read helper agrees with the admitted reader over the complete
+/// source-owned recursive graph, including both labelled groups and every
+/// owner-free structural shape already present in the fixture.
+/// Trace: FR-048-AC-1, FR-048-AC-2, FR-048-AC-3
+#[trace("TC-048", "FR-048-AC-1", "FR-048-AC-2", "FR-048-AC-3")]
+#[test]
+fn tc_048_structural_candidates_match_admitted_recursive_graph() {
+    let recursive = recursive();
+    let nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(recursive.package["semantic_graph"]["nodes"].clone())
+            .expect("typed graph");
+    let candidates = derive_structural_candidates(&nodes, 1 << 20, u64::MAX).expect("candidates");
+    assert_eq!(candidates.groups().len(), 2);
+    for group in candidates.groups() {
+        assert_eq!(group.retained_label(), group.candidate_label());
+    }
+    for candidate in candidates.nodes() {
+        assert_eq!(
+            candidate.candidate_node_id(),
+            &nodes[candidate.position() as usize].node_id
+        );
+    }
+    assert_eq!(
+        nodes.len(),
+        recursive.package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .len()
+    );
+    admitted("candidate fixture", &recursive.package);
+    let stale = tampered(&recursive.package, &recursive.bounds, |node| {
+        set_bound(node, "max", "4");
+    });
+    let stale_nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(stale["semantic_graph"]["nodes"].clone())
+            .expect("typed changed graph");
+    let changed =
+        derive_structural_candidates(&stale_nodes, 1 << 20, u64::MAX).expect("changed candidate");
+    let changed_bounds = changed
+        .nodes()
+        .iter()
+        .find(|candidate| candidate.position() as usize == at(&stale, &recursive.bounds))
+        .expect("changed bounds candidate");
+    assert_ne!(
+        changed_bounds.candidate_node_id(),
+        &nodes[at(&recursive.package, &recursive.bounds)].node_id
+    );
+    assert_stale("retained old bounds key", &stale, &recursive.bounds);
+}
+
+/// Exact work and byte ceilings are measured through the public helper, and
+/// each first unpaid charge carries its position and consumed count.
+/// Trace: FR-048-AC-5
+#[trace("TC-048", "FR-048-AC-5")]
+#[test]
+fn tc_048_structural_candidate_resource_boundaries() {
+    let recursive = recursive();
+    let nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(recursive.package["semantic_graph"]["nodes"].clone())
+            .expect("typed graph");
+    let admits = |bytes, work| derive_structural_candidates(&nodes, bytes, work).is_ok();
+    let byte_ceiling = (1..=4096)
+        .find(|&bytes| admits(bytes, u64::MAX))
+        .expect("byte ceiling");
+    assert!(admits(byte_ceiling, u64::MAX));
+    assert!(admits(byte_ceiling + 1, u64::MAX));
+    for limit in [0, byte_ceiling - 1] {
+        assert!(matches!(
+            derive_structural_candidates(&nodes, limit, u64::MAX),
+            Err(StructuralCandidateError::CanonicalEncoding {
+                source: quire_canonical::Error::Limit(quire_canonical::LimitExceeded {
+                    kind: quire_canonical::LimitKind::CanonicalBytes, bound, required: _,
+                }), position: _,
+            }) if bound == limit
+        ));
+    }
+    let work_ceiling = (1..=10000)
+        .find(|&work| admits(1 << 20, work))
+        .expect("work ceiling");
+    assert!(admits(1 << 20, work_ceiling));
+    let err = derive_structural_candidates(&nodes, 1 << 20, work_ceiling - 1)
+        .expect_err("first unpaid charge");
+    assert!(matches!(err, StructuralCandidateError::WorkExhausted {
+        limit, consumed, position,
+    } if limit == work_ceiling - 1 && consumed == limit && position < nodes.len()));
+}
+
+/// A retained label selects the off-cycle application as well as the cyclic
+/// structural members; its local digest participates in the candidate label.
+/// Trace: FR-048-AC-3
+#[trace("TC-048", "FR-048-AC-3")]
+#[test]
+fn tc_048_mixed_group_candidate_includes_off_cycle_application() {
+    let recursive = recursive();
+    let mut package = recursive.package;
+    let base = base();
+    let tree_position = at(&package, &recursive.tree);
+    let old_label = package["semantic_graph"]["nodes"][tree_position]["recursion_group"]
+        .as_str()
+        .expect("Tree label")
+        .to_owned();
+    let add_position = at(&package, &base.add);
+    package["semantic_graph"]["nodes"][add_position]["recursion_group"] = json!(old_label);
+    mint_grouped_structural_keys(&mut package);
+    settle(&mut package);
+    admitted("mixed group", &package);
+    let nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(package["semantic_graph"]["nodes"].clone()).expect("typed graph");
+    let candidates =
+        derive_structural_candidates(&nodes, 1 << 20, u64::MAX).expect("mixed candidates");
+    assert_eq!(candidates.groups().len(), 2);
+    for group in candidates.groups() {
+        assert_eq!(group.retained_label(), group.candidate_label());
+    }
+    for candidate in candidates.nodes() {
+        assert_eq!(
+            candidate.candidate_node_id(),
+            &nodes[candidate.position() as usize].node_id
+        );
+    }
+    let mut labelled = package.clone();
+    let original = labelled["semantic_graph"]["nodes"][tree_position]["recursion_group"]
+        .as_str()
+        .expect("label")
+        .to_owned();
+    let corrupt = "1".repeat(64);
+    for node in labelled["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["recursion_group"] == original {
+            node["recursion_group"] = json!(corrupt);
+        }
+    }
+    rekey_group_under_label(&mut labelled, &corrupt);
+    let corrupt_nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(labelled["semantic_graph"]["nodes"].clone())
+            .expect("typed corrupt graph");
+    let derived = derive_structural_candidates(&corrupt_nodes, 1 << 20, u64::MAX)
+        .expect("candidate for corrupt retention");
+    assert_eq!(
+        derived
+            .groups()
+            .iter()
+            .find(|group| group.retained_label() == corrupt)
+            .expect("Tree group")
+            .candidate_label(),
+        original
+    );
+    let group_keys = labelled["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|node| node["recursion_group"] == corrupt)
+        .map(|node| node["node_id"]["digest"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let least = group_keys.iter().min().expect("group key");
+    assert_stale_absent("corrupt mixed-group label", &labelled, least);
+
+    let mut permuted = package.clone();
+    permuted["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .swap(tree_position, add_position);
+    let permuted_nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(permuted["semantic_graph"]["nodes"].clone())
+            .expect("typed permutation");
+    let new_candidates = derive_structural_candidates(&permuted_nodes, 1 << 20, u64::MAX)
+        .expect("permuted candidates");
+    assert_ne!(
+        new_candidates
+            .groups()
+            .iter()
+            .find(|group| group.retained_label() == original)
+            .expect("permuted Tree label")
+            .candidate_label(),
+        original
+    );
+    mint_grouped_structural_keys(&mut permuted);
+    settle(&mut permuted);
+    admitted("permuted mixed group", &permuted);
+}
+
+/// Malformed drafts fail before a candidate is returned. Each assertion uses
+/// the public error variant and graph position, rather than error prose.
+/// Trace: FR-048-AC-4
+#[trace("TC-048", "FR-048-AC-4")]
+#[test]
+fn tc_048_structural_candidate_refusals_are_typed() {
+    let fresh = |digest: &str| -> CheckedSemanticNodeV2 {
+        serde_json::from_value(node(
+            digest,
+            "composite_type",
+            "option",
+            digest,
+            &[],
+            over_body(INTEGER_KEY),
+        ))
+        .expect("typed draft")
+    };
+    let first = fresh("provisional");
+    let duplicate = [first.clone(), first.clone()];
+    assert!(matches!(
+        derive_structural_candidates(&duplicate, 1 << 20, 100),
+        Err(StructuralCandidateError::RepeatedKey {
+            first_position: 0,
+            repeated_position: 1,
+            ..
+        })
+    ));
+
+    let mut unknown = first.clone();
+    unknown.semantic_form = "unknown".into();
+    assert!(matches!(
+        derive_structural_candidates(&[unknown], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidTagForm { position: 0, .. })
+    ));
+
+    let mut wrong_type = first.clone();
+    wrong_type.semantic_type = typed_node_id(INTEGER_KEY);
+    assert!(matches!(
+        derive_structural_candidates(&[wrong_type], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+
+    let mut extra_member = first.clone();
+    extra_member.body["members"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "term": "reference", "target": node_id(INTEGER_KEY),
+        }));
+    assert!(matches!(
+        derive_structural_candidates(&[extra_member], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+
+    let mut malformed_bound: CheckedSemanticNodeV2 = serde_json::from_value(node(
+        "range",
+        "bounded_domain",
+        "integer_range",
+        INTEGER_KEY,
+        &[],
+        bounds_body("-0", "3"),
+    ))
+    .expect("typed bound draft");
+    assert!(matches!(
+        derive_structural_candidates(&[malformed_bound.clone()], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+    malformed_bound.body["members"][0]["value"]["value"] = json!("0");
+    malformed_bound.body["members"][0]["value"]["type"] = node_id("wrong");
+    assert!(matches!(
+        derive_structural_candidates(&[malformed_bound], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+    let collection: CheckedSemanticNodeV2 = serde_json::from_value(node(
+        "set",
+        "composite_type",
+        "set",
+        "set",
+        &[],
+        over_body(INTEGER_KEY),
+    ))
+    .expect("typed collection");
+    let mut malformed_collection: CheckedSemanticNodeV2 = serde_json::from_value(node(
+        "bounded",
+        "bounded_domain",
+        "collection_bounds",
+        "set",
+        &[],
+        bounds_body("-1", "3"),
+    ))
+    .expect("typed collection bound");
+    assert!(matches!(
+        derive_structural_candidates(
+            &[collection.clone(), malformed_collection.clone()],
+            1 << 20,
+            100
+        ),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 1, .. })
+    ));
+    malformed_collection.body["members"][0]["value"]["value"] = json!("0");
+    malformed_collection.semantic_type = typed_node_id(INTEGER_KEY);
+    assert!(matches!(
+        derive_structural_candidates(&[collection, malformed_collection], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 1, .. })
+    ));
+
+    let mut model: CheckedSemanticNodeV2 = serde_json::from_value(owned_structural_node(
+        node(
+            "model",
+            "relation",
+            "relationship",
+            "model",
+            &[],
+            json!({"term": "aggregate", "members": []}),
+        ),
+        model_owner("orders", "Order"),
+    ))
+    .expect("typed relationship");
+    assert_eq!(
+        derive_structural_candidates(&[model.clone()], 1 << 20, 100)
+            .expect("fixed model shape")
+            .nodes()
+            .len(),
+        1
+    );
+    model.body["members"].as_array_mut().unwrap().push(json!({
+        "term": "reference", "target": node_id(INTEGER_KEY),
+    }));
+    assert!(matches!(
+        derive_structural_candidates(&[model], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+    let mut grouped_model: CheckedSemanticNodeV2 = serde_json::from_value(owned_structural_node(
+        node(
+            "model",
+            "relation",
+            "relationship",
+            "model",
+            &[],
+            json!({"term": "aggregate", "members": []}),
+        ),
+        model_owner("orders", "Order"),
+    ))
+    .expect("typed model relationship");
+    grouped_model.recursion_group = Some("draft".into());
+    assert!(matches!(
+        derive_structural_candidates(&[grouped_model], 1 << 20, 100),
+        Err(StructuralCandidateError::InvalidClosedShape { position: 0, .. })
+    ));
+
+    let mut correspondence: CheckedSemanticNodeV2 = serde_json::from_value(node(
+        "separate",
+        "correspondence",
+        "abstraction_relation",
+        INTEGER_KEY,
+        &[],
+        json!({"term": "aggregate", "members": []}),
+    ))
+    .expect("typed correspondence");
+    correspondence.recursion_group = Some("draft".into());
+    assert!(matches!(
+        derive_structural_candidates(&[correspondence], 1 << 20, 100),
+        Err(StructuralCandidateError::UnsupportedGroupMember { position: 0, .. })
+    ));
+    let nominal = v2_nominal();
+    let mut nominal_member: CheckedSemanticNodeV2 = serde_json::from_value(
+        nominal["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nominal nodes")
+            .iter()
+            .find(|node| node.get("nominal_identity_preimage").is_some())
+            .expect("nominal member")
+            .clone(),
+    )
+    .expect("typed nominal member");
+    nominal_member.recursion_group = Some("draft".into());
+    assert!(matches!(
+        derive_structural_candidates(&[nominal_member], 1 << 20, 100),
+        Err(StructuralCandidateError::UnsupportedGroupMember { position: 0, .. })
+    ));
+}
+
+/// The structural preimage binds the actual carried owner, declaration, type,
+/// body and outside reference, with no inferred owner or provisional-key hash.
+/// Trace: FR-048-AC-2
+#[trace("TC-048", "FR-048-AC-2")]
+#[test]
+fn tc_048_structural_candidate_binds_each_carried_field() {
+    let mut draft: CheckedSemanticNodeV2 = serde_json::from_value(node(
+        "provisional",
+        "composite_type",
+        "record",
+        INTEGER_KEY,
+        &[],
+        over_body(INTEGER_KEY),
+    ))
+    .expect("record draft");
+    let key = |draft: &CheckedSemanticNodeV2| {
+        derive_structural_candidates(std::slice::from_ref(draft), 1 << 20, 100)
+            .expect("candidate")
+            .nodes()[0]
+            .candidate_node_id()
+            .clone()
+    };
+    let initial = key(&draft);
+    draft.owner = Some(
+        serde_json::from_value(json!({
+            "kind": "source", "authority": "example", "identity": "source",
+        }))
+        .expect("source owner"),
+    );
+    let with_owner = key(&draft);
+    assert_ne!(initial, with_owner);
+    draft.declaration = Some(
+        serde_json::from_value(json!({
+            "qualified_name": ["Example", "Record"],
+        }))
+        .expect("declaration"),
+    );
+    let declared = key(&draft);
+    assert_ne!(declared, with_owner);
+    draft.semantic_type = typed_node_id(&"a".repeat(64));
+    let retyped = key(&draft);
+    assert_ne!(retyped, declared);
+    draft.body = over_body(&"b".repeat(64));
+    let new_target = key(&draft);
+    assert_ne!(new_target, retyped);
+    draft.body["members"][0] = json!({"term": "binding", "name": "field",
+        "value": {"term": "reference", "target": node_id(&"b".repeat(64))}});
+    assert_ne!(key(&draft), new_target);
+}
+
+/// Deep caller-owned JSON and the grouped reference rewrite use iterative
+/// traversal and cleanup on a deliberately small native thread stack.
+/// Trace: FR-048-AC-5
+#[trace("TC-048", "FR-048-AC-5")]
+#[test]
+fn tc_048_structural_candidate_deep_group_is_stack_bounded() {
+    let thread = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(|| {
+            let mut draft: CheckedSemanticNodeV2 = serde_json::from_value(node(
+                "provisional",
+                "composite_type",
+                "record",
+                "provisional",
+                &[],
+                json!({"term": "aggregate", "members": []}),
+            ))
+            .expect("shallow draft");
+            draft.recursion_group = Some("draft".into());
+            let mut body = json!({"term": "reference", "target": node_id("provisional")});
+            for _ in 0..20_000 {
+                let mut object = serde_json::Map::new();
+                object.insert("term".into(), Value::String("aggregate".into()));
+                object.insert("members".into(), Value::Array(vec![body]));
+                body = Value::Object(object);
+            }
+            draft.body = body;
+            let nodes = [draft];
+            let exact = derive_structural_candidates(&nodes, 10_000_000, 100_000)
+                .expect("deep grouped candidate");
+            assert_eq!(exact.nodes().len(), 1);
+            assert_eq!(exact.groups().len(), 1);
+            assert!(matches!(
+                derive_structural_candidates(&nodes, 0, 100_000),
+                Err(StructuralCandidateError::CanonicalEncoding { .. })
+            ));
+            assert!(matches!(
+                derive_structural_candidates(&nodes, 10_000_000, 1),
+                Err(StructuralCandidateError::WorkExhausted { .. })
+            ));
+            let [mut draft] = nodes;
+            quire_canonical::drop_value(std::mem::take(&mut draft.body));
+        })
+        .expect("small-stack thread");
+    thread.join().expect("candidate derivation stays on stack");
 }
 
 /// Recompute member keys under a deliberately retained label without

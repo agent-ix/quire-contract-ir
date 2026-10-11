@@ -100,8 +100,9 @@ pub use canonical::{
     CanonicalProfile, CANONICAL_PROFILE,
 };
 pub use checked_package::{
-    derive_application_node_id, read_checked_package, ApplicationIdentityContext,
-    ApplicationIdentityError, ApplicationNodeDraft, BoundedDomainForm, CandidateApplicationNodeId,
+    derive_application_node_id, derive_structural_candidates, read_checked_package,
+    ApplicationIdentityContext, ApplicationIdentityError, ApplicationNodeDraft, BoundedDomainForm,
+    CandidateApplicationNodeId, CandidateRecursionGroupLabel, CandidateStructuralNodeId,
     CheckedArtifactLocator, CheckedArtifactRef, CheckedAuthoredCompositeDomain,
     CheckedCanonicalIntegerBound, CheckedCapability, CheckedCapabilityDisposition,
     CheckedClauseComparison, CheckedCollectionKind, CheckedComparisonClauseKind,
@@ -133,8 +134,9 @@ pub use checked_package::{
     CorrespondenceForm, DimensionPreimage, DimensionTerm, EnumDeclarationPreimage,
     EnumMemberPreimage, ExpressionForm, FunctionForm, JsonPointer, LoweringProfileRef, ModelForm,
     NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
-    TemporalForm, UnitPreimage, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN,
-    CONTRACT_PACKAGE_VERSION, DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
+    StructuralCandidateError, StructuralCandidates, TemporalForm, UnitPreimage, ValueForm,
+    CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
+    DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{
