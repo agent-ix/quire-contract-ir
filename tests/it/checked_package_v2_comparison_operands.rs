@@ -241,11 +241,6 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
         .output()
         .expect("inspect producing QSL revision");
     assert!(revision.status.success(), "QSL revision must be available");
-    eprintln!(
-        "TC-445 QSL revision={} commands='{} <scratch>; {} compile <scratch>/unchanged-version/compile.json'",
-        String::from_utf8_lossy(&revision.stdout).trim(),
-        fixture.display(), producer.display()
-    );
     let scratch = Scratch::new();
     run(&fixture, &[&scratch.0]);
     let case = scratch.0.join("unchanged-version");
@@ -253,6 +248,14 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
         std::fs::read_to_string(case.join("spine-unit.native")).expect("fresh QSL spine source");
     assert!(original_unit.contains("self.versionNumber = pre(self.versionNumber)"));
     let request = compile_request(&case);
+    eprintln!(
+        "TC-445 QSL revision={} commands='{} {}; {} compile {}'",
+        String::from_utf8_lossy(&revision.stdout).trim(),
+        fixture.display(),
+        scratch.0.display(),
+        producer.display(),
+        request.display()
+    );
     let bytes = run(&producer, &[Path::new("compile"), &request]);
     let wire: Value = serde_json::from_slice(&bytes).expect("QSL emits V2 JSON");
     let model = std::fs::read(
