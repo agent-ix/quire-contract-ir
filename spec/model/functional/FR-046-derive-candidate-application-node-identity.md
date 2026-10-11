@@ -14,6 +14,10 @@ relationships:
 
 ## Description
 
+PLANNED/UNRUN (IR-738). The API and its acceptance controls below are required
+upon implementation; this specification does not claim present exports or
+executed runtime evidence.
+
 When a caller supplies a draft application before checked-package reader
 admission, `quire-contract-model` SHALL derive its candidate canonical node
 identity through the reader's authoritative application preimage and encoder.

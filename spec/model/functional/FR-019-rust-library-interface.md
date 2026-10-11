@@ -139,6 +139,15 @@ The first node, depth, or collection path crossing a limit returns
 validate, canonicalize, and classify calls return without panic for
 the complete negative corpus.
 
+The pre-read application identity items in
+[FR-046](./FR-046-derive-candidate-application-node-identity.md) are
+PLANNED/UNRUN. They borrow a draft node and its ordered graph context, and return
+only a candidate key. A provisional self selector is not a verified semantic
+identity. The explicit canonical byte ceiling does not bound graph-context
+validation or body-copy memory. Reader admission remains required after
+final-key/reference substitution. The new row below is the required interface
+upon implementation, not a claim that these exports exist today.
+
 ### Public items
 
 These are the items the `quire_contract_model` crate root exports in a
@@ -159,6 +168,7 @@ of the item and are not listed separately.
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `GeneratedOutputPackageId`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordId`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingRuleDigest`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceBytesDigest`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`, `TargetBytesDigest`; trait `OutputMapper`; constants `GENERATED_OUTPUT_PACKAGE_IDENTITY_VERSION`, `OUTPUT_MAPPING_RECORD_IDENTITY_VERSION`, `OUTPUT_MAPPING_REQUEST_IDENTITY_VERSION`, `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `JsonPointer` | FR-038 |
 | `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedDomainPackageRef`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `DOMAIN_PACKAGE_DIGEST`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040 |
+| `checked_package` (V2 candidate application identity; PLANNED/UNRUN) | function `derive_application_node_id`; types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`, `ApplicationIdentityError` | [FR-046](./FR-046-derive-candidate-application-node-identity.md) |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 composite operands) | types `CheckedAuthoredCompositeDomain`, `CheckedCanonicalIntegerBound`, `CheckedCompositeChildEdge`, `CheckedCompositeDomainKey`, `CheckedCompositeDomainPosition`, `CheckedCompositeOperand`, `CheckedCompositeOperandDomain`, `CheckedCompositeOperandError`, `CheckedCompositeOperands`, `CheckedCompositeShapeEntry`, `CheckedUnsupportedCompositeOperand` | FR-038 |
 | `checked_package` (V2 nominal identity) | types `CheckedRational`, `DimensionPreimage`, `DimensionTerm`, `EnumDeclarationPreimage`, `EnumMemberPreimage`, `NominalIdentityPreimage`, `NominalOwner`, `UnitPreimage` | FR-038 |
