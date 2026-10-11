@@ -210,6 +210,17 @@ fn code_word(code: Code) -> &'static str {
 /// The wire word of a refusal cause, with no wildcard for the reason above.
 fn cause_word(cause: Cause) -> &'static str {
     match cause {
+        Cause::MalformedJson => "malformed-json",
+        Cause::MissingMember => "missing-member",
+        Cause::UnknownMember => "unknown-member",
+        Cause::WrongValueKind => "wrong-value-kind",
+        Cause::UnsupportedWire => "unsupported-wire",
+        Cause::UnsupportedFeature => "unsupported-feature",
+        Cause::DefinitionCycle => "definition-cycle",
+        Cause::IncompatibleDefinition => "incompatible-definition",
+        Cause::FeatureSetMismatch => "feature-set-mismatch",
+        Cause::InsufficientNextCharge => "insufficient-next-charge",
+        Cause::ContentMismatch => "content-mismatch",
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
         Cause::StaleNodeKey => "stale-node-key",
