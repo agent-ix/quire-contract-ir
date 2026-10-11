@@ -1851,7 +1851,7 @@ fn validate_graph(
     // own `missing_declaration` refusal rather than the generic
     // unresolved-reference `invalid_semantic_graph`.
     validate_structural_nodes(&graph.nodes, &kinds, &index)?;
-    validate_application_keys(&graph.nodes, &index, meter, limits.bytes)?;
+    validate_application_keys(&graph.nodes, &kinds, &index, meter, limits.bytes)?;
     // FR-038-AC-127: the derived-shape key stage, after the application keys
     // and before the nominal keys.
     validate_derived_keys(

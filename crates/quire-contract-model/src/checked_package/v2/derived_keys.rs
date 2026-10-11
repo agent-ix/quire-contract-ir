@@ -1,5 +1,6 @@
 //! FR-038 structural key authentication using QSL FR-092/FR-094's shared
-//! preimage authority. Retained labels select all same-label wire members.
+//! preimage authority. Aggregate-bodied union values use the application
+//! preimage instead. Retained labels select all same-label wire members.
 //! Every structural key is checked before any group-label digest is checked;
 //! no membership is inferred from a names cycle.
 
@@ -331,7 +332,7 @@ pub(super) fn validate_derived_keys(
             continue;
         };
         if node.nominal_identity_preimage.is_some()
-            || body_term(&node.body) == Some(BodyTerm::Application)
+            || super::operations::has_application_key(node, kind)
             || kind
                 == CheckedNodeKind::Correspondence(super::CorrespondenceForm::AbstractionRelation)
         {
@@ -410,7 +411,10 @@ pub(super) fn validate_derived_keys(
             };
             charge_terms(&node.body, position, meter)?;
             meter.charge(1, || node_pointer(position).key("node_id"))?;
-            let digest = if body_term(&node.body) == Some(BodyTerm::Application) {
+            let digest = if kinds
+                .get(position)
+                .is_some_and(|&kind| super::operations::has_application_key(node, kind))
+            {
                 let members: Vec<_> = group
                     .members
                     .iter()

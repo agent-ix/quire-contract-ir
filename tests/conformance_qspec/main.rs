@@ -455,6 +455,194 @@ fn tc_048_qspec_positive_fixtures_admit() {
     }
 }
 
+fn union_value_preimage(node: &Value) -> Value {
+    json!({
+        "version": "quire.application-node/v1",
+        "node_tag": node["node_tag"],
+        "semantic_form": node["semantic_form"],
+        "semantic_type": node["semantic_type"],
+        "declaration": node.get("declaration"),
+        "recursion": null,
+        "body": node["body"],
+    })
+}
+
+fn canonical_digest(value: &Value) -> String {
+    quire_canonical::sha256(value, Limits::new(DERIVATION_CEILING))
+        .expect("test-authored preimage encodes")
+        .to_string()
+}
+
+/// Replaces one selected digest in a published, shallow JSON package. The
+/// fixture is read from QSpec; the test retains no copy of its bytes.
+fn rewrite_digest(value: &mut Value, old: &str, new: &str) {
+    match value {
+        Value::String(text) if text == old => *text = new.to_owned(),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| rewrite_digest(item, old, new)),
+        Value::Object(members) => members
+            .values_mut()
+            .for_each(|member| rewrite_digest(member, old, new)),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+/// Trace: TC-048, FR-038-AC-225
+#[trace("TC-048", "FR-038-AC-225")]
+#[test]
+fn tc_048_qspec_union_values_admit_under_their_application_keys() {
+    let (wire, admitted) = read_positive(
+        &fixtures_dir(),
+        "positive-union-nodes.json",
+        &proposal_dir_of(&fixtures_dir()).join(DOMAIN_DOCUMENT),
+    )
+    .expect("the current QSpec union fixture admits");
+    assert_eq!(
+        admitted.package_id().digest.as_ref(),
+        "e28d31bb3c8f5e3f83f7f660dccb092455963b56c3137c2aa1a5c9d410dda9ad"
+    );
+    for (position, member, fixed_key, payload) in [
+        (
+            10,
+            "Rect",
+            "8dfdf62acb13476b3aa64f7b414f19b571e81e8aa89ce93dd453e2c8e22728f1",
+            vec![8, 9],
+        ),
+        (
+            11,
+            "Empty",
+            "a6e41bcd8c595ae730b9f214fbe0b5496ffff2c63d35e92b52f8b745ddf27211",
+            vec![],
+        ),
+    ] {
+        let node = &wire["semantic_graph"]["nodes"][position];
+        let retained = &admitted.graph().nodes[position];
+        assert_eq!(node["node_tag"], "value");
+        assert_eq!(node["semantic_form"], "union_value");
+        assert_eq!(node["node_id"]["digest"], fixed_key);
+        assert_eq!(retained.node_id.digest.as_ref(), fixed_key);
+        assert_eq!(
+            serde_json::to_value(&retained.body).expect("retained body"),
+            node["body"]
+        );
+        assert_eq!(node["body"]["term"], "aggregate");
+        assert_eq!(node["body"]["members"][0]["name"], member);
+        let members = node["body"]["members"][0]["value"]["members"]
+            .as_array()
+            .expect("payload aggregate");
+        assert_eq!(members.len(), payload.len());
+        for (actual, referenced) in members.iter().zip(payload) {
+            assert_eq!(
+                actual["target"],
+                wire["semantic_graph"]["nodes"][referenced]["node_id"]
+            );
+        }
+        assert_eq!(canonical_digest(&union_value_preimage(node)), fixed_key);
+    }
+    assert_eq!(
+        wire["semantic_graph"]["nodes"][13]["body"]["term"],
+        "application"
+    );
+}
+
+/// Trace: TC-048, FR-038-AC-226
+#[trace("TC-048", "FR-038-AC-226")]
+#[test]
+fn tc_048_qspec_union_values_refuse_retained_structural_keys_and_body_changes() {
+    let fixtures = fixtures_dir();
+    let base = read_json(&fixtures.join("positive-union-nodes.json")).expect("QSpec fixture");
+    assert!(matches!(
+        read_package(&base),
+        Ok(CheckedPackageV2ReadResult::Admitted(_))
+    ));
+    for position in [10, 11] {
+        let mut stale = base.clone();
+        let node = &stale["semantic_graph"]["nodes"][position];
+        let fresh = node["node_id"]["digest"]
+            .as_str()
+            .expect("fresh key")
+            .to_owned();
+        let old_preimage = json!({
+            "version": "quire.structural-node/v1",
+            "node_tag": node["node_tag"],
+            "semantic_form": node["semantic_form"],
+            "semantic_type": node["semantic_type"],
+            "declaration": null,
+            "recursion": null,
+            "body": node["body"],
+        });
+        let old = canonical_digest(&old_preimage);
+        assert_ne!(old, fresh);
+        rewrite_digest(&mut stale, &fresh, &old);
+        stale["package_id"]["digest"] = json!(derived_with(&stale, None).expect("package id"));
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&stale).expect("reader result")
+        else {
+            panic!("retained structural key of node {position} admitted");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+        );
+        assert_eq!(
+            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+            Some(old.as_str())
+        );
+        assert_eq!(
+            refusal.expected_node_id().map(|id| id.digest.as_ref()),
+            Some(fresh.as_str())
+        );
+    }
+    for position in [10, 11] {
+        let mut changed = base.clone();
+        if position == 10 {
+            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["members"]
+                .as_array_mut()
+                .expect("Rect payload")
+                .swap(0, 1);
+        } else {
+            changed["semantic_graph"]["nodes"][position]["body"]["members"][0]["name"] =
+                json!("Rect");
+        }
+        changed["identity_preimage"]["identity_projection"][position]["body"] =
+            changed["semantic_graph"]["nodes"][position]["body"].clone();
+        changed["package_id"]["digest"] = json!(derived_with(&changed, None).expect("package id"));
+        let expected = canonical_digest(&union_value_preimage(
+            &changed["semantic_graph"]["nodes"][position],
+        ));
+        let retained = base["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("retained key");
+        assert_ne!(expected, retained);
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read_package(&changed).expect("reader result")
+        else {
+            panic!("body mutation of node {position} with a retained key admitted");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+        );
+        assert_eq!(
+            refusal.path.as_ref().map(|path| path.as_str()),
+            Some(format!("/semantic_graph/nodes/{position}/node_id").as_str())
+        );
+        assert_eq!(
+            refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+            Some(retained)
+        );
+        assert_eq!(
+            refusal.expected_node_id().map(|id| id.digest.as_ref()),
+            Some(expected.as_str())
+        );
+    }
+}
+
 /// Read one QSpec positive package with the selected domain document, if any.
 /// The document is supplied under the selection's own digest; the production
 /// reader verifies that claim against its bytes.

@@ -401,8 +401,9 @@ pub fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
 /// Mint QSL FR-092/FR-094 keys for a builder's ungrouped structural nodes,
 /// including owner-bearing and declared nodes. Each rename reaches every
 /// reference in the test package; repeated passes let a node built before a
-/// type it names pick up the type's real key. Nominal, application, grouped
-/// and FR-451 abstraction-relation keys have separate constructors or stages.
+/// type it names pick up the type's real key. Nominal and grouped keys,
+/// application-keyed nodes (including union values), and FR-451 abstraction
+/// relation keys have separate constructors or stages.
 pub fn mint_ungrouped_structural_keys(package: &mut Value) {
     let count = package["semantic_graph"]["nodes"]
         .as_array()
@@ -415,7 +416,7 @@ pub fn mint_ungrouped_structural_keys(package: &mut Value) {
             let tag = node["node_tag"].as_str().expect("node tag");
             let form = node["semantic_form"].as_str().expect("semantic form");
             if node.get("nominal_identity_preimage").is_some()
-                || node["body"]["term"] == "application"
+                || fixture_has_application_key(&node)
                 || node.get("recursion_group").is_some()
                 || (tag == "correspondence" && form == "abstraction_relation")
             {
@@ -554,7 +555,7 @@ pub fn grouped_local_key(
             _ => value.clone(),
         }
     }
-    let application = node["body"]["term"] == "application";
+    let application = fixture_has_application_key(node);
     let semantic_type = if application {
         node["semantic_type"].clone()
     } else if node["semantic_type"] == node["node_id"] {
@@ -1542,12 +1543,7 @@ pub fn rebuild_source_map(package: &mut Value) {
 /// referenced.
 pub fn rekey_application_node(package: &mut Value, position: usize) {
     let node = package["semantic_graph"]["nodes"][position].clone();
-    let fresh = application_key(
-        node["node_tag"].as_str().expect("tag"),
-        node["semantic_form"].as_str().expect("form"),
-        &node["semantic_type"],
-        &node["body"],
-    );
+    let fresh = fixture_application_key(&node, &package["semantic_graph"]["nodes"]);
     let stale = node["node_id"]["digest"]
         .as_str()
         .expect("digest")
@@ -1605,7 +1601,32 @@ fn join_application_dependencies(package: &mut Value) {
     }
 }
 
-/// After a test edited node bodies: re-derives each application node's
+fn fixture_has_application_key(node: &Value) -> bool {
+    node["body"]["term"] == "application"
+        || (node["node_tag"] == "value" && node["semantic_form"] == "union_value")
+}
+
+fn fixture_application_key(node: &Value, nodes: &Value) -> String {
+    if let Some(label) = node.get("recursion_group").and_then(Value::as_str) {
+        let group = nodes
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .filter(|member| member["recursion_group"] == label)
+            .map(|member| member["node_id"].clone())
+            .collect::<Vec<_>>();
+        application_key_in_group(node, &group)
+    } else {
+        application_key(
+            node["node_tag"].as_str().expect("tag"),
+            node["semantic_form"].as_str().expect("form"),
+            &node["semantic_type"],
+            &node["body"],
+        )
+    }
+}
+
+/// After a test edited node bodies: re-derives each application-keyed node's
 /// dependencies and key, innermost first, renaming each key wherever it is
 /// referenced, then the source map and the package identity. A node keyed by
 /// something other than its application preimage keeps its key.
@@ -1619,15 +1640,10 @@ pub fn settle(package: &mut Value) {
         let mut changed = false;
         for position in 0..count {
             let node = package["semantic_graph"]["nodes"][position].clone();
-            if node["body"]["term"] != "application" {
+            if !fixture_has_application_key(&node) {
                 continue;
             }
-            let fresh = application_key(
-                node["node_tag"].as_str().expect("tag"),
-                node["semantic_form"].as_str().expect("form"),
-                &node["semantic_type"],
-                &node["body"],
-            );
+            let fresh = fixture_application_key(&node, &package["semantic_graph"]["nodes"]);
             if node["node_id"]["digest"] != fresh.as_str() {
                 rekey_application_node(package, position);
                 changed = true;

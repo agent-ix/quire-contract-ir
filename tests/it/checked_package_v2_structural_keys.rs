@@ -344,8 +344,8 @@ fn tc_226_owner_free_parameter_and_text_keys_cover_their_bodies() {
 
 /// Each included owner-free form is checked from its own QSL preimage, not
 /// only the ten closed shapes handled by the specialized path.
-/// Trace: FR-038-AC-131
-#[trace("FR-038-AC-131")]
+/// Trace: FR-038-AC-131, FR-038-AC-225
+#[trace("FR-038-AC-131", "FR-038-AC-225")]
 #[test]
 fn tc_226_each_owner_free_form_rejects_a_body_mutation_at_its_key() {
     let base = base();
@@ -486,7 +486,7 @@ fn tc_226_compound_unit_and_union_forms_cover_their_bodies() {
             "value": {"term": "aggregate", "members": []}
         }]})
     };
-    let value_key = structural_key("value", "union_value", Some(&union), &value_body("One"));
+    let value_key = application_node_key("value", "union_value", &union, &value_body("One"));
     let mut value_node = node(
         &value_key,
         "value",
