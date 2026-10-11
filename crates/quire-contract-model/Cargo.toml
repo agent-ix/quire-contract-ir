@@ -38,7 +38,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 # `float_roundtrip` makes the package document's parse of a shortest round-trip
 # text exact, so the canonical-bytes comparison of the value read holds
 # whatever other crates in the build turn on (FR-038-AC-111).
-serde_json = { version = "1.0.151", features = ["unbounded_depth", "float_roundtrip"] }
+serde_json = { version = "1.0.151", features = ["unbounded_depth", "float_roundtrip", "raw_value"] }
 # Locates a closed-schema decode failure at the member the decoder reached,
 # so a checked-package refusal carries the RFC 6901 pointer of that value.
 serde_path_to_error = "=0.1.20"
