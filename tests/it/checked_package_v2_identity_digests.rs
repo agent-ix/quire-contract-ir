@@ -178,12 +178,15 @@ fn closure_oracle(
     (ids(None), ids(Some("bounded_domain")), ids(Some("claim")))
 }
 
+type RecordedBaseline = (&'static str, (&'static str, usize));
+type IdentityFixture = (&'static str, Value, Option<RecordedBaseline>);
+
 /// Tracing: TC-048
 /// ACs: FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
 #[test]
 fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchanged() {
-    let fixtures: [(&str, Value, Option<(&str, (&str, usize))>); 3] = [
+    let fixtures: [IdentityFixture; 3] = [
         ("v2_all_families", v2_all_families(), None),
         (
             "v2_nominal",
