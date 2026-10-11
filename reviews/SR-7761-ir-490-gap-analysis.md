@@ -3,7 +3,7 @@ id: SR-7761
 title: "Gap analysis of IR-490 structural forwarding evidence"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir@e29d89390ca017d9ee6652464f8bf34cdd03b1f1; FR-038-AC-224; crates/quire-contract-model/src/checked_package/v2/operations.rs"
+scope: "agent-ix/quire-contract-ir@e29d89390ca017d9ee6652464f8bf34cdd03b1f1 and follow-ups 8c2885d076eaddb55f8fde3daae9f9c5ecd57b78, 6c8ec986184dfb5146f5fed1375e4b7a9c63f221; FR-038-AC-224; crates/quire-contract-model/src/checked_package/v2/operations.rs; tests/it/checked_package_v2_recursive_leaves.rs"
 review_set: subset
 ---
 
@@ -13,7 +13,7 @@ The changed tests carry the FR-038-AC-224 trace tag and the resolver's isolated 
 
 ## Verdict
 
-**CONDITIONAL** — The implementation appears sound, but both medium evidence gaps should be closed before calling FR-038-AC-224 verified.
+**PASS after dispositions** — The initial evidence gaps and the follow-up test finding are fixed on the reviewed follow-up heads. The original findings and their outcomes remain recorded below.
 
 ## Findings
 
@@ -32,11 +32,18 @@ FND-002: `inner_result_and_leaf_edges_propagate_structural_work` invokes `inner_
 
 ## Dispositions
 
-Both findings were fixed on `8c2885d076eaddb55f8fde3daae9f9c5ecd57b78` in the same review round.
+Follow-up source reviewed: `8c2885d076eaddb55f8fde3daae9f9c5ecd57b78` (the later `53e4817` commit changes only the committed review text).
 
-| ID | Disposition | Evidence |
+| FND | outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | `structural_forwarding_is_paid_once_across_both_leaf_passes` now records the meter before count, after count, and after placement. It attributes count work to two expanded nodes, 301 leaf visits, 300 independent profile-pin units and 300 structural-forwarding units; placement asserts exactly 301 leaf visits and zero additional forwarding/pin units. The measured lawful operation still checks exact and one-less total limits. Focused `structural_` unit run passed 8/8. |
-| FND-002 | fixed | `inner_result_and_leaf_edges_propagate_structural_work` now runs complete, otherwise-valid `contains`, `flatten` and `structural.eq` operations through `operation_defect`, measuring each operation's exact and one-less limit and asserting typed Work. `structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries` builds keyed packages for the same routes, reads them through public `CheckedPackageV2::read`, asserts admission at measured total work, typed Work one below, and a public Work refusal at each operation's path. Focused integration run passed 1/1. |
+| FND-001 | fixed 8c2885d076eaddb55f8fde3daae9f9c5ecd57b78 | The test now asserts 903 count-pass units, including 300 structural units, and exactly 301 placement-pass units, with no repeated structural or pin charge. |
+| FND-002 | fixed 8c2885d076eaddb55f8fde3daae9f9c5ecd57b78 | The new unit and integration controls construct valid `contains`, `flatten`, and `structural.eq` operations and exercise both operation validation and public reading at measured exact/one-less total work limits. |
+| FND-003 | fixed 6c8ec986184dfb5146f5fed1375e4b7a9c63f221 | Each route now has a valid direct control, the forwarded operation must consume exactly one more unit, and a shared limit must yield direct Work at `operation/leaves` versus forwarded Work at `operation`. This excludes the common base charge. |
 
-The focused checks on this head also passed scoped Clippy with `-D warnings` and the text-profile-pin unit filter (2/2). Full repository gates and an independent disposition review remain outside this coder round.
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-003 | medium | Operation-path Work assertion can pass before structural resolution | tests/it/checked_package_v2_recursive_leaves.rs:802 | correct-requirement-no-evidence |
+
+FND-003: The new public-reader `find_map` accepts any `Incomplete(Work)` whose path equals the operation. `operation_defect` unconditionally charges one unit at that same path before structural resolution (`operations.rs:411`); the whole-operation unit test uses the same path search. Therefore removing the inner/result/edge structural charge or converting its Work into another outcome still leaves an operation-path Work limit from that base charge. The exact/one-less total checks compute their limit from the modified implementation and also remain green. Assert a threshold attributable specifically to each structural forwarding call, with a no-forwarding control or an explicit measured pre-lookup meter delta, through the reader.
