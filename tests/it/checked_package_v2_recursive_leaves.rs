@@ -382,6 +382,27 @@ fn scalar_id(package: &Value, form: &str) -> Value {
         .clone()
 }
 
+fn set_of_nfc_id(package: &Value) -> Value {
+    let nfc_id = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "bounded_domain" && node["semantic_form"] == "text_bounds")
+        .expect("NFC text")["node_id"]
+        .clone();
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| {
+            node["node_tag"] == "composite_type"
+                && node["semantic_form"] == "set"
+                && node["body"]["members"][0]["target"] == nfc_id
+        })
+        .expect("set of NFC text")["node_id"]
+        .clone()
+}
+
 /// Trace: FR-038-AC-228
 #[trace("FR-038-AC-228")]
 #[test]
@@ -544,6 +565,92 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
     }
 }
 
+/// Trace: FR-038-AC-230
+#[trace("FR-038-AC-230")]
+#[test]
+fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
+    for identity in ["map", "flat_map", "flatten", "convert"] {
+        let (root, types) = match identity {
+            "map" | "flat_map" => ("result", vec![collection_of("result", "set", "nfc")]),
+            "flatten" => (
+                "source",
+                vec![
+                    collection_of("result", "set", "nfc"),
+                    collection_of("source", "set", "result"),
+                ],
+            ),
+            "convert" => (
+                "source",
+                vec![
+                    collection_of("result", "set", "nfc"),
+                    collection_of("source", "sequence", "nfc"),
+                ],
+            ),
+            _ => unreachable!("test table is exhaustive"),
+        };
+        let (mut package, _) = equality_package(types, root, vec![]);
+        let result_id = set_of_nfc_id(&package);
+        let nfc_id = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "bounded_domain" && node["semantic_form"] == "text_bounds"
+            })
+            .expect("NFC text")["node_id"]
+            .clone();
+        edit_application(&mut package, |node| {
+            let source = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!(if identity == "convert" {
+                "conversion"
+            } else {
+                "collection"
+            });
+            node["semantic_type"] = result_id.clone();
+            node["body"]["operator"] = json!(if identity == "convert" {
+                "convert"
+            } else {
+                "collection"
+            });
+            node["body"]["operation"]["identity"] =
+                json!(format!("quire.op.collection.{identity}"));
+            node["body"]["operation"]["leaves"] = json!([text_leaf(&[])]);
+            node["body"]["result_type"] = result_id.clone();
+            node["body"]["arguments"] = match identity {
+                "map" => json!([source, {"term":"binding","name":"x","value":{
+                    "term":"literal","type":nfc_id,"value_kind":"text","value":"a"}}]),
+                "flat_map" => json!([source.clone(), {"term":"binding","name":"x","value":source}]),
+                "flatten" | "convert" => json!([source]),
+                _ => unreachable!("test table is exhaustive"),
+            };
+            if identity == "convert" {
+                node["body"]["operation"]["member"] = json!({
+                    "kind":"type_argument", "type_argument":result_id
+                });
+            }
+        });
+        let outcome = read(&package, CheckedPackageReadLimits::bounded());
+        assert!(
+            matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+            "{identity} positive control: {outcome:?}"
+        );
+        let mut missing = package;
+        let application = edit_application(&mut missing, |node| {
+            node["body"]["operation"]["leaves"] = json!([]);
+        });
+        assert_eq!(
+            read(&missing, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                &leaves_pointer(&missing, &application),
+                Some(CheckedPackageRefusalCause::OperationLawMissing),
+                &application,
+            ),
+            "{identity} missing leaf"
+        );
+    }
+}
+
 /// Trace: FR-038-AC-231
 #[trace("FR-038-AC-231")]
 #[test]
@@ -585,6 +692,85 @@ fn residual_flatten_sequence_result_does_not_compare_its_ieee_element() {
                 CheckedPackageV2ReadResult::Admitted(_)
             ),
             "flatten over sequence<{ieee}> has no compared leaf source"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-231
+#[trace("FR-038-AC-231")]
+#[test]
+fn residual_contains_sequence_compares_its_ieee_element() {
+    for form in ["float32", "float64", "integer"] {
+        let mut types = vec![collection_of("r", "sequence", form)];
+        if form != "integer" {
+            types.push(scalar(form, form));
+        }
+        let (mut package, _) = equality_package(types, "r", vec![]);
+        let element_id = scalar_id(&package, form);
+        let application = edit_application(&mut package, |node| {
+            let collection = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!("collection");
+            node["body"]["operator"] = json!("collection");
+            node["body"]["operation"]["identity"] = json!("quire.op.collection.contains");
+            node["body"]["arguments"] = json!([
+                collection, {"term":"reference","target":element_id}
+            ]);
+        });
+        let outcome = read(&package, CheckedPackageReadLimits::bounded());
+        if form == "integer" {
+            assert!(
+                matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+                "integer element admits: {outcome:?}"
+            );
+        } else {
+            assert_eq!(
+                outcome,
+                refusal_at(
+                    CheckedPackageRefusalCode::IllTyped,
+                    &leaves_pointer(&package, &application),
+                    Some(CheckedPackageRefusalCause::OperatorIneligible),
+                    &application,
+                ),
+                "sequence<{form}> contains compares the element"
+            );
+        }
+    }
+}
+
+/// Trace: FR-038-AC-229
+#[trace("FR-038-AC-229")]
+#[test]
+fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
+    let (base, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
+    assert!(matches!(
+        read(&base, CheckedPackageReadLimits::bounded()),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    for family in ["binder", "aggregate"] {
+        let mut package = base.clone();
+        let application = edit_application(&mut package, |node| {
+            let value = node["body"]["arguments"][0].clone();
+            node["body"]["arguments"][0] = match family {
+                "binder" => json!({"term":"binding","name":"x","value":value}),
+                "aggregate" => json!({"term":"aggregate","members":[value]}),
+                _ => unreachable!("test table is exhaustive"),
+            };
+        });
+        let position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"]["digest"] == application)
+            .expect("application");
+        assert_eq!(
+            read(&package, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &format!("/semantic_graph/nodes/{position}/body/arguments/0"),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &application,
+            ),
+            "{family} refuses before leaves"
         );
     }
 }
