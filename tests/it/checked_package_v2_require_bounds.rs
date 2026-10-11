@@ -634,15 +634,15 @@ fn quantity_package() -> Fixture {
         composite("cdom_field", "record", &["cdom"]),
         // Two quantity positions in one closure.
         composite("both", "record", &["metre", "cu"]),
-        // A unit named only by a `literal.type` annotation.
+        // A unit reached through the dependency of a valid Boolean literal.
         node(
             "lit",
             "value",
             "literal",
             "boolean",
-            &[],
+            &["metre"],
             "anchor",
-            literal("metre", "integer", "1"),
+            literal("boolean", "boolean", "true"),
         ),
         composite("annotated", "record", &["boolean", "lit"]),
         // A domain chain that loops, and a field typed at it.
@@ -766,7 +766,7 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
         }
         other => panic!("expected lowered, got {other:?}"),
     }
-    // A unit reached only as a `literal.type` annotation.
+    // A unit reached through the dependency of a valid Boolean literal.
     match record_with(&value, "annotated", true) {
         CompleteLoweringRecordV2::Lowered { node } => {
             assert!(node.dependencies.contains(&id_of(&value, "metre")));

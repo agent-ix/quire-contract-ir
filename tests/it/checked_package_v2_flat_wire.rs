@@ -79,7 +79,7 @@ fn ineligible(path: &str) -> (Code, Option<CheckedPackageRefusalCause>, String) 
 fn leaf() -> Value {
     json!({
         "term": "literal", "type": node_id(&family_key("aaaa")),
-        "value_kind": "integer", "value": 1,
+        "value_kind": "boolean", "value": true,
     })
 }
 

@@ -7,8 +7,9 @@
 //! quire-canonical's bytes", FR-038-AC-74 through FR-038-AC-80).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, mint_ungrouped_structural_keys, positive_operation_identities,
-    refresh_identity, refusal, refusal_bytes, v2_all_families, v2_nominal, ExpectedRefusal,
+    canonical, evidence_for, family_key, mint_ungrouped_structural_keys, node_id,
+    positive_operation_identities, refresh_identity, refusal, refusal_bytes, v2_all_families,
+    v2_nominal, ExpectedRefusal,
 };
 use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
@@ -754,18 +755,20 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         );
     }
     // And with the identity re-derived and a literal body, they admit.
-    let base = positive_operation_identities();
-    let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let base = v2_all_families();
+    let integer_type = node_id(&family_key("a3a3"));
     for literal in [
         json!(9_007_199_254_740_992_u64),
         json!(-9_007_199_254_740_992_i64),
         json!(2),
     ] {
         let mut package = base.clone();
-        // Node 2 is the `value`/`literal` node; its changed body needs a new
+        // Node 3 is the `value`/`literal` node; its changed body needs a new
         // structural key before the canonical document is read.
-        package["semantic_graph"]["nodes"][2]["body"] = json!({
-            "term": "literal", "type": self_type, "value_kind": "integer", "value": literal
+        package["semantic_graph"]["nodes"][3]["semantic_type"] = integer_type.clone();
+        package["semantic_graph"]["nodes"][3]["dependencies"] = json!([integer_type]);
+        package["semantic_graph"]["nodes"][3]["body"] = json!({
+            "term": "literal", "type": integer_type, "value_kind": "integer", "value": literal
         });
         mint_ungrouped_structural_keys(&mut package);
         refresh_identity(&mut package);
