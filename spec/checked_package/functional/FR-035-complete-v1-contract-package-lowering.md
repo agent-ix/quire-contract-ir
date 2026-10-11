@@ -72,7 +72,7 @@ QSpec FR-330's "Typed source-selection compatibility" is the sole owner of
 source-selection matching, its charged per-request procedure, refusal precedence
 and exact lock preservation. The lowerer SHALL implement that contract using
 its typed `CompleteLoweringProfileV2.required_source_selections` field and
-existing FR-038 per-request work meter; it SHALL NOT introduce a separately
+existing FR-038 per-request work meter. The lowerer SHALL NOT introduce a separately
 normalized requirement representation, replacement budget or reference-derived
 requirement lookup.
 
