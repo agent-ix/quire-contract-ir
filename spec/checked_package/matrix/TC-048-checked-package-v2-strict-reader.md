@@ -62,6 +62,9 @@ FR-038-AC-210 through FR-038-AC-213 are planned reader-admission cases for
 the published operation catalog's declared-unit quantity, aggregate,
 same-family, literal-kind and rounding-mode rules; they are not counted as
 executed evidence until the IR-484 code slice adds tagged tests.
+FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
+IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
+test or admission correction is claimed yet.
 FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
 split of a stale digest into `content-mismatch` (a document that reads, a dependency
 entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
@@ -166,6 +169,37 @@ identity is selected; an owner carrying `version` refuses `unknown_member`, an o
 empty `identity` or `node` refuses `invalid_semantic_graph`, and a declaration
 node keyed under an unselected domain package refuses
 `missing_declaration`/`missing-selection` (FR-038-AC-45).
+
+## IEEE literal and catalog result admission (FR-038-AC-222 and FR-038-AC-223)
+
+PLANNED/UNRUN (IR-742). Build otherwise valid V2 packages using the published
+`quire.op.ieee.to_float32` and `quire.op.ieee.to_float64` entries, their selected
+IEEE law, correctly typed `type_argument`, and genuine Float32 and Float64
+type nodes. The Float64→Float32 package with a `float64_bits` source literal
+and Float32→Float64 package with a `float32_bits` source literal must each
+admit through `CheckedPackageV2::read`.
+Then change only a `float32_bits` literal's declared `type` to Float64, and
+only a `float64_bits` literal's declared `type` to Float32, in separate fresh
+packages. Place each in an otherwise eligible argument position so an
+enclosing operand-family rejection cannot stand in for the literal's own
+kind/type check. Each must refuse `ill_typed` with cause
+`operator-ineligible` at that literal's `/type`, with its containing node as
+locus, rather than admit or refuse at the enclosing `/arguments/{i}`.
+
+For each conversion identity, retain the valid destination `type_argument`
+but change `result_type` to the source-width type node. Separately change
+both `type_argument` and `result_type` to that source-width node. The first
+mutation isolates the catalog's `member` result form; the second isolates its
+`member_family` constraint. Each must refuse `ill_typed` with cause
+`operator-ineligible` at the application's `/result_type`, with its containing
+node as locus. The valid cross-width packages must still admit. Derive every
+changed node key, reference, identity projection and package id afresh through
+the public vocabulary before each read; a stale identity refusal, private
+helper result or synthetic post-admission graph does not satisfy these cases.
+Compare typed code, cause, pointer and locus, without parsing diagnostic prose.
+The adverse packages must be valid through earlier wire, identity and resource
+checks so they distinguish these admission failures from the existing first
+refusal order. These cases do not assert an admitted same-width IEEE operation.
 
 ## Selections bind by identity (FR-038-AC-62 through FR-038-AC-64)
 
