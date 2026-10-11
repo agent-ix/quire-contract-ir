@@ -1654,7 +1654,9 @@ carries `expected` or `actual`.
 
 ## Pre-read candidate application identity (FR-046)
 
-PLANNED/UNRUN (IR-738).
+Implemented (IR-738). Six public application-identity controls, five focused
+reader/preimage regression tests and the private-construction compile-fail
+doctest have passed. Full gates and independent review remain pending.
 
 Verify [FR-046](../../model/functional/FR-046-derive-candidate-application-node-identity.md), AC-1 through AC-6, through the public model API and actual `CheckedPackageV2::read`; no test replaces the production hash/helper/reader.
 
@@ -1664,7 +1666,7 @@ Verify [FR-046](../../model/functional/FR-046-derive-candidate-application-node-
 4. Independently encode the successful preimage and measure C bytes. Limits C and C+1 return the same key; C-1 and zero return the typed canonical byte-limit error. A number that canonical encoding refuses returns its typed encoder error, rather than a byte-limit error or candidate. Do not count this as a memory/work bound over the graph or copied body.
 5. Read reader-admissible ordinary and grouped final assemblies containing the helper candidates. Change a body's semantic content while retaining the candidate key and refresh only the existing package identity as required to reach node-key validation. Assert stale-node-key and the distinct expected node key. Use the existing reader work meter with an exhausted application charge and a later failing hash; assert the work refusal wins. Source inspection verifies a single authoritative application preimage/encoder, unchanged charge-before-preimage/hash, and no public-context validation in reader admission.
 
-These controls are PLANNED/UNRUN; this spec-only change supplies no runtime result. Bind eventual tests by `Trace: FR-046-AC-N`, never by a fabricated matrix row.
+The implementation and focused checks have passed; full gates and independent review remain pending. Bind tests by `Trace: FR-046-AC-N`, never by a fabricated matrix row.
 
 6. Use the existing deep-Value test convention: an in-memory application draft
    containing 100000 nested JSON levels, on a 256 KiB thread stack, built and
