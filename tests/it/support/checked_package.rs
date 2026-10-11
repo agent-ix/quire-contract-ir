@@ -30,7 +30,7 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
@@ -465,8 +465,17 @@ pub fn mint_grouped_structural_keys(package: &mut Value) {
     for (old_label, members) in groups {
         let ids = members
             .iter()
-            .map(|node| node["node_id"].clone())
-            .collect::<Vec<_>>();
+            .enumerate()
+            .map(|(ordinal, node)| {
+                (
+                    node["node_id"]["digest"]
+                        .as_str()
+                        .expect("digest")
+                        .to_owned(),
+                    ordinal,
+                )
+            })
+            .collect::<HashMap<_, _>>();
         let local = members
             .iter()
             .enumerate()
@@ -481,18 +490,52 @@ pub fn mint_grouped_structural_keys(package: &mut Value) {
                 node["recursion_group"] = json!(label);
             }
         }
-        for (ordinal, node) in members.iter().enumerate() {
-            let stale = node["node_id"]["digest"].as_str().expect("digest");
-            let fresh = grouped_local_key(node, &ids, ordinal, Some(&label));
-            rename_node(package, stale, &fresh);
-        }
+        let replacements = members
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| {
+                (
+                    node["node_id"]["digest"]
+                        .as_str()
+                        .expect("digest")
+                        .to_owned(),
+                    grouped_local_key(node, &ids, ordinal, Some(&label)),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        replace_digests(package, &replacements);
     }
 }
 
-fn grouped_local_key(node: &Value, ids: &[Value], ordinal: usize, label: Option<&str>) -> String {
-    fn rewrite(value: &Value, ids: &[Value]) -> Value {
+fn replace_digests(value: &mut Value, replacements: &HashMap<String, String>) {
+    match value {
+        Value::String(text) => {
+            if let Some(fresh) = replacements.get(text) {
+                *text = fresh.clone();
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| replace_digests(item, replacements)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|item| replace_digests(item, replacements)),
+        _ => {}
+    }
+}
+
+fn grouped_local_key(
+    node: &Value,
+    ids: &HashMap<String, usize>,
+    ordinal: usize,
+    label: Option<&str>,
+) -> String {
+    fn rewrite(value: &Value, ids: &HashMap<String, usize>) -> Value {
         if value["term"] == "reference" {
-            if let Some(ordinal) = ids.iter().position(|id| *id == value["target"]) {
+            if let Some(ordinal) = value["target"]["digest"]
+                .as_str()
+                .and_then(|digest| ids.get(digest))
+            {
                 return json!({"term": "group_reference", "ordinal": ordinal});
             }
         }
@@ -514,7 +557,10 @@ fn grouped_local_key(node: &Value, ids: &[Value], ordinal: usize, label: Option<
         node["semantic_type"].clone()
     } else if node["semantic_type"] == node["node_id"] {
         Value::Null
-    } else if let Some(ordinal) = ids.iter().position(|id| *id == node["semantic_type"]) {
+    } else if let Some(ordinal) = node["semantic_type"]["digest"]
+        .as_str()
+        .and_then(|digest| ids.get(digest))
+    {
         json!({"term": "group_reference", "ordinal": ordinal})
     } else {
         node["semantic_type"].clone()
