@@ -212,3 +212,9 @@ ci: fmt-check lint test corpus spec deny cargo-audit audit-unsafe
 
 .PHONY: release-check
 release-check: ci
+
+# TC-041 / FR-028-AC-4: explicit native production configurations. Reuses the
+# worktree target; the test is ignored by ordinary Cargo integration runs.
+.PHONY: model-boundary-builds
+model-boundary-builds:
+	$(CARGO) test $(LOCKED) --workspace --test it cycle_free_model::production_default_all_feature_and_msrv_builds -- --ignored --exact --nocapture
