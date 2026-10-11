@@ -1304,6 +1304,126 @@ mod tests {
         )
     }
 
+    /// Trace: FR-038-AC-180
+    #[trace("FR-038-AC-180")]
+    #[test]
+    fn ieee_type_walk_keeps_authored_whole_sources_without_claiming_comparison_admission() {
+        // An actual reader-admitted package supplies the graph vocabulary;
+        // the three extra types are exercised only at the private type-walk
+        // seam because a structural comparison reaching IEEE cannot admit.
+        let admitted = package();
+        let mut nodes = admitted.wire.semantic_graph.nodes.clone();
+        let mut kinds = admitted.kinds.clone();
+        let mut index = admitted.node_index.clone();
+        let template = nodes[1].clone();
+        let mut append = |tag: &str,
+                          form: &str,
+                          semantic_type: Option<&CheckedNodeId>,
+                          kind: CheckedNodeKind| {
+            let body = json!({"term":"aggregate","members":[]});
+            let preimage = json!({
+                "version":"quire.structural-node/v1", "node_tag":tag,
+                "semantic_form":form, "semantic_type":semantic_type,
+                "declaration":null, "recursion":null, "body":body,
+            });
+            let id = CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: quire_canonical::sha256(&preimage, quire_canonical::Limits::new(1 << 20))
+                    .expect("authored type key")
+                    .to_string()
+                    .into(),
+            };
+            let mut node = template.clone();
+            node.node_id = id.clone();
+            node.node_tag = tag.into();
+            node.semantic_form = form.into();
+            node.semantic_type = semantic_type.cloned().unwrap_or_else(|| id.clone());
+            node.dependencies = semantic_type.into_iter().cloned().collect();
+            node.body = body;
+            index.insert(id.clone(), nodes.len());
+            nodes.push(node);
+            kinds.push(kind);
+            id
+        };
+        let float32 = append(
+            "scalar_type",
+            "float32",
+            None,
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Float32),
+        );
+        let float64 = append(
+            "scalar_type",
+            "float64",
+            None,
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Float64),
+        );
+        let rounding = append(
+            "bounded_domain",
+            "float_rounding",
+            Some(&float32),
+            CheckedNodeKind::BoundedDomain(BoundedDomainForm::FloatRounding),
+        );
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let root = id('5');
+        for (ty, kind, expected_shape) in [
+            (
+                float32.clone(),
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Float32),
+                1,
+            ),
+            (
+                float64,
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Float64),
+                1,
+            ),
+            (
+                rounding.clone(),
+                CheckedNodeKind::BoundedDomain(BoundedDomainForm::FloatRounding),
+                2,
+            ),
+        ] {
+            let mut meter = Meter {
+                limit: 100_000,
+                consumed: 0,
+            };
+            let (shape, positions) =
+                project_type(&graph, &root, &ty, 0, &mut meter).expect("type-walk mapping");
+            assert_eq!(shape.len(), expected_shape);
+            assert_eq!(shape[0].type_node, ty);
+            assert_eq!(shape[0].kind, kind);
+            assert_eq!(shape[0].path, Vec::<u32>::new());
+            assert_eq!(
+                positions,
+                vec![CheckedCompositeDomainPosition {
+                    key: CheckedCompositeDomainKey::Node {
+                        node: root.clone(),
+                        path: vec![]
+                    },
+                    type_node: ty,
+                    authored: CheckedAuthoredCompositeDomain::Whole { kind },
+                }]
+            );
+            if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::FloatRounding) {
+                assert_eq!(shape[0].edges.len(), 1);
+                assert_eq!(shape[0].edges[0].target, float32);
+                assert_eq!(shape[0].edges[0].ordinal, None);
+                assert_eq!(shape[1].type_node, float32);
+                assert_eq!(
+                    shape[1].kind,
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Float32)
+                );
+                assert_eq!(shape[1].path, Vec::<u32>::new());
+                assert!(shape[1].edges.is_empty());
+            } else {
+                assert!(shape[0].edges.is_empty());
+            }
+        }
+    }
+
     #[trace("FR-038-AC-181")]
     #[test]
     fn defensive_target_failures_never_salvage_or_fabricate_a_child_identity() {
