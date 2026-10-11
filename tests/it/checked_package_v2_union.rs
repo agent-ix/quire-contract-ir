@@ -10,9 +10,10 @@
 //! (they are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, fixture_source, mint_grouped_structural_keys,
-    mint_ungrouped_structural_keys, node_id, nominal_package, over_body, owned_structural_node,
-    settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY,
+    application_key_in_group, canonical, evidence_for, family_key, fixture_source,
+    mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id, nominal_package,
+    over_body, owned_structural_node, rebuild_source_map, refresh_identity, rename_node, settle,
+    sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY,
     INTEGER_KEY,
 };
 use ix_trace_rs::trace;
@@ -557,6 +558,66 @@ fn tc_048_a_union_value_must_construct_a_member_of_its_union() {
         );
     });
     admitted("Shape::Empty", &package);
+}
+
+/// Trace: TC-048, FR-038-AC-227
+#[trace("TC-048", "FR-038-AC-227")]
+#[test]
+fn tc_048_a_grouped_union_value_uses_graph_ordinals_and_refuses_a_stale_key() {
+    let package = with_nodes(|nodes| {
+        let mut parameter = parameter("r", "1", "integer");
+        parameter["recursion_group"] = json!("g");
+        replace(nodes, "r", parameter);
+        let mut value = union_value("shape_rect", "shape", "Rect", &["r", "two"]);
+        value["recursion_group"] = json!("g");
+        replace(nodes, "shape_rect", value);
+    });
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let position = position_of(&package, "shape_rect");
+    let node = &nodes[position];
+    let group = nodes
+        .iter()
+        .filter(|member| member["recursion_group"] == node["recursion_group"])
+        .map(|member| member["node_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(group.len(), 2);
+    let parameter = nodes
+        .iter()
+        .find(|member| member["body"]["members"][0]["value"]["value"] == "r")
+        .expect("group parameter r");
+    assert_eq!(group[0], parameter["node_id"]);
+    assert_eq!(group[1], node["node_id"]);
+    assert_eq!(
+        node["node_id"]["digest"],
+        application_key_in_group(node, &group)
+    );
+    admitted("grouped union value", &package);
+    let mut stale = package.clone();
+    let current = node["node_id"]["digest"]
+        .as_str()
+        .expect("current key")
+        .to_owned();
+    let old = sha256_hex(b"retained grouped union key");
+    rename_node(&mut stale, &current, &old);
+    rebuild_source_map(&mut stale);
+    refresh_identity(&mut stale);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&stale) else {
+        panic!("stale grouped union key admitted");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
+    );
+    assert_eq!(
+        refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+        Some(old.as_str())
+    );
+    assert_eq!(
+        refusal.expected_node_id().map(|id| id.digest.as_ref()),
+        Some(current.as_str())
+    );
 }
 
 // ---------------------------------------------------------------------------

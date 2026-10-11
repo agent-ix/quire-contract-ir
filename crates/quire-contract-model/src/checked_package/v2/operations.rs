@@ -116,7 +116,13 @@ fn is_application(body: &Value) -> bool {
     body_term(body) == Some(BodyTerm::Application)
 }
 
-/// Every application node's `node_id` re-derived from its own visible
+/// QSpec keys an aggregate-bodied union construction with the same preimage
+/// as a root application; other application-free values remain structural.
+pub(super) fn has_application_key(node: &CheckedSemanticNodeV2, kind: CheckedNodeKind) -> bool {
+    is_application(&node.body) || kind == CheckedNodeKind::Value(super::ValueForm::UnionValue)
+}
+
+/// Every application-keyed node's `node_id` re-derived from its own visible
 /// members, in ascending digest order, reporting the first stale one.
 ///
 /// Each key is hashed through `quire-canonical` under `bytes`, the reader's
@@ -124,6 +130,7 @@ fn is_application(body: &Value) -> bool {
 /// `invalid_semantic_graph` at the node's `node_id`.
 pub(super) fn validate_application_keys(
     nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     meter: &mut WorkMeter,
     bytes: u64,
@@ -137,7 +144,10 @@ pub(super) fn validate_application_keys(
     }
     for (&node_id, &position) in index {
         let node = &nodes[position];
-        if !is_application(&node.body) {
+        if !kinds
+            .get(position)
+            .is_some_and(|&kind| has_application_key(node, kind))
+        {
             continue;
         }
         let application = Application { node, position };
@@ -168,7 +178,8 @@ pub(super) fn validate_application_keys(
     Ok(())
 }
 
-/// The existing application preimage contributes unchanged to a group digest.
+/// The application preimage, including a union value's aggregate body,
+/// contributes unchanged to a group digest.
 pub(super) fn application_local_digest(
     node: &CheckedSemanticNodeV2,
     position: usize,
@@ -4134,6 +4145,120 @@ mod tests {
         );
     }
 
+    /// Trace: TC-048, FR-038-AC-227
+    #[trace("TC-048", "FR-038-AC-227")]
+    #[test]
+    fn tc_048_grouped_union_value_key_respects_references_bytes_and_work() {
+        let parameter: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id": node_ref(1),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "value",
+            "semantic_form": "parameter",
+            "semantic_type": node_ref(3),
+            "dependencies": [],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "recursion_group": "g",
+            "body": {"term": "aggregate", "members": []},
+        }))
+        .expect("parameter");
+        let mut union: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id": node_ref(2),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "value",
+            "semantic_form": "union_value",
+            "semantic_type": node_ref(4),
+            "dependencies": [node_ref(1), node_ref(9)],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "recursion_group": "g",
+            "body": {"term": "aggregate", "members": [{
+                "term": "binding", "name": "Rect", "value": {
+                    "term": "aggregate", "members": [reference(1), reference(9)]
+                }
+            }]},
+        }))
+        .expect("union value");
+        let provisional = [&parameter.node_id, &union.node_id];
+        let preimage = application_preimage(&union, ApplicationGroup::Keys(&provisional))
+            .expect("group preimage");
+        let expected_body = json!({"term": "aggregate", "members": [{
+            "term": "binding", "name": "Rect", "value": {
+                "term": "aggregate", "members": [
+                    {"term": "group_reference", "ordinal": 0}, reference(9)
+                ]
+            }
+        }]});
+        assert_eq!(preimage.body.as_ref(), &expected_body);
+        assert_eq!(
+            preimage.recursion,
+            Some(GroupPlace {
+                size: 2,
+                ordinal: 1
+            })
+        );
+        let independent = json!({
+            "version": "quire.application-node/v1",
+            "node_tag": "value",
+            "semantic_form": "union_value",
+            "semantic_type": node_ref(4),
+            "declaration": null,
+            "recursion": {"size": 2, "ordinal": 1},
+            "body": expected_body,
+        });
+        let canonical =
+            quire_canonical::to_vec(&independent, quire_canonical::Limits::new(1 << 20))
+                .expect("independent preimage bytes");
+        let exact = u64::try_from(canonical.len()).expect("byte length fits");
+        let expected = quire_canonical::sha256(&independent, quire_canonical::Limits::new(exact))
+            .expect("independent key")
+            .to_string();
+        assert_eq!(
+            quire_canonical::to_vec(&preimage, quire_canonical::Limits::new(exact))
+                .expect("production preimage at exact ceiling"),
+            canonical
+        );
+        drop(preimage);
+        union.node_id.digest = expected.clone().into();
+        let nodes = [parameter, union];
+        let kinds = [
+            CheckedNodeKind::Value(super::super::ValueForm::Parameter),
+            CheckedNodeKind::Value(super::super::ValueForm::UnionValue),
+        ];
+        let index = BTreeMap::from([(&nodes[0].node_id, 0), (&nodes[1].node_id, 1)]);
+        assert_eq!(
+            validate_application_keys(&nodes, &kinds, &index, &mut WorkMeter::new(1), exact),
+            Ok(())
+        );
+        let too_short =
+            validate_application_keys(&nodes, &kinds, &index, &mut WorkMeter::new(1), exact - 1);
+        let Err(ValidationFailure::Refused(refusal)) = too_short else {
+            panic!("one byte below the preimage must refuse: {too_short:?}");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(refusal.expected_node_id(), None);
+        assert_eq!(
+            refusal.path,
+            Some(pointer("/semantic_graph/nodes/1/node_id"))
+        );
+        let unpaid =
+            validate_application_keys(&nodes, &kinds, &index, &mut WorkMeter::new(0), exact - 1);
+        let Err(ValidationFailure::Incomplete(incomplete)) = unpaid else {
+            panic!("work must refuse before hashing: {unpaid:?}");
+        };
+        assert_eq!(
+            incomplete.limit_kind,
+            crate::checked_package::shared::CheckedPackageLimit::Work
+        );
+        assert_eq!(incomplete.limit, 0);
+        assert_eq!(incomplete.consumed, 1);
+        assert_eq!(
+            incomplete.path,
+            Some(pointer("/semantic_graph/nodes/1/node_id"))
+        );
+    }
+
     fn typed(digest: &str) -> CheckedNodeId {
         serde_json::from_value(json!({
             "domain": "quire.checked-semantic-node/v1",
@@ -7667,7 +7792,8 @@ mod tests {
         index.insert(&node.node_id, 0);
         let mut meter = WorkMeter::new(1_000);
 
-        let result = validate_application_keys(nodes, &index, &mut meter, 1 << 20);
+        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
+        let result = validate_application_keys(nodes, &kinds, &index, &mut meter, 1 << 20);
 
         let Err(ValidationFailure::Refused(refusal)) = result else {
             panic!("a placeholder node key must refuse: {result:?}");
@@ -7696,7 +7822,13 @@ mod tests {
         index.insert(&rekeyed.node_id, 0);
         let mut meter = WorkMeter::new(1_000);
         assert_eq!(
-            validate_application_keys(std::slice::from_ref(&rekeyed), &index, &mut meter, 1 << 20),
+            validate_application_keys(
+                std::slice::from_ref(&rekeyed),
+                &kinds,
+                &index,
+                &mut meter,
+                1 << 20,
+            ),
             Ok(())
         );
     }
@@ -7717,7 +7849,8 @@ mod tests {
         index.insert(&node.node_id, 0);
         let mut meter = WorkMeter::new(1_000);
 
-        let result = validate_application_keys(nodes, &index, &mut meter, 1 << 20);
+        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
+        let result = validate_application_keys(nodes, &kinds, &index, &mut meter, 1 << 20);
 
         assert_eq!(
             result,
@@ -7734,7 +7867,8 @@ mod tests {
         let node = application_node(CATALOGUED_IDENTITY, "binary");
         let nodes = std::slice::from_ref(&node);
         let index = BTreeMap::from([(&node.node_id, 0)]);
-        let result = validate_application_keys(nodes, &index, &mut WorkMeter::new(0), 0);
+        let kinds = [CheckedNodeKind::Expression(ExpressionForm::Call)];
+        let result = validate_application_keys(nodes, &kinds, &index, &mut WorkMeter::new(0), 0);
         let Err(ValidationFailure::Incomplete(incomplete)) = result else {
             panic!("the unpaid work charge must precede the zero-byte hash refusal: {result:?}");
         };
@@ -7748,7 +7882,7 @@ mod tests {
             incomplete.path,
             Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
-        let paid = validate_application_keys(nodes, &index, &mut WorkMeter::new(1), 0);
+        let paid = validate_application_keys(nodes, &kinds, &index, &mut WorkMeter::new(1), 0);
         let Err(ValidationFailure::Refused(refusal)) = paid else {
             panic!("the paid application reaches canonical encoding: {paid:?}");
         };
