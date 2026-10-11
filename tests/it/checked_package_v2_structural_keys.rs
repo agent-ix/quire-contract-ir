@@ -23,7 +23,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    derive_structural_candidates, read_checked_package, CheckedPackageDispatchResult,
+    derive_application_node_id, derive_structural_candidates, read_checked_package,
+    ApplicationIdentityContext, ApplicationNodeDraft, CheckedPackageDispatchResult,
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedSemanticNodeV2, StructuralCandidateError,
@@ -1680,6 +1681,122 @@ fn tc_048_mixed_group_candidate_includes_off_cycle_application() {
     mint_grouped_structural_keys(&mut permuted);
     settle(&mut permuted);
     admitted("permuted mixed group", &permuted);
+}
+
+/// A draft group uses selectors that are deliberately not digest-shaped.
+/// Its mixed local digests must map in-group references to ordinals before
+/// final IDs exist, and the assembled result must pass the actual reader.
+/// Trace: FR-048-AC-3
+#[trace("TC-048", "FR-048-AC-3")]
+#[test]
+fn tc_048_provisional_mixed_group_candidates_assemble_and_admit() {
+    let recursive = recursive();
+    let mut final_package = recursive.package;
+    let base = base();
+    let tree_position = at(&final_package, &recursive.tree);
+    let add_position = at(&final_package, &base.add);
+    let tree_label = final_package["semantic_graph"]["nodes"][tree_position]["recursion_group"]
+        .as_str()
+        .expect("Tree group")
+        .to_owned();
+    final_package["semantic_graph"]["nodes"][add_position]["recursion_group"] = json!(tree_label);
+    mint_grouped_structural_keys(&mut final_package);
+    settle(&mut final_package);
+    admitted("final mixed group", &final_package);
+
+    let final_label = final_package["semantic_graph"]["nodes"][tree_position]["recursion_group"]
+        .as_str()
+        .expect("final Tree label")
+        .to_owned();
+    let members = final_package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["recursion_group"] == final_label)
+        .map(|(position, node)| {
+            (
+                position,
+                node["node_id"]["digest"]
+                    .as_str()
+                    .expect("final key")
+                    .to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(members.len(), 4, "Tree plus the off-cycle application");
+    let mut provisional = final_package.clone();
+    for (ordinal, (_, final_key)) in members.iter().enumerate() {
+        rename_node(&mut provisional, final_key, &format!("draft-{ordinal}"));
+    }
+    for node in provisional["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["recursion_group"] == final_label {
+            node["recursion_group"] = json!("draft-group");
+        }
+    }
+    let drafts: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(provisional["semantic_graph"]["nodes"].clone())
+            .expect("typed provisional graph");
+    let candidates =
+        derive_structural_candidates(&drafts, 1 << 20, u64::MAX).expect("provisional candidates");
+    let group = candidates
+        .groups()
+        .iter()
+        .find(|group| group.retained_label() == "draft-group")
+        .expect("candidate Tree group");
+    assert_eq!(group.candidate_label(), final_label);
+    let context = ApplicationIdentityContext::try_new(
+        &drafts,
+        ApplicationNodeDraft::new(&drafts[add_position]),
+    )
+    .expect("application context");
+    let application = derive_application_node_id(
+        ApplicationNodeDraft::new(&drafts[add_position]),
+        Some(&context),
+        1 << 20,
+    )
+    .expect("application candidate");
+    for &(position, ref expected_key) in &members {
+        let key = if position == add_position {
+            application.candidate_node_id()
+        } else {
+            candidates
+                .nodes()
+                .iter()
+                .find(|candidate| candidate.position() as usize == position)
+                .expect("structural member candidate")
+                .candidate_node_id()
+        };
+        assert_eq!(key.digest.as_ref(), expected_key, "member at {position}");
+    }
+
+    let mut assembled = provisional;
+    for (ordinal, (position, _)) in members.iter().enumerate() {
+        let key = if *position == add_position {
+            application.candidate_node_id()
+        } else {
+            candidates
+                .nodes()
+                .iter()
+                .find(|candidate| candidate.position() as usize == *position)
+                .expect("member candidate")
+                .candidate_node_id()
+        };
+        rename_node(&mut assembled, &format!("draft-{ordinal}"), &key.digest);
+    }
+    for node in assembled["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+    {
+        if node["recursion_group"] == "draft-group" {
+            node["recursion_group"] = json!(group.candidate_label());
+        }
+    }
+    settle(&mut assembled);
+    admitted("assembled provisional mixed group", &assembled);
 }
 
 /// Malformed drafts fail before a candidate is returned. Each assertion uses

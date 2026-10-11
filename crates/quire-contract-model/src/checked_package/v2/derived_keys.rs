@@ -106,7 +106,12 @@ impl Shape {
 }
 
 /// Validates the closed body without trusting a supplied node key.
-pub(super) fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: &str) -> bool {
+pub(super) fn closed_shape(
+    node: &CheckedSemanticNodeV2,
+    shape: Shape,
+    integer: &str,
+    reference: fn(&Value) -> Option<CheckedNodeId>,
+) -> bool {
     if shape.is_self_typed() && node.semantic_type != node.node_id {
         return false;
     }
@@ -116,7 +121,7 @@ pub(super) fn closed_shape(node: &CheckedSemanticNodeV2, shape: Shape, integer: 
     match (shape, members) {
         (Shape::Boolean | Shape::Integer, []) => true,
         (Shape::Reference | Shape::Option | Shape::Collection(_), [member]) => {
-            reference_target(member).is_some()
+            reference(member).is_some()
         }
         (Shape::IntegerRange | Shape::CollectionBounds, [lower, upper]) => {
             let over = if shape == Shape::IntegerRange {
@@ -157,6 +162,7 @@ pub(super) fn valid_derived_shape(
     kind: CheckedNodeKind,
     integer: &str,
     semantic_type_kind: Option<CheckedNodeKind>,
+    reference: fn(&Value) -> Option<CheckedNodeId>,
 ) -> bool {
     if let Some(shape) = Shape::of(kind) {
         let bounded_type_matches = shape != Shape::CollectionBounds
@@ -171,7 +177,7 @@ pub(super) fn valid_derived_shape(
                     )
                 )
             });
-        if !bounded_type_matches || !closed_shape(node, shape, integer) {
+        if !bounded_type_matches || !closed_shape(node, shape, integer, reference) {
             return false;
         }
     }
@@ -394,7 +400,7 @@ pub(super) fn validate_derived_keys(
             .get(&node.semantic_type)
             .and_then(|&target| kinds.get(target))
             .copied();
-        if !valid_derived_shape(node, kind, &integer, semantic_type_kind) {
+        if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_target) {
             return Err(stale(at(), node_id, None));
         }
         let group = node
@@ -622,7 +628,8 @@ mod tests {
             assert!(closed_shape(
                 &node,
                 shape,
-                &MemberType::Integer.node_key(BYTES).expect("integer")
+                &MemberType::Integer.node_key(BYTES).expect("integer"),
+                reference_target,
             ));
             shapes.insert(format!("{}/{}", node.node_tag, node.semantic_form));
             assert_eq!(

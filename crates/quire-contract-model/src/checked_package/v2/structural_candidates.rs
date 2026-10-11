@@ -8,6 +8,7 @@ use super::application_identity::{application_digest, ApplicationGroup, Applicat
 use super::derived_keys::{node_preimage, valid_derived_shape, Group, LocalDigests, Shape};
 use super::model_members::{structural_key, MemberType};
 use super::operations::has_application_key;
+use super::structural::reference_selector;
 use super::{BodyTerm, CheckedNodeKind, CheckedNodeTag, CheckedSemanticNodeV2, CorrespondenceForm};
 use crate::checked_package::common::{body_term, NODE_DOMAIN};
 use crate::checked_package::shared::CheckedNodeId;
@@ -314,7 +315,7 @@ pub fn derive_structural_candidates(
                 }
             }
         }
-        if !valid_derived_shape(node, kind, &integer, semantic_type_kind) {
+        if !valid_derived_shape(node, kind, &integer, semantic_type_kind, reference_selector) {
             return Err(malformed(position, node));
         }
         charge_terms(&node.body, position, &mut work)?;

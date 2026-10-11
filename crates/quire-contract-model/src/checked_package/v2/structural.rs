@@ -647,11 +647,18 @@ pub(super) fn binding<'a>(term: &'a Value, name: &str) -> Option<&'a Value> {
 
 /// A `reference` term's target.
 pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
+    let target = reference_selector(term)?;
+    (target.domain.as_ref() == NODE_DOMAIN && is_digest(&target.digest)).then_some(target)
+}
+
+/// A typed draft `reference` target before its provisional selector is replaced.
+/// The reader still requires the final digest through [`reference_target`].
+pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
     let object = term.as_object()?;
     if body_term(term) != Some(BodyTerm::Reference) {
         return None;
     }
-    checked_node_identity(object.get("target")?)
+    CheckedNodeId::deserialize(object.get("target")?).ok()
 }
 
 /// The original checked identity available in a body member, without repairing

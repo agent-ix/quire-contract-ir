@@ -118,7 +118,7 @@ impl Encode for GroupBody<'_> {
                 Event::EndObject => writer.end_object()?,
                 Event::EndArray => writer.end_array()?,
                 Event::Value(value) => {
-                    let ordinal = super::structural::reference_target(value)
+                    let ordinal = super::structural::reference_selector(value)
                         .and_then(|target| self.ordinals.get(&target).copied());
                     if let Some(ordinal) = ordinal {
                         writer.begin_object()?;
