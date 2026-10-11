@@ -50,7 +50,13 @@ pub fn family_model_document() -> Value {
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [],
-            "fields": [], "operations": [],
+            "fields": [{
+                "identity": format!("{FAMILY_OBJECT}/balance"),
+                "name": "balance", "typeRef": "ix://quire/native/Integer",
+                "presence": "required", "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+            }],
+            "operations": [],
             "relationships": [{
                 "identity": FAMILY_RELATIONSHIP,
                 "category": "structural", "composite": false, "direction": "bidirectional",
