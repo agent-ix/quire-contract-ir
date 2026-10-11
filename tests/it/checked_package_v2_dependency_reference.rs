@@ -12,10 +12,10 @@
 //! fixture.
 
 use crate::support::checked_package::{
-    admitted_dependency, domain_package_digest, domain_package_document, family_key, node_id,
-    nominal_package, over_body, pointer, read_with_dependencies, rebuild_source_map,
-    refresh_identity, rekey, rekey_application_node, rename_node, structural_key, v2_all_families,
-    v2_nominal,
+    admitted_dependency, canonical, domain_package_digest, domain_package_document, family_key,
+    mint_ungrouped_structural_keys, node_id, nominal_package, over_body, pointer,
+    read_with_dependencies, rebuild_source_map, refresh_identity, rekey, rekey_application_node,
+    rename_node, sha256_hex, source_owner, structural_key, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -33,6 +33,7 @@ const OTHER_NODE: &str = "535353535353535353535353535353535353535353535353535353
 struct Dependency {
     package: CheckedPackageV2,
     digest: String,
+    function_key: String,
 }
 
 /// A graph node with an empty aggregate body; `declared` is its qualified
@@ -70,7 +71,7 @@ fn node(
 /// The dependency function's node: the fixture's `function` node, declared
 /// as `twice`, over `Int[..]` (`bounded_domain`) and returning Boolean.
 fn function_key() -> String {
-    family_key("8080")
+    declared_key("function", "pure_function", &boolean_key(), "twice")
 }
 
 fn boolean_key() -> String {
@@ -82,7 +83,16 @@ fn integer_range_key() -> String {
 }
 
 fn record_key() -> String {
-    "7a".repeat(32)
+    declared_key("composite_type", "record", &boolean_key(), "R")
+}
+
+fn declared_key(tag: &str, form: &str, semantic_type: &str, name: &str) -> String {
+    sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1", "node_tag": tag,
+        "semantic_form": form, "semantic_type": node_id(semantic_type),
+        "declaration": {"qualified_name": [name]}, "owner": source_owner(&crate::support::checked_package::fixture_source()),
+        "recursion": null, "body": {"term": "aggregate", "members": []},
+    })))
 }
 
 /// The anonymous `composite_type` node of `form` over `element`, self-typed,
@@ -108,7 +118,7 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
         .clone();
     let function = nodes
         .iter_mut()
-        .find(|node| node["node_id"]["digest"] == function_key())
+        .find(|node| node["node_id"]["digest"] == family_key("8080"))
         .expect("the fixture's function node");
     *function = node(
         &function_key(),
@@ -120,14 +130,44 @@ fn dependency_document(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
     );
     edit(&mut nodes);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    rename_node(&mut package, &family_key("8080"), &function_key());
+    mint_ungrouped_structural_keys(&mut package);
+    for position in 0..package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len()
+    {
+        if package["semantic_graph"]["nodes"][position]["body"]["term"] == "application" {
+            rekey_application_node(&mut package, position);
+        }
+    }
+    mint_ungrouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     package
 }
 
 fn build_dependency(edit: impl FnOnce(&mut Vec<Value>)) -> Dependency {
-    let (digest, package) = admitted_dependency(&dependency_document(edit));
-    Dependency { package, digest }
+    let document = dependency_document(edit);
+    let function_key = declared_function_key(&document);
+    let (digest, package) = admitted_dependency(&document);
+    Dependency {
+        package,
+        digest,
+        function_key,
+    }
+}
+
+fn declared_function_key(package: &Value) -> String {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["declaration"]["qualified_name"] == json!(["twice"]))
+        .expect("twice declaration")["node_id"]["digest"]
+        .as_str()
+        .expect("function digest")
+        .to_owned()
 }
 
 fn dependency_term(package_digest: &str, node_digest: &str) -> Value {
@@ -227,7 +267,7 @@ fn calling(dependency: &Dependency, callee_node: &str) -> Value {
 #[test]
 fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
     let dependency = build_dependency(|_| {});
-    let package = calling(&dependency, &function_key());
+    let package = calling(&dependency, &dependency.function_key);
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &dependency) else {
         panic!("a call through a dependency_reference callee admits");
     };
@@ -264,7 +304,7 @@ fn tc_048_a_dependency_callee_is_admitted_and_never_a_dependency() {
 #[test]
 fn tc_048_the_term_enters_the_application_node_identity() {
     let dependency = build_dependency(|_| {});
-    let package = calling(&dependency, &function_key());
+    let package = calling(&dependency, &dependency.function_key);
     let position = call_position(&package);
     // Changing only the term's `node` or only its `package`, with the key
     // left as it was, is a stale key: both enter the preimage.
@@ -435,7 +475,7 @@ fn tc_048_a_malformed_term_refuses_at_the_member_at_fault() {
 #[test]
 fn tc_048_the_selected_dependency_is_supplied_and_binds_to_its_entry() {
     let dependency = build_dependency(|_| {});
-    let package = calling(&dependency, &function_key());
+    let package = calling(&dependency, &dependency.function_key);
     // No package supplied: refused at the entry, before any term is read.
     let refusal = refused(read_with_dependencies(&package, &[]));
     expect_refusal(
@@ -593,7 +633,7 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
         ),
     ];
     for (name, dependency) in cases {
-        let package = calling(&dependency, &function_key());
+        let package = calling(&dependency, &dependency.function_key);
         let refusal = refused(read(&package, &dependency));
         assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{name}");
         assert_eq!(
@@ -613,7 +653,7 @@ fn tc_048_a_signature_type_that_is_declared_or_model_owned_refuses() {
     let ok = signature(&[&ok_key], &boolean_key(), |nodes| {
         nodes.push(ok_node);
     });
-    let package = calling(&ok, &function_key());
+    let package = calling(&ok, &ok.function_key);
     assert!(
         matches!(read(&package, &ok), CheckedPackageV2ReadResult::Admitted(_)),
         "a set of a package-independent type admits"
@@ -684,7 +724,7 @@ fn tc_048_a_parameter_of_a_declared_type_refuses_however_the_function_reaches_it
         ("both", true, true),
     ] {
         let dependency = parameter_dependency(listed, referenced);
-        let package = calling(&dependency, &function_key());
+        let package = calling(&dependency, &dependency.function_key);
         expect_refusal(
             &refused(read(&package, &dependency)),
             CheckedPackageRefusalCode::IllTyped,
@@ -726,7 +766,7 @@ fn tc_048_the_signature_closure_follows_body_references_and_semantic_types() {
         ));
     });
     for (name, dependency) in [("body reference", body), ("semantic type", typed)] {
-        let package = calling(&dependency, &function_key());
+        let package = calling(&dependency, &dependency.function_key);
         let refusal = refused(read(&package, &dependency));
         assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped, "{name}");
         assert_eq!(
@@ -759,12 +799,15 @@ fn nominal_dependency(
     ));
     edit(&mut nodes);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
+    mint_ungrouped_structural_keys(&mut package);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
+    let function_key = declared_function_key(&package);
     let (digest, admitted) = admitted_dependency(&package);
     Dependency {
         package: admitted,
         digest,
+        function_key,
     }
 }
 
@@ -785,7 +828,7 @@ fn tc_048_a_quantity_over_a_declared_unit_refuses() {
     // it.
     let unit = node_key(&recorded, 2);
     let dependency = nominal_dependency(recorded, &unit, |_| {});
-    let package = calling(&dependency, &function_key());
+    let package = calling(&dependency, &dependency.function_key);
     expect_refusal(
         &refused(read(&package, &dependency)),
         CheckedPackageRefusalCode::IllTyped,
@@ -836,7 +879,7 @@ fn tc_048_a_type_owned_by_a_domain_package_refuses_without_a_declaration() {
             .expect("node")
             .remove("declaration");
     });
-    let package = calling(&dependency, &function_key());
+    let package = calling(&dependency, &dependency.function_key);
     expect_refusal(
         &refused(read(&package, &dependency)),
         CheckedPackageRefusalCode::IllTyped,
