@@ -2611,8 +2611,8 @@ fn declare(package: &mut Value, position: usize, name: &[&str]) {
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
-    // Nodes: 0 root, 1 declaring model ("Example::Widget"), 2 literal,
-    // 3 plain function, 4 application call.
+    // Nodes: 0 root, 1 declaring namespace ("Example::Widget"), 2 literal,
+    // 3 declaring function, 4 application call.
     let with_operation_defect = || {
         let mut value = positive_operation_identities();
         value["semantic_graph"]["nodes"][4]["body"]["operation"]["identity"] =
@@ -2630,9 +2630,21 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     );
     // With a second node declaring the same name, the declaration refusal wins.
     let mut both = with_operation_defect();
+    let stale = digest_of(&both["semantic_graph"]["nodes"][3]);
     declare(&mut both, 3, &["Example", "Widget"]);
-    checked_package::rebuild_source_map(&mut both);
-    refresh_identity(&mut both);
+    let function = &both["semantic_graph"]["nodes"][3];
+    let fresh = sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": function["node_tag"],
+        "semantic_form": function["semantic_form"],
+        "semantic_type": function["semantic_type"],
+        "owner": function["owner"],
+        "declaration": function["declaration"],
+        "recursion": null,
+        "body": function["body"],
+    })));
+    checked_package::rename_node(&mut both, &stale, &fresh);
+    checked_package::settle(&mut both);
     let declaring = digest_of(&both["semantic_graph"]["nodes"][1]);
     let function = digest_of(&both["semantic_graph"]["nodes"][3]);
     assert_eq!(

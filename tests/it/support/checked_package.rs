@@ -1966,11 +1966,24 @@ fn build_v2_all_families() -> Value {
 /// assert the closed-schema refusal each deletion produces.
 fn build_operation_identities() -> Value {
     let root = boolean_key();
-    let declaring = "cafe".repeat(16);
+    let source = fixture_source();
+    let declaring = owned_structural_key(
+        "model",
+        "namespace",
+        Some(&root),
+        source_owner(&source),
+        json!({"qualified_name": ["Example", "Widget"]}),
+    );
     let literal_body =
         json!({"term": "literal", "type": node_id(&root), "value_kind": "boolean", "value": true});
     let literal_key = structural_key("value", "literal", Some(&root), &literal_body);
-    let func = structural_key("function", "pure_function", Some(&root), &empty_aggregate());
+    let func = owned_structural_key(
+        "function",
+        "pure_function",
+        Some(&root),
+        source_owner(&source),
+        json!({"qualified_name": ["Example", "Function"]}),
+    );
 
     let root_node = plain_node(
         &root,
@@ -1981,20 +1994,17 @@ fn build_operation_identities() -> Value {
         empty_aggregate(),
     );
 
-    let mut declaring_node = plain_node(
-        &declaring,
-        "model",
-        "object_type",
-        &root,
-        &[root.as_str()],
-        empty_aggregate(),
+    let declaring_node = declared(
+        plain_node(
+            &declaring,
+            "model",
+            "namespace",
+            &root,
+            &[root.as_str()],
+            empty_aggregate(),
+        ),
+        &["Example", "Widget"],
     );
-    declaring_node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
-    declaring_node["declaration"] = json!({"qualified_name": ["Example", "Widget"]});
-    let source = fixture_source();
-    declaring_node["owner"] = json!({
-        "kind": "source", "authority": source["authority"], "identity": source["identity"],
-    });
 
     let literal_node = plain_node(
         &literal_key,

@@ -34,18 +34,6 @@ const NOMINAL_PACKAGE: (&str, usize) = (
     7113,
 );
 
-const RECORDED_OPERATIONS: &str = "\
-9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa 742a476c3eb3106e7a35ca7a056d806245cbaf50526cdd6749d61330ad7bf187
-cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe 88614f70de145e5eee7e55f61f4247d959ade92f6ee1a735d1beeab4506ab044
-d00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00d 3691777c4507fcbc1c730c20af9ccc916c5e223086b5dabe4e75d25eca39da29
-f00df00df00df00df00df00df00df00df00df00df00df00df00df00df00df00d 9b8fad0018827aaa5c6be8b7dd71d66f0c1303569ba1defeecd188d88f007847
-37b50f2dd7623c54a5ca2b73b2fc6a965b2eeeccb6a8ccd47b8f137b32ff4f3f d84e850e60b9b483e01f64de7a8408f58ac57bfda342992d763e41a6dfc5465e
-";
-const OPERATIONS_PACKAGE: (&str, usize) = (
-    "c10dac8e60c89fd64a3838f21bc482e560a84baef299808a307cb09604ddeaa4",
-    7949,
-);
-
 fn admit(value: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
         &canonical(value),
@@ -205,7 +193,7 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
         (
             "positive_operation_identities",
             positive_operation_identities(),
-            Some((RECORDED_OPERATIONS, OPERATIONS_PACKAGE)),
+            None,
         ),
     ];
     for (name, value, recorded) in fixtures {
@@ -240,53 +228,7 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
                     (key.to_owned(), ir_id.to_owned())
                 })
                 .collect();
-            if name == "v2_nominal" {
-                assert_eq!(lowered, expected, "{name}: recorded identities");
-            } else {
-                assert_eq!(lowered.len(), expected.len(), "{name}: node count");
-                let wires = value["semantic_graph"]["nodes"].as_array().expect("nodes");
-                let by_key: BTreeMap<String, &Value> = wires
-                    .iter()
-                    .map(|wire| {
-                        (
-                            wire["node_id"]["digest"]
-                                .as_str()
-                                .expect("node digest")
-                                .to_owned(),
-                            wire,
-                        )
-                    })
-                    .collect();
-                for ((actual, previous), wire) in lowered.iter().zip(&expected).zip(wires) {
-                    if wire.get("owner").is_some() {
-                        continue;
-                    }
-                    if wire.get("nominal_identity_preimage").is_some()
-                        || matches!(wire["node_tag"].as_str(), Some("model" | "relation"))
-                        || (wire["node_tag"] == "correspondence"
-                            && wire["semantic_form"] == "abstraction_relation")
-                    {
-                        assert_eq!(actual, previous, "{name}: owner-free node");
-                        continue;
-                    }
-                    let derived = if wire["body"]["term"] == "application" {
-                        application_oracle_key(wire)
-                    } else {
-                        structural_oracle_key(wire)
-                    };
-                    if derived == previous.0 {
-                        assert_eq!(actual, previous, "{name}: unchanged structural node");
-                    } else {
-                        assert_eq!(actual.0, derived, "{name}: changed node key");
-                        let (dependencies, bounds, claims) = closure_oracle(wire, &by_key);
-                        assert_eq!(
-                            actual.1,
-                            lowered_oracle_id(wire, &dependencies, &bounds, &claims),
-                            "{name}: changed node ir_id"
-                        );
-                    }
-                }
-            }
+            assert_eq!(lowered, expected, "{name}: recorded identities");
         } else {
             let wires = value["semantic_graph"]["nodes"].as_array().expect("nodes");
             assert_eq!(lowered.len(), wires.len(), "{name}: node count");
@@ -339,10 +281,8 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
             .expect("the package is identified");
         let bytes = result.package.canonical_bytes().expect("package bytes");
         if let Some((_, (package_id, length))) = recorded {
-            if name == "v2_nominal" {
-                assert_eq!(id.digest.as_ref(), package_id, "{name}: package_id");
-                assert_eq!(bytes.len(), length, "{name}: canonical byte length");
-            }
+            assert_eq!(id.digest.as_ref(), package_id, "{name}: package_id");
+            assert_eq!(bytes.len(), length, "{name}: canonical byte length");
         } else {
             let encoded: Value = serde_json::from_slice(bytes).expect("package JSON");
             assert_eq!(
