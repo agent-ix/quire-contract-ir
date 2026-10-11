@@ -117,6 +117,7 @@ pub use checked_package::{
     CheckedMemberType, CheckedModelField, CheckedModelFieldsError, CheckedModelObjectFields,
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodeProjectionV2, CheckedNodeTag,
     CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageEvidenceInsertionError,
     CheckedPackageIdentityPreimageV2, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,

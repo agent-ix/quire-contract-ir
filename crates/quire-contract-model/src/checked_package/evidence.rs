@@ -1,8 +1,26 @@
 //! Authoritative evidence consulted by the version dispatcher and V2 reader.
 
 use super::v2::CheckedPackageV2;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 use std::sync::Arc;
+use thiserror::Error;
+
+/// A repeated evidence declaration conflicts with the retained first value.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum CheckedPackageEvidenceInsertionError {
+    /// Different document bytes were supplied under an occupied exact key.
+    #[error("conflicting domain document under {digest}")]
+    DomainDocumentConflict {
+        /// The exact supplied domain document key.
+        digest: Box<str>,
+    },
+    /// Different admitted content was supplied under an occupied exact identity.
+    #[error("conflicting dependency package under {identity}")]
+    DependencyPackageConflict {
+        /// The exact supplied library identity.
+        identity: Box<str>,
+    },
+}
 
 /// Domain package documents, dependency packages and reader-supported
 /// features for one read.
@@ -34,18 +52,42 @@ impl CheckedPackageEvidence {
     /// `sha256-jcs` digest a `model_selections` row names. The reader
     /// recomputes the digest from the bytes, so a document supplied under
     /// another document's digest is refused, not trusted.
+    ///
+    /// An occupied exact key retains its first bytes: an equal raw-byte repeat
+    /// succeeds, and different bytes return a keyed conflict without changing
+    /// any evidence. Insertion performs no document admission or normalization.
     pub fn insert_domain_package_document(
         &mut self,
         digest: impl Into<Box<str>>,
         document: impl Into<Box<[u8]>>,
-    ) {
-        self.domain_packages.insert(digest.into(), document.into());
+    ) -> Result<(), CheckedPackageEvidenceInsertionError> {
+        let document = document.into();
+        match self.domain_packages.entry(digest.into()) {
+            Entry::Vacant(entry) => {
+                entry.insert(document);
+                Ok(())
+            }
+            Entry::Occupied(entry) => {
+                if entry.get() == &document {
+                    Ok(())
+                } else {
+                    Err(
+                        CheckedPackageEvidenceInsertionError::DomainDocumentConflict {
+                            digest: entry.key().clone(),
+                        },
+                    )
+                }
+            }
+        }
     }
 
     /// Supplies one selected dependency's admitted package under the library
     /// `identity` its import names. One package is held per identity, as
-    /// `dependency_selections` holds one entry per identity; a second call
-    /// for an identity replaces the first.
+    /// `dependency_selections` holds one entry per identity. An equal
+    /// admitted-content repeat succeeds and retains the first package object;
+    /// different content returns a keyed conflict without changing any evidence.
+    /// Equality uses [`CheckedPackageV2::eq`], including retained wire metadata,
+    /// rather than package identity or `Arc` address alone.
     ///
     /// `identity` is only the caller's claim. The reader finds the package by
     /// `identity` (an identity no entry names is never looked up, and an
@@ -58,9 +100,25 @@ impl CheckedPackageEvidence {
         &mut self,
         identity: impl Into<Box<str>>,
         package: impl Into<Arc<CheckedPackageV2>>,
-    ) {
-        self.dependency_packages
-            .insert(identity.into(), package.into());
+    ) -> Result<(), CheckedPackageEvidenceInsertionError> {
+        let package = package.into();
+        match self.dependency_packages.entry(identity.into()) {
+            Entry::Vacant(entry) => {
+                entry.insert(package);
+                Ok(())
+            }
+            Entry::Occupied(entry) => {
+                if entry.get().as_ref() == package.as_ref() {
+                    Ok(())
+                } else {
+                    Err(
+                        CheckedPackageEvidenceInsertionError::DependencyPackageConflict {
+                            identity: entry.key().clone(),
+                        },
+                    )
+                }
+            }
+        }
     }
 
     /// The admitted package supplied for a library identity.
@@ -72,7 +130,8 @@ impl CheckedPackageEvidence {
         self.domain_packages.get(digest).map(AsRef::as_ref)
     }
 
-    /// Declares one required feature this reader implements.
+    /// Declares one exact required feature this reader implements.
+    /// Repeating the same string is idempotent; distinct strings remain distinct.
     pub fn support_feature(&mut self, feature: impl Into<Box<str>>) {
         self.supported_features.insert(feature.into());
     }

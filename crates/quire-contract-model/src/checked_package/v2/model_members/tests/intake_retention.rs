@@ -29,7 +29,9 @@ fn selected(document: Value, work: u64) -> (Result<DomainModel, SelectionFailure
         digest: digest.clone().into(),
     };
     let mut evidence = CheckedPackageEvidence::new();
-    evidence.insert_domain_package_document(digest, bytes);
+    evidence
+        .insert_domain_package_document(digest, bytes)
+        .expect("first domain evidence insertion succeeds");
     let mut meter = WorkMeter::new(work);
     let result = admit_selection(
         &selection,
@@ -613,7 +615,9 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
         };
         let mut evidence = CheckedPackageEvidence::new();
         if let Some(bytes) = supplied {
-            evidence.insert_domain_package_document(digest.clone(), bytes.to_vec());
+            evidence
+                .insert_domain_package_document(digest.clone(), bytes.to_vec())
+                .expect("first domain evidence insertion succeeds");
         }
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(retained)) = admit_selection(
@@ -645,7 +649,9 @@ fn tc_048_intake_predeclaration_failures_have_no_invented_metadata() {
             digest: selected_digest.clone().into(),
         };
         let mut evidence = CheckedPackageEvidence::new();
-        evidence.insert_domain_package_document(selected_digest, bytes.clone());
+        evidence
+            .insert_domain_package_document(selected_digest, bytes.clone())
+            .expect("first domain evidence insertion succeeds");
         let mut meter = WorkMeter::new(u64::MAX);
         match admit_selection(&selection, &evidence, &mut Budget::new(&mut meter, 0, BYTES)) {
             Err(SelectionFailure::InexactNumber { document_pointer, cause }) => {

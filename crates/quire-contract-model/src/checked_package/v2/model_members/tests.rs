@@ -771,7 +771,9 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         digest: digest.into(),
     };
     let mut evidence = CheckedPackageEvidence::new();
-    evidence.insert_domain_package_document(digest.clone(), bytes.clone());
+    evidence
+        .insert_domain_package_document(digest.clone(), bytes.clone())
+        .expect("first domain evidence insertion succeeds");
     let admit = |selection: &CheckedDomainPackageRef, evidence: &CheckedPackageEvidence| {
         let mut meter = WorkMeter::new(u64::MAX);
         admit_selection(selection, evidence, &mut Budget::new(&mut meter, 0, BYTES))
@@ -798,7 +800,9 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
         SelectionRefusal::at(Code::MissingImport, Cause::MissingSelection, Some("digest"))
     );
     let mut forged = CheckedPackageEvidence::new();
-    forged.insert_domain_package_document(digest.clone(), b"{}".to_vec());
+    forged
+        .insert_domain_package_document(digest.clone(), b"{}".to_vec())
+        .expect("first domain evidence insertion succeeds");
     assert_eq!(
         refusal(&selection("acme/orders", &digest), &forged),
         SelectionRefusal::at(

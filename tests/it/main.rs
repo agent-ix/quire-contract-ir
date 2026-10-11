@@ -16,6 +16,7 @@ mod application_node_identity;
 mod admitted_result_context;
 mod canonical_v1_quire_canonical;
 mod canonicalization;
+mod checked_package_evidence_insertion;
 mod checked_package_v2_abstraction_relation;
 mod checked_package_v2_adr002_members;
 mod checked_package_v2_artifact_refs;
