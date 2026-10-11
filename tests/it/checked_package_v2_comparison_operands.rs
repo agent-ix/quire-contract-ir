@@ -284,7 +284,7 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
     assert_eq!(result.operator, CheckedComparisonOperator::Eq);
     assert_eq!(result.operands[0].ordinal, 0);
     assert_eq!(result.operands[1].ordinal, 1);
-    let read = |index| match &result.operands[index].kind {
+    let read = |index: usize| match &result.operands[index].kind {
         CheckedComparisonOperandKind::Read {
             provenance:
                 CheckedComparisonRead::StateField {
