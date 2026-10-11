@@ -19,8 +19,11 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    ContractDependencyInput, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
+    LoweringProfileRef,
 };
 use serde_json::{json, Value};
 
@@ -259,6 +262,134 @@ fn calling(dependency: &Dependency, callee_node: &str) -> Value {
         vec![selection(&dependency.digest)],
         dependency_term(&dependency.digest, callee_node),
     )
+}
+
+/// Trace: FR-035-AC-7
+#[trace("TC-047", "FR-035-AC-7")]
+#[test]
+fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
+    let dependency = build_dependency(|_| {});
+    let mut package = calling(&dependency, &dependency.function_key);
+    let local_position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|entry| entry["node_id"]["digest"] == family_key("8080"))
+        .expect("local function");
+    package["semantic_graph"]["nodes"][local_position] = node(
+        &dependency.function_key,
+        "function",
+        "pure_function",
+        &boolean_key(),
+        &[],
+        Some(&["twice"]),
+    );
+    rename_node(&mut package, &family_key("8080"), &dependency.function_key);
+    let call = call_position(&package);
+    rekey_application_node(&mut package, call);
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
+    let admitted = match read(&package, &dependency) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("selected source package must admit: {other:?}"),
+    };
+    let root: CheckedNodeId = serde_json::from_value(
+        package["semantic_graph"]["nodes"][call_position(&package)]["node_id"].clone(),
+    )
+    .expect("call key");
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = admitted.lower(std::slice::from_ref(&root), &profile);
+    let emitted = result.package.wire().expect("lowered package");
+    let ContractRootViewV1::Lowered(view) = emitted.reached_closure(&root).expect("view") else {
+        panic!("lowered call must have a view");
+    };
+    assert_eq!(view.selected_references.len(), 1);
+    assert_eq!(
+        view.selected_references[0].package,
+        *dependency.package.package_id()
+    );
+    assert_eq!(
+        view.selected_references[0].node,
+        serde_json::from_value(node_id(&dependency.function_key)).expect("target key")
+    );
+    assert!(admitted
+        .graph()
+        .nodes
+        .iter()
+        .any(|entry| entry.node_id == view.selected_references[0].node));
+    assert!(!view
+        .nodes
+        .iter()
+        .any(|entry| entry.node.node_id == view.selected_references[0].node));
+    let mut selected = ContractDependencies::new();
+    selected.insert(
+        LIBRARY,
+        ContractDependencyInput {
+            identity: LIBRARY,
+            package: &dependency.package,
+        },
+    );
+    let ContractPackageReadResult::Admitted(read_back) = ContractPackageWireV1::read(
+        result.package.canonical_bytes().expect("bytes"),
+        CheckedPackageReadLimits::bounded(),
+        &selected,
+    ) else {
+        panic!("emitted package must read with selected dependency");
+    };
+    assert_eq!(
+        read_back.reached_closure(&root).expect("view"),
+        ContractRootViewV1::Lowered(view)
+    );
+    assert!(matches!(
+        ContractPackageWireV1::read(
+            result.package.canonical_bytes().expect("bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::new(),
+        ),
+        ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::MissingImport
+    ));
+    let mut wrong_identity = ContractDependencies::new();
+    wrong_identity.insert(
+        LIBRARY,
+        ContractDependencyInput {
+            identity: "test/other",
+            package: &dependency.package,
+        },
+    );
+    assert!(matches!(
+        ContractPackageWireV1::read(
+            result.package.canonical_bytes().expect("bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &wrong_identity,
+        ),
+        ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::MissingImport
+    ));
+    let (_, other) =
+        admitted_dependency(&crate::support::checked_package::positive_operation_identities());
+    let mut stale = ContractDependencies::new();
+    stale.insert(
+        LIBRARY,
+        ContractDependencyInput {
+            identity: LIBRARY,
+            package: &other,
+        },
+    );
+    assert!(matches!(
+        ContractPackageWireV1::read(
+            result.package.canonical_bytes().expect("bytes"),
+            CheckedPackageReadLimits::bounded(),
+            &stale,
+        ),
+        ContractPackageReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::StaleDependency
+    ));
 }
 
 /// Tracing: TC-048

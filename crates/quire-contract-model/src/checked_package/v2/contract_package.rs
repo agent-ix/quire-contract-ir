@@ -334,6 +334,70 @@ pub struct ContractPackageV1 {
     wire: ContractPackageWireV1,
 }
 
+/// One reached local node and its exact admitted source correspondence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractReachedNodeV1<'a> {
+    /// The admitted semantic node, addressed by its existing typed key.
+    pub node: &'a CheckedSemanticNodeV2,
+    /// Every admitted source-map occurrence for that node.
+    pub sources: &'a [CheckedSourceMapEntry],
+}
+
+/// A selected external reference at its admitted package boundary.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ContractSelectedReferenceV1 {
+    /// Identity of the selected dependency package.
+    pub package: CheckedSemanticId,
+    /// Typed target key in that selected package.
+    pub node: CheckedNodeId,
+}
+
+/// The exact local closure of one lowered request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractReachedClosureV1<'a> {
+    /// Requested root, also present in `nodes`.
+    pub root: &'a CheckedSemanticNodeV2,
+    /// Reached local nodes once each, in ascending typed-key order.
+    pub nodes: Vec<ContractReachedNodeV1<'a>>,
+    /// Selected external package/key pairs, never flattened into `nodes`.
+    pub selected_references: Vec<ContractSelectedReferenceV1>,
+    /// Reached bounded-domain keys excluding the root, in typed-key order.
+    pub bounds: Vec<CheckedNodeId>,
+    /// Reached claim keys excluding the root, in typed-key order.
+    pub claims: Vec<CheckedNodeId>,
+}
+
+/// Exact result of querying a requested key on an admitted package.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContractRootViewV1<'a> {
+    /// The key has a lowered request record and its reached closure.
+    Lowered(ContractReachedClosureV1<'a>),
+    /// The exact non-lowered request record, with its typed disposition.
+    NonLowered(&'a ContractFeatureRecordV1),
+    /// No request record exists for this exact key.
+    Absent,
+}
+
+/// A defensive failure if the admitted body walk can no longer be reproduced.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContractRootViewError {
+    /// The shared body validator refused a reached node.
+    Refused(CheckedPackageRefusal),
+    /// The shared body validator reached its declared limit.
+    Incomplete(CheckedPackageIncomplete),
+    /// An admitted graph or source-map edge no longer has correspondence.
+    Inconsistent,
+}
+
+impl From<ValidationFailure> for ContractRootViewError {
+    fn from(failure: ValidationFailure) -> Self {
+        match failure {
+            ValidationFailure::Refused(refusal) => Self::Refused(refusal),
+            ValidationFailure::Incomplete(incomplete) => Self::Incomplete(incomplete),
+        }
+    }
+}
+
 impl ContractPackageV1 {
     /// The exact six-field wire, available for read-only inspection.
     pub fn wire(&self) -> &ContractPackageWireV1 {
@@ -343,6 +407,116 @@ impl ContractPackageV1 {
     /// The canonical semantic identity retained in the admitted value.
     pub fn identity(&self) -> &CheckedSemanticId {
         &self.wire.identity
+    }
+
+    /// Reads one exact requested key and, when lowered, its local reached
+    /// closure. The six-field wire and identity are never changed.
+    pub fn reached_closure(
+        &self,
+        requested: &CheckedNodeId,
+    ) -> Result<ContractRootViewV1<'_>, ContractRootViewError> {
+        let matching = self
+            .wire
+            .feature_accounting
+            .iter()
+            .filter(|record| record.node_id() == requested);
+        let Some(record) = matching
+            .clone()
+            .find(|record| record.disposition() == ContractDispositionV1::Lowered)
+            .or_else(|| matching.into_iter().next())
+        else {
+            return Ok(ContractRootViewV1::Absent);
+        };
+        if record.disposition() != ContractDispositionV1::Lowered {
+            return Ok(ContractRootViewV1::NonLowered(record));
+        }
+
+        let nodes = &self.wire.semantic_graph.nodes;
+        let positions = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        let Some(&root_position) = positions.get(requested) else {
+            return Err(ContractRootViewError::Inconsistent);
+        };
+        let root = &nodes[root_position];
+        let mut visited = BTreeSet::new();
+        let mut pending = VecDeque::from([requested.clone()]);
+        let mut selected_references = BTreeSet::new();
+        while let Some(key) = pending.pop_front() {
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+            let Some(&position) = positions.get(&key) else {
+                return Err(ContractRootViewError::Inconsistent);
+            };
+            let node = &nodes[position];
+            pending.push_back(node.semantic_type.clone());
+            pending.extend(node.dependencies.iter().cloned());
+            let at = JsonPointer::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position);
+            let kind = super::decode_node_kind(node, |member| at.clone().key(member))?;
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(position),
+                Step::Key("body"),
+            ];
+            super::validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |target, _site, _at| pending.push_back(target.clone()),
+            )?;
+            let selected = super::dependency_references::selected_reference_targets(&node.body)
+                .map_err(|()| ContractRootViewError::Inconsistent)?;
+            selected_references.extend(
+                selected
+                    .into_iter()
+                    .map(|(package, node)| ContractSelectedReferenceV1 { package, node }),
+            );
+        }
+        let mapped = self
+            .wire
+            .source_map
+            .nodes
+            .iter()
+            .map(|entry| (&entry.node_id, entry.occurrences.as_slice()))
+            .collect::<BTreeMap<_, _>>();
+        let reached = visited
+            .iter()
+            .map(|key| {
+                let position = positions
+                    .get(key)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                let node = nodes
+                    .get(*position)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                Ok(ContractReachedNodeV1 {
+                    node,
+                    sources: mapped.get(key).ok_or(ContractRootViewError::Inconsistent)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
+        let classified = reached
+            .iter()
+            .map(|entry| {
+                let tag = CheckedNodeTag::from_wire(&entry.node.node_tag)
+                    .ok_or(ContractRootViewError::Inconsistent)?;
+                Ok((&entry.node.node_id, tag))
+            })
+            .collect::<Result<Vec<_>, ContractRootViewError>>()?;
+        let (bounds, claims) = super::lower::classify_reached_keys(requested, classified);
+        Ok(ContractRootViewV1::Lowered(ContractReachedClosureV1 {
+            root,
+            nodes: reached,
+            selected_references: selected_references.into_iter().collect(),
+            bounds,
+            claims,
+        }))
     }
 }
 

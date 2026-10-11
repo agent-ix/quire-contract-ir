@@ -55,8 +55,9 @@ pub use contract_package::{
     ContractBodyIncompleteV1, ContractBodyRefusalV1, ContractDependencies, ContractDependencyInput,
     ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1,
     ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1, ContractProvenanceV1,
-    ContractRefusalSourcesV1, ContractRequestSourcesV1, ContractSemanticGraphV1,
-    ContractSourceMapV1, ContractSourceV1,
+    ContractReachedClosureV1, ContractReachedNodeV1, ContractRefusalSourcesV1,
+    ContractRequestSourcesV1, ContractRootViewError, ContractRootViewV1,
+    ContractSelectedReferenceV1, ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
 };
 pub use identity::*;
 pub use lower::*;

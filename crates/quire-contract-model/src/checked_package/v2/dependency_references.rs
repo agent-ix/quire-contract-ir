@@ -490,3 +490,27 @@ fn body_reference_targets(body: &Value, out: &mut Vec<CheckedNodeId>) -> u64 {
     let ControlFlow::Continue(()) = walked_all;
     walked
 }
+
+/// Selected package/key pairs retained in an admitted body's dependency
+/// references. The same term walk is used by admission above.
+pub(super) fn selected_reference_targets(
+    body: &Value,
+) -> Result<Vec<(CheckedSemanticId, CheckedNodeId)>, ()> {
+    let mut selected = Vec::new();
+    let walked = visit_terms(body, |term| -> ControlFlow<()> {
+        if body_term(term) == Some(BodyTerm::DependencyReference) {
+            let (Some(package), Some(node)) = (
+                dependency_reference_package(term),
+                dependency_reference_node(term),
+            ) else {
+                return ControlFlow::Break(());
+            };
+            selected.push((package, node));
+        }
+        ControlFlow::Continue(())
+    });
+    match walked {
+        ControlFlow::Continue(()) => Ok(selected),
+        ControlFlow::Break(()) => Err(()),
+    }
+}
