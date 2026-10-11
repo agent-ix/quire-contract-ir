@@ -415,11 +415,15 @@ impl ContractPackageV1 {
         &self,
         requested: &CheckedNodeId,
     ) -> Result<ContractRootViewV1<'_>, ContractRootViewError> {
-        let Some(record) = self
+        let matching = self
             .wire
             .feature_accounting
             .iter()
-            .find(|record| record.node_id() == requested)
+            .filter(|record| record.node_id() == requested);
+        let Some(record) = matching
+            .clone()
+            .find(|record| record.disposition() == ContractDispositionV1::Lowered)
+            .or_else(|| matching.into_iter().next())
         else {
             return Ok(ContractRootViewV1::Absent);
         };
