@@ -3492,6 +3492,26 @@ however many fields name it
 and each visit is charged to the work budget, so nesting depth is bounded by
 that budget and a type too large for it is refused as the budget is.
 
+For an application's operation validation, resolving a structural type through
+an `alias` or a non-`model_population` bounded domain shall charge one work
+unit for each distinct forwarding node first entered. The charge precedes
+reading that node's `semantic_type`; the terminal structural node contributes
+no forwarding charge. The resolution memo belongs to that one application's
+operation validation, including its union-arm constraint, inner-type checks,
+result-inner selection, and both passes of its leaf walk. A later lookup of a
+memoised forwarding node uses the recorded resolution without charging that
+node or its already resolved suffix again. A second application has a fresh
+memo, even when it names the same chain in the same package read. This charge
+is additional to the existing visit and `text_profile` pin charges; a pin's
+own first-visit memo and charge remain as stated above. A failed charge returns
+the reader's typed `incomplete`/`work` outcome at the operation value being
+validated, including from a union-arm predicate or a leaf edge; it shall not
+be turned into an absent type, an `ill_typed` refusal, or an unchecked leaf.
+The memoized count follows the existing rule that a type node's count applies
+once even when many fields name it, and makes the work charged for structural
+resolution proportional to the distinct forwarding nodes examined by one
+application, rather than the number of repeated references to their suffixes.
+
 For a record field, a direct `reference` value names the field's type. The
 QSL-emitted optional-presence form instead has a field `binding` whose value is
 an `aggregate` with exactly one member: a `binding` named `optional` whose
@@ -4095,6 +4115,7 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-216 | Bytes of a selected model document that `quire_canonical::read` refuses (a truncated array, invalid UTF-8, `{"a":1,"a":2}`, a lone surrogate escape), supplied under a row `digest` other than their plain SHA-256, refuse `stale_dependency`/`byte-digest-mismatch` at `/lock/model_selections/0/digest` with `expected` `{domain: "sha256-jcs", algorithm: "sha256", digest: <row digest>}` and `actual` `{domain: "raw-artifact-digest", algorithm: "sha256", digest: <plain SHA-256 of supplied bytes>}`; the same bytes supplied under the row whose digest bytes equal their plain SHA-256 refuse `invalid_model_binding`/`wrong-model-selection` at `/lock/model_selections/0/identity` with neither payload, admit no declaration and read no identity from the bytes. Equal digest bytes in those different domains remain unequal typed identities. The outcomes of FR-038-AC-93, AC-109 and AC-110 for a number past the double range and of FR-038-AC-26 for the byte limit are unchanged by the raw digest. | Test (TC-048) |
 | FR-038-AC-217 | A `dependency_selections` entry whose supplied admitted package recomputes to another `package_id` than the entry's refuses `stale_dependency`/`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` with `expected` equal to the entry's complete `CheckedSemanticId` (`quire.package.semantic/v2`, `sha256`, its digest) and `actual` equal to the supplied package's complete recomputed `package_id`, and never `byte-digest-mismatch`; no package supplied refuses `missing_import`/`missing-selection` at `/lock/dependency_selections/0` with neither payload, and a supplied package with the selected `package_id` admits. | Test (TC-048) |
 | FR-038-AC-218 | The `expected` and `actual` members of `CheckedPackageRefusal` are either both absent or both complete `CheckedSemanticId` values with exact domain, `sha256` algorithm and lowercase 64-character hexadecimal digest, and are present exactly for `stale_dependency`/`content-mismatch` and `stale_dependency`/`byte-digest-mismatch`. A `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither. `ContentMismatch` is paired only with `StaleDependency`; two mismatch refusals with the same code and cause tag but different expected/actual identities have different QSpec FR-272 cause keys, while changing only path leaves that cause key unchanged. Typed identities with equal algorithm and digest but different `sha256-jcs` and `raw-artifact-digest` domains compare unequal. | Test (TC-048) |
+| FR-038-AC-224 | PLANNED/UNRUN (IR-490). A private operation-stage meter probe over an alias or non-population bounded-domain chain of N distinct forwarding nodes charges exactly N structural-resolution units on its first successful lookup, zero on another lookup of the same head or an already resolved suffix within that application's operation validation, and N again for the same chain in a second application. The terminal type adds zero forwarding units; the first lookup's exact limit succeeds and a limit one below returns typed Work before the failed forwarding node's `semantic_type` is read. For a 300-field record naming different entries of one 300-alias chain, measure total operation work W under a nonbinding limit: W reaches the ordinary `operation-law-missing` decision and W-1 returns typed Work when the required leaves are missing; this case measures the count pass only. In a separate version with every derived leaf and its selected law supplied, both leaf passes execute and the application admits at its measured total work limit W; W-1 returns typed Work. Across those two passes each of the 300 structural forwarding nodes charges once, while leaf-visit and `text_profile` pin charges remain independent and repeated pin lookups retain their separate first-visit charge rule. For each of `union_arms`, `inner:0`, `result_inner`, and a leaf edge, an otherwise valid operation whose remaining work limit is exhausted by structural forwarding returns the reader's `incomplete`/`work` at that operation, with no `ill_typed`/`operator-ineligible`, skipped constraint, or unchecked leaf. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
