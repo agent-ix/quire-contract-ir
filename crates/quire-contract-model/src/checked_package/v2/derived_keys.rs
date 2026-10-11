@@ -695,4 +695,117 @@ mod tests {
             Err(ValidationFailure::Incomplete(_))
         ));
     }
+
+    /// Trace: FR-038-AC-149, TC-226
+    #[trace("FR-038-AC-149", "TC-226")]
+    #[test]
+    fn tree_group_stops_at_the_first_unpaid_local_preimage_charge() {
+        let integer = MemberType::Integer.node_key(BYTES).expect("Integer key");
+        let owner = json!({"kind":"source", "authority":"example", "identity":"source"});
+        let declaration = json!({"qualified_name":["Example","Tree"]});
+        let bound_body = bounds(&integer, "0", "3");
+        let local = [
+            json!({
+                "version":"quire.structural-node/v1", "node_tag":"composite_type",
+                "semantic_form":"record", "semantic_type":null,
+                "declaration":declaration, "owner":owner,
+                "recursion":{"size":3,"ordinal":0},
+                "body":{"term":"aggregate","members":[{"term":"binding","name":"kids",
+                    "value":{"term":"group_reference","ordinal":2}}]}
+            }),
+            json!({
+                "version":"quire.structural-node/v1", "node_tag":"composite_type",
+                "semantic_form":"sequence", "semantic_type":null, "declaration":null,
+                "recursion":{"size":3,"ordinal":1},
+                "body":{"term":"aggregate","members":[{"term":"group_reference","ordinal":0}]}
+            }),
+            json!({
+                "version":"quire.structural-node/v1", "node_tag":"bounded_domain",
+                "semantic_form":"collection_bounds",
+                "semantic_type":{"term":"group_reference","ordinal":1},
+                "declaration":null, "recursion":{"size":3,"ordinal":2},
+                "body":bound_body
+            }),
+        ];
+        let digest = |value: &Value| {
+            quire_canonical::sha256(value, quire_canonical::Limits::new(BYTES))
+                .expect("canonical digest")
+                .to_string()
+        };
+        let local_digests = local.iter().map(digest).collect::<Vec<_>>();
+        let label = digest(&json!(local_digests));
+        let keys = local
+            .iter()
+            .map(|preimage| {
+                let mut preimage = preimage.clone();
+                preimage["recursion"]["group"] = json!(label);
+                digest(&preimage)
+            })
+            .collect::<Vec<_>>();
+        let (mut tree, tree_kind) = wire(
+            &keys[0],
+            "composite_type",
+            "record",
+            &keys[0],
+            json!({"term":"aggregate","members":[{"term":"binding","name":"kids",
+                "value":{"term":"reference","target":id(&keys[2])}}]}),
+        );
+        tree.owner = Some(serde_json::from_value(owner).expect("source owner"));
+        tree.declaration = Some(serde_json::from_value(declaration).expect("declaration"));
+        let (mut sequence, sequence_kind) = wire(
+            &keys[1],
+            "composite_type",
+            "sequence",
+            &keys[1],
+            over(&keys[0]),
+        );
+        let (mut bound, bound_kind) = wire(
+            &keys[2],
+            "bounded_domain",
+            "collection_bounds",
+            &keys[1],
+            bounds(&integer, "0", "3"),
+        );
+        for member in [&mut tree, &mut sequence, &mut bound] {
+            member.recursion_group = Some(label.clone().into());
+        }
+        let (integer_node, integer_kind) =
+            wire(&integer, "scalar_type", "integer", &integer, empty());
+        let graph = [tree, sequence, bound, integer_node];
+        let kinds = [tree_kind, sequence_kind, bound_kind, integer_kind];
+        let index = graph
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<BTreeMap<_, _>>();
+        let references = vec![Vec::new(); graph.len()];
+
+        // Three memberships; first-pass Tree/Sequence/bounds/Integer charges
+        // are 5+4+8+3; second-pass local charges are 4+3+6 and one group digest.
+        const TREE_WORK: u64 = 3 + (5 + 4 + 8 + 3) + (4 + 3 + 6 + 1);
+        let mut exact = WorkMeter::new(TREE_WORK);
+        assert!(
+            validate_derived_keys(&graph, &kinds, &index, &references, &mut exact, BYTES).is_ok()
+        );
+        assert_eq!(exact.consumed(), TREE_WORK);
+
+        // The first local body term is unpaid. Sequence, bounds and the group
+        // digest still await charges; continuing after this error increments
+        // the meter and fails the exact consumed/pointer assertion below.
+        const BEFORE_LOCAL: u64 = 3 + (5 + 4 + 8 + 3);
+        let mut denied = WorkMeter::new(BEFORE_LOCAL);
+        let failure =
+            validate_derived_keys(&graph, &kinds, &index, &references, &mut denied, BYTES)
+                .expect_err("the first local term is unpaid");
+        let ValidationFailure::Incomplete(report) = failure else {
+            panic!("expected work-incomplete, got {failure:?}");
+        };
+        assert_eq!(report.limit, BEFORE_LOCAL);
+        assert_eq!(report.consumed, BEFORE_LOCAL + 1);
+        assert_eq!(
+            report.path.as_ref().map(|path| path.as_str()),
+            Some("/semantic_graph/nodes/0/body")
+        );
+        assert_eq!(denied.consumed(), BEFORE_LOCAL + 1);
+    }
 }

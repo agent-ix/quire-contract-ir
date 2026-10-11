@@ -524,7 +524,9 @@ fn replace_digests(value: &mut Value, replacements: &HashMap<String, String>) {
     }
 }
 
-fn grouped_local_key(
+/// The fixture-authored FR-092 local preimage digest, optionally binding a
+/// retained group label for the first structural-key pass.
+pub fn grouped_local_key(
     node: &Value,
     ids: &HashMap<String, usize>,
     ordinal: usize,
