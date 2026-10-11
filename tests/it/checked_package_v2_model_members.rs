@@ -160,7 +160,9 @@ fn package_over(
     let digest = sha256_hex(&canonical(document));
     let package = package_selecting(name, &digest);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(document));
+    evidence
+        .insert_domain_package_document(digest, canonical(document))
+        .expect("domain evidence declarations agree on exact bytes");
     (package, evidence)
 }
 
@@ -797,7 +799,9 @@ fn relationship_operation_package(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(&document));
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     (package, evidence)
 }
 
@@ -930,7 +934,9 @@ fn navigation_with_result(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(&document));
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     (package, evidence)
 }
 
@@ -1030,7 +1036,9 @@ fn reaches_with_operands(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(&document));
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     (package, evidence)
 }
 
@@ -1640,7 +1648,9 @@ fn document_bytes_with_number(member: &str, number: &str) -> Vec<u8> {
 fn read_selecting(digest: &str, bytes: &[u8]) -> CheckedPackageV2ReadResult {
     let package = package_selecting("total", digest);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest.to_owned(), bytes.to_vec());
+    evidence
+        .insert_domain_package_document(digest.to_owned(), bytes.to_vec())
+        .expect("domain evidence declarations agree on exact bytes");
     read(&package, &evidence)
 }
 
@@ -2132,7 +2142,9 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
         "the package is shorter than the document"
     );
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, bytes);
+    evidence
+        .insert_domain_package_document(digest, bytes)
+        .expect("domain evidence declarations agree on exact bytes");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.bytes = length;
     assert!(
@@ -2428,7 +2440,9 @@ fn reaches_package(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(&document));
+    evidence
+        .insert_domain_package_document(digest, canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     (package, evidence, position)
 }
 

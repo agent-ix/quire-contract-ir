@@ -471,7 +471,9 @@ fn package(
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
     let mut evidence = evidence_for(&package);
-    evidence.insert_domain_package_document(digest, canonical(document));
+    evidence
+        .insert_domain_package_document(digest, canonical(document))
+        .expect("domain evidence declarations agree on exact bytes");
     let base = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")

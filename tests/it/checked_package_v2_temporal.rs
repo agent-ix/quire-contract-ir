@@ -110,7 +110,9 @@ fn read_with_model(
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(package);
-    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+        .expect("domain evidence declarations agree on exact bytes");
     CheckedPackageV2::read(&canonical(package), limits, &evidence)
 }
 

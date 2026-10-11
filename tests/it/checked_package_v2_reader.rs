@@ -642,10 +642,12 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     // Evidence the caller must supply: the required feature.
     let mut unsupported = CheckedPackageEvidence::new();
     let family_document = checked_package::family_model_document();
-    unsupported.insert_domain_package_document(
-        sha256_hex(&canonical(&family_document)),
-        canonical(&family_document),
-    );
+    unsupported
+        .insert_domain_package_document(
+            sha256_hex(&canonical(&family_document)),
+            canonical(&family_document),
+        )
+        .expect("domain evidence declarations agree on exact bytes");
     assert_eq!(
         refused(&base, &unsupported),
         // Reported available, but the reader does not support it.
@@ -1257,10 +1259,12 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_ver
     other_selection["digest"] = json!(domain_package_digest(&other_document));
     let at_two = model_owned_package(owner.clone(), json!([other_selection]));
     let mut other_evidence = evidence_for(&at_two);
-    other_evidence.insert_domain_package_document(
-        domain_package_digest(&other_document),
-        canonical(&other_document),
-    );
+    other_evidence
+        .insert_domain_package_document(
+            domain_package_digest(&other_document),
+            canonical(&other_document),
+        )
+        .expect("domain evidence declarations agree on exact bytes");
     assert!(matches!(
         read(&at_two, &other_evidence),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -1801,11 +1805,13 @@ fn evidence_of(identities: &[&str], extra: &[Value]) -> CheckedPackageEvidence {
     for identity in identities {
         let document = domain_package_document(identity, "1", Vec::new());
         evidence
-            .insert_domain_package_document(domain_package_digest(&document), canonical(&document));
+            .insert_domain_package_document(domain_package_digest(&document), canonical(&document))
+            .expect("domain evidence declarations agree on exact bytes");
     }
     for document in extra {
         evidence
-            .insert_domain_package_document(domain_package_digest(document), canonical(document));
+            .insert_domain_package_document(domain_package_digest(document), canonical(document))
+            .expect("domain evidence declarations agree on exact bytes");
     }
     evidence
 }
@@ -1854,7 +1860,8 @@ fn tc_048_model_selection_same_identity_different_digest_refuses_as_stale_depend
     // the evidence holds for the pair.
     let mut forged = evidence_of(&["test/orders"], &[]);
     forged
-        .insert_domain_package_document(second["digest"].as_str().expect("digest"), b"{}".to_vec());
+        .insert_domain_package_document(second["digest"].as_str().expect("digest"), b"{}".to_vec())
+        .expect("domain evidence declarations agree on exact bytes");
     let named_other = domain_package_document("test/other", "1", Vec::new());
     let mut names_another = first.clone();
     names_another["digest"] = json!(domain_package_digest(&named_other));

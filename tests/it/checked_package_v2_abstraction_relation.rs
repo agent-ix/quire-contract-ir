@@ -491,7 +491,9 @@ fn read(value: &Value) -> CheckedPackageV2ReadResult {
 /// Reads `value` with `document` supplied as the selected domain package.
 fn read_over(value: &Value, document: &Value) -> CheckedPackageV2ReadResult {
     let mut evidence = evidence_for(value);
-    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    evidence
+        .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+        .expect("domain evidence declarations agree on exact bytes");
     CheckedPackageV2::read(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
@@ -593,10 +595,9 @@ fn tc_227_an_abstraction_field_entry_charges_its_effective_table_end_to_end() {
         ));
         let value = with_nodes(base_over(&document), vec![relation_node(&body)]);
         let mut evidence = evidence_for(&value);
-        evidence.insert_domain_package_document(
-            sha256_hex(&canonical(&document)),
-            canonical(&document),
-        );
+        evidence
+            .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
+            .expect("domain evidence declarations agree on exact bytes");
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
@@ -990,7 +991,8 @@ fn tc_225_a_deeply_nested_member_refuses_as_the_wrong_shape() {
     let document = domain_document();
     let mut evidence = evidence_for(&deep);
     evidence
-        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document));
+        .insert_domain_package_document(sha256_hex(&canonical(&document)), canonical(&document))
+        .expect("domain evidence declarations agree on exact bytes");
     let bytes = canonical(&deep);
     let limits = CheckedPackageReadLimits::bounded();
     // The read runs on a stack far smaller than the frames a native recursion

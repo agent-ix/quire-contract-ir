@@ -651,7 +651,8 @@ fn member_read(
     let mut evidence = evidence_for(&package);
     for document in supplied {
         evidence
-            .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+            .insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document))
+            .expect("domain evidence declarations agree on exact bytes");
     }
     (package, evidence)
 }
