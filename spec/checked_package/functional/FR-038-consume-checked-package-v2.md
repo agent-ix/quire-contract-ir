@@ -1351,12 +1351,18 @@ what was compared, as merged QSpec FR-272 (its `stale_dependency` row; QSpec
 #187) and FR-154 define (this repository holds no copy of either):
 
 - `content-mismatch` is a selected or pinned content identity against the
-  identity the reader recomputed from what was supplied. It has two sites in
-  this reader: a selected model document that reads as strict JSON and whose
+  identity the reader recomputed from what was supplied. Its contract has
+  three comparison sites: a selected model document that reads as strict JSON and whose
   RFC 8785 SHA-256 is another digest than the row's (FR-154 check 3,
-  FR-322 step 1), at the row's `digest`; and a `dependency_selections`
+  FR-322 step 1), at the row's `digest`; a `dependency_selections`
   entry whose supplied package recomputes to another `package_id` than the
-  entry's, at the entry's `package_id.digest`.
+  entry's, at the entry's `package_id.digest`; and this package's declared
+  `package_id.digest` against the identity recomputed from its own
+  `identity_preimage`, at `/package_id/digest` (QSpec FR-272). The own-package
+  comparison currently returns plain `stale_dependency` at that pointer.
+  The typed `content-mismatch` cause and expected/actual payload for these
+  sites remain planned under IR-238; this inventory does not claim their
+  implementation or evidence.
 - `byte-digest-mismatch` is a raw-bytes digest against its declared digest.
   It has one site in this reader: the supplied bytes of a selected model
   document that `quire_canonical::read` refuses (not strict JSON, a repeated
