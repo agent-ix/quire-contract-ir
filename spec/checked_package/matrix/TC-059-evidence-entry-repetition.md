@@ -10,11 +10,16 @@ relationships:
 
 ## Description
 
-PLANNED/UNRUN (IR-756). Verify the six criteria of
+Verify the six criteria of
 [FR-047](../functional/FR-047-preserve-first-evidence-entry.md) through the
 public model-crate evidence builder and reader. This artifact is a test
-procedure, not a runtime binder or computed coverage result. The required
-Result API and error export are not presently implemented.
+procedure, not a runtime binder or computed coverage result. The Result API and
+named insertion-error export are implemented, and the error appears in FR-019's
+implemented Public items table. Six traced tests in
+`tests/it/checked_package_evidence_insertion.rs` exercise the public builder and
+both reader entrypoints. The focused run passed all six tests; the scoped
+Clippy check of the root integration-test target also passed. Neither result
+is a full repository gate result.
 
 Use repository-owned fixture builders and the existing canonical library.
 Do not copy another repository's artifacts or create a test encoder. Runtime
@@ -150,7 +155,6 @@ repeats change nothing and distinct strings never imply each other's support.
 Handled conflicts preserve the real reader's first-only positive or adverse
 outcome without introducing a reader cause or altering precedence.
 
-Current source does not satisfy the proposed insertion-result contract.
-Runtime procedures remain planned/unrun until implementation and traced
-assertions exist. Selected Markdown validation is structural evidence only,
-not a runtime PASS or acceptance verdict.
+The traced public controls exercise these insertion-result and retention
+outcomes. Selected Markdown validation is structural evidence only; it does
+not establish runtime behavior or replace the focused test results.

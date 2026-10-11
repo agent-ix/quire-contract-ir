@@ -14,10 +14,11 @@ relationships:
 
 ## Description
 
-PLANNED/UNRUN (IR-756). The insertion results, error export and acceptance
-controls below are required upon implementation. This specification does not
-claim that the current unit-returning insert methods implement this policy or
-that its runtime controls have run.
+The evidence insert methods return typed results and preserve the first entry.
+Six traced public builder-and-reader controls implement the procedure in
+[TC-059](../matrix/TC-059-evidence-entry-repetition.md). The focused run of those
+six controls passed, as did the scoped Clippy check of the root integration-test
+target. These results establish that focused scope, not the full repository gate.
 
 When a caller repeats an evidence declaration under an occupied key,
 `CheckedPackageEvidence` SHALL retain the first entry, succeeding for an equal
@@ -54,15 +55,13 @@ returns one of these closed variants:
 
 `support_feature` returns unit; it has no conflicting-value case.
 
-`CheckedPackageEvidenceInsertionError` is a PLANNED model-crate public export.
-When this requirement is implemented, `quire_contract_model` SHALL export this
-error type by name. Its variants and fields determine the condition and key;
+`quire_contract_model` exports `CheckedPackageEvidenceInsertionError` by name.
+Its variants and fields determine the condition and key;
 formatted error text is not a classification source. This is an insertion
 error, not a `CheckedPackageRefusal`, reader cause or wire diagnostic.
 [FR-019](../../model/functional/FR-019-rust-library-interface.md)'s implemented
-Public items table remains unchanged until the error is actually exported;
-the implementation change must update that inventory and its export control
-together. No future export is counted as present by this draft.
+Public items table names the exported error. The existing public-item inventory
+control compares that table with the model crate's named exports.
 
 ## Behavior
 
@@ -176,7 +175,7 @@ or encoder.
 | FR-047-AC-3 | Equal admitted-content dependencies in distinct `Arc` allocations return `Ok(())` on repetition and retain the first package object. Separately admitted equal content under different byte ceilings remains an equal repeat and preserves the first object's ceiling and derived state in both orders. Independent exact identities remain separate; the public reader binds a selected valid dependency after one or two equal declarations. | Test |
 | FR-047-AC-4 | Unequal admitted dependencies under an occupied identity return `DependencyPackageConflict` with that exact identity and leave all evidence unchanged in both orders. Controls distinguish different package identities and equal package identities with independently changed, valid source map, diagnostics, capability disposition, graph occurrences or raw-source references. No same-identity or same-package-id shortcut accepts these conflicts. | Test |
 | FR-047-AC-5 | One and two exact feature declarations yield equal evidence and the same successful public read of an otherwise valid package requiring that feature. Declaring only a distinct case, whitespace, Unicode spelling or version spelling does not satisfy the required exact string; declarations perform no normalization or synonym substitution. | Test |
-| FR-047-AC-6 | Public model-crate callers handle both insert results and match the exact typed conflict variants/keys without message parsing. After a handled domain or dependency conflict, real public reading equals first-only reading in both orders: a valid matching first value admits, and an invalid or mismatching first value retains its ordinary reader outcome even when the rejected second value would admit. Insertion invokes no admission or encoding; inspection confirms the stated resource behavior and no changed reader refusal/limit contract. The new error export and controls remain planned until implemented. | Test, Inspection |
+| FR-047-AC-6 | Public model-crate callers handle both insert results and match the exact typed conflict variants/keys without message parsing. After a handled domain or dependency conflict, real public reading equals first-only reading in both orders: a valid matching first value admits, and an invalid or mismatching first value retains its ordinary reader outcome even when the rejected second value would admit. Insertion invokes no admission or encoding; inspection confirms the stated resource behavior and no changed reader refusal/limit contract. The model crate exports the insertion error by name and its implemented public-item inventory agrees with that export. | Test, Inspection |
 
 ## Dependencies
 
@@ -185,6 +184,6 @@ authoritative contract need. [FR-038](./FR-038-consume-checked-package-v2.md)
 owns public reading and selection binding.
 [FR-019](../../model/functional/FR-019-rust-library-interface.md) owns the
 implemented model export inventory.
-[TC-059](../matrix/TC-059-evidence-entry-repetition.md) defines the planned
-positive, adverse and mutation-sensitive repetition controls. No runtime
-binder or passing result is implied by that procedure artifact.
+[TC-059](../matrix/TC-059-evidence-entry-repetition.md) defines the positive,
+adverse and mutation-sensitive repetition controls. Its procedure is implemented
+by traced public tests; the procedure artifact is not a computed coverage result.
