@@ -96,15 +96,11 @@ supplying the complete intended graph remains the caller's obligation.
 ### One authoritative preimage
 
 The helper and reader SHALL use one application preimage construction and one
-canonical encoder for `{version: "quire.application-node/v1", node_tag,
-semantic_form, semantic_type, declaration, recursion, body}`. Missing
-declaration and ungrouped recursion encode as `null`. Grouped recursion encodes
-`{size, ordinal}`. Body `reference` terms targeting group members encode as
-`{term: "group_reference", ordinal}` through application arguments, aggregate
-members and binding values. Outside-group references and dependency references
-retain their supplied content. Semantic type and declaration retain their
-original preimage rules; they are not rewritten as body references. No
-provisional key is added as an extra preimage member.
+canonical encoder implementing the sole normative rule in
+[FR-038, Application node keys](../../checked_package/functional/FR-038-consume-checked-package-v2.md#application-node-keys).
+That rule owns the field set, version, null encodings and grouped-reference
+substitution. This requirement adds draft/context selection and candidate
+handling, without a second definition of those preimage rules.
 
 The helper SHALL hash that preimage through `quire-canonical` with
 `Limits::new(byte_limit)` and return domain `quire.checked-semantic-node/v1`.
@@ -117,9 +113,13 @@ when it exceeds it. No alternate encoder, fallback hash or new ceiling exists.
 The public context constructor SHALL borrow the graph without cloning nodes,
 bodies or a group-member vector. With N supplied nodes it performs at most
 N(N-1)/2 key comparisons for uniqueness and linear scans for target/group
-selection, plus one target-node equality comparison. Auxiliary context storage
-is constant in N: borrowed snapshot, target position, group size and ordinal.
-Key comparison and node equality costs include the supplied key/field sizes.
+selection, plus one target-node structural equality comparison. Retained context
+storage is constant in N: borrowed snapshot, target position, group size and
+ordinal. Equality uses an explicit heap stack of paired value/child-iterator
+frames, with O(D) temporary storage for maximum compared JSON depth D; it does
+not use recursive `Value` equality. Key comparison and structural equality
+costs include the supplied key/field sizes; equality visits compared content
+at most once and never clones either node.
 Position/count conversions are checked. No new graph-size cap, work meter,
 global cache or hidden owned graph is introduced.
 
@@ -127,13 +127,30 @@ The shared grouped-body rewrite currently needs one copied body, visits each
 term once and searches the group for each reference. With B body storage,
 T visited terms and G group nodes, its body copy is O(B) and reference selection
 is O(TG); a borrowed group scan can inspect up to N nodes per reference.
-Traversal and canonical encoding retain their existing heap-stack costs.
+The pre-read path SHALL handle every JSON subtree it observes without
+input-dependent native recursion, including draft/context structural equality,
+grouped body copying, rewriting, encoding and owned temporary cleanup. A caller
+can supply deeply nested in-memory values that never passed the reader grammar;
+that grammar is not a safety precondition for this helper. An iterative copy
+uses explicit heap traversal frames; the full copied body remains O(B), with
+O(D) traversal storage. Partial copies and rewritten bodies are disposed of
+through the authoritative `quire_canonical::drop_value` nonrecursive ownership
+operation on both success and every refusal path, including a canonical byte
+failure. No ordinary recursive `Value::clone`, equality or drop is reachable
+on such caller-controlled deep content in the helper. Borrowed caller inputs
+are neither dropped nor changed by the helper; their later teardown remains
+with the caller. Nonrecursive cleanup of helper-owned content is required even
+when encoding refuses early. Canonical encoding retains its existing
+heap-stack costs. This changes no preimage bytes and imposes no new depth cap.
 These costs are bounded by the actual supplied input, not by `byte_limit`:
 that limit constrains canonical output and does not bound context scans,
 the draft graph, body cloning or traversal allocations. This contract makes
 no new recoverable-allocation guarantee for the existing body clone or encoder;
 an allocator exhaustion outside their typed error surface is not a fabricated
-`CanonicalEncoding` refusal. Context construction itself needs no heap allocation.
+`CanonicalEncoding` refusal. Context key scans allocate no graph copy; structural equality may allocate the
+explicit O(D) heap stack. No new recoverable-allocation guarantee is added for
+that stack either. The present recursive body clone is an implementation gap
+to close before this pre-read surface ships, not a stack-safety exemption.
 
 The reader SHALL retain its existing application ordering, authenticated graph
 context, refusal translation and one reader work-unit charge before preimage
@@ -163,7 +180,7 @@ candidate after a body change remains subject to the reader's stale-key refusal.
 | FR-046-AC-1 | An external model-crate consumer derives a candidate from a typed draft before any package read, obtains its candidate key and matches typed errors; no helper output is an admission verdict or admitted-package constructor. The named public items are exported only by the model crate. | Test, Inspection |
 | FR-046-AC-2 | An ordinary application produces the independently constructed canonical application-preimage digest. Changing node tag, semantic form, semantic type, declaration presence/content or body independently changes the bound digest. Changing only its provisional selector does not change an ungrouped candidate. | Test |
 | FR-046-AC-3 | A group containing applications and nonapplication nodes uses every group node in graph order. Self and internal references through application arguments, aggregate members and binding values produce the expected ordinals; provisional-to-final key substitution preserves the candidate. Outside-group and dependency references remain unchanged, and changing an outside target changes the candidate. | Test |
-| FR-046-AC-4 | Missing grouped context, absent target, repeated graph key, mismatching target fields or context from another draft return their exact typed variants/payloads and no hash candidate. Repetition order is deterministic; nonapplication input refuses. Inspection confirms borrowed immutable constant-size context, checked counters and the stated scan bounds, without a new cap or allocator-dependent context failure. | Test, Inspection |
+| FR-046-AC-4 | Missing grouped context, absent target, repeated graph key, mismatching target fields or context from another draft return their exact typed variants/payloads and no hash candidate. Repetition order is deterministic; nonapplication input refuses. Inspection confirms borrowed immutable constant-size context, checked counters and the stated scan bounds, without a new cap or hidden graph copy. On a 256 KiB thread stack, grouped and ungrouped in-memory application drafts with 100000 nested JSON levels complete structural equality and hashing under a sufficient byte limit, refuse CanonicalEncoding under a tiny limit, and distinguish an otherwise matching target with a differing deepest value as ContextMismatch; no helper comparison, copy, rewrite or temporary cleanup overflows the stack. Fixture assembly and caller-owned teardown are iterative, so they cannot mask helper failure. These adversarial candidate controls do not claim reader admission. | Test, Inspection |
 | FR-046-AC-5 | For an independently encoded preimage of C canonical bytes, byte limits C and C+1 produce the same candidate; C-1 and zero refuse CanonicalEncoding with the canonical byte-limit error. A canonical nonencodable-number control retains its typed encoder error. The byte ceiling is not asserted to bound graph/context/body-copy memory or work. | Test, Inspection |
 | FR-046-AC-6 | After correct final-key/reference substitution, reader-admissible ordinary and grouped controls read successfully with the helper candidate. Changing the body while retaining that key produces the reader's stale-node-key outcome and distinct expected key. Inspection finds one authoritative preimage/encoder and unchanged reader charge-before-hash ordering; an exhausted existing work charge wins before an otherwise failing application hash. Public context validation adds no reader refusal or work charge. All runtime procedures remain planned/unrun until implementation. | Test, Inspection |
 

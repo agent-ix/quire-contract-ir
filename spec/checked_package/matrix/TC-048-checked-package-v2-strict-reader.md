@@ -1648,8 +1648,24 @@ Verify [FR-046](../../model/functional/FR-046-derive-candidate-application-node-
 
 1. Before any package read, derive an ordinary application candidate and compare with an independently built canonical preimage. Change node tag, semantic form, semantic type, declaration absence/presence/content and body separately; compare actual digests. Alter only the provisional self selector and confirm unchanged ungrouped key.
 2. Build a reader-admissible group containing application and nonapplication nodes in deliberately observable graph order. Include self and internal references through application arguments, aggregate members and binding values, plus outside-group and dependency references. Independently enumerate size/ordinals and compare the helper digest. Replace provisional keys and matching internal references with final candidate keys without reordering or relabelling; refresh dependencies, projection and package identity under existing contracts. Read the actual final wire and assert admission and exact application keys. A changed outside target changes the helper digest.
-3. Missing grouped context, an absent target, repeated keys at distinct graph positions, a target with different fields, context from another draft, and a nonapplication draft each assert the precise typed variant and payload and absence of a candidate. Multiple repeats assert the earliest repeated position and earliest equal predecessor. Inspection checks constant-size borrowed context, checked position/count conversions and no hidden graph/group-vector clone or new cap.
+3. Missing grouped context, an absent target, repeated keys at distinct graph positions, a target with different fields, context from another draft, and a nonapplication draft each assert the precise typed variant and payload and absence of a candidate. Multiple repeats assert the earliest repeated position and earliest equal predecessor. Inspection checks constant-size retained borrowed context, checked position/count conversions, explicit O(D) equality traversal storage and no hidden graph/group-vector clone or new cap.
 4. Independently encode the successful preimage and measure C bytes. Limits C and C+1 return the same key; C-1 and zero return the typed canonical byte-limit error. A number that canonical encoding refuses returns its typed encoder error, rather than a byte-limit error or candidate. Do not count this as a memory/work bound over the graph or copied body.
 5. Read reader-admissible ordinary and grouped final assemblies containing the helper candidates. Change a body's semantic content while retaining the candidate key and refresh only the existing package identity as required to reach node-key validation. Assert stale-node-key and the distinct expected node key. Use the existing reader work meter with an exhausted application charge and a later failing hash; assert the work refusal wins. Source inspection verifies a single authoritative application preimage/encoder, unchanged charge-before-preimage/hash, and no public-context validation in reader admission.
 
 These controls are PLANNED/UNRUN; this spec-only change supplies no runtime result. Bind eventual tests by `Trace: FR-046-AC-N`, never by a fabricated matrix row.
+
+6. Use the existing deep-Value test convention: an in-memory application draft
+   containing 100000 nested JSON levels, on a 256 KiB thread stack, built and
+   dismantled iteratively. Test both ungrouped and grouped contexts, including
+   a distinct target node with equal deep content so pointer identity cannot
+   bypass structural comparison. Under a sufficient byte ceiling assert the
+   candidate equals an independently encoded preimage under the sole FR-038
+   rule. Under a tiny ceiling assert the precise canonical byte-limit error
+   after the same comparison/grouped-copy path, with no candidate and no stack
+   overflow during helper-owned cleanup. Change only the deepest target value
+   and assert ContextMismatch. Assert borrowed inputs remain intact without
+   recursive equality or cloning in the test. The helper's comparison, body
+   copy, rewrite and temporary disposal must be nonrecursive; use authoritative
+   canonical nonrecursive disposal for owned test/production Values. These
+   malformed deep drafts are candidate-path controls, never reader-admission
+   evidence, and create no new input-depth limit.
