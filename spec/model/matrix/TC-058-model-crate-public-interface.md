@@ -51,7 +51,7 @@ that one table item builds only through `quire_contract_model`.
 
 PLANNED/UNRUN (IR-738). Verify
 [FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),
-AC-1, and the corresponding planned row in
+AC-1, and the planned API paragraph before Public items in
 [FR-019](../functional/FR-019-rust-library-interface.md).
 Keep the existing source/spec inventory procedure scoped to its legacy items;
 this slice does not extend that source-inspection gate to the new candidate API.
