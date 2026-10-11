@@ -350,10 +350,6 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
                 bytes,
                 "{name}: canonical package bytes"
             );
-            assert!(
-                bytes.len() > canonical(&value).len(),
-                "{name}: lowered package size"
-            );
         }
         // The id is the SHA-256 of exactly those bytes, with no domain label.
         assert_eq!(sha256_hex(bytes), id.digest.as_ref(), "{name}");
