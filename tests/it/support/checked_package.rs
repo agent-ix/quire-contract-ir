@@ -30,6 +30,7 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
@@ -397,11 +398,11 @@ pub fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
     replace_digest(package, stale, fresh);
 }
 
-/// Mint QSL FR-092 keys for a builder's owner-free, ungrouped structural
-/// nodes. Each rename reaches every reference in the test package; repeated
-/// passes let a node built before a type it names pick up the type's real key.
-/// Nominal, application, model-owned, grouped and FR-451 relation keys have
-/// their separate constructors or owning stages.
+/// Mint QSL FR-092/FR-094 keys for a builder's ungrouped structural nodes,
+/// including owner-bearing and declared nodes. Each rename reaches every
+/// reference in the test package; repeated passes let a node built before a
+/// type it names pick up the type's real key. Nominal, application, grouped
+/// and FR-451 abstraction-relation keys have separate constructors or stages.
 pub fn mint_ungrouped_structural_keys(package: &mut Value) {
     let count = package["semantic_graph"]["nodes"]
         .as_array()
@@ -415,23 +416,26 @@ pub fn mint_ungrouped_structural_keys(package: &mut Value) {
             let form = node["semantic_form"].as_str().expect("semantic form");
             if node.get("nominal_identity_preimage").is_some()
                 || node["body"]["term"] == "application"
-                || node.get("declaration").is_some()
                 || node.get("recursion_group").is_some()
-                || matches!(tag, "model" | "relation")
                 || (tag == "correspondence" && form == "abstraction_relation")
             {
                 continue;
             }
             let stale = node["node_id"]["digest"].as_str().expect("node digest");
-            let semantic_type = node["semantic_type"]["digest"]
-                .as_str()
-                .expect("semantic type digest");
-            let fresh = structural_key(
-                tag,
-                form,
-                (semantic_type != stale).then_some(semantic_type),
-                &node["body"],
-            );
+            let mut preimage = json!({
+                "version": "quire.structural-node/v1",
+                "node_tag": tag,
+                "semantic_form": form,
+                "semantic_type": (node["semantic_type"] != node["node_id"])
+                    .then(|| node["semantic_type"].clone()),
+                "declaration": node.get("declaration"),
+                "recursion": null,
+                "body": node["body"],
+            });
+            if let Some(owner) = node.get("owner") {
+                preimage["owner"] = owner.clone();
+            }
+            let fresh = sha256_hex(&canonical(&preimage));
             if fresh != stale {
                 rename_node(package, stale, &fresh);
                 changed = true;
@@ -442,6 +446,104 @@ pub fn mint_ungrouped_structural_keys(package: &mut Value) {
         }
     }
     panic!("ungrouped fixture nodes did not reach stable structural keys");
+}
+
+/// Mint the FR-092 keys and content label of each explicit recursion group.
+/// Member-local preimages replace within-group references by graph ordinals;
+/// their digest array gives the label before member keys include that label.
+pub fn mint_grouped_structural_keys(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
+    let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for node in nodes {
+        if let Some(label) = node.get("recursion_group").and_then(Value::as_str) {
+            groups.entry(label.to_owned()).or_default().push(node);
+        }
+    }
+    for (old_label, members) in groups {
+        let ids = members
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect::<Vec<_>>();
+        let local = members
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| grouped_local_key(node, &ids, ordinal, None))
+            .collect::<Vec<_>>();
+        let label = sha256_hex(&canonical(&json!(local)));
+        for node in package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+        {
+            if node["recursion_group"] == old_label {
+                node["recursion_group"] = json!(label);
+            }
+        }
+        for (ordinal, node) in members.iter().enumerate() {
+            let stale = node["node_id"]["digest"].as_str().expect("digest");
+            let fresh = grouped_local_key(node, &ids, ordinal, Some(&label));
+            rename_node(package, stale, &fresh);
+        }
+    }
+}
+
+fn grouped_local_key(node: &Value, ids: &[Value], ordinal: usize, label: Option<&str>) -> String {
+    fn rewrite(value: &Value, ids: &[Value]) -> Value {
+        if value["term"] == "reference" {
+            if let Some(ordinal) = ids.iter().position(|id| *id == value["target"]) {
+                return json!({"term": "group_reference", "ordinal": ordinal});
+            }
+        }
+        match value {
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|item| rewrite(item, ids)).collect())
+            }
+            Value::Object(fields) => Value::Object(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.clone(), rewrite(value, ids)))
+                    .collect(),
+            ),
+            _ => value.clone(),
+        }
+    }
+    let application = node["body"]["term"] == "application";
+    let semantic_type = if application {
+        node["semantic_type"].clone()
+    } else if node["semantic_type"] == node["node_id"] {
+        Value::Null
+    } else if let Some(ordinal) = ids.iter().position(|id| *id == node["semantic_type"]) {
+        json!({"term": "group_reference", "ordinal": ordinal})
+    } else {
+        node["semantic_type"].clone()
+    };
+    let mut recursion = json!({"size": ids.len(), "ordinal": ordinal});
+    if let Some(label) = label {
+        recursion["group"] = json!(label);
+    }
+    let body = rewrite(&node["body"], ids);
+    let version = if application {
+        APPLICATION_NODE_VERSION
+    } else {
+        "quire.structural-node/v1"
+    };
+    let mut preimage = json!({
+        "version": version,
+        "node_tag": node["node_tag"],
+        "semantic_form": node["semantic_form"],
+        "semantic_type": semantic_type,
+        "declaration": node.get("declaration"),
+        "recursion": recursion,
+        "body": body,
+    });
+    if let Some(owner) = node.get("owner") {
+        if version == "quire.structural-node/v1" {
+            preimage["owner"] = owner.clone();
+        }
+    }
+    sha256_hex(&canonical(&preimage))
 }
 
 fn replace_digest(value: &mut Value, stale: &str, fresh: &str) {

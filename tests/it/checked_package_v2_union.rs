@@ -10,9 +10,10 @@
 //! (they are read by `make conformance-qspec`, FR-038-AC-107).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, family_key, fixture_source, mint_ungrouped_structural_keys, node_id,
-    nominal_package, over_body, owned_structural_node, settle, sha256_hex, source_owner,
-    structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    canonical, evidence_for, family_key, fixture_source, mint_grouped_structural_keys,
+    mint_ungrouped_structural_keys, node_id, nominal_package, over_body, owned_structural_node,
+    settle, sha256_hex, source_owner, structural_key, typed_node_id, v2_all_families, BOOLEAN_KEY,
+    INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -256,6 +257,8 @@ fn package_of(nodes: Vec<Value>) -> Value {
     let mut package = nominal_package(&[]);
     package["semantic_graph"]["nodes"] = Value::Array(nodes);
     mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
+    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -335,6 +338,14 @@ fn position_of_form(package: &Value, tag: &str, form: &str) -> usize {
 fn position_of(package: &Value, name: &str) -> usize {
     if name == "shape_rect" {
         return position_of_form(package, "value", "union_value");
+    }
+    if name == "shape" {
+        return package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["declaration"]["qualified_name"] == json!(["shape"]))
+            .expect("the Shape declaration");
     }
     package["semantic_graph"]["nodes"]
         .as_array()
@@ -609,6 +620,8 @@ fn label_package(leaves: Vec<Value>) -> Value {
         .expect("definition selections")
         .push(text_law());
     mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
+    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -729,6 +742,8 @@ fn list_package(name: &str, payload: &str, leaves: Vec<Value>) -> Value {
         .expect("definition selections")
         .push(text_law());
     mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
+    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
 }
@@ -815,6 +830,8 @@ fn option_chain_package(leaves: Vec<Value>) -> Value {
         .as_array_mut()
         .expect("definition selections")
         .push(text_law());
+    mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
     mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     package
@@ -934,9 +951,14 @@ fn with_details(mut package: Value, term: Value) -> Value {
 #[test]
 fn tc_048_a_details_reference_to_a_union_node_admits_and_to_a_case_node_refuses() {
     let package = shape_package();
+    let union_key = package["semantic_graph"]["nodes"][position_of(&package, "shape")]["node_id"]
+        ["digest"]
+        .as_str()
+        .expect("union key")
+        .to_owned();
     admitted(
         "a union reference",
-        &with_details(package.clone(), reference("shape")),
+        &with_details(package.clone(), reference_to_key(&union_key)),
     );
     let union_value_key = package["semantic_graph"]["nodes"][position_of(&package, "shape_rect")]
         ["node_id"]["digest"]

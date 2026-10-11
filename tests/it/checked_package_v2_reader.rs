@@ -2653,32 +2653,7 @@ fn rekey_declared_all_families(package: &mut Value) {
             .iter()
             .map(|node| node["node_id"].clone())
             .collect();
-        for position in 0..count {
-            let node = package["semantic_graph"]["nodes"][position].clone();
-            if node["body"]["term"] == "application" {
-                continue;
-            }
-            assert!(node.get("nominal_identity_preimage").is_none());
-            assert!(node.get("recursion_group").is_none());
-            let stale = digest_of(&node);
-            let mut preimage = json!({
-                "version": "quire.structural-node/v1",
-                "node_tag": node["node_tag"],
-                "semantic_form": node["semantic_form"],
-                "semantic_type": (node["semantic_type"] != node["node_id"])
-                    .then(|| node["semantic_type"].clone()),
-                "declaration": node.get("declaration"),
-                "recursion": null,
-                "body": node["body"],
-            });
-            if let Some(owner) = node.get("owner") {
-                preimage["owner"] = owner.clone();
-            }
-            let fresh = sha256_hex(&canonical(&preimage));
-            if stale != fresh {
-                checked_package::rename_node(package, &stale, &fresh);
-            }
-        }
+        checked_package::mint_ungrouped_structural_keys(package);
         checked_package::settle(package);
         let current: Vec<Value> = package["semantic_graph"]["nodes"]
             .as_array()
