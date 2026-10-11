@@ -24,19 +24,26 @@ exactly one `semantic_graph.nodes` collection, one occurrence per typed key,
 ascending typed-key order, total `source_map` correspondence, and one
 `feature_accounting` record per requested item. Reorder equivalent request
 and graph-construction inputs, canonicalize the package and compare identity.
-Change one represented node, its selected profile and its source
-correspondence separately; compare identity after each change. Remove one
-required property, add an independent type/expression/clause graph, duplicate
-or disorder a key, or substitute an out-of-domain contract version and test
-consumer refusal before artifact generation.
+Independently compute the digest from the RFC 8785 canonical projection of
+exactly `contract_version`, `package`, `semantic_graph` and
+`feature_accounting`, excluding `source_map` and `identity`, and compare it
+with the emitted identity. Change one represented node, the selected profile,
+one accounting result and a valid source-map location separately; compare the
+digest after each change. Corrupt or omit source-map correspondence and check
+admission. Remove one required property, add an independent
+type/expression/clause graph, duplicate or disorder a key, or substitute an
+out-of-domain contract version and test consumer refusal before artifact generation.
 
 ## Expected Results
 
 One FR-330 package carries the exact represented node set and its reached
 local closure in key order; a refused request contributes a node only when
 reached by represented meaning. Its source map and accounting are complete.
-Equivalent construction order has the same canonical semantic identity;
-changing represented meaning, profile or source correspondence changes it.
+Equivalent construction order has the same canonical semantic identity and
+the digest equals the independently computed four-member projection. Changing
+represented meaning, profile or an accounting result changes the digest;
+changing only a valid source-map location preserves it. Corrupt or incomplete
+source correspondence refuses admission despite its exclusion from the digest.
 Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption. No output from the current
 IR-only package shape counts as this result.
