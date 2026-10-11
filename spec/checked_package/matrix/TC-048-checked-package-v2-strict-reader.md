@@ -1672,9 +1672,15 @@ failure remains distinct from budget exhaustion. Do not count the separate
 At the operation stage, reuse the 300-field/300-alias shared-chain case of
 AC-44. Under a nonbinding limit, measure total work W for the ordinary
 missing-leaf decision. The same decision holds at W; W-1 returns typed Work.
-Decompose W with operation-stage counters: the two leaf passes together charge
-one unit per distinct structural forwarding node, while leaf visits and the
-existing `text_profile` pin each keep their own charges. Preserve the pin
+This missing-leaf case ends after the count pass; measure its structural
+forwarding charges for that pass only. Separately supply every derived leaf
+with its selected law in an otherwise identical record. Require this lawful-leaf
+case to reach the second leaf pass and admit. Under a nonbinding limit measure
+its total work L and per-pass structural-forwarding counters: the first pass
+charges one unit per distinct forwarding node and the second adds zero for
+already resolved nodes. It still charges each pass's leaf visits and the
+existing `text_profile` pin independently. Admission holds at L; L-1 returns
+typed Work. Preserve the pin
 control by verifying that the first lookup of each pin-chain node charges one
 unit and repeated pin lookups in the same walk charge zero; measure its
 exact/one-less boundary independently of the structural-resolution counter. Build otherwise valid applications
