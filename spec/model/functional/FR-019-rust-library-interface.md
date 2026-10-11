@@ -146,6 +146,11 @@ provisional self selector is not a verified semantic identity. The explicit cano
 validation or body-copy memory. Reader admission remains required after
 final-key/reference substitution.
 
+The pre-read structural identity items in
+[FR-048](./FR-048-derive-structural-and-group-candidates.md) borrow an ordered
+draft graph and return candidate structural keys and recursion-group labels
+under explicit byte and work ceilings. They do not admit the assembled wire.
+
 ### Public items
 
 These are the items the `quire_contract_model` crate root exports in a
@@ -167,6 +172,7 @@ of the item and are not listed separately.
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSemanticId`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `JsonPointer` | FR-038 |
 | `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedDomainPackageRef`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageIdentityPreimageV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constants `CHECKED_PACKAGE_V2`, `DOMAIN_PACKAGE_DIGEST`, `PACKAGE_DOMAIN_V2` | FR-038, FR-040 |
 | `checked_package` (V2 candidate application identity) | function `derive_application_node_id`; types `ApplicationNodeDraft`, `ApplicationIdentityContext`, `CandidateApplicationNodeId`, `ApplicationIdentityError` | FR-046 |
+| `checked_package` (V2 candidate structural identity) | function `derive_structural_candidates`; types `StructuralCandidates`, `CandidateStructuralNodeId`, `CandidateRecursionGroupLabel`, `StructuralCandidateError` | FR-048 |
 | `checked_package` (V2 scalar operands) | types `CheckedScalarOperand`, `CheckedScalarOperandChild`, `CheckedScalarOperandError`, `CheckedScalarOperandRange` | FR-038 |
 | `checked_package` (V2 clause comparisons) | types `CheckedClauseComparison`, `CheckedComparisonClauseKind`, `CheckedComparisonError`, `CheckedComparisonObservation`, `CheckedComparisonOperand`, `CheckedComparisonOperandIdentity`, `CheckedComparisonOperandKind`, `CheckedComparisonOperator`, `CheckedComparisonPath`, `CheckedComparisonRead`, `CheckedComparisonRefusal` | FR-038 |
 | `checked_package` (V2 composite operands) | types `CheckedAuthoredCompositeDomain`, `CheckedCanonicalIntegerBound`, `CheckedCompositeChildEdge`, `CheckedCompositeDomainKey`, `CheckedCompositeDomainPosition`, `CheckedCompositeOperand`, `CheckedCompositeOperandDomain`, `CheckedCompositeOperandError`, `CheckedCompositeOperands`, `CheckedCompositeShapeEntry`, `CheckedUnsupportedCompositeOperand` | FR-038 |

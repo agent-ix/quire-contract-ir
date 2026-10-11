@@ -7,6 +7,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-048
+    type: verifies
   - target: ix://agent-ix/quire-specification/TC-217
     type: references
 ---
@@ -1921,3 +1923,66 @@ The implementation and focused checks have passed. Bind tests by `Trace: FR-046-
    canonical nonrecursive disposal for owned test/production Values. These
    malformed deep drafts are candidate-path controls, never reader-admission
    evidence, and create no new input-depth limit.
+
+## Pre-read structural and recursion-group candidates (FR-048)
+
+Planned for IR-763; no tagged implementation evidence is claimed. Verify
+[FR-048](../../model/functional/FR-048-derive-structural-and-group-candidates.md),
+AC-1 through AC-5, through the public model API and production
+`CheckedPackageV2::read`. Bind each future test to its `FR-048-AC-N` criterion.
+The reader's existing structural-key and group-label derivation is the oracle;
+the fixture builder shall not implement or copy its private preimage.
+
+1. Before a read, call `derive_structural_candidates` on complete ordered
+   typed drafts. Cover an owner-free `reference`, `option`, collection,
+   `integer_range` and `collection_bounds`, then a source-owned declaration
+   and an undeclared model-owned relationship. Replace provisional IDs and
+   matching references with returned candidates, refresh the existing
+   projection and package identity, and assert admission with exactly those
+   IDs. Change owner, declaration, semantic type, body and one outside-group
+   target independently. Re-derive and assert a changed candidate where the
+   rule binds that field; retain the old key in separately assembled wire
+   and assert the reader's exact `invalid_package`/`stale-node-key` refusal
+   and derived expected key. Do not change the existing negative fixture
+   oracles. This covers AC-2 and the admission part of AC-1.
+2. Assemble one admissible recursion group with structural and application
+   members and one labelled member outside the names cycle. Retain a
+   provisional common label solely to select its draft members. Assert the
+   returned group label is derived from every member-local digest in graph
+   order and the returned structural keys bind that new label. Replace label,
+   keys and matching internal references together, refresh dependencies,
+   projection and package identity, and assert reader admission. Permute
+   members and re-derive: ordinal-dependent keys and label change; the fully
+   refreshed wire is judged by the reader's existing wire-order rules.
+   Independently change a member body, retain an old member key, and corrupt
+   only the final label; assert the existing first-pass stale-key and
+   second-pass stale-label outcomes at their specified retained member and
+   order. This covers AC-3 without adding an SCC rule.
+3. Give the helper repeated provisional keys, an unknown tag/form, each
+   closed-shape defect of the required bounded/composite forms (wrong
+   self-type, missing/extra/reordered member, wrong Integer literal type,
+   noncanonical signed or negative collection bound), a nonempty or grouped
+   undeclared model relationship, and a group with a nominal or separately
+   keyed correspondence member. Match the exact typed error variant and
+   node/position payload; assert no partial candidate result and unchanged
+   drafts. None of these cases claims reader admission or changes a reader
+   negative oracle. This covers AC-4.
+4. Measure the successful canonical preimage byte count C through the
+   production encoder. At limits C and C+1 assert the same candidate; at C-1
+   and zero assert the retained typed canonical error and no candidate.
+   Measure the smallest successful work ceiling W for graph comparisons,
+   membership, term visits and digest operations; W succeeds and W-1
+   returns typed work exhaustion with its limit, consumed count and first
+   unpayable graph position. Place a reader work exhaustion before a later
+   stale key and assert the existing reader precedence remains. This covers
+   the bounded and refusal parts of AC-5.
+5. On a 256 KiB stack, build and dismantle a deeply nested in-memory draft
+   iteratively, including a grouped reference rewrite. Under sufficient
+   limits assert a candidate; under a tiny byte or work limit assert the
+   precise typed refusal without recursive traversal or temporary cleanup.
+   These deep drafts need not be reader-admissible. Inspect the code for one
+   shared structural preimage/encoder, checked counters, private candidate
+   fields, and no new reader charge, fallback hash or copied rule. This
+   completes AC-5; the compiled public inventory and error matching for AC-1
+   are also covered by
+   [TC-058](../../model/matrix/TC-058-model-crate-public-interface.md).
