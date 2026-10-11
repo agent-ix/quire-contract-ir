@@ -63,3 +63,9 @@ Examined the frozen FR-038, TC-048 and TestMatrix delta against QSpec FR-322-AC-
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The prose requires result-form checking for every catalogued application, but AC-223 and TC-048 cover only the two IEEE conversion entries. The current reader explicitly skips general result_forms checks. Either scope the normative clause to those entries or add discriminating cases for the remaining result forms. | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:3380-3385 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | e69446fd1a7dbfdbaf76e16c899c29755fffc70d — The normative result-form sentence now names only to_float32 and to_float64, matching AC-223 and TC-048. |

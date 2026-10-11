@@ -67,3 +67,9 @@ Examined the frozen FR-038, TC-048 and TestMatrix delta against QSpec FR-322-AC-
 ## Advisor
 
 The installed `quoin advise --json` reports `authored: Test`, `mismatch: false` for FR-038-AC-222 and FR-038-AC-223. Public-reader test evidence remains planned and unrun.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | e69446fd1a7dbfdbaf76e16c899c29755fffc70d — AC-223 and TC-048 now co-vary the containing root semantic_type with each mutated result_type, require equality at the root, and independently rederive affected node, reference, identity-projection and package identities. The separate root mismatch can no longer satisfy either adverse case. |
