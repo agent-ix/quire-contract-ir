@@ -111,12 +111,14 @@ existing joined and ordered but unresolved name behavior. A record field
 entry without a recoverable selected record declaration SHALL NOT be admitted
 as an unresolved name.
 
-Operation members are not field candidates. An unrecovered owner refuses with that
-resolution's own refusal (`missing_declaration`/`missing-selection` or
-`invalid_package`/`stale-node-key`), no field of that name as
-`missing_declaration`/`missing-name`, and two or more as
-`ambiguous_declaration`/`ambiguous-name`. These are FR-340 frame-entry
-refusals at the entry; an unknown name in an expression `field` projection
+Operation members are not field candidates. An unselected or wrong-kind
+record owner refuses `missing_declaration`/`missing-selection`, and a stale
+record declaration key refuses `invalid_package`/`stale-node-key`, at
+FR-322's derived-shape owner/key stage before the frame step. Once that
+stage admits the declaring node, no effective field of the entry's name
+refuses `missing_declaration`/`missing-name`, and two or more refuse
+`ambiguous_declaration`/`ambiguous-name`, each as a FR-340 frame-entry
+refusal at the entry. An unknown name in an expression `field` projection
 remains FR-322's separate `ill_typed`/`operator-ineligible` refusal at the
 operation's member name. Owner indexing and effective-field lookup SHALL
 use the existing selected-model read stage and work meter, with no new
