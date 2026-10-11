@@ -994,9 +994,10 @@ reader runs FR-322's four steps:
    digest, the check that the document holds no number whose text denotes a magnitude past 2^53, the
    recomputed RFC 8785 SHA-256 and the document's own identity, in
    that order (class 4 above). The reader then reads the
-   document's object types, systems interfaces, integer value types and
-   relationships, node by node in ascending IR node identity, and refuses with
-   the first declaration refusal at the row (`/lock/model_selections/<i>`).
+   document's object types, record value types, systems interfaces, integer
+   value types and relationships, node by node in ascending IR node identity,
+   and refuses with the first declaration refusal at the row
+   (`/lock/model_selections/<i>`).
    Within one node its failures report in FR-154's table order (a `typeRef`
    naming no node before a multiplicity with `lower > upper`), and a reference
    to a node refused for its own object id, kind or repeated identity is not
