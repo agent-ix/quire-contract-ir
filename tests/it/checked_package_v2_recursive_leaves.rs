@@ -372,6 +372,16 @@ fn type_id(package: &Value, form: &str) -> Value {
         .clone()
 }
 
+fn scalar_id(package: &Value, form: &str) -> Value {
+    package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == form)
+        .expect("scalar type")["node_id"]
+        .clone()
+}
+
 /// Trace: FR-038-AC-228
 #[trace("FR-038-AC-228")]
 #[test]
@@ -421,6 +431,23 @@ fn residual_operand_source_reads_value_type_and_direct_type_references() {
             );
         }
     }
+}
+
+/// Trace: FR-038-AC-228
+#[trace("FR-038-AC-228")]
+#[test]
+fn residual_operand_source_reads_option_none_literal_type() {
+    let (mut option_package, _) = equality_package(vec![option_of("r", "integer")], "r", vec![]);
+    let option_id = type_id(&option_package, "option");
+    edit_application(&mut option_package, |node| {
+        let none = json!({"term":"literal","type":option_id,"value_kind":"none","value":null});
+        node["body"]["arguments"] = json!([none.clone(), none]);
+    });
+    let result = read(&option_package, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
 }
 
 /// Trace: FR-038-AC-231
@@ -513,6 +540,51 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
                 &application,
             ),
             "{form} without its text leaf"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-231
+#[trace("FR-038-AC-231")]
+#[test]
+fn residual_flatten_sequence_result_does_not_compare_its_ieee_element() {
+    for ieee in ["float32", "float64"] {
+        let (mut package, _) = equality_package(
+            vec![
+                scalar(ieee, ieee),
+                collection_of("inner", "sequence", ieee),
+                collection_of("outer", "sequence", "inner"),
+            ],
+            "outer",
+            vec![],
+        );
+        let ieee_id = scalar_id(&package, ieee);
+        let inner_id = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "composite_type"
+                    && node["semantic_form"] == "sequence"
+                    && node["body"]["members"][0]["target"] == ieee_id
+            })
+            .expect("inner sequence")["node_id"]
+            .clone();
+        edit_application(&mut package, |node| {
+            let argument = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!("collection");
+            node["semantic_type"] = inner_id.clone();
+            node["body"]["operator"] = json!("collection");
+            node["body"]["operation"]["identity"] = json!("quire.op.collection.flatten");
+            node["body"]["result_type"] = inner_id;
+            node["body"]["arguments"] = json!([argument]);
+        });
+        assert!(
+            matches!(
+                read(&package, CheckedPackageReadLimits::bounded()),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "flatten over sequence<{ieee}> has no compared leaf source"
         );
     }
 }
