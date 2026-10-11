@@ -25,8 +25,12 @@ context accessor or reusing its bound selection.
 
 For separate reader-admissible packages, exercise no conversion, one direct
 conversion, two conversions to one target, two distinct targets, a conversion
-with a second reference consumer, and an unrelated reference only. Exercise
-wrong form, unreadable target and scalar type mismatch at the private
+with a second reference consumer, an unrelated reference only, and an
+expression directly typed by a bounded domain both with and without a reverse
+conversion, plus a direct bounded domain of the wrong expected form. Exercise
+one valid plus one wrong-form or incompatible conversion,
+including where valid conversions name two distinct bounds. Exercise wrong
+form, unreadable target and scalar type mismatch at the private
 post-admission seam only when the public reader would already refuse that
 shape; assert the reader's independent refusal first. Exercise non-lowered,
 unrequested and absent keys, plus post-admission inconsistent source/body
@@ -43,8 +47,8 @@ requested key and expected form, with no original checked graph.
 ## Expected Results
 
 The QSL positive returns the exact result bound `[0, 10]`, while the operand
-bound remains `[0, 9]`. The other cases produce the exact `Unnarrowed`,
-`Narrowed`, `MissingBound`, `AmbiguousBound`, non-lowered, absent or typed error
+bound remains `[0, 9]`. The other cases produce the exact `DirectBounded`,
+`Unnarrowed`, `Narrowed`, `MissingBound`, `AmbiguousBound`, non-lowered, absent or typed error
 outcomes in FR-049, without a partial or guessed bound. Selected external
 references retain their package/key identity and never resolve through a
 local collision. Source/provenance is exact. The FR-330 wire, identity and

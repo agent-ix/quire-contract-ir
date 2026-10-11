@@ -35,20 +35,25 @@ supported scalar range form). The caller supplies no original
 A typed result distinguishes `Lowered`, the exact non-lowered request
 disposition, and `Absent`, as [FR-035](./FR-035-complete-v1-contract-package-lowering.md)
 does. A lowered result includes the existing reached closure and exactly one
-reverse-context outcome:
+result-context outcome:
 
-- `Unnarrowed`: no local body reference consumes the expression as a
-  qualifying numeric narrowing conversion.
+- `DirectBounded`: the requested expression's own admitted `semantic_type` is
+  a readable bounded domain of the expected form. Its typed key, admitted node
+  and source occurrences are the result bound; reverse consumers do not select
+  a different bound.
+- `Unnarrowed`: a scalar-typed expression has no local conversion-shaped
+  candidate targeting its exact key. Other consumers alone do not supply a
+  reverse result bound.
 - `Narrowed`: one distinct admitted bounded-domain key of the expected form,
-  its exact admitted node and source occurrences, and the qualifying conversion
-  key or keys with their source occurrences. Repeated qualifying conversions to
+  its exact admitted node and source occurrences, and the valid conversion
+  key or keys with their source occurrences. Repeated valid conversions to
   the same bound do not create distinct bounds.
-- `MissingBound`: a qualifying conversion exists but its admitted target is not
-  a readable bounded domain of the expected form over the expression's scalar
-  type.
-- `AmbiguousBound`: qualifying conversions name distinct target bounds, or a
-  qualifying conversion and another local body-reference consumer both use the
-  expression.
+- `MissingBound`: the direct bounded type has the wrong form, or at least one
+  conversion-shaped candidate has no readable admitted bounded-domain target
+  of the expected form over the expression's scalar type.
+- `AmbiguousBound`: valid conversion-shaped candidates name distinct target
+  bounds, or any conversion-shaped candidate and another local body-reference
+  consumer both use the expression.
 
 An inconsistent admitted graph, failed shared body validation, or exhausted
 declared work limit returns the existing typed view error without a partial
@@ -60,26 +65,34 @@ consumer may then apply its separately specified forward-closure result rule.
 
 For a lowered expression typed by a scalar type, Contract IR SHALL inspect
 local consumers whose validated bodies contain a `reference` term targeting
-the exact requested key. A qualifying consumer is an `expression` of form
+the exact requested key. A conversion-shaped candidate is an `expression` of form
 `conversion` whose `convert` application has operation identity exactly
 `quire.op.numeric.narrow` and one argument, a direct reference to that key.
-Its result type SHALL name the admitted bounded-domain target. The bound's
-semantic type SHALL equal the requested expression's scalar type. Contract IR SHALL
-classify these references using its admitted operation, body and type knowledge;
-references; a nonqualifying reference is another consumer, never an inferred
-narrowing. Other graph edges, including `semantic_type`, `dependencies`, and
+Contract IR SHALL classify candidates from that shape before checking their
+result targets. A candidate is valid only if its result type names a readable
+admitted bounded-domain target of the expected form whose semantic type equals
+the requested expression's scalar type. Contract IR SHALL classify these
+references using its admitted operation, body and type knowledge. A reference
+that is not conversion-shaped is another consumer, never an inferred narrowing.
+Other graph edges, including `semantic_type`, `dependencies`, and
 source-map occurrences, do not themselves count as consumers.
 
 Where the requested expression is itself typed by an admitted bounded domain,
-Contract IR SHALL give that direct result type precedence. The reverse context SHALL NOT
-replace its bound. For a scalar-typed expression with qualifying conversions,
-Contract IR SHALL return `Narrowed` only for one distinct compatible target
-bound and no other local body-reference consumer. A wrong-form, unreadable or
-type-incompatible target SHALL return `MissingBound`; mixed consumers or
-distinct compatible bounds SHALL return `AmbiguousBound`. Ambiguity SHALL take
-precedence over selecting any one conversion's bound. In the absence of a
-qualifying conversion, Contract IR SHALL return `Unnarrowed`, even when other
-consumers exist. This does not assign a result bound from an operand's bound.
+Contract IR SHALL return `DirectBounded` with that direct type as its result
+bound when it has the expected readable form, regardless of reverse consumers.
+When that direct type has the wrong or unreadable form, Contract IR SHALL return
+`MissingBound` with the direct type key; a consumer's target SHALL NOT replace
+the direct type. For a scalar-typed expression, Contract IR SHALL apply this
+precedence after collecting local body-reference consumers: no
+conversion-shaped candidate returns `Unnarrowed`; any candidate together with
+another non-candidate consumer returns `AmbiguousBound`; otherwise any
+candidate with an invalid target returns `MissingBound`; otherwise two or more
+distinct valid target keys return `AmbiguousBound`; otherwise one distinct
+valid target returns `Narrowed`. Thus one valid and one invalid candidate
+return `MissingBound`, including when valid candidates also name distinct
+bounds. A wrong-form, unreadable or scalar-type-incompatible target is invalid;
+none can be silently omitted to choose a valid sibling. None of these outcomes
+assigns a result bound from an operand's bound.
 
 The result SHALL retain the exact selected source package identity, lowering
 profile, requested key, conversion keys, bound key and source-map occurrences
@@ -104,9 +117,9 @@ second codegen graph traversal is part of this contract.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-049-AC-1 | A reader-admitted QSL package from `function f using v(a: Int[0, 9]): Int[0, 10] pure { a + 1 }`, requested by the exact `quire.op.integer.add` expression key, returns a lowered context whose qualifying `numeric.narrow` conversion identifies result bound `Int[0, 10]`; the operand's `Int[0, 9]` bound remains separately present and is not returned as the result bound. Independent QSL source and range assertions establish both intervals. | Test |
-| FR-049-AC-2 | An admitted scalar expression with no qualifying local conversion returns `Unnarrowed` with no result-bound key; one valid conversion returns `Narrowed` with the exact conversion and target keys, while duplicate valid conversions to that same target retain one distinct bound and all conversion keys in typed-key order. | Test |
-| FR-049-AC-3 | Two qualifying conversions to distinct target bounds, or one qualifying conversion plus another local body-reference consumer, return `AmbiguousBound` without choosing an operand bound or any one target; a sole conversion with wrong bound form, unreadable target or mismatched scalar type returns `MissingBound`, and an otherwise nonqualifying reference cannot be promoted to a narrowing. | Test |
+| FR-049-AC-1 | A reader-admitted QSL package from `function f using v(a: Int[0, 9]): Int[0, 10] pure { a + 1 }`, requested by the exact `quire.op.integer.add` expression key, returns a lowered context whose valid `numeric.narrow` conversion identifies result bound `Int[0, 10]`; the operand's `Int[0, 9]` bound remains separately present and is not returned as the result bound. Independent QSL source and range assertions establish both intervals. | Test |
+| FR-049-AC-2 | An expression directly typed by a readable admitted bounded domain of the expected form returns `DirectBounded` with that exact type key and sources, both with and without a reverse conversion; a wrong-form direct type returns `MissingBound` with its own key. A scalar-typed expression with no conversion-shaped candidate returns `Unnarrowed` with no result-bound key; one valid candidate returns `Narrowed` with the exact conversion and target keys, while duplicate valid candidates to that same target retain one distinct bound and all conversion keys in typed-key order. | Test |
+| FR-049-AC-3 | For a scalar-typed expression, two valid candidates to distinct target bounds, or any candidate with another non-candidate body-reference consumer, return `AmbiguousBound`. A sole candidate with wrong bound form, unreadable target or mismatched scalar type returns `MissingBound`; one valid and one invalid candidate also return `MissingBound`, even beside distinct valid targets. No case chooses an operand bound or promotes a non-candidate reference to a narrowing. | Test |
 | FR-049-AC-4 | A non-lowered requested key returns its exact typed disposition; an unrequested or absent key returns typed absence, including when the key occurs in another root's closure. An inconsistent post-admission body/source edge or exhausted work limit returns the existing typed view error with no partial context. | Test |
 | FR-049-AC-5 | The result identifies the exact requested key, source package and lowering profile, and returns admitted source-map occurrences for its expression, conversion and bound. A selected external reference retains its selected package/key pair; an identically keyed local node cannot satisfy it, and an unavailable selected package or target is refused at reader admission rather than yielding a guessed local bound. | Test |
 | FR-049-AC-6 | Querying all outcomes leaves the six FR-330 wire fields and canonical identity byte-for-byte unchanged; the preexisting `reached_closure` key set does not grow to include a reverse consumer, and CG can consume the typed context without an original checked graph or a second lowering pass. | Test |
