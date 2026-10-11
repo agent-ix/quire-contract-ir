@@ -23,3 +23,9 @@ Ticket IR-770. Reviewed the four-file PR diff against QSpec origin/main 8f63cb2 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The new sentence says all three listed refusals, including an unrecovered or stale record owner, are FR-340 frame-entry refusals at the entry. Current QSpec FR-322 and FR-340 instead reject missing-selection or stale-node-key at the earlier derived-shape owner/key stage, before any frame entry is checked. AC-16 itself preserves that pre-frame precedence. Limit the at-entry rule to missing and ambiguous field names, and locate owner/key refusals at the earlier node/key stage. | spec/checked_package/functional/FR-040-admit-frame-entries-and-state-clauses.md:114 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | ee4185b667c3bca00ed274023af52e6d8cea6cca |
