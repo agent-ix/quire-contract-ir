@@ -187,13 +187,16 @@ kind/type check. Each must refuse `ill_typed` with cause
 locus, rather than admit or refuse at the enclosing `/arguments/{i}`.
 
 For each conversion identity, retain the valid destination `type_argument`
-but change `result_type` to the source-width type node. Separately change
-both `type_argument` and `result_type` to that source-width node. The first
+but change `result_type` and the enclosing root node's `semantic_type`
+together to the source-width type node. Separately change `type_argument`,
+`result_type` and that root node's `semantic_type` together to the source-width
+node. The root `result_type` equals its node's `semantic_type` in both adverse
+packages, so the separate root-mismatch rule cannot decide either case. The first
 mutation isolates the catalog's `member` result form; the second isolates its
 `member_family` constraint. Each must refuse `ill_typed` with cause
 `operator-ineligible` at the application's `/result_type`, with its containing
 node as locus. The valid cross-width packages must still admit. Derive every
-changed node key, reference, identity projection and package id afresh through
+affected node key, reference, identity projection and package id afresh through
 the public vocabulary before each read; a stale identity refusal, private
 helper result or synthetic post-admission graph does not satisfy these cases.
 Compare typed code, cause, pointer and locus, without parsing diagnostic prose.
