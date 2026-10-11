@@ -774,6 +774,29 @@ pub fn structural_key(
     sha256_hex(&canonical(&preimage))
 }
 
+/// The same structural preimage for fixture nodes with an owner or declaration.
+/// Model declarations and source declarations must include those members in
+/// their key; the anonymous helper above deliberately leaves them absent.
+fn owned_structural_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: Option<&str>,
+    owner: Value,
+    declaration: Value,
+) -> String {
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": node_tag,
+        "semantic_form": semantic_form,
+        "semantic_type": semantic_type.map_or(Value::Null, node_id),
+        "owner": owner,
+        "declaration": declaration,
+        "recursion": Value::Null,
+        "body": empty_aggregate(),
+    });
+    sha256_hex(&canonical(&preimage))
+}
+
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
 /// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
 pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
@@ -893,11 +916,9 @@ pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
 }
 
 /// The exact 64-hex-digit node key this generator assigns to a family or
-/// supporting node's `prefix` in [`build_v2_all_families`]: `prefix.repeat(16)`
-/// for every plain node, except the four whose body is a real `application`
-/// term (`ffff`/`4040`/`5050`/`6060` — the function/temporal/protocol/claim
-/// families), whose node key must be the actual [`application_key`] of their
-/// own preimage or the reader refuses them as `stale-node-key`.
+/// supporting node's historical `prefix` in [`build_v2_all_families`].
+/// Structural and application nodes use the keys of their respective
+/// preimages; forms outside those stages retain their fixture identity.
 /// `tests/checked_package_v2_lowering.rs`'s own `key()` calls this directly,
 /// so the fixture and the test that indexes it by prefix can never drift.
 pub fn family_key(prefix: &str) -> String {
@@ -950,6 +971,27 @@ pub fn family_key(prefix: &str) -> String {
             &over_body(&family_key("aaaa")),
         ),
         "cccc" => integer_range_key("0", "1000"),
+        "1010" => structural_key(
+            "model",
+            "namespace",
+            Some(&boolean_key()),
+            &empty_aggregate(),
+        ),
+        "1616" => structural_key("model", "process", Some(&boolean_key()), &empty_aggregate()),
+        "2020" => owned_structural_key(
+            "relation",
+            "relationship",
+            None,
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_RELATIONSHIP),
+            Value::Null,
+        ),
+        "1515" => owned_structural_key(
+            "model",
+            "object_type",
+            None,
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
+            Value::Null,
+        ),
         "3030" => structural_key(
             "state",
             "snapshot",
@@ -962,11 +1004,12 @@ pub fn family_key(prefix: &str) -> String {
             Some(&boolean_key()),
             &empty_aggregate(),
         ),
-        "8080" => structural_key(
+        "8080" => owned_structural_key(
             "function",
             "pure_function",
             Some(&boolean_key()),
-            &empty_aggregate(),
+            source_owner(&fixture_source()),
+            json!({"qualified_name": ["Example", "Function"]}),
         ),
         "a1a1" => structural_key("scalar_type", "text", None, &empty_aggregate()),
         "dddd" => structural_key("value", "literal", Some(&boolean_key()), &empty_aggregate()),
@@ -1573,7 +1616,8 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
 }
 
 /// Builds `v2_all_families()`: one node per V2 semantic-node family (in
-/// `CheckedNodeTag::ALL` order, positions 0-12, keyed `aaaa`.."7070"), plus
+/// `CheckedNodeTag::ALL` order, positions 0-12, identified by the historical
+/// `aaaa`..`7070` prefixes through [`family_key`]), plus
 /// four supporting nodes the family nodes' own required members reference —
 /// a second `pure_function` the `function` family's real `application`
 /// argument names, the source-declared `object_type` (`Example::Account`,
@@ -1688,14 +1732,11 @@ fn build_v2_all_families() -> Value {
                 &f2020,
                 "relation",
                 "relationship",
-                &aaaa,
+                &f2020,
                 &[aaaa.as_str()],
                 empty_aggregate(),
             );
-            relation["owner"] = json!({
-                "kind": "model", "identity": FAMILY_MODEL_IDENTITY,
-                "node": FAMILY_RELATIONSHIP,
-            });
+            relation["owner"] = model_owner(FAMILY_MODEL_IDENTITY, FAMILY_RELATIONSHIP);
             relation
         },
         plain_node(
@@ -1758,7 +1799,7 @@ fn build_v2_all_families() -> Value {
             ),
             &["Example", "Function"],
         ),
-        declared(
+        owned_structural_node(
             plain_node(
                 &f1515,
                 "model",
@@ -1767,7 +1808,7 @@ fn build_v2_all_families() -> Value {
                 &[aaaa.as_str()],
                 empty_aggregate(),
             ),
-            &["Example", "Account"],
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
         ),
         plain_node(
             &f1616,
