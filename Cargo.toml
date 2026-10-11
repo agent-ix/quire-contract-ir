@@ -26,6 +26,13 @@ name = "conformance_qspec"
 path = "tests/conformance_qspec/main.rs"
 test = false
 
+# FR-038-AC-214: 177 MB fixture and three isolated reader processes.
+# Explicitly invoked for the memory gate, excluded from ordinary `make test`.
+[[test]]
+name = "ir575_reader_memory"
+path = "tests/ir575_reader_memory.rs"
+test = false
+
 [dependencies]
 quire-contract-model = { version = "=0.1.0", path = "crates/quire-contract-model" }
 serde = { version = "1.0.228", features = ["derive"] }
