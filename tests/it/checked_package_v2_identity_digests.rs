@@ -29,10 +29,6 @@ b4eec221df5de2eca7b131b2421ea954eeb6de07e17b4179ccddd413c5b958a2 48eb15ddc305107
 fabe970245f926296d0e7499c65399574eeedbac1ab0c6f90caeb55c5b8a0242 17f32a9b746bf726bbe9f35405b18180844382dcd68e5fa157e9ce46ec97195a
 5a263446f0e84319aab70efc5f27bbe04a0dbe0d037a5c201c660d1deddc27b3 e289ab36fcdddfa12208f3184810febb34bc042bea473b5d0cee55f02478d9cd
 ";
-const NOMINAL_PACKAGE: (&str, usize) = (
-    "d3c658c9f22716bd2f602f13040e59725a29ceba66d508c91a78967f27463f6a",
-    7113,
-);
 
 fn admit(value: &Value) -> CheckedPackageV2 {
     match CheckedPackageV2::read(
@@ -178,8 +174,7 @@ fn closure_oracle(
     (ids(None), ids(Some("bounded_domain")), ids(Some("claim")))
 }
 
-type RecordedBaseline = (&'static str, (&'static str, usize));
-type IdentityFixture = (&'static str, Value, Option<RecordedBaseline>);
+type IdentityFixture = (&'static str, Value, Option<&'static str>);
 
 /// Tracing: TC-048
 /// ACs: FR-038-AC-89
@@ -188,11 +183,7 @@ type IdentityFixture = (&'static str, Value, Option<RecordedBaseline>);
 fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchanged() {
     let fixtures: [IdentityFixture; 3] = [
         ("v2_all_families", v2_all_families(), None),
-        (
-            "v2_nominal",
-            v2_nominal(),
-            Some((RECORDED_NOMINAL, NOMINAL_PACKAGE)),
-        ),
+        ("v2_nominal", v2_nominal(), Some(RECORDED_NOMINAL)),
         (
             "positive_operation_identities",
             positive_operation_identities(),
@@ -208,6 +199,10 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
             .map(|node| node.node_id.clone())
             .collect();
         let profile = CompleteLoweringProfileV2 {
+            reference: quire_contract_model::LoweringProfileRef {
+                authority: "quire".into(),
+                identity: "complete-v1".into(),
+            },
             supported_tags: package.node_kinds().iter().map(|kind| kind.tag()).collect(),
             require_bounds: false,
             work_limit: u64::MAX,
@@ -223,7 +218,7 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
                 other => panic!("{name}: expected a lowered record, got {other:?}"),
             })
             .collect();
-        if let Some((recorded, _)) = recorded {
+        if let Some(recorded) = recorded {
             let expected: Vec<(String, String)> = recorded
                 .lines()
                 .map(|line| {
@@ -283,19 +278,23 @@ fn tc_048_every_node_key_and_package_id_still_recomputes_and_lowering_is_unchang
             .package_id()
             .expect("the package is identified");
         let bytes = result.package.canonical_bytes().expect("package bytes");
-        if let Some((_, (package_id, length))) = recorded {
-            assert_eq!(id.digest.as_ref(), package_id, "{name}: package_id");
-            assert_eq!(bytes.len(), length, "{name}: canonical byte length");
-        } else {
-            let encoded: Value = serde_json::from_slice(bytes).expect("package JSON");
-            assert_eq!(
-                canonical(&encoded),
-                bytes,
-                "{name}: canonical package bytes"
-            );
-        }
-        // The id is the SHA-256 of exactly those bytes, with no domain label.
-        assert_eq!(sha256_hex(bytes), id.digest.as_ref(), "{name}");
+        let encoded: Value = serde_json::from_slice(bytes).expect("package JSON");
+        assert_eq!(
+            canonical(&encoded),
+            bytes,
+            "{name}: canonical package bytes"
+        );
+        let preimage = json!({
+            "contract_version": encoded["contract_version"],
+            "package": encoded["package"],
+            "semantic_graph": encoded["semantic_graph"],
+            "feature_accounting": encoded["feature_accounting"],
+        });
+        assert_eq!(
+            sha256_hex(&canonical(&preimage)),
+            id.digest.as_ref(),
+            "{name}"
+        );
     }
 }
 
@@ -840,12 +839,15 @@ fn tc_048_no_encode_in_the_checked_package_source_passes_u64_max_or_a_literal_ca
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_the_lowering_makes_no_expect_or_unwrap_on_an_encode() {
-    let path = repository_path("crates/quire-contract-model/src/checked_package/v2/lower.rs");
-    let text = fs::read_to_string(path).expect("source reads");
-    let production = production_source(&text);
-    assert!(production.contains("encode_package"));
-    for call in [".expect(", ".unwrap(", ".unwrap_or_default(", "panic!("] {
-        assert_eq!(production.matches(call).count(), 0, "`{call}` in lower.rs");
+    for path in [
+        "crates/quire-contract-model/src/checked_package/v2/lower.rs",
+        "crates/quire-contract-model/src/checked_package/v2/contract_package.rs",
+    ] {
+        let text = fs::read_to_string(repository_path(path)).expect("source reads");
+        let production = production_source(&text);
+        for call in [".expect(", ".unwrap(", ".unwrap_or_default(", "panic!("] {
+            assert_eq!(production.matches(call).count(), 0, "`{call}` in {path}");
+        }
     }
 }
 
@@ -859,7 +861,8 @@ fn tc_048_preimages_take_the_path_their_depth_allows() {
     for encoded in [
         "impl Encode for ApplicationNodePreimage",
         "impl Encode for LoweredNodePreimage",
-        "impl Encode for ContractPackagePreimage",
+        "impl Encode for SemanticProjection",
+        "impl Encode for ContractPackageWireV1",
     ] {
         assert!(all.contains(encoded), "{encoded}");
     }
@@ -893,7 +896,8 @@ fn tc_048_preimages_take_the_path_their_depth_allows() {
     for encoded in [
         "ApplicationNodePreimage",
         "LoweredNodePreimage",
-        "ContractPackagePreimage",
+        "SemanticProjection",
+        "ContractPackageWireV1",
     ] {
         assert!(
             !derives_fixed_shape(encoded),

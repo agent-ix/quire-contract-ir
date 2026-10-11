@@ -13,8 +13,9 @@ relationships:
 ## Description
 
 Verify FR-035-AC-1 through FR-035-AC-4 against the FR-330 package contract and
-FR-322's selected-dependency and tagged-reference rules. The FR-330 emitter
-cases are planned and have not run.
+FR-322's selected-dependency and tagged-reference rules. Focused FR-330
+emitter and reader controls run in TC-047; the broader TC-044 cases remain
+to be verified against the completed change.
 
 ## Test Procedure
 
@@ -32,8 +33,7 @@ cases are planned and have not run.
    check that it cannot satisfy the external reference. Also omit the selected
    dependency package and test a wrong node in the selected admitted package.
 4. Replace a local semantic reference with a key naming an existing but
-   incompatible local node, and replace a protocol reference with a key naming
-   an existing non-`protocol` node. Test both a valid explicit FR-322
+   incompatible local node. Test both a valid explicit FR-322
    same-group recursion and a cycle with no common explicit group. Resolve
    each surviving local key and each external dependency reference at its
    specified boundary.
@@ -44,7 +44,7 @@ Exact items preserve meaning and source correspondence. Each refused item
 has one located record from the closed seven-member vocabulary and no
 substitute node or backend artifact. A single item mutation leaves independent
 siblings unchanged; exceeding the package byte ceiling fails every record.
-Wrong-family local and protocol targets refuse even when their keys exist.
+Wrong-family local targets refuse even when their keys exist.
 Stale, absent or wrong selected dependencies refuse without resolving through
 local nodes. Explicit same-group recursion admits as keyed references, while
 an undeclared cycle refuses. Every admitted local reference targets a

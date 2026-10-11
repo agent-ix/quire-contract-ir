@@ -362,6 +362,10 @@ fn tc_048_a_function_with_parameters_reads_and_lowers() {
     let lowered = admitted.lower(
         &every_node,
         &CompleteLoweringProfileV2 {
+            reference: quire_contract_model::LoweringProfileRef {
+                authority: "quire".into(),
+                identity: "complete-v1".into(),
+            },
             supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
             require_bounds: false,
             work_limit: 10_000,

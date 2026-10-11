@@ -232,6 +232,10 @@ fn admit(value: &Value) -> CheckedPackageV2 {
 
 fn bounded_profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
         require_bounds: true,
         work_limit: 100_000,
@@ -687,6 +691,10 @@ fn quantity_domain(name: &str, base: &str) -> (String, Value) {
 
 fn record_with(value: &Fixture, name: &str, require_bounds: bool) -> CompleteLoweringRecordV2 {
     let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         require_bounds,
         ..bounded_profile()
     };

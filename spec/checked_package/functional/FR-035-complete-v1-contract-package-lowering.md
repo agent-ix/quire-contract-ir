@@ -36,7 +36,9 @@ dependency packages, requested item set, lowering profile and resource limits.
 The package has exactly the FR-330 properties `contract_version`, `package`,
 `semantic_graph`, `source_map`, `feature_accounting` and `identity`.
 `contract_version` is exactly `quire.contract-package/v1`; `package` retains
-the originating checked-package identity and lock. `semantic_graph` is one
+the originating checked-package identity and lock and the explicit closed
+`LoweringProfileRef` `{authority, identity}` separately from the lock's source
+profile selections. `semantic_graph` is one
 key-ordered tagged-node collection containing all represented type,
 expression, model, relation, clause and analysis meaning. Node tags, typed
 keys, source occurrences and compatible reference targets follow QSpec
@@ -66,8 +68,7 @@ that node as exact represented meaning. Every local semantic-node reference SHAL
 name or array position. A `dependency_reference` SHALL retain its selected
 dependency package identity and resolve against that package's admitted graph
 under FR-322; its target SHALL NOT be flattened into this package's local
-graph. A protocol reference SHALL target a `protocol`-tagged node by key.
-An explicit FR-322 recursion group remains a valid keyed graph cycle, while
+graph. An explicit FR-322 recursion group remains a valid keyed graph cycle, while
 serialized values never embed recursive objects. An undeclared cycle refuses.
 
 The lowerer SHALL preserve scalar and composite types, bounded domains, typed
@@ -89,7 +90,7 @@ node (FR-038-AC-95).
 | FR-035-AC-1 | Each V1-BACK-001 through V1-BACK-004 and V1-BACK-014 requested item has exact represented meaning under its selected profile or one located record from the seven-member disposition vocabulary; no refusal creates substitute meaning. | Test |
 | FR-035-AC-2 | A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node. | Test |
 | FR-035-AC-3 | Mixed supported and refused requests retain one disposition each and independent sibling results, except the package byte ceiling fails every record under FR-038-AC-95. | Test |
-| FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; a protocol reference targets a `protocol`-tagged node; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
+| FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
 | FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission. | Test |
 
 ## Dependencies

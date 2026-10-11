@@ -77,6 +77,33 @@ pub(super) struct SuppliedDependencies<'e> {
 }
 
 impl<'e> SuppliedDependencies<'e> {
+    /// Index already admitted, selection-matched packages for another closed
+    /// reader that shares FR-322 dependency-reference semantics.
+    pub(super) fn from_admitted(
+        selections: &'e [CheckedDependencySelection],
+        admitted: &BTreeMap<&str, &'e CheckedPackageV2>,
+    ) -> Result<Self, usize> {
+        let mut packages = Vec::with_capacity(selections.len());
+        for (position, selection) in selections.iter().enumerate() {
+            let Some(package) = admitted.get(selection.identity.as_ref()).copied() else {
+                return Err(position);
+            };
+            let index = package
+                .graph()
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            packages.push(SuppliedDependency {
+                package_id: &selection.package_id,
+                package,
+                index,
+            });
+        }
+        Ok(Self { packages })
+    }
+
     /// The package supplied for the entry whose `package_id` is `package`.
     fn resolve(&self, package: &CheckedSemanticId) -> Option<&SuppliedDependency<'e>> {
         self.packages

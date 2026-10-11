@@ -125,12 +125,16 @@ pub use checked_package::{
     CheckedSourceRef, CheckedSourceRegion, CheckedUnsupportedCompositeOperand, ClaimForm,
     CompleteContractNodeV2, CompleteContractPackageV2, CompleteLoweringProfileV2,
     CompleteLoweringRecordV2, CompleteLoweringResultV2, CompositeTypeForm,
-    ContractPackageDependencyV2, CorrespondenceForm, DimensionPreimage, DimensionTerm,
-    EnumDeclarationPreimage, EnumMemberPreimage, ExpressionForm, FunctionForm, JsonPointer,
-    ModelForm, NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm,
-    StateForm, TemporalForm, UnitPreimage, ValueForm, CHECKED_PACKAGE_V2,
-    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION, DOMAIN_PACKAGE_DIGEST,
-    PACKAGE_DOMAIN_V2,
+    ContractBodyIncompleteV1, ContractBodyRefusalV1, ContractDependencies, ContractDependencyInput,
+    ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1,
+    ContractPackageDependencyV2, ContractPackageReadResult, ContractPackageV1,
+    ContractPackageWireV1, ContractProvenanceV1, ContractRefusalSourcesV1,
+    ContractRequestSourcesV1, ContractSemanticGraphV1, ContractSourceMapV1, ContractSourceV1,
+    CorrespondenceForm, DimensionPreimage, DimensionTerm, EnumDeclarationPreimage,
+    EnumMemberPreimage, ExpressionForm, FunctionForm, JsonPointer, LoweringProfileRef, ModelForm,
+    NominalIdentityPreimage, NominalOwner, ProtocolForm, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, UnitPreimage, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_IR_SEMANTIC_DOMAIN,
+    CONTRACT_PACKAGE_VERSION, DOMAIN_PACKAGE_DIGEST, PACKAGE_DOMAIN_V2,
 };
 pub use code::{Std001Code, Std001CodeError};
 pub use conformance::{

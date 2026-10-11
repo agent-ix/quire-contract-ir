@@ -2006,6 +2006,10 @@ fn tc_050_admitted_frame_and_state_clause_nodes_lower_under_a_state_profile() {
         other => panic!("expected admission, read {other:?}"),
     };
     let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         // Lowering needs every tag in a node's dependency closure supported,
         // so the profile admits each tag the package uses, state included.
         supported_tags: nodes(&value)
