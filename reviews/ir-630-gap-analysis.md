@@ -39,3 +39,16 @@ Ticket: IR-630. The computed matrix carries trace tags, but direct test-to-crite
 | TC-226 | examined | IR-630 owner-bearing, declared and labelled-group controls are PLANNED and UNRUN. |
 
 Plan completion: not assessed. The computed matrix was inspected; static trace presence does not discharge the specific behavior controls above.
+
+## Dispositions
+
+Round 1 reviewed `abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9`.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
+| FND-002 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
+| FND-003 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
+| FND-004 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
+| FND-005 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
+| FND-006 | fixed | abcdd3f1a52223fbc7d90835ffc02fe8fbde46e9 |
