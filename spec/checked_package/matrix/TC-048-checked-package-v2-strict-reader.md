@@ -736,6 +736,59 @@ and clone projections and pre/post package equality. API inspection checks the
 absence of drawn bound inputs, incoming-key validator, coverage verdict or obligation
 encoder. The structural.ne extension below is verified by separately tagged Ne assertions.
 
+## Bounded integer record literal inside a closed composite (FR-038-AC-232 through FR-038-AC-235)
+
+This IR-691 procedure is planned and unrun. Reuse TC-048 and tag each new
+behavioral test with its own FR-038 criterion id. First check and emit from
+fresh QSL FR-093 the concrete `record Point { x: Int[0,9]; }` and
+`function mk using v(): Point pure { Point { x: 3 } }`. Hand its emitted bytes
+and required-feature evidence directly to the production V2 reader. Require
+admission and inspect the admitted graph: the record-value binding `x` refers
+to one expression/conversion node with body-root `convert`/
+`quire.op.numeric.narrow`, `type_argument.declaration`, `result_type` and
+`semantic_type` all naming the actual `Int[0,9]` node, and its sole argument
+refers to the Integer-typed literal `3`. Retain this producer-origin control
+separately from the self-built comparison fixtures; no fixture bytes are copied
+from QSL into IR.
+
+1. Independently build and admit structural.eq and structural.ne packages
+   comparing that exact shaped record value with itself. Call the public
+   accessor at an authentic occurrence and assert the original record
+   GraphChild, record semantic type, ordinal, Literal disposition and no
+   introduced positions. At the private post-admission seam, assert the same
+   for a second record whose bounded integer literal and both canonical range
+   endpoints exceed i128; derive expected decimal values from the authored
+   inputs, without using the scalar accessor or a fixed-width conversion.
+   This private control does not claim public reader admission. Use min and
+   max boundary values as separate positive controls. This verifies AC-232
+   and the positive half of AC-233.
+2. At the private post-admission seam, mutate one wrapper, target or literal
+   member at a time: operator, identity-adjacent metadata, argument shape,
+   member target, result/semantic type, missing range, wrong Integer base,
+   noncanonical or inverted endpoints, wrong literal kind/type/spelling, and
+   values one below and one above the target. Assert `MalformedDomain` with
+   the enclosing ordinal and the exact first available type locus specified
+   by FR-038. These are defensive accessor controls; do not claim the
+   production reader admits a mutated package. A valid min/max control must
+   succeed, so merely accepting every `numeric.narrow` cannot pass AC-233.
+3. Substitute a parameter, another conversion, an unrelated application or
+   a value cycle below the wrapper. Assert the first offending node's actual
+   semantic type, enclosing ordinal and `NonliteralGraphValue`, with no
+   partial output. Keep direct parameter and closed tuple, Option,
+   collection and enum-value controls on their existing paths. Compare the
+   public reader's acceptance/refusal of the unmodified packages before and
+   after this accessor-only change. This verifies AC-234.
+4. Count a small fixture's graph resolutions, node and term/member visits,
+   copied range-endpoint bytes and examined literal bytes independently from
+   its authored shape. The literal's bytes are never copied to an output.
+   Call at the exact successful work limit, one less and zero; assert the
+   resulting consumed-work or `WorkLimit { limit, consumed }` values. Arrange
+   an exhausted charge before a malformed wrapper, an out-of-range literal
+   and a later operand defect, and assert WorkLimit precedence. Reorder the
+   admitted graph and assert equal content and logical work. Inspect the
+   public API and source for the unchanged type set and one existing walk/
+   meter owner. This verifies AC-235.
+
 ## Structural inequality operand extension (FR-038-AC-197 through FR-038-AC-201)
 
 The extension procedures are implemented by the TC-048 composite operand tests

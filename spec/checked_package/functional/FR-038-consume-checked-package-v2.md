@@ -3105,6 +3105,54 @@ and `Literal` disposition with no introduced positions. It shall not copy or
 reconstruct the literal value, or replace that singleton with its wider type's
 free positions. QSL owns the downstream parity domain and encoding decisions.
 
+For a record-value, tuple-value, collection-value or option-value subtree, one
+referenced `expression`/`conversion` node with a body-root
+`quire.op.numeric.narrow` application SHALL be recognized as a closed integer
+literal only under the following complete rule. Its `operator` is `convert`;
+`operation` has exactly identity `quire.op.numeric.narrow`, `laws: []`,
+`leaves: []`, `mode: null`, and a `type_argument` member whose `declaration`
+equals both the application's `result_type` and the expression node's
+`semantic_type`. That id resolves to a `bounded_domain/integer_range` node
+whose `semantic_type` resolves to `scalar_type/integer` and whose `min` and
+`max` are admitted canonical decimal integer literals with `min <= max`.
+The application has exactly one argument, a reference to a `value`/`literal`
+node whose body is an integer literal typed at that same scalar Integer node
+and whose `semantic_type` equals that node. The literal's canonical decimal
+value must lie inclusively in the target range. The accessor SHALL compare
+signed decimal text by sign, length and digits without narrowing through a
+fixed-width integer or float, and SHALL retain the enclosing operand's
+original `GraphChild`, `semantic_type` and `Literal` disposition, with no
+introduced positions or copied value. This recognizes QSL FR-093's checked
+`Coerce` spelling, including values beyond `i128`; it is not an evaluation of
+an arbitrary numeric application or an admission rule for the reader.
+
+If a node identifies as `quire.op.numeric.narrow` but any required wrapper,
+target, literal type, canonical spelling, bound order or range-membership
+condition above fails, the accessor SHALL refuse `MalformedDomain` with the
+enclosing argument ordinal. Its `type_node` is the first valid typed id at
+the failing locus: the wrapper's `semantic_type` for an invalid wrapper or
+missing/mismatched target; the target range node for invalid endpoints or a
+value outside them; the literal's declared type for a type mismatch, and
+`None` when that locus has no decodable typed id. A valid wrapper whose sole
+argument reaches a parameter, another application (including another narrow),
+or a value cycle SHALL retain `UnsupportedOperand` with reason
+`NonliteralGraphValue` and the first offending node's semantic type. A
+different operation remains a nonliteral graph value. Tuple, Option,
+collection and enum-value descendants retain their existing value-form paths;
+the exception applies only where one of those paths reaches the exact wrapper.
+The reader's admission and first-refusal order do not change.
+
+The closed-value walk SHALL charge every graph resolution, visited node and
+traversed term/member edge through its existing work meter before inspection.
+It SHALL charge each byte of a copied range endpoint once, as the existing
+bound projection does, and each byte of the referenced literal's decimal
+spelling once before comparing it; the literal bytes are examined, never
+copied into the result. A failed charge SHALL return
+`WorkLimit` with the first attempted cumulative charge before a later shape
+or range error, without a partial result. The exact successful work limit
+SHALL succeed and one less SHALL fail. The exception adds no public type,
+second domain derivation, recursion ceiling, or harness draw value.
+
 The accessor shall refuse top-level inline integer terms as `UnsupportedOperand`
 with reason `InlineInteger`, and every other top-level inline literal kind as
 `UnsupportedOperand` with reason `InlineNonInteger` (including `none`). It shall
@@ -4194,6 +4242,10 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-229 | PLANNED/UNRUN (IR-491). For `structural.eq`, `structural.ne` and `collection.contains`, a first operand replaced with a `binding`, `aggregate`, `frame` or `abstraction_relation` never admits by skipping type resolution: after any earlier applicable grammar/reference check, it refuses `ill_typed`/`operator-ineligible` at `arguments/0` if it reaches the operand-family check. A `dependency_reference` in that position is refused by the earlier dependency-reference placement check. Separately, a first operand whose family fits but whose required compared or `inner:0` type remains unresolved after earlier checks refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with `leaves` empty or nonempty; exhausted structural-resolution work remains `incomplete`/`work`. | Test (TC-048) |
 | FR-038-AC-230 | PLANNED/UNRUN (IR-491). For every catalogued `result_inner` identity (`collection.set`, `.bag`, `.ordered_set`, `.map`, `.flat_map`, `.flatten`, `.convert`), a result of `set`, `bag` or `ordered_set` over pinned text admits exactly the selected element-type leaf at the empty path and refuses an omitted one as `operation-law-missing` at `operation.leaves`; where the catalogued result form permits a valid `sequence` result over that text, it admits with `leaves: []` and refuses one supplied leaf as `operation-law-mismatch` at `operation.leaves/0`. A set-like result whose required element type remains unresolved after earlier checks refuses `ill_typed`/`operator-ineligible` at `operation.leaves` rather than admitting either leaf list; exhausted structural-resolution work remains typed Work. Each positive control admits through the public reader with current catalog and lock selections. | Test (TC-048) |
 | FR-038-AC-231 | PLANNED/UNRUN (IR-491). An otherwise valid `structural.eq` or `structural.ne` over a record, tuple, option or sequence whose selected compared type reaches Float32 or Float64 at any depth, and `collection.contains` over a sequence whose element type does, each refuse `ill_typed`/`operator-ineligible` at `operation.leaves` with `leaves: []` and with a supplied text leaf; changing only that nested IEEE type to an integer type and re-deriving identities admits with its exact empty leaf list. A valid `collection.flatten` result of `sequence<Float32>` or `sequence<Float64>` admits with no leaves because `result_inner` selects no compared type for a sequence result. A `set`, `bag` or `ordered_set` of an IEEE-bearing element is not a positive control: its element type is ineligible under QSpec FR-144. Each adverse comparison is first independently shown to pass strict wire, graph and identity admission without the comparison, so an earlier malformed package cannot satisfy the refusal. | Test (TC-048) |
+| FR-038-AC-232 | PLANNED/UNRUN (IR-691). A fresh QSL FR-093 checked and emitted `record Point { x: Int[0,9]; }` value `Point { x: 3 }` is admitted by the public V2 reader; its `record_value` binding references a `numeric.narrow` conversion whose sole argument references the canonical Integer literal `3`, and whose member declaration, result type and semantic type name the same `Int[0,9]` range. In an admitted structural.eq or structural.ne over that value, `composite_application_operands` returns the original record GraphChild and semantic type with Literal domain and no introduced positions. At the private post-admission seam, an equivalent graph with canonical integer literal and range endpoints beyond i128 has the same result; no copied or narrowed value is returned. | Test (TC-048) |
+| FR-038-AC-233 | PLANNED/UNRUN (IR-691). In crate-internal admitted-then-mutated controls, altering only the narrow node's operator, laws, leaves, mode, member kind/declaration, result type, semantic type or argument count/term; the range's presence, Integer base, endpoint grammar/order; or the literal's value kind, declared/semantic type or canonical spelling returns `MalformedDomain` with the enclosing ordinal and first valid type locus specified above. A canonical literal one below min or one above max also returns `MalformedDomain` at the actual range node, with no rounded, clamped or partial Literal result. A correctly shaped boundary literal equal to min or max succeeds, including decimal magnitudes beyond i128. | Test (TC-048) |
+| FR-038-AC-234 | PLANNED/UNRUN (IR-691). A narrow whose argument reaches a parameter, another application including a second narrow, or a value cycle returns `UnsupportedOperand`/`NonliteralGraphValue` at the first offending node with the enclosing ordinal; an unrelated application remains refused. A direct parameter operand retains its Parameter projection. Existing closed tuple, Option, collection and enum-value descendants remain accepted by their value-form paths, and a narrow integer field inside a supported composite receives only the stated narrow exception. Reader admission and first-refusal outcomes for the unchanged packages are identical before and after the accessor change. | Test (TC-048) |
+| FR-038-AC-235 | PLANNED/UNRUN (IR-691). Independently count the exact logical graph, term/member, copied-endpoint and examined-literal-byte charges for a small admitted narrow-record fixture. Its measured successful work limit succeeds; one less and zero return `WorkLimit` with the first attempted cumulative charge and no partial operands. A budget exhausted immediately before a malformed wrapper, out-of-range literal or later operand defect returns `WorkLimit` first. Reordering admitted graph nodes leaves the result and consumed work equal. No public accessor type, scalar eligibility, reader admission rule, second domain owner or fixed-width decimal conversion is introduced. | Test (TC-048), Inspection |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
