@@ -16,9 +16,10 @@
 
 use crate::support::checked_package::{
     application_node_key, bounds_body, canonical, evidence_for, family_key, integer_range_key,
-    model_owner, node_id, nominal_package, over_body, owned_structural_node, rebuild_source_map,
-    refresh_identity, refusal_at, rename_node, settle, sha256_hex, structural_key, typed_node_id,
-    v2_all_families, v2_nominal, ExpectedNodeId, ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
+    mint_grouped_structural_keys, model_owner, node_id, nominal_package, over_body,
+    owned_structural_node, rebuild_source_map, refresh_identity, refusal_at, rename_node, settle,
+    sha256_hex, structural_key, typed_node_id, v2_all_families, v2_nominal, ExpectedNodeId,
+    ExpectedRefusal, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1396,9 +1397,8 @@ fn tc_226_the_recorded_scalar_keys_are_the_derived_ones() {
 /// The recursive packages `record List { next?: List; }` (an `Option`
 /// self-reference, one group) and `record Tree { kids: Sequence<Tree>[0, 3]; }`
 /// (a `Sequence` self-reference and its `collection_bounds`, one group), added
-/// to the base package. Every in-group node carries a placeholder key: QSL keys
-/// such a node under a group digest this reader cannot compute (IR-627-Q4), so
-/// the stage skips it.
+/// to the base package. Their labels and every member key are derived from
+/// FR-092's wire-order local preimages before this fixture is admitted.
 struct Recursive {
     package: Value,
     /// The `collection_bounds` node of `Tree`, and the `Sequence<Tree>` node.
@@ -1412,9 +1412,8 @@ fn recursive() -> Recursive {
     let key = |name: &str| sha256_hex(format!("recursive {name}").as_bytes());
     let (list, option) = (key("list"), key("option"));
     let (tree, sequence) = (key("tree"), key("sequence"));
-    // The bounds carry the key their own body derives, so that dropping the
-    // group label below leaves the key stage nothing to refuse and the cycle
-    // rule is what refuses the package.
+    // These construction keys identify the nodes until their group-local
+    // preimages and label have been computed.
     let bounds = structural_key(
         "bounded_domain",
         "collection_bounds",
@@ -1469,27 +1468,35 @@ fn recursive() -> Recursive {
             "tree",
         ),
     ];
-    let package = with_nodes(base.package, nodes);
+    let base_len = base.package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let mut package = with_nodes(base.package, nodes);
+    mint_grouped_structural_keys(&mut package);
+    settle(&mut package);
     admitted("the recursive packages", &package);
+    let key_at = |position: usize| {
+        package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+            .as_str()
+            .expect("group key")
+            .to_owned()
+    };
     Recursive {
+        bounds: key_at(base_len + 4),
+        sequence: key_at(base_len + 3),
+        tree: key_at(base_len + 2),
         package,
-        bounds,
-        sequence,
-        tree,
     }
 }
 
-/// A node of the ten shapes that carries a `recursion_group` is skipped, not
-/// refused: the recursive `List` (an `Option`) and `Tree` (a `Sequence` and its
-/// bounds) packages admit. The skip is exactly the grouped nodes: a derived
-/// node outside every group, in the same package, still refuses; and the
-/// `Tree` bounds with the group removed is a cycle outside a declared group, so
-/// the cycle rule refuses it (FR-038-AC-18) and it is never admitted.
+/// The correctly keyed `List` and `Tree` groups admit. A changed ungrouped
+/// node and a Tree member whose label is removed both fail key authentication.
 ///
 /// Tracing: TC-226
-#[trace("TC-226")]
+#[trace("TC-226", "FR-038-AC-145", "FR-038-AC-150")]
 #[test]
-fn tc_226_a_derived_shape_node_in_a_recursion_group_is_skipped_and_one_outside_is_not() {
+fn tc_226_grouped_members_and_ungrouped_nodes_authenticate_their_keys() {
     let recursive = recursive();
     let package = &recursive.package;
 
@@ -1500,29 +1507,19 @@ fn tc_226_a_derived_shape_node_in_a_recursion_group_is_skipped_and_one_outside_i
     let ungrouped = tampered(package, &recursive.bounds, |n| {
         n.as_object_mut().expect("node").remove("recursion_group");
     });
-    // With the label gone from one member the component is no longer exactly
-    // the labelled set, so the others are verified as ungrouped too (their
-    // keys are the QSL group keys, not ungrouped ones) and the package is
-    // never admitted: the key stage refuses before the cycle rule would.
-    let refusal = refusal_of("the group removed", &ungrouped, &evidence_for(&ungrouped));
-    assert_eq!(
-        (refusal.code, refusal.cause),
-        (Code::InvalidPackage, Some(Cause::StaleNodeKey))
-    );
+    let first = [&recursive.bounds, &recursive.sequence, &recursive.tree]
+        .into_iter()
+        .min()
+        .expect("three group members");
+    assert_stale("the group removed", &ungrouped, first);
 }
 
-/// The stated soundness limit, recorded as a test: the reader does not verify
-/// the key of an in-group derived-shape node, so each single mutation of the
-/// `Tree` group below, its `node_id` kept and the identity recomputed, is
-/// admitted. When the in-group re-derivation lands (gated on the declared
-/// member's `SourceOwner`, IR-627-Q1 and Q4) these rows move to refusals in the
-/// same change. A consumer must not treat a range, element type or bound read
-/// through such a node as verified.
+/// A retained group key authenticates each member's bounds and body reference.
 ///
 /// Tracing: TC-226
-#[trace("TC-226")]
+#[trace("TC-226", "FR-038-AC-148")]
 #[test]
-fn tc_226_an_in_group_tamper_is_admitted_under_the_skip_the_recorded_limit() {
+fn tc_226_an_in_group_tamper_refuses_at_its_member_key() {
     let recursive = recursive();
     let rows: [(&str, String, Edit); 2] = [
         (
@@ -1538,31 +1535,29 @@ fn tc_226_an_in_group_tamper_is_admitted_under_the_skip_the_recorded_limit() {
     ];
     for (row, key, edit) in rows {
         let package = tampered(&recursive.package, &key, edit);
-        admitted(row, &package);
+        assert_stale(row, &package, &key);
     }
     // Re-pointing the sequence's body reference at the bounds leaves a names
-    // cycle of the sequence and the bounds alone, every member of it carrying
-    // the one label: skipped too, and admitted.
+    // cycle of the sequence and bounds alone, but the unchanged member key
+    // still binds the original reference.
     let bounds = recursive.bounds.clone();
     let package = tampered(&recursive.package, &recursive.sequence, move |n| {
         n["body"]["members"][0]["target"] = node_id(&bounds);
     });
-    admitted("the sequence re-pointed at the bounds", &package);
-    let _ = &recursive.tree;
+    assert_stale(
+        "the sequence re-pointed at the bounds",
+        &package,
+        &recursive.sequence,
+    );
 }
 
-/// A second recorded limit: the stage does not cross-check a node's wire tag
-/// and form against the type its key was minted for. A node keyed
-/// `Int[0, 1000]` retagged `collection_bounds` (its body unchanged), typed at a
-/// collection whose body names it, with both labelled, forges a names cycle of
-/// two skippable shapes and is skipped, so it is admitted. Whether a
-/// cross-check is added is open in the amendment IR #298; when it lands this
-/// row moves to a refusal.
+/// Retagging a range as collection bounds and forging a names cycle cannot
+/// reuse its old key; the first structural-key pass refuses it.
 ///
 /// Tracing: TC-226
-#[trace("TC-226")]
+#[trace("TC-226", "FR-038-AC-148")]
 #[test]
-fn tc_226_a_range_retagged_collection_bounds_on_a_forged_cycle_is_admitted_the_recorded_limit() {
+fn tc_226_a_retagged_range_on_a_forged_cycle_refuses_at_its_key() {
     let base = base();
     // `Int[0, 0]`, which no application reads, so that only the key stage
     // could have refused it.
@@ -1576,14 +1571,15 @@ fn tc_226_a_range_retagged_collection_bounds_on_a_forged_cycle_is_admitted_the_r
         n["recursion_group"] = json!("forged");
         n["body"]["members"][0]["target"] = node_id(&base.zero);
     });
-    admitted("the retagged range", &package);
+    let first = [&base.zero, &base.set]
+        .into_iter()
+        .min()
+        .expect("two forged members");
+    assert_stale("the retagged range", &package, first);
 }
 
-/// A `recursion_group` label added to a node that is on no cycle is not a
-/// group: a tamperer who labels the `Int[0, 1000]` node `solo` and changes its
-/// `max` must still be refused `stale-node-key` at the node, under any design
-/// of the in-group skip. (The existing admission of a lone label on an acyclic
-/// node, `tc_048_...`, holds for nodes the stage does not verify.)
+/// A lone label cannot authenticate a range or collection whose body changed
+/// while its old key was retained.
 ///
 /// Tracing: TC-226
 #[trace("TC-226")]
@@ -1606,16 +1602,13 @@ fn tc_226_a_lone_group_label_does_not_exempt_a_tampered_range() {
     }
 }
 
-/// The skip reads the names graph, not `dependencies`: a collection that
-/// lists itself as a dependency, or two that list each other, and carries a
-/// group label is on no names cycle and is verified. And an `integer_range`
-/// is verified whatever label it carries, inside a package whose real groups
-/// are still skipped.
+/// Dependencies do not exempt a labelled node from key authentication, and a
+/// labelled range is checked alongside correctly keyed List and Tree groups.
 ///
 /// Tracing: TC-226
-#[trace("TC-226")]
+#[trace("TC-226", "FR-038-AC-147")]
 #[test]
-fn tc_226_only_a_names_cycle_that_is_exactly_the_group_exempts_a_node() {
+fn tc_226_dependencies_and_group_labels_do_not_exempt_a_stale_node() {
     let base = base();
     let repoint = |n: &mut Value| n["body"]["members"][0]["target"] = node_id(&base.narrow);
     // A dependency on itself.
@@ -1647,19 +1640,13 @@ fn tc_226_only_a_names_cycle_that_is_exactly_the_group_exempts_a_node() {
     assert_stale("a labelled integer_range", &package, &base.wide);
 }
 
-/// The stated limit, recorded as a test: a tamperer who re-points a
-/// collection's body `reference` at a `collection_bounds` node that names the
-/// collection at its `semantic_type`, and labels both, forges a names cycle
-/// whose component is exactly the labelled set, so the stage skips both and
-/// the package is admitted with the collection's element type and the count
-/// unverified. They rest on the package producer until the in-group
-/// re-derivation lands (IR-630). A range read from an `integer_range` node is
-/// never reached this way.
+/// A collection and bounds node cannot reuse their ordinary keys after a
+/// forged group label and changed body. The first stale member is refused.
 ///
 /// Tracing: TC-226
-#[trace("TC-226")]
+#[trace("TC-226", "FR-038-AC-148", "FR-038-AC-150")]
 #[test]
-fn tc_226_a_forged_names_cycle_through_collection_bounds_is_admitted_the_recorded_limit() {
+fn tc_226_a_forged_names_cycle_through_collection_bounds_refuses() {
     let base = base();
     let (bounds, bounds_node) = bounded_collection(&base.set, "0", "3");
     let package = with_nodes(base.package.clone(), vec![bounds_node]);
@@ -1672,7 +1659,8 @@ fn tc_226_a_forged_names_cycle_through_collection_bounds_is_admitted_the_recorde
         n["recursion_group"] = json!("forged");
         set_bound(n, "max", "5000");
     });
-    admitted("the forged group", &forged);
+    let first = [&base.set, &bounds].into_iter().min().expect("two members");
+    assert_stale("the forged group", &forged, first);
     // The same forgery over an `integer_range` is refused.
     let range = tampered(&package, &base.wide, |n| {
         n["recursion_group"] = json!("forged");
