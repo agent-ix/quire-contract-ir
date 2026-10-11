@@ -6024,9 +6024,30 @@ mod tests {
             ("result_inner", result_inner),
             ("leaf edge", leaf_edge),
         ] {
+            let mut direct = nodes.clone();
+            match route {
+                "inner:0" => direct[5].semantic_type = node_id('s'),
+                "result_inner" => direct[0].body["result_type"] = json!(node_id('s')),
+                "leaf edge" => {
+                    direct[1].body["members"][0]["value"]["target"] = json!(node_id('i'));
+                }
+                _ => unreachable!("the test lists every route"),
+            }
+            let (direct_ordinary, direct_work) =
+                measured_defect_for_graph(direct.clone(), &empty_lock(), u64::MAX);
+            assert_eq!(
+                direct_ordinary,
+                Ok(None),
+                "{route} direct control must be valid"
+            );
             let (ordinary, exact) =
                 measured_defect_for_graph(nodes.clone(), &empty_lock(), u64::MAX);
             assert_eq!(ordinary, Ok(None), "{route} operation must be valid");
+            assert_eq!(
+                exact,
+                direct_work + 1,
+                "{route} pays one test-authored structural forwarding unit"
+            );
             assert_eq!(
                 measured_defect_for_graph(nodes.clone(), &empty_lock(), exact).0,
                 Ok(None),
@@ -6035,22 +6056,30 @@ mod tests {
             let (short, consumed) =
                 measured_defect_for_graph(nodes.clone(), &empty_lock(), exact - 1);
             assert_work(short, exact - 1, consumed);
-            let forwarding_work = (0..exact).find_map(|limit| {
-                let (outcome, consumed) =
+            let forwarding_work = (0..direct_work).find_map(|limit| {
+                let (direct_outcome, _) =
+                    measured_defect_for_graph(direct.clone(), &empty_lock(), limit);
+                let (forward_outcome, consumed) =
                     measured_defect_for_graph(nodes.clone(), &empty_lock(), limit);
-                match outcome {
-                    Err(ValidationFailure::Incomplete(incomplete))
-                        if incomplete.path
+                match (direct_outcome, forward_outcome) {
+                    (
+                        Err(ValidationFailure::Incomplete(direct_failure)),
+                        Err(ValidationFailure::Incomplete(forward_failure)),
+                    ) if direct_failure.path
+                        == Some(pointer("/semantic_graph/nodes/0/body/operation/leaves"))
+                        && forward_failure.path
                             == Some(pointer("/semantic_graph/nodes/0/body/operation")) =>
                     {
-                        Some((incomplete, consumed))
+                        Some((limit, forward_failure, consumed))
                     }
                     _ => None,
                 }
             });
-            let (incomplete, consumed) =
-                forwarding_work.expect("forwarding route must propagate operation Work");
+            let (limit, incomplete, consumed) = forwarding_work
+                .unwrap_or_else(|| panic!("{route} must fail at its forwarding edge"));
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work, "{route}");
+            assert_eq!(incomplete.limit, limit, "{route}");
+            assert_eq!(incomplete.consumed, limit + 1, "{route}");
             assert_eq!(incomplete.consumed, consumed, "{route}");
         }
     }
