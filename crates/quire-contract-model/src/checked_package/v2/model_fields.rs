@@ -396,21 +396,70 @@ pub(super) struct DeclaredNode {
 pub(super) struct DeclarationIndex(pub(super) BTreeMap<String, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
-/// the declaration index and each document's field tables, in lock order.
+/// the declaration index, each document's field tables, and the selected
+/// operation parameter types needed for clause-context reads.
 /// Not part of the package's equality, which is the equality of its admitted
 /// content.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
     tables: Vec<FieldTables>,
+    operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
+}
+
+/// The selected model signature already checked against a clause by FR-341.
+#[derive(Clone, Debug)]
+pub(super) struct OperationTypes {
+    pub(super) has_result: bool,
+    pub(super) parameters: Vec<Option<CheckedMemberType>>,
 }
 
 impl RetainedModels {
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+        let mut operation_types = BTreeMap::new();
+        for (selection, model) in models.iter().enumerate() {
+            for (object, declared) in &model.object_types {
+                for operation in &declared.operations {
+                    operation_types.insert(
+                        (
+                            selection,
+                            object.clone(),
+                            Box::from(member_name(&operation.identity)),
+                        ),
+                        OperationTypes {
+                            has_result: operation.result.is_some(),
+                            parameters: operation
+                                .parameters
+                                .iter()
+                                .map(|slot| {
+                                    model.slot_type(slot).as_ref().map(CheckedMemberType::from)
+                                })
+                                .collect(),
+                        },
+                    );
+                }
+            }
+        }
         Self {
             index,
             tables: models.into_iter().map(|model| model.fields).collect(),
+            operation_types,
         }
+    }
+
+    /// The selected own operation whose signature the FR-341 clause join checked.
+    pub(super) fn operation_types(
+        &self,
+        context: &super::CheckedSemanticNodeV2,
+        name: &str,
+    ) -> Option<&OperationTypes> {
+        let declared = self.index.0.get(context.node_id.digest.as_ref())?;
+        check_declaration_node(declared.form, context).ok()?;
+        if declared.form != DeclarationForm::ObjectType {
+            return None;
+        }
+        self.operation_types
+            .get(&(declared.selection, declared.node.clone(), Box::from(name)))
     }
 
     /// The table of the object type whose model declaration node `node` is: the
@@ -422,6 +471,24 @@ impl RetainedModels {
             return None;
         }
         self.tables.get(declared.selection)?.of(&declared.node)
+    }
+
+    /// The selected member type for one unambiguous admitted field read.
+    pub(super) fn field_type(
+        &self,
+        node: &super::CheckedSemanticNodeV2,
+        name: &str,
+    ) -> Option<Option<CheckedMemberType>> {
+        let mut matching = self
+            .object_table(node)?
+            .exposed
+            .iter()
+            .filter(|entry| entry.name() == name);
+        let entry = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        Some(entry.member_type.as_ref().map(CheckedMemberType::from))
     }
 }
 

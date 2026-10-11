@@ -9,6 +9,7 @@
 
 mod abstraction;
 mod application_identity;
+mod comparison_operands;
 mod composite_operands;
 mod dependency_references;
 mod derived_keys;
@@ -35,6 +36,12 @@ mod vocabulary;
 pub use application_identity::{
     derive_application_node_id, ApplicationIdentityContext, ApplicationIdentityError,
     ApplicationNodeDraft, CandidateApplicationNodeId,
+};
+pub use comparison_operands::{
+    CheckedClauseComparison, CheckedComparisonClauseKind, CheckedComparisonError,
+    CheckedComparisonObservation, CheckedComparisonOperand, CheckedComparisonOperandIdentity,
+    CheckedComparisonOperandKind, CheckedComparisonOperator, CheckedComparisonPath,
+    CheckedComparisonRead, CheckedComparisonRefusal,
 };
 pub use composite_operands::{
     CheckedAuthoredCompositeDomain, CheckedCanonicalIntegerBound, CheckedCompositeChildEdge,

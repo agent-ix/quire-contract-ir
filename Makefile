@@ -23,6 +23,7 @@ help:
 	@echo "  make release-check    - Run every local release gate"
 	@echo "  make test             - Run cargo test"
 	@echo "  make conformance-qspec - QSpec's positive fixtures admit, adverse mutations refuse as recorded, selection identity derives (needs QUIRE_SPECIFICATION_DIR; not in ci)"
+	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
@@ -86,6 +87,20 @@ conformance-qspec:
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required QSpec production-key test did not run exactly once' >&2; exit 1; }
+
+# TC-445's producer-origin case is explicit: the QSL checkout supplies its own
+# current fixture and compiler executables, and the test records the revision
+# and commands. Ordinary IR tests have no external QSL build dependency.
+.PHONY: conformance-qsl-ir703
+conformance-qsl-ir703:
+	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
+	@test -x "$(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/examples/config_version_fixtures" || { echo 'build the current QSL config_version_fixtures example first' >&2; exit 1; }
+	@test -x "$(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/quire-spec" || { echo 'build the current QSL quire-spec binary first' >&2; exit 1; }
+	@output=$$(IR703_QSL_CONFORMANCE=1 $(CARGO) test $(LOCKED) --workspace --test it checked_package_v2_comparison_operands::tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observations -- --exact --nocapture 2>&1); \
+	status=$$?; printf '%s\n' "$$output"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
+	[ "$$passed" -eq 1 ] || { echo 'required TC-445 QSL producer test did not run exactly once' >&2; exit 1; }
 
 .PHONY: build
 build:
