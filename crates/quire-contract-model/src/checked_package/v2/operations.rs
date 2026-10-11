@@ -317,6 +317,71 @@ struct Graph<'g> {
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
 }
 
+/// Structural forwarding already paid for by one application's operation check.
+#[derive(Default)]
+struct StructuralTypes {
+    resolved: BTreeMap<usize, (usize, CheckedNodeKind)>,
+}
+
+/// Shared accounting state while one application checks operands and leaves.
+struct OperationWork<'a> {
+    meter: &'a mut WorkMeter,
+    structural: &'a mut StructuralTypes,
+}
+
+impl StructuralTypes {
+    /// Resolve aliases and non-population domains, charging each forwarding node
+    /// before reading its successor. Successful suffixes share their answer.
+    fn resolve(
+        &mut self,
+        type_id: &CheckedNodeId,
+        graph: &Graph<'_>,
+        meter: &mut WorkMeter,
+        at: &JsonPointer,
+    ) -> Result<Option<(usize, CheckedNodeKind)>, ValidationFailure> {
+        let Some(mut position) = graph.index.get(type_id).copied() else {
+            return Ok(None);
+        };
+        let mut walked = Vec::new();
+        let mut seen = BTreeSet::new();
+        let resolved = loop {
+            if let Some(known) = self.resolved.get(&position).copied() {
+                break Some(known);
+            }
+            if !seen.insert(position) {
+                break None;
+            }
+            let Some(kind) = graph.kinds.get(position).copied() else {
+                break None;
+            };
+            let Some(node) = graph.nodes.get(position) else {
+                break None;
+            };
+            let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
+                || (kind.tag() == CheckedNodeTag::BoundedDomain
+                    && node.semantic_form.as_ref() != "model_population");
+            if !forwards {
+                break Some((position, kind));
+            }
+            meter.charge(1, || at.clone())?;
+            walked.push(position);
+            if node.semantic_type == node.node_id {
+                break Some((position, kind));
+            }
+            let Some(next) = graph.index.get(&node.semantic_type).copied() else {
+                break None;
+            };
+            position = next;
+        };
+        if let Some(found) = resolved {
+            for position in walked {
+                self.resolved.insert(position, found);
+            }
+        }
+        Ok(resolved)
+    }
+}
+
 fn operation_defect(
     application: Application<'_>,
     graph: &Graph<'_>,
@@ -353,6 +418,7 @@ fn operation_defect(
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
         || application.body(&["operation"]),
     )?;
+    let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::InvalidPackage,
@@ -525,7 +591,10 @@ fn operation_defect(
         graph,
         owners,
         catalog,
-        meter,
+        &mut OperationWork {
+            meter: &mut *meter,
+            structural: &mut structural,
+        },
     )? {
         return Ok(Some(failure));
     }
@@ -618,7 +687,10 @@ fn operation_defect(
         graph,
         lock,
         catalog,
-        meter,
+        &mut OperationWork {
+            meter,
+            structural: &mut structural,
+        },
     )
 }
 
@@ -1047,7 +1119,7 @@ fn check_operands(
     graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
-    meter: &mut WorkMeter,
+    work: &mut OperationWork<'_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
@@ -1145,7 +1217,7 @@ fn check_operands(
                         arguments,
                         graph,
                         owners,
-                        meter,
+                        work.meter,
                     )? {
                         return Ok(Some(failure));
                     }
@@ -1170,10 +1242,19 @@ fn check_operands(
             // constraint that does not hold, or that names anything but one
             // scrutinee, refuses at the `case` node: it is never skipped.
             OperationConstraintKind::UnionArms => {
-                let held = matches!(
-                    indices[..],
-                    [scrutinee] if union_arms_hold(application, scrutinee, required, arguments, graph)
-                );
+                let held = if let [scrutinee] = indices[..] {
+                    union_arms_hold(
+                        application,
+                        scrutinee,
+                        required,
+                        arguments,
+                        graph,
+                        work.meter,
+                        work.structural,
+                    )?
+                } else {
+                    false
+                };
                 if !held {
                     return Ok(Some(application.refuse(
                         CheckedPackageRefusalCode::IllTyped,
@@ -1191,7 +1272,7 @@ fn check_operands(
                         arguments,
                         graph,
                         owners,
-                        meter,
+                        work.meter,
                     )? {
                         return Ok(Some(failure));
                     }
@@ -1204,12 +1285,20 @@ fn check_operands(
 
 /// The members of the union type node `type_id` names, through aliases and
 /// bounded domains; `None` when it names no union type node.
-fn union_type<'g>(type_id: &CheckedNodeId, graph: &Graph<'g>) -> Option<Vec<UnionMember<'g>>> {
-    let (position, kind) = structural_type(type_id, graph.nodes, graph.kinds, graph.index)?;
+fn union_type<'g>(
+    type_id: &CheckedNodeId,
+    graph: &Graph<'g>,
+    meter: &mut WorkMeter,
+    structural: &mut StructuralTypes,
+    at: &JsonPointer,
+) -> Result<Option<Vec<UnionMember<'g>>>, ValidationFailure> {
+    let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
+        return Ok(None);
+    };
     if kind != CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        return None;
+        return Ok(None);
     }
-    union_type_body(&graph.nodes[position].body)
+    Ok(union_type_body(&graph.nodes[position].body))
 }
 
 /// QSpec FR-440's `union_arms` constraint: the arguments past the scrutinee
@@ -1225,18 +1314,29 @@ fn union_arms_hold(
     arms_from: usize,
     arguments: &[Value],
     graph: &Graph<'_>,
-) -> bool {
+    meter: &mut WorkMeter,
+    structural: &mut StructuralTypes,
+) -> Result<bool, ValidationFailure> {
     let Graph {
         nodes,
         kinds,
         index,
     } = *graph;
-    let Some(members) = arguments
+    let type_id = arguments
         .get(scrutinee)
-        .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
-        .and_then(|type_id| union_type(&type_id, graph))
+        .and_then(|argument| operand_type_node(argument, nodes, kinds, index));
+    let Some(type_id) = type_id else {
+        return Ok(false);
+    };
+    let Some(members) = union_type(
+        &type_id,
+        graph,
+        meter,
+        structural,
+        &application.body(&["operation"]),
+    )?
     else {
-        return false;
+        return Ok(false);
     };
     let result_type: Option<CheckedNodeId> = application
         .node
@@ -1244,7 +1344,7 @@ fn union_arms_hold(
         .get("result_type")
         .and_then(|value| serde_json::from_value(value.clone()).ok());
     let arms = arguments.get(arms_from..).unwrap_or_default();
-    arms.len() == members.len()
+    Ok(arms.len() == members.len()
         && members.iter().zip(arms).all(|(member, arm)| {
             let Some([binders, body]) = binding(arm, member.name).and_then(aggregate_members)
             else {
@@ -1268,7 +1368,7 @@ fn union_arms_hold(
                 && result_type.as_ref().is_some_and(|result| {
                     operand_type_node(body, nodes, kinds, index).as_ref() == Some(result)
                 })
-        })
+        }))
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
@@ -2111,30 +2211,6 @@ fn check_mode_type(
     None
 }
 
-/// The structural type node behind `type_id`: an alias or a non-population
-/// bounded domain continues through its own `semantic_type` (QSpec FR-322).
-/// `None` when the chain does not resolve or does not end within the graph.
-fn structural_type(
-    type_id: &CheckedNodeId,
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<(usize, CheckedNodeKind)> {
-    let mut position = *index.get(type_id)?;
-    for _ in 0..=nodes.len() {
-        let kind = *kinds.get(position)?;
-        let node = &nodes[position];
-        let forwards = kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Alias)
-            || (kind.tag() == CheckedNodeTag::BoundedDomain
-                && node.semantic_form.as_ref() != "model_population");
-        if !forwards || node.semantic_type == node.node_id {
-            return Some((position, kind));
-        }
-        position = *index.get(&node.semantic_type)?;
-    }
-    None
-}
-
 /// The `reference` term's target in `term`, as a node id.
 fn referenced_type(term: &Value) -> Option<CheckedNodeId> {
     if body_term(term) != Some(BodyTerm::Reference) {
@@ -2147,11 +2223,14 @@ fn referenced_type(term: &Value) -> Option<CheckedNodeId> {
 /// type node: its first member's reference target.
 fn inner_type(
     type_id: &CheckedNodeId,
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
-) -> Option<CheckedNodeId> {
-    let (position, kind) = structural_type(type_id, nodes, kinds, index)?;
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+    structural: &mut StructuralTypes,
+    at: &JsonPointer,
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+    let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
+        return Ok(None);
+    };
     let CheckedNodeKind::CompositeType(
         CompositeTypeForm::Option
         | CompositeTypeForm::Sequence
@@ -2160,9 +2239,14 @@ fn inner_type(
         | CompositeTypeForm::OrderedSet,
     ) = kind
     else {
-        return None;
+        return Ok(None);
     };
-    referenced_type(nodes[position].body.get("members")?.as_array()?.first()?)
+    Ok(graph.nodes[position]
+        .body
+        .get("members")
+        .and_then(Value::as_array)
+        .and_then(|members| members.first())
+        .and_then(referenced_type))
 }
 
 /// Why the leaves of a compared type could not be derived.
@@ -2407,7 +2491,9 @@ struct LeafWalk<'g, 'm> {
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
     meter: &'m mut WorkMeter,
+    structural: &'m mut StructuralTypes,
     at: JsonPointer,
+    operation_at: JsonPointer,
     /// Each node's derived-leaf count where no composite reachable from it
     /// was open.
     memo: BTreeMap<usize, usize>,
@@ -2434,13 +2520,21 @@ struct ComponentVisit {
 }
 
 impl<'g, 'm> LeafWalk<'g, 'm> {
-    fn new(graph: Graph<'g>, meter: &'m mut WorkMeter, at: JsonPointer) -> LeafWalk<'g, 'm> {
+    fn new(
+        graph: Graph<'g>,
+        meter: &'m mut WorkMeter,
+        structural: &'m mut StructuralTypes,
+        at: JsonPointer,
+        operation_at: JsonPointer,
+    ) -> LeafWalk<'g, 'm> {
         LeafWalk {
             nodes: graph.nodes,
             kinds: graph.kinds,
             index: graph.index,
             meter,
+            structural,
             at,
+            operation_at,
             memo: BTreeMap::new(),
             pins: BTreeMap::new(),
             expanded: BTreeMap::new(),
@@ -2553,11 +2647,19 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
 
     /// The edge adding `segments` to `target`, resolved to its structural node.
     fn edge(
-        &self,
+        &mut self,
         segments: Vec<Box<str>>,
         target: CheckedNodeId,
     ) -> Result<LeafChild, LeafWalkEnd> {
-        let (position, kind) = structural_type(&target, self.nodes, self.kinds, self.index)
+        let graph = Graph {
+            nodes: self.nodes,
+            kinds: self.kinds,
+            index: self.index,
+        };
+        let (position, kind) = self
+            .structural
+            .resolve(&target, &graph, self.meter, &self.operation_at)
+            .map_err(LeafWalkEnd::Work)?
             .ok_or(LeafWalkEnd::Unresolved)?;
         Ok(LeafChild {
             segments,
@@ -2698,7 +2800,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
     }
 
     /// The edge from the root of the compared type, which names no segment.
-    fn root_edge(&self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
+    fn root_edge(&mut self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
         self.edge(Vec::new(), root.clone())
     }
 
@@ -2981,7 +3083,7 @@ fn check_leaf_count(
     graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
     catalog: &OperationCatalog,
-    meter: &mut WorkMeter,
+    work: &mut OperationWork<'_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
@@ -2992,33 +3094,46 @@ fn check_leaf_count(
         return Ok(None);
     };
     let operand_type = || operand_type_node(arguments.first()?, nodes, kinds, index);
+    let operation_at = application.body(&["operation"]);
     // Outer `None`: the compared type is not decided. Inner `None`: the entry
     // expects no leaves.
     let compared: Option<Option<CheckedNodeId>> = match source {
         "operand:0" => operand_type().map(Some),
-        "inner:0" => operand_type()
-            .and_then(|ty| inner_type(&ty, nodes, kinds, index))
-            .map(Some),
+        "inner:0" => match operand_type() {
+            Some(ty) => {
+                inner_type(&ty, graph, work.meter, work.structural, &operation_at)?.map(Some)
+            }
+            None => None,
+        },
         "result_inner" => {
             let result = application
                 .node
                 .body
                 .get("result_type")
                 .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok());
-            let set_like = result.as_ref().and_then(|result| {
-                let (_, kind) = structural_type(result, nodes, kinds, index)?;
-                matches!(
-                    kind,
-                    CheckedNodeKind::CompositeType(
-                        CompositeTypeForm::Set
-                            | CompositeTypeForm::Bag
-                            | CompositeTypeForm::OrderedSet
+            let set_like = if let Some(result) = result.as_ref() {
+                let kind = work
+                    .structural
+                    .resolve(result, graph, work.meter, &operation_at)?
+                    .map(|(_, kind)| kind);
+                kind.is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        CheckedNodeKind::CompositeType(
+                            CompositeTypeForm::Set
+                                | CompositeTypeForm::Bag
+                                | CompositeTypeForm::OrderedSet
+                        )
                     )
-                )
+                })
                 .then_some(result)
-            });
+            } else {
+                None
+            };
             match set_like {
-                Some(result) => inner_type(result, nodes, kinds, index).map(Some),
+                Some(result) => {
+                    inner_type(result, graph, work.meter, work.structural, &operation_at)?.map(Some)
+                }
                 None => Some(None),
             }
         }
@@ -3039,7 +3154,13 @@ fn check_leaf_count(
             )))
         };
     };
-    let mut walk = LeafWalk::new(*graph, meter, at.clone());
+    let mut walk = LeafWalk::new(
+        *graph,
+        work.meter,
+        work.structural,
+        at.clone(),
+        operation_at,
+    );
     let refuse = |code, path: JsonPointer, cause| Ok(Some(application.refuse(code, path, cause)));
     let walked = walk.count(&compared).and_then(|derived| {
         if operation.leaves.len() < derived {
@@ -3139,16 +3260,38 @@ mod tests {
         validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
         CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
-        Graph, LawRole, ModelOwners, SuppliedDependencies, TemporalForm, ValidationFailure,
-        WorkMeter,
+        Graph, LawRole, ModelOwners, StructuralTypes, SuppliedDependencies, TemporalForm,
+        ValidationFailure, WorkMeter,
     };
     use crate::checked_package::common::NODE_DOMAIN;
-    use crate::checked_package::shared::{CheckedArtifactRef, CheckedSelection, JsonPointer};
+    use crate::checked_package::shared::{
+        CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
+    };
     use crate::checked_package::v2::encode::APPLICATION_NODE_VERSION;
     use ix_trace_rs::trace;
 
     fn pointer(text: &str) -> JsonPointer {
         JsonPointer::parse(text).expect("test pointer")
+    }
+
+    fn assert_work(
+        result: Result<Option<ValidationFailure>, ValidationFailure>,
+        limit: u64,
+        consumed: u64,
+    ) {
+        let Err(ValidationFailure::Incomplete(incomplete)) = result else {
+            panic!("expected typed Work, got {result:?}");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, limit);
+        assert_eq!(incomplete.consumed, consumed);
+        assert_eq!(consumed, limit + 1);
+        assert!(matches!(
+            incomplete.path,
+            Some(ref path)
+                if path == &pointer("/semantic_graph/nodes/0/body/operation")
+                    || path == &pointer("/semantic_graph/nodes/0/body/operation/leaves")
+        ));
     }
 
     /// The located refusal `operation_defect` builds, at `path`.
@@ -3759,13 +3902,21 @@ mod tests {
         lock: &CheckedPackageLockV2,
         limit: u64,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        measured_defect_for_graph(nodes, lock, limit).0
+    }
+
+    fn measured_defect_for_graph(
+        nodes: Vec<CheckedSemanticNodeV2>,
+        lock: &CheckedPackageLockV2,
+        limit: u64,
+    ) -> (Result<Option<ValidationFailure>, ValidationFailure>, u64) {
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
         for (position, node) in nodes.iter().enumerate() {
             index.insert(&node.node_id, position);
         }
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
-        operation_defect(
+        let result = operation_defect(
             Application {
                 node: &nodes[0],
                 position: 0,
@@ -3780,7 +3931,8 @@ mod tests {
             DependencyReferences::new(&SuppliedDependencies::default()),
             operation_catalog(),
             &mut meter,
-        )
+        );
+        (result, meter.consumed())
     }
 
     fn key(fill: u8) -> String {
@@ -5417,6 +5569,553 @@ mod tests {
             matches!(&result, Err(failure) if format!("{failure:?}").contains("Work")),
             "the chain steps must be charged to the work budget, got {result:?}"
         );
+    }
+
+    /// A shared chain has 299 aliases and a profile-bearing bounded domain:
+    /// all 300 distinct forwarding nodes are named by one record's fields.
+    fn structural_shared_chain() -> (Vec<CheckedSemanticNodeV2>, Vec<Value>) {
+        let alias = |level: u32| char::from_u32(0x5600 + level).expect("test id");
+        let names: Vec<String> = (0..300).map(|level| format!("f{level}")).collect();
+        let fields: Vec<(&str, char)> = names
+            .iter()
+            .enumerate()
+            .map(|(level, name)| {
+                let id = if level == 299 {
+                    'x'
+                } else {
+                    alias(u32::try_from(level).expect("level"))
+                };
+                (name.as_str(), id)
+            })
+            .collect();
+        let mut nodes = vec![record_type_node('r', &fields)];
+        for level in 0..299 {
+            let target = if level == 298 { 'x' } else { alias(level + 1) };
+            nodes.push(forwarding_node(
+                alias(level),
+                "composite_type",
+                "alias",
+                target,
+            ));
+        }
+        nodes.extend(profiled_text());
+        let leaves = names
+            .iter()
+            .map(|name| text_leaf(&[&format!("field:{name}")]))
+            .collect();
+        (nodes, leaves)
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn structural_forwarding_is_paid_once_across_both_leaf_passes() {
+        let (nodes, leaves) = structural_shared_chain();
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let supplied: Vec<super::OperationLeafWire> = leaves
+            .into_iter()
+            .map(|leaf| serde_json::from_value(leaf).expect("lawful leaf"))
+            .collect();
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut structural = StructuralTypes::default();
+        let mut walk = super::LeafWalk::new(
+            graph,
+            &mut meter,
+            &mut structural,
+            pointer("/semantic_graph/nodes/0/body/operation/leaves"),
+            pointer("/semantic_graph/nodes/0/body/operation"),
+        );
+        assert!(matches!(walk.count(&node_id('r')), Ok(300)));
+        assert_eq!(
+            walk.structural.resolved.len(),
+            300,
+            "count pays each forwarder once"
+        );
+        let laws = operation_catalog()
+            .law_role_definitions(LawRole::TextProfile)
+            .expect("text law");
+        let placed = walk.first_leaf_fault(&node_id('r'), &supplied, laws);
+        assert!(matches!(placed, Ok(Ok(ref pins)) if pins.len() == 300));
+        assert_eq!(
+            walk.structural.resolved.len(),
+            300,
+            "placement reuses paid suffixes"
+        );
+        assert_eq!(walk.pins.len(), 300, "pin lookup has its own memo");
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn text_profile_pin_retains_its_independent_exact_boundary() {
+        let (nodes, _) = structural_shared_chain();
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let head = char::from_u32(0x5600).expect("test id");
+        let mut meter = WorkMeter::new(300);
+        let mut structural = StructuralTypes::default();
+        let mut walk = super::LeafWalk::new(
+            graph,
+            &mut meter,
+            &mut structural,
+            pointer("/semantic_graph/nodes/0/body/operation/leaves"),
+            pointer("/semantic_graph/nodes/0/body/operation"),
+        );
+        assert!(matches!(
+            super::text_profile_pin(&node_id(head), &mut walk),
+            Ok(Some(ref pin)) if pin.as_ref() == "nfc"
+        ));
+        assert_eq!(walk.meter.consumed(), 300);
+        assert!(matches!(
+            super::text_profile_pin(&node_id('x'), &mut walk),
+            Ok(Some(ref pin)) if pin.as_ref() == "nfc"
+        ));
+        assert_eq!(walk.meter.consumed(), 300);
+        assert!(
+            walk.structural.resolved.is_empty(),
+            "pin lookup did not resolve structural types"
+        );
+
+        let mut short_meter = WorkMeter::new(299);
+        let mut short_structural = StructuralTypes::default();
+        let mut short_walk = super::LeafWalk::new(
+            graph,
+            &mut short_meter,
+            &mut short_structural,
+            pointer("/semantic_graph/nodes/0/body/operation/leaves"),
+            pointer("/semantic_graph/nodes/0/body/operation"),
+        );
+        let short = super::text_profile_pin(&node_id(head), &mut short_walk);
+        let Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(incomplete))) = short else {
+            panic!("one less pin unit must return Work");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, 299);
+        assert_eq!(incomplete.consumed, 300);
+        assert_eq!(
+            incomplete.path,
+            Some(pointer("/semantic_graph/nodes/0/body/operation/leaves"))
+        );
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn structural_shared_chain_has_measured_count_and_lawful_boundaries() {
+        let (types, lawful) = structural_shared_chain();
+        let lock = text_selecting_lock();
+        let run = |leaves: Vec<Value>, limit| {
+            let mut nodes = vec![];
+            let mut operation = plain_operation("quire.op.structural.eq");
+            operation["leaves"] = json!(leaves);
+            nodes.push(custom_application_node(
+                "binary",
+                operation,
+                vec![reference_to('a'), reference_to('b')],
+            ));
+            nodes.extend(types.clone());
+            nodes.push(parameter_of('a', 'r'));
+            nodes.push(parameter_of('b', 'r'));
+            let locus = nodes[0].node_id.clone();
+            let (result, work) = measured_defect_for_graph(nodes, &lock, limit);
+            (result, work, locus)
+        };
+        let (missing, count_work, locus) = run(Vec::new(), u64::MAX);
+        assert_eq!(missing, leaves_missing(locus.clone()));
+        assert_eq!(run(Vec::new(), count_work).0, leaves_missing(locus.clone()));
+        let (short, consumed, _) = run(Vec::new(), count_work - 1);
+        assert_work(short, count_work - 1, consumed);
+
+        let (admitted, lawful_work, _) = run(lawful.clone(), u64::MAX);
+        assert_eq!(
+            admitted,
+            Ok(None),
+            "all 300 leaves reach placement and admit"
+        );
+        assert!(
+            lawful_work > count_work,
+            "placement and law charges remain paid"
+        );
+        assert_eq!(run(lawful.clone(), lawful_work).0, Ok(None));
+        let (short, consumed, _) = run(lawful, lawful_work - 1);
+        assert_work(short, lawful_work - 1, consumed);
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn structural_forwarding_charges_each_mixed_chain_suffix_once_per_application() {
+        let nodes = vec![
+            forwarding_node('a', "composite_type", "alias", 'b'),
+            forwarding_node('b', "bounded_domain", "integer_range", 'c'),
+            forwarding_node('c', "composite_type", "alias", 'd'),
+            scalar_type_node('d', "integer"),
+        ];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let at = pointer("/semantic_graph/nodes/0/body/operation");
+        let mut structural = StructuralTypes::default();
+        let mut meter = WorkMeter::new(3);
+        let expected = Some((3, kinds[3]));
+        assert_eq!(
+            structural.resolve(&node_id('a'), &graph, &mut meter, &at),
+            Ok(expected)
+        );
+        assert_eq!(meter.consumed(), 3);
+        for head in ['a', 'b', 'c', 'd', 'a'] {
+            assert_eq!(
+                structural.resolve(&node_id(head), &graph, &mut meter, &at),
+                Ok(expected)
+            );
+            assert_eq!(meter.consumed(), 3, "resolved suffix or terminal is free");
+        }
+        let mut second_application = StructuralTypes::default();
+        let mut second_meter = WorkMeter::new(3);
+        assert_eq!(
+            second_application.resolve(&node_id('a'), &graph, &mut second_meter, &at),
+            Ok(expected)
+        );
+        assert_eq!(second_meter.consumed(), 3);
+        let short =
+            StructuralTypes::default().resolve(&node_id('a'), &graph, &mut WorkMeter::new(2), &at);
+        let Err(ValidationFailure::Incomplete(incomplete)) = short else {
+            panic!("third forwarding node must return Work: {short:?}");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(incomplete.limit, 2);
+        assert_eq!(incomplete.consumed, 3);
+        assert_eq!(incomplete.path, Some(at));
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn structural_forwarding_missing_target_and_cycle_remain_resolution_failures() {
+        let cases = [
+            forwarding_node('c', "composite_type", "alias", 'z'),
+            forwarding_node('c', "composite_type", "alias", 'a'),
+        ];
+        for last in cases {
+            let nodes = vec![
+                forwarding_node('a', "composite_type", "alias", 'b'),
+                forwarding_node('b', "bounded_domain", "integer_range", 'c'),
+                last,
+            ];
+            let kinds = kinds_of(&nodes);
+            let index: BTreeMap<&CheckedNodeId, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+            };
+            let at = pointer("/semantic_graph/nodes/0/body/operation");
+            let mut structural = StructuralTypes::default();
+            let mut exact = WorkMeter::new(3);
+            assert_eq!(
+                structural.resolve(&node_id('a'), &graph, &mut exact, &at),
+                Ok(None)
+            );
+            assert_eq!(exact.consumed(), 3);
+            let short = StructuralTypes::default().resolve(
+                &node_id('a'),
+                &graph,
+                &mut WorkMeter::new(2),
+                &at,
+            );
+            assert!(matches!(short, Err(ValidationFailure::Incomplete(_))));
+        }
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn union_arms_propagates_structural_work_before_testing_its_constraint() {
+        let mut application =
+            custom_application_node("case", plain_operation("quire.op.control.case"), Vec::new());
+        application.body["result_type"] = json!(node_id('i'));
+        let union = graph_node(
+            'U',
+            "composite_type",
+            "union",
+            &node_id('U'),
+            json!({ "term": "aggregate", "members": [{
+                "term": "binding", "name": "Only",
+                "value": { "term": "aggregate", "members": [] },
+            }] }),
+        );
+        let nodes = vec![
+            application,
+            parameter_of('p', 'u'),
+            forwarding_node('u', "composite_type", "alias", 'U'),
+            union,
+            parameter_of('q', 'i'),
+            scalar_type_node('i', "integer"),
+        ];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let arguments = vec![
+            reference_to('p'),
+            json!({ "term": "binding", "name": "Only", "value": {
+                "term": "aggregate", "members": [
+                    { "term": "aggregate", "members": [] }, reference_to('q'),
+                ],
+            } }),
+        ];
+        let application = Application {
+            node: &nodes[0],
+            position: 0,
+        };
+        let exact = super::union_arms_hold(
+            application,
+            0,
+            1,
+            &arguments,
+            &graph,
+            &mut WorkMeter::new(1),
+            &mut StructuralTypes::default(),
+        );
+        assert_eq!(exact, Ok(true));
+        let short = super::union_arms_hold(
+            application,
+            0,
+            1,
+            &arguments,
+            &graph,
+            &mut WorkMeter::new(0),
+            &mut StructuralTypes::default(),
+        );
+        let Err(ValidationFailure::Incomplete(incomplete)) = short else {
+            panic!("union constraint must propagate Work: {short:?}");
+        };
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+        assert_eq!(
+            incomplete.path,
+            Some(pointer("/semantic_graph/nodes/0/body/operation"))
+        );
+
+        let mut operation_nodes = nodes.clone();
+        operation_nodes[0].body["arguments"] = json!(arguments);
+        let (ordinary, total) =
+            measured_defect_for_graph(operation_nodes.clone(), &empty_lock(), u64::MAX);
+        assert_eq!(ordinary, Ok(None), "the complete case operation admits");
+        let forwarding_refusal = (1..total).find_map(|limit| {
+            let (outcome, _) =
+                measured_defect_for_graph(operation_nodes.clone(), &empty_lock(), limit);
+            match outcome {
+                Err(ValidationFailure::Incomplete(incomplete))
+                    if incomplete.path
+                        == Some(pointer("/semantic_graph/nodes/0/body/operation")) =>
+                {
+                    Some(incomplete)
+                }
+                _ => None,
+            }
+        });
+        let incomplete = forwarding_refusal.expect("union forwarding has its own Work refusal");
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+    }
+
+    /// Trace: FR-038-AC-224
+    #[trace("FR-038-AC-224")]
+    #[test]
+    fn inner_result_and_leaf_edges_propagate_structural_work() {
+        let nodes = vec![
+            forwarding_node('w', "composite_type", "alias", 's'),
+            collection_type_node('s', "set", 'i'),
+            scalar_type_node('i', "integer"),
+            parameter_of('p', 'w'),
+        ];
+        let kinds = kinds_of(&nodes);
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+        };
+        let at = pointer("/semantic_graph/nodes/0/body/operation");
+        assert_eq!(
+            super::inner_type(
+                &node_id('w'),
+                &graph,
+                &mut WorkMeter::new(1),
+                &mut StructuralTypes::default(),
+                &at,
+            ),
+            Ok(Some(node_id('i')))
+        );
+        let inner_short = super::inner_type(
+            &node_id('w'),
+            &graph,
+            &mut WorkMeter::new(0),
+            &mut StructuralTypes::default(),
+            &at,
+        );
+        assert!(matches!(inner_short, Err(ValidationFailure::Incomplete(_))));
+        let mut meter = WorkMeter::new(0);
+        let mut structural = StructuralTypes::default();
+        let mut walk = super::LeafWalk::new(
+            graph,
+            &mut meter,
+            &mut structural,
+            at.clone().key("leaves"),
+            at.clone(),
+        );
+        let edge_short = walk.edge(Vec::new(), node_id('w'));
+        assert!(matches!(
+            edge_short,
+            Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(_)))
+        ));
+        let mut exact_meter = WorkMeter::new(1);
+        let mut exact_structural = StructuralTypes::default();
+        let mut exact_walk = super::LeafWalk::new(
+            graph,
+            &mut exact_meter,
+            &mut exact_structural,
+            at.clone().key("leaves"),
+            at.clone(),
+        );
+        assert!(
+            matches!(exact_walk.edge(Vec::new(), node_id('w')), Ok(edge) if edge.position == 1)
+        );
+
+        let catalog = operation_catalog();
+        let contains = catalog
+            .entry("quire.op.collection.contains")
+            .expect("inner:0 entry");
+        let contains_application = custom_application_node(
+            "collection",
+            plain_operation("quire.op.collection.contains"),
+            Vec::new(),
+        );
+        let inner_short = super::check_leaf_count(
+            Application {
+                node: &contains_application,
+                position: 0,
+            },
+            contains,
+            &serde_json::from_value(plain_operation("quire.op.collection.contains"))
+                .expect("operation"),
+            &[reference_to('p')],
+            &graph,
+            &text_selecting_lock(),
+            catalog,
+            &mut super::OperationWork {
+                meter: &mut WorkMeter::new(0),
+                structural: &mut StructuralTypes::default(),
+            },
+        );
+        assert_work(inner_short, 0, 1);
+        let inner_exact = super::check_leaf_count(
+            Application {
+                node: &contains_application,
+                position: 0,
+            },
+            contains,
+            &serde_json::from_value(plain_operation("quire.op.collection.contains"))
+                .expect("operation"),
+            &[reference_to('p')],
+            &graph,
+            &text_selecting_lock(),
+            catalog,
+            &mut super::OperationWork {
+                meter: &mut WorkMeter::new(100),
+                structural: &mut StructuralTypes::default(),
+            },
+        );
+        assert_eq!(inner_exact, Ok(None));
+
+        let mut application = custom_application_node(
+            "collection",
+            plain_operation("quire.op.collection.flatten"),
+            Vec::new(),
+        );
+        application.body["result_type"] = json!(node_id('w'));
+        let entry = catalog
+            .entry("quire.op.collection.flatten")
+            .expect("result_inner entry");
+        // This result is set-like, so a successful lookup continues to its
+        // inner type and then the leaf walk. The exhausted lookup stops first.
+        let result_short = super::check_leaf_count(
+            Application {
+                node: &application,
+                position: 0,
+            },
+            entry,
+            &serde_json::from_value(plain_operation("quire.op.collection.flatten"))
+                .expect("operation"),
+            &[],
+            &graph,
+            &text_selecting_lock(),
+            catalog,
+            &mut super::OperationWork {
+                meter: &mut WorkMeter::new(0),
+                structural: &mut StructuralTypes::default(),
+            },
+        );
+        assert_work(result_short, 0, 1);
+        let result_exact = super::check_leaf_count(
+            Application {
+                node: &application,
+                position: 0,
+            },
+            entry,
+            &serde_json::from_value(plain_operation("quire.op.collection.flatten"))
+                .expect("operation"),
+            &[],
+            &graph,
+            &text_selecting_lock(),
+            catalog,
+            &mut super::OperationWork {
+                meter: &mut WorkMeter::new(100),
+                structural: &mut StructuralTypes::default(),
+            },
+        );
+        assert_eq!(result_exact, Ok(None));
     }
 
     /// An entry that names no leaf source admits no leaves: a supplied one is
