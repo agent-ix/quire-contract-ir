@@ -382,7 +382,7 @@ fn scalar_id(package: &Value, form: &str) -> Value {
         .clone()
 }
 
-fn set_of_nfc_id(package: &Value) -> Value {
+fn collection_of_nfc_id(package: &Value, form: &str) -> Value {
     let nfc_id = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -396,10 +396,10 @@ fn set_of_nfc_id(package: &Value) -> Value {
         .iter()
         .find(|node| {
             node["node_tag"] == "composite_type"
-                && node["semantic_form"] == "set"
+                && node["semantic_form"] == form
                 && node["body"]["members"][0]["target"] == nfc_id
         })
-        .expect("set of NFC text")["node_id"]
+        .expect("collection of NFC text")["node_id"]
         .clone()
 }
 
@@ -469,6 +469,95 @@ fn residual_operand_source_reads_option_none_literal_type() {
         matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
         "{result:?}"
     );
+}
+
+/// Trace: FR-038-AC-228
+#[trace("FR-038-AC-228")]
+#[test]
+fn residual_operand_source_reads_referenced_application_result_type() {
+    let (mut package, _) = equality_package(
+        vec![record("r", &[("label", "nfc")])],
+        "r",
+        vec![text_leaf(&[field("label")])],
+    );
+    let record_id = type_id(&package, "record");
+    let boolean_id = scalar_id(&package, "boolean");
+    let parameter_id = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")["node_id"]
+        .clone();
+    let body = json!({
+        "term": "application",
+        "operator": "conditional",
+        "operation": {"identity": "quire.op.control.if", "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": record_id,
+        "arguments": [
+            {"term": "literal", "type": boolean_id, "value_kind": "boolean", "value": true},
+            {"term": "reference", "target": parameter_id},
+            {"term": "reference", "target": parameter_id},
+        ],
+    });
+    let (_, mut child) = node(
+        "child",
+        "expression",
+        "conditional",
+        "r",
+        [] as [&str; 0],
+        "expression",
+        body,
+    );
+    child["semantic_type"] = record_id;
+    let child_id = child["node_id"].clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(child);
+    edit_application(&mut package, |outer| {
+        outer["body"]["arguments"] = json!([
+            {"term":"reference","target":child_id},
+            {"term":"reference","target":child_id},
+        ]);
+    });
+    let outcome = read(&package, CheckedPackageReadLimits::bounded());
+    assert!(
+        matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+        "reference to an application-bearing value node: {outcome:?}"
+    );
+
+    let mut inline = package;
+    let child_body = inline["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "conditional")
+        .expect("child application")["body"]
+        .clone();
+    edit_application(&mut inline, |outer| {
+        outer["body"]["arguments"][0] = child_body;
+    });
+    let position = inline["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "expression" && node["semantic_form"] == "binary")
+        .expect("outer comparison");
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read(&inline, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("inline application operand must refuse at wire admission");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+    assert_eq!(
+        refusal.path,
+        Some(pointer(&format!(
+            "/semantic_graph/nodes/{position}/body/arguments/0"
+        )))
+    );
+    assert_eq!(refusal.cause, None);
 }
 
 /// Trace: FR-038-AC-231
@@ -562,6 +651,20 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
             ),
             "{form} without its text leaf"
         );
+        let mut prefixed = missing;
+        let application = edit_application(&mut prefixed, |node| {
+            node["body"]["operation"]["leaves"] = json!([text_leaf(&["inner".to_owned()])]);
+        });
+        assert_eq!(
+            read(&prefixed, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                &format!("{}/0/path", leaves_pointer(&prefixed, &application)),
+                Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                &application,
+            ),
+            "{form} does not add an inner prefix to the selected element"
+        );
     }
 }
 
@@ -589,7 +692,7 @@ fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
             _ => unreachable!("test table is exhaustive"),
         };
         let (mut package, _) = equality_package(types, root, vec![]);
-        let result_id = set_of_nfc_id(&package);
+        let result_id = collection_of_nfc_id(&package, "set");
         let nfc_id = package["semantic_graph"]["nodes"]
             .as_array()
             .expect("nodes")
@@ -647,6 +750,91 @@ fn residual_result_inner_map_flat_map_flatten_and_convert_use_result_element() {
                 &application,
             ),
             "{identity} missing leaf"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-230
+#[trace("FR-038-AC-230")]
+#[test]
+fn residual_result_inner_sequence_results_expect_no_leaves() {
+    for identity in ["map", "flat_map", "flatten", "convert"] {
+        let (root, types) = match identity {
+            "map" | "flat_map" => ("result", vec![collection_of("result", "sequence", "nfc")]),
+            "flatten" => (
+                "source",
+                vec![
+                    collection_of("result", "sequence", "nfc"),
+                    collection_of("source", "sequence", "result"),
+                ],
+            ),
+            "convert" => (
+                "source",
+                vec![
+                    collection_of("result", "sequence", "nfc"),
+                    collection_of("source", "set", "nfc"),
+                ],
+            ),
+            _ => unreachable!("test table is exhaustive"),
+        };
+        let (mut package, _) = equality_package(types, root, vec![]);
+        let result_id = collection_of_nfc_id(&package, "sequence");
+        let nfc_id = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "bounded_domain" && node["semantic_form"] == "text_bounds"
+            })
+            .expect("NFC text")["node_id"]
+            .clone();
+        edit_application(&mut package, |node| {
+            let source = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!(if identity == "convert" {
+                "conversion"
+            } else {
+                "collection"
+            });
+            node["semantic_type"] = result_id.clone();
+            node["body"]["operator"] = json!(if identity == "convert" {
+                "convert"
+            } else {
+                "collection"
+            });
+            node["body"]["operation"]["identity"] =
+                json!(format!("quire.op.collection.{identity}"));
+            node["body"]["result_type"] = result_id.clone();
+            node["body"]["arguments"] = match identity {
+                "map" => json!([source, {"term":"binding","name":"x","value":{
+                    "term":"literal","type":nfc_id,"value_kind":"text","value":"a"}}]),
+                "flat_map" => json!([source.clone(), {"term":"binding","name":"x","value":source}]),
+                "flatten" | "convert" => json!([source]),
+                _ => unreachable!("test table is exhaustive"),
+            };
+            if identity == "convert" {
+                node["body"]["operation"]["member"] = json!({
+                    "kind":"type_argument", "type_argument":result_id
+                });
+            }
+        });
+        let outcome = read(&package, CheckedPackageReadLimits::bounded());
+        assert!(
+            matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+            "{identity} sequence result with no leaves: {outcome:?}"
+        );
+        let mut extra = package;
+        let application = edit_application(&mut extra, |node| {
+            node["body"]["operation"]["leaves"] = json!([text_leaf(&[])]);
+        });
+        assert_eq!(
+            read(&extra, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                &format!("{}/0", leaves_pointer(&extra, &application)),
+                Some(CheckedPackageRefusalCause::OperationLawMismatch),
+                &application,
+            ),
+            "{identity} sequence result rejects an extraneous leaf"
         );
     }
 }
@@ -773,6 +961,82 @@ fn residual_compared_operand_rejects_binder_and_aggregate_families_first() {
             "{family} refuses before leaves"
         );
     }
+}
+
+/// Trace: FR-038-AC-229
+#[trace("FR-038-AC-229")]
+#[test]
+fn residual_non_member_terms_refuse_before_operand_family_and_leaves() {
+    let (base, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
+    for term in [
+        json!({"term":"frame","modifies":[],"creates":[],"deletes":[]}),
+        json!({"term":"abstraction_relation","members":[]}),
+    ] {
+        let mut package = base.clone();
+        let application = edit_application(&mut package, |node| {
+            node["body"]["arguments"][0] = term.clone();
+        });
+        let position = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"]["digest"] == application)
+            .expect("application");
+        let CheckedPackageV2ReadResult::Refused(refusal) =
+            read(&package, CheckedPackageReadLimits::bounded())
+        else {
+            panic!("non-MemberTerm operand must refuse before leaf selection");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.path,
+            Some(pointer(&format!(
+                "/semantic_graph/nodes/{position}/body/arguments/0"
+            )))
+        );
+        assert_eq!(refusal.cause, None);
+    }
+}
+
+/// Trace: FR-038-AC-229
+#[trace("FR-038-AC-229")]
+#[test]
+fn residual_dependency_reference_cannot_be_a_comparison_operand() {
+    let (mut package, _) = equality_package(vec![record("r", &[("n", "integer")])], "r", vec![]);
+    let package_id = package["package_id"].clone();
+    let parameter_id = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "parameter")
+        .expect("parameter")["node_id"]
+        .clone();
+    let application = edit_application(&mut package, |node| {
+        node["body"]["arguments"][0] = json!({
+            "term":"dependency_reference", "package":package_id, "node":parameter_id
+        });
+    });
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"]["digest"] == application)
+        .expect("application");
+    let outcome = read(&package, CheckedPackageReadLimits::bounded());
+    assert_eq!(
+        outcome,
+        refusal_at(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            &format!("/semantic_graph/nodes/{position}/body/arguments/0/package"),
+            Some(CheckedPackageRefusalCause::MissingSelection),
+            &application,
+        ),
+        "dependency reference is refused by placement before leaves"
+    );
 }
 
 /// `record Node { label: Text[nfc]; next?: Node; }`.
