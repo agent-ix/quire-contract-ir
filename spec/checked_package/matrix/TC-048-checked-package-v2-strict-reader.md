@@ -823,12 +823,20 @@ and catalog, never computed by asking the reader twice.
 1. For AC-228, use `structural.eq` and `.ne` over an all-integer record and
    a record with one `Text[0, 8; nfc]` field. Independently author the empty
    and one-field leaf lists. Supply the first operand as a `reference` to a
-   value node, a `reference` directly to the structural type, an
-   `application` with that `result_type`, and an option-typed `none` literal
-   for an option comparison; keep each second operand the same declared
-   type. Assert the exact admission or missing-leaf result of AC-228. Mutate
-   a declared type and refresh identities to show that the reader selects
-   the new type and does not use stale first-operand leaves.
+   value node, a `reference` directly to the structural type, a `reference`
+   to an expression node whose body root is an `application` with
+   `result_type` equal to that node's `semantic_type`, and an option-typed
+   `none` literal for an option comparison; keep each second operand the same
+   declared type. For the application-bearing expression, use an admitted
+   `quire.op.control.if` with structural-typed value branches and a body-root
+   `result_type` equal to the structural type compared by the outer operation.
+   Assert the exact admission or missing-leaf result of
+   AC-228. Then replace only the outer operation's first-operand reference
+   with an inline copy of the referenced application's body; assert the V2
+   grammar rejects that argument and the public reader refuses `malformed_wire`
+   at `arguments/0` before leaf checking. Mutate a declared type and refresh
+   identities to show that
+   the reader selects the new type and does not use stale first-operand leaves.
 2. For AC-229, start from admitted structural comparison and
    `collection.contains` packages. Replace operand 0 separately with a
    well-shaped `binding`, `aggregate`, `frame`, `abstraction_relation` and
