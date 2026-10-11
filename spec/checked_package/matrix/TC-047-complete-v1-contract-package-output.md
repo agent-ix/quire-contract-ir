@@ -41,8 +41,10 @@ references, including a shared node and an explicit recursion group. Independent
 enumerate those validated edges and compare the reached keys, node values and
 source-map entries with the view in typed-key order. Include an adversarial body
 reference whose target is omitted from a declared dependency list, so a walk
-limited to that list fails the comparison. Check that any bound and claim key
-subsets agree with the existing IR lowering result for the same root. Include a
+limited to that list fails the comparison. For lowered roots with nonempty bound
+and claim subsets, compare both exposed typed-key subsets with independently
+derived IR lowering results, including exact membership and order. Repeat for
+roots with empty bound and claim subsets and require both empty subsets. Include a
 selected external reference and an identically keyed local node; confirm the
 view retains the selected identity and target key, and admission refuses a
 missing, stale or wrong selected package. Query refused, unrequested reached
@@ -63,8 +65,9 @@ Missing properties, duplicate or disordered keys, extra graph partitions and
 wrong contract versions refuse before consumption.
 The lowered-root view contains exactly the key-ordered local reached closure,
 with exact nodes and sources, and exposes selected external references at their
-package boundary. Its bound and claim subsets, when present, match IR's own
-lowering classification. Refused requests return their typed disposition;
+package boundary. Every lowered-root view exposes both bound and claim subsets,
+empty when appropriate, with the exact keys and order of IR's own lowering
+classification. Refused requests return their typed disposition;
 unrequested reached or absent roots return typed absence. No such query changes
 the six-field wire or identity.
 

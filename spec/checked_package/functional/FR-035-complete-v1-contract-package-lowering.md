@@ -94,9 +94,11 @@ has no independent `ir_id` or closure record. A selected external dependency
 reference SHALL remain a typed pair of selected dependency identity and target
 key at its admitted package boundary. It SHALL NOT be resolved through an
 identically keyed local node or flattened into this package's local closure.
-The view SHALL expose bound and claim key subsets only when they are derived
-by Contract IR's existing lowering classification, with the same keys and
-typed-key order; consumers SHALL NOT infer either subset from node tags.
+For every lowered root, the view SHALL expose both bound and claim typed-key
+subsets, including an empty subset when that class has no reached member. Each
+subset SHALL contain exactly the keys derived by Contract IR's existing
+lowering classification in typed-key order; consumers SHALL NOT infer either
+subset from node tags.
 For an exact requested key with a non-`lowered` record, the view SHALL return
 that typed disposition. When a key has no lowered request record, the view SHALL
 return typed absence, including for an absent key or a node present only because
@@ -114,7 +116,7 @@ identity unchanged.
 | FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
 | FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission. | Test |
 | FR-035-AC-6 | For an admitted lowered root, the typed view returns that exact root and each local node reached through `semantic_type`, declared `dependencies` or validated body references once in ascending typed-key order; independently walking those three edge sources yields the same key set, including a shared or cyclic reference, and every returned node retains its exact source correspondence. | Test |
-| FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; any bound and claim key subsets exposed for the lowered root equal the subsets already derived by Contract IR lowering and are in typed-key order. | Test |
+| FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
 | FR-035-AC-8 | Querying a non-`lowered` requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even if its node occurs only as another root's reached meaning; neither returns a fabricated closure, and querying the view changes none of the six FR-330 wire properties or identity. | Test |
 
 ## Dependencies
