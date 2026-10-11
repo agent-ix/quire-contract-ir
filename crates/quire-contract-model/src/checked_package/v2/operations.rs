@@ -2592,6 +2592,9 @@ struct LeafWalk<'g, 'm> {
     component_of: BTreeMap<usize, usize>,
     /// Whether a `text` type is reachable from each component.
     component_text: Vec<bool>,
+    /// Whether an IEEE type is reachable from each component. A compared
+    /// type reaching one is ineligible even though it has no text leaf.
+    component_ieee: Vec<bool>,
     open: OpenComposites,
     /// The open-composite count at each held visit of an option or
     /// collection, dropped when the walk leaves the node.
@@ -2627,6 +2630,7 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             expanded: BTreeMap::new(),
             component_of: BTreeMap::new(),
             component_text: Vec::new(),
+            component_ieee: Vec::new(),
             open: OpenComposites::default(),
             noted: BTreeMap::new(),
             stack: Vec::new(),
@@ -2872,17 +2876,30 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
             }
         }
         let mut text = false;
+        let mut ieee = false;
         for member in &closed {
             let kind = self.kinds.get(*member).copied();
             text |= kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
+            ieee |= matches!(
+                kind,
+                Some(CheckedNodeKind::ScalarType(
+                    ScalarTypeForm::Float32 | ScalarTypeForm::Float64
+                ))
+            );
             for child in &self.expansion(*member)?.children {
                 let other = self.component(child.position)?;
                 if other != component {
                     text |= self.reaches_text(other)?;
+                    ieee |= self
+                        .component_ieee
+                        .get(other)
+                        .copied()
+                        .ok_or(LeafWalkEnd::Unresolved)?;
                 }
             }
         }
         self.component_text.push(text);
+        self.component_ieee.push(ieee);
         Ok(())
     }
 
@@ -2973,6 +2990,14 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
     fn count(&mut self, root: &CheckedNodeId) -> Result<usize, LeafWalkEnd> {
         let root = self.root_edge(root)?;
         self.analyse(&root)?;
+        if self
+            .component_ieee
+            .get(self.component(root.position)?)
+            .copied()
+            .ok_or(LeafWalkEnd::Unresolved)?
+        {
+            return Err(LeafWalkEnd::Unresolved);
+        }
         let mut finished = match self.enter(&root)? {
             LeafEntry::Count(count) => Some(count),
             LeafEntry::Pushed => None,
@@ -3158,10 +3183,10 @@ impl<'g, 'm> LeafWalk<'g, 'm> {
 /// compared type that has a node that does not resolve, a text leaf pinning no
 /// profile, or an option or collection that leads back to itself with no
 /// record or tuple between the two visits is `ill_typed`/`operator-ineligible`;
-/// one too large for the work budget is the budget's refusal. A `float32` or
-/// `float64` leaf counts as no text leaf where the reference reader finds the
-/// type undecidable. A compared type this reader cannot resolve from the first
-/// operand is not decided, and its leaves are not checked.
+/// one too large for the work budget is the budget's refusal. A compared type
+/// reaching `float32` or `float64` is ineligible even though those nodes add
+/// no text leaf. A required compared type that cannot be resolved refuses at
+/// `operation.leaves` rather than accepting an arbitrary leaf list.
 fn check_leaf_count(
     application: Application<'_>,
     entry: &OperationCatalogEntry,
@@ -3180,56 +3205,86 @@ fn check_leaf_count(
     let Some(source) = entry.leaves.as_deref() else {
         return Ok(None);
     };
-    let operand_type = || operand_type_node(arguments.first()?, nodes, kinds, index);
     let operation_at = application.body(&["operation"]);
-    // Outer `None`: the compared type is not decided. Inner `None`: the entry
-    // expects no leaves.
+    let at = application.body(&["operation", "leaves"]);
+    let ineligible = |path| {
+        Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            path,
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )))
+    };
+    // The earlier operand check refuses a resolved, wrong family. Terms with
+    // no family at all cannot satisfy an operand: in particular a frame and
+    // an abstraction relation are not silently accepted by this leaf check.
+    if matches!(source, "operand:0" | "inner:0")
+        && arguments.first().is_some_and(|argument| {
+            matches!(
+                body_term(argument),
+                Some(
+                    BodyTerm::Binding
+                        | BodyTerm::Aggregate
+                        | BodyTerm::Frame
+                        | BodyTerm::AbstractionRelation
+                )
+            )
+        })
+    {
+        return ineligible(application.body(&["arguments"]).index(0));
+    }
+    // Outer `None`: a required type could not be resolved. Inner `None`:
+    // this admitted result kind has no leaf source (a sequence, for example).
     let compared: Option<Option<CheckedNodeId>> = match source {
-        "operand:0" => operand_type().map(Some),
-        "inner:0" => match operand_type() {
-            Some(ty) => {
-                inner_type(&ty, graph, work.meter, work.structural, &operation_at)?.map(Some)
+        "operand:0" => arguments
+            .first()
+            .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
+            .map(Some),
+        "inner:0" => {
+            match arguments
+                .first()
+                .and_then(|argument| operand_type_node(argument, nodes, kinds, index))
+            {
+                Some(ty) => {
+                    inner_type(&ty, graph, work.meter, work.structural, &operation_at)?.map(Some)
+                }
+                None => None,
             }
-            None => None,
-        },
+        }
         "result_inner" => {
             let result = application
                 .node
                 .body
                 .get("result_type")
                 .and_then(|value| serde_json::from_value::<CheckedNodeId>(value.clone()).ok());
-            let set_like = if let Some(result) = result.as_ref() {
-                let kind = work
-                    .structural
-                    .resolve(result, graph, work.meter, &operation_at)?
-                    .map(|(_, kind)| kind);
-                kind.is_some_and(|kind| {
-                    matches!(
-                        kind,
-                        CheckedNodeKind::CompositeType(
-                            CompositeTypeForm::Set
-                                | CompositeTypeForm::Bag
-                                | CompositeTypeForm::OrderedSet
-                        )
-                    )
-                })
-                .then_some(result)
-            } else {
-                None
-            };
-            match set_like {
+            match result.as_ref() {
                 Some(result) => {
-                    inner_type(result, graph, work.meter, work.structural, &operation_at)?.map(Some)
+                    match work
+                        .structural
+                        .resolve(result, graph, work.meter, &operation_at)?
+                    {
+                        Some((
+                            _,
+                            CheckedNodeKind::CompositeType(
+                                CompositeTypeForm::Set
+                                | CompositeTypeForm::Bag
+                                | CompositeTypeForm::OrderedSet,
+                            ),
+                        )) => {
+                            inner_type(result, graph, work.meter, work.structural, &operation_at)?
+                                .map(Some)
+                        }
+                        Some(_) => Some(None),
+                        None => None,
+                    }
                 }
-                None => Some(None),
+                None => None,
             }
         }
-        _ => None,
+        _ => return ineligible(at),
     };
     let Some(compared) = compared else {
-        return Ok(None);
+        return ineligible(at);
     };
-    let at = application.body(&["operation", "leaves"]);
     let Some(compared) = compared else {
         return if operation.leaves.is_empty() {
             Ok(None)
@@ -5306,6 +5361,66 @@ mod tests {
                 "{identity} over an all-integer record has no text leaf, so `leaves: []` \
                  must be admitted, got {result:?}"
             );
+        }
+    }
+
+    /// Trace: FR-038-AC-229, FR-038-AC-230
+    #[trace("FR-038-AC-229", "FR-038-AC-230")]
+    #[test]
+    fn required_leaf_source_type_never_defaults_to_an_empty_list() {
+        let cases = [
+            (
+                "operand:0",
+                "quire.op.structural.eq",
+                vec![parameter_of('a', 'z'), parameter_of('b', 'z')],
+                vec!['a', 'b'],
+                None,
+            ),
+            (
+                "inner:0",
+                "quire.op.collection.contains",
+                vec![
+                    collection_type_node('s', "sequence", 'z'),
+                    parameter_of('a', 's'),
+                ],
+                vec!['a', 'a'],
+                None,
+            ),
+            (
+                "result_inner",
+                "quire.op.collection.set",
+                vec![collection_type_node('s', "set", 'z')],
+                vec![],
+                Some('s'),
+            ),
+        ];
+        for (source, identity, nodes, operands, result) in cases {
+            for leaves in [json!([]), json!([text_leaf(&[])])] {
+                let (outcome, locus) =
+                    leaves_defect_result(identity, leaves, nodes.clone(), operands.clone(), result);
+                assert_eq!(outcome, leaves_ineligible(locus), "{source}");
+            }
+        }
+    }
+
+    /// Trace: FR-038-AC-231
+    #[trace("FR-038-AC-231")]
+    #[test]
+    fn compared_ieee_reachability_is_distinct_from_text_leaf_count() {
+        for form in ["float32", "float64"] {
+            let nodes = vec![
+                record_type_node('r', &[("value", 'f')]),
+                scalar_type_node('f', form),
+                parameter_of('a', 'r'),
+                parameter_of('b', 'r'),
+            ];
+            for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
+                for leaves in [json!([]), json!([text_leaf(&["field:value"])])] {
+                    let (outcome, locus) =
+                        leaves_defect(identity, leaves, nodes.clone(), ['a', 'b']);
+                    assert_eq!(outcome, leaves_ineligible(locus), "{form} {identity}");
+                }
+            }
         }
     }
 
