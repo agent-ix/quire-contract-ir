@@ -54,3 +54,9 @@ type: TestMatrix
 | Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
 |---|---|---|---|---|
 | FR-038 | FR-038-AC-222, FR-038-AC-223 | TC-048 | 🚧 PLANNED/UNRUN; no tagged implementation test yet | Public-reader Float64→Float32 and Float32→Float64 admission with genuine recomputed identities; both opposite-width literal kind/type mismatches at the literal `type`; for each conversion, wrong `result_type` with valid `type_argument` and wrong `type_argument` with matching wrong `result_type`, each with enclosing root `semantic_type` matched to `result_type` and refusal at application `result_type`; exact typed code, cause, pointer and locus; no stale-identity substitute. |
+
+## Pending structural type work coverage (IR-490)
+
+| Functional Req | Acceptance Criteria | Test Case | Status | Required cases |
+|---|---|---|---|---|
+| FR-038 | FR-038-AC-224 | TC-048 | 🚧 PLANNED/UNRUN; no tagged implementation test yet | First resolution of each distinct alias or non-population bounded-domain forwarding node costs one work unit per application, repeated resolution within the application costs zero, and a second application charges again; exact/one-less meter boundaries for a count-only missing-leaf case and a separate admitted lawful-leaf case that reaches both passes, with no second-pass structural charge; separate text-profile pin charges; typed work exhaustion through union arms, inner type, result inner and leaf edges, without a skipped constraint or ill-typed fallback. |

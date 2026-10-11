@@ -67,6 +67,9 @@ executed evidence until the IR-484 code slice adds tagged tests.
 FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
 IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
 test or admission correction is claimed yet.
+FR-038-AC-224 is the planned structural-type forwarding work control for
+operation validation; its private meter probes and public-reader work refusal
+are not counted as executed evidence until IR-490 adds tagged tests.
 FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
 split of a stale digest into `content-mismatch` (a document that reads, a dependency
 entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
@@ -1651,6 +1654,43 @@ entry's and supplied package's complete `quire.package.semantic/v2` identities;
 none refuses `missing_import`/
 `missing-selection` at the entry, and the matching one admits; and no other refusal
 carries `expected` or `actual`.
+
+## Structural type forwarding work (FR-038-AC-224)
+
+PLANNED/UNRUN (IR-490). Use a private operation-stage probe with an isolated
+meter to resolve a chain containing both `alias` and non-population
+`bounded_domain` nodes. Measure the before/after counter for a chain with N
+distinct forwarding nodes: the first resolution consumes N units, the same
+head and each resolved suffix consume zero more in the same application's
+validation, and a second application consumes N again. The terminal node is
+uncharged. At exactly N units the first resolution succeeds; at N-1 it returns
+the typed Work failure at the forwarding node where the charge fails. Include
+a chain with an absent next node and a forwarding cycle to verify resolution
+failure remains distinct from budget exhaustion. Do not count the separate
+`text_profile` pin or leaf-node visits in this isolated measurement.
+
+At the operation stage, reuse the 300-field/300-alias shared-chain case of
+AC-44. Under a nonbinding limit, measure total work W for the ordinary
+missing-leaf decision. The same decision holds at W; W-1 returns typed Work.
+This missing-leaf case ends after the count pass; measure its structural
+forwarding charges for that pass only. Separately supply every derived leaf
+with its selected law in an otherwise identical record. Require this lawful-leaf
+case to reach the second leaf pass and admit. Under a nonbinding limit measure
+its total work L and per-pass structural-forwarding counters: the first pass
+charges one unit per distinct forwarding node and the second adds zero for
+already resolved nodes. It still charges each pass's leaf visits and the
+existing `text_profile` pin independently. Admission holds at L; L-1 returns
+typed Work. Preserve the pin
+control by verifying that the first lookup of each pin-chain node charges one
+unit and repeated pin lookups in the same walk charge zero; measure its
+exact/one-less boundary independently of the structural-resolution counter. Build otherwise valid applications
+that reach structural resolution through `union_arms`, `inner:0`,
+`result_inner`, and a leaf edge. Give each its measured exact remaining budget
+and one less; the exact case reaches the ordinary operation decision, while
+the one-less case returns the reader's typed `incomplete`/`work` at that
+operation. Assert no case turns Work into `ill_typed`/`operator-ineligible`,
+a skipped union constraint, or an unchecked leaf. Bind each eventual test to
+`FR-038-AC-224`; no runtime result is claimed here.
 
 ## Pre-read candidate application identity (FR-046)
 
