@@ -773,6 +773,13 @@ impl StatePackage {
     }
 }
 
+/// Shared admitted state-clause fixture for the operation-family reader controls.
+pub(crate) fn state_operand_fixture() -> (Value, usize) {
+    let package = StatePackage::new();
+    let clause = package.clause("invariant");
+    (package.value, clause)
+}
+
 /// Tracing: TC-056
 /// ACs: FR-040-AC-7
 #[trace("TC-056", "FR-040-AC-7")]

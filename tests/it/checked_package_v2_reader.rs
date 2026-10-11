@@ -6,10 +6,10 @@
 
 use crate::support::checked_package::{
     self, all_families_read_work, canonical, domain_package_digest, domain_package_document,
-    evidence_for, incomplete, nominal_fixture_members, nominal_package, pointer as support_pointer,
-    positive_operation_identities, refresh_identity, refusal, refusal_at, refusal_bytes,
-    refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families, v2_nominal,
-    ExpectedRefusal, COMPLETE_VALUE_FEATURE,
+    evidence_for, family_key, incomplete, node_id, nominal_fixture_members, nominal_package,
+    pointer as support_pointer, positive_operation_identities, refresh_identity, refusal,
+    refusal_at, refusal_bytes, refusal_cause, rekey, sha256_hex, unknown_version, v2_all_families,
+    v2_nominal, ExpectedRefusal, COMPLETE_VALUE_FEATURE,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -582,17 +582,20 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     // whether or not serde_json's `arbitrary_precision` is unified into the
     // build.
     type Build<'a> = Box<dyn Fn(Value) -> Value + 'a>;
-    let self_type = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let integer_type = node_id(&family_key("a3a3"));
     let body: Build = Box::new(|literal| {
         let mut changed = base.clone();
-        changed["semantic_graph"]["nodes"][3]["body"] = json!({"term":"literal","type":self_type.clone(),"value_kind":"integer","value":literal});
+        changed["semantic_graph"]["nodes"][3]["semantic_type"] = integer_type.clone();
+        changed["semantic_graph"]["nodes"][3]["dependencies"] = json!([integer_type]);
+        changed["semantic_graph"]["nodes"][3]["body"] =
+            json!({"term":"literal","type":integer_type,"value_kind":"integer","value":literal});
         checked_package::mint_ungrouped_structural_keys(&mut changed);
         refresh_identity(&mut changed);
         changed
     });
     let detail: Build = Box::new(|literal| {
         let mut changed = base.clone();
-        let target = base["semantic_graph"]["nodes"][0]["node_id"].clone();
+        let target = integer_type.clone();
         // FR-208's `DiagnosticCausePairing` requires `cause_tag: "invalid-value"`
         // to pair with `code: "invalid_package"`.
         changed["diagnostics"]["entries"] = json!([{

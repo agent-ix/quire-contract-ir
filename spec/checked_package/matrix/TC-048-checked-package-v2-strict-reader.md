@@ -60,10 +60,9 @@ terms, the refusal of a negative, malformed or non-reduced bound, a null upper b
 an open end with equal bounds and a missing or extra member, and the profile fit.
 FR-038-AC-159 through FR-038-AC-164 verify the typed scalar operand accessor
 over admitted application nodes and explicit post-admission mutation rows.
-FR-038-AC-210 through FR-038-AC-213 are planned reader-admission cases for
-the published operation catalog's declared-unit quantity, aggregate,
-same-family, literal-kind and rounding-mode rules; they are not counted as
-executed evidence until the IR-484 code slice adds tagged tests.
+FR-038-AC-210 through FR-038-AC-213 have tagged public-reader admission
+and adverse controls for the published operation catalog's declared-unit
+quantity, aggregate, same-family, literal-kind and rounding-mode rules.
 FR-038-AC-222 and FR-038-AC-223 are planned public-reader controls for the
 IEEE literal-family and catalog-result rules of QSpec FR-322-AC-23; no tagged
 test or admission correction is claimed yet.
