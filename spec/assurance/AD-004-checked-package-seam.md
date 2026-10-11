@@ -52,7 +52,22 @@ The seam is described as what crosses it, how identity is asserted, which way de
 | `CheckedPackageReadLimits` (`bounded()` default: 1048576 bytes, 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics, 1000000 validation visits; no depth member, and no `CheckedPackageLimit::Depth` or `CheckedPackageReadLimits::MAXIMUM_DEPTH`, FR-038-AC-117 having removed them, a breaking change for a consumer across this seam that builds any of them) | caller to IR | IR | every member finite |
 | `CheckedPackageDispatchResult`: `AdmittedV2` / `Refused` / `Incomplete` | IR to caller | IR | typed code and RFC 6901 pointer on refusal |
 | `CheckedPackageV2` and its accessors | IR to codegen and QSL | IR | only the reader can build one |
-| Lowering records (seven kinds) and `ContractPackage` (`quire.contract-ir.contract-package/v1`) | IR to backends | IR (FR-035) | one record per requested node |
+| Lowering records (seven kinds) and FR-330 `ContractPackage` (`quire.contract-package/v1`) | IR to backends | QSpec FR-330 owns the published wire; IR FR-035 owns lowering | one `feature_accounting` record per requested item; emitter and consumer adoption planned (IR-743, IR-744) |
+
+### FR-330 output boundary
+
+The target-neutral output is one published `quire.contract-package/v1` value
+with `package`, one key-ordered tagged `semantic_graph`, `source_map`,
+`feature_accounting` and `identity` (FR-035, QSpec FR-330). The seven per-item
+records retain independent sibling outcomes and exact refusal loci. Local
+semantic references resolve to compatible nodes in that graph. A
+`dependency_reference` retains the FR-322 selected package identity and
+resolves against its admitted dependency package, never a same-key local
+node. A protocol reference targets a `protocol`-tagged node by key. Explicit
+FR-322 recursion groups remain legal keyed cycles without recursive object
+embedding. This output boundary is specified but its FR-330 emitter and
+codegen consumer are planned, not verified; current code emits the earlier
+IR-only package shape.
 
 ### Versioned contracts and identity assertion
 

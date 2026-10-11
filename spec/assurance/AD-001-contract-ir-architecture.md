@@ -114,7 +114,7 @@ JSON bytes -> wire model -> schema validation -> semantic validation
                                          |-> ordered diagnostics
 validated package -> dependency walk -> canonical encoder -> SHA-256 identities
 validated package + artifact traces -> shallow/deep/uncovered/orphaned coverage
-checked-package/v2 bytes -> strict reader -> admitted package -> per-item lowering -> ContractPackage v1
+checked-package/v2 bytes -> strict reader -> admitted package -> per-item lowering -> FR-330 ContractPackage v1 (planned emitter)
 output-mapping request -> mapper seam -> per-obligation records -> atomic package
 checked clause + kani-bounded/1 + finite input -> dispatch index -> codegen family lowering -> KaniOutcome
 schema + corpus fixtures -> process runner -> JSON Lines results
@@ -134,13 +134,17 @@ it.
 | --- | --- | --- | --- |
 | Contract IR wire schema | `contract-package-reference-v1.schema.json`, `schema_version` 1.1 | authored contract in, canonical JSON (`quire.contract.canonical-json/v1`) out | FR-011 through FR-020 |
 | Checked package | `quire.checked-package/v2` only, parsed once from `contract_version`; every other version refuses `unknown_contract_version` | QSL-produced input | FR-038, FR-040 |
-| ContractPackage | `quire.contract-ir.contract-package/v1`, holding `quire.contract-ir.lowered-node/v1` nodes | Contract IR output to backend providers | FR-035 |
+| ContractPackage | `quire.contract-package/v1`; one key-ordered `semantic_graph` with `package`, `source_map`, `feature_accounting` and `identity` | Contract IR output to backend providers; FR-330 emitter planned | FR-035, QSpec FR-330 |
 | Bounded Kani profile | `kani-bounded/1`, whose profile revision, capability matrix, input ABI and module revisions are selected together | checked clause and finite input in, `KaniOutcome` out | FR-029 through FR-031 |
 
 The checked package is the only input from which a `ContractPackage` is
-built: its version selects the reader, and a lowered node's preimage names
-the lowered-node version, not the checked-package version. The Kani profile
-reads checked native clauses and finite inputs, not a `ContractPackage`; its
+built: its version selects the reader. The FR-330 output uses one tagged node
+set, with local semantic references resolved by typed key and selected
+dependency references resolved externally under FR-322. Protocol references
+target `protocol`-tagged nodes. Explicit recursion groups remain keyed graph
+semantics. The current emitter still produces the earlier IR-only shape;
+IR-743 will implement this published wire, then IR-744 will adopt it in codegen.
+The Kani profile reads checked native clauses and finite inputs, not a `ContractPackage`; its
 artifacts bind the checked-clause identity. The wire schema applies only to
 the authored-contract interchange.
 
