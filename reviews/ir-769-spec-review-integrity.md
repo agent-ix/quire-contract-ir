@@ -33,3 +33,9 @@ Reviewed IR-769 at the pinned head. Examined FR-049-AC-1 through AC-6, TC-447 an
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Direct bounded-domain result type has precedence, but the contract does not say which of the four mandatory reverse-context outcomes accompanies that direct bound when a conversion also consumes the expression. | spec/checked_package/functional/FR-049-admitted-scalar-result-context.md:73-80 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d254e62b1456441ba2728f46a1efe208d562bfbc — DirectBounded is now a named outcome and takes precedence regardless of reverse consumers. |

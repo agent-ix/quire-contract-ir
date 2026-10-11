@@ -33,3 +33,9 @@ Reviewed IR-769 at the pinned head. Examined FR-049-AC-1 through AC-6, TC-447 an
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The stray word “references;” breaks the consumer-classification sentence and should be removed. | spec/checked_package/functional/FR-049-admitted-scalar-result-context.md:69 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d254e62b1456441ba2728f46a1efe208d562bfbc — The stray word is gone; the classification sentence now ends at “knowledge.” |

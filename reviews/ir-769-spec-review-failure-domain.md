@@ -33,3 +33,9 @@ Reviewed IR-769 at the pinned head. Examined FR-049-AC-1 through AC-6, TC-447 an
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | When one valid narrowing and one wrong-form or incompatible narrowing reference coexist, the rules allow MissingBound, Narrowed, or AmbiguousBound depending on which sentence is applied first. Define a deterministic precedence for mixed defects. | spec/checked_package/functional/FR-049-admitted-scalar-result-context.md:76-82 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d254e62b1456441ba2728f46a1efe208d562bfbc — The ordered rules place mixed non-candidate consumers before invalid-target MissingBound, then distinct valid bounds, then Narrowed. |

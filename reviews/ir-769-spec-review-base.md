@@ -33,3 +33,9 @@ Reviewed IR-769 at the pinned head. Examined FR-049-AC-1 through AC-6, TC-447 an
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | A conversion qualifies only after its target is a compatible admitted bound, yet MissingBound requires a qualifying conversion with an unreadable, wrong-form, or incompatible target. These cases cannot satisfy the qualifying predicate and can fall through to Unnarrowed. | spec/checked_package/functional/FR-049-admitted-scalar-result-context.md:63-79 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | d254e62b1456441ba2728f46a1efe208d562bfbc — A conversion-shaped candidate is classified before target validation, so invalid targets reach MissingBound. |
