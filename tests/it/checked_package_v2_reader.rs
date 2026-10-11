@@ -1924,7 +1924,9 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "systems_connection",
         "systems_allocation",
     ] {
-        if form == "object_type" {
+        // Both forms already have valid witnesses in the shared fixture;
+        // changing the namespace into `process` would duplicate its key.
+        if matches!(form, "object_type" | "process") {
             assert!(base["semantic_graph"]["nodes"]
                 .as_array()
                 .expect("nodes")
