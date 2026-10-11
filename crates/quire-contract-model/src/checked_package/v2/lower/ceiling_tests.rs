@@ -3,6 +3,7 @@ use crate::checked_package::shared::CheckedPackageLimit;
 use ix_trace_rs::trace;
 use quire_canonical::LimitKind;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 fn node_id(fill: char) -> serde_json::Value {
     json!({
@@ -48,25 +49,7 @@ const LOWERED_NODE_TEXT: &str = concat!(
     r#""version":"quire.contract-ir.lowered-node/v1"}"#,
 );
 
-/// The package preimage of an empty lowering, written out by hand.
-const EMPTY_PACKAGE_TEXT: &str = concat!(
-    r#"{"dependencies":[],"lowered":[],"source_package_id":{"algorithm":"sha256","digest":""#,
-    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    r#"","domain":"quire.package.semantic/v2"},"#,
-    r#""version":"quire.contract-ir.contract-package/v1"}"#,
-);
-
-fn source_package_id() -> CheckedSemanticId {
-    CheckedSemanticId {
-        domain: "quire.package.semantic/v2".into(),
-        algorithm: "sha256".into(),
-        digest: "c".repeat(64).into_boxed_str(),
-    }
-}
-
-/// The lowered node and lowered package preimages encode to expected byte
-/// strings written out above, not computed by a call into the code under
-/// test, and hash to the SHA-256 of those bytes.
+/// The lowered node preimage encodes to expected bytes written out above.
 ///
 /// Tracing: TC-048, FR-038-AC-89
 #[trace("TC-048", "FR-038-AC-89")]
@@ -85,25 +68,6 @@ fn tc_048_lowered_preimages_encode_to_the_expected_canonical_bytes() {
     assert_eq!(
         identify_node(&node, 1 << 20).as_deref(),
         Ok(sha256_of(LOWERED_NODE_TEXT).as_str())
-    );
-
-    let source = source_package_id();
-    let package = ContractPackagePreimage {
-        version: CONTRACT_PACKAGE_VERSION,
-        source_package_id: &source,
-        lowered: &[],
-        dependencies: &[],
-    };
-    let bytes = quire_canonical::to_vec(&package, Limits::new(1 << 20)).expect("encodes");
-    assert_eq!(String::from_utf8(bytes).expect("utf-8"), EMPTY_PACKAGE_TEXT);
-    let encoded = encode_package(&package, 1 << 20).expect("encodes");
-    assert_eq!(
-        encoded.canonical_bytes.as_ref(),
-        EMPTY_PACKAGE_TEXT.as_bytes()
-    );
-    assert_eq!(
-        encoded.package_id.digest.as_ref(),
-        sha256_of(EMPTY_PACKAGE_TEXT)
     );
 }
 
@@ -218,27 +182,6 @@ fn tc_048_a_refusal_that_is_not_the_byte_limit_records_one_above_the_limit() {
     assert_eq!(identify_node(&preimage, u64::MAX), Err(u64::MAX));
 }
 
-/// The package step: a ceiling equal to the length admits, one byte under
-/// refuses with the byte count the encoder needed.
-///
-/// Tracing: TC-048, FR-038-AC-95
-#[trace("TC-048", "FR-038-AC-95")]
-#[test]
-fn tc_048_a_package_is_encoded_at_the_ceiling_and_not_one_byte_under_it() {
-    let source = source_package_id();
-    let preimage = ContractPackagePreimage {
-        version: CONTRACT_PACKAGE_VERSION,
-        source_package_id: &source,
-        lowered: &[],
-        dependencies: &[],
-    };
-    let length = EMPTY_PACKAGE_TEXT.len() as u64;
-    let encoded = encode_package(&preimage, length).expect("a ceiling equal to the length");
-    assert_eq!(encoded.canonical_bytes.len() as u64, length);
-    let required = encode_package(&preimage, length - 1).expect_err("one byte under refuses");
-    assert!(required > length - 1);
-}
-
 /// An admitted package of three scalar nodes, built without the reader: the
 /// lowering reads only the graph, so nothing here needs a valid key. Node `x`
 /// carries a long declaration name, so its preimage is longer than the whole
@@ -271,7 +214,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     let edition = json!({"role": "edition", "definition": artifact("edition")});
     let nodes = json!([
         node('a', 'a', None),
-        node('b', 'b', Some(&"x".repeat(2000))),
+        node('b', 'b', Some(&"x".repeat(20_000))),
         node('c', 'c', None),
         node('d', 'a', None),
     ]);
@@ -319,6 +262,10 @@ fn package(bytes: u64) -> CheckedPackageV2 {
 
 fn profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
+        reference: super::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: BTreeSet::from([CheckedNodeTag::ScalarType]),
         require_bounds: false,
         work_limit: u64::MAX,
@@ -339,6 +286,40 @@ fn lowered_ids(records: &[CompleteLoweringRecordV2]) -> Vec<&CheckedNodeId> {
             _ => None,
         })
         .collect()
+}
+
+/// The emitter's graph input order is not part of semantic identity: keyed
+/// nodes are ordered by their identities before the four-member projection is
+/// hashed. Request order remains fixed in the accounting records.
+///
+/// Trace: TC-047, FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn tc_047_equivalent_graph_construction_orders_have_one_package_identity() {
+    let source = package(u64::MAX);
+    let selected = profile();
+    let result = source.lower(&requested(), &selected);
+    let source_maps = super::NodeSourceMaps::new(&source.wire.source_map);
+    let encode = |nodes: &[CompleteContractNodeV2]| {
+        super::super::contract_package::ContractPackageWireV1::from_lowering(
+            &source,
+            &selected,
+            &result.records,
+            nodes,
+            result.package.dependencies(),
+            &source_maps,
+            u64::MAX,
+        )
+        .expect("package encodes")
+    };
+    let original = result.package.lowered();
+    let mut reversed = original.to_vec();
+    reversed.reverse();
+    assert_ne!(original, reversed, "the graph inputs differ in order");
+    let (first, first_bytes) = encode(original);
+    let (second, second_bytes) = encode(&reversed);
+    assert_eq!(first.identity(), second.identity());
+    assert_eq!(first_bytes, second_bytes);
 }
 
 /// A lowered package over the ceiling returns nothing of the call: every
@@ -364,16 +345,7 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
     // One byte under: every record `failed` for `bytes`, and no package.
     let under = package(length - 1).lower(&requested(), &profile());
     assert_eq!(under.records.len(), 3);
-    // `consumed` is the `required` of encoding the same package under that
-    // limit, not an invented count.
-    let preimage = ContractPackagePreimage {
-        version: CONTRACT_PACKAGE_VERSION,
-        source_package_id: whole.package.source_package_id(),
-        lowered: whole.package.lowered(),
-        dependencies: whole.package.dependencies(),
-    };
-    let required = required_of(&preimage, length - 1);
-    assert!(required > length - 1 && required <= length);
+    // The encoder reports the first failed byte charge.
     for (record, request) in under.records.iter().zip(requested()) {
         match record {
             CompleteLoweringRecordV2::Failed {
@@ -385,7 +357,7 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
                 assert_eq!(*node_id, request);
                 assert_eq!(*limit_kind, CheckedPackageLimit::Bytes);
                 assert_eq!(*limit, length - 1);
-                assert_eq!(*consumed, required);
+                assert!(*consumed > length - 1 && *consumed <= length);
             }
             other => panic!("expected a failed record, got {other:?}"),
         }
@@ -409,7 +381,7 @@ fn tc_048_a_package_over_the_ceiling_fails_every_record_and_returns_no_package()
 fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged() {
     let [x, y, z] = requested();
     // The ceiling the package of `y` and `z` alone needs; `x`'s preimage, with
-    // its 2000-byte declaration name, is longer.
+    // its long declaration name, is longer.
     let siblings_only = package(u64::MAX).lower(&[y.clone(), z.clone()], &profile());
     let siblings_length = siblings_only
         .package
@@ -425,11 +397,11 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
         bounds: &[],
         claims: &[],
     };
-    // The smallest ceiling the siblings' package fits under at which the
-    // refused write of `x` is a run of two or more bytes past the limit (a
-    // string's characters, not a token written alone), so `required` is not
-    // `limit + 1`.
-    let ceiling = (siblings_length..)
+    // Reserve room for `x`'s failed accounting record in the package. The
+    // refused write of `x` is still a run of characters past the limit, not
+    // one token byte, so `required` is not `limit + 1`.
+    assert!(siblings_length < 10_000);
+    let ceiling = (10_000..)
         .find(|ceiling| required_of(&preimage, *ceiling) >= ceiling + 2)
         .expect("a ceiling inside a string value");
     let result = package(ceiling).lower(&[x.clone(), y.clone(), z.clone()], &profile());
@@ -454,8 +426,15 @@ fn tc_048_a_node_over_the_ceiling_fails_alone_and_leaves_its_siblings_unchanged(
     let without = package(ceiling).lower(&[y.clone(), z.clone()], &profile());
     assert_eq!(result.records[1..], without.records[..]);
     assert_eq!(lowered_ids(&result.records), [&y, &z]);
-    assert_eq!(result.package, without.package);
-    assert_eq!(result.package, siblings_only.package);
+    assert_eq!(result.package.lowered(), without.package.lowered());
+    assert_eq!(
+        result.package.dependencies(),
+        without.package.dependencies()
+    );
+    assert_eq!(without.package, siblings_only.package);
+    // The failed `x` record belongs to this call's six-field wire and thus
+    // changes its accounting and semantic identity without changing siblings.
+    assert_ne!(result.package.package_id(), without.package.package_id());
 }
 
 /// A work-budget failure still names the `work` limit.

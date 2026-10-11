@@ -1317,6 +1317,10 @@ fn lowers_as_data(case: &str, package: &Value, node: &str, tag: CheckedNodeTag) 
         CheckedNodeTag::Temporal,
     ];
     let supported = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: every_tag.into_iter().collect(),
         require_bounds: false,
         work_limit: u64::MAX,

@@ -43,7 +43,8 @@ impl CheckedPackageReadLimits {
 }
 
 /// A named resource meter in the closed I04 incomplete outcome.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "snake_case")]
 pub enum CheckedPackageLimit {
     /// Wire byte budget.
     Bytes,
@@ -60,7 +61,8 @@ pub enum CheckedPackageLimit {
 }
 
 /// Stable machine code for a refused I04 read.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "snake_case")]
 pub enum CheckedPackageRefusalCode {
     /// An unrecognized contract version was supplied.
     UnknownContractVersion,
@@ -116,8 +118,31 @@ pub enum CheckedPackageRefusalCode {
 
 /// Stable machine cause paired with a [`CheckedPackageRefusalCode`] under
 /// FR-322's closed `DiagnosticCausePairing` (`schema.json`).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(rename_all = "kebab-case")]
 pub enum CheckedPackageRefusalCause {
+    /// Malformed JSON document.
+    MalformedJson,
+    /// A required member is missing.
+    MissingMember,
+    /// An unknown member is present.
+    UnknownMember,
+    /// A member has the wrong JSON kind.
+    WrongValueKind,
+    /// Unsupported wire selection.
+    UnsupportedWire,
+    /// Unsupported required feature.
+    UnsupportedFeature,
+    /// Selected definitions form a cycle.
+    DefinitionCycle,
+    /// Selected definitions disagree.
+    IncompatibleDefinition,
+    /// Selected feature sets disagree.
+    FeatureSetMismatch,
+    /// A resource charge could not be made.
+    InsufficientNextCharge,
+    /// `content-mismatch`: a supplied selected dependency has a different admitted package id.
+    ContentMismatch,
     /// `missing-name`: an entry naming no node of the graph, or a node that
     /// is not a declared dependency of the frame node that names it.
     MissingName,
@@ -224,8 +249,21 @@ pub enum CheckedPackageRefusalCause {
 /// returns resolves in that document: a refusal about a member the document
 /// lacks points at the object that lacks it. The empty pointer names the whole
 /// document.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, Eq, FixedShape, Hash, Ord, PartialEq, PartialOrd)]
 pub struct JsonPointer(Box<str>);
+
+impl Serialize for JsonPointer {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonPointer {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = Box::<str>::deserialize(deserializer)?;
+        Self::parse(&text).ok_or_else(|| serde::de::Error::custom("invalid JSON pointer"))
+    }
+}
 
 impl JsonPointer {
     /// The pointer to the whole document.
@@ -329,9 +367,17 @@ pub struct CheckedPackageRefusal {
     /// locates the row; this pointer resolves in the supplied document, not in
     /// the package.
     pub document_pointer: Option<JsonPointer>,
+    /// Identities retained only for a selected dependency content mismatch.
+    dependency_content_mismatch: Option<Box<DependencyContentMismatch>>,
     /// The key already derived at a stale-node-key refusal site, when one
     /// exists. It is meaningful only with the original reader-returned locus.
-    expected_node_id: Option<CheckedNodeId>,
+    expected_node_id: Option<Box<CheckedNodeId>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DependencyContentMismatch {
+    expected: CheckedSemanticId,
+    actual: CheckedSemanticId,
 }
 
 /// Named fields for constructing a refusal inside this crate. The expected
@@ -354,8 +400,43 @@ impl CheckedPackageRefusal {
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
+            dependency_content_mismatch: None,
             expected_node_id: None,
         }
+    }
+
+    /// A selected dependency package differs from the admitted package supplied
+    /// under the same library identity.
+    pub(crate) fn dependency_content_mismatch(
+        path: JsonPointer,
+        expected: CheckedSemanticId,
+        actual: CheckedSemanticId,
+    ) -> Self {
+        let mut refusal = Self::new(RefusalFields {
+            code: CheckedPackageRefusalCode::StaleDependency,
+            path: Some(path),
+            cause: Some(CheckedPackageRefusalCause::ContentMismatch),
+            locus: None,
+            contract_version: None,
+            document_pointer: None,
+        });
+        refusal.dependency_content_mismatch =
+            Some(Box::new(DependencyContentMismatch { expected, actual }));
+        refusal
+    }
+
+    /// The selected content identity, when a content mismatch supplied one.
+    pub fn expected(&self) -> Option<&CheckedSemanticId> {
+        self.dependency_content_mismatch
+            .as_ref()
+            .map(|mismatch| &mismatch.expected)
+    }
+
+    /// The supplied content identity, when a content mismatch supplied one.
+    pub fn actual(&self) -> Option<&CheckedSemanticId> {
+        self.dependency_content_mismatch
+            .as_ref()
+            .map(|mismatch| &mismatch.actual)
     }
 
     pub(crate) fn stale_node_key(
@@ -371,7 +452,7 @@ impl CheckedPackageRefusal {
             contract_version: None,
             document_pointer: None,
         });
-        refusal.expected_node_id = Some(expected_node_id);
+        refusal.expected_node_id = Some(Box::new(expected_node_id));
         refusal
     }
 
@@ -379,7 +460,7 @@ impl CheckedPackageRefusal {
     /// the reader could derive one. The original [`Self::locus`] identifies the
     /// stored key that refused.
     pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
-        self.expected_node_id.as_ref()
+        self.expected_node_id.as_deref()
     }
 }
 

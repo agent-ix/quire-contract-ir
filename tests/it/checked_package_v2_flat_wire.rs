@@ -623,6 +623,10 @@ fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack
         drop(bytes);
         assert_eq!(package.graph().nodes.len(), total);
         let profile = CompleteLoweringProfileV2 {
+            reference: quire_contract_model::LoweringProfileRef {
+                authority: "quire".into(),
+                identity: "complete-v1".into(),
+            },
             supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
             require_bounds: false,
             work_limit: u64::MAX / 2,
