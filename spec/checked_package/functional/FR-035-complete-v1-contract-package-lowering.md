@@ -49,8 +49,13 @@ from the closed seven-member vocabulary FR-038 declares: `lowered`,
 substitute node. `source_map` gives total native semantic and source
 correspondence for represented nodes and requested items, including the locus
 of each refusal. `identity` is the deterministic canonical semantic digest of
-the package's represented meaning, selected profile and correspondence under
-FR-330; presentation is excluded. It is not native semantic authority.
+the FR-330 projection containing exactly `contract_version`, `package`
+(including source package identity, exact lock and selected lowering profile),
+`semantic_graph` and `feature_accounting`. The `source_map` is validated for
+exact correspondence but excluded from that digest: changing only valid source
+locations preserves identity, while invalid or incomplete correspondence
+refuses admission. Presentation is excluded. Identity is not native semantic
+authority.
 
 ## Behavior
 
@@ -85,7 +90,7 @@ node (FR-038-AC-95).
 | FR-035-AC-2 | A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node. | Test |
 | FR-035-AC-3 | Mixed supported and refused requests retain one disposition each and independent sibling results, except the package byte ceiling fails every record under FR-038-AC-95. | Test |
 | FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; a protocol reference targets a `protocol`-tagged node; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
-| FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity, and changing represented meaning, selected profile, or source correspondence changes identity. | Test |
+| FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission. | Test |
 
 ## Dependencies
 
