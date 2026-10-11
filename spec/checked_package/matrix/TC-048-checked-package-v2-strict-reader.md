@@ -760,13 +760,23 @@ from QSL into IR.
    endpoints exceed i128; derive expected decimal values from the authored
    inputs, without using the scalar accessor or a fixed-width conversion.
    This private control does not claim public reader admission. Use min and
-   max boundary values as separate positive controls. This verifies AC-232
-   and the positive half of AC-233.
+   max boundary values as separate positive controls. Also author a negative
+   range beyond i128 with min `-170141183460469231731687303715884105733`
+   and max `-170141183460469231731687303715884105731`; assert both endpoints
+   succeed. Derive the expected signed order independently from these authored
+   strings, not from the accessor. This verifies AC-232 and the positive half
+   of AC-233.
 2. At the private post-admission seam, mutate one wrapper, target or literal
    member at a time: operator, identity-adjacent metadata, argument shape,
    member target, result/semantic type, missing range, wrong Integer base,
-   noncanonical or inverted endpoints, wrong literal kind/type/spelling, and
-   values one below and one above the target. Assert `MalformedDomain` with
+   malformed `min`/`max` binding or endpoint literal term, an endpoint literal
+   whose `type` names Boolean rather than the range's Integer base,
+   noncanonical or inverted endpoints, wrong operand literal kind/type/spelling,
+   and values one below and one above the target. For the negative range of
+   step 1, test outside values `-170141183460469231731687303715884105734`
+   and `-170141183460469231731687303715884105730` separately, each still
+   beyond i128, and assert refusal; a comparator that strips the sign or sorts
+   negative magnitudes lexicographically must fail. Assert `MalformedDomain` with
    the enclosing ordinal and the exact first available type locus specified
    by FR-038. These are defensive accessor controls; do not claim the
    production reader admits a mutated package. A valid min/max control must
@@ -779,15 +789,20 @@ from QSL into IR.
    public reader's acceptance/refusal of the unmodified packages before and
    after this accessor-only change. This verifies AC-234.
 4. Count a small fixture's graph resolutions, node and term/member visits,
-   copied range-endpoint bytes and examined literal bytes independently from
-   its authored shape. The literal's bytes are never copied to an output.
+   examined range-endpoint bytes and examined literal bytes independently from
+   its authored shape. The literal and endpoint bytes are not copied to an output.
    Call at the exact successful work limit, one less and zero; assert the
    resulting consumed-work or `WorkLimit { limit, consumed }` values. Arrange
    an exhausted charge before a malformed wrapper, an out-of-range literal
    and a later operand defect, and assert WorkLimit precedence. Reorder the
    admitted graph and assert equal content and logical work. Inspect the
    public API and source for the unchanged type set and one existing walk/
-   meter owner. This verifies AC-235.
+   meter owner. At the private seam, use positive canonical 4096-digit min,
+   literal and max spellings beginning with `1`, `5` and `9` respectively,
+   with all remaining digits authored and valid. Their first digit decides
+   order, while the meter must charge both complete endpoint byte lengths
+   once per logical visit. Assert that the exact work limit succeeds and one
+   less returns `WorkLimit` at the first attempted charge. This verifies AC-235.
 
 ## Structural inequality operand extension (FR-038-AC-197 through FR-038-AC-201)
 
