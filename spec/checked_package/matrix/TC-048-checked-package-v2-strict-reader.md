@@ -1954,10 +1954,16 @@ the fixture builder shall not implement or copy its private preimage.
    projection and package identity, and assert reader admission. Permute
    members and re-derive: ordinal-dependent keys and label change; the fully
    refreshed wire is judged by the reader's existing wire-order rules.
-   Independently change a member body, retain an old member key, and corrupt
-   only the final label; assert the existing first-pass stale-key and
-   second-pass stale-label outcomes at their specified retained member and
-   order. This covers AC-3 without adding an SCC rule.
+   For the first-pass negative control, change a member body while retaining
+   its old key and assert the existing stale-key outcome. For the independent
+   second-pass control, replace the retained label consistently on every
+   group member with a corrupt label, re-derive every grouped structural key
+   under that corrupt label, and update matching references, dependencies,
+   projection and package identity. Keep member-local content and graph order
+   unchanged, so every first-pass structural key authenticates but the local
+   digest array still derives the original label. Assert the existing
+   second-pass stale-label outcome at the least retained group member. This
+   covers AC-3 without adding an SCC rule.
 3. Give the helper repeated provisional keys, an unknown tag/form, each
    closed-shape defect of the required bounded/composite forms (wrong
    self-type, missing/extra/reordered member, wrong Integer literal type,
