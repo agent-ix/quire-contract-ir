@@ -61,7 +61,6 @@ use super::model_members::{
     ModelOwners, ModelRefusal, Resolved,
 };
 use super::operation_catalog::{operation_catalog, OperationCatalog, OperationCatalogEntry};
-use super::structural;
 use super::structural::{
     aggregate_members, binding, union_type_body, union_value_body, UnionMember,
 };
@@ -81,9 +80,8 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::ControlFlow;
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
