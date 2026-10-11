@@ -18,9 +18,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    derive_structural_candidates, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSemanticNodeV2,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -678,6 +678,35 @@ fn tc_048_a_selected_fcd_relationship_navigates_through_its_named_end() {
         refusal.path.as_ref().map(ToString::to_string).as_deref(),
         Some("/semantic_graph/nodes/6/body/operation/member/name")
     );
+}
+
+/// The undeclared model-owned relationship is keyed by its actual typed owner
+/// in both the candidate API and the admitted reader.
+/// Trace: FR-048-AC-2
+#[trace("TC-048", "FR-048-AC-2")]
+#[test]
+fn tc_048_model_relationship_candidate_matches_reader_admission() {
+    let (package, evidence) = relationship_package(authored_relationship(), "links");
+    assert!(matches!(
+        read(&package, &evidence),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    let nodes: Vec<CheckedSemanticNodeV2> =
+        serde_json::from_value(package["semantic_graph"]["nodes"].clone()).expect("typed graph");
+    let position = nodes
+        .iter()
+        .position(|node| {
+            node.node_tag.as_ref() == "relation" && node.semantic_form.as_ref() == "relationship"
+        })
+        .expect("relationship");
+    let candidates =
+        derive_structural_candidates(&nodes, 1 << 20, u64::MAX).expect("structural candidates");
+    let relationship = candidates
+        .nodes()
+        .iter()
+        .find(|candidate| candidate.position() as usize == position)
+        .expect("relationship candidate");
+    assert_eq!(relationship.candidate_node_id(), &nodes[position].node_id);
 }
 
 /// Trace: FR-038-AC-170

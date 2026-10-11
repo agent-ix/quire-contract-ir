@@ -320,7 +320,7 @@ impl<'t> Walk for GroupRewrite<'t> {
     ) -> ControlFlow<Infallible> {
         match body_term(term) {
             Some(BodyTerm::Reference) => {
-                let ordinal = structural::reference_target(term)
+                let ordinal = structural::reference_selector(term)
                     .and_then(|target| self.group.ordinal(&target));
                 if let Some(ordinal) = ordinal {
                     let replacement = json!({ "term": "group_reference", "ordinal": ordinal });
