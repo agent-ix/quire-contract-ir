@@ -50,8 +50,7 @@ that one table item builds only through `quire_contract_model`.
 ## Compiled candidate application API consumer
 
 Implemented (IR-738). The compiled public consumer controls and the three
-source/spec inventory controls have passed; full gates and independent review
-remain pending. Verify
+source/spec inventory controls have passed. Verify
 [FR-046](../functional/FR-046-derive-candidate-application-node-identity.md),
 AC-1, and the candidate application identity row under Public items in
 [FR-019](../functional/FR-019-rust-library-interface.md).
