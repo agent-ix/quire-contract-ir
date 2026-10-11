@@ -3273,7 +3273,7 @@ this extension shall not admit an operand or operation refused by that owner.
 ### Application node keys
 
 [FR-046](../../model/functional/FR-046-derive-candidate-application-node-identity.md)
-owns the PLANNED/UNRUN public pre-read candidate-key helper. The reader and helper
+owns the implemented public pre-read candidate-key helper. The reader and helper
 shall share the authoritative application preimage construction and canonical
 encoder. This sharing retains the reader's existing authenticated all-node
 graph-order context, refusal translation, and one work-unit charge before
@@ -3282,7 +3282,8 @@ validation in the reader or add its refusals or charges. A helper candidate is
 not admission evidence, and a changed body retaining that key is still subject
 to the reader's stale-key check.
 
-A node whose `body` is an `application` term carries a `node_id` that is the
+A node whose `body` is an `application` term, and every `value`/`union_value`
+node even when its body is an aggregate without an application, carries a `node_id` that is the
 SHA-256 of the RFC 8785 bytes of its own preimage, `{version, node_tag,
 semantic_form, semantic_type, declaration, recursion, body}`, with `version`
 `quire.application-node/v1` (QSpec FR-322 `application_node_preimage`). The
@@ -3293,17 +3294,35 @@ the members of the group taken in graph order, and `null` outside a group. Each
 argument, a binding value or an aggregate member), and a reference to a node
 outside the group stays as it was. The reader re-derives the key for each such
 node and refuses a retained key that differs as `invalid_package` with cause
-`stale-node-key` at the node's `node_id`; a node whose `node_id` is that digest
-is not refused for its key. This is the key check that FR-038-AC-35 exercises
-for a `dependency_reference` callee, stated for every node whose body root is an
-application term, the only place an application stands ("The flat wire"). This
-section fixes what the
+`stale-node-key` at the node's `node_id`; the production-derived expected key
+is retained by `expected_node_id()` while `locus` retains the supplied key. A
+node whose `node_id` is that digest is not refused for its key. The
+`value`/`union_value` selection includes a nullary member whose body is an
+aggregate containing one named binding with an empty payload aggregate and a
+payload-bearing member whose body holds only references. Neither construction
+acquires an invented application, operator, operation identity or owner. A
+`record_value` or `tuple_value` body with no application remains on its existing
+structural-key path. The public FR-046 draft helper remains scoped to body-root
+applications; the reader uses its authoritative preimage construction and
+encoder for the additional `union_value` selection without treating a draft
+helper result as admission evidence. This is the key check that FR-038-AC-35
+exercises for a `dependency_reference` callee. This section fixes what the
 preimage is (FR-038-AC-88); "Every identity digest is computed through
 quire-canonical" fixes who encodes and hashes it, and FR-038-AC-89 pins that the
 key is the one the reader derived before the move, so the two do not overlap.
-Each criterion below is observed
-at the key check, which the unit tests call directly on a graph of application
-nodes.
+The reader charges the selected node's existing one work unit before preimage
+construction and hashes under the reader's existing canonical byte ceiling.
+If encoding exceeds that ceiling, it returns the existing typed
+`invalid_semantic_graph` refusal at `node_id` without an expected key; an
+unpayable work charge returns `incomplete`/`work` before any later stale key or
+encoding failure. Strict wire, package identity, owner join and graph-shape
+checks retain their existing precedence; this key check precedes the derived
+structural-key, declaration, frame, operation and generic body-reference edge
+checks. Group membership is
+the complete graph-order group, including structural nodes, and references to
+members are rewritten at every body position, including nested payload
+aggregate members and binding values. The reader does not add a second
+preimage encoder or derive a key from the error text.
 
 ### Operation identity, laws, mode, member and operands
 
@@ -4116,6 +4135,9 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-217 | A `dependency_selections` entry whose supplied admitted package recomputes to another `package_id` than the entry's refuses `stale_dependency`/`content-mismatch` at `/lock/dependency_selections/0/package_id/digest` with `expected` equal to the entry's complete `CheckedSemanticId` (`quire.package.semantic/v2`, `sha256`, its digest) and `actual` equal to the supplied package's complete recomputed `package_id`, and never `byte-digest-mismatch`; no package supplied refuses `missing_import`/`missing-selection` at `/lock/dependency_selections/0` with neither payload, and a supplied package with the selected `package_id` admits. | Test (TC-048) |
 | FR-038-AC-218 | The `expected` and `actual` members of `CheckedPackageRefusal` are either both absent or both complete `CheckedSemanticId` values with exact domain, `sha256` algorithm and lowercase 64-character hexadecimal digest, and are present exactly for `stale_dependency`/`content-mismatch` and `stale_dependency`/`byte-digest-mismatch`. A `noncanonical_wire`, `missing_import`/`missing-selection`, `digest_domain_mismatch`, `invalid_model_binding`/`wrong-model-selection`, `invalid_semantic_graph` and `malformed_wire` refusal each carries neither. `ContentMismatch` is paired only with `StaleDependency`; two mismatch refusals with the same code and cause tag but different expected/actual identities have different QSpec FR-272 cause keys, while changing only path leaves that cause key unchanged. Typed identities with equal algorithm and digest but different `sha256-jcs` and `raw-artifact-digest` domains compare unequal. | Test (TC-048) |
 | FR-038-AC-224 | PLANNED/UNRUN (IR-490). A private operation-stage meter probe over an alias or non-population bounded-domain chain of N distinct forwarding nodes charges exactly N structural-resolution units on its first successful lookup, zero on another lookup of the same head or an already resolved suffix within that application's operation validation, and N again for the same chain in a second application. The terminal type adds zero forwarding units; the first lookup's exact limit succeeds and a limit one below returns typed Work before the failed forwarding node's `semantic_type` is read. For a 300-field record naming different entries of one 300-alias chain, measure total operation work W under a nonbinding limit: W reaches the ordinary `operation-law-missing` decision and W-1 returns typed Work when the required leaves are missing; this case measures the count pass only. In a separate version with every derived leaf and its selected law supplied, both leaf passes execute and the application admits at its measured total work limit W; W-1 returns typed Work. Across those two passes each of the 300 structural forwarding nodes charges once, while leaf-visit and `text_profile` pin charges remain independent and repeated pin lookups retain their separate first-visit charge rule. For each of `union_arms`, `inner:0`, `result_inner`, and a leaf edge, an otherwise valid operation whose remaining work limit is exhausted by structural forwarding returns the reader's `incomplete`/`work` at that operation, with no `ill_typed`/`operator-ineligible`, skipped constraint, or unchecked leaf. | Test (TC-048) |
+| FR-038-AC-225 | PLANNED/UNRUN (IR-739). `CheckedPackageV2::read` admits QSpec's current `positive-union-nodes.json`, read directly from an authoritative checkout by `make conformance-qspec`, with both its payload-bearing `Shape::Rect` and nullary `Shape::Empty` aggregate-bodied `value`/`union_value` nodes keyed under `quire.application-node/v1`. The test compares each retained key with an independently fixed QSpec preimage/key vector, its exact aggregate body and the fixture's recorded `package_id`; an ordinary application still admits, while application-free `record_value` and `tuple_value` controls retain structural-key selection. A private key-helper success alone is insufficient. | Test (TC-048) |
+| FR-038-AC-226 | PLANNED/UNRUN (IR-739). For each of the two authentic QSpec union values of AC-225, changing its retained key to the prior structural key, rewriting every reference and source-map occurrence of that key, mirroring the identity projection and recomputing only the package identity needed to reach node-key validation, yields `invalid_package`/`stale-node-key` at that node's `node_id`; `locus` is the supplied typed key and `expected_node_id()` is the distinct current application-derived typed key. The untampered package admits, so an earlier graph or package refusal cannot pass this control. Changing one key-covered body member without rekeying also refuses at that node. | Test (TC-048) |
+| FR-038-AC-227 | PLANNED/UNRUN (IR-739). In a reader-admissible recursion group containing a `union_value` and a nonapplication node, the union value's preimage uses the complete graph-order `{size, ordinal}` and rewrites each reference to an in-group member in its nested payload aggregate to `group_reference`, while an outside reference remains unchanged; the current keyed package admits and a retained stale key refuses with the distinct production-derived expected key. At the private key-stage seam, for the same preimage, a canonical byte ceiling equal to its independently measured byte length accepts its key and one less refuses the existing typed `invalid_semantic_graph` at `node_id` with no expected key; exhausted work refuses `incomplete`/`work` before hashing. The public reader's earlier whole-package byte limit remains in force. Existing strict-wire, package-identity, owner-join and graph-shape refusals keep their precedence ahead of the key stage; the derived-structural, declaration, frame, operation and generic reference-edge stages follow it. No copied encoder, alternate ceiling or public candidate-helper admission claim is introduced. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
