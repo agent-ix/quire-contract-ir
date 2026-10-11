@@ -1670,10 +1670,14 @@ failure remains distinct from budget exhaustion. Do not count the separate
 `text_profile` pin or leaf-node visits in this isolated measurement.
 
 At the operation stage, reuse the 300-field/300-alias shared-chain case of
-AC-44. Check the actual meter totals from two leaf passes against one charge
-per distinct forwarding node, while retaining the independent pin and leaf
-visit charges; under 1000 units the operation reaches its missing-leaf
-refusal, and under 450 it returns Work. Build otherwise valid applications
+AC-44. Under a nonbinding limit, measure total work W for the ordinary
+missing-leaf decision. The same decision holds at W; W-1 returns typed Work.
+Decompose W with operation-stage counters: the two leaf passes together charge
+one unit per distinct structural forwarding node, while leaf visits and the
+existing `text_profile` pin each keep their own charges. Preserve the pin
+control by verifying that the first lookup of each pin-chain node charges one
+unit and repeated pin lookups in the same walk charge zero; measure its
+exact/one-less boundary independently of the structural-resolution counter. Build otherwise valid applications
 that reach structural resolution through `union_arms`, `inner:0`,
 `result_inner`, and a leaf edge. Give each its measured exact remaining budget
 and one less; the exact case reaches the ordinary operation decision, while
