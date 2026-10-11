@@ -2242,10 +2242,11 @@ fn validate_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::{
-        body_grammar, reference_requires_cycle_edge, validate_body, BodyGrammar,
-        CheckedDependencySelection, CheckedNodeId, CheckedNodeKind, CheckedSemanticId,
-        CorrespondenceForm, ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail,
-        DEPENDENCY_SELECTION_MEMBERS,
+        body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
+        validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeId,
+        CheckedNodeKind, CheckedPackageRefusalCode, CheckedSemanticId, CheckedSemanticNodeV2,
+        CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember, ReferenceSite, StateForm,
+        Step, Trail, ValidationFailure, WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
     };
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -2254,7 +2255,6 @@ mod tests {
     /// authentication; nested literal, reference and result-type sites keep
     /// their cycle edges even on a self-typed node.
     ///
-    /// Tracing: TC-048, FR-038-AC-18
     #[trace("TC-048", "FR-038-AC-18")]
     #[test]
     fn tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge() {
@@ -2292,10 +2292,40 @@ mod tests {
             )
             .expect("closed body");
             assert_eq!(sites.len(), 1);
-            assert_eq!(
-                reference_requires_cycle_edge(0, 0, 0, sites[0]),
-                requires_edge
-            );
+            let has_edge = reference_requires_cycle_edge(0, 0, 0, sites[0]);
+            assert_eq!(has_edge, requires_edge);
+            let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+                "node_id":typed,
+                "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"expression",
+                "semantic_form":"reference",
+                "semantic_type":typed,
+                "dependencies":[],
+                "occurrences":[{"role":"generated", "ordinal":0}],
+                "body":body,
+            }))
+            .expect("graph-stage node");
+            let adjacency = if has_edge {
+                vec![vec![(0, EdgeSite::Reference(0))]]
+            } else {
+                vec![vec![]]
+            };
+            let mut meter = WorkMeter::new(u64::MAX);
+            let result = validate_recursion(&[node], &adjacency, &mut meter, &|_, _| {
+                node_pointer(0).key("body")
+            });
+            if requires_edge {
+                let Err(ValidationFailure::Refused(refusal)) = result else {
+                    panic!("a nonexempt self-reference must refuse");
+                };
+                assert_eq!(
+                    refusal.code,
+                    CheckedPackageRefusalCode::InvalidSemanticGraph
+                );
+                assert_eq!(refusal.path, Some(node_pointer(0)));
+            } else {
+                assert!(result.is_ok(), "the body-root literal is exempt");
+            }
         }
         let root_literal = ReferenceSite {
             member: ReferenceMember::Type,
