@@ -566,8 +566,10 @@ fn grouped_local_key(
         node["semantic_type"].clone()
     };
     let mut recursion = json!({"size": ids.len(), "ordinal": ordinal});
-    if let Some(label) = label {
-        recursion["group"] = json!(label);
+    if !application {
+        if let Some(label) = label {
+            recursion["group"] = json!(label);
+        }
     }
     let body = rewrite(&node["body"], ids);
     let version = if application {

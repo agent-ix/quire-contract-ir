@@ -1516,15 +1516,13 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
     assert_eq!(names(&fields), ["balance"]);
 }
 
-/// A model node the document does not select, and one whose body is not
-/// `aggregate{[]}`, are admitted when unread and are `NotModelObjectType`; two
-/// packages that differ only in that node's body return `Ok` and
-/// `NotModelObjectType`.
+/// A model declaration's closed body is authenticated before the accessor is
+/// available; an unselected model owner still refuses during owner joining.
 ///
 /// Trace: FR-038-AC-139
-#[trace("TC-227", "FR-038-AC-139")]
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-150")]
 #[test]
-fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
+fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
     let declared = [(ORDER, OBJECT), ("Pump", INTERFACE)];
     let (package, evidence, _) = package(&refusal_document(), &declared, &[]);
     let order = declaration_key(ORDER, OBJECT);
@@ -1552,13 +1550,31 @@ fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
         }
     }
     refresh_identity(&mut tampered);
-    let tampered = admitted(&tampered);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&tampered, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("a changed model declaration must refuse admission");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
-        tampered.model_object_fields(&declaration_id(ORDER)),
-        Err(CheckedModelFieldsError::NotModelObjectType),
-        "an unread node with a body is admitted and is no model object type"
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
-    assert_ne!(intact, tampered, "the packages differ in that body alone");
+    let order_position = tampered["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"]["digest"] == json!(order))
+        .expect("Order declaration");
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{order_position}/node_id").as_str())
+    );
+    assert_eq!(
+        refusal.locus.as_ref().expect("locus").digest.as_ref(),
+        order
+    );
+    assert!(refusal.expected_node_id().is_none());
     // A node keyed as no selected declaration.
     let mut unselected = package;
     let stranger = "a".repeat(64);

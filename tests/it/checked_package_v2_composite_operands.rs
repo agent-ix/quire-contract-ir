@@ -4,9 +4,9 @@
 //! Authored operand projection through the production admitted-package API.
 
 use crate::support::checked_package::{
-    application_node_key, bounds_body, canonical, evidence_for, fixture_source, node_id,
-    nominal_fixture_members, nominal_package, over_body, rebuild_source_map, refresh_identity,
-    sha256_hex, source_owner, structural_key, typed_node_id,
+    application_node_key, bounds_body, canonical, evidence_for, fixture_source,
+    mint_grouped_structural_keys, node_id, nominal_fixture_members, nominal_package, over_body,
+    rebuild_source_map, refresh_identity, sha256_hex, source_owner, structural_key, typed_node_id,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -194,6 +194,34 @@ impl Fixture {
             .extend(additional);
         refresh_identity(&mut wire);
         wire
+    }
+
+    /// Key one labelled cycle while retaining its original wire order. Map
+    /// keys are stable insertion handles; their values carry the derived ids.
+    fn rekey_group(&mut self, members: &[&str]) -> Vec<String> {
+        let mut wire = self.wire();
+        mint_grouped_structural_keys(&mut wire);
+        let mut renamed = BTreeMap::new();
+        for (old, fresh) in self
+            .nodes
+            .values_mut()
+            .zip(wire["semantic_graph"]["nodes"].as_array().expect("nodes"))
+        {
+            let previous = old["node_id"]["digest"]
+                .as_str()
+                .expect("old key")
+                .to_owned();
+            let current = fresh["node_id"]["digest"]
+                .as_str()
+                .expect("new key")
+                .to_owned();
+            renamed.insert(previous, current);
+            *old = fresh.clone();
+        }
+        members
+            .iter()
+            .map(|member| renamed.get(*member).expect("group member").clone())
+            .collect()
     }
 
     fn read(&self) -> CheckedPackageV2 {
@@ -1000,8 +1028,8 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     for wrapped in [false, true] {
         let mut f = Fixture::new();
         let integer = f.integer.clone();
-        // These producer-authored ids are carried by a genuine admitted names
-        // cycle. Grouped-key rederivation remains the reader's stated boundary.
+        // Construction handles are replaced by FR-092 group member keys before
+        // parameter and application preimages refer to the cycle.
         let list = sha256_hex(b"authored recursive List declaration");
         let option = sha256_hex(b"authored recursive List Option");
         let tail = if wrapped {
@@ -1031,7 +1059,9 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
         for id in [&list, &option] {
             f.nodes.get_mut(id).expect("cycle member")["recursion_group"] = json!("list");
         }
-        let p = f.parameter("list", &list);
+        let keys = f.rekey_group(&[&list, &option]);
+        let list = &keys[0];
+        let p = f.parameter("list", list);
         let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
         let ne = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.ne");
         let package = f.read();
@@ -1087,7 +1117,9 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     for id in [&tree, &option] {
         f.nodes.get_mut(id).expect("cycle member")["recursion_group"] = json!("tree");
     }
-    let p = f.parameter("tree", &tree);
+    let keys = f.rekey_group(&[&tree, &option]);
+    let tree = &keys[0];
+    let p = f.parameter("tree", tree);
     let app = f.application(vec![reference(&p), reference(&p)], "quire.op.structural.eq");
     let result = project(&f.read(), &app);
     let (_, positions) = parameter_domain(&result, 0);

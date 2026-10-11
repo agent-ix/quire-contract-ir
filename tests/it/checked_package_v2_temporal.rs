@@ -885,6 +885,7 @@ fn tc_048_a_reference_to_a_formula_or_fairness_node_refuses_where_it_may_not_sta
         &mut package,
         owned_structural_node(function, source_owner(&fixture_source())),
     );
+    mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     misplaced("from a function body", &package, position);
 
@@ -1896,7 +1897,7 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
         ("a model/value_type declaration", value_type.clone()),
     ] {
         let (mut package, fair) = with_fairness(INFINITE, fairness_member(&declaration, "scaled"));
-        push(
+        let target = push(
             &mut package,
             node_with_key(
                 &value_type,
@@ -1905,7 +1906,13 @@ fn tc_048_a_fairness_member_resolves_on_its_declaring_model_node() {
                 json!({"term": "aggregate", "members": []}),
             ),
         );
+        mint_ungrouped_structural_keys(&mut package);
         settle(&mut package);
+        let declaration = if case == "a model/value_type declaration" {
+            digest(&package, target)
+        } else {
+            declaration
+        };
         // The path sits on the referencing member and the locus is the target
         // (FR-342 step 1): the declaration's own key.
         expect_located(
