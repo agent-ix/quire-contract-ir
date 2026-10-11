@@ -1914,6 +1914,12 @@ fn tc_056_a_clause_binds_self_the_result_and_the_operation_parameters() {
 #[test]
 fn tc_445_source_declared_operation_input_has_no_selected_model_range() {
     let mut source = StatePackage::new();
+    let object = source.at("model", "object_type");
+    source.value["semantic_graph"]["nodes"][object]["owner"] = source_owner(&fixture_source());
+    source.value["semantic_graph"]["nodes"][object]["declaration"] =
+        json!({"qualified_name": ["Account"]});
+    source.value["semantic_graph"]["nodes"][object]["occurrences"] =
+        json!([{"role": "declaration", "ordinal": 0}]);
     let input = "e1".repeat(32);
     let comparison = "e2".repeat(32);
     source.value["semantic_graph"]["nodes"]
