@@ -115,9 +115,10 @@ fn exported_items() -> BTreeMap<String, BTreeSet<String>> {
     items
 }
 
-#[trace("TC-058", "FR-019-AC-5")]
+/// Trace: FR-019-AC-5, FR-035-AC-6, FR-035-AC-7, FR-035-AC-8
+#[trace("TC-058", "FR-019-AC-5", "FR-035-AC-6", "FR-035-AC-7", "FR-035-AC-8")]
 #[test]
-fn tc_058_model_root_exports_exactly_the_fr_019_public_items() {
+fn tc_058_model_root_exports_exactly_the_documented_public_items() {
     assert_eq!(exported_items(), expected_items());
     assert_eq!(
         MODEL_ROOT
