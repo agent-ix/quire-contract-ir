@@ -33,3 +33,11 @@ Checked changed requirements against trace tags, genuine admitted-graph tests, a
 ## Coverage
 
 Plan completion: not assessed. Semantic review: scoped to the changed acceptance criteria and tests; no independent plan supplied.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-002 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-003 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |

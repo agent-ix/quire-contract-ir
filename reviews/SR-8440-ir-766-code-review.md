@@ -29,3 +29,11 @@ Checked the Rust closure traversal, selected-reference extraction, classificatio
 ## Verdict
 
 **CONDITIONAL.** The changed Rust path follows the admitted body grammar and preserves typed source correspondence. Focused acceptance tests cover all three edge kinds, selected packages, recursion, disposition, and unchanged wire identity.
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-002 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
+| FND-003 | fixed | cb96651e2653aa355984ae6f77b66975b68a8853 |
