@@ -368,16 +368,19 @@ pub(super) fn validate_derived_keys(
                 return Err(stale(at(), node_id, None));
             }
         }
-        // FR-094 model declarations retain their closed, ungrouped shape.
-        if matches!(
-            kind,
-            CheckedNodeKind::Model(
-                super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
-            ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
-        ) && (node.semantic_type != node.node_id
-            || node.declaration.is_some()
-            || node.recursion_group.is_some()
-            || aggregate_members(&node.body).is_none_or(|members| !members.is_empty()))
+        // FR-094's fixed model-owned shape applies only without a source
+        // declaration. A declared node keeps its SourceOwner, external type
+        // and declaration in the ordinary structural preimage.
+        if node.declaration.is_none()
+            && matches!(
+                kind,
+                CheckedNodeKind::Model(
+                    super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
+                ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+            )
+            && (node.semantic_type != node.node_id
+                || node.recursion_group.is_some()
+                || aggregate_members(&node.body).is_none_or(|members| !members.is_empty()))
         {
             return Err(stale(at(), node_id, None));
         }

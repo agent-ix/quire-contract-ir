@@ -2000,6 +2000,101 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
     );
 }
 
+/// A source-declared interface carries its external type and SourceOwner in
+/// the structural preimage. The fixed self-typed shape still applies to an
+/// undeclared, model-owned object type.
+///
+/// Trace: FR-038-AC-150
+#[trace("TC-226", "FR-038-AC-150")]
+#[test]
+fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_its_shape() {
+    let mut value = v2_all_families();
+    let nodes = value["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let object = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("model-owned declaration")
+        .clone();
+    let model_owner = object["owner"].clone();
+    let external_type = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("external Boolean type")["node_id"]
+        .clone();
+    let source = &value["lock"]["sources"][0];
+    let source_owner = json!({
+        "kind":"source", "authority":source["authority"], "identity":source["identity"]
+    });
+    let position = nodes.len();
+    let mut interface = object;
+    interface["node_id"] = checked_package::node_id(&"ab".repeat(32));
+    interface["semantic_type"] = external_type.clone();
+    interface["semantic_form"] = json!("systems_interface");
+    interface["owner"] = source_owner.clone();
+    interface["declaration"] = json!({"qualified_name":["Example","Flowable"]});
+    interface["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(interface);
+    checked_package::rebuild_source_map(&mut value);
+    rekey_declared_all_families(&mut value);
+
+    let declared_key = sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":"systems_interface", "semantic_type":external_type,
+        "declaration":{"qualified_name":["Example","Flowable"]},
+        "recursion":null, "owner":source_owner,
+        "body":{"term":"aggregate","members":[]}
+    })));
+    assert_eq!(
+        digest_of(&value["semantic_graph"]["nodes"][position]),
+        declared_key
+    );
+    admitted(&value);
+
+    let mut model_owned = v2_all_families();
+    let model_position = model_owned["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("model-owned object type");
+    model_owned["semantic_graph"]["nodes"][model_position]["semantic_type"] = external_type.clone();
+    rekey_declared_all_families(&mut model_owned);
+    let model_key = sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":"object_type", "semantic_type":external_type,
+        "declaration":null, "recursion":null, "owner":model_owner,
+        "body":{"term":"aggregate","members":[]}
+    })));
+    assert_eq!(
+        digest_of(&model_owned["semantic_graph"]["nodes"][model_position]),
+        model_key
+    );
+    let refusal = refused(&model_owned, &evidence_for(&model_owned));
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidPackage,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path,
+        Some(support_pointer(&format!(
+            "/semantic_graph/nodes/{model_position}/node_id"
+        )))
+    );
+    assert_eq!(
+        refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+        Some(model_key.as_str())
+    );
+    assert!(refusal.expected_node_id().is_none());
+}
+
 /// Tracing: TC-048, FR-038-AC-9, FR-038-AC-26
 #[trace("TC-048", "FR-038-AC-9", "FR-038-AC-26")]
 #[test]
