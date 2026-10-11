@@ -40,9 +40,11 @@ each returned type, admit a read keyed from it and a read keyed from its
 perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
 struct literal that must fail to compile). For AC-144, read the table-building
 counter (13 for 4 types, 43 for 8), find the smallest whole-read admitting
-`work` limit and check its one-below structural-key pointer; separately stop
-one charge before the last selected table entry and check the model-selection
-pointer. Read the 1000 and 1500 chains under `bounded()`, run the
+`work` limit and check its one-below selected-owner charge pointer; separately
+stop one charge before the last selected table entry and check the same
+model-selection pointer. A stale-key chain separately finds the graph-stage
+refusal threshold and checks that one below it stops at the unpaid structural
+node-key charge. Read the 1000 and 1500 chains under `bounded()`, run the
 two precedence packages, read a field and an operation of the 4-chain for the
 read charges, compare the smallest admitting work budgets for full-reader
 frame-field, abstraction-field and relationship-edge packages whose selected
@@ -60,10 +62,11 @@ admission before any accessor call, while the crate-internal post-admission
 body replacement changes nothing; a read keyed from
 the returned type admits and its perturbation refuses `ill_typed`; the API
 fixtures compile or fail as stated; the chains admit under a sufficient limit
-and are `incomplete` at the first unpaid structural-key charge one below the
-whole-read minimum, or at the model selection one below the last table charge,
-with the stated
-precedence, and the call does no resolution.
+and are `incomplete` at the selected-owner charge one below the whole-read
+minimum, or at the model selection one below the last table charge. The stale
+chain is `incomplete` at its structural node-key charge one below the first
+budget that reaches its stale-key refusal. The stated precedence holds, and
+the call does no resolution.
 
 ## Status
 

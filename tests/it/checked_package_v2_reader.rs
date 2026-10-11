@@ -2744,7 +2744,7 @@ fn first_reference(term: &Value) -> Option<Value> {
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
-    let mut base = v2_all_families();
+    let base = v2_all_families();
     let position_of = |value: &Value, test: &dyn Fn(&Value) -> bool| {
         value["semantic_graph"]["nodes"]
             .as_array()

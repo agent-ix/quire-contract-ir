@@ -1836,9 +1836,8 @@ fn smallest_admitting_work(package: &Value, evidence: &CheckedPackageEvidence) -
     low
 }
 
-/// The last table charge precedes the graph stage, but the smallest whole-read
-/// limit also pays for later structural-key work. One below that limit stops
-/// at the first unpaid structural key.
+/// The last table charge precedes the graph stage. The selected-owner charge
+/// follows graph validation, so one below the whole-read minimum stops there.
 ///
 /// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
@@ -1856,7 +1855,7 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
                 assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
                 assert_eq!(
                     incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-                    Some("/semantic_graph/nodes/0/node_id")
+                    Some("/lock/model_selections/0")
                 );
             }
             other => panic!("expected one-below incomplete, got {other:?}"),
@@ -1892,7 +1891,7 @@ fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
 
 /// The package of a chain of 8 types with a read whose node key is stale: a
 /// graph-stage refusal, `invalid_package`/`stale-node-key`.
-fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
+fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
     let read = || Read {
         owner: "C8",
         field: "f8",
@@ -1905,7 +1904,7 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
     stale["semantic_graph"]["nodes"][at]["node_id"]["digest"] = json!("f".repeat(64));
     rebuild_source_map(&mut stale);
     refresh_identity(&mut stale);
-    (valid, stale, evidence)
+    (valid, stale, evidence, at)
 }
 
 /// Tables are built after every row's step 1 and before the graph stage: a
@@ -1917,7 +1916,7 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
-    let (valid, stale, evidence) = stale_chain_package();
+    let (valid, stale, evidence, stale_at) = stale_chain_package();
     // The smallest limit under which the tables are built: one below it, the
     // build is what exhausts the limit.
     let exhausts_tables = |package: &Value, work: u64| {
@@ -1956,6 +1955,45 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
     // One under, the same package is `incomplete` at the tables' row, not the
     // graph stage's stale key.
     assert!(exhausts_tables(&stale, smallest - 1));
+
+    // The stale read node supplies a separate structural-key boundary. The
+    // first sufficient budget reaches its stale-key refusal; one below must
+    // stop at that node's final, unpaid key charge after table construction.
+    let stale_key_path = format!("/semantic_graph/nodes/{stale_at}/node_id");
+    let graph_refuses = |work: u64| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        matches!(
+            read_with(&stale, &evidence, limits),
+            CheckedPackageV2ReadResult::Refused(refusal)
+                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                    && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
+                    && refusal.path.as_ref().map(ToString::to_string).as_deref()
+                        == Some(stale_key_path.as_str())
+        )
+    };
+    let (mut low, mut high) = (smallest, CheckedPackageReadLimits::bounded().work);
+    assert!(graph_refuses(high));
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if graph_refuses(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = low - 1;
+    match read_with(&stale, &evidence, limits) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some(stale_key_path.as_str())
+            );
+        }
+        other => panic!("expected structural-key charge denial, got {other:?}"),
+    }
 
     // Row 0 is the chain, row 1 a selection no evidence supplies.
     let mut two = valid;

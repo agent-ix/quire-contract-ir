@@ -1082,11 +1082,11 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
                 path: vec![]
             }
         );
-        assert_eq!(depth.type_node, typed_node_id(&list));
+        assert_eq!(depth.type_node, typed_node_id(list));
         assert_eq!(
             depth.authored,
             Domain::UnboundedDepth {
-                declaration: typed_node_id(&list),
+                declaration: typed_node_id(list),
                 reentry_paths: vec![vec![1, 0]]
             }
         );
@@ -1134,7 +1134,7 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
     assert_eq!(
         positions[0].authored,
         Domain::UnboundedDepth {
-            declaration: typed_node_id(&tree),
+            declaration: typed_node_id(tree),
             reentry_paths: vec![vec![0, 0], vec![1, 0]]
         }
     );
