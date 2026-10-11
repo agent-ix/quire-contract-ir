@@ -13,8 +13,9 @@
 //! on how a `Value`'s map is backed.
 //!
 //! The application node preimage, whose body is a `Value`, lives here too, and
-//! so do the helpers the lowering's two preimages share. This module holds no
-//! walker over a `Value` and no drop of one.
+//! so do the helpers the lowering's two preimages share. Grouped structural
+//! bodies use borrowed event encoding; owned application rewrite bodies are
+//! disposed of through `quire-canonical`'s nonrecursive ownership operation.
 //!
 //! Encoding adds no depth limit. The only refusals an encode returns are the
 //! caller's byte ceiling and a number `quire-canonical` has no encoding for
@@ -37,8 +38,8 @@ pub(super) const APPLICATION_NODE_VERSION: &str = "quire.application-node/v1";
 /// ordinal among its members, in graph order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct GroupPlace {
-    pub(super) size: usize,
-    pub(super) ordinal: usize,
+    pub(super) size: u64,
+    pub(super) ordinal: u64,
 }
 
 /// QSpec FR-322's `application_node_preimage` of one node: `{version,
@@ -52,6 +53,15 @@ pub(super) struct ApplicationNodePreimage<'a> {
     pub(super) declaration: Option<&'a CheckedDeclaration>,
     pub(super) recursion: Option<GroupPlace>,
     pub(super) body: Cow<'a, Value>,
+}
+
+impl Drop for ApplicationNodePreimage<'_> {
+    fn drop(&mut self) {
+        // Group rewrites own arbitrary pre-read JSON, including on encoder refusal.
+        if let Cow::Owned(body) = &mut self.body {
+            quire_canonical::drop_value(std::mem::take(body));
+        }
+    }
 }
 
 impl Encode for ApplicationNodePreimage<'_> {
@@ -74,9 +84,9 @@ impl Encode for ApplicationNodePreimage<'_> {
             Some(place) => {
                 writer.begin_object()?;
                 writer.name("size")?;
-                writer.integer(integer(place.size)?)?;
+                writer.integer(i128::from(place.size))?;
                 writer.name("ordinal")?;
-                writer.integer(integer(place.ordinal)?)?;
+                writer.integer(i128::from(place.ordinal))?;
                 writer.end_object()?;
             }
             None => writer.null()?,

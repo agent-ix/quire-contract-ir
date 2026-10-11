@@ -24,7 +24,7 @@
 //! A node's `recursion` preimage member is FR-322's `{size, ordinal}` of the
 //! node within its `recursion_group` in graph order (`null` outside a group),
 //! and each body `reference` to a member of that group is keyed as
-//! `{term: "group_reference", ordinal}` (see [`application_preimage`]).
+//! `{term: "group_reference", ordinal}` (see the shared application preimage construction).
 //!
 //! Scope this reader does not cover, narrower than the upstream contract
 //! description's full generality and not exercised by an admitted fixture or
@@ -54,8 +54,8 @@
 //! silently bypasses every operand-family check ([`check_operands`],
 //! [`check_mode_type`], [`check_leaf_count`]) that consults it.
 
+use super::application_identity::{application_digest, ApplicationGroup};
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
-use super::encode::{ApplicationNodePreimage, GroupPlace};
 use super::model_members::{
     declaration_key, Budget, CollectionKind, DeclarationForm, MemberKind, MemberType, ModelFailure,
     ModelOwners, ModelRefusal, Resolved,
@@ -80,12 +80,9 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::convert::Infallible;
 use std::ops::ControlFlow;
 use std::rc::Rc;
 
@@ -154,15 +151,13 @@ pub(super) fn validate_application_keys(
             .as_deref()
             .and_then(|label| groups.get(label))
             .map_or(&[][..], Vec::as_slice);
-        let preimage = application_preimage(application, group)?;
-        let computed = quire_canonical::sha256(&preimage, quire_canonical::Limits::new(bytes))
+        let computed_digest = application_digest(node, ApplicationGroup::Keys(group), bytes)
             .map_err(|_| {
                 ValidationFailure::refused(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
                     application.node_id(),
                 )
             })?;
-        let computed_digest = computed.to_string();
         if computed_digest != node_id.digest.as_ref() {
             return Err(ValidationFailure::refused_stale_node_key(
                 application.node_id(),
@@ -177,45 +172,6 @@ pub(super) fn validate_application_keys(
     Ok(())
 }
 
-/// QSpec FR-322's `application_node_preimage` for `node`, given its
-/// recursion group's members in graph order (empty outside a group):
-/// `{version, node_tag, semantic_form, semantic_type, declaration, recursion,
-/// body}`, where `recursion` is `{size, ordinal}` of the node within the group
-/// or `null`, and each body `reference` to a group member becomes
-/// `{term: "group_reference", ordinal}`.
-fn application_preimage<'a>(
-    application: Application<'a>,
-    group: &[&CheckedNodeId],
-) -> Result<ApplicationNodePreimage<'a>, ValidationFailure> {
-    let node = application.node;
-    let recursion = match node.recursion_group {
-        None => None,
-        Some(_) => {
-            let ordinal = group
-                .iter()
-                .position(|member| **member == node.node_id)
-                .ok_or_else(|| {
-                    ValidationFailure::refused(
-                        CheckedPackageRefusalCode::InvalidSemanticGraph,
-                        application.node_id(),
-                    )
-                })?;
-            Some(GroupPlace {
-                size: group.len(),
-                ordinal,
-            })
-        }
-    };
-    Ok(ApplicationNodePreimage {
-        node_tag: &node.node_tag,
-        semantic_form: &node.semantic_form,
-        semantic_type: &node.semantic_type,
-        declaration: node.declaration.as_ref(),
-        recursion,
-        body: group_references(&node.body, group),
-    })
-}
-
 /// The existing application preimage contributes unchanged to a group digest.
 pub(super) fn application_local_digest(
     node: &CheckedSemanticNodeV2,
@@ -224,88 +180,12 @@ pub(super) fn application_local_digest(
     bytes: u64,
 ) -> Result<String, ValidationFailure> {
     let application = Application { node, position };
-    let preimage = application_preimage(application, group)?;
-    quire_canonical::sha256(&preimage, quire_canonical::Limits::new(bytes))
-        .map(|digest| digest.to_string())
-        .map_err(|_| {
-            ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                application.node_id(),
-            )
-        })
-}
-
-/// `term` with every `reference` to a recursion-group member rewritten as
-/// `{term: "group_reference", ordinal}`, walking application arguments,
-/// aggregate members and binding values, the SemanticTerm positions that hold
-/// terms. The body grammar is read here as the wire's JSON, like every body
-/// validator.
-fn group_references<'a>(term: &'a Value, group: &[&CheckedNodeId]) -> Cow<'a, Value> {
-    if group.is_empty() {
-        return Cow::Borrowed(term);
-    }
-    // One copy of the body, rewritten in place by one visit of each of its
-    // terms: no enclosing term is copied again at any level.
-    let mut rewritten = term.clone();
-    let ControlFlow::Continue(()) = walk(&mut GroupRewrite { group }, &mut rewritten);
-    Cow::Owned(rewritten)
-}
-
-/// The walk of [`group_references`], over the terms of a copy of the body: each
-/// `reference` to a member of the recursion group becomes
-/// `{term: "group_reference", ordinal}`, in the application arguments,
-/// aggregate members and binding values that hold terms. A dependency reference
-/// names a node of another package, never a member of this recursion group,
-/// and enters the preimage as it stands on the wire.
-struct GroupRewrite<'t> {
-    group: &'t [&'t CheckedNodeId],
-}
-
-impl<'t> Walk for GroupRewrite<'t> {
-    type Node = &'t mut Value;
-    type Frame = ();
-    type Stop = Infallible;
-
-    fn enter(
-        &mut self,
-        term: &'t mut Value,
-        children: &mut Children<'_, &'t mut Value>,
-    ) -> ControlFlow<Infallible> {
-        match body_term(term) {
-            Some(BodyTerm::Reference) => {
-                let ordinal = structural::reference_target(term)
-                    .and_then(|target| self.group.iter().position(|member| **member == target));
-                if let Some(ordinal) = ordinal {
-                    *term = json!({ "term": "group_reference", "ordinal": ordinal });
-                }
-            }
-            Some(BodyTerm::Application) => {
-                if let Some(Value::Array(arguments)) = term.get_mut("arguments") {
-                    children.extend(arguments.iter_mut());
-                }
-            }
-            Some(BodyTerm::Aggregate) => {
-                if let Some(Value::Array(members)) = term.get_mut("members") {
-                    children.extend(members.iter_mut());
-                }
-            }
-            Some(BodyTerm::Binding) => {
-                children.extend(term.get_mut("value"));
-            }
-            Some(
-                BodyTerm::Literal
-                | BodyTerm::DependencyReference
-                | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
-            )
-            | None => {}
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn exit(&mut self, (): ()) -> ControlFlow<Infallible> {
-        ControlFlow::Continue(())
-    }
+    application_digest(node, ApplicationGroup::Keys(group), bytes).map_err(|_| {
+        ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.node_id(),
+        )
+    })
 }
 
 #[derive(Deserialize)]
@@ -3253,10 +3133,11 @@ fn check_leaf_count(
 
 #[cfg(test)]
 mod tests {
+    use super::super::application_identity::{application_preimage, ApplicationGroup};
+    use super::super::encode::GroupPlace;
     use super::super::CheckedSelectionRole;
-    use super::GroupPlace;
     use super::{
-        application_preimage, is_type_shaped, operand_family, operation_catalog, operation_defect,
+        is_type_shaped, operand_family, operation_catalog, operation_defect,
         validate_application_keys, Application, ApplicationOperator, CheckedNodeId,
         CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode, CheckedSemanticNodeV2, DependencyReferences, ExpressionForm,
@@ -3958,14 +3839,8 @@ mod tests {
         let node = grouped_node(2, add(vec![reference(1), reference(9)]));
         let one = typed(&key(1));
         let group = [&one, &node.node_id];
-        let preimage = application_preimage(
-            Application {
-                node: &node,
-                position: 0,
-            },
-            &group,
-        )
-        .expect("preimage");
+        let preimage =
+            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
         // Spelled literally, as quire-spec-language's own vector does, rather
         // than produced by the serializer under test.
         let literal_ref = |fill: u8| {
@@ -4012,14 +3887,8 @@ mod tests {
         let node = grouped_node(1, body);
         let two = typed(&key(2));
         let group = [&node.node_id, &two];
-        let preimage = application_preimage(
-            Application {
-                node: &node,
-                position: 0,
-            },
-            &group,
-        )
-        .expect("preimage");
+        let preimage =
+            application_preimage(&node, ApplicationGroup::Keys(&group)).expect("preimage");
         let group_reference =
             |ordinal: usize| json!({ "term": "group_reference", "ordinal": ordinal });
         let members = &preimage.body["members"];
@@ -7115,6 +6984,41 @@ mod tests {
             Ok(()),
             "a node_id that genuinely is the JCS SHA-256 of the node's own preimage must be \
              admitted, got {result:?}"
+        );
+    }
+
+    /// Trace: FR-046-AC-6
+    #[trace("FR-046-AC-6")]
+    #[test]
+    fn application_identity_work_refusal_precedes_a_canonical_hash_refusal() {
+        let node = application_node(CATALOGUED_IDENTITY, "binary");
+        let nodes = std::slice::from_ref(&node);
+        let index = BTreeMap::from([(&node.node_id, 0)]);
+        let result = validate_application_keys(nodes, &index, &mut WorkMeter::new(0), 0);
+        let Err(ValidationFailure::Incomplete(incomplete)) = result else {
+            panic!("the unpaid work charge must precede the zero-byte hash refusal: {result:?}");
+        };
+        assert_eq!(
+            incomplete.limit_kind,
+            crate::checked_package::shared::CheckedPackageLimit::Work
+        );
+        assert_eq!(incomplete.limit, 0);
+        assert_eq!(incomplete.consumed, 1);
+        assert_eq!(
+            incomplete.path,
+            Some(pointer("/semantic_graph/nodes/0/node_id"))
+        );
+        let paid = validate_application_keys(nodes, &index, &mut WorkMeter::new(1), 0);
+        let Err(ValidationFailure::Refused(refusal)) = paid else {
+            panic!("the paid application reaches canonical encoding: {paid:?}");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.path,
+            Some(pointer("/semantic_graph/nodes/0/node_id"))
         );
     }
 

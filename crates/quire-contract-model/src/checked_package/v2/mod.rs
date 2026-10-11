@@ -8,6 +8,7 @@
 //! definition byte artifacts.
 
 mod abstraction;
+mod application_identity;
 mod composite_operands;
 mod dependency_references;
 mod derived_keys;
@@ -31,6 +32,10 @@ mod structural;
 mod temporal;
 mod vocabulary;
 
+pub use application_identity::{
+    derive_application_node_id, ApplicationIdentityContext, ApplicationIdentityError,
+    ApplicationNodeDraft, CandidateApplicationNodeId,
+};
 pub use composite_operands::{
     CheckedAuthoredCompositeDomain, CheckedCanonicalIntegerBound, CheckedCompositeChildEdge,
     CheckedCompositeDomainKey, CheckedCompositeDomainPosition, CheckedCompositeOperand,
