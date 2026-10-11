@@ -3270,6 +3270,16 @@ this extension shall not admit an operand or operation refused by that owner.
 
 ### Application node keys
 
+[FR-046](../../model/functional/FR-046-derive-candidate-application-node-identity.md)
+owns the PLANNED/UNRUN public pre-read candidate-key helper. The reader and helper
+shall share the authoritative application preimage construction and canonical
+encoder. This sharing retains the reader's existing authenticated all-node
+graph-order context, refusal translation, and one work-unit charge before
+preimage construction and hashing; it does not run public draft-context
+validation in the reader or add its refusals or charges. A helper candidate is
+not admission evidence, and a changed body retaining that key is still subject
+to the reader's stale-key check.
+
 A node whose `body` is an `application` term carries a `node_id` that is the
 SHA-256 of the RFC 8785 bytes of its own preimage, `{version, node_tag,
 semantic_form, semantic_type, declaration, recursion, body}`, with `version`
