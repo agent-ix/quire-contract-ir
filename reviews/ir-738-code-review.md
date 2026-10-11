@@ -1049,3 +1049,58 @@ bindings: []
 ## Limitations and skipped methods
 
 Production gap-analysis, runtime Rust review gates, correctness/fuzz/matrix authoring are inapplicable to a spec-only diff. Architecture/security/app reviews add no new system architecture, compliance standard or UI scope. Calibrated criterion-strength is unavailable: installed schema includes its enum, but no Jev client/tool is exposed and the installed skill explicitly says not to run without the client. No calibrated verdict or fabricated artifact is emitted. Manual AC falsifiability belongs to the base/integrity review, not a substitute for Jev.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d |
+| FND-002 | fixed | 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d |
+
+## Disposition pass 1
+
+**PASS** — all original findings are fixed in the specification; no new findings in the fix diff.
+
+The new candidate API obligation no longer extends the legacy source/spec inventory gate. Its external consumer must compile and execute with actual key/error assertions; source inventory cannot satisfy the new procedure. The unchanged baseline inventory is outside the original finding scope. FR046 now names FR038 Application node keys as sole rule owner instead of restating the preimage schema.
+
+Round 1 rechecked only the fix diff and the original five finding rows at 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d. The actual Git history has one fix commit after the original reviewed head; all five fixed rows name that commit. No regression or new contradiction was found. Application/group order, typed errors, outside-group re-derivation, sole encoder, reader charge order and existing IR575/742 norms remain intact. Existing N(N-1)/2 uniqueness scans, O(B) full copy, group/reference searches and encoder heap costs remain separate from the byte ceiling. No helper graph cap or reduced reader bound is inferred. All runtime/API controls remain PLANNED/UNRUN; no build, Cargo, Kani, replay, full gate or runtime test was run.
+
+Original review scope, Findings, Verdict and review data are retained byte-for-byte. Original review run: daa3de71-257b-4bd0-ac51-528497a47468; disposition run: d236e9cd-509c-425f-862a-df56a6eb9fda; model: unavailable.
+
+```yaml
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d
+  artifact_id: TC-058
+  path: spec/model/matrix/TC-058-model-crate-public-interface.md
+  lines: 58-63
+  after_excerpt: 'Compile and execute an external consumer probe that creates a borrowed `ApplicationNodeDraft`,
+
+    constructs `ApplicationIdentityContext`, calls `derive_application_node_id`,
+
+    obtains `CandidateApplicationNodeId::candidate_node_id()` and exhaustively
+
+    matches `ApplicationIdentityError`. The consumer assembles a candidate before
+
+    reading any package; no helper result constructs or substitutes for an admitted
+
+    `CheckedPackageV2`. Preserve the existing model-only/root-crate path checks.'
+- fnd: FND-002
+  outcome: fixed
+  fix_sha: 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d
+  artifact_id: FR-046
+  path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
+  lines: 98-103
+  after_excerpt: 'The helper and reader SHALL use one application preimage construction and one
+
+    canonical encoder implementing the sole normative rule in
+
+    [FR-038, Application node keys](../../checked_package/functional/FR-038-consume-checked-package-v2.md#application-node-keys).
+
+    That rule owns the field set, version, null encodings and grouped-reference
+
+    substitution. This requirement adds draft/context selection and candidate
+
+    handling, without a second definition of those preimage rules.'
+```

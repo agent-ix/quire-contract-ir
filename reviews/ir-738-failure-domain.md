@@ -1033,3 +1033,38 @@ bindings: []
 ## Limitations and skipped methods
 
 Production gap-analysis, runtime Rust review gates, correctness/fuzz/matrix authoring are inapplicable to a spec-only diff. Architecture/security/app reviews add no new system architecture, compliance standard or UI scope. Calibrated criterion-strength is unavailable: installed schema includes its enum, but no Jev client/tool is exposed and the installed skill explicitly says not to run without the client. No calibrated verdict or fabricated artifact is emitted. Manual AC falsifiability belongs to the base/integrity review, not a substitute for Jev.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d |
+
+## Disposition pass 1
+
+**PASS** — all original findings are fixed in the specification; no new findings in the fix diff.
+
+Deep draft handling now explicitly requires heap-frame structural equality with no recursive Value comparison; iterative body copy/rewrite and authoritative nonrecursive disposal cover success, partial-copy and refusal paths. Retained context stays O(1) while equality/copy traversal may allocate O(D) frames, honestly removing the former no-allocation claim. The 100000-level, 256 KiB grouped/ungrouped control includes a distinct structurally equal snapshot target, deepest-value mismatch, tiny-byte refusal and iterative fixture teardown. This is a candidate-only planned control, not reader-admission evidence. No input depth cap or extra error is added.
+
+Round 1 rechecked only the fix diff and the original five finding rows at 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d. The actual Git history has one fix commit after the original reviewed head; all five fixed rows name that commit. No regression or new contradiction was found. Application/group order, typed errors, outside-group re-derivation, sole encoder, reader charge order and existing IR575/742 norms remain intact. Existing N(N-1)/2 uniqueness scans, O(B) full copy, group/reference searches and encoder heap costs remain separate from the byte ceiling. No helper graph cap or reduced reader bound is inferred. All runtime/API controls remain PLANNED/UNRUN; no build, Cargo, Kani, replay, full gate or runtime test was run.
+
+Original review scope, Findings, Verdict and review data are retained byte-for-byte. Original review run: daa3de71-257b-4bd0-ac51-528497a47468; disposition run: d236e9cd-509c-425f-862a-df56a6eb9fda; model: unavailable.
+
+```yaml
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 1cb3e58be6c27363a33987e8d40cc4e59cf6cd5d
+  artifact_id: FR-046
+  path: spec/model/functional/FR-046-derive-candidate-application-node-identity.md
+  lines: 136-140
+  after_excerpt: 'O(D) traversal storage. Partial copies and rewritten bodies are disposed of
+
+    through the authoritative `quire_canonical::drop_value` nonrecursive ownership
+
+    operation on both success and every refusal path, including a canonical byte
+
+    failure. No ordinary recursive `Value::clone`, equality or drop is reachable
+
+    on such caller-controlled deep content in the helper. Borrowed caller inputs'
+```
