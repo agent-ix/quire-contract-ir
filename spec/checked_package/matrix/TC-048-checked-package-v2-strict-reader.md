@@ -119,6 +119,15 @@ empty the node, restore a compiled-model owner or lock shape carrying
 `authority`, `revision`, `export` or `version`, change the selection's digest
 domain or evidence domain, and set a model node to `model_export`.
 
+For AC-18, mutate authenticated structural and application bodies to embed
+their own retained node key at a body-root `literal.type`, nested
+`literal.type`, `reference.target` or `application.result_type`; assert the
+public reader's exact first stale-key refusal. At the private graph-reference
+validation seam, supply already keyed graph nodes directly and compare the
+body-root literal carve-out with each nonexempt nested or other reference
+site. This conditional graph-stage check makes no public admission claim for
+a body that would require a hash fixed point.
+
 For FR-038-AC-45, build the model-owned nominal declaration with the owner
 `{kind: model, identity, node}` and no `version`, derive its node key from
 those members alone, and read it: it admits. Select another document of the
@@ -158,8 +167,11 @@ from its owner-bearing identity projection and is compared under FR-038-AC-176
 with QSpec's published positive packages and
 `model-member-type-vectors.json`. Every adverse and
 injected case returns its exact refusal code or incomplete accounting with no
-package. Excluded edits keep the id and included edits change it. Every nominal
-preimage digest matches its node key; every nominal mutation and contradictory cross-field join
+package. Excluded edits keep the id and included edits change it. Public
+self-reference mutations refuse at their authenticated node keys; at the
+private graph-reference seam, only a self-typed body-root `literal.type` omits
+its own cycle edge, while nested and other reference sites retain one. Every
+nominal preimage digest matches its node key; every nominal mutation and contradictory cross-field join
 refuses as `invalid_semantic_graph`. The model-owned package admits; each model join mismatch refuses as
 `invalid_semantic_graph`, a compiled-model owner or lock shape carrying
 `authority`, `revision`, `export` or `version` as `unknown_member`, a foreign digest

@@ -2150,7 +2150,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
 /// Tracing: TC-048, FR-038-AC-18
 #[trace("TC-048", "FR-038-AC-18")]
 #[test]
-fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
+fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
     let base = v2_all_families();
     // Public reads authenticate these structural and application keys before
     // the conditional graph-stage carve-out can be evaluated.

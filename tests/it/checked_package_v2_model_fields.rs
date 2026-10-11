@@ -1470,9 +1470,9 @@ fn refusal_document() -> Value {
 }
 
 /// `UnknownNode` and `NotModelObjectType` are two errors: an id no node has,
-/// a scalar node, a systems interface's declaration node and a node keyed as
-/// no selected declaration each name what is wrong, and the call is `Ok` for
-/// an absent field name.
+/// a scalar node and a systems interface's declaration node each name what is
+/// wrong, and the call is `Ok` for an absent field name. An unselected model
+/// owner is checked separately at admission.
 ///
 /// Trace: FR-038-AC-139, FR-038-AC-155
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-155")]
@@ -1815,10 +1815,6 @@ fn admits_under(package: &Value, evidence: &CheckedPackageEvidence, work: u64) -
         CheckedPackageV2ReadResult::Admitted(_) => true,
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-            assert_eq!(
-                incomplete.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
-            );
             false
         }
         other => panic!("expected admission or `incomplete`, got {other:?}"),
@@ -1840,9 +1836,9 @@ fn smallest_admitting_work(package: &Value, evidence: &CheckedPackageEvidence) -
     low
 }
 
-/// A chain of 4 types and a chain of 8 admit under the smallest `work` limit
-/// `M` that admits them, and under `M - 1` are `incomplete` at
-/// `/lock/model_selections/0`, though nothing reads them.
+/// The last table charge precedes the graph stage, but the smallest whole-read
+/// limit also pays for later structural-key work. One below that limit stops
+/// at the first unpaid structural key.
 ///
 /// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
@@ -1853,7 +1849,18 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
         let smallest = smallest_admitting_work(&package, &evidence);
         assert!(smallest > 0);
         assert!(admits_under(&package, &evidence, smallest));
-        assert!(!admits_under(&package, &evidence, smallest - 1));
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = smallest - 1;
+        match read_with(&package, &evidence, limits) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+                assert_eq!(
+                    incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                    Some("/semantic_graph/nodes/0/node_id")
+                );
+            }
+            other => panic!("expected one-below incomplete, got {other:?}"),
+        }
     }
 }
 
@@ -1871,6 +1878,16 @@ fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
     assert!(admits_under(&package, &evidence, bounded));
     let (package, evidence) = chain_package(1500);
     assert!(!admits_under(&package, &evidence, bounded));
+    match read_with(&package, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected table-charge incomplete, got {other:?}"),
+    }
 }
 
 /// The package of a chain of 8 types with a read whose node key is stale: a
