@@ -42,3 +42,12 @@ the payload-bearing `Rect` and nullary `Empty` `value`/`union_value` nodes by
 tag and form, assert their exact aggregate bodies, and compare each retained
 key to QSpec's independently fixed `quire.application-node/v1` preimage bytes
 a |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 6ca9197974b24c4fb6a54b48334cda8d52e00580; the QSpec test now mutates one body member on each authentic Rect and Empty node, refreshes package identity, and asserts the typed stale key, locus, path and independent expected digest. |
+| FND-002 | fixed | 6ca9197974b24c4fb6a54b48334cda8d52e00580; nine public-reader controls each establish the control refusal and pair it with the union stale key, asserting earlier/later precedence. |
+| FND-003 | still-open | The updated FR-038 rows and TC-048 say UNDER REVIEW and final review/repo gate pending; those transient statements will be false at merge. Use durable implemented/tested status without an in-progress gate claim. |
+| FND-003 | fixed | a08739a96e5a3522bf0a6e2f1c643bbd84c24823; FR-038 AC-225 through AC-227 and TC-048 now use durable implemented/tested language grounded in the focused reader and QSpec conformance receipts. |
