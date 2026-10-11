@@ -1174,13 +1174,11 @@ fn tc_048_optional_wrapper_paths_and_all_reentries_preserve_distinct_source_rout
 
 #[trace("FR-038-AC-180", "FR-038-AC-182", "FR-038-AC-198")]
 #[test]
-fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_kind() {
+fn tc_048_eligible_scalar_and_bounded_forms_keep_authored_positions_and_source_kinds() {
     use quire_contract_model::{BoundedDomainForm, CheckedNodeKind, ScalarTypeForm};
     let mut f = Fixture::new();
     let mut types: BTreeMap<String, String> = BTreeMap::new();
-    for form in [
-        "boolean", "integer", "rational", "decimal", "float32", "float64",
-    ] {
+    for form in ["boolean", "integer", "rational", "decimal"] {
         let id = f.ty("scalar_type", form, None, aggregate(vec![]));
         types.insert(form.into(), id);
     }
@@ -1238,11 +1236,7 @@ fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_k
         bounds_body("1", "4"),
     );
     types.insert("collection_bounds".into(), bounded);
-    for (form, base) in [
-        ("rational_range", "rational"),
-        ("decimal_range", "decimal"),
-        ("float_rounding", "float32"),
-    ] {
+    for (form, base) in [("rational_range", "rational"), ("decimal_range", "decimal")] {
         let ty = types.get(base).expect("base").clone();
         let id = f.ty("bounded_domain", form, Some(&ty), aggregate(vec![]));
         types.insert(form.into(), id);
@@ -1256,7 +1250,10 @@ fn tc_048_every_scalar_and_bounded_form_keeps_its_authored_position_and_source_k
         aggregate(vec![]),
     );
     types.insert("model_population".into(), population);
-    assert_eq!(types.len(), 18, "all eleven scalar and seven bounded forms");
+    // Float32, Float64 and float_rounding would make the compared record
+    // ineligible under FR-038-AC-231. This projection covers the fifteen
+    // forms whose comparison admits through the public reader.
+    assert_eq!(types.len(), 15, "all comparison-eligible forms");
     let names = types.keys().cloned().collect::<Vec<_>>();
     let fields = names
         .iter()
