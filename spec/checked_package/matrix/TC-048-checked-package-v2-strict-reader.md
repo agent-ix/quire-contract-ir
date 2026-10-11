@@ -73,6 +73,10 @@ FR-038-AC-225 through FR-038-AC-227 are planned public-reader controls for
 QSpec FR-322's aggregate-bodied `value`/`union_value` application keys. They
 use the authentic QSpec positive fixture and its tampered-key adverse controls;
 no IR admission result is claimed until IR-739 adds and runs tagged tests.
+FR-038-AC-228 through FR-038-AC-231 are planned public-reader controls for
+the catalog's three leaf-source selectors, earlier first-operand family
+refusals, nested IEEE ineligibility and result-inner sequence exception. They
+do not claim a runtime result until IR-491 implements and runs tagged tests.
 FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
 split of a stale digest into `content-mismatch` (a document that reads, a dependency
 entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
@@ -801,6 +805,62 @@ check it admits within the budget. Put a leaf whose mode disagrees with its
 field's pinned rounding beside too few leaves and beside a type naming a node
 that is not in the graph, and check the refusals are `operation-law-missing`
 and `operator-ineligible`, the leaf count settling before any leaf mode.
+
+## Residual operation leaf sources (FR-038-AC-228 through FR-038-AC-231)
+
+Use the current first-party catalog from `quire-verification-contracts` and
+its current QSpec operation fixtures by reference from their authoritative
+checkouts; do not copy those files into this repository. Start each case with
+an admitted V2 package whose selected operation, lock definitions, source
+occurrences, node keys, identity projection and package id agree. Assert that
+the unchanged package admits through `CheckedPackageV2::read`. For each
+mutation below, rebuild the affected node keys and package id using the
+existing production identity rules, and assert that the adverse package
+passes strict wire, graph and identity checks before its named operation
+check. Expected leaves and refusals are test-authored from the declared types
+and catalog, never computed by asking the reader twice.
+
+1. For AC-228, use `structural.eq` and `.ne` over an all-integer record and
+   a record with one `Text[0, 8; nfc]` field. Independently author the empty
+   and one-field leaf lists. Supply the first operand as a `reference` to a
+   value node, a `reference` directly to the structural type, an
+   `application` with that `result_type`, and an option-typed `none` literal
+   for an option comparison; keep each second operand the same declared
+   type. Assert the exact admission or missing-leaf result of AC-228. Mutate
+   a declared type and refresh identities to show that the reader selects
+   the new type and does not use stale first-operand leaves.
+2. For AC-229, start from admitted structural comparison and
+   `collection.contains` packages. Replace operand 0 separately with a
+   well-shaped `binding`, `aggregate`, `frame`, `abstraction_relation` and
+   `dependency_reference`. Record the earlier grammar/reference refusal when
+   it applies; otherwise assert `ill_typed`/`operator-ineligible` at
+   `arguments/0`, never admission through absent type resolution. Construct
+   separately a family-fitting first operand whose required `operand:0` or
+   `inner:0` type fails only after that earlier check, and assert the typed
+   `operation.leaves` refusal with leaves empty and with one supplied entry.
+   At a measured exact and one-less structural forwarding work limit, assert
+   ordinary decision then typed Work, not an unresolved-type refusal.
+3. For AC-230, exercise all seven catalogued `result_inner` identities. For
+   each one, give an otherwise valid set-like result over pinned text exactly
+   its empty-path text leaf and assert admission; remove it and assert
+   `operation-law-missing`. Exercise a valid sequence result over the same
+   text where that identity's result form permits one: no leaves admit and
+   one supplied leaf refuses `operation-law-mismatch` at its first entry.
+   Give a set-like result a shape whose element type fails to resolve only
+   after earlier checks, and assert `operator-ineligible` at
+   `operation.leaves` with both empty and supplied lists. The selected
+   element adds no `inner` prefix; a wrong-prefixed supplied leaf refuses.
+4. For AC-231, use genuine Float32 and Float64 type nodes with their current
+   QSpec scalar and rounding shapes. In a separately identity-valid package,
+   place each under a record, tuple, option and sequence compared by
+   `structural.eq` and `.ne`, and under the element of a sequence used by
+   `collection.contains`. Both empty leaves and an authored text leaf refuse
+   `ill_typed`/`operator-ineligible` at `operation.leaves`. Change only the
+   nested IEEE type to Integer, refresh all identities and assert admission
+   with exactly empty leaves. A valid `collection.flatten` result of
+   `sequence<Float32>` and `sequence<Float64>` admits with no leaves; a
+   set, bag or ordered set of an IEEE-bearing element is never used as an
+   admission control because QSpec FR-144 forbids its type.
 
 ## Exact operation leaves (FR-038-AC-44)
 

@@ -3686,6 +3686,44 @@ decided and their leaves are not checked, where the reference reader refuses
 does not yet type, which is a wider set than the reference reader's
 undecidable types, so that is left until operand typing is complete.
 
+The planned IR-491 residual rule applies only after the earlier package,
+reference, operation and operand checks have succeeded. The catalog names
+exactly the following leaf-source cases; the reader SHALL use the selected
+type in this table and SHALL NOT treat failure to resolve a required type as
+an empty leaf list:
+
+| Catalogued operation | Leaf source | Selected compared type after earlier checks |
+| --- | --- | --- |
+| `structural.eq`, `structural.ne` | `operand:0` | The first operand's declared type: a `literal`'s `type`, an `application`'s `result_type`, or a `reference`'s target when it is type-shaped and otherwise that target value node's `semantic_type`. Its family must already fit `structural_kind`, and `same_type` must hold. |
+| `collection.contains` | `inner:0` | The element type of the first operand's `sequence`, `set`, `bag` or `ordered_set` type, through permitted alias and bounded-domain forwarding. The first operand must already fit `collection_kind` and its second operand must satisfy the catalogued `inner_type` constraint. Selection adds no leading `inner` path segment. |
+| `collection.set`, `.bag`, `.ordered_set`, `.map`, `.flat_map`, `.flatten`, `.convert` | `result_inner` | The result's element type only when the admitted `result_type` resolves to `set`, `bag` or `ordered_set`. A valid `sequence` result expects no leaves, even if its element type is text. Selection adds no leading `inner` segment. |
+
+A `binding` or `aggregate` as operand 0 has the catalogued `binder` or
+`aggregate` family, so it cannot satisfy the first two rows' operand family;
+a `dependency_reference` outside a call's callee position is rejected by the
+earlier reference walk. A `frame` or `abstraction_relation` is not a value of
+the required family. These terms are not an admitted positive control for an
+unresolved compared type. A malformed `reference`, `literal` or `application`
+is likewise subject to its earlier graph, literal or operand check. After
+those checks, a required compared or set-like result element type that still
+cannot be resolved refuses `ill_typed`/`operator-ineligible` at
+`operation.leaves`, with either an empty or a supplied leaf list. A valid
+non-set-like result, including a `sequence`, has an empty expected list; a
+supplied leaf refuses `operation-law-mismatch` at its first extra entry.
+The compared type's own node and member walk, text-profile pin, law and mode
+rules above remain in force; this selection rule does not relax their work
+charges or refusal order. Leaf-list construction is separate from type
+eligibility: a `structural.eq`, `structural.ne` or `collection.contains`
+compared type that contains Float32 or Float64 at any depth refuses
+`ill_typed`/`operator-ineligible` at `operation.leaves`, even though the IEEE
+node contributes no text leaf. A `result_inner` operation yielding a
+`set`, `bag` or `ordered_set` whose element type contains IEEE is likewise
+ineligible under QSpec FR-144's collection-type rule; it does not admit by
+having zero text leaves. A valid `sequence` of IEEE values yielded by a
+`result_inner` operation still expects no leaves. QSL FR-093's rule that a
+float contributes no *text* leaf is consistent with its separate upstream
+equality and collection-type admission checks.
+
 ### Frame bodies
 
 A `state` node of `semantic_form` `frame` carries a frame body, and only a
@@ -4138,6 +4176,11 @@ limits and the public key-derivation surface remain unchanged.
 | FR-038-AC-225 | PLANNED/UNRUN (IR-739). `CheckedPackageV2::read` admits QSpec's current `positive-union-nodes.json`, read directly from an authoritative checkout by `make conformance-qspec`, with both its payload-bearing `Shape::Rect` and nullary `Shape::Empty` aggregate-bodied `value`/`union_value` nodes keyed under `quire.application-node/v1`. The test compares each retained key with an independently fixed QSpec preimage/key vector, its exact aggregate body and the fixture's recorded `package_id`; an ordinary application still admits, while application-free `record_value` and `tuple_value` controls retain structural-key selection. A private key-helper success alone is insufficient. | Test (TC-048) |
 | FR-038-AC-226 | PLANNED/UNRUN (IR-739). For each of the two authentic QSpec union values of AC-225, changing its retained key to the prior structural key, rewriting every reference and source-map occurrence of that key, mirroring the identity projection and recomputing only the package identity needed to reach node-key validation, yields `invalid_package`/`stale-node-key` at that node's `node_id`; `locus` is the supplied typed key and `expected_node_id()` is the distinct current application-derived typed key. The untampered package admits, so an earlier graph or package refusal cannot pass this control. Changing one key-covered body member without rekeying also refuses at that node. | Test (TC-048) |
 | FR-038-AC-227 | PLANNED/UNRUN (IR-739). In a reader-admissible recursion group containing a `union_value` and a nonapplication node, the union value's preimage uses the complete graph-order `{size, ordinal}` and rewrites each reference to an in-group member in its nested payload aggregate to `group_reference`, while an outside reference remains unchanged; the current keyed package admits and a retained stale key refuses with the distinct production-derived expected key. At the private key-stage seam, for the same preimage, a canonical byte ceiling equal to its independently measured byte length accepts its key and one less refuses the existing typed `invalid_semantic_graph` at `node_id` with no expected key; exhausted work refuses `incomplete`/`work` before hashing. The public reader's earlier whole-package byte limit remains in force. Existing strict-wire, package-identity, owner-join and graph-shape refusals keep their precedence ahead of the key stage; the derived-structural, declaration, frame, operation and generic reference-edge stages follow it. No copied encoder, alternate ceiling or public candidate-helper admission claim is introduced. | Test (TC-048) |
+
+| FR-038-AC-228 | PLANNED/UNRUN (IR-491). Through `CheckedPackageV2::read`, otherwise valid `structural.eq` and `structural.ne` packages whose first operand is, separately, a reference to a structural value, a reference directly to its type node, an application with that `result_type`, or an option-typed `none` literal, each derive the leaves of the selected declared type. An all-integer record admits with `leaves: []`, and a record with one pinned text field admits with exactly that field's selected-law and mode leaf, while removing the required leaf refuses `invalid_package`/`operation-law-missing` at `operation.leaves`. Each package's operand and result identities are independently re-derived; changing a declared type does not silently retain the original comparison. | Test (TC-048) |
+| FR-038-AC-229 | PLANNED/UNRUN (IR-491). For `structural.eq`, `structural.ne` and `collection.contains`, a first operand replaced with a `binding`, `aggregate`, `frame` or `abstraction_relation` never admits by skipping type resolution: after any earlier applicable grammar/reference check, it refuses `ill_typed`/`operator-ineligible` at `arguments/0` if it reaches the operand-family check. A `dependency_reference` in that position is refused by the earlier dependency-reference placement check. Separately, a first operand whose family fits but whose required compared or `inner:0` type remains unresolved after earlier checks refuses `ill_typed`/`operator-ineligible` at `operation.leaves`, with `leaves` empty or nonempty; exhausted structural-resolution work remains `incomplete`/`work`. | Test (TC-048) |
+| FR-038-AC-230 | PLANNED/UNRUN (IR-491). For every catalogued `result_inner` identity (`collection.set`, `.bag`, `.ordered_set`, `.map`, `.flat_map`, `.flatten`, `.convert`), a result of `set`, `bag` or `ordered_set` over pinned text admits exactly the selected element-type leaf at the empty path and refuses an omitted one as `operation-law-missing` at `operation.leaves`; where the catalogued result form permits a valid `sequence` result over that text, it admits with `leaves: []` and refuses one supplied leaf as `operation-law-mismatch` at `operation.leaves/0`. A set-like result whose required element type remains unresolved after earlier checks refuses `ill_typed`/`operator-ineligible` at `operation.leaves` rather than admitting either leaf list; exhausted structural-resolution work remains typed Work. Each positive control admits through the public reader with current catalog and lock selections. | Test (TC-048) |
+| FR-038-AC-231 | PLANNED/UNRUN (IR-491). An otherwise valid `structural.eq` or `structural.ne` over a record, tuple, option or sequence whose selected compared type reaches Float32 or Float64 at any depth, and `collection.contains` over a sequence whose element type does, each refuse `ill_typed`/`operator-ineligible` at `operation.leaves` with `leaves: []` and with a supplied text leaf; changing only that nested IEEE type to an integer type and re-deriving identities admits with its exact empty leaf list. A valid `collection.flatten` result of `sequence<Float32>` or `sequence<Float64>` admits with no leaves because `result_inner` selects no compared type for a sequence result. A `set`, `bag` or `ordered_set` of an IEEE-bearing element is not a positive control: its element type is ineligible under QSpec FR-144. Each adverse comparison is first independently shown to pass strict wire, graph and identity admission without the comparison, so an earlier malformed package cannot satisfy the refusal. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
