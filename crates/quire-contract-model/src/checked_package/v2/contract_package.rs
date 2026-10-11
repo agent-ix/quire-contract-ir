@@ -1772,10 +1772,8 @@ impl ContractPackageWireV1 {
         let mut queue = self
             .feature_accounting
             .iter()
-            .filter_map(|record| {
-                (record.disposition() == ContractDispositionV1::Lowered)
-                    .then(|| record.node_id().clone())
-            })
+            .filter(|record| record.disposition() == ContractDispositionV1::Lowered)
+            .map(|record| record.node_id().clone())
             .collect::<VecDeque<_>>();
         while let Some(key) = queue.pop_front() {
             if reached.insert(key.clone()) {

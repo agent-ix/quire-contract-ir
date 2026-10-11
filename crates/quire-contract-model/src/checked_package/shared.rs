@@ -367,13 +367,17 @@ pub struct CheckedPackageRefusal {
     /// locates the row; this pointer resolves in the supplied document, not in
     /// the package.
     pub document_pointer: Option<JsonPointer>,
-    /// Selected package content identity for a typed content mismatch.
-    pub expected: Option<CheckedSemanticId>,
-    /// Supplied package content identity for a typed content mismatch.
-    pub actual: Option<CheckedSemanticId>,
+    /// Identities retained only for a selected dependency content mismatch.
+    dependency_content_mismatch: Option<Box<DependencyContentMismatch>>,
     /// The key already derived at a stale-node-key refusal site, when one
     /// exists. It is meaningful only with the original reader-returned locus.
-    expected_node_id: Option<CheckedNodeId>,
+    expected_node_id: Option<Box<CheckedNodeId>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DependencyContentMismatch {
+    expected: CheckedSemanticId,
+    actual: CheckedSemanticId,
 }
 
 /// Named fields for constructing a refusal inside this crate. The expected
@@ -396,8 +400,7 @@ impl CheckedPackageRefusal {
             locus: fields.locus,
             contract_version: fields.contract_version,
             document_pointer: fields.document_pointer,
-            expected: None,
-            actual: None,
+            dependency_content_mismatch: None,
             expected_node_id: None,
         }
     }
@@ -417,19 +420,23 @@ impl CheckedPackageRefusal {
             contract_version: None,
             document_pointer: None,
         });
-        refusal.expected = Some(expected);
-        refusal.actual = Some(actual);
+        refusal.dependency_content_mismatch =
+            Some(Box::new(DependencyContentMismatch { expected, actual }));
         refusal
     }
 
     /// The selected content identity, when a content mismatch supplied one.
     pub fn expected(&self) -> Option<&CheckedSemanticId> {
-        self.expected.as_ref()
+        self.dependency_content_mismatch
+            .as_ref()
+            .map(|mismatch| &mismatch.expected)
     }
 
     /// The supplied content identity, when a content mismatch supplied one.
     pub fn actual(&self) -> Option<&CheckedSemanticId> {
-        self.actual.as_ref()
+        self.dependency_content_mismatch
+            .as_ref()
+            .map(|mismatch| &mismatch.actual)
     }
 
     pub(crate) fn stale_node_key(
@@ -445,7 +452,7 @@ impl CheckedPackageRefusal {
             contract_version: None,
             document_pointer: None,
         });
-        refusal.expected_node_id = Some(expected_node_id);
+        refusal.expected_node_id = Some(Box::new(expected_node_id));
         refusal
     }
 
@@ -453,7 +460,7 @@ impl CheckedPackageRefusal {
     /// the reader could derive one. The original [`Self::locus`] identifies the
     /// stored key that refused.
     pub fn expected_node_id(&self) -> Option<&CheckedNodeId> {
-        self.expected_node_id.as_ref()
+        self.expected_node_id.as_deref()
     }
 }
 
