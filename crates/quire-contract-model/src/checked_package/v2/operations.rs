@@ -1211,6 +1211,23 @@ fn check_operands(
         return ineligible(None);
     }
     for (position, expected) in entry.operands.iter().enumerate() {
+        // Leaf-source operators require a value or type-bearing first
+        // operand. These member terms have no operand family or type; do not
+        // let an absent family bypass the operand check.
+        if position == 0
+            && matches!(entry.leaves.as_deref(), Some("operand:0" | "inner:0"))
+            && matches!(
+                body_term(&arguments[0]),
+                Some(
+                    BodyTerm::Binding
+                        | BodyTerm::Aggregate
+                        | BodyTerm::Frame
+                        | BodyTerm::AbstractionRelation
+                )
+            )
+        {
+            return ineligible(Some(0));
+        }
         // QSpec FR-370: a temporal clause's first argument is a `reference`
         // to the `value`/`parameter` node of its `over` parameter. It is not
         // family-resolved (resolving it would give the parameter's own
@@ -3214,24 +3231,6 @@ fn check_leaf_count(
             CheckedPackageRefusalCause::OperatorIneligible,
         )))
     };
-    // The earlier operand check refuses a resolved, wrong family. Terms with
-    // no family at all cannot satisfy an operand: in particular a frame and
-    // an abstraction relation are not silently accepted by this leaf check.
-    if matches!(source, "operand:0" | "inner:0")
-        && arguments.first().is_some_and(|argument| {
-            matches!(
-                body_term(argument),
-                Some(
-                    BodyTerm::Binding
-                        | BodyTerm::Aggregate
-                        | BodyTerm::Frame
-                        | BodyTerm::AbstractionRelation
-                )
-            )
-        })
-    {
-        return ineligible(application.body(&["arguments"]).index(0));
-    }
     // Outer `None`: a required type could not be resolved. Inner `None`:
     // this admitted result kind has no leaf source (a sequence, for example).
     let compared: Option<Option<CheckedNodeId>> = match source {
