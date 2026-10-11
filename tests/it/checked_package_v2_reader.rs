@@ -1924,13 +1924,42 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "systems_connection",
         "systems_allocation",
     ] {
-        let mut value = base.clone();
-        value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
-        if matches!(form, "object_type" | "systems_interface") {
-            declare(&mut value, model, &["Example", "ChangedModel"]);
-            checked_package::rebuild_source_map(&mut value);
+        if form == "object_type" {
+            assert!(base["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .any(|node| node["node_tag"] == "model" && node["semantic_form"] == form));
+            admitted(&base);
+            continue;
         }
-        refresh_identity(&mut value);
+        let mut value = base.clone();
+        if form == "systems_interface" {
+            // FR-094 model-owned interfaces are self typed and named by the
+            // selected model document, so add one without disturbing the
+            // object type the all-family frame already references.
+            let mut interface = value["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+                .expect("model-owned object type")
+                .clone();
+            let placeholder = "ab".repeat(32);
+            interface["node_id"] = checked_package::node_id(&placeholder);
+            interface["semantic_type"] = checked_package::node_id(&placeholder);
+            interface["semantic_form"] = json!(form);
+            interface["owner"] =
+                checked_package::model_owner("test/families", "ix://test/families/Interface");
+            value["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(interface);
+            checked_package::rebuild_source_map(&mut value);
+        } else {
+            value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        }
+        rekey_declared_all_families(&mut value);
         admitted(&value);
     }
     let mut export = base.clone();
@@ -2607,6 +2636,61 @@ fn declare(package: &mut Value, position: usize, name: &[&str]) {
     });
 }
 
+/// Rekey the all-family fixture after a declaration changes a structural
+/// preimage. Every rename reaches downstream type, body, frame and package
+/// references; `settle` then rekeys application nodes over those references.
+fn rekey_declared_all_families(package: &mut Value) {
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    for _ in 0..=count {
+        let previous: Vec<Value> = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect();
+        for position in 0..count {
+            let node = package["semantic_graph"]["nodes"][position].clone();
+            if node["body"]["term"] == "application" {
+                continue;
+            }
+            assert!(node.get("nominal_identity_preimage").is_none());
+            assert!(node.get("recursion_group").is_none());
+            let stale = digest_of(&node);
+            let mut preimage = json!({
+                "version": "quire.structural-node/v1",
+                "node_tag": node["node_tag"],
+                "semantic_form": node["semantic_form"],
+                "semantic_type": (node["semantic_type"] != node["node_id"])
+                    .then(|| node["semantic_type"].clone()),
+                "declaration": node.get("declaration"),
+                "recursion": null,
+                "body": node["body"],
+            });
+            if let Some(owner) = node.get("owner") {
+                preimage["owner"] = owner.clone();
+            }
+            let fresh = sha256_hex(&canonical(&preimage));
+            if stale != fresh {
+                checked_package::rename_node(package, &stale, &fresh);
+            }
+        }
+        checked_package::settle(package);
+        let current: Vec<Value> = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect();
+        if current == previous {
+            return;
+        }
+    }
+    panic!("declared all-family fixture did not reach stable keys");
+}
+
 /// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
@@ -2686,8 +2770,7 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
     let mut both = with_frame_defect();
     declare(&mut both, 0, &["Example", "Dup"]);
     declare(&mut both, 1, &["Example", "Dup"]);
-    checked_package::rebuild_source_map(&mut both);
-    refresh_identity(&mut both);
+    rekey_declared_all_families(&mut both);
     let first = digest_of(&both["semantic_graph"]["nodes"][0]);
     let second = digest_of(&both["semantic_graph"]["nodes"][1]);
     assert_eq!(
