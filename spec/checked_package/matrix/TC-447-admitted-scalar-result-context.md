@@ -16,12 +16,16 @@ public reader-admitted QSL-to-IR path and focused adversarial consumer shapes.
 ## Test Procedure
 
 Check and emit the QSL function in FR-049-AC-1, admit its checked package,
-lower the exact add expression into one FR-330 package, read that package, and
-query its typed scalar result context. Independently derive the expected
-`[0, 10]` result and `[0, 9]` operand ranges from the QSL declaration, then
-compare exact typed keys, admitted source occurrences, source package identity
-and lowering profile. Do not compute the expected result by calling the
-context accessor or reusing its bound selection.
+and record its one driver requirement occurrence, add key and authoritative
+enclosing narrow key from the reviewed QSL-710 request API. First lower only
+`[add]`: read the ordinary six-field FR-330 package and assert that its add
+forward closure has six nodes, operand `[0, 9]`, and neither the narrow nor
+result `[0, 10]`. Then lower explicit roots `[add, narrow]` together: read the
+ordinary FR-330 package, assert two exact feature-accounting records, eight
+represented nodes, the unchanged six-node add forward closure, and exact
+source occurrences for the narrow and result bound. Query the admitted
+context for the same requirement occurrence. Independently derive expected
+`[0, 10]` and `[0, 9]` from the QSL declaration, not from the context accessor.
 
 For separate reader-admissible packages, exercise no conversion, one direct
 conversion, two conversions to one target, two distinct targets, a conversion
@@ -32,24 +36,36 @@ one valid plus one wrong-form or incompatible conversion,
 including where valid conversions name two distinct bounds. Exercise wrong
 form, unreadable target and scalar type mismatch at the private
 post-admission seam only when the public reader would already refuse that
-shape; assert the reader's independent refusal first. Exercise non-lowered,
-unrequested and absent keys, plus post-admission inconsistent source/body
-and work-limit failures. Include a selected external reference, an identically
-keyed local node, and missing, stale and wrong selected dependencies; assert
-reader refusal before any result-context query for unavailable selection.
+shape; assert the reader's independent refusal first. Omit one local consumer
+from an otherwise valid contextual root selection and assert typed
+incompleteness, without accepting a narrowed or unnarrowed result. Exercise
+two QSL requirement occurrences that share an expression key but carry
+different result bounds and conversion selections; retain distinct contexts
+by occurrence. Exercise non-lowered, unrequested and absent keys, plus
+post-admission inconsistent source/body and work-limit failures. Include a
+selected external reference, an identically keyed local node, and missing,
+stale and wrong selected dependencies; assert reader refusal before any
+result-context query for unavailable selection.
 
 Before and after every query, compare the complete six-field wire and
-canonical identity. Independently enumerate the preexisting forward closure
-and confirm the reverse conversion remains outside it. Compile an external
-consumer that obtains the typed result using only `ContractPackageV1`, the
-requested key and expected form, with no original checked graph.
+canonical identity. Compare the add-only package to the contextual package
+separately: the extra root changes represented nodes, accounting and identity
+as FR-035 requires. Independently enumerate the preexisting add forward
+closure and confirm the reverse conversion remains outside it. Compile an
+external consumer that obtains the typed result from the admitted FR-330
+package and its validated occurrence-scoped context, with no original checked
+graph or second lowering call. Assert that the context-only narrow creates no
+extra routed item, claim or proof obligation.
 
 ## Expected Results
 
-The QSL positive returns the exact result bound `[0, 10]`, while the operand
-bound remains `[0, 9]`. The other cases produce the exact `DirectBounded`,
+The QSL positive lowers `[add, narrow]` and returns the exact result bound
+`[0, 10]`, while the operand bound remains `[0, 9]`. Lowering `[add]` alone
+cannot produce that result context. The other cases produce the exact `DirectBounded`,
 `Unnarrowed`, `Narrowed`, `MissingBound`, `AmbiguousBound`, non-lowered, absent or typed error
 outcomes in FR-049, without a partial or guessed bound. Selected external
 references retain their package/key identity and never resolve through a
-local collision. Source/provenance is exact. The FR-330 wire, identity and
-forward closure are unchanged by every query.
+local collision. Source/provenance is exact. Each FR-330 package has the
+ordinary six-field wire; the contextual package has different accounting and
+identity from add-only. The wire, identity and add forward closure are
+unchanged by each query.
