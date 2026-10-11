@@ -44,7 +44,11 @@ fn node(value: u8, body: Value) -> CheckedSemanticNodeV2 {
 }
 
 fn application(arguments: Vec<Value>) -> Value {
-    json!({"term": "application", "arguments": arguments})
+    // Move caller-owned JSON: json!(arguments) serializes it recursively.
+    let mut body = serde_json::Map::new();
+    body.insert("term".into(), Value::String("application".into()));
+    body.insert("arguments".into(), Value::Array(arguments));
+    Value::Object(body)
 }
 
 fn reference(value: u8) -> Value {
@@ -59,15 +63,23 @@ fn candidate(node: &CheckedSemanticNodeV2) -> CheckedNodeId {
 }
 
 fn oracle(node: &CheckedSemanticNodeV2, recursion: Value, body: Value) -> Value {
-    json!({
-        "version": "quire.application-node/v1",
-        "node_tag": node.node_tag,
-        "semantic_form": node.semantic_form,
-        "semantic_type": node.semantic_type,
-        "declaration": node.declaration,
-        "recursion": recursion,
-        "body": body,
-    })
+    // Only the fixed-shape node metadata goes through serde; arbitrary owned
+    // JSON is moved into the independent preimage without serialization.
+    let mut preimage = serde_json::Map::new();
+    preimage.insert(
+        "version".into(),
+        Value::String("quire.application-node/v1".into()),
+    );
+    preimage.insert("node_tag".into(), Value::String(node.node_tag.to_string()));
+    preimage.insert(
+        "semantic_form".into(),
+        Value::String(node.semantic_form.to_string()),
+    );
+    preimage.insert("semantic_type".into(), json!(node.semantic_type));
+    preimage.insert("declaration".into(), json!(node.declaration));
+    preimage.insert("recursion".into(), recursion);
+    preimage.insert("body".into(), body);
+    Value::Object(preimage)
 }
 
 /// Trace: FR-046-AC-1, FR-046-AC-2
@@ -304,8 +316,16 @@ fn deep_draft(grouped: bool, bottom: bool, replaced_reference: bool) -> CheckedS
     result
 }
 
-fn dispose(mut node: CheckedSemanticNodeV2) {
-    quire_canonical::drop_value(std::mem::take(&mut node.body));
+struct DeepDrafts(Vec<CheckedSemanticNodeV2>);
+
+impl Drop for DeepDrafts {
+    fn drop(&mut self) {
+        // An assertion or helper refusal must not be masked by recursive
+        // caller-owned Value teardown while this thread unwinds.
+        for node in &mut self.0 {
+            quire_canonical::drop_value(std::mem::take(&mut node.body));
+        }
+    }
 }
 
 /// Trace: FR-046-AC-4
@@ -315,23 +335,23 @@ fn deep_borrowed_drafts_copy_compare_hash_and_refuse_on_a_small_stack() {
     std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
         for grouped in [false, true] {
             for replaced_reference in [false, true] {
-                let original = deep_draft(grouped, true, replaced_reference);
-                let snapshot = deep_draft(grouped, true, replaced_reference);
-                let changed = deep_draft(grouped, false, replaced_reference);
-                let draft = ApplicationNodeDraft::new(&original);
-                let graph = [snapshot];
-                let context = ApplicationIdentityContext::try_new(&graph, draft).unwrap();
+                let mut nodes = DeepDrafts(Vec::new());
+                for bottom in [true, true, false] {
+                    nodes.0.push(deep_draft(grouped, bottom, replaced_reference));
+                }
+                let original = &nodes.0[0];
+                let changed = &nodes.0[2];
+                let draft = ApplicationNodeDraft::new(original);
+                let graph = &nodes.0[1..2];
+                let context = ApplicationIdentityContext::try_new(graph, draft).unwrap();
                 let result = derive_application_node_id(draft, Some(&context), BYTES).unwrap();
                 assert_eq!(result.candidate_node_id().domain.as_ref(), "quire.checked-semantic-node/v1");
                 assert!(matches!(derive_application_node_id(draft, Some(&context), 0),
                     Err(ApplicationIdentityError::CanonicalEncoding(Error::Limit(_)))));
-                assert!(matches!(ApplicationIdentityContext::try_new(&graph, ApplicationNodeDraft::new(&changed)),
+                assert!(matches!(ApplicationIdentityContext::try_new(graph, ApplicationNodeDraft::new(changed)),
                     Err(ApplicationIdentityError::ContextMismatch { node_id }) if node_id == id(1)));
-                assert!(matches!(derive_application_node_id(ApplicationNodeDraft::new(&changed), Some(&context), BYTES),
+                assert!(matches!(derive_application_node_id(ApplicationNodeDraft::new(changed), Some(&context), BYTES),
                     Err(ApplicationIdentityError::ContextMismatch { node_id }) if node_id == id(1)));
-                dispose(original);
-                dispose(changed);
-                for node in graph { dispose(node); }
             }
         }
     }).unwrap().join().expect("deep candidate controls complete without recursive helper operations");
