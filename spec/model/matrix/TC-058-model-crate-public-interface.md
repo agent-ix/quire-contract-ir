@@ -7,6 +7,8 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-046
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-048
+    type: verifies
 ---
 # TC-058: The model crate's public interface is exactly FR-019's list, re-exported by name
 
@@ -65,3 +67,20 @@ reading any package; no helper result constructs or substitutes for an admitted
 Assert the candidate node key and each specified typed error outcome through
 the compiled public interface. Source-text inventory matching alone cannot
 satisfy this compiled consumer procedure.
+
+## Compiled candidate structural API consumer
+
+Planned for IR-763; no compiled or tagged result is claimed. Verify
+[FR-048](../functional/FR-048-derive-structural-and-group-candidates.md),
+AC-1, and the candidate structural identity row under Public items in
+[FR-019](../functional/FR-019-rust-library-interface.md).
+Compile and run an external default-feature `quire_contract_model` consumer
+that builds ordered `CheckedSemanticNodeV2` drafts, calls
+`derive_structural_candidates`, obtains each typed candidate node ID and group
+label through accessors, and exhaustively matches `StructuralCandidateError`.
+Compile-fail probes shall reject direct construction of candidate results and
+imports through `quire_contract_ir`. Compare the default-feature root export
+set against the updated FR-019 inventory, retaining the existing no-glob and
+fault-injection-only-delta checks. The consumer shall obtain candidates before
+any package read and cannot turn a candidate into an admitted package.
+TC-048 owns the subsequent reader admission, stale-key and resource controls.

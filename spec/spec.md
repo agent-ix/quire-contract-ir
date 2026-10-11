@@ -99,6 +99,10 @@ FR-019 lists the
 model crate's public items and FR-039 the root crate's; the root crate
 re-exports no model item, so each public item has one import path. AD-001 is the repository architecture and
 versioning description; AD-002 and AD-003 are views inside it.
+[FR-048](model/functional/FR-048-derive-structural-and-group-candidates.md)
+defines a typed pre-read candidate boundary for the reader's structural keys
+and recursion-group labels. Final checked-package admission remains with
+[FR-038](checked_package/functional/FR-038-consume-checked-package-v2.md).
 STD-001 is the stable diagnostic code registry, FR-044 exports the form of its
 codes as the typed `Std001Code` of the model crate, which `KaniOutcome.code`
 carries, and STD-003 is the closed
