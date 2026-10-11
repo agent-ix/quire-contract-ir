@@ -145,13 +145,13 @@ when encoding refuses early. Canonical encoding retains its existing
 heap-stack costs. This changes no preimage bytes and imposes no new depth cap.
 These costs are bounded by the actual supplied input, not by `byte_limit`:
 that limit constrains canonical output and does not bound context scans,
-the draft graph, body cloning or traversal allocations. This contract makes
-no new recoverable-allocation guarantee for the existing body clone or encoder;
+the draft graph, body copying or traversal allocations. This contract makes
+no new recoverable-allocation guarantee for the body copy or encoder;
 an allocator exhaustion outside their typed error surface is not a fabricated
 `CanonicalEncoding` refusal. Context key scans allocate no graph copy; structural equality may allocate the
 explicit O(D) heap stack. No new recoverable-allocation guarantee is added for
-that stack either. The present recursive body clone is an implementation gap
-to close before this pre-read surface ships, not a stack-safety exemption.
+that stack either. The implementation uses the iterative body copy and
+nonrecursive cleanup described above.
 
 The reader SHALL retain its existing application ordering, authenticated graph
 context, refusal translation and one reader work-unit charge before preimage
