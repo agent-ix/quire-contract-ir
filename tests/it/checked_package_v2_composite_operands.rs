@@ -128,7 +128,11 @@ impl Fixture {
     }
 
     fn graph_value(&mut self, form: &str, ty: &str, body: Value) -> String {
-        let id = structural_key("value", form, Some(ty), &body);
+        let id = if form == "union_value" {
+            application_node_key("value", form, ty, &body)
+        } else {
+            structural_key("value", form, Some(ty), &body)
+        };
         let mut dependencies = Vec::new();
         references(&body, &mut dependencies);
         dependencies.sort();

@@ -486,7 +486,7 @@ fn tc_226_compound_unit_and_union_forms_cover_their_bodies() {
             "value": {"term": "aggregate", "members": []}
         }]})
     };
-    let value_key = structural_key("value", "union_value", Some(&union), &value_body("One"));
+    let value_key = application_node_key("value", "union_value", &union, &value_body("One"));
     let mut value_node = node(
         &value_key,
         "value",
