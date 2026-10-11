@@ -95,26 +95,34 @@ locus of an entry's refusal is its declaring node key. None of the five
 systems forms is an admitted declaring node.
 
 A field entry's `name` resolves among the fields of its declaring node by
-FR-038's model-owned member resolution, and only where FR-038 scopes that
-resolution: when the declaring node is a model declaration node, one whose
-`declaration` is a `model_declaration` (QSpec's `ModelDeclarationNode`). For
-such a `model`/`object_type` node the candidates are the exposed effective
-field members of that object type, own and inherited. A declaring node that is
-not a model declaration node, including a source-declared object type carrying
-a `declaration`, is joined and ordered but its field name is not resolved.
-QSpec FR-340 states that a field entry on a `model`/`record_value_type` node
-names one of the fields its record declaration declares. QSpec's
-`ModelDeclarationNode` has no `record_value_type` form, so no selected domain
-package can own such a node and the rule has no declaration to resolve
-against. This reader deviates from FR-340 here, pending a QSpec ruling: a
-field entry on a `model`/`record_value_type` node, whether or not the node
-carries a `declaration`, is joined and ordered and its name is not
-resolved.
-Operation members are not candidates. An unrecovered owner refuses with that
+FR-038's model-owned member resolution when the declaring node is a selected
+model declaration node. For a `model`/`object_type` or
+`model`/`record_value_type` declaration node, the reader SHALL index the
+selected document's owner under its authentic self-typed model declaration
+node key, recover the owner by that key and form, and resolve the name among
+the owner's exposed effective field members, own and inherited. Redefinitions
+and ambiguity use the same selected-domain effective-member rules as object
+fields. A record field's type remains the selected record declaration node
+through a nested record, an inherited field, `Option`, a bounded `Sequence`
+and finite recursive record structure; the reader SHALL NOT substitute an
+object `Reference` node or discard the record owner while deriving a member
+type. A source-declared object type carrying a `declaration` retains its
+existing joined and ordered but unresolved name behavior. A record field
+entry without a recoverable selected record declaration SHALL NOT be admitted
+as an unresolved name.
+
+Operation members are not field candidates. An unrecovered owner refuses with that
 resolution's own refusal (`missing_declaration`/`missing-selection` or
 `invalid_package`/`stale-node-key`), no field of that name as
 `missing_declaration`/`missing-name`, and two or more as
-`ambiguous_declaration`/`ambiguous-name`.
+`ambiguous_declaration`/`ambiguous-name`. These are FR-340 frame-entry
+refusals at the entry; an unknown name in an expression `field` projection
+remains FR-322's separate `ill_typed`/`operator-ineligible` refusal at the
+operation's member name. Owner indexing and effective-field lookup SHALL
+use the existing selected-model read stage and work meter, with no new
+validation pass or changed first-refusal order. The frame step SHALL retain
+its existing meaning-join-before-canonical-order and ascending-frame-key
+precedence, and non-record entries retain their existing results.
 
 A `modifies` entry's order key is its `declaration` digest, compared as
 unsigned bytes, then its `name` as UTF-8 bytes, a relationship entry's name
@@ -237,7 +245,7 @@ operation anchor, then every state clause, and reports the first defect.
 | --- | --- | --- |
 | FR-040-AC-1 | A `modifies` array holding a `relationship` entry and a `field` entry, each naming an eligible declared dependency, admits; an all-empty frame body admits; a bare node key, an entry of another `kind`, a `field` entry without `name`, a `relationship` entry carrying `name`, and an entry with an extra member each refuse as `invalid_semantic_graph` with no cause, located at that entry. | Test (TC-056) |
 | FR-040-AC-2 | A relationship entry naming an object type, a field entry declared on a process, a relationship or a systems node, and a `creates` entry naming a relationship each refuse as `invalid_model_binding`/`malformed-declaration` at the entry's declaring node key; an entry naming no declared dependency of the frame, or no node of the package, refuses as `missing_declaration`/`missing-name`. | Test (TC-056) |
-| FR-040-AC-3 | A field entry on a model declaration object type resolves among its exposed effective fields, own and inherited; an undeclared name and an operation's name refuse as `missing_declaration`/`missing-name`, a name two supertypes both expose as `ambiguous_declaration`/`ambiguous-name`, and a declaring node keyed under an unselected domain package as `missing_declaration`/`missing-selection`, each at the entry. A field entry on a source-declared object type admits with its name unresolved; a field entry on a `record_value_type` node, with or without a `declaration`, admits with its name unresolved, a deviation from QSpec FR-340's record-declaration rule pending a QSpec ruling. | Test (TC-056) |
+| FR-040-AC-3 | A field entry on a model declaration object type resolves among its exposed effective fields, own and inherited; an undeclared name and an operation's name refuse as `missing_declaration`/`missing-name`, a name two supertypes both expose as `ambiguous_declaration`/`ambiguous-name`, and a declaring node keyed under an unselected domain package as `missing_declaration`/`missing-selection`, each at the entry. A field entry on a source-declared object type admits with its name unresolved; selected record value type declarations are covered by FR-040-AC-14 through FR-040-AC-16. | Test (TC-056) |
 | FR-040-AC-4 | Two field entries of one declaring node in descending name order refuse as `invalid_semantic_graph`; a frame carrying a meaning-join defect and a canonical-order defect reports the meaning-join refusal regardless of member or array position; with two defective frames, the lower node-id frame's own defect is reported. | Test (TC-056) |
 | FR-040-AC-5 | A frame whose `semantic_type` names a node that is not `model`/`object_type` refuses as `invalid_model_binding`/`malformed-declaration` at its `semantic_type` before any entry defect; a frame occurrence with a role other than `generated` refuses as `invalid_semantic_graph` with no cause, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-6 | Each of the fifteen `model` forms admits as a node form; `field_declaration`, `operation_declaration`, `clause_member_declaration` and any other `model` form refuse as `invalid_semantic_graph` with no cause, located at the node's `semantic_form`. | Test (TC-056) |
@@ -248,6 +256,9 @@ operation anchor, then every state clause, and reports the first defect.
 | FR-040-AC-11 | A `value`/`parameter` body of `name` then `level` admits; reordered bindings, a non-text `name`, a non-integer `level`, and a missing binding each refuse as `invalid_semantic_graph` with no cause, located at the node's `body`; an occurrence role other than `expression` refuses the same way, located at that occurrence's `role`. | Test (TC-056) |
 | FR-040-AC-12 | A package carrying a frame defect and a state defect reports the frame defect; one carrying an anchor defect and a clause defect reports the anchor defect; one carrying a state defect and an operation defect reports the state defect. | Test (TC-056) |
 | FR-040-AC-13 | A `quire.op.model.reaches_field` application over `Reference<D>` operands admits when its field resolves on `D` to a `Reference<T>`, `Option<Reference<T>>` or bounded `Sequence<Reference<T>>` of the field's owner `T` and operand 1 references `T` or a subtype of `T`, including one two levels down and an inherited edge. A set, an unbounded sequence, a reference to another type and a non-reference field, an undeclared name, an operand 0 that does not name the declaring node, an operand 1 that is a supertype of `T`, unrelated or an object refuse as `ill_typed`/`operator-ineligible` at the operand, member declaration or member name at fault; an ambiguous name refuses as `ambiguous_declaration`/`ambiguous-name` and a declaring node keyed under an unselected domain package as `missing_declaration`/`missing-selection`. | Test (TC-056) |
+| FR-040-AC-14 | PLANNED/UNRUN (IR-770). With an authentic selected record owner `Address` declaring a bounded text `street` field and an object `Account` declaring an `address: Address` field, the reader admits a frame with distinct `(Account, address)` and `(Address, street)` entries and resolves both against their selected owners. Replacing only `street` with `ghost` on the same valid selected record refuses `missing_declaration`/`missing-name` at that frame entry; an operation's name is not a field candidate, two exposed fields of one name refuse `ambiguous_declaration`/`ambiguous-name`, and a record node with no selected owner refuses `missing_declaration`/`missing-selection` before field resolution. A separate expression projection of unknown `Address.ghost` retains FR-322's `ill_typed`/`operator-ineligible` refusal at its member name. | Test |
+| FR-040-AC-15 | PLANNED/UNRUN (IR-770). A selected record field whose type is another record, including an inherited field on a record subtype, retains the named record declaration node as its member type. Optional, bounded-sequence and finite-recursive record paths retain that same owner-bearing record node at the innermost element; none becomes `Reference<Address>` or acquires object identity. The effective view honors redefinitions and reports an ambiguous exposed field name rather than choosing one. | Test |
+| FR-040-AC-16 | PLANNED/UNRUN (IR-770). Selected record owner indexing and effective-field derivation are charged at the existing selection row under the `work` limit; an exact limit admits and one unit less returns typed `incomplete` at that row. A record field meaning-join defect outranks canonical-order defects in its frame, lower node-id frames retain precedence, and pre-frame graph, owner and stale-key refusals retain precedence over a record name defect. Existing source-declared object, relationship, operation-anchor and state-clause outcomes are unchanged. | Test |
 
 ## Dependencies
 
