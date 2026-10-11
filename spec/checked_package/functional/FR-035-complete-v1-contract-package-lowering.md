@@ -68,33 +68,22 @@ authority.
 
 ## Behavior
 
-After checked-input admission and before per-item semantic-node traversal or
-emission, the lowerer SHALL check every `required_source_selections` row against
-the admitted input's `lock.profile_selections`. A row matches only if its typed
-`role`, `definition.authority` and `definition.identity` all equal one lock row
-exactly, without aliases, case folding, prefixes, subtype or digest comparisons.
-This is conjunction of row membership, not array equality or a role-only lookup.
-An empty requirement vector imposes no restriction; duplicate identical
-requirements and either vector's order do not affect the result. Different
-requirements sharing a role each require their own exact matching row. Additional
-lock rows, including another definition of a required role, are unrelated to a
-satisfied requirement and remain preserved.
+QSpec FR-330's "Typed source-selection compatibility" is the sole owner of
+source-selection matching, its charged per-request procedure, refusal precedence
+and exact lock preservation. The lowerer SHALL implement that contract using
+its typed `CompleteLoweringProfileV2.required_source_selections` field and
+existing FR-038 per-request work meter; it SHALL NOT introduce a separately
+normalized requirement representation, replacement budget or reference-derived
+requirement lookup.
 
-When any requirement is missing or differs from all candidate rows, the lowerer SHALL return `CompleteLoweringRecordV2::InvalidInput { node_id }` for every
-requested item in request order before unsupported-tag, bounds or body checks.
-The FR-330 projection is `invalid_input` with only the existing requested
-`node_id` payload, no new diagnostic/pointer field, no emitted semantic nodes,
-and the exact available source occurrences (empty for an absent key). No backend
-artifact is produced. Existing limits remain enforced: stopping the compatibility
-check uses the existing `failed` result, and a package byte-ceiling failure still
-fails every record under FR-038-AC-95. The mismatch is a lowering-input refusal,
-not a ContractPackage reader `invalid_package` result.
-
-The lowerer SHALL preserve the exact admitted
-source package id and lock, including selection contents and ordering; it SHALL
-NOT filter, sort, insert or replace source selections. The output retains only
-`profile.reference` in `package.lowering_profile`. The strict reader does not
-infer requirements or re-check compatibility from that reference alone.
+The typed adapter SHALL map FR-330's compatibility refusal to the existing
+`CompleteLoweringRecordV2::InvalidInput { node_id }` and its `invalid_input` wire
+projection. A stopped charge maps to the existing `Failed` variant for `Work`,
+retaining the specified requested key, limit and consumed counter; it does not
+convert a work failure into an input refusal. Continued lowering uses that same
+meter. The output adapter retains `profile.reference` as the sole emitted
+lowering-profile value and retains the original checked source provenance under
+FR-330, without adding a requirement member, diagnostic payload or vocabulary.
 
 One call SHALL assemble the graph from its `lowered` records and the admitted
 local nodes those reach: each node once in ascending FR-322 typed-key order.
@@ -154,8 +143,7 @@ identity unchanged.
 | FR-035-AC-6 | For an admitted lowered root, the typed view returns that exact root and each local node reached through `semantic_type`, declared `dependencies` or validated body references once in ascending typed-key order; independently walking those three edge sources yields the same key set, including a shared or cyclic reference, and every returned node retains its exact source correspondence. | Test |
 | FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
 | FR-035-AC-8 | Querying a non-`lowered` requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even if its node occurs only as another root's reached meaning; neither returns a fabricated closure, and querying the view changes none of the six FR-330 wire properties or identity. | Test |
-
-| FR-035-AC-9 | `CompleteLoweringProfileV2.required_source_selections` reuses typed FR-322 selections; matching role/authority/identity rows admit, empty requirements impose no restriction, unrelated rows and repeated/reordered requirements do not affect the predicate, and missing or different rows produce request-ordered `InvalidInput { node_id }`/`invalid_input` before node traversal without new payload, nodes or backend artifacts. Both success and refusal preserve the exact admitted source id, lock contents/order and available request source occurrences. | Test |
+| FR-035-AC-9 | The typed profile exposes `required_source_selections: Vec<CheckedSelection>` and the IR adapter conforms to QSpec FR-330-AC-10 and TC-935: input refusals use `InvalidInput { node_id }`/`invalid_input`, work stops use existing `Failed`/`Work` with unchanged key/limit/consumed counters, and successful checks continue the existing FR-038 meter without reset. The adapter preserves exact source provenance and emits only `profile.reference`, with no duplicated requirement wire field or new refusal payload. | Test |
 
 ## Dependencies
 
