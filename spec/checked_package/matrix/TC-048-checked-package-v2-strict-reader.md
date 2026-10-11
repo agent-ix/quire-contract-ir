@@ -645,8 +645,9 @@ and a package clone return equal values, with package equality unchanged.
 
 ## Typed package-authored composite operand projection (FR-038-AC-177 through FR-038-AC-182)
 
-Implemented by `composite_application_operands` and exercised by the `tc_048_`
-composite operand integration tests and narrowly scoped model-unit tests. Admit structural.eq applications through the
+The accessor is implemented by `composite_application_operands` and has `tc_048_`
+composite operand integration tests and narrowly scoped model-unit tests; the
+corrected AC-180 18-form evidence below is planned and unrun. Admit structural.eq applications through the
 production reader and published catalog using independently authored inputs.
 Use authentic parameter and closed graph-composite value references, with two
 actual occurrences of one application. Assert the tabled application, occurrence,
@@ -687,15 +688,26 @@ same path. Root Tree with left/right optional self-fields retains both [0,0] and
 nonrecursive sibling fields sharing a type: both paths remain, with no Depth.
 Cover tuple and Option ordinal edges. Assert each key's actual parameter root.
 
-Enumerate all eleven scalar and seven bounded-domain table rows through eligible
-containing structural types and actual admitted preimages. Assert Boolean's zero
-positions, each Whole source, each unbounded descriptor and each bounded source.
+Enumerate the nine non-IEEE scalar and six non-IEEE bounded-domain table rows
+through eligible containing structural types and actual reader-admitted
+preimages. Assert Boolean's zero positions, each Whole source, each unbounded
+descriptor and each bounded source.
 In particular text_bounds yields one Whole at its wrapper, and model_population
 as a leaf yields a Node-keyed Whole with no Population key or member walk.
 For an unordered Color enum, the admitted preimage member order is Blue, Green,
 Red with ordered=false, independent of its source spelling. For an ordered enum,
 assert ordered=true and its semantic preimage member order. No accessor output
-supplies the expected identifier list. Assert the exact introduced key set.
+supplies the expected identifier list. Assert the exact introduced key set for
+these fifteen admitted forms. At the isolated private type-walk seam, supply
+well-formed `scalar_type/float32`, `scalar_type/float64` and
+`bounded_domain/float_rounding` type nodes separately, without an admitted
+structural comparison, and assert each tabled Whole source and shape entry,
+including suppression of the underlying float Whole under `float_rounding`.
+Independently construct otherwise valid public structural.eq and structural.ne
+comparisons whose selected compared type reaches each of those three forms;
+assert `ill_typed`/`operator-ineligible` at `operation.leaves`, with no admitted
+package or accessor call. These public refusals are also AC-231 controls; a
+private descriptor result cannot substitute for one.
 
 For AC181, exercise all twelve public error variants and their exact tabled fields.
 The changed IneligibleOperator case is implemented (IR-690):
