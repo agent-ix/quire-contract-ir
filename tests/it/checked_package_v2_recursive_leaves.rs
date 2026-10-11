@@ -407,50 +407,66 @@ fn collection_of_nfc_id(package: &Value, form: &str) -> Value {
 #[trace("FR-038-AC-228")]
 #[test]
 fn residual_operand_source_reads_value_type_and_direct_type_references() {
-    for (identity, fields, leaves) in [
-        ("quire.op.structural.eq", vec![("n", "integer")], vec![]),
-        (
-            "quire.op.structural.ne",
-            vec![("label", "nfc")],
-            vec![text_leaf(&[field("label")])],
-        ),
-    ] {
-        let (mut package, _) = equality_package(vec![record("r", &fields)], "r", leaves.clone());
-        edit_application(&mut package, |node| {
-            node["body"]["operation"]["identity"] = json!(identity);
-        });
-        assert!(matches!(
-            read(&package, CheckedPackageReadLimits::bounded()),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ));
-        let mut direct = package.clone();
-        let record_id = type_id(&direct, "record");
-        edit_application(&mut direct, |node| {
-            node["body"]["operation"]["identity"] = json!(identity);
-            node["body"]["arguments"] = json!([
-                {"term": "reference", "target": record_id},
-                {"term": "reference", "target": record_id},
-            ]);
-        });
-        assert!(matches!(
-            read(&direct, CheckedPackageReadLimits::bounded()),
-            CheckedPackageV2ReadResult::Admitted(_)
-        ));
-        if !leaves.is_empty() {
-            let mut missing = direct;
-            let application = edit_application(&mut missing, |node| {
-                node["body"]["operation"]["leaves"] = json!([]);
-            });
-            assert_eq!(
-                read(&missing, CheckedPackageReadLimits::bounded()),
-                refusal_at(
-                    CheckedPackageRefusalCode::InvalidPackage,
-                    &leaves_pointer(&missing, &application),
-                    Some(CheckedPackageRefusalCause::OperationLawMissing),
-                    &application,
-                )
+    for identity in ["quire.op.structural.eq", "quire.op.structural.ne"] {
+        let mut selected = Vec::new();
+        for (type_name, leaves) in [
+            ("integer", vec![]),
+            ("nfc", vec![text_leaf(&[field("value")])]),
+        ] {
+            let (mut value, _) = equality_package(
+                vec![record("r", &[("value", type_name)])],
+                "r",
+                leaves.clone(),
             );
+            let value_application = edit_application(&mut value, |node| {
+                node["body"]["operation"]["identity"] = json!(identity);
+            });
+            let record_id = type_id(&value, "record");
+            assert!(
+                matches!(
+                    read(&value, CheckedPackageReadLimits::bounded()),
+                    CheckedPackageV2ReadResult::Admitted(_)
+                ),
+                "{identity} value reference over {type_name}"
+            );
+            let mut direct = value.clone();
+            edit_application(&mut direct, |node| {
+                node["body"]["arguments"] = json!([
+                    {"term": "reference", "target": record_id},
+                    {"term": "reference", "target": record_id},
+                ]);
+            });
+            assert!(
+                matches!(
+                    read(&direct, CheckedPackageReadLimits::bounded()),
+                    CheckedPackageV2ReadResult::Admitted(_)
+                ),
+                "{identity} direct type reference over {type_name}"
+            );
+            if type_name == "nfc" {
+                for mut missing in [value, direct] {
+                    let application = edit_application(&mut missing, |node| {
+                        node["body"]["operation"]["leaves"] = json!([]);
+                    });
+                    assert_eq!(
+                        read(&missing, CheckedPackageReadLimits::bounded()),
+                        refusal_at(
+                            CheckedPackageRefusalCode::InvalidPackage,
+                            &leaves_pointer(&missing, &application),
+                            Some(CheckedPackageRefusalCause::OperationLawMissing),
+                            &application,
+                        ),
+                        "{identity} changed to text cannot retain empty leaves"
+                    );
+                }
+            }
+            selected.push((record_id, value_application));
         }
+        assert_ne!(selected[0].0, selected[1].0, "declared type rekeys record");
+        assert_ne!(
+            selected[0].1, selected[1].1,
+            "declared type rekeys comparison"
+        );
     }
 }
 
@@ -736,6 +752,85 @@ fn residual_result_inner_set_like_elements_require_an_empty_path_leaf() {
     }
 }
 
+/// Trace: FR-038-AC-229, FR-038-AC-230
+#[trace("FR-038-AC-229", "FR-038-AC-230")]
+#[test]
+fn residual_required_leaf_sources_refuse_missing_referenced_types_on_public_read() {
+    for leaves in [vec![], vec![text_leaf(&[])]] {
+        let (package, application) = equality_package(
+            vec![record("r", &[("value", "absent")])],
+            "r",
+            leaves.clone(),
+        );
+        assert_eq!(
+            read(&package, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &leaves_pointer(&package, &application),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &application,
+            ),
+            "operand:0 outer record family fits but its compared child is absent"
+        );
+
+        let (mut contains, _) = equality_package(
+            vec![collection_of("r", "sequence", "absent")],
+            "r",
+            leaves.clone(),
+        );
+        let application = edit_application(&mut contains, |node| {
+            let collection = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!("collection");
+            node["body"]["operator"] = json!("collection");
+            node["body"]["operation"]["identity"] = json!("quire.op.collection.contains");
+            node["body"]["arguments"] = json!([collection, literal("integer", "integer", "0")]);
+        });
+        assert_eq!(
+            read(&contains, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &leaves_pointer(&contains, &application),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &application,
+            ),
+            "inner:0 collection family fits but its element type is absent"
+        );
+    }
+}
+
+/// Trace: FR-038-AC-230
+#[trace("FR-038-AC-230")]
+#[test]
+fn residual_set_result_refuses_missing_element_type_on_public_read() {
+    for leaves in [vec![], vec![text_leaf(&[])]] {
+        let (mut package, _) = equality_package(
+            vec![collection_of("result", "set", "absent")],
+            "integer",
+            leaves,
+        );
+        let result_id = type_id(&package, "set");
+        let application = edit_application(&mut package, |node| {
+            let first = node["body"]["arguments"][0].clone();
+            node["semantic_form"] = json!("collection");
+            node["semantic_type"] = result_id.clone();
+            node["body"]["operator"] = json!("collection");
+            node["body"]["operation"]["identity"] = json!("quire.op.collection.set");
+            node["body"]["result_type"] = result_id;
+            node["body"]["arguments"] = json!([first]);
+        });
+        assert_eq!(
+            read(&package, CheckedPackageReadLimits::bounded()),
+            refusal_at(
+                CheckedPackageRefusalCode::IllTyped,
+                &leaves_pointer(&package, &application),
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                &application,
+            ),
+            "result_inner set family fits but its element type is absent"
+        );
+    }
+}
+
 /// Trace: FR-038-AC-230
 #[trace("FR-038-AC-230")]
 #[test]
@@ -961,34 +1056,56 @@ fn residual_contains_sequence_compares_its_ieee_element() {
         if form != "integer" {
             types.push(scalar(form, form));
         }
-        let (mut package, _) = equality_package(types, "r", vec![]);
-        let element_id = scalar_id(&package, form);
-        let application = edit_application(&mut package, |node| {
-            let collection = node["body"]["arguments"][0].clone();
-            node["semantic_form"] = json!("collection");
-            node["body"]["operator"] = json!("collection");
-            node["body"]["operation"]["identity"] = json!("quire.op.collection.contains");
-            node["body"]["arguments"] = json!([
-                collection, {"term":"reference","target":element_id}
-            ]);
-        });
-        let outcome = read(&package, CheckedPackageReadLimits::bounded());
-        if form == "integer" {
+        if form != "integer" {
+            let (mut graph_only, _) = equality_package(types.clone(), "r", vec![]);
+            graph_only["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .retain(|node| node["node_tag"] != "expression");
+            settle(&mut graph_only);
             assert!(
-                matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
-                "integer element admits: {outcome:?}"
-            );
-        } else {
-            assert_eq!(
-                outcome,
-                refusal_at(
-                    CheckedPackageRefusalCode::IllTyped,
-                    &leaves_pointer(&package, &application),
-                    Some(CheckedPackageRefusalCause::OperatorIneligible),
-                    &application,
+                matches!(
+                    read(&graph_only, CheckedPackageReadLimits::bounded()),
+                    CheckedPackageV2ReadResult::Admitted(_)
                 ),
-                "sequence<{form}> contains compares the element"
+                "sequence<{form}> has an independently admitted graph"
             );
+        }
+        let leaf_lists = if form == "integer" {
+            vec![vec![]]
+        } else {
+            vec![vec![], vec![text_leaf(&[])]]
+        };
+        for leaves in leaf_lists {
+            let (mut package, _) = equality_package(types.clone(), "r", leaves);
+            let element_id = scalar_id(&package, form);
+            let application = edit_application(&mut package, |node| {
+                let collection = node["body"]["arguments"][0].clone();
+                node["semantic_form"] = json!("collection");
+                node["body"]["operator"] = json!("collection");
+                node["body"]["operation"]["identity"] = json!("quire.op.collection.contains");
+                node["body"]["arguments"] = json!([
+                    collection, {"term":"reference","target":element_id}
+                ]);
+            });
+            let outcome = read(&package, CheckedPackageReadLimits::bounded());
+            if form == "integer" {
+                assert!(
+                    matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+                    "integer element admits: {outcome:?}"
+                );
+            } else {
+                assert_eq!(
+                    outcome,
+                    refusal_at(
+                        CheckedPackageRefusalCode::IllTyped,
+                        &leaves_pointer(&package, &application),
+                        Some(CheckedPackageRefusalCause::OperatorIneligible),
+                        &application,
+                    ),
+                    "sequence<{form}> contains compares the element"
+                );
+            }
         }
     }
 }
@@ -1528,8 +1645,8 @@ fn forwarding_operation_package(route: &str) -> (Value, String) {
     (package, id)
 }
 
-/// Trace: FR-038-AC-224
-#[trace("FR-038-AC-224")]
+/// Trace: FR-038-AC-224, FR-038-AC-229, FR-038-AC-230
+#[trace("FR-038-AC-224", "FR-038-AC-229", "FR-038-AC-230")]
 #[test]
 fn structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries() {
     for route in ["inner:0", "result_inner", "leaf edge"] {
