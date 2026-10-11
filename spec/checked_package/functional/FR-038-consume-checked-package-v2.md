@@ -3144,7 +3144,7 @@ type-walk mapping is exhaustive over the eleven scalar and seven bounded-domain
 forms; it does not assert that every form can occur in a reader-admitted
 structural comparison:
 
-| Admitted form | Introduced descriptor and source node |
+| Type form | Introduced descriptor and source node |
 | --- | --- |
 | `scalar_type/boolean` | No position; retain its shape |
 | `scalar_type/integer` | `UnboundedInteger` at this node, unless the same path is already represented by an enclosing `integer_range` |
