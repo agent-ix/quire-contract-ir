@@ -69,6 +69,10 @@ test or admission correction is claimed yet.
 FR-038-AC-224 is the planned structural-type forwarding work control for
 operation validation; its private meter probes and public-reader work refusal
 are not counted as executed evidence until IR-490 adds tagged tests.
+FR-038-AC-225 through FR-038-AC-227 are planned public-reader controls for
+QSpec FR-322's aggregate-bodied `value`/`union_value` application keys. They
+use the authentic QSpec positive fixture and its tampered-key adverse controls;
+no IR admission result is claimed until IR-739 adds and runs tagged tests.
 FR-038-AC-215 through FR-038-AC-218 (merged QSpec FR-272 and QSL FR-056) are against the
 split of a stale digest into `content-mismatch` (a document that reads, a dependency
 entry that recomputes) and `byte-digest-mismatch` (bytes the shared reader refuses), the
@@ -1615,6 +1619,53 @@ does not pass.
    meaningful with the original reader-returned `locus`: code, path, cause and
    locus remain publicly mutable, and changing them on a clone cannot make
    the retained private key an authenticated substitution instruction.
+
+## Aggregate-bodied union value keys (FR-038-AC-225 through FR-038-AC-227)
+
+PLANNED/UNRUN (IR-739). Read the authoritative QSpec checkout's
+`proposals/checked-package-v2/fixtures/positive-union-nodes.json` through
+`make conformance-qspec` and the production `CheckedPackageV2::read` path.
+Require the complete package to admit with its recorded `package_id`. Select
+the payload-bearing `Rect` and nullary `Empty` `value`/`union_value` nodes by
+tag and form, assert their exact aggregate bodies, and compare each retained
+key to QSpec's independently fixed `quire.application-node/v1` preimage bytes
+and digest. Do not reproduce the QSpec encoder, copy its fixture into IR, or
+use the IR reader's own digest to generate the expected value. Compare an
+ordinary application positive and application-free `record_value` and
+`tuple_value` structural-key controls. This is AC-225; a private key-helper
+result does not discharge it.
+
+For each authentic union value separately, replace its retained key with its
+prior structural key, rewrite all references and source-map occurrences of the
+node key, mirror `identity_preimage.identity_projection`, and refresh
+`package_id` by the existing package-identity path. Keep the aggregate body
+and all unrelated nodes unchanged. The resulting package must reach the key
+stage and refuse `invalid_package`/`stale-node-key` at the altered node's
+`node_id`; check the original typed key in `locus` and the independent QSpec
+application key in `expected_node_id()`. Repeat with one body member changed
+and the retained key left current. Require the untampered package to admit
+before accepting either adverse result. This is AC-226.
+
+For AC-227, assemble an otherwise valid, reader-admissible group containing a
+`union_value` and a nonapplication node. Exercise both an in-group reference
+inside a binding's payload aggregate and an outside-group reference. Compare
+the preimage's group size, graph-order ordinal and exact rewritten terms with
+an independent expected byte string; read the current-key package and its
+stale-key counterpart through the public reader. Measure the canonical
+preimage's byte count independently. At the private key-stage seam, the exact
+ceiling accepts the key and one below returns the existing typed
+`invalid_semantic_graph` refusal at `node_id` with no expected key; the public
+reader still applies its whole-package byte limit first. Exhaust work before
+this node's key charge and require
+`incomplete`/`work` before a later stale key or encoding failure. Pair a bad
+wire, package identity, owner join and graph shape with a stale union-value
+key to assert each earlier refusal wins; pair a stale union-value key with a
+later derived structural key, declaration, frame, operation or generic
+reference-edge defect to assert the key wins. Inspect the selected-node
+predicate and shared preimage/encoder
+call path used by the reader and the FR-046 ordinary-application helper. The
+helper remains a candidate API for body-root applications; no independent IR
+preimage encoder or new byte ceiling is permitted.
 
 ## Content and byte digest mismatches (FR-038-AC-215 through FR-038-AC-218)
 
