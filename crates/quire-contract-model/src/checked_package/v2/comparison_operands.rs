@@ -743,6 +743,16 @@ mod tests {
             (failure.kind, failure.path),
             (Refusal::MissingClaimOccurrence, Path::Clause)
         );
+        package.wire.semantic_graph.nodes[4].semantic_form = "other_form".into();
+        let failure = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("wrong clause form");
+        assert_eq!(
+            (failure.kind, failure.path, failure.child),
+            (Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
+        );
+        assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
+        package.wire.semantic_graph.nodes[4].semantic_form = "state_clause".into();
         package.wire.semantic_graph.nodes[4].body["operation"]["member"]["clause"] =
             json!("later_clause_kind");
         let failure = package
@@ -755,8 +765,38 @@ mod tests {
         package.wire.semantic_graph.nodes[4].body["operation"]["member"]["clause"] =
             json!("invariant");
 
-        let comparison = &mut package.wire.semantic_graph.nodes[3].body;
-        comparison["operation"]["identity"] = json!("quire.op.integer.add");
+        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('9');
+        let failure = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("missing condition comparison");
+        assert_eq!(
+            (failure.kind, failure.path, failure.child),
+            (
+                Refusal::MissingComparison,
+                Path::Condition,
+                Some(unknown.clone())
+            )
+        );
+        assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
+        package.wire.semantic_graph.nodes[4].body["arguments"][2] = reference('4');
+
+        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
+            json!("quire.op.integer.unknown");
+        let failure = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("unknown catalog operation");
+        let comparison_id: CheckedNodeId = serde_json::from_value(id('4')).expect("comparison id");
+        assert_eq!(
+            (failure.kind, failure.path, failure.child),
+            (
+                Refusal::UnknownOperator,
+                Path::Comparison,
+                Some(comparison_id.clone())
+            )
+        );
+        assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
+        package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
+            json!("quire.op.integer.add");
         let failure = package
             .direct_integer_comparison(&clause, &claim)
             .expect_err("ineligible operation");
@@ -766,6 +806,29 @@ mod tests {
         );
         package.wire.semantic_graph.nodes[3].body["operation"]["identity"] =
             json!("quire.op.integer.eq");
+        package.wire.semantic_graph.nodes[3].body["arguments"] = json!([literal("0")]);
+        let failure = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("invalid binary arity");
+        assert_eq!(
+            (failure.kind, failure.path, failure.child),
+            (
+                Refusal::InvalidComparisonShape,
+                Path::Comparison,
+                Some(comparison_id)
+            )
+        );
+        assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
+        package.wire.semantic_graph.nodes[3].body["arguments"] =
+            json!([{"term": "aggregate", "members": []}, literal("1")]);
+        let failure = package
+            .direct_integer_comparison(&clause, &claim)
+            .expect_err("malformed operand shape");
+        assert_eq!(
+            (failure.kind, failure.path, failure.child),
+            (Refusal::IneligibleOperand, Path::Operand(0), None)
+        );
+        assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         package.wire.semantic_graph.nodes[3].body["arguments"] = json!([
             reference('9'),
             literal("340282366920938463463374607431768211456")

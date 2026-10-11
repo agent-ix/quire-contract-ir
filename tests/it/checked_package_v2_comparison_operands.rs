@@ -86,10 +86,37 @@ fn compile_request(directory: &Path) -> PathBuf {
     path
 }
 
-fn bounded_input_variant(case: &Path, original_unit: &str) -> PathBuf {
+fn selected_model_variant(
+    case: &Path,
+    original_unit: &str,
+    model: &Value,
+    expression: &str,
+) -> PathBuf {
     let model_path = case.join("spine-model.semantic-ir.json");
-    let original_model = std::fs::read(&model_path).expect("producer model");
-    let mut model: Value = serde_json::from_slice(&original_model).expect("producer model JSON");
+    let digest = quire_canonical::sha256(model, quire_canonical::Limits::new(1 << 20))
+        .expect("selected producer model digest")
+        .to_string();
+    let selected = original_unit
+        .split("digest \"sha256-jcs:")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("producer model selection");
+    let unit = original_unit.replacen(selected, &digest, 1).replacen(
+        "self.versionNumber = pre(self.versionNumber)",
+        expression,
+        1,
+    );
+    std::fs::write(
+        model_path,
+        serde_json::to_vec(model).expect("selected model JSON"),
+    )
+    .expect("write selected model");
+    std::fs::write(case.join("spine-unit.native"), unit).expect("write selected-model variant");
+    compile_request(case)
+}
+
+fn bounded_input_variant(case: &Path, original_unit: &str, original_model: &Value) -> PathBuf {
+    let mut model = original_model.clone();
     let parameter = {
         let mut field = model["types"][1]["fields"][0].clone();
         let identity = "ix://example/config-version/ConfigVersion/attemptUpdate/delta";
@@ -100,26 +127,21 @@ fn bounded_input_variant(case: &Path, original_unit: &str) -> PathBuf {
         field
     };
     model["types"][1]["operations"][0]["params"] = json!([parameter]);
-    let digest = quire_canonical::sha256(&model, quire_canonical::Limits::new(1 << 20))
-        .expect("bounded producer model digest")
-        .to_string();
-    let selected = original_unit
-        .split("digest \"sha256-jcs:")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .expect("producer model selection");
-    let unit = original_unit.replacen(selected, &digest, 1).replacen(
-        "self.versionNumber = pre(self.versionNumber)",
-        "self.versionNumber = delta",
-        1,
+    selected_model_variant(case, original_unit, &model, "self.versionNumber = delta")
+}
+
+fn admit_selected_variant(case: &Path, bytes: &[u8]) -> CheckedPackageV2 {
+    let wire: Value = serde_json::from_slice(bytes).expect("QSL variant V2 JSON");
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence.insert_domain_package_document(
+        selected_model(&wire),
+        std::fs::read(case.join("spine-model.semantic-ir.json")).expect("variant selected model"),
     );
-    std::fs::write(
-        model_path,
-        serde_json::to_vec(&model).expect("bounded model JSON"),
-    )
-    .expect("write bounded selected model");
-    std::fs::write(case.join("spine-unit.native"), unit).expect("write input variant");
-    compile_request(case)
+    evidence.support_feature("quire.value.complete/v1");
+    match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("QSL selected-model variant must admit: {other:?}"),
+    }
 }
 
 fn version_unchanged(package: &CheckedPackageV2) -> CheckedClauseComparison {
@@ -264,6 +286,7 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
             .join("unchanged-version/spine-model.semantic-ir.json"),
     )
     .expect("selected QSL model document");
+    let original_model: Value = serde_json::from_slice(&model).expect("producer model JSON");
     let mut evidence = CheckedPackageEvidence::new();
     evidence.insert_domain_package_document(selected_model(&wire), model);
     evidence.support_feature("quire.value.complete/v1");
@@ -345,6 +368,123 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
         assert_eq!(projected.operands[1].ordinal, 1);
     }
 
+    let contextual = format!(
+        "{original_unit}\ninvariant VersionFloor using v on Config::ConfigVersion at current \
+         {{ self.versionNumber >= 0 }}\npre VersionReady using v on \
+         Config::ConfigVersion::attemptUpdate {{ self.versionNumber >= 0 }}\n"
+    );
+    std::fs::write(case.join("spine-unit.native"), contextual)
+        .expect("write current-observation clauses");
+    let contextual_request = compile_request(&case);
+    let contextual_bytes = run(&producer, &[Path::new("compile"), &contextual_request]);
+    let contextual_package = match CheckedPackageV2::read(
+        &contextual_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("QSL current-observation clauses must admit: {other:?}"),
+    };
+    for kind in [
+        CheckedComparisonClauseKind::Invariant,
+        CheckedComparisonClauseKind::Precondition,
+    ] {
+        let projections: Vec<_> = contextual_package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "state_clause"
+            })
+            .flat_map(|clause| {
+                clause.occurrences.iter().filter_map(|claim| {
+                    contextual_package
+                        .direct_integer_comparison(&clause.node_id, claim)
+                        .ok()
+                })
+            })
+            .filter(|projection| projection.kind == kind)
+            .collect();
+        let [projection] = projections.as_slice() else {
+            panic!("one eligible {kind:?} comparison, got {projections:?}");
+        };
+        assert_eq!(projection.operator, CheckedComparisonOperator::Ge);
+        assert_eq!(projection.operands[0].ordinal, 0);
+        assert_eq!(projection.operands[1].ordinal, 1);
+        assert!(matches!(
+            &projection.operands[0].kind,
+            CheckedComparisonOperandKind::Read {
+                provenance: CheckedComparisonRead::StateField { field, .. },
+                observation: CheckedComparisonObservation::Current,
+            } if field.as_ref() == "versionNumber"
+        ));
+        assert_eq!(
+            (
+                projection.operands[0].range.lower,
+                projection.operands[0].range.upper
+            ),
+            (0, 1000)
+        );
+        assert!(matches!(
+            projection.operands[1].kind,
+            CheckedComparisonOperandKind::Literal
+        ));
+        assert_eq!(
+            (
+                projection.operands[1].range.lower,
+                projection.operands[1].range.upper
+            ),
+            (0, 0)
+        );
+        let CheckedComparisonOperandIdentity::GraphChild(literal_id) =
+            &projection.operands[1].identity
+        else {
+            panic!(
+                "producer literal is a graph child: {:?}",
+                projection.operands[1].identity
+            );
+        };
+        assert!(contextual_package.graph().nodes.iter().any(|node| {
+            &node.node_id == literal_id
+                && node.node_tag.as_ref() == "value"
+                && node.semantic_form.as_ref() == "literal"
+        }));
+    }
+
+    let reversed = original_unit.replacen(
+        "self.versionNumber = pre(self.versionNumber)",
+        "pre(self.versionNumber) = self.versionNumber",
+        1,
+    );
+    std::fs::write(case.join("spine-unit.native"), reversed).expect("write reversed reads");
+    let reversed_request = compile_request(&case);
+    let reversed_bytes = run(&producer, &[Path::new("compile"), &reversed_request]);
+    let reversed_package = match CheckedPackageV2::read(
+        &reversed_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("QSL reversed read pair must admit: {other:?}"),
+    };
+    let reversed = version_unchanged(&reversed_package);
+    for (ordinal, source) in [(0, 1), (1, 0)] {
+        assert_eq!(reversed.operands[ordinal].ordinal, ordinal as u64);
+        assert_eq!(
+            reversed.operands[ordinal].identity,
+            result.operands[source].identity
+        );
+        assert_eq!(
+            reversed.operands[ordinal].kind,
+            result.operands[source].kind
+        );
+        assert_eq!(
+            reversed.operands[ordinal].range,
+            result.operands[source].range
+        );
+    }
+    assert_ne!(reversed.operands[0].identity, reversed.operands[1].identity);
+
     let repeated = format!(
         "{original_unit}\npost VersionUnchangedAgain using v on Config::ConfigVersion::attemptUpdate \
          {{ self.versionNumber = pre(self.versionNumber) }}\n"
@@ -393,25 +533,66 @@ fn tc_445_fresh_qsl_config_version_has_shared_field_with_post_and_pre_observatio
     assert_eq!(first.operands, second.operands);
     assert_ne!(first.claim, second.claim);
 
+    let mut extreme_model = original_model.clone();
+    extreme_model["types"][0]["constraints"][0]["operands"]["value"] = json!(i128::MIN.to_string());
+    extreme_model["types"][0]["constraints"][1]["operands"]["value"] = json!(i128::MAX.to_string());
+    let extreme_request = selected_model_variant(
+        &case,
+        &original_unit,
+        &extreme_model,
+        "self.versionNumber = pre(self.versionNumber)",
+    );
+    let extreme_bytes = run(&producer, &[Path::new("compile"), &extreme_request]);
+    let extreme_package = admit_selected_variant(&case, &extreme_bytes);
+    let extreme = version_unchanged(&extreme_package);
+    for operand in &extreme.operands {
+        assert!(matches!(
+            operand.kind,
+            CheckedComparisonOperandKind::Read { .. }
+        ));
+        assert_eq!(
+            (operand.range.lower, operand.range.upper),
+            (i128::MIN, i128::MAX)
+        );
+    }
+
+    let mut unbounded_model = original_model.clone();
+    unbounded_model["types"][1]["fields"][0]["typeRef"] = json!("ix://quire/native/Integer");
+    let unbounded_request = selected_model_variant(
+        &case,
+        &original_unit,
+        &unbounded_model,
+        "self.versionNumber = pre(self.versionNumber)",
+    );
+    let unbounded_bytes = run(&producer, &[Path::new("compile"), &unbounded_request]);
+    let unbounded_package = admit_selected_variant(&case, &unbounded_bytes);
+    let refusals: Vec<_> = unbounded_package
+        .graph()
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.node_tag.as_ref() == "state" && node.semantic_form.as_ref() == "state_clause"
+        })
+        .flat_map(|clause| {
+            clause.occurrences.iter().filter_map(|claim| {
+                unbounded_package
+                    .direct_integer_comparison(&clause.node_id, claim)
+                    .err()
+            })
+        })
+        .filter(|error| error.kind == CheckedComparisonRefusal::UnboundedRange)
+        .collect();
+    let [unbounded] = refusals.as_slice() else {
+        panic!("one unbounded selected field refusal, got {refusals:?}");
+    };
+    assert_eq!(unbounded.path, CheckedComparisonPath::Operand(0));
+    assert!(unbounded.child.is_some());
+
     // The fresh producer's selected model is extended with a bounded input.
     // Recompute its selection digest and compile the changed source through QSL.
-    let input_request = bounded_input_variant(&case, &original_unit);
+    let input_request = bounded_input_variant(&case, &original_unit, &original_model);
     let input_bytes = run(&producer, &[Path::new("compile"), &input_request]);
-    let input_wire: Value = serde_json::from_slice(&input_bytes).expect("input variant V2 JSON");
-    let mut input_evidence = CheckedPackageEvidence::new();
-    input_evidence.insert_domain_package_document(
-        selected_model(&input_wire),
-        std::fs::read(case.join("spine-model.semantic-ir.json")).expect("bounded selected model"),
-    );
-    input_evidence.support_feature("quire.value.complete/v1");
-    let input_package = match CheckedPackageV2::read(
-        &input_bytes,
-        CheckedPackageReadLimits::bounded(),
-        &input_evidence,
-    ) {
-        CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("QSL bounded input variant must admit: {other:?}"),
-    };
+    let input_package = admit_selected_variant(&case, &input_bytes);
     let input = version_unchanged(&input_package);
     assert!(matches!(
         &input.operands[1].kind,
