@@ -110,8 +110,44 @@ fn lowered_oracle_id(
     })))
 }
 
-/// Reachability oracle from the fixture's authored graph edges. The V2 reader
-/// checks that body references are listed among these edges before lowering.
+/// Reference targets in the fixture's closed term grammar. Frame and
+/// abstraction-relation bodies contribute their edges through `dependencies`.
+fn body_targets(body: &Value) -> Vec<String> {
+    let mut pending = vec![body];
+    let mut targets = Vec::new();
+    while let Some(term) = pending.pop() {
+        let reference = match term["term"].as_str().expect("term tag") {
+            "literal" => Some("type"),
+            "reference" => Some("target"),
+            "application" => {
+                pending.extend(term["arguments"].as_array().expect("arguments"));
+                Some("result_type")
+            }
+            "aggregate" => {
+                pending.extend(term["members"].as_array().expect("members"));
+                None
+            }
+            "binding" => {
+                pending.push(&term["value"]);
+                None
+            }
+            "dependency_reference" | "frame" | "abstraction_relation" => None,
+            other => panic!("unexpected fixture body term {other}"),
+        };
+        if let Some(member) = reference {
+            targets.push(
+                term[member]["digest"]
+                    .as_str()
+                    .expect("body reference digest")
+                    .to_owned(),
+            );
+        }
+    }
+    targets
+}
+
+/// Reachability oracle over `semantic_type`, declared dependencies and body
+/// references, independently of the lowering result's returned key sets.
 fn closure_oracle(
     wire: &Value,
     nodes: &BTreeMap<String, &Value>,
@@ -142,6 +178,7 @@ fn closure_oracle(
                         .to_owned()
                 }),
         );
+        pending.extend(body_targets(&node["body"]));
     }
     seen.remove(request);
     let ids = |tag: Option<&str>| {
