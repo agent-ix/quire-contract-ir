@@ -72,7 +72,7 @@ are not counted as executed evidence until IR-490 adds tagged tests.
 FR-038-AC-225 through FR-038-AC-227 have tagged public-reader controls for
 QSpec FR-322's aggregate-bodied `value`/`union_value` application keys. They
 use the authentic QSpec positive fixture and its tampered-key adverse controls;
-IR-739's focused tests passed, with final review and repo gate pending.
+IR-739's tagged reader and conformance tests passed.
 FR-038-AC-228 through FR-038-AC-231 are planned public-reader controls for
 the catalog's three leaf-source selectors, earlier first-operand family
 refusals, nested IEEE ineligibility and result-inner sequence exception. They
@@ -1682,7 +1682,7 @@ does not pass.
 
 ## Aggregate-bodied union value keys (FR-038-AC-225 through FR-038-AC-227)
 
-IMPLEMENTED/UNDER REVIEW (IR-739; focused tagged tests passed; final review and repo gate pending). Read the authoritative QSpec checkout's
+IMPLEMENTED (IR-739; tagged reader and conformance tests passed). Read the authoritative QSpec checkout's
 `proposals/checked-package-v2/fixtures/positive-union-nodes.json` through
 `make conformance-qspec` and the production `CheckedPackageV2::read` path.
 Require the complete package to admit with its recorded `package_id`. Select
