@@ -36,3 +36,11 @@ PR #362 at 47be2719a17f4f6ceaf2a59c959464593395d08d; The planned group-label neg
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | high | Corrupting only a retained group label cannot exercise the planned second-pass stale-label oracle: the first structural-key pass includes that label in recursion.group and refuses stale-node-key first. Recompute grouped structural keys under the corrupt label, then assert the second-pass refusal. | spec/checked_package/matrix/TC-048-checked-package-v2-strict-reader.md:1957-1960 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 6fcfc848ad1c54c42c91230b73ccdbc10b9c5a8a — TC-048 now refreshes grouped structural keys before the second-pass label assertion. |
+
+Current disposition gate: **PASS**; no new defect in the fix diff.
