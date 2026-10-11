@@ -5,31 +5,44 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-035
     type: verifies
+  - target: ix://agent-ix/quire-specification/FR-330
+    type: references
 ---
 # TC-047: Complete-V1 lowering emits one canonical ContractPackage
 
 ## Description
 
-Verify FR-035-AC-5: the aggregate `ContractPackage` half of FR-035's Outputs,
-separately from the per-item records TC-044 covers.
+Verify FR-035-AC-5 and the aggregate FR-330 package separately from TC-044's
+per-item semantic and refusal tests. The FR-330 emitter cases are planned and
+have not run.
 
 ## Test Procedure
 
-Lower one mixed request holding supported, unsupported, unbounded and absent
-items. Read the emitted `ContractPackage`, canonicalize it, and take its digest.
-Repeat the identical call and compare bytes. Mutate one represented node and
-repeat.
+Lower a mixed request with represented and refused items. Parse the emitted
+package as `quire.contract-package/v1`. Assert the six FR-330 properties,
+exactly one `semantic_graph.nodes` collection, one occurrence per typed key,
+ascending typed-key order, total `source_map` correspondence, and one
+`feature_accounting` record per requested item. Reorder equivalent request
+and graph-construction inputs, canonicalize the package and compare identity.
+Change one represented node, its selected profile and its source
+correspondence separately; compare identity after each change. Remove one
+required property, add an independent type/expression/clause graph, duplicate
+or disorder a key, or substitute an out-of-domain contract version and test
+consumer refusal before artifact generation.
 
 ## Expected Results
 
-One canonical cycle-free versioned `ContractPackage` carries every `lowered`
-node of the call once, plus the admitted nodes those reach, and no other node:
-a refused request's node appears only as meaning a lowered node reaches. The
-canonical bytes are RFC 8785 and carry every member of every represented node.
-Repeated identical calls produce identical canonical bytes and digest, whatever
-the request order. Changing a represented node's source correspondence changes
-them.
+One FR-330 package carries the exact represented node set and its reached
+local closure in key order; a refused request contributes a node only when
+reached by represented meaning. Its source map and accounting are complete.
+Equivalent construction order has the same canonical semantic identity;
+changing represented meaning, profile or source correspondence changes it.
+Missing properties, duplicate or disordered keys, extra graph partitions and
+wrong contract versions refuse before consumption. No output from the current
+IR-only package shape counts as this result.
 
 ## Status
 
-Implemented in `tests/it/complete_v1_contract_package.rs`.
+Planned / unrun for the FR-330 package emitter. The existing
+`tests/it/complete_v1_contract_package.rs` asserts the earlier IR package
+shape and cannot discharge this test until IR-743 updates it.

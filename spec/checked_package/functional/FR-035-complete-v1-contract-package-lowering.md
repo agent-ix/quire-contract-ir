@@ -1,6 +1,6 @@
 ---
 id: FR-035
-title: "Lower complete-V1 contracts into a versioned target-neutral package"
+title: "Lower complete-V1 contracts into the target-neutral ContractPackage"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-contract-ir/StR-001
@@ -13,73 +13,86 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-330
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322
+    type: references
 ---
-# FR-035: Lower complete-V1 contracts into a versioned target-neutral package
+# FR-035: Lower complete-V1 contracts into the target-neutral ContractPackage
 
 ## Description
 
-When Contract IR lowers a checked complete-V1 request, the lowerer shall emit a
-cycle-free versioned `ContractPackage` with exact selected meaning or one
-source-bound terminal refusal for each requested item.
+When Contract IR lowers an admitted checked complete-V1 request, the lowerer SHALL produce one immutable QSpec FR-330 `ContractPackage` under
+`quire.contract-package/v1` and one exact disposition for each requested item.
+The package is the single published target-neutral lowering value for backend
+consumption. Emission of this wire is planned; the current implementation
+emits a different package and does not satisfy this requirement.
 
 ## Inputs
 
-An immutable checked package, requested item set, lowering profile, and resource
-limits.
+An immutable admitted `quire.checked-package/v2`, its selected admitted
+dependency packages, requested item set, lowering profile and resource limits.
 
 ## Outputs
 
-A canonical `ContractPackage` plus exactly one record for every requested item,
-drawn from the closed seven-member vocabulary
-[FR-038](./FR-038-consume-checked-package-v2.md) declares: `lowered`,
-`unsupported`, `requires_bound`, `invalid_input`, `failed`, `invalid_body` and
-`body_incomplete`.
+The package has exactly the FR-330 properties `contract_version`, `package`,
+`semantic_graph`, `source_map`, `feature_accounting` and `identity`.
+`contract_version` is exactly `quire.contract-package/v1`; `package` retains
+the originating checked-package identity and lock. `semantic_graph` is one
+key-ordered tagged-node collection containing all represented type,
+expression, model, relation, clause and analysis meaning. Node tags, typed
+keys, source occurrences and compatible reference targets follow QSpec
+FR-322. There are no independent type, expression, clause or protocol graphs.
 
-The `ContractPackage` half of this output is a separate obligation from the
-per-item records. One lowering call assembles exactly one package from its
-`lowered` records alone: each lowered node once, ascending by key, plus the
-admitted nodes those reach that were not themselves lowered, so every reference
-inside the package resolves inside it. A refused request contributes no node of its own; its node appears
-only when a lowered node reaches it, as exact reached meaning. A reached node
-carries its family and source correspondence but no `ir_id` or closure of its
-own. The package records the source package identity and its schema version
-(`quire.contract-ir.contract-package/v1`); its canonical bytes are the RFC 8785
-canonical bytes of the whole package, the same canonical form
-[FR-038](./FR-038-consume-checked-package-v2.md) requires of the checked
-package, and its identity is the SHA-256 of those bytes in that version's
-domain. Nodes refer to one another only by key, so the package is cycle-free
-as a value. This package is the single
-Contract IR input that complete-V1 code generation consumes.
+`feature_accounting` has exactly one record for each requested item, drawn
+from the closed seven-member vocabulary FR-038 declares: `lowered`,
+`unsupported`, `requires_bound`, `invalid_input`, `failed`, `invalid_body` and
+`body_incomplete`. A refusal retains its exact source locus and contributes no
+substitute node. `source_map` gives total native semantic and source
+correspondence for represented nodes and requested items, including the locus
+of each refusal. `identity` is the deterministic canonical semantic digest of
+the package's represented meaning, selected profile and correspondence under
+FR-330; presentation is excluded. It is not native semantic authority.
 
 ## Behavior
 
-The package shall represent scalar and composite types, bounded domains, typed
+One call SHALL assemble the graph from its `lowered` records and the admitted
+local nodes those reach: each node once in ascending FR-322 typed-key order.
+A refused request contributes no node of its own unless a lowered item reaches
+that node as exact represented meaning. Every local semantic-node reference SHALL resolve to a compatible node in this graph by its key, never by display
+name or array position. A `dependency_reference` SHALL retain its selected
+dependency package identity and resolve against that package's admitted graph
+under FR-322; its target SHALL NOT be flattened into this package's local
+graph. A protocol reference SHALL target a `protocol`-tagged node by key.
+An explicit FR-322 recursion group remains a valid keyed graph cycle, while
+serialized values never embed recursive objects. An undeclared cycle refuses.
+
+The lowerer SHALL preserve scalar and composite types, bounded domains, typed
 expressions, pure functions, model identities and relations, state frames and
 transitions, temporal formulas, protocol control/queues/obligations, claims,
-and source maps. Nodes shall carry a schema version, semantic type, stable node
-identity, exact source loci, and identity-based references. A lowered item shall
-include its reachable compatible dependencies and canonical semantic digest.
-Unknown tagged nodes may survive transport but consumers that lack their
-declared version shall refuse them. When a requested item exceeds a declared
-resource limit, the lowerer shall return `failed` for that item without exposing
-a substitute node. The lowerer shall not substitute a node,
-change a source/type/anchor/bound, or affect a sibling disposition. The one
-exception is a lowered package that could not be produced because its bytes
-exceed the byte ceiling: every requested record is `failed`, because no package
-exists to carry a lowered node (FR-038-AC-95).
+and exact source correspondence. It SHALL refuse a requested item whose
+meaning cannot be represented exactly under the selected profile. A stale or
+absent selected dependency, wrong target family, source/type/anchor/bound
+mutation, or unknown contract version SHALL never produce substitute meaning
+or a backend artifact. A refusal for one item SHALL leave independent sibling
+dispositions unchanged. If the package bytes exceed the declared ceiling,
+every requested record is `failed`, because no package can carry a lowered
+node (FR-038-AC-95).
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-035-AC-1 | Every V1-BACK-001 through V1-BACK-004 and V1-BACK-014 request has an exact semantic vector or a per-item refusal. | Test (TC-044) |
-| FR-035-AC-2 | Mutation of source, type, anchor, identity, bound, dependency, or version refuses before a backend artifact is emitted. | Test (TC-044) |
-| FR-035-AC-3 | Mixed supported and unsupported requests retain independent sibling records and expose no placeholder semantics, except that a package over the byte ceiling fails every requested record (FR-038-AC-95). | Test (TC-044) |
-| FR-035-AC-4 | Every reference resolves by stable identity to a reachable version-compatible node and every represented node has exact source correspondence. | Test (TC-044) |
-| FR-035-AC-5 | One lowering call over a mixed request emits a single canonical cycle-free versioned `ContractPackage` carrying every `lowered` node of that call, whose canonical bytes and digest are stable across repeated identical calls and change when any represented node changes. | Test (TC-047) |
+| FR-035-AC-1 | Each V1-BACK-001 through V1-BACK-004 and V1-BACK-014 requested item has exact represented meaning under its selected profile or one located record from the seven-member disposition vocabulary; no refusal creates substitute meaning. | Test |
+| FR-035-AC-2 | A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node. | Test |
+| FR-035-AC-3 | Mixed supported and refused requests retain one disposition each and independent sibling results, except the package byte ceiling fails every record under FR-038-AC-95. | Test |
+| FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; a protocol reference targets a `protocol`-tagged node; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
+| FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity, and changing represented meaning, selected profile, or source correspondence changes identity. | Test |
 
 ## Dependencies
 
-[FR-028](../../model/functional/FR-028-separate-cycle-free-contract-model.md) owns the cycle-free
-model boundary. QSpec FR-195 and I12 own the normative complete-V1 lowering and
-ContractPackage semantics; this requirement implements them in Contract IR.
+[FR-028](../../model/functional/FR-028-separate-cycle-free-contract-model.md)
+owns the cycle-free model boundary. QSpec FR-330 and I12 own the one published
+ContractPackage contract. QSpec FR-322 owns the checked graph's node forms,
+keys, recursion and selected dependency-reference rules; FR-195 owns
+complete-V1 lowering semantics. This FR applies those contracts at the IR
+lowering boundary. The FR-330 package emitter and its backend adoption remain
+planned in IR-743 and IR-744 respectively.
