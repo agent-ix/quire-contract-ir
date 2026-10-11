@@ -2240,6 +2240,10 @@ fn tc_225_an_admitted_relation_node_lowers_like_any_admitted_node() {
     let n = at(&value, &minimal);
     let id = typed_node_id(&digest_of(&minimal));
     let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: [CheckedNodeTag::Correspondence, CheckedNodeTag::Model]
             .into_iter()
             .collect(),

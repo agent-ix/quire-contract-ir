@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! FR-035-AC-5/TC-047: one complete-V1 lowering call emits a single canonical
-//! cycle-free versioned `ContractPackage` holding every `lowered` node of the
-//! call and nothing for any other disposition.
+//! FR-035-AC-5/TC-047 and QSpec FR-330: the single six-field package value.
 
 use crate::support::checked_package::{
     self, canonical, evidence_for, mint_ungrouped_structural_keys, settle, sha256_hex,
@@ -12,21 +10,15 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteContractPackageV2, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2, CompleteLoweringResultV2, CONTRACT_PACKAGE_VERSION,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    ContractDependencies, ContractDispositionV1, ContractPackageReadResult, ContractPackageWireV1,
+    CONTRACT_IR_SEMANTIC_DOMAIN, CONTRACT_PACKAGE_VERSION,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
-/// The canonical bytes of a package lowered under the default limits.
-fn bytes(package: &CompleteContractPackageV2) -> &[u8] {
-    package.canonical_bytes().expect("the package is encoded")
-}
-
 fn id(prefix: &str) -> CheckedNodeId {
     if matches!(prefix, "1010" | "dddd") {
-        // The mixed fixture retypes both structural nodes at Integer. Their
-        // expected keys come from FR-092 preimages, independent of read.
         let (tag, form) = if prefix == "1010" {
             ("model", "namespace")
         } else {
@@ -58,9 +50,6 @@ fn admit(value: &Value) -> CheckedPackageV2 {
     }
 }
 
-/// The fixture with `1010` and `dddd` typed at the unbounded `Integer` node
-/// `a3a3`, bounded by `cccc` only for nodes that reach it: `dddd` does,
-/// `1010` does not.
 fn mixed_fixture() -> Value {
     let mut value = v2_all_families();
     let integer = checked_package::node_id(&checked_package::family_key("a3a3"));
@@ -84,15 +73,12 @@ fn mixed_fixture() -> Value {
     value
 }
 
-/// The ids in ascending key order, the order a package lists them in.
-fn ascending(mut keys: Vec<CheckedNodeId>) -> Vec<CheckedNodeId> {
-    keys.sort();
-    keys
-}
-
-/// Every family but `correspondence`, with bounds required.
-fn mixed_profile() -> CompleteLoweringProfileV2 {
+fn profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: [
             CheckedNodeTag::ScalarType,
             CheckedNodeTag::CompositeType,
@@ -114,340 +100,657 @@ fn mixed_profile() -> CompleteLoweringProfileV2 {
     }
 }
 
-/// Supported (twice), requires-bound, unsupported and absent items.
-fn mixed_request() -> Vec<CheckedNodeId> {
+fn request() -> Vec<CheckedNodeId> {
     vec![id("dddd"), id("1010"), id("7070"), missing(), id("dddd")]
 }
 
-fn lower_mixed(value: &Value) -> CompleteLoweringResultV2 {
-    admit(value).lower(&mixed_request(), &mixed_profile())
+fn lower(
+    value: &Value,
+    requested: &[CheckedNodeId],
+) -> quire_contract_model::CompleteLoweringResultV2 {
+    admit(value).lower(requested, &profile())
 }
 
-fn record_key(record: &CompleteLoweringRecordV2) -> (&'static str, &CheckedNodeId) {
-    match record {
-        CompleteLoweringRecordV2::Lowered { node } => ("lowered", &node.node.node_id),
-        CompleteLoweringRecordV2::Unsupported { node_id, .. } => ("unsupported", node_id),
-        CompleteLoweringRecordV2::RequiresBound { node_id, .. } => ("requires_bound", node_id),
-        CompleteLoweringRecordV2::InvalidInput { node_id } => ("invalid_input", node_id),
-        CompleteLoweringRecordV2::InvalidBody { node_id, .. } => ("invalid_body", node_id),
-        CompleteLoweringRecordV2::BodyIncomplete { node_id, .. } => ("body_incomplete", node_id),
-        CompleteLoweringRecordV2::Failed { node_id, .. } => ("failed", node_id),
-    }
+fn bytes(result: &quire_contract_model::CompleteLoweringResultV2) -> &[u8] {
+    result.package.canonical_bytes().expect("package bytes")
 }
 
-/// Tracing: TC-047, FR-035-AC-5
+fn projection(value: &Value) -> Value {
+    json!({
+        "contract_version": value["contract_version"],
+        "package": value["package"],
+        "semantic_graph": value["semantic_graph"],
+        "feature_accounting": value["feature_accounting"],
+    })
+}
+
+fn read(bytes: &[u8]) -> ContractPackageReadResult {
+    ContractPackageWireV1::read(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    )
+}
+
+/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
-fn tc_047_mixed_call_emits_one_package_of_exactly_its_lowered_nodes() {
-    let admitted = admit(&mixed_fixture());
-    let result = admitted.lower(&mixed_request(), &mixed_profile());
-    let dispositions = result.records.iter().map(record_key).collect::<Vec<_>>();
+fn one_call_emits_one_six_field_package_with_total_accounting_and_source_map() {
+    let input = mixed_fixture();
+    let admitted = admit(&input);
+    let result = admitted.lower(&request(), &profile());
+    let package = result.package.wire().expect("wire").wire();
+    assert_eq!(package.contract_version.as_ref(), CONTRACT_PACKAGE_VERSION);
+    assert_eq!(package.package.source.package_id, *admitted.package_id());
+    assert_eq!(package.package.source.lock, *admitted.lock());
+    assert_eq!(package.package.lowering_profile, profile().reference);
+    assert_eq!(package.semantic_graph.nodes.len(), 3);
+    let keys = package
+        .semantic_graph
+        .nodes
+        .iter()
+        .map(|node| &node.node_id)
+        .collect::<Vec<_>>();
+    assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(package.source_map.nodes.len(), keys.len());
+    assert_eq!(package.feature_accounting.len(), request().len());
+    assert_eq!(package.source_map.requested_items.len(), request().len());
+    assert_eq!(package.source_map.refusals.len(), 3);
+    let dispositions = package
+        .feature_accounting
+        .iter()
+        .map(|record| record.disposition())
+        .collect::<Vec<_>>();
     assert_eq!(
         dispositions,
-        vec![
-            ("lowered", &id("dddd")),
-            ("requires_bound", &id("1010")),
-            ("unsupported", &id("7070")),
-            ("invalid_input", &missing()),
-            ("lowered", &id("dddd")),
+        [
+            ContractDispositionV1::Lowered,
+            ContractDispositionV1::RequiresBound,
+            ContractDispositionV1::Unsupported,
+            ContractDispositionV1::InvalidInput,
+            ContractDispositionV1::Lowered
         ]
     );
+    assert_eq!(
+        package.source_map.requested_items[3].requested_item,
+        missing()
+    );
+    assert!(package.source_map.requested_items[3].occurrences.is_empty());
+    assert!(!keys.contains(&&id("1010")) && !keys.contains(&&id("7070")));
+    assert!(matches!(
+        result.records[1],
+        CompleteLoweringRecordV2::RequiresBound { .. }
+    ));
+    let ContractPackageReadResult::Admitted(read_package) = read(bytes(&result)) else {
+        panic!("emitted package must admit");
+    };
+    assert_eq!(read_package.wire(), package);
+    assert_eq!(
+        read_package.identity(),
+        result.package.package_id().expect("identity")
+    );
+}
 
-    let package = &result.package;
-    assert_eq!(package.version(), CONTRACT_PACKAGE_VERSION);
-    assert_eq!(package.source_package_id(), admitted.package_id());
-
-    // Every lowered node of the call, once, exactly as its record carries it.
-    assert_eq!(package.lowered().len(), 1);
-    assert_eq!(package.lowered()[0], *lowered(&result.records[0]));
-
-    // The admitted nodes the lowered node reaches, and nothing else, so
-    // every reference inside the package resolves inside it.
-    let dependency_keys = package
-        .dependencies()
-        .iter()
-        .map(|dependency| dependency.node.node_id.clone())
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn identity_covers_exact_semantic_projection_and_excludes_valid_source_coordinates() {
+    let input = mixed_fixture();
+    let first = lower(&input, &request());
+    let same = lower(&input, &request());
+    assert_eq!(bytes(&first), bytes(&same));
+    let wire: Value = serde_json::from_slice(bytes(&first)).expect("wire json");
+    let keys = wire
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
         .collect::<Vec<_>>();
-    assert_eq!(dependency_keys, ascending(vec![id("a3a3"), id("cccc")]));
-    assert_eq!(package.lowered()[0].dependencies, dependency_keys);
-    for dependency in package.dependencies() {
-        assert!(!dependency.source_map.is_empty());
-        assert!(dependency
-            .source_map
-            .iter()
-            .all(|entry| entry.node_id == dependency.node.node_id));
-    }
+    assert_eq!(
+        keys,
+        [
+            "contract_version",
+            "feature_accounting",
+            "identity",
+            "package",
+            "semantic_graph",
+            "source_map"
+        ]
+    );
+    let identity = first.package.wire().expect("wire").identity();
+    assert_eq!(identity.domain.as_ref(), CONTRACT_IR_SEMANTIC_DOMAIN);
+    assert_eq!(
+        identity.digest.as_ref(),
+        sha256_hex(&canonical(&projection(&wire)))
+    );
 
-    // No node, lowered or reached, for any refused request.
-    let represented = package
-        .lowered()
-        .iter()
-        .map(|node| node.node.node_id.clone())
-        .chain(dependency_keys)
-        .collect::<BTreeSet<_>>();
-    for refused in [id("1010"), id("7070"), missing()] {
-        assert!(!represented.contains(&refused), "{refused:?}");
-    }
+    let mut reversed = request();
+    reversed.reverse();
+    let reordered = lower(&input, &reversed);
+    assert_ne!(
+        first.package.package_id(),
+        reordered.package.package_id(),
+        "request order is included accounting"
+    );
+    let mut relocated = input;
+    relocated["source_map"][3]["regions"][0]["end"] = json!(5);
+    let changed = lower(&relocated, &request());
+    assert_ne!(bytes(&first), bytes(&changed));
+    assert_eq!(first.package.package_id(), changed.package.package_id());
 }
 
-/// Tracing: TC-047, FR-035-AC-5
+/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
-fn tc_047_package_bytes_are_canonical_and_stable_across_identical_calls() {
-    let value = mixed_fixture();
-    let first = lower_mixed(&value).package;
-    let second = lower_mixed(&value).package;
-    assert_eq!(bytes(&first), bytes(&second));
-    assert_eq!(first.package_id(), second.package_id());
+fn reader_refuses_malformed_outer_shape_and_stale_own_identity() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let mut missing = wire.clone();
+    missing
+        .as_object_mut()
+        .expect("object")
+        .remove("source_map");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&missing)) else {
+        panic!("missing outer member must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::MissingMember))
+    );
+    assert_eq!(refusal.path.expect("root pointer").as_str(), "");
+    let mut extra = wire.clone();
+    extra["types"] = json!([]);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&extra)) else {
+        panic!("extra outer member must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::UnknownMember))
+    );
+    assert_eq!(refusal.path.expect("object pointer").as_str(), "");
+    let mut stale = wire;
+    stale["identity"]["digest"] = json!("0".repeat(64));
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&stale)) else {
+        panic!("stale own identity must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("digest pointer").as_str(),
+        "/identity/digest"
+    );
 
-    // The identity is the digest of exactly these bytes, in its own domain.
-    let identity = first.package_id().expect("the package is identified");
-    assert_eq!(identity.domain.as_ref(), CONTRACT_PACKAGE_VERSION);
-    assert_eq!(identity.algorithm.as_ref(), "sha256");
-    assert_eq!(identity.digest.as_ref(), sha256_hex(bytes(&first)));
-
-    // Canonical: re-encoding the decoded bytes reproduces them, and request
-    // order or duplication does not reach the package.
-    let decoded: Value = serde_json::from_slice(bytes(&first)).expect("json");
-    assert_eq!(serde_json::to_vec(&decoded).expect("encode"), bytes(&first));
-    assert_eq!(decoded["version"], json!(CONTRACT_PACKAGE_VERSION));
-    let mut reordered = mixed_request();
-    reordered.reverse();
-    reordered.push(id("dddd"));
-    let reordered = admit(&value).lower(&reordered, &mixed_profile()).package;
-    assert_eq!(bytes(&reordered), bytes(&first));
+    let mut wrong_domain: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wrong_domain["identity"]["domain"] = json!("quire.package.semantic/v2");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wrong_domain)) else {
+        panic!("wrong identity domain must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("domain pointer").as_str(),
+        "/identity/domain"
+    );
 }
 
-/// Tracing: TC-047, FR-035-AC-5
+/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
-fn tc_047_changing_any_represented_node_changes_bytes_and_digest() {
-    let base = lower_mixed(&mixed_fixture()).package;
+fn reader_keeps_lowering_profile_reference_closed() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wire["package"]["lowering_profile"]["settings"] = json!({});
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+        panic!("a lowering profile reference has only authority and identity");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::UnknownMember))
+    );
+    assert_eq!(
+        refusal.path.expect("object pointer").as_str(),
+        "/package/lowering_profile"
+    );
+}
 
-    // The lowered node's own source correspondence.
-    let mut lowered_source = mixed_fixture();
-    lowered_source["source_map"][3]["regions"][0]["end"] = json!(5);
-    // A reached dependency's source correspondence.
-    let mut dependency_source = mixed_fixture();
-    dependency_source["source_map"][2]["regions"][0]["end"] = json!(4);
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn reader_locates_malformed_nested_source_value() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wire["package"]["source"]["lock"]["sources"][0]["digest"] = json!(4);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+        panic!("malformed nested source value must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::WrongValueKind))
+    );
+    assert_eq!(
+        refusal.path.expect("member pointer").as_str(),
+        "/package/source/lock/sources/0/digest"
+    );
+}
 
-    for (label, value) in [
-        ("lowered node source", lowered_source),
-        ("dependency source", dependency_source),
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn reader_distinguishes_unknown_occurrence_role_from_wrong_value_kind() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    for (role, cause) in [
+        (json!("bogus"), Cause::InvalidValue),
+        (json!(4), Cause::WrongValueKind),
     ] {
-        let changed = lower_mixed(&value).package;
-        assert_eq!(changed.lowered().len(), 1, "{label}");
-        assert_ne!(bytes(&changed), bytes(&base), "{label}");
-        assert_ne!(changed.package_id(), base.package_id(), "{label}");
-        // The change is carried by the represented node itself, not only by
-        // the source package identity the package also records.
-        assert_ne!(
-            without_source_identity(bytes(&changed)),
-            without_source_identity(bytes(&base)),
-            "{label}"
+        let mut changed = wire.clone();
+        changed["source_map"]["nodes"][0]["occurrences"][0]["role"] = role;
+        let ContractPackageReadResult::Refused(refusal) = read(&canonical(&changed)) else {
+            panic!("invalid occurrence role must refuse");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(cause))
+        );
+        assert_eq!(
+            refusal.path.expect("role pointer").as_str(),
+            "/source_map/nodes/0/occurrences/0/role"
         );
     }
 }
 
-fn without_source_identity(bytes: &[u8]) -> Value {
-    let mut value: Value = serde_json::from_slice(bytes).expect("json");
-    value
-        .as_object_mut()
-        .expect("package object")
-        .remove("source_package_id")
-        .expect("source_package_id");
-    value
-}
-
-/// Tracing: TC-047, FR-035-AC-5
+/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
-fn tc_047_a_call_that_lowers_nothing_emits_an_empty_package() {
-    let package = admit(&mixed_fixture())
-        .lower(&[id("1010"), missing()], &mixed_profile())
-        .package;
-    assert!(package.lowered().is_empty());
-    assert!(package.dependencies().is_empty());
-    assert_eq!(package.version(), CONTRACT_PACKAGE_VERSION);
-}
-
-fn lowered(record: &CompleteLoweringRecordV2) -> &quire_contract_model::CompleteContractNodeV2 {
-    match record {
-        CompleteLoweringRecordV2::Lowered { node } => node,
-        other => panic!("expected lowered record, got {other:?}"),
-    }
-}
-
-/// Tracing: TC-047, FR-035-AC-5
-#[trace("TC-047", "FR-035-AC-5")]
-#[test]
-fn tc_047_a_lowered_node_another_lowered_node_reaches_is_held_once() {
-    let package = admit(&mixed_fixture())
-        .lower(&[id("dddd"), id("cccc")], &mixed_profile())
-        .package;
-    let lowered = package
-        .lowered()
-        .iter()
-        .map(|node| node.node.node_id.clone())
-        .collect::<Vec<_>>();
-    let mut expected = vec![id("cccc"), id("dddd")];
-    expected.sort();
-    assert_eq!(lowered, expected);
-    // `cccc` is reached by `dddd` but lowered in its own right, so it is not
-    // repeated among the dependencies.
-    let dependencies = package
-        .dependencies()
-        .iter()
-        .map(|dependency| dependency.node.node_id.clone())
-        .collect::<Vec<_>>();
-    assert_eq!(dependencies, vec![id("a3a3")]);
-}
-
-/// Tracing: TC-047, FR-035-AC-5
-#[trace("TC-047", "FR-035-AC-5")]
-#[test]
-fn tc_047_package_bytes_carry_every_member_of_every_represented_node() {
-    let value = mixed_fixture();
-    let result = lower_mixed(&value);
-    let package = &result.package;
-    let decoded: Value = serde_json::from_slice(bytes(package)).expect("json");
-    let keys = |value: &Value| {
-        value
-            .as_object()
-            .expect("object")
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
+fn reader_requires_total_source_correspondence_and_request_order() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let mut missing_map = wire.clone();
+    missing_map["source_map"]["nodes"]
+        .as_array_mut()
+        .expect("node maps")
+        .pop();
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&missing_map)) else {
+        panic!("incomplete node map must refuse");
     };
     assert_eq!(
-        keys(&decoded),
-        ["dependencies", "lowered", "source_package_id", "version"]
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
     );
-    let wire_node = |key: &CheckedNodeId| {
-        value["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("nodes")
-            .iter()
-            .find(|node| node["node_id"] == serde_json::to_value(key).expect("key"))
-            .cloned()
-            .expect("wire node")
+    assert_eq!(refusal.path.expect("map pointer").as_str(), "/source_map");
+
+    let mut wrong_request = wire;
+    wrong_request["feature_accounting"][0]["node_id"] = json!(missing());
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wrong_request)) else {
+        panic!("request correspondence must refuse");
     };
-
-    let lowered = &decoded["lowered"][0];
-    let node = &package.lowered()[0];
     assert_eq!(
-        keys(lowered),
-        [
-            "bounds",
-            "claims",
-            "dependencies",
-            "ir_id",
-            "node",
-            "node_tag",
-            "semantic_type",
-            "source_map"
-        ]
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
     );
-    assert_eq!(lowered["node"], wire_node(&node.node.node_id));
-    assert_eq!(lowered["node_tag"], json!("value"));
-    assert_eq!(lowered["dependencies"], json!(node.dependencies));
-    assert_eq!(lowered["bounds"], json!([id("cccc")]));
-    assert_eq!(lowered["claims"], json!(node.claims));
-    assert_eq!(lowered["ir_id"], json!(node.ir_id));
-    assert_eq!(lowered["source_map"], json!(node.source_map));
+    assert_eq!(
+        refusal.path.expect("request pointer").as_str(),
+        "/feature_accounting"
+    );
 
-    for (position, dependency) in package.dependencies().iter().enumerate() {
-        let encoded = &decoded["dependencies"][position];
-        assert_eq!(keys(encoded), ["node", "node_tag", "source_map"]);
-        assert_eq!(encoded["node"], wire_node(&dependency.node.node_id));
-        assert_eq!(encoded["node_tag"], json!(dependency.node_tag.as_wire()));
-        assert_eq!(encoded["source_map"], json!(dependency.source_map));
+    let mut bad_region: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let end = bad_region["source_map"]["nodes"][0]["occurrences"][0]["regions"][0]["end"].clone();
+    bad_region["source_map"]["nodes"][0]["occurrences"][0]["regions"][0]["start"] = end;
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&bad_region)) else {
+        panic!("empty source region must refuse");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("region pointer").as_str(),
+        "/source_map/nodes/0/occurrences/0/regions/0/start"
+    );
+}
+
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn refused_request_appears_only_if_reached_by_a_lowered_root() {
+    let result = lower(&mixed_fixture(), &request());
+    let represented = result
+        .package
+        .wire()
+        .expect("wire")
+        .wire()
+        .semantic_graph
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
+    assert!(represented.contains(&id("dddd")));
+    assert!(!represented.contains(&id("1010")));
+    assert!(!represented.contains(&id("7070")));
+    assert!(!represented.contains(&missing()));
+}
+
+fn rehashed(mut wire: Value) -> Vec<u8> {
+    let digest = sha256_hex(&canonical(&projection(&wire)));
+    wire["identity"]["digest"] = json!(digest);
+    canonical(&wire)
+}
+
+fn failed_wire(limit: &str, consumed: &str) -> Value {
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wire["feature_accounting"][1] = json!({
+        "node_id": id("1010"), "disposition": "failed", "limit_kind": "work",
+        "limit": limit, "consumed": consumed,
+    });
+    wire["source_map"]["refusals"][0]["disposition"] = json!("failed");
+    wire
+}
+
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn canonical_decimal_counters_keep_the_full_u64_range() {
+    use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
+    for counter in ["0", "18446744073709551615"] {
+        assert!(matches!(
+            read(&rehashed(failed_wire(counter, counter))),
+            ContractPackageReadResult::Admitted(_)
+        ));
     }
+    for invalid in ["08", "+1", "-1", "", "١", "18446744073709551616"] {
+        let bytes = canonical(&failed_wire(invalid, "8"));
+        let ContractPackageReadResult::Refused(refusal) = read(&bytes) else {
+            panic!("counter {invalid} must refuse");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::InvalidValue)
+        );
+        assert_eq!(
+            refusal.path.expect("pointer").as_str(),
+            "/feature_accounting/1/limit"
+        );
+    }
+    let mut wrong_kind = failed_wire("8", "8");
+    wrong_kind["feature_accounting"][1]["limit"] = json!(8);
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wrong_kind)) else {
+        panic!("number must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::WrongValueKind)
+    );
 }
 
-/// Tracing: TC-047, FR-035-AC-5
+/// Trace: FR-035-AC-5
 #[trace("TC-047", "FR-035-AC-5")]
 #[test]
-fn tc_047_package_bytes_are_rfc_8785_key_ordered() {
-    let package = lower_mixed(&mixed_fixture()).package;
-    let bytes = std::str::from_utf8(bytes(&package)).expect("utf-8");
-    assert!(bytes.starts_with("{\"dependencies\":["), "{bytes}");
-    let positions = ["\"lowered\":", "\"source_package_id\":", "\"version\":"]
-        .map(|member| bytes.rfind(member).expect(member));
-    assert!(
-        positions.windows(2).all(|pair| pair[0] < pair[1]),
-        "{bytes}"
-    );
-    assert!(!bytes.contains(": ") && !bytes.contains(", "), "{bytes}");
-}
-
-/// Tracing: TC-047, FR-035-AC-5
-#[trace("TC-047", "FR-035-AC-5")]
-#[test]
-fn tc_047_a_refused_request_is_represented_only_as_reached_meaning() {
-    // `sequence` is an unbounded sequence of booleans and `bounds` a bounding
-    // domain over it, both under their derived keys (FR-038-AC-134); `dddd`
-    // is typed at the sequence and depends on both. Requested alone, the
-    // sequence reaches no bounding domain and is refused; `dddd` reaches the
-    // bound, so it lowers and carries the sequence as exact reached meaning,
-    // never as a lowered node.
-    let mut value = mixed_fixture();
-    let sequence_body = checked_package::over_body(checked_package::BOOLEAN_KEY);
-    let sequence_key =
-        checked_package::structural_key("composite_type", "sequence", None, &sequence_body);
-    let bounds_key = checked_package::structural_key(
-        "bounded_domain",
-        "collection_bounds",
-        Some(&sequence_key),
-        &checked_package::bounds_body("0", "3"),
-    );
-    let mut sequence = value["semantic_graph"]["nodes"][1].clone();
-    sequence["node_id"] = checked_package::node_id(&sequence_key);
-    sequence["semantic_form"] = json!("sequence");
-    sequence["semantic_type"] = checked_package::node_id(&sequence_key);
-    sequence["dependencies"] = json!([checked_package::node_id(checked_package::BOOLEAN_KEY)]);
-    sequence["body"] = sequence_body;
-    let mut bounds = value["semantic_graph"]["nodes"][2].clone();
-    bounds["node_id"] = checked_package::node_id(&bounds_key);
-    bounds["semantic_form"] = json!("collection_bounds");
-    bounds["semantic_type"] = checked_package::node_id(&sequence_key);
-    bounds["dependencies"] = json!([checked_package::node_id(&sequence_key)]);
-    bounds["body"] = checked_package::bounds_body("0", "3");
-    value["semantic_graph"]["nodes"][1] = sequence;
-    value["semantic_graph"]["nodes"][2] = bounds;
-    value["semantic_graph"]["nodes"][3]["semantic_type"] = checked_package::node_id(&sequence_key);
-    let dependencies = ascending(vec![
-        typed_node_id(&sequence_key),
-        typed_node_id(&bounds_key),
-    ]);
-    value["semantic_graph"]["nodes"][3]["dependencies"] = json!(dependencies);
-    let retyped_value = typed_node_id(&structural_key(
-        "value",
-        "literal",
-        Some(&sequence_key),
-        &json!({"term": "aggregate", "members": []}),
+fn defensive_body_payloads_are_closed_and_omitted_pointers_stay_omitted() {
+    use quire_contract_model::CheckedPackageRefusalCause;
+    let mut wire = failed_wire("0", "0");
+    wire["feature_accounting"][1] = json!({
+        "node_id": id("1010"), "disposition": "body_incomplete", "body_node_id": id("1010"),
+        "incomplete": {"limit_kind": "bytes", "limit": "8", "consumed": "8"},
+    });
+    wire["source_map"]["refusals"][0]["disposition"] = json!("body_incomplete");
+    assert!(matches!(
+        read(&rehashed(wire.clone())),
+        ContractPackageReadResult::Admitted(_)
     ));
-    mint_ungrouped_structural_keys(&mut value);
-    settle(&mut value);
-    let sequence_id = typed_node_id(&sequence_key);
-    let request = vec![
-        retyped_value.clone(),
-        sequence_id.clone(),
-        id("7070"),
-        missing(),
-        retyped_value.clone(),
-    ];
-    let result = admit(&value).lower(&request, &mixed_profile());
-    let dispositions = result.records.iter().map(record_key).collect::<Vec<_>>();
-    assert_eq!(dispositions[0], ("lowered", &retyped_value));
-    assert_eq!(dispositions[1], ("requires_bound", &sequence_id));
-    let package = &result.package;
-    assert!(package
-        .lowered()
+    wire["feature_accounting"][1]["incomplete"]["path"] = json!("");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+        panic!("bytes path must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::UnknownMember)
+    );
+    wire["feature_accounting"][1]["incomplete"]["limit_kind"] = json!("work");
+    assert!(matches!(
+        read(&rehashed(wire.clone())),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    let mut unknown_kind = wire.clone();
+    unknown_kind["feature_accounting"][1]["incomplete"]["limit_kind"] = json!("depth");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&unknown_kind)) else {
+        panic!("unknown limit kind must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.path.expect("kind pointer").as_str(),
+        "/feature_accounting/1/incomplete/limit_kind"
+    );
+    wire["feature_accounting"][1]["incomplete"]
+        .as_object_mut()
+        .expect("object")
+        .remove("path");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&wire)) else {
+        panic!("work path required");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::MissingMember)
+    );
+
+    let mut body = failed_wire("0", "0");
+    body["feature_accounting"][1] = json!({
+        "node_id": id("1010"), "disposition": "invalid_body", "body_node_id": id("1010"),
+        "refusal": {"code": "invalid_package", "path": ""},
+    });
+    body["source_map"]["refusals"][0]["disposition"] = json!("invalid_body");
+    assert!(matches!(
+        read(&rehashed(body.clone())),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    let mut unpaired = body.clone();
+    unpaired["feature_accounting"][1]["refusal"]["cause"] = json!("missing-selection");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&unpaired)) else {
+        panic!("unpaired cause must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.path.expect("cause pointer").as_str(),
+        "/feature_accounting/1/refusal/cause"
+    );
+    let mut unknown_code = body.clone();
+    unknown_code["feature_accounting"][1]["refusal"]["code"] = json!("unknown_code");
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&unknown_code)) else {
+        panic!("unknown code must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::InvalidValue)
+    );
+    assert_eq!(
+        refusal.path.expect("code pointer").as_str(),
+        "/feature_accounting/1/refusal/code"
+    );
+    body["feature_accounting"][1]["refusal"]["path"] = Value::Null;
+    let ContractPackageReadResult::Refused(refusal) = read(&canonical(&body)) else {
+        panic!("null optional must refuse");
+    };
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::WrongValueKind)
+    );
+}
+
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn duplicate_member_and_noncanonical_bytes_refuse_before_identity() {
+    use quire_contract_model::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
+    let wire = rehashed(failed_wire("0", "0"));
+    let text = std::str::from_utf8(&wire).expect("utf8");
+    let duplicate = text.replacen("\"limit\":\"0\"", "\"limit\":\"0\",\"limit\":\"0\"", 1);
+    let ContractPackageReadResult::Refused(refusal) = read(duplicate.as_bytes()) else {
+        panic!("duplicate must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::DuplicateMember)
+    );
+    let spaced = format!(" {text}");
+    let ContractPackageReadResult::Refused(refusal) = read(spaced.as_bytes()) else {
+        panic!("whitespace must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::NoncanonicalWire);
+}
+
+/// Trace: FR-035-AC-5
+#[trace("TC-047", "FR-035-AC-5")]
+#[test]
+fn selected_dependencies_are_bound_by_library_identity_before_graph_checks() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, ContractDependencyInput,
+    };
+    let dependency = admit(&mixed_fixture());
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    wire["package"]["source"]["lock"]["dependency_selections"] = json!([{
+        "identity": "lib/a", "package_id": dependency.package_id(),
+    }]);
+    let bytes = rehashed(wire.clone());
+    let mut supplied = ContractDependencies::new();
+    supplied.insert(
+        "lib/a",
+        ContractDependencyInput {
+            identity: "lib/a",
+            package: &dependency,
+        },
+    );
+    assert!(matches!(
+        ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied),
+        ContractPackageReadResult::Admitted(_)
+    ));
+    let ContractPackageReadResult::Refused(missing) = read(&bytes) else {
+        panic!("selection requires input");
+    };
+    assert_eq!(missing.code, CheckedPackageRefusalCode::MissingImport);
+    assert_eq!(
+        missing.cause,
+        Some(CheckedPackageRefusalCause::MissingSelection)
+    );
+    assert_eq!(
+        missing.path.expect("path").as_str(),
+        "/package/source/lock/dependency_selections/0"
+    );
+    supplied.insert(
+        "lib/a",
+        ContractDependencyInput {
+            identity: "lib/b",
+            package: &dependency,
+        },
+    );
+    let ContractPackageReadResult::Refused(wrong_identity) =
+        ContractPackageWireV1::read(&bytes, CheckedPackageReadLimits::bounded(), &supplied)
+    else {
+        panic!("wrong identity refuses");
+    };
+    assert_eq!(
+        wrong_identity.code,
+        CheckedPackageRefusalCode::MissingImport
+    );
+    supplied.insert(
+        "lib/a",
+        ContractDependencyInput {
+            identity: "lib/a",
+            package: &dependency,
+        },
+    );
+    wire["package"]["source"]["lock"]["dependency_selections"][0]["package_id"]["digest"] =
+        json!("0".repeat(64));
+    let stale = rehashed(wire);
+    let ContractPackageReadResult::Refused(wrong_package) =
+        ContractPackageWireV1::read(&stale, CheckedPackageReadLimits::bounded(), &supplied)
+    else {
+        panic!("stale package refuses");
+    };
+    assert_eq!(
+        wrong_package.code,
+        CheckedPackageRefusalCode::StaleDependency
+    );
+    assert_eq!(
+        wrong_package.cause,
+        Some(CheckedPackageRefusalCause::ContentMismatch)
+    );
+    assert_eq!(
+        wrong_package
+            .expected()
+            .expect("selected identity")
+            .digest
+            .as_ref(),
+        "0".repeat(64)
+    );
+    assert_eq!(wrong_package.actual(), Some(dependency.package_id()));
+}
+
+/// Trace: FR-035-AC-4
+#[trace("TC-047", "FR-035-AC-4")]
+#[test]
+fn reader_refuses_reference_type_targeting_an_existing_scalar_node() {
+    use quire_contract_model::{
+        CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
+    };
+    let output = lower(&mixed_fixture(), &request());
+    let mut wire: Value = serde_json::from_slice(bytes(&output)).expect("wire json");
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let scalar = nodes
         .iter()
-        .all(|node| node.node.node_id != sequence_id));
-    assert!(package
-        .dependencies()
+        .find(|node| node["node_tag"] == "scalar_type")
+        .expect("represented scalar")["node_id"]
+        .clone();
+    let position = nodes
         .iter()
-        .any(|dependency| dependency.node.node_id == sequence_id));
+        .position(|node| node["node_tag"] != "scalar_type")
+        .expect("represented non-scalar");
+    let node = &mut nodes[position];
+    node["node_tag"] = json!("composite_type");
+    node["semantic_form"] = json!("reference");
+    node["semantic_type"] = node["node_id"].clone();
+    node["body"] = json!({
+        "term": "aggregate",
+        "members": [{"term": "reference", "target": scalar}],
+    });
+    let ContractPackageReadResult::Refused(refusal) = read(&rehashed(wire)) else {
+        panic!("reference type cannot target a scalar key");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::InvalidPackage, Some(Cause::InvalidValue))
+    );
+    assert_eq!(
+        refusal.path.expect("body pointer").as_str(),
+        format!("/semantic_graph/nodes/{position}/body")
+    );
 }

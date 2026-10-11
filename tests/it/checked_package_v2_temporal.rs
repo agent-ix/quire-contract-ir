@@ -449,6 +449,10 @@ fn with_fairness(profile: &str, member: Value) -> (Value, usize) {
 
 fn profile_supporting(tags: &[CheckedNodeTag]) -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: tags.iter().copied().collect(),
         require_bounds: false,
         work_limit: u64::MAX,
@@ -1075,6 +1079,17 @@ fn code_word(code: Code) -> &'static str {
 
 fn cause_word(cause: Cause) -> &'static str {
     match cause {
+        Cause::MalformedJson => "malformed-json",
+        Cause::MissingMember => "missing-member",
+        Cause::UnknownMember => "unknown-member",
+        Cause::WrongValueKind => "wrong-value-kind",
+        Cause::UnsupportedWire => "unsupported-wire",
+        Cause::UnsupportedFeature => "unsupported-feature",
+        Cause::DefinitionCycle => "definition-cycle",
+        Cause::IncompatibleDefinition => "incompatible-definition",
+        Cause::FeatureSetMismatch => "feature-set-mismatch",
+        Cause::InsufficientNextCharge => "insufficient-next-charge",
+        Cause::ContentMismatch => "content-mismatch",
         Cause::MissingName => "missing-name",
         Cause::MalformedDeclaration => "malformed-declaration",
         Cause::StaleNodeKey => "stale-node-key",

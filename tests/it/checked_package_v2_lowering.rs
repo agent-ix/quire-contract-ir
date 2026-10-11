@@ -71,6 +71,10 @@ fn admit(value: &Value) -> CheckedPackageV2 {
 
 fn profile(work_limit: u64) -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
         supported_tags: FAMILIES.iter().map(|(_, tag)| *tag).collect(),
         require_bounds: false,
         work_limit,

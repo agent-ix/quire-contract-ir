@@ -11,6 +11,7 @@ mod abstraction;
 mod application_identity;
 mod comparison_operands;
 mod composite_operands;
+mod contract_package;
 mod dependency_references;
 mod derived_keys;
 pub(in crate::checked_package) mod encode;
@@ -48,6 +49,13 @@ pub use composite_operands::{
     CheckedCompositeDomainKey, CheckedCompositeDomainPosition, CheckedCompositeOperand,
     CheckedCompositeOperandDomain, CheckedCompositeOperandError, CheckedCompositeOperands,
     CheckedCompositeShapeEntry, CheckedUnsupportedCompositeOperand,
+};
+pub use contract_package::{
+    ContractBodyIncompleteV1, ContractBodyRefusalV1, ContractDependencies, ContractDependencyInput,
+    ContractDispositionV1, ContractFeatureRecordV1, ContractNodeSourcesV1,
+    ContractPackageReadResult, ContractPackageV1, ContractPackageWireV1, ContractProvenanceV1,
+    ContractRefusalSourcesV1, ContractRequestSourcesV1, ContractSemanticGraphV1,
+    ContractSourceMapV1, ContractSourceV1,
 };
 pub use identity::*;
 pub use lower::*;
