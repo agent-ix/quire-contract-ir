@@ -51,7 +51,7 @@ fn run(program: &Path, arguments: &[&Path]) -> Vec<u8> {
     output.stdout
 }
 
-fn selected_model<'a>(wire: &'a Value) -> &'a str {
+fn selected_model(wire: &Value) -> &str {
     wire.pointer("/lock/model_selections/0/digest")
         .and_then(Value::as_str)
         .expect("ConfigVersion selects its domain model")
