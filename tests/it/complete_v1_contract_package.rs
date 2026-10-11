@@ -24,12 +24,17 @@ fn bytes(package: &CompleteContractPackageV2) -> &[u8] {
 }
 
 fn id(prefix: &str) -> CheckedNodeId {
-    if prefix == "dddd" {
-        // The mixed fixture retypes this structural value at Integer. Its
-        // expected key comes from the FR-092 preimage, independent of read.
+    if matches!(prefix, "1010" | "dddd") {
+        // The mixed fixture retypes both structural nodes at Integer. Their
+        // expected keys come from FR-092 preimages, independent of read.
+        let (tag, form) = if prefix == "1010" {
+            ("model", "namespace")
+        } else {
+            ("value", "literal")
+        };
         typed_node_id(&structural_key(
-            "value",
-            "literal",
+            tag,
+            form,
             Some(&checked_package::family_key("a3a3")),
             &json!({"term": "aggregate", "members": []}),
         ))

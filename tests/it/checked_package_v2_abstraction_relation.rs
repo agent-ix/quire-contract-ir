@@ -44,8 +44,35 @@ const INTEGER: &str = INTEGER_KEY;
 fn text_key() -> String {
     structural_key("scalar_type", "text", None, &empty())
 }
-const POPULATION_A: &str = "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a";
-const POPULATION_B: &str = "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b";
+fn population_body(identity: &str) -> Value {
+    json!({"term": "aggregate", "members": [{"term": "binding", "name": "identity", "value": {
+        "term": "literal", "type": node_id(&text_key()), "value_kind": "text", "value": identity,
+    }}]})
+}
+
+fn population_a() -> &'static str {
+    static KEY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        structural_key(
+            "relation",
+            "population",
+            None,
+            &population_body("population-a"),
+        )
+    });
+    &KEY
+}
+
+fn population_b() -> &'static str {
+    static KEY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        structural_key(
+            "relation",
+            "population",
+            None,
+            &population_body("population-b"),
+        )
+    });
+    &KEY
+}
 
 // The domain package document.
 
@@ -218,22 +245,22 @@ fn base_over(document: &Value) -> Value {
             empty(),
         ),
         plain(
-            POPULATION_A,
+            population_a(),
             "relation",
             "population",
-            POPULATION_A,
+            population_a(),
             &[],
             "type",
-            empty(),
+            population_body("population-a"),
         ),
         plain(
-            POPULATION_B,
+            population_b(),
             "relation",
             "population",
-            POPULATION_B,
+            population_b(),
             &[],
             "type",
-            empty(),
+            population_body("population-b"),
         ),
     ];
     for (declared, model) in [CONFIG_VERSION, DRAFT, LEFT, RIGHT, BOTH]
@@ -386,7 +413,7 @@ fn rich() -> Value {
             &["config_store", "ConfigVersion"],
             &[("version", "version"), ("generation", "generation")],
         )],
-        vec![population(POPULATION_A, &["config_store", "versions"])],
+        vec![population(population_a(), &["config_store", "versions"])],
         vec![frame(
             &config_version(),
             "rebase",
@@ -613,7 +640,7 @@ fn tc_225_empty_tuple_field_and_raw_identifier_bodies_admit() {
                     &["r#type"],
                     &[("version", "0"), ("generation", "r#type")],
                 )],
-                vec![population(POPULATION_A, &["r#match", "collection"])],
+                vec![population(population_a(), &["r#match", "collection"])],
                 vec![frame(
                     &config_version(),
                     "attemptUpdate",
@@ -1295,7 +1322,7 @@ fn tc_225_an_array_out_of_its_canonical_order_refuses_at_the_array() {
         vec![],
     );
     let populations = {
-        let mut keys = [POPULATION_A, POPULATION_B];
+        let mut keys = [population_a(), population_b()];
         keys.sort();
         body(
             vec![],
@@ -1402,8 +1429,8 @@ fn tc_225_a_target_of_the_wrong_kind_or_unselected_owner_refuses_at_the_target()
     let cases = [
         (
             "a type naming a population",
-            in_object(POPULATION_A),
-            POPULATION_A,
+            in_object(population_a()),
+            population_a(),
             "/body/objects/0",
             malformed,
         ),
@@ -1519,7 +1546,7 @@ fn tc_225_a_field_binding_or_rust_spelling_off_its_syntax_refuses_at_the_entry()
         ),
         (
             "a collection segment that is a keyword",
-            body(vec![], vec![population(POPULATION_A, &["fn"])], vec![]),
+            body(vec![], vec![population(population_a(), &["fn"])], vec![]),
             "/body/populations/0",
             malformed,
         ),
@@ -1787,13 +1814,13 @@ fn tc_225_a_second_binding_of_one_key_refuses_at_the_second_entry() {
             body(
                 vec![],
                 vec![
-                    population(POPULATION_A, &["a"]),
-                    population(POPULATION_A, &["b"]),
+                    population(population_a(), &["a"]),
+                    population(population_a(), &["b"]),
                 ],
                 vec![],
             ),
             "/body/populations/1",
-            POPULATION_A,
+            population_a(),
         ),
         (
             "an operation key",
@@ -1831,10 +1858,10 @@ fn tc_225_a_second_binding_of_one_key_refuses_at_the_second_entry() {
         ),
         (
             "a population key across two nodes",
-            body(vec![], vec![population(POPULATION_A, &["a"])], vec![]),
-            body(vec![], vec![population(POPULATION_A, &["b"])], vec![]),
+            body(vec![], vec![population(population_a(), &["a"])], vec![]),
+            body(vec![], vec![population(population_a(), &["b"])], vec![]),
             "/body/populations/0",
-            POPULATION_A,
+            population_a(),
         ),
         (
             "an operation key across two nodes",

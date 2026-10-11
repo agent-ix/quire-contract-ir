@@ -12,8 +12,9 @@
 //! cycle's members share one `recursion_group`.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_package, pointer, refusal_at, rename_node, settle,
-    sha256_hex, structural_key, BOOLEAN_KEY, INTEGER_KEY,
+    canonical, evidence_for, mint_grouped_structural_keys, mint_ungrouped_structural_keys, node_id,
+    nominal_package, pointer, refusal_at, rekey_application_node, rename_node, settle, sha256_hex,
+    structural_key, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -283,6 +284,16 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
         .expect("parameter key")
         .to_owned();
     rename_node(&mut package, &key("p"), &parameter_id);
+    mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
+    mint_ungrouped_structural_keys(&mut package);
+    let application = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "expression" && node["semantic_form"] == "binary")
+        .expect("application");
+    rekey_application_node(&mut package, application);
     settle(&mut package);
     let id = package["semantic_graph"]["nodes"]
         .as_array()
@@ -455,10 +466,10 @@ fn tc_048_malformed_optional_record_fields_refuse_at_operation_leaves() {
     }
 }
 
-/// Trace: FR-038-AC-145
-#[trace("FR-038-AC-145")]
+/// Trace: FR-038-AC-147, FR-038-AC-152
+#[trace("FR-038-AC-147", "FR-038-AC-152")]
 #[test]
-fn tc_226_a_severed_only_cycle_rederives_the_former_group_member_first() {
+fn tc_226_a_severed_labelled_group_reaches_the_optional_body_refusal() {
     let mut types = wrapped_list(&["label"]);
     types[0].1["body"]["members"]
         .as_array_mut()
@@ -466,23 +477,14 @@ fn tc_226_a_severed_only_cycle_rederives_the_former_group_member_first() {
         .iter_mut()
         .find(|field| field["name"] == "next")
         .expect("next field")["value"] = empty();
-    let (package, _) = equality_package(types, "list", list_leaves(&["label"]));
-    let option = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .position(|node| node["semantic_form"] == "option")
-        .expect("former group option");
-    let key = package["semantic_graph"]["nodes"][option]["node_id"]["digest"]
-        .as_str()
-        .expect("option key");
+    let (package, application) = equality_package(types, "list", list_leaves(&["label"]));
     assert_eq!(
         read(&package, CheckedPackageReadLimits::bounded()),
         refusal_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            &format!("/semantic_graph/nodes/{option}/node_id"),
-            Some(CheckedPackageRefusalCause::StaleNodeKey),
-            key,
+            CheckedPackageRefusalCode::IllTyped,
+            &leaves_pointer(&package, &application),
+            Some(CheckedPackageRefusalCause::OperatorIneligible),
+            &application,
         ),
     );
 }

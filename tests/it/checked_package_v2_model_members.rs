@@ -954,13 +954,13 @@ fn tc_048_a_model_owned_operation_admits_through_a_real_semantic_ir_document() {
     }
 }
 
-/// Trace: FR-038-AC-185, TC-048
-#[trace("FR-038-AC-185", "TC-048")]
+/// Trace: FR-038-AC-150, FR-038-AC-185, TC-048
+#[trace("FR-038-AC-150", "FR-038-AC-185", "TC-048")]
 #[test]
-fn tc_048_selected_model_declaration_shape_has_no_derived_expected_key() {
+fn tc_048_selected_model_declaration_shape_refuses_at_its_node_before_the_call() {
     let (mut package, evidence) = package_over(&domain_document(json!({})), "total");
     let position = 2;
-    let original = package["semantic_graph"]["nodes"][CALL]["node_id"].clone();
+    let original = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     package["semantic_graph"]["nodes"][position]["semantic_type"] =
         package["semantic_graph"]["nodes"][0]["node_id"].clone();
     refresh_identity(&mut package);
@@ -975,7 +975,7 @@ fn tc_048_selected_model_declaration_shape_has_no_derived_expected_key() {
     );
     assert_eq!(
         refusal.path.as_ref().map(ToString::to_string),
-        Some("/semantic_graph/nodes/6/body/operation/member/declaration".to_owned())
+        Some(format!("/semantic_graph/nodes/{position}/node_id"))
     );
     assert_eq!(
         refusal.locus.as_ref().expect("node locus").digest.as_ref(),

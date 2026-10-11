@@ -510,8 +510,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
         ),
         (
             "cycle without a recursion group",
-            // Nodes 3 and 6 are `value` and `model` nodes: no derived key
-            // (FR-038-AC-134) is refused ahead of the cycle check.
+            // Nodes 3 and 6 form a dependency cycle without a group. The
+            // separately keyed graph-cycle control below covers valid keys.
             Box::new(|v| {
                 let first = v["semantic_graph"]["nodes"][3]["node_id"].clone();
                 let second = v["semantic_graph"]["nodes"][6]["node_id"].clone();
@@ -537,10 +537,14 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
                 v["semantic_graph"]["nodes"][6]["recursion_group"] = json!("right");
                 refresh_identity(v);
             }),
-            // Node 3 sets the group; node 6's differs.
-            refusal(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/6/recursion_group",
+            // Each group's key would need to hash the other group's key, a
+            // hash fixed point. Authentication therefore refuses the first
+            // stale key before the graph can inspect the group mismatch.
+            refusal_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/3/node_id",
+                Some(CheckedPackageRefusalCause::StaleNodeKey),
+                &digest_of(&base["semantic_graph"]["nodes"][3]),
             ),
         ),
         (
@@ -627,7 +631,9 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     grouped["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
     grouped["semantic_graph"]["nodes"][3]["recursion_group"] = json!("pair");
     grouped["semantic_graph"]["nodes"][6]["recursion_group"] = json!("pair");
-    refresh_identity(&mut grouped);
+    checked_package::mint_grouped_structural_keys(&mut grouped);
+    checked_package::mint_ungrouped_structural_keys(&mut grouped);
+    checked_package::settle(&mut grouped);
     admitted(&grouped);
 
     // Evidence the caller must supply: the required feature.
@@ -852,12 +858,6 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             }),
         ),
         (
-            "recursion group",
-            Box::new(|v| {
-                v["semantic_graph"]["nodes"][1]["recursion_group"] = json!("solo");
-            }),
-        ),
-        (
             "profile selection",
             Box::new(|v| {
                 v["lock"]["profile_selections"] =
@@ -912,6 +912,25 @@ fn tc_048_package_id_covers_exactly_the_identity_preimage() {
             other => panic!("{name}: re-derived identity must admit, got {other:?}"),
         }
     }
+
+    // The nominal declaration's own key cannot be re-derived as a grouped
+    // structural key while retaining its required nominal preimage. A group
+    // mutation therefore reaches key authentication before package identity.
+    let mut grouped_nominal = base.clone();
+    grouped_nominal["semantic_graph"]["nodes"][1]["recursion_group"] = json!("solo");
+    refresh_identity(&mut grouped_nominal);
+    let mut expected = refusal_cause(
+        CheckedPackageRefusalCode::InvalidPackage,
+        "/semantic_graph/nodes/1/node_id",
+        CheckedPackageRefusalCause::StaleNodeKey,
+    );
+    expected.locus = Some(checked_package::typed_node_id(&digest_of(
+        &grouped_nominal["semantic_graph"]["nodes"][1],
+    )));
+    assert_eq!(
+        refused(&grouped_nominal, &evidence_for(&grouped_nominal)),
+        expected,
+    );
 }
 
 // `tc_048_nominal_vectors_rederive_and_admit_as_one_package` and
@@ -1071,6 +1090,11 @@ fn tc_048_nominal_cross_field_contradictions_refuse() {
                     "kind": "source", "authority": source["authority"],
                     "identity": source["identity"],
                 });
+                checked_package::mint_ungrouped_structural_keys(v);
+                let member = &v["semantic_graph"]["nodes"][member];
+                let stale = digest_of(member);
+                let fresh = sha256_hex(&canonical(&member["nominal_identity_preimage"]));
+                checked_package::rename_node(v, &stale, &fresh);
             }),
             "/semantic_graph/nodes/0/nominal_identity_preimage/declaration_node_id",
         ),
@@ -1924,13 +1948,44 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
         "systems_connection",
         "systems_allocation",
     ] {
-        let mut value = base.clone();
-        value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
-        if matches!(form, "object_type" | "systems_interface") {
-            declare(&mut value, model, &["Example", "ChangedModel"]);
-            checked_package::rebuild_source_map(&mut value);
+        // Both forms already have valid witnesses in the shared fixture;
+        // changing the namespace into `process` would duplicate its key.
+        if matches!(form, "object_type" | "process") {
+            assert!(base["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .any(|node| node["node_tag"] == "model" && node["semantic_form"] == form));
+            admitted(&base);
+            continue;
         }
-        refresh_identity(&mut value);
+        let mut value = base.clone();
+        if form == "systems_interface" {
+            // FR-094 model-owned interfaces are self typed and named by the
+            // selected model document, so add one without disturbing the
+            // object type the all-family frame already references.
+            let mut interface = value["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+                .expect("model-owned object type")
+                .clone();
+            let placeholder = "ab".repeat(32);
+            interface["node_id"] = checked_package::node_id(&placeholder);
+            interface["semantic_type"] = checked_package::node_id(&placeholder);
+            interface["semantic_form"] = json!(form);
+            interface["owner"] =
+                checked_package::model_owner("test/families", "ix://test/families/Interface");
+            value["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(interface);
+            checked_package::rebuild_source_map(&mut value);
+        } else {
+            value["semantic_graph"]["nodes"][model]["semantic_form"] = json!(form);
+        }
+        rekey_declared_all_families(&mut value);
         admitted(&value);
     }
     let mut export = base.clone();
@@ -1943,6 +1998,101 @@ fn tc_048_model_export_is_not_a_v2_model_form() {
             &format!("/semantic_graph/nodes/{model}/semantic_form")
         )
     );
+}
+
+/// A source-declared interface carries its external type and SourceOwner in
+/// the structural preimage. The fixed self-typed shape still applies to an
+/// undeclared, model-owned object type.
+///
+/// Trace: FR-038-AC-150
+#[trace("TC-226", "FR-038-AC-150")]
+#[test]
+fn tc_226_a_source_declared_interface_authenticates_but_a_model_owned_one_keeps_its_shape() {
+    let mut value = v2_all_families();
+    let nodes = value["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let object = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("model-owned declaration")
+        .clone();
+    let model_owner = object["owner"].clone();
+    let external_type = nodes
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("external Boolean type")["node_id"]
+        .clone();
+    let source = &value["lock"]["sources"][0];
+    let source_owner = json!({
+        "kind":"source", "authority":source["authority"], "identity":source["identity"]
+    });
+    let position = nodes.len();
+    let mut interface = object;
+    interface["node_id"] = checked_package::node_id(&"ab".repeat(32));
+    interface["semantic_type"] = external_type.clone();
+    interface["semantic_form"] = json!("systems_interface");
+    interface["owner"] = source_owner.clone();
+    interface["declaration"] = json!({"qualified_name":["Example","Flowable"]});
+    interface["occurrences"] = json!([{"role":"declaration","ordinal":0}]);
+    value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(interface);
+    checked_package::rebuild_source_map(&mut value);
+    rekey_declared_all_families(&mut value);
+
+    let declared_key = sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":"systems_interface", "semantic_type":external_type,
+        "declaration":{"qualified_name":["Example","Flowable"]},
+        "recursion":null, "owner":source_owner,
+        "body":{"term":"aggregate","members":[]}
+    })));
+    assert_eq!(
+        digest_of(&value["semantic_graph"]["nodes"][position]),
+        declared_key
+    );
+    admitted(&value);
+
+    let mut model_owned = v2_all_families();
+    let model_position = model_owned["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "model" && node["semantic_form"] == "object_type")
+        .expect("model-owned object type");
+    model_owned["semantic_graph"]["nodes"][model_position]["semantic_type"] = external_type.clone();
+    rekey_declared_all_families(&mut model_owned);
+    let model_key = sha256_hex(&canonical(&json!({
+        "version":"quire.structural-node/v1", "node_tag":"model",
+        "semantic_form":"object_type", "semantic_type":external_type,
+        "declaration":null, "recursion":null, "owner":model_owner,
+        "body":{"term":"aggregate","members":[]}
+    })));
+    assert_eq!(
+        digest_of(&model_owned["semantic_graph"]["nodes"][model_position]),
+        model_key
+    );
+    let refusal = refused(&model_owned, &evidence_for(&model_owned));
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidPackage,
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
+    );
+    assert_eq!(
+        refusal.path,
+        Some(support_pointer(&format!(
+            "/semantic_graph/nodes/{model_position}/node_id"
+        )))
+    );
+    assert_eq!(
+        refusal.locus.as_ref().map(|id| id.digest.as_ref()),
+        Some(model_key.as_str())
+    );
+    assert!(refusal.expected_node_id().is_none());
 }
 
 /// Tracing: TC-048, FR-038-AC-9, FR-038-AC-26
@@ -2088,31 +2238,17 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     }
 }
 
-/// The self-typed carve-out in `validate_graph`'s adjacency construction is
-/// keyed on the member *and* on the term being the node body's own top-level
-/// term, not on node identity: only a self-typed node's own body-root
-/// `literal.type` may name itself from its body without counting as a
-/// reference cycle requiring `recursion_group` (a self-typed scalar's
-/// `literal.type` states the same fact its `semantic_type` already does). A
-/// self-typed node whose body is instead a `reference` term naming itself is
-/// a genuine 1-node cycle and must still resolve through `recursion_group` or
-/// refuse — nothing restricts which node may declare itself its own
-/// `semantic_type`, so the carve-out must not be reachable through any body
-/// member but `literal.type`. Nor is it reachable through a `literal.type`
-/// that names itself from *inside* another term nested in the body — an
-/// `aggregate` member, a `binding` value or an `application` argument — even
-/// though `validate_term`'s recursive walk reports every one of those as the
-/// same `literal.type` member: only the body's own outermost
-/// term is the node's `literal.type` in FR-322's sense (FR-038-AC-18).
+/// Public self-reference mutations are refused by authenticated node keys
+/// before the conditional graph-stage body-root carve-out is reached. The
+/// graph-stage distinction is exercised at the private validation seam.
 ///
 /// Tracing: TC-048, FR-038-AC-18
 #[trace("TC-048", "FR-038-AC-18")]
 #[test]
-fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
+fn tc_048_self_typed_body_references_refuse_at_authenticated_keys() {
     let base = v2_all_families();
-    // The nodes the cases rewrite are `function` and `model` nodes, which
-    // carry no derived key (FR-038-AC-134): a rewritten `option` or
-    // `integer_range` would be refused as a stale key before any cycle check.
+    // Public reads authenticate these structural and application keys before
+    // the conditional graph-stage carve-out can be evaluated.
     let node_at = |key: &str| {
         base["semantic_graph"]["nodes"]
             .as_array()
@@ -2121,7 +2257,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
             .position(|node| node["node_id"]["digest"] == checked_package::family_key(key))
             .expect("fixture node")
     };
-    let (own, sibling) = (node_at("8080"), node_at("1010"));
+    let own = node_at("8080");
     let own_id = base["semantic_graph"]["nodes"][own]["node_id"].clone();
     let other_id = base["semantic_graph"]["nodes"][own]["semantic_type"].clone();
     let application_position = base["semantic_graph"]["nodes"]
@@ -2132,22 +2268,14 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
         .expect("reference expression");
     let application_id = base["semantic_graph"]["nodes"][application_position]["node_id"].clone();
 
-    // The node lacks the `recursion_group` member its self-cycle requires,
-    // so the refusal points at the node.
-    let recursion_group_refusal = refusal(
-        CheckedPackageRefusalCode::InvalidSemanticGraph,
-        &format!("/semantic_graph/nodes/{own}"),
+    let stale_structural_key_refusal = refusal_at(
+        CheckedPackageRefusalCode::InvalidPackage,
+        &format!("/semantic_graph/nodes/{own}/node_id"),
+        Some(CheckedPackageRefusalCause::StaleNodeKey),
+        own_id["digest"].as_str().expect("structural digest"),
     );
-    // An `application`-termed body embedding a literal self-reference to its
-    // own node_id is, once `validate_application_keys` exists, a
-    // cryptographic impossibility to construct honestly: a node's digest is
-    // derived from its body, so a body cannot legitimately embed that same
-    // digest as one of its own values without a hash-preimage attack. The
-    // stale-key check (run ahead of recursion, IR-216) therefore now catches
-    // this shape before recursion detection ever sees it — a more
-    // fundamental defect than a bare `recursion_group` refusal, not a
-    // regression of the carve-out's own coverage (cases 1-3 below, which
-    // never touch `validate_application_keys`, still exercise it directly).
+    // Application preimages include their bodies as well, so the same
+    // first-refusal rule applies to a self-reference inside an application.
     let stale_application_key_refusal = refusal_at(
         CheckedPackageRefusalCode::InvalidPackage,
         &format!("/semantic_graph/nodes/{application_position}/node_id"),
@@ -2169,23 +2297,14 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
         assert_eq!(refused(&mutated, &evidence_for(&mutated)), expected);
     };
 
-    // Negative: a self-typed node whose body is a `reference` term naming
-    // itself is a genuine 1-node cycle, not the carve-out's case. The carve-
-    // out regressed this: it used to key on node identity alone
-    // (`semantic_type == position`), which also swallowed this case with no
-    // `recursion_group` on `origin/main`'s vendored fixture.
+    // A body-root reference to the node's own key.
     assert_self_cycle_refused(
         own,
         json!({"term": "reference", "target": own_id}),
-        recursion_group_refusal.clone(),
+        stale_structural_key_refusal.clone(),
     );
 
-    // Negative: the same self-typed `literal.type` self-reference, nested
-    // one level inside an `aggregate` member instead of being the body's own
-    // top-level term, is still a genuine 1-node cycle. `validate_term`
-    // reports this nested literal's `type` as the same `literal.type` member
-    // as the body-root case, so the carve-out must not key on the member
-    // alone.
+    // A literal self-reference nested inside an aggregate.
     assert_self_cycle_refused(
         own,
         json!({
@@ -2194,11 +2313,10 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
                 {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
             ]
         }),
-        recursion_group_refusal.clone(),
+        stale_structural_key_refusal.clone(),
     );
 
-    // Negative: the same self-reference nested inside a `binding` value. A
-    // `binding` is no body root (FR-038-AC-114), so it is an aggregate's member.
+    // The same literal self-reference inside a binding value.
     assert_self_cycle_refused(
         own,
         json!({
@@ -2209,15 +2327,10 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
                 "value": {"term": "literal", "type": own_id, "value_kind": "integer", "value": 1}
             }]
         }),
-        recursion_group_refusal.clone(),
+        stale_structural_key_refusal.clone(),
     );
 
-    // Negative: the same self-reference nested inside an `application`
-    // argument. The body's own top-level term is now `application`, so
-    // `validate_application_keys` (IR-216) evaluates this node's key before
-    // recursion detection runs, and refuses it as stale — see
-    // `stale_application_key_refusal` above for why that is the correct,
-    // more fundamental defect rather than a masked recursion assertion.
+    // A literal self-reference nested inside an application argument.
     assert_self_cycle_refused(
         application_position,
         json!({
@@ -2238,11 +2351,7 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
         stale_application_key_refusal.clone(),
     );
 
-    // Negative: a self-typed node whose body-root `application.result_type`
-    // names itself is the same genuine 1-node cycle as the `reference` body
-    // case above — `application.result_type` is never exempt, whether or not
-    // the argument is itself self-referencing. Same stale-key reasoning as
-    // the previous case applies here too.
+    // A self-reference through application.result_type.
     assert_self_cycle_refused(
         application_position,
         json!({
@@ -2263,34 +2372,17 @@ fn tc_048_self_typed_carve_out_is_keyed_on_literal_type_member_and_body_root() {
         stale_application_key_refusal,
     );
 
-    // Positive: a self-typed node's own body-root `literal.type`
-    // self-reference is the carve-out's intended case and admits with no
-    // `recursion_group`; the same package also carries a sibling node whose
-    // nested `literal.type` names a *different* node — one admission
-    // exercising both the exempt body-root case and an ordinary nested
-    // reference the narrowing must not disturb.
+    // A self-typed body-root literal would also fail key authentication on
+    // this public wire: its structural preimage embeds its own final digest.
     let mut literal_type = base.clone();
     literal_type["semantic_graph"]["nodes"][own]["semantic_type"] = own_id.clone();
     literal_type["semantic_graph"]["nodes"][own]["body"] = json!({
         "term": "literal", "type": own_id, "value_kind": "integer", "value": 1
     });
-    literal_type["semantic_graph"]["nodes"][sibling]["body"] = json!({
-        "term": "aggregate",
-        "members": [
-            {"term": "literal", "type": other_id, "value_kind": "integer", "value": 1}
-        ]
-    });
     refresh_identity(&mut literal_type);
-    let package = admitted(&literal_type);
     assert_eq!(
-        package.graph().nodes[own].recursion_group,
-        None,
-        "a self-typed literal.type self-reference is not a cycle"
-    );
-    assert_eq!(
-        package.graph().nodes[sibling].recursion_group,
-        None,
-        "a nested literal typed by a different node is not a cycle"
+        refused(&literal_type, &evidence_for(&literal_type)),
+        stale_structural_key_refusal,
     );
 }
 
@@ -2607,12 +2699,42 @@ fn declare(package: &mut Value, position: usize, name: &[&str]) {
     });
 }
 
+/// Rekey the all-family fixture after a declaration changes a structural
+/// preimage. Every rename reaches downstream type, body, frame and package
+/// references; `settle` then rekeys application nodes over those references.
+fn rekey_declared_all_families(package: &mut Value) {
+    let count = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    for _ in 0..=count {
+        let previous: Vec<Value> = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect();
+        checked_package::mint_ungrouped_structural_keys(package);
+        checked_package::settle(package);
+        let current: Vec<Value> = package["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .map(|node| node["node_id"].clone())
+            .collect();
+        if current == previous {
+            return;
+        }
+    }
+    panic!("declared all-family fixture did not reach stable keys");
+}
+
 /// Tracing: TC-048, FR-038-AC-21
 #[trace("TC-048", "FR-038-AC-21")]
 #[test]
 fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
-    // Nodes: 0 root, 1 declaring model ("Example::Widget"), 2 literal,
-    // 3 plain function, 4 application call.
+    // Nodes: 0 root, 1 declaring namespace ("Example::Widget"), 2 literal,
+    // 3 declaring function, 4 application call.
     let with_operation_defect = || {
         let mut value = positive_operation_identities();
         value["semantic_graph"]["nodes"][4]["body"]["operation"]["identity"] =
@@ -2630,9 +2752,21 @@ fn tc_048_a_declaration_refusal_precedes_an_operation_refusal() {
     );
     // With a second node declaring the same name, the declaration refusal wins.
     let mut both = with_operation_defect();
+    let stale = digest_of(&both["semantic_graph"]["nodes"][3]);
     declare(&mut both, 3, &["Example", "Widget"]);
-    checked_package::rebuild_source_map(&mut both);
-    refresh_identity(&mut both);
+    let function = &both["semantic_graph"]["nodes"][3];
+    let fresh = sha256_hex(&canonical(&json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": function["node_tag"],
+        "semantic_form": function["semantic_form"],
+        "semantic_type": function["semantic_type"],
+        "owner": function["owner"],
+        "declaration": function["declaration"],
+        "recursion": null,
+        "body": function["body"],
+    })));
+    checked_package::rename_node(&mut both, &stale, &fresh);
+    checked_package::settle(&mut both);
     let declaring = digest_of(&both["semantic_graph"]["nodes"][1]);
     let function = digest_of(&both["semantic_graph"]["nodes"][3]);
     assert_eq!(
@@ -2674,8 +2808,7 @@ fn tc_048_a_declaration_refusal_precedes_a_frame_refusal() {
     let mut both = with_frame_defect();
     declare(&mut both, 0, &["Example", "Dup"]);
     declare(&mut both, 1, &["Example", "Dup"]);
-    checked_package::rebuild_source_map(&mut both);
-    refresh_identity(&mut both);
+    rekey_declared_all_families(&mut both);
     let first = digest_of(&both["semantic_graph"]["nodes"][0]);
     let second = digest_of(&both["semantic_graph"]["nodes"][1]);
     assert_eq!(
@@ -2706,7 +2839,7 @@ fn first_reference(term: &Value) -> Option<Value> {
 #[trace("TC-048", "FR-038-AC-17")]
 #[test]
 fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
-    let mut base = v2_all_families();
+    let base = v2_all_families();
     let position_of = |value: &Value, test: &dyn Fn(&Value) -> bool| {
         value["semantic_graph"]["nodes"]
             .as_array()
@@ -2718,16 +2851,11 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
     let function = position_of(&base, &|node| {
         node["node_id"]["digest"] == checked_package::family_key("ffff")
     });
-    // The called node takes the highest possible key, so that the placement
-    // with the called node first puts the higher digest first whatever the
-    // application's own key hashes to; its key is a placeholder (a `function`
-    // node), so nothing re-derives it, and the application is re-keyed over it.
+    // The call and its target are both independently keyed by their closed
+    // preimages. Their graph placement determines the group ordinals.
     let original_target = first_reference(&base["semantic_graph"]["nodes"][function]["body"])
         .expect("the call references a node");
-    let target = checked_package::node_id(&"ff".repeat(32));
-    replace_everywhere(&mut base, &original_target, &target);
-    checked_package::rekey_application_node(&mut base, function);
-    refresh_identity(&mut base);
+    let target = original_target;
     let function_key = base["semantic_graph"]["nodes"][function]["node_id"]["digest"].clone();
     // Groups the application node with the node it calls, placing the
     // application first or second in graph order, and re-keys it by FR-322.
@@ -2757,13 +2885,7 @@ fn tc_048_an_application_node_in_a_recursion_group_keys_by_fr322_ordinals() {
         for position in [function, referenced] {
             nodes[position]["recursion_group"] = json!("g");
         }
-        let group = [function.min(referenced), function.max(referenced)]
-            .map(|position| nodes[position]["node_id"].clone());
-        let stale = nodes[function]["node_id"].clone();
-        let fresh_digest = checked_package::application_key_in_group(&nodes[function], &group);
-        let mut fresh = stale.clone();
-        fresh["digest"] = json!(fresh_digest);
-        replace_everywhere(&mut value, &stale, &fresh);
+        checked_package::mint_grouped_structural_keys(&mut value);
         refresh_identity(&mut value);
         let nodes = value["semantic_graph"]["nodes"].as_array().expect("nodes");
         let in_graph_order = [function.min(referenced), function.max(referenced)]

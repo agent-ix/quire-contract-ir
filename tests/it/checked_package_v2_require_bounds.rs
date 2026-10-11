@@ -6,9 +6,9 @@
 //! one on every literal, including the name literal of every parameter).
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, integer_range_key, mint_ungrouped_structural_keys,
-    node_id, nominal_fixture_members, nominal_package, over_body, settle, sha256_hex,
-    structural_key, typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
+    bounds_body, canonical, evidence_for, integer_range_key, mint_grouped_structural_keys,
+    mint_ungrouped_structural_keys, node_id, nominal_fixture_members, nominal_package, over_body,
+    settle, sha256_hex, structural_key, typed_node_id, BOOLEAN_KEY, INTEGER_KEY,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -191,6 +191,8 @@ fn finish(mut package: Value, mut nodes: Vec<(String, Value)>) -> Fixture {
     let old_keys = nodes.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
     package["semantic_graph"]["nodes"] =
         Value::Array(nodes.into_iter().map(|(_, node)| node).collect());
+    mint_ungrouped_structural_keys(&mut package);
+    mint_grouped_structural_keys(&mut package);
     mint_ungrouped_structural_keys(&mut package);
     settle(&mut package);
     let ids = old_keys

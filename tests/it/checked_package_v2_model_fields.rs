@@ -1470,9 +1470,9 @@ fn refusal_document() -> Value {
 }
 
 /// `UnknownNode` and `NotModelObjectType` are two errors: an id no node has,
-/// a scalar node, a systems interface's declaration node and a node keyed as
-/// no selected declaration each name what is wrong, and the call is `Ok` for
-/// an absent field name.
+/// a scalar node and a systems interface's declaration node each name what is
+/// wrong, and the call is `Ok` for an absent field name. An unselected model
+/// owner is checked separately at admission.
 ///
 /// Trace: FR-038-AC-139, FR-038-AC-155
 #[trace("TC-227", "FR-038-AC-139", "FR-038-AC-155")]
@@ -1516,15 +1516,13 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
     assert_eq!(names(&fields), ["balance"]);
 }
 
-/// A model node the document does not select, and one whose body is not
-/// `aggregate{[]}`, are admitted when unread and are `NotModelObjectType`; two
-/// packages that differ only in that node's body return `Ok` and
-/// `NotModelObjectType`.
+/// A model declaration's closed body is authenticated before the accessor is
+/// available; an unselected model owner still refuses during owner joining.
 ///
 /// Trace: FR-038-AC-139
-#[trace("TC-227", "FR-038-AC-139")]
+#[trace("TC-227", "FR-038-AC-139", "FR-038-AC-150")]
 #[test]
-fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
+fn tc_227_a_changed_model_declaration_refuses_before_field_access() {
     let declared = [(ORDER, OBJECT), ("Pump", INTERFACE)];
     let (package, evidence, _) = package(&refusal_document(), &declared, &[]);
     let order = declaration_key(ORDER, OBJECT);
@@ -1552,13 +1550,31 @@ fn tc_227_a_model_node_that_step_two_would_refuse_is_no_object_type() {
         }
     }
     refresh_identity(&mut tampered);
-    let tampered = admitted(&tampered);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_with(&tampered, &evidence, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("a changed model declaration must refuse admission");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
     assert_eq!(
-        tampered.model_object_fields(&declaration_id(ORDER)),
-        Err(CheckedModelFieldsError::NotModelObjectType),
-        "an unread node with a body is admitted and is no model object type"
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::StaleNodeKey)
     );
-    assert_ne!(intact, tampered, "the packages differ in that body alone");
+    let order_position = tampered["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"]["digest"] == json!(order))
+        .expect("Order declaration");
+    assert_eq!(
+        refusal.path.as_ref().map(|path| path.as_str()),
+        Some(format!("/semantic_graph/nodes/{order_position}/node_id").as_str())
+    );
+    assert_eq!(
+        refusal.locus.as_ref().expect("locus").digest.as_ref(),
+        order
+    );
+    assert!(refusal.expected_node_id().is_none());
     // A node keyed as no selected declaration.
     let mut unselected = package;
     let stranger = "a".repeat(64);
@@ -1799,10 +1815,6 @@ fn admits_under(package: &Value, evidence: &CheckedPackageEvidence, work: u64) -
         CheckedPackageV2ReadResult::Admitted(_) => true,
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-            assert_eq!(
-                incomplete.path.map(|path| path.to_string()).as_deref(),
-                Some("/lock/model_selections/0")
-            );
             false
         }
         other => panic!("expected admission or `incomplete`, got {other:?}"),
@@ -1824,9 +1836,8 @@ fn smallest_admitting_work(package: &Value, evidence: &CheckedPackageEvidence) -
     low
 }
 
-/// A chain of 4 types and a chain of 8 admit under the smallest `work` limit
-/// `M` that admits them, and under `M - 1` are `incomplete` at
-/// `/lock/model_selections/0`, though nothing reads them.
+/// The last table charge precedes the graph stage. The selected-owner charge
+/// follows graph validation, so one below the whole-read minimum stops there.
 ///
 /// Trace: FR-038-AC-144
 #[trace("TC-227", "FR-038-AC-144")]
@@ -1837,7 +1848,18 @@ fn tc_227_a_chain_admits_at_its_smallest_limit_and_is_incomplete_one_below() {
         let smallest = smallest_admitting_work(&package, &evidence);
         assert!(smallest > 0);
         assert!(admits_under(&package, &evidence, smallest));
-        assert!(!admits_under(&package, &evidence, smallest - 1));
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = smallest - 1;
+        match read_with(&package, &evidence, limits) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+                assert_eq!(
+                    incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                    Some("/lock/model_selections/0")
+                );
+            }
+            other => panic!("expected one-below incomplete, got {other:?}"),
+        }
     }
 }
 
@@ -1855,11 +1877,21 @@ fn tc_227_the_long_chains_are_decided_by_the_bounded_work_limit() {
     assert!(admits_under(&package, &evidence, bounded));
     let (package, evidence) = chain_package(1500);
     assert!(!admits_under(&package, &evidence, bounded));
+    match read_with(&package, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected table-charge incomplete, got {other:?}"),
+    }
 }
 
 /// The package of a chain of 8 types with a read whose node key is stale: a
 /// graph-stage refusal, `invalid_package`/`stale-node-key`.
-fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
+fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence, usize) {
     let read = || Read {
         owner: "C8",
         field: "f8",
@@ -1872,7 +1904,7 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
     stale["semantic_graph"]["nodes"][at]["node_id"]["digest"] = json!("f".repeat(64));
     rebuild_source_map(&mut stale);
     refresh_identity(&mut stale);
-    (valid, stale, evidence)
+    (valid, stale, evidence, at)
 }
 
 /// Tables are built after every row's step 1 and before the graph stage: a
@@ -1884,7 +1916,7 @@ fn stale_chain_package() -> (Value, Value, CheckedPackageEvidence) {
 #[trace("TC-227", "FR-038-AC-144")]
 #[test]
 fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
-    let (valid, stale, evidence) = stale_chain_package();
+    let (valid, stale, evidence, stale_at) = stale_chain_package();
     // The smallest limit under which the tables are built: one below it, the
     // build is what exhausts the limit.
     let exhausts_tables = |package: &Value, work: u64| {
@@ -1923,6 +1955,45 @@ fn tc_227_the_tables_follow_every_step_one_and_precede_the_graph_stage() {
     // One under, the same package is `incomplete` at the tables' row, not the
     // graph stage's stale key.
     assert!(exhausts_tables(&stale, smallest - 1));
+
+    // The stale read node supplies a separate structural-key boundary. The
+    // first sufficient budget reaches its stale-key refusal; one below must
+    // stop at that node's final, unpaid key charge after table construction.
+    let stale_key_path = format!("/semantic_graph/nodes/{stale_at}/node_id");
+    let graph_refuses = |work: u64| {
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = work;
+        matches!(
+            read_with(&stale, &evidence, limits),
+            CheckedPackageV2ReadResult::Refused(refusal)
+                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                    && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
+                    && refusal.path.as_ref().map(ToString::to_string).as_deref()
+                        == Some(stale_key_path.as_str())
+        )
+    };
+    let (mut low, mut high) = (smallest, CheckedPackageReadLimits::bounded().work);
+    assert!(graph_refuses(high));
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if graph_refuses(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = low - 1;
+    match read_with(&stale, &evidence, limits) {
+        CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+                Some(stale_key_path.as_str())
+            );
+        }
+        other => panic!("expected structural-key charge denial, got {other:?}"),
+    }
 
     // Row 0 is the chain, row 1 a selection no evidence supplies.
     let mut two = valid;

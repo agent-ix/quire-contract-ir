@@ -30,27 +30,48 @@ use quire_contract_model::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const NODE_DOMAIN: &str = "quire.checked-semantic-node/v1";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";
 const FAMILY_OBJECT: &str = "ix://test/families/Account";
+const FAMILY_INTERFACE: &str = "ix://test/families/Interface";
 const FAMILY_RELATIONSHIP: &str = "ix://test/families/relationship/Account-balance-Account";
 
 pub fn family_model_document() -> Value {
+    let fields = ["balance", "total"]
+        .into_iter()
+        .map(|name| {
+            json!({
+                "identity": format!("{FAMILY_OBJECT}/{name}"),
+                "name": name, "typeRef": "ix://quire/native/Integer",
+                "presence": "required", "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+            })
+        })
+        .collect::<Vec<_>>();
+    let operations = ["deposit", "withdraw"]
+        .into_iter()
+        .map(|name| json!({"identity": format!("{FAMILY_OBJECT}/{name}"), "params": []}))
+        .collect::<Vec<_>>();
     json!({
         "contractVersion": "2.0.0",
         "package": {"identity": FAMILY_MODEL_IDENTITY, "version": "1"},
         "constructs": [{
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"},
+        }, {
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
+            "construct": {"meaning": "quire.meaning.systems.interface/v1"},
         }],
         "types": [{
             "identity": FAMILY_OBJECT, "displayName": "Account",
             "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "entity"},
             "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
             "supertypes": [],
-            "fields": [], "operations": [],
+            "fields": fields,
+            "operations": operations,
             "relationships": [{
                 "identity": FAMILY_RELATIONSHIP,
                 "category": "structural", "composite": false, "direction": "bidirectional",
@@ -61,6 +82,11 @@ pub fn family_model_document() -> Value {
                 "origin": {"source": {"sourceIdentity": FAMILY_OBJECT,
                     "path": "models/Account.md", "startLine": 1, "startColumn": 1}},
             }],
+        }, {
+            "identity": FAMILY_INTERFACE, "displayName": "Interface",
+            "kind": {"module": FAMILY_MODEL_IDENTITY, "name": "interface"},
+            "roles": [], "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [], "fields": [], "operations": [],
         }],
     })
 }
@@ -372,11 +398,11 @@ pub fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
     replace_digest(package, stale, fresh);
 }
 
-/// Mint QSL FR-092 keys for a builder's owner-free, ungrouped structural
-/// nodes. Each rename reaches every reference in the test package; repeated
-/// passes let a node built before a type it names pick up the type's real key.
-/// Nominal, application, model-owned, grouped and FR-451 relation keys have
-/// their separate constructors or owning stages.
+/// Mint QSL FR-092/FR-094 keys for a builder's ungrouped structural nodes,
+/// including owner-bearing and declared nodes. Each rename reaches every
+/// reference in the test package; repeated passes let a node built before a
+/// type it names pick up the type's real key. Nominal, application, grouped
+/// and FR-451 abstraction-relation keys have separate constructors or stages.
 pub fn mint_ungrouped_structural_keys(package: &mut Value) {
     let count = package["semantic_graph"]["nodes"]
         .as_array()
@@ -390,23 +416,26 @@ pub fn mint_ungrouped_structural_keys(package: &mut Value) {
             let form = node["semantic_form"].as_str().expect("semantic form");
             if node.get("nominal_identity_preimage").is_some()
                 || node["body"]["term"] == "application"
-                || node.get("declaration").is_some()
                 || node.get("recursion_group").is_some()
-                || matches!(tag, "model" | "relation")
                 || (tag == "correspondence" && form == "abstraction_relation")
             {
                 continue;
             }
             let stale = node["node_id"]["digest"].as_str().expect("node digest");
-            let semantic_type = node["semantic_type"]["digest"]
-                .as_str()
-                .expect("semantic type digest");
-            let fresh = structural_key(
-                tag,
-                form,
-                (semantic_type != stale).then_some(semantic_type),
-                &node["body"],
-            );
+            let mut preimage = json!({
+                "version": "quire.structural-node/v1",
+                "node_tag": tag,
+                "semantic_form": form,
+                "semantic_type": (node["semantic_type"] != node["node_id"])
+                    .then(|| node["semantic_type"].clone()),
+                "declaration": node.get("declaration"),
+                "recursion": null,
+                "body": node["body"],
+            });
+            if let Some(owner) = node.get("owner") {
+                preimage["owner"] = owner.clone();
+            }
+            let fresh = sha256_hex(&canonical(&preimage));
             if fresh != stale {
                 rename_node(package, stale, &fresh);
                 changed = true;
@@ -417,6 +446,154 @@ pub fn mint_ungrouped_structural_keys(package: &mut Value) {
         }
     }
     panic!("ungrouped fixture nodes did not reach stable structural keys");
+}
+
+/// Mint the FR-092 keys and content label of each explicit recursion group.
+/// Member-local preimages replace within-group references by graph ordinals;
+/// their digest array gives the label before member keys include that label.
+pub fn mint_grouped_structural_keys(package: &mut Value) {
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .clone();
+    let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for node in nodes {
+        if let Some(label) = node.get("recursion_group").and_then(Value::as_str) {
+            groups.entry(label.to_owned()).or_default().push(node);
+        }
+    }
+    for (old_label, members) in groups {
+        let ids = members
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| {
+                (
+                    node["node_id"]["digest"]
+                        .as_str()
+                        .expect("digest")
+                        .to_owned(),
+                    ordinal,
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let local = members
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| grouped_local_key(node, &ids, ordinal, None))
+            .collect::<Vec<_>>();
+        let label = sha256_hex(&canonical(&json!(local)));
+        for node in package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+        {
+            if node["recursion_group"] == old_label {
+                node["recursion_group"] = json!(label);
+            }
+        }
+        let replacements = members
+            .iter()
+            .enumerate()
+            .map(|(ordinal, node)| {
+                (
+                    node["node_id"]["digest"]
+                        .as_str()
+                        .expect("digest")
+                        .to_owned(),
+                    grouped_local_key(node, &ids, ordinal, Some(&label)),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        replace_digests(package, &replacements);
+    }
+}
+
+fn replace_digests(value: &mut Value, replacements: &HashMap<String, String>) {
+    match value {
+        Value::String(text) => {
+            if let Some(fresh) = replacements.get(text) {
+                *text = fresh.clone();
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| replace_digests(item, replacements)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|item| replace_digests(item, replacements)),
+        _ => {}
+    }
+}
+
+/// The fixture-authored FR-092 local preimage digest, optionally binding a
+/// retained group label for the first structural-key pass.
+pub fn grouped_local_key(
+    node: &Value,
+    ids: &HashMap<String, usize>,
+    ordinal: usize,
+    label: Option<&str>,
+) -> String {
+    fn rewrite(value: &Value, ids: &HashMap<String, usize>) -> Value {
+        if value["term"] == "reference" {
+            if let Some(ordinal) = value["target"]["digest"]
+                .as_str()
+                .and_then(|digest| ids.get(digest))
+            {
+                return json!({"term": "group_reference", "ordinal": ordinal});
+            }
+        }
+        match value {
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|item| rewrite(item, ids)).collect())
+            }
+            Value::Object(fields) => Value::Object(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.clone(), rewrite(value, ids)))
+                    .collect(),
+            ),
+            _ => value.clone(),
+        }
+    }
+    let application = node["body"]["term"] == "application";
+    let semantic_type = if application {
+        node["semantic_type"].clone()
+    } else if node["semantic_type"] == node["node_id"] {
+        Value::Null
+    } else if let Some(ordinal) = node["semantic_type"]["digest"]
+        .as_str()
+        .and_then(|digest| ids.get(digest))
+    {
+        json!({"term": "group_reference", "ordinal": ordinal})
+    } else {
+        node["semantic_type"].clone()
+    };
+    let mut recursion = json!({"size": ids.len(), "ordinal": ordinal});
+    if !application {
+        if let Some(label) = label {
+            recursion["group"] = json!(label);
+        }
+    }
+    let body = rewrite(&node["body"], ids);
+    let version = if application {
+        APPLICATION_NODE_VERSION
+    } else {
+        "quire.structural-node/v1"
+    };
+    let mut preimage = json!({
+        "version": version,
+        "node_tag": node["node_tag"],
+        "semantic_form": node["semantic_form"],
+        "semantic_type": semantic_type,
+        "declaration": node.get("declaration"),
+        "recursion": recursion,
+        "body": body,
+    });
+    if let Some(owner) = node.get("owner") {
+        if version == "quire.structural-node/v1" {
+            preimage["owner"] = owner.clone();
+        }
+    }
+    sha256_hex(&canonical(&preimage))
 }
 
 fn replace_digest(value: &mut Value, stale: &str, fresh: &str) {
@@ -774,6 +951,29 @@ pub fn structural_key(
     sha256_hex(&canonical(&preimage))
 }
 
+/// The same structural preimage for fixture nodes with an owner or declaration.
+/// Model declarations and source declarations must include those members in
+/// their key; the anonymous helper above deliberately leaves them absent.
+fn owned_structural_key(
+    node_tag: &str,
+    semantic_form: &str,
+    semantic_type: Option<&str>,
+    owner: Value,
+    declaration: Value,
+) -> String {
+    let preimage = json!({
+        "version": "quire.structural-node/v1",
+        "node_tag": node_tag,
+        "semantic_form": semantic_form,
+        "semantic_type": semantic_type.map_or(Value::Null, node_id),
+        "owner": owner,
+        "declaration": declaration,
+        "recursion": Value::Null,
+        "body": empty_aggregate(),
+    });
+    sha256_hex(&canonical(&preimage))
+}
+
 /// The derived key of the anonymous `scalar_type`/`boolean` node, as a
 /// literal; `structural_key` recomputes it in `tc_226_the_recorded_scalar_keys_are_the_derived_ones`.
 pub const BOOLEAN_KEY: &str = "9964390677844ad66b781babdbfa95933bc2b16ef1e86f67005966b77e6db3aa";
@@ -893,11 +1093,9 @@ pub fn application_key_in_group(node: &Value, group: &[Value]) -> String {
 }
 
 /// The exact 64-hex-digit node key this generator assigns to a family or
-/// supporting node's `prefix` in [`build_v2_all_families`]: `prefix.repeat(16)`
-/// for every plain node, except the four whose body is a real `application`
-/// term (`ffff`/`4040`/`5050`/`6060` — the function/temporal/protocol/claim
-/// families), whose node key must be the actual [`application_key`] of their
-/// own preimage or the reader refuses them as `stale-node-key`.
+/// supporting node's historical `prefix` in [`build_v2_all_families`].
+/// Structural and application nodes use the keys of their respective
+/// preimages; forms outside those stages retain their fixture identity.
 /// `tests/checked_package_v2_lowering.rs`'s own `key()` calls this directly,
 /// so the fixture and the test that indexes it by prefix can never drift.
 pub fn family_key(prefix: &str) -> String {
@@ -950,6 +1148,27 @@ pub fn family_key(prefix: &str) -> String {
             &over_body(&family_key("aaaa")),
         ),
         "cccc" => integer_range_key("0", "1000"),
+        "1010" => structural_key(
+            "model",
+            "namespace",
+            Some(&boolean_key()),
+            &empty_aggregate(),
+        ),
+        "1616" => structural_key("model", "process", Some(&boolean_key()), &empty_aggregate()),
+        "2020" => owned_structural_key(
+            "relation",
+            "relationship",
+            None,
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_RELATIONSHIP),
+            Value::Null,
+        ),
+        "1515" => owned_structural_key(
+            "model",
+            "object_type",
+            None,
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
+            Value::Null,
+        ),
         "3030" => structural_key(
             "state",
             "snapshot",
@@ -962,11 +1181,12 @@ pub fn family_key(prefix: &str) -> String {
             Some(&boolean_key()),
             &empty_aggregate(),
         ),
-        "8080" => structural_key(
+        "8080" => owned_structural_key(
             "function",
             "pure_function",
             Some(&boolean_key()),
-            &empty_aggregate(),
+            source_owner(&fixture_source()),
+            json!({"qualified_name": ["Example", "Function"]}),
         ),
         "a1a1" => structural_key("scalar_type", "text", None, &empty_aggregate()),
         "dddd" => structural_key("value", "literal", Some(&boolean_key()), &empty_aggregate()),
@@ -1573,7 +1793,8 @@ pub fn nominal_fixture_members() -> Vec<(Value, String)> {
 }
 
 /// Builds `v2_all_families()`: one node per V2 semantic-node family (in
-/// `CheckedNodeTag::ALL` order, positions 0-12, keyed `aaaa`.."7070"), plus
+/// `CheckedNodeTag::ALL` order, positions 0-12, identified by the historical
+/// `aaaa`..`7070` prefixes through [`family_key`]), plus
 /// four supporting nodes the family nodes' own required members reference —
 /// a second `pure_function` the `function` family's real `application`
 /// argument names, the source-declared `object_type` (`Example::Account`,
@@ -1607,12 +1828,22 @@ fn build_v2_all_families() -> Value {
     let f8080 = family_key("8080");
     let f1515 = family_key("1515");
     let f1616 = family_key("1616");
+    // FR-340 orders frame modifications by declaration digest, then field
+    // name. The model declaration digests can change with their preimages.
+    let mut modifies = [
+        (
+            &f1515,
+            json!({"kind": "field", "declaration": node_id(&f1515), "name": "balance"}),
+        ),
+        (
+            &f2020,
+            json!({"kind": "relationship", "declaration": node_id(&f2020)}),
+        ),
+    ];
+    modifies.sort_by(|left, right| left.0.cmp(right.0));
     let frame_body = json!({
         "term": "frame",
-        "modifies": [
-            {"kind": "field", "declaration": node_id(&f1515), "name": "balance"},
-            {"kind": "relationship", "declaration": node_id(&f2020)},
-        ],
+        "modifies": modifies.into_iter().map(|(_, entry)| entry).collect::<Vec<_>>(),
         "creates": [node_id(&f1515)],
         "deletes": [node_id(&f1616)],
     });
@@ -1688,14 +1919,11 @@ fn build_v2_all_families() -> Value {
                 &f2020,
                 "relation",
                 "relationship",
-                &aaaa,
+                &f2020,
                 &[aaaa.as_str()],
                 empty_aggregate(),
             );
-            relation["owner"] = json!({
-                "kind": "model", "identity": FAMILY_MODEL_IDENTITY,
-                "node": FAMILY_RELATIONSHIP,
-            });
+            relation["owner"] = model_owner(FAMILY_MODEL_IDENTITY, FAMILY_RELATIONSHIP);
             relation
         },
         plain_node(
@@ -1758,7 +1986,7 @@ fn build_v2_all_families() -> Value {
             ),
             &["Example", "Function"],
         ),
-        declared(
+        owned_structural_node(
             plain_node(
                 &f1515,
                 "model",
@@ -1767,7 +1995,7 @@ fn build_v2_all_families() -> Value {
                 &[aaaa.as_str()],
                 empty_aggregate(),
             ),
-            &["Example", "Account"],
+            model_owner(FAMILY_MODEL_IDENTITY, FAMILY_OBJECT),
         ),
         plain_node(
             &f1616,
@@ -1890,11 +2118,24 @@ fn build_v2_all_families() -> Value {
 /// assert the closed-schema refusal each deletion produces.
 fn build_operation_identities() -> Value {
     let root = boolean_key();
-    let declaring = "cafe".repeat(16);
+    let source = fixture_source();
+    let declaring = owned_structural_key(
+        "model",
+        "namespace",
+        Some(&root),
+        source_owner(&source),
+        json!({"qualified_name": ["Example", "Widget"]}),
+    );
     let literal_body =
         json!({"term": "literal", "type": node_id(&root), "value_kind": "boolean", "value": true});
     let literal_key = structural_key("value", "literal", Some(&root), &literal_body);
-    let func = structural_key("function", "pure_function", Some(&root), &empty_aggregate());
+    let func = owned_structural_key(
+        "function",
+        "pure_function",
+        Some(&root),
+        source_owner(&source),
+        json!({"qualified_name": ["Example", "Function"]}),
+    );
 
     let root_node = plain_node(
         &root,
@@ -1905,20 +2146,17 @@ fn build_operation_identities() -> Value {
         empty_aggregate(),
     );
 
-    let mut declaring_node = plain_node(
-        &declaring,
-        "model",
-        "object_type",
-        &root,
-        &[root.as_str()],
-        empty_aggregate(),
+    let declaring_node = declared(
+        plain_node(
+            &declaring,
+            "model",
+            "namespace",
+            &root,
+            &[root.as_str()],
+            empty_aggregate(),
+        ),
+        &["Example", "Widget"],
     );
-    declaring_node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
-    declaring_node["declaration"] = json!({"qualified_name": ["Example", "Widget"]});
-    let source = fixture_source();
-    declaring_node["owner"] = json!({
-        "kind": "source", "authority": source["authority"], "identity": source["identity"],
-    });
 
     let literal_node = plain_node(
         &literal_key,

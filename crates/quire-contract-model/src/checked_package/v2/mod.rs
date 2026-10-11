@@ -1919,11 +1919,10 @@ fn validate_graph(
         for (reference_index, (target, site)) in targets.iter().enumerate() {
             let target = resolve(target, &|| reference_pointer(position, reference_index))?;
             // Only a self-typed node's own top-level `literal.type` — the
-            // literal that *is* the node body, e.g. a self-typed scalar's
-            // `literal.type` — may name itself from its body without that
-            // counting as a reference cycle requiring `recursion_group`:
-            // FR-322's foundational nominal axiom is typed by itself and can
-            // state that fact only through its own `literal.type`. The
+            // literal that *is* the node body — may name itself from its body
+            // without counting as a reference cycle requiring
+            // `recursion_group`. This is conditional on an input reaching the
+            // graph stage after earlier key authentication. The
             // carve-out is keyed on that member *and* on `is_body_root`, not
             // on node identity alone: a `literal.type` nested inside an
             // `aggregate` member, a `binding` value or an `application`
@@ -1933,10 +1932,7 @@ fn validate_graph(
             // self-referencing a self-typed node. Both still resolve through
             // `recursion_group` or refuse, exactly like every other 1-node
             // cycle reached by this loop.
-            let is_self_typed_literal_type = site.is_body_root
-                && site.member == ReferenceMember::Type
-                && semantic_type == position;
-            if target != position || !is_self_typed_literal_type {
+            if reference_requires_cycle_edge(position, target, semantic_type, *site) {
                 successors.push((target, EdgeSite::Reference(reference_index)));
             }
         }
@@ -1976,6 +1972,21 @@ fn validate_graph(
         return Err(refuse(CheckedPackageRefusalCode::StaleDependency, path));
     }
     Ok((kinds, declarations))
+}
+
+/// Graph-stage reference decision after the target and semantic type resolve.
+/// Public key authentication runs earlier; the exemption remains conditional
+/// for callers that reach this stage with an already keyed graph.
+fn reference_requires_cycle_edge(
+    position: usize,
+    target: usize,
+    semantic_type: usize,
+    site: ReferenceSite,
+) -> bool {
+    target != position
+        || !site.is_body_root
+        || site.member != ReferenceMember::Type
+        || semantic_type != position
 }
 
 /// Every strongly connected component that forms a cycle must share one
@@ -2231,9 +2242,115 @@ fn validate_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::{
-        body_grammar, BodyGrammar, CheckedDependencySelection, CheckedNodeKind, CheckedSemanticId,
-        CorrespondenceForm, StateForm, DEPENDENCY_SELECTION_MEMBERS,
+        body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
+        validate_recursion, BodyGrammar, CheckedDependencySelection, CheckedNodeId,
+        CheckedNodeKind, CheckedPackageRefusalCode, CheckedSemanticId, CheckedSemanticNodeV2,
+        CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember, ReferenceSite, StateForm,
+        Step, Trail, ValidationFailure, WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
     };
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// The body-root literal exemption is a graph-stage rule after key
+    /// authentication; nested literal, reference and result-type sites keep
+    /// their cycle edges even on a self-typed node.
+    ///
+    #[trace("TC-048", "FR-038-AC-18")]
+    #[test]
+    fn tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge() {
+        let id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "a".repeat(64).into(),
+        };
+        let typed = serde_json::to_value(&id).expect("node id");
+        let bodies = [
+            (
+                json!({"term":"literal", "type":typed, "value_kind":"integer", "value":1}),
+                false,
+            ),
+            (
+                json!({"term":"aggregate", "members":[{"term":"literal", "type":typed, "value_kind":"integer", "value":1}]}),
+                true,
+            ),
+            (
+                json!({"term":"aggregate", "members":[{"term":"binding", "name":"x", "value":{"term":"literal", "type":typed, "value_kind":"integer", "value":1}}]}),
+                true,
+            ),
+            (json!({"term":"reference", "target":typed}), true),
+        ];
+        for (body, requires_edge) in bodies {
+            let mut sites = Vec::new();
+            validate_body(
+                CheckedNodeKind::Expression(ExpressionForm::Reference),
+                &body,
+                &Trail::Base(&[Step::Key("body")]),
+                &mut |target, site, _| {
+                    if target == &id {
+                        sites.push(site);
+                    }
+                },
+            )
+            .expect("closed body");
+            assert_eq!(sites.len(), 1);
+            let has_edge = reference_requires_cycle_edge(0, 0, 0, sites[0]);
+            assert_eq!(has_edge, requires_edge);
+            let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+                "node_id":typed,
+                "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"expression",
+                "semantic_form":"reference",
+                "semantic_type":typed,
+                "dependencies":[],
+                "occurrences":[{"role":"generated", "ordinal":0}],
+                "body":body,
+            }))
+            .expect("graph-stage node");
+            let adjacency = if has_edge {
+                vec![vec![(0, EdgeSite::Reference(0))]]
+            } else {
+                vec![vec![]]
+            };
+            let mut meter = WorkMeter::new(u64::MAX);
+            let result = validate_recursion(&[node], &adjacency, &mut meter, &|_, _| {
+                node_pointer(0).key("body")
+            });
+            if requires_edge {
+                let Err(ValidationFailure::Refused(refusal)) = result else {
+                    panic!("a nonexempt self-reference must refuse");
+                };
+                assert_eq!(
+                    refusal.code,
+                    CheckedPackageRefusalCode::InvalidSemanticGraph
+                );
+                assert_eq!(refusal.path, Some(node_pointer(0)));
+            } else {
+                assert!(result.is_ok(), "the body-root literal is exempt");
+            }
+        }
+        let root_literal = ReferenceSite {
+            member: ReferenceMember::Type,
+            is_body_root: true,
+        };
+        assert!(!reference_requires_cycle_edge(0, 0, 0, root_literal));
+        assert!(reference_requires_cycle_edge(0, 1, 0, root_literal));
+        assert!(reference_requires_cycle_edge(0, 0, 1, root_literal));
+        for site in [
+            ReferenceSite {
+                is_body_root: false,
+                ..root_literal
+            },
+            ReferenceSite {
+                member: ReferenceMember::Target,
+                is_body_root: true,
+            },
+            ReferenceSite {
+                member: ReferenceMember::ResultType,
+                is_body_root: true,
+            },
+        ] {
+            assert!(reference_requires_cycle_edge(0, 0, 0, site));
+        }
+    }
 
     /// The members `classify_dependency_entry_shape` treats as required are
     /// exactly the members of `CheckedDependencySelection`.

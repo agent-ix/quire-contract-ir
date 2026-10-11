@@ -216,6 +216,25 @@ fn application_preimage<'a>(
     })
 }
 
+/// The existing application preimage contributes unchanged to a group digest.
+pub(super) fn application_local_digest(
+    node: &CheckedSemanticNodeV2,
+    position: usize,
+    group: &[&CheckedNodeId],
+    bytes: u64,
+) -> Result<String, ValidationFailure> {
+    let application = Application { node, position };
+    let preimage = application_preimage(application, group)?;
+    quire_canonical::sha256(&preimage, quire_canonical::Limits::new(bytes))
+        .map(|digest| digest.to_string())
+        .map_err(|_| {
+            ValidationFailure::refused(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                application.node_id(),
+            )
+        })
+}
+
 /// `term` with every `reference` to a recursion-group member rewritten as
 /// `{term: "group_reference", ordinal}`, walking application arguments,
 /// aggregate members and binding values, the SemanticTerm positions that hold

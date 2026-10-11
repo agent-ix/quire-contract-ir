@@ -31,14 +31,20 @@ redefinitions; chains of 4, 8, 1000 and 1500 types with one field each. Build th
 node by an independent recomputation through `quire-canonical`, never through
 the reader. Admit each, call `model_object_fields` on the model declaration
 node, and compare the result with the declared values. Call it with an unknown id
-and with each non-model-object node of AC-139, including two admitted packages
-that differ only in an unread model node's body. In a crate-internal test,
+and with each admitted non-model-object node of AC-139. Mutate only an unread
+selected model declaration's closed body and assert its exact stale-key
+admission refusal; separately append a declaration with an unselected model
+owner and assert its owner-join refusal. In a crate-internal test,
 replace a read node's body bounds after admission and compare the result. For
 each returned type, admit a read keyed from it and a read keyed from its
 perturbation (AC-141). Compile the API fixtures of AC-142 (exhaustive matches, a
 struct literal that must fail to compile). For AC-144, read the table-building
-counter (13 for 4 types, 43 for 8), find the smallest admitting `work` limit and
-test one below it, read the 1000 and 1500 chains under `bounded()`, run the
+counter (13 for 4 types, 43 for 8), find the smallest whole-read admitting
+`work` limit and check its one-below selected-owner charge pointer; separately
+stop one charge before the last selected table entry and check the same
+model-selection pointer. A stale-key chain separately finds the graph-stage
+refusal threshold and checks that one below it stops at the unpaid structural
+node-key charge. Read the 1000 and 1500 chains under `bounded()`, run the
 two precedence packages, read a field and an operation of the 4-chain for the
 read charges, compare the smallest admitting work budgets for full-reader
 frame-field, abstraction-field and relationship-edge packages whose selected
@@ -51,11 +57,16 @@ items 4 to 9.
 ## Expected Results
 
 The fields, order, types and `None` entries equal the declaration; each error is
-the variant AC-139 names; a replaced node body changes nothing; a read keyed from
+the variant AC-139 names; a retained model declaration body change refuses
+admission before any accessor call, while the crate-internal post-admission
+body replacement changes nothing; a read keyed from
 the returned type admits and its perturbation refuses `ill_typed`; the API
 fixtures compile or fail as stated; the chains admit under a sufficient limit
-and are `incomplete` below the charged sum at the stated pointer, with the stated
-precedence, and the call does no resolution.
+and are `incomplete` at the selected-owner charge one below the whole-read
+minimum, or at the model selection one below the last table charge. The stale
+chain is `incomplete` at its structural node-key charge one below the first
+budget that reaches its stale-key refusal. The stated precedence holds, and
+the call does no resolution.
 
 ## Status
 
