@@ -5635,7 +5635,13 @@ mod tests {
             pointer("/semantic_graph/nodes/0/body/operation/leaves"),
             pointer("/semantic_graph/nodes/0/body/operation"),
         );
+        let before_count = walk.meter.consumed();
         assert!(matches!(walk.count(&node_id('r')), Ok(300)));
+        let after_count = walk.meter.consumed();
+        // Two distinct expanded nodes and 301 entered edges are the count
+        // pass's leaf work. Pinning the shared profile chain costs 300 more;
+        // the remaining 300 units belong to structural forwarding.
+        assert_eq!(after_count - before_count, 2 + 301 + 300 + 300);
         assert_eq!(
             walk.structural.resolved.len(),
             300,
@@ -5646,6 +5652,12 @@ mod tests {
             .expect("text law");
         let placed = walk.first_leaf_fault(&node_id('r'), &supplied, laws);
         assert!(matches!(placed, Ok(Ok(ref pins)) if pins.len() == 300));
+        let after_placement = walk.meter.consumed();
+        assert_eq!(
+            after_placement - after_count,
+            301,
+            "placement pays only its 301 leaf visits, with no repeated forwarding or pin work"
+        );
         assert_eq!(
             walk.structural.resolved.len(),
             300,
@@ -5960,162 +5972,87 @@ mod tests {
     #[trace("FR-038-AC-224")]
     #[test]
     fn inner_result_and_leaf_edges_propagate_structural_work() {
-        let nodes = vec![
+        let mut contains = custom_application_node(
+            "collection",
+            plain_operation("quire.op.collection.contains"),
+            vec![reference_to('p'), reference_to('q')],
+        );
+        contains.body["result_type"] = json!(node_id('b'));
+        let inner = vec![
+            contains,
             forwarding_node('w', "composite_type", "alias", 's'),
             collection_type_node('s', "set", 'i'),
             scalar_type_node('i', "integer"),
+            scalar_type_node('b', "boolean"),
             parameter_of('p', 'w'),
+            parameter_of('q', 'i'),
         ];
-        let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
-        let graph = Graph {
-            nodes: &nodes,
-            kinds: &kinds,
-            index: &index,
-        };
-        let at = pointer("/semantic_graph/nodes/0/body/operation");
-        assert_eq!(
-            super::inner_type(
-                &node_id('w'),
-                &graph,
-                &mut WorkMeter::new(1),
-                &mut StructuralTypes::default(),
-                &at,
-            ),
-            Ok(Some(node_id('i')))
-        );
-        let inner_short = super::inner_type(
-            &node_id('w'),
-            &graph,
-            &mut WorkMeter::new(0),
-            &mut StructuralTypes::default(),
-            &at,
-        );
-        assert!(matches!(inner_short, Err(ValidationFailure::Incomplete(_))));
-        let mut meter = WorkMeter::new(0);
-        let mut structural = StructuralTypes::default();
-        let mut walk = super::LeafWalk::new(
-            graph,
-            &mut meter,
-            &mut structural,
-            at.clone().key("leaves"),
-            at.clone(),
-        );
-        let edge_short = walk.edge(Vec::new(), node_id('w'));
-        assert!(matches!(
-            edge_short,
-            Err(super::LeafWalkEnd::Work(ValidationFailure::Incomplete(_)))
-        ));
-        let mut exact_meter = WorkMeter::new(1);
-        let mut exact_structural = StructuralTypes::default();
-        let mut exact_walk = super::LeafWalk::new(
-            graph,
-            &mut exact_meter,
-            &mut exact_structural,
-            at.clone().key("leaves"),
-            at.clone(),
-        );
-        assert!(
-            matches!(exact_walk.edge(Vec::new(), node_id('w')), Ok(edge) if edge.position == 1)
-        );
 
-        let catalog = operation_catalog();
-        let contains = catalog
-            .entry("quire.op.collection.contains")
-            .expect("inner:0 entry");
-        let contains_application = custom_application_node(
-            "collection",
-            plain_operation("quire.op.collection.contains"),
-            Vec::new(),
-        );
-        let inner_short = super::check_leaf_count(
-            Application {
-                node: &contains_application,
-                position: 0,
-            },
-            contains,
-            &serde_json::from_value(plain_operation("quire.op.collection.contains"))
-                .expect("operation"),
-            &[reference_to('p')],
-            &graph,
-            &text_selecting_lock(),
-            catalog,
-            &mut super::OperationWork {
-                meter: &mut WorkMeter::new(0),
-                structural: &mut StructuralTypes::default(),
-            },
-        );
-        assert_work(inner_short, 0, 1);
-        let inner_exact = super::check_leaf_count(
-            Application {
-                node: &contains_application,
-                position: 0,
-            },
-            contains,
-            &serde_json::from_value(plain_operation("quire.op.collection.contains"))
-                .expect("operation"),
-            &[reference_to('p')],
-            &graph,
-            &text_selecting_lock(),
-            catalog,
-            &mut super::OperationWork {
-                meter: &mut WorkMeter::new(100),
-                structural: &mut StructuralTypes::default(),
-            },
-        );
-        assert_eq!(inner_exact, Ok(None));
-
-        let mut application = custom_application_node(
+        let mut flatten = custom_application_node(
             "collection",
             plain_operation("quire.op.collection.flatten"),
-            Vec::new(),
+            vec![reference_to('p')],
         );
-        application.body["result_type"] = json!(node_id('w'));
-        let entry = catalog
-            .entry("quire.op.collection.flatten")
-            .expect("result_inner entry");
-        // This result is set-like, so a successful lookup continues to its
-        // inner type and then the leaf walk. The exhausted lookup stops first.
-        let result_short = super::check_leaf_count(
-            Application {
-                node: &application,
-                position: 0,
-            },
-            entry,
-            &serde_json::from_value(plain_operation("quire.op.collection.flatten"))
-                .expect("operation"),
-            &[],
-            &graph,
-            &text_selecting_lock(),
-            catalog,
-            &mut super::OperationWork {
-                meter: &mut WorkMeter::new(0),
-                structural: &mut StructuralTypes::default(),
-            },
+        flatten.body["result_type"] = json!(node_id('w'));
+        let result_inner = vec![
+            flatten,
+            forwarding_node('w', "composite_type", "alias", 's'),
+            collection_type_node('s', "set", 'i'),
+            collection_type_node('q', "sequence", 's'),
+            scalar_type_node('i', "integer"),
+            parameter_of('p', 'q'),
+        ];
+
+        let mut record = custom_application_node(
+            "binary",
+            plain_operation("quire.op.structural.eq"),
+            vec![reference_to('p'), reference_to('q')],
         );
-        assert_work(result_short, 0, 1);
-        let result_exact = super::check_leaf_count(
-            Application {
-                node: &application,
-                position: 0,
-            },
-            entry,
-            &serde_json::from_value(plain_operation("quire.op.collection.flatten"))
-                .expect("operation"),
-            &[],
-            &graph,
-            &text_selecting_lock(),
-            catalog,
-            &mut super::OperationWork {
-                meter: &mut WorkMeter::new(100),
-                structural: &mut StructuralTypes::default(),
-            },
-        );
-        assert_eq!(result_exact, Ok(None));
+        record.body["result_type"] = json!(node_id('b'));
+        let leaf_edge = vec![
+            record,
+            record_type_node('r', &[("value", 'w')]),
+            forwarding_node('w', "composite_type", "alias", 'i'),
+            scalar_type_node('i', "integer"),
+            scalar_type_node('b', "boolean"),
+            parameter_of('p', 'r'),
+            parameter_of('q', 'r'),
+        ];
+
+        for (route, nodes) in [
+            ("inner:0", inner),
+            ("result_inner", result_inner),
+            ("leaf edge", leaf_edge),
+        ] {
+            let (ordinary, exact) =
+                measured_defect_for_graph(nodes.clone(), &empty_lock(), u64::MAX);
+            assert_eq!(ordinary, Ok(None), "{route} operation must be valid");
+            assert_eq!(
+                measured_defect_for_graph(nodes.clone(), &empty_lock(), exact).0,
+                Ok(None),
+                "{route} must admit at its measured operation budget"
+            );
+            let (short, consumed) =
+                measured_defect_for_graph(nodes.clone(), &empty_lock(), exact - 1);
+            assert_work(short, exact - 1, consumed);
+            let forwarding_work = (0..exact).find_map(|limit| {
+                let (outcome, consumed) =
+                    measured_defect_for_graph(nodes.clone(), &empty_lock(), limit);
+                match outcome {
+                    Err(ValidationFailure::Incomplete(incomplete))
+                        if incomplete.path
+                            == Some(pointer("/semantic_graph/nodes/0/body/operation")) =>
+                    {
+                        Some((incomplete, consumed))
+                    }
+                    _ => None,
+                }
+            });
+            let (incomplete, consumed) =
+                forwarding_work.expect("forwarding route must propagate operation Work");
+            assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work, "{route}");
+            assert_eq!(incomplete.consumed, consumed, "{route}");
+        }
     }
 
     /// An entry that names no leaf source admits no leaves: a supplied one is

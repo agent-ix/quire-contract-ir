@@ -183,6 +183,30 @@ fn option_of(name: &str, inner: &str) -> Typed {
     )
 }
 
+fn collection_of(name: &str, form: &str, inner: &str) -> Typed {
+    node(
+        name,
+        "composite_type",
+        form,
+        name,
+        [inner],
+        "type",
+        json!({"term": "aggregate", "members": [reference(inner)]}),
+    )
+}
+
+fn alias_of(name: &str, target: &str) -> Typed {
+    node(
+        name,
+        "composite_type",
+        "alias",
+        target,
+        [target],
+        "type",
+        empty(),
+    )
+}
+
 /// The leaf segments from a `some_of` node into its payload.
 fn some_segments() -> [String; 2] {
     ["member:Some".to_owned(), "position:0".to_owned()]
@@ -669,6 +693,128 @@ fn work_read_used(package: &Value) -> u64 {
         }
     }
     high
+}
+
+/// A reader-admissible operation with one forwarding edge at the requested
+/// structural caller. The established package builder mints graph keys and
+/// source entries; `settle` updates the edited application's key and identity.
+fn forwarding_operation_package(route: &str) -> (Value, String) {
+    let types = match route {
+        "inner:0" => vec![
+            collection_of("set", "set", "integer"),
+            alias_of("forward", "set"),
+        ],
+        "result_inner" => vec![
+            collection_of("set", "set", "integer"),
+            alias_of("forward", "set"),
+            collection_of("source", "sequence", "set"),
+        ],
+        "leaf edge" => vec![
+            alias_of("forward", "integer"),
+            record("record", &[("value", "forward")]),
+        ],
+        _ => panic!("unknown structural route"),
+    };
+    let root = match route {
+        "inner:0" => "forward",
+        "result_inner" => "source",
+        "leaf edge" => "record",
+        _ => unreachable!(),
+    };
+    let (mut package, _) = equality_package(types, root, Vec::new());
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["body"]["term"] == "application")
+        .expect("application");
+    if route != "leaf edge" {
+        let first_argument =
+            package["semantic_graph"]["nodes"][position]["body"]["arguments"][0].clone();
+        let forward = (route == "result_inner").then(|| {
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .find(|node| node["semantic_form"] == "alias")
+                .expect("forwarding alias")["node_id"]
+                .clone()
+        });
+        let application = &mut package["semantic_graph"]["nodes"][position];
+        application["semantic_form"] = json!("collection");
+        application["body"]["operator"] = json!("collection");
+        application["body"]["operation"]["identity"] = json!(if route == "inner:0" {
+            "quire.op.collection.contains"
+        } else {
+            "quire.op.collection.flatten"
+        });
+        if route == "inner:0" {
+            application["body"]["arguments"] =
+                json!([first_argument, literal("integer", "integer", "0")]);
+        } else {
+            let forward = forward.expect("result type alias");
+            application["semantic_type"] = forward.clone();
+            application["body"]["result_type"] = forward;
+            application["body"]["arguments"] = json!([first_argument]);
+        }
+        settle(&mut package);
+    }
+    let id = package["semantic_graph"]["nodes"][position]["node_id"]["digest"]
+        .as_str()
+        .expect("application key")
+        .to_owned();
+    (package, id)
+}
+
+/// Trace: FR-038-AC-224
+#[trace("FR-038-AC-224")]
+#[test]
+fn structural_forwarding_reader_routes_have_exact_and_one_less_work_boundaries() {
+    for route in ["inner:0", "result_inner", "leaf edge"] {
+        let (package, id) = forwarding_operation_package(route);
+        let used = work_read_used(&package);
+        let mut limits = CheckedPackageReadLimits::bounded();
+        limits.work = used;
+        assert!(
+            matches!(
+                read(&package, limits),
+                CheckedPackageV2ReadResult::Admitted(_)
+            ),
+            "{route} must admit at its measured limit"
+        );
+        limits.work = used - 1;
+        let operation = leaves_pointer(&package, &id)
+            .strip_suffix("/leaves")
+            .expect("operation path")
+            .to_owned();
+        match read(&package, limits) {
+            CheckedPackageV2ReadResult::Incomplete(incomplete) => {
+                assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work, "{route}");
+                assert_eq!(incomplete.limit, used - 1, "{route}");
+                assert_eq!(incomplete.consumed, used, "{route}");
+            }
+            other => panic!("{route} one-less Work must reach the reader: {other:?}"),
+        }
+        // The reader still charges graph-cycle edges after the operation.
+        // Find a limit that cuts off one of this route's operation charges,
+        // and assert that the public outcome keeps the operation's Work type
+        // and locus instead of changing it to an ill-typed refusal.
+        let at_operation = (0..used).find_map(|work| {
+            let mut limits = CheckedPackageReadLimits::bounded();
+            limits.work = work;
+            match read(&package, limits) {
+                CheckedPackageV2ReadResult::Incomplete(incomplete)
+                    if incomplete.path == Some(pointer(&operation)) =>
+                {
+                    Some(incomplete)
+                }
+                _ => None,
+            }
+        });
+        let incomplete = at_operation.expect("reader must reach structural Work");
+        assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work, "{route}");
+        assert_eq!(incomplete.consumed, incomplete.limit + 1, "{route}");
+    }
 }
 
 /// A ring of 12 records with its 12 text leaves and its recursion leaf
