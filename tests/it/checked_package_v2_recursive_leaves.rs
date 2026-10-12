@@ -20,7 +20,8 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractRootViewV1, LoweringProfileRef,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1231,6 +1232,109 @@ fn node_types() -> Vec<Typed> {
         in_group(record("node", &[("label", "nfc"), ("next", "node_next")])),
         in_group(some_of("node_next", "node")),
     ]
+}
+
+/// Trace: FR-035-AC-4, FR-035-AC-5
+#[trace("FR-035-AC-4", "FR-035-AC-5")]
+#[test]
+fn recursive_group_round_trips_with_original_node_keys() {
+    let [some, payload] = some_segments();
+    let (source, application) = equality_package(
+        node_types(),
+        "node",
+        vec![
+            text_leaf(&[field("label")]),
+            recursion_leaf(&[field("next"), some, payload, "recursion:0".into()]),
+        ],
+    );
+    let CheckedPackageV2ReadResult::Admitted(admitted) =
+        read(&source, CheckedPackageReadLimits::bounded())
+    else {
+        panic!("recursive source must admit");
+    };
+    let source_group = admitted
+        .graph()
+        .nodes
+        .iter()
+        .filter(|node| node.recursion_group.is_some())
+        .map(|node| node.node_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(source_group.len(), 2);
+    assert!(
+        source_group[0] > source_group[1],
+        "fixture must distinguish graph order from key order"
+    );
+    let root: CheckedNodeId = serde_json::from_value(node_id(&application)).expect("root key");
+    let profile = CompleteLoweringProfileV2 {
+        reference: LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: false,
+        work_limit: u64::MAX,
+    };
+    let result = admitted.lower(std::slice::from_ref(&root), &profile);
+    let bytes = result.package.canonical_bytes().expect("complete package");
+    let outcome = ContractPackageWireV1::read(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    let ContractPackageReadResult::Admitted(decoded) = outcome else {
+        panic!("lowered recursion group must strict-read: {outcome:?}");
+    };
+    let emitted_group = decoded
+        .wire()
+        .semantic_graph
+        .nodes
+        .iter()
+        .filter(|node| node.recursion_group.is_some())
+        .map(|node| node.node_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(emitted_group, source_group);
+    let again = admitted.lower(std::slice::from_ref(&root), &profile);
+    assert_eq!(again.package.canonical_bytes(), Some(bytes));
+
+    // Reordering the same two nodes changes the FR-322 ordinals that their
+    // original keys attest, even when the rest of the wire is left intact.
+    let mut mutant: Value = serde_json::from_slice(bytes).expect("package JSON");
+    let members = mutant["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let group_positions = members
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node.get("recursion_group").is_some())
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    assert_eq!(group_positions.len(), 2);
+    members.swap(group_positions[0], group_positions[1]);
+    mutant["source_map"]["nodes"]
+        .as_array_mut()
+        .expect("source-map nodes")
+        .swap(group_positions[0], group_positions[1]);
+    let projection = json!({
+        "contract_version": mutant["contract_version"],
+        "package": mutant["package"],
+        "semantic_graph": mutant["semantic_graph"],
+        "feature_accounting": mutant["feature_accounting"],
+    });
+    mutant["identity"]["digest"] = json!(sha256_hex(&canonical(&projection)));
+    let mutant_outcome = ContractPackageWireV1::read(
+        &canonical(&mutant),
+        CheckedPackageReadLimits::bounded(),
+        &ContractDependencies::new(),
+    );
+    assert!(
+        matches!(
+            mutant_outcome,
+            ContractPackageReadResult::Refused(ref refusal)
+                if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                    && refusal.cause == Some(CheckedPackageRefusalCause::StaleNodeKey)
+        ),
+        "{mutant_outcome:?}"
+    );
 }
 
 /// Trace: FR-035-AC-6
