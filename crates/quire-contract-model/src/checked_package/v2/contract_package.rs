@@ -411,6 +411,19 @@ impl ContractPackageV1 {
         &self.wire
     }
 
+    /// Remove one admitted source-map node to exercise defensive query errors.
+    /// This is available only to the root crate's test-only fault-injection
+    /// feature; production callers cannot mutate an admitted package.
+    #[cfg(feature = "fault-injection")]
+    pub fn fault_inject_missing_source_for_test(&mut self, key: &CheckedNodeId) -> bool {
+        let before = self.wire.source_map.nodes.len();
+        self.wire
+            .source_map
+            .nodes
+            .retain(|entry| &entry.node_id != key);
+        self.wire.source_map.nodes.len() != before
+    }
+
     /// The canonical semantic identity retained in the admitted value.
     pub fn identity(&self) -> &CheckedSemanticId {
         &self.wire.identity
