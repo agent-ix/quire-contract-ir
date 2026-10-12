@@ -16,7 +16,7 @@
 
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
-    DomainModel, FieldDecl, MemberType, ObjectTypeDecl,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType,
 };
 use super::{CheckedNodeId, CheckedPackageV2, WorkMeter};
 use crate::checked_package::common::{ValidationFailure, NODE_DOMAIN};
@@ -85,7 +85,7 @@ pub(super) enum Selected<'t> {
 }
 
 /// The field tables of one domain package document: one table per strongly
-/// connected component of its object types, and the component of each type.
+/// connected component of its field-bearing types, and the component of each type.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct FieldTables {
     by_type: BTreeMap<Box<str>, usize>,
@@ -116,7 +116,7 @@ pub(super) fn build_field_tables(
 
 /// A strongly connected component of the supertype graph.
 struct Component<'m> {
-    members: Vec<(&'m str, &'m ObjectTypeDecl)>,
+    members: Vec<(&'m str, &'m FieldBearingTypeDecl)>,
     /// More than one member, or a member that extends itself.
     cyclic: bool,
 }
@@ -138,7 +138,7 @@ fn tables_of(
 }
 
 /// The strongly connected components of the supertype graph of `model`'s
-/// object types, a component after every component of its supertypes
+/// objects and records, a component after every component of its supertypes
 /// (Tarjan's algorithm over an explicit stack).
 fn components(model: &DomainModel) -> Vec<Component<'_>> {
     let mut search = Tarjan {
@@ -147,7 +147,12 @@ fn components(model: &DomainModel) -> Vec<Component<'_>> {
         stack: Vec::new(),
         found: Vec::new(),
     };
-    for root in model.object_types.keys().map(AsRef::as_ref) {
+    for root in model
+        .object_types
+        .keys()
+        .chain(model.record_types.keys())
+        .map(AsRef::as_ref)
+    {
         if !search.visits.contains_key(root) {
             search.visit(root);
         }
@@ -174,19 +179,18 @@ struct Tarjan<'m> {
 }
 
 impl<'m> Tarjan<'m> {
-    /// The declared supertypes of `node` that the document declares as object
-    /// types; any other has no table and no members.
+    /// The declared supertypes of `node` that the document declares as
+    /// field-bearing types; any other has no table and no members.
     fn supertypes(&self, node: &str) -> std::vec::IntoIter<&'m str> {
         let model = self.model;
         model
-            .object_types
-            .get(node)
+            .field_owner(node)
             .map(|declared| {
                 declared
                     .supertypes
                     .iter()
                     .map(AsRef::as_ref)
-                    .filter(|supertype| model.object_types.contains_key(*supertype))
+                    .filter(|supertype| model.field_owner(supertype).is_some())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
@@ -260,7 +264,12 @@ impl<'m> Tarjan<'m> {
             if let Some(visit) = self.visits.get_mut(member) {
                 visit.on_stack = false;
             }
-            if let Some((key, declared)) = self.model.object_types.get_key_value(member) {
+            if let Some((key, declared)) = self
+                .model
+                .object_types
+                .get_key_value(member)
+                .or_else(|| self.model.record_types.get_key_value(member))
+            {
                 members.push((key.as_ref(), declared));
             }
             if member == node {
@@ -509,6 +518,8 @@ pub enum CheckedMemberType {
     },
     /// `Reference<O>`: the model declaration node of the referenced object type.
     Reference(CheckedNodeId),
+    /// A record value with no object identity: its model declaration node.
+    Record(CheckedNodeId),
     /// `Option<X>`: the element type.
     Option(Box<CheckedMemberType>),
     /// `K<E>`, or `K<E>[lower, upper]` when bounded.
@@ -556,6 +567,10 @@ impl From<&MemberType> for CheckedMemberType {
                 upper: range.upper,
             },
             MemberType::Reference(target) => Self::Reference(CheckedNodeId {
+                domain: NODE_DOMAIN.into(),
+                digest: target.clone(),
+            }),
+            MemberType::Record(target) => Self::Record(CheckedNodeId {
                 domain: NODE_DOMAIN.into(),
                 digest: target.clone(),
             }),

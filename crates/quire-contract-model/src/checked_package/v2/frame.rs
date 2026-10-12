@@ -464,9 +464,8 @@ fn frame_defect(
 
 /// A field entry's name among the fields of its declaring node.
 ///
-/// A `model`/`record_value_type` declaring node is never resolved: QSpec's
-/// `ModelDeclarationNode` has no `record_value_type` form, so no domain
-/// package can own one, and its field name is admitted unresolved.
+/// A selected object or record declaration resolves through its effective
+/// fields. Anonymous and source-declared records carry no selected fields.
 fn resolve_field(
     declaring: &CheckedSemanticNodeV2,
     kind: CheckedNodeKind,
@@ -474,7 +473,11 @@ fn resolve_field(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ModelRefusal>, ValidationFailure> {
-    if kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+    if (kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
+        && !matches!(
+            declaring.owner.as_ref(),
+            Some(super::CheckedNodeOwner::Model { .. })
+        ))
         || !graph
             .owners
             .is_model_declaration_node(declaring, kind.tag())

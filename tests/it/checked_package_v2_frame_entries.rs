@@ -16,8 +16,8 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedComparisonPath, CheckedComparisonRefusal, CheckedNodeId, CheckedNodeTag,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedComparisonPath, CheckedComparisonRefusal, CheckedMemberType, CheckedNodeId,
+    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2,
 };
@@ -427,11 +427,13 @@ fn tc_056_field_entries_order_by_declaration_then_name() {
     );
 }
 
-/// Tracing: TC-056
-/// ACs: FR-040-AC-3
-#[trace("TC-056", "FR-040-AC-3")]
+/// A source-declared record keeps unresolved frame names after selected
+/// record field resolution is enabled.
+///
+/// Trace: FR-040-AC-3, FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-3", "FR-040-AC-16")]
 #[test]
-fn tc_056_record_value_type_field_entries_admit_unresolved() {
+fn tc_056_record_source_declared_field_entries_admit_unresolved() {
     let base = v2_all_families();
     let record = nodes(&base)
         .iter()
@@ -481,8 +483,8 @@ fn tc_056_record_value_type_field_entries_admit_unresolved() {
         settle(&mut value);
         value
     };
-    // With no `declaration` the node is not owned by any domain package, so
-    // its field name is not resolved; the source-declared node likewise.
+    // Neither an anonymous nor a source-declared record has selected model
+    // fields to resolve through.
     admits(&with_record(false));
     admits(&with_record(true));
 }
@@ -1350,6 +1352,9 @@ const SUB_NODE: &str = "ix://acme/orders/Sub";
 const LEFT_NODE: &str = "ix://acme/orders/Left";
 const RIGHT_NODE: &str = "ix://acme/orders/Right";
 const BOTH_NODE: &str = "ix://acme/orders/Both";
+const ACCOUNT_NODE: &str = "ix://acme/orders/Account";
+const ADDRESS_NODE: &str = "ix://acme/orders/Address";
+const STREET_TEXT_NODE: &str = "ix://acme/orders/StreetText";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
 
 /// A member slot of type `type_ref` with the multiplicity `[1, 1]`.
@@ -1397,6 +1402,475 @@ fn orders_document() -> Value {
             domain_type(BOTH_NODE, &[LEFT_NODE, RIGHT_NODE], vec![], json!([])),
         ],
     })
+}
+
+/// A selected object with a record-valued field, and the record's own field.
+fn records_document() -> Value {
+    let mut document = orders_document();
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": ORDERS, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": ORDERS, "name": "text"},
+            "construct": {"meaning": "quire.meaning.model.value-type/v1"},
+        }));
+    let mut street = domain_field(ADDRESS_NODE, "street");
+    street["typeRef"] = json!(STREET_TEXT_NODE);
+    let mut address = domain_type(ADDRESS_NODE, &[], vec![street], json!([]));
+    address["kind"]["name"] = json!("record");
+    let mut text_type = domain_type(STREET_TEXT_NODE, &[], vec![], json!([]));
+    text_type["kind"]["name"] = json!("text");
+    text_type["scalar"] = json!("text");
+    text_type["constraints"] = json!([
+        {"keyword": "min", "operands": {"value": 1}},
+        {"keyword": "max", "operands": {"value": 80}},
+        {"keyword": "profile", "operands": {"value": "unicode-scalars"}},
+    ]);
+    let mut account = domain_type(
+        ACCOUNT_NODE,
+        &[],
+        vec![domain_field(ACCOUNT_NODE, "address")],
+        json!([]),
+    );
+    account["fields"][0]["typeRef"] = json!(ADDRESS_NODE);
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .extend([account, address]);
+    document["types"]
+        .as_array_mut()
+        .expect("types")
+        .push(text_type);
+    document
+}
+
+fn record_key() -> String {
+    record_key_for(ADDRESS_NODE)
+}
+
+fn record_key_for(node: &str) -> String {
+    structural(
+        "model",
+        "record_value_type",
+        Some(json!({"kind": "model", "identity": ORDERS, "node": node})),
+    )
+}
+
+fn record_package() -> Value {
+    record_package_for(&records_document())
+}
+
+fn record_package_for(document: &Value) -> Value {
+    let mut package = ModelPackage::new().value;
+    package["lock"]["model_selections"][0]["digest"] = json!(sha256_hex(&canonical(document)));
+    let account = model_key(ACCOUNT_NODE);
+    let address = record_key();
+    for (key, form, owner) in [
+        (&account, "object_type", ACCOUNT_NODE),
+        (&address, "record_value_type", ADDRESS_NODE),
+    ] {
+        let mut node = plain(
+            key,
+            "model",
+            form,
+            key,
+            &[],
+            "type",
+            json!({"term": "aggregate", "members": []}),
+        );
+        node["owner"] = json!({"kind": "model", "identity": ORDERS, "node": owner});
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(node);
+    }
+    let frame = position(&package, "state", "frame");
+    let mut entries = vec![field(&account, "address"), field(&address, "street")];
+    entries.sort_by(|a, b| {
+        a["declaration"]["digest"]
+            .as_str()
+            .cmp(&b["declaration"]["digest"].as_str())
+    });
+    package["semantic_graph"]["nodes"][frame]["body"]["modifies"] = json!(entries);
+    let mut deps = package["semantic_graph"]["nodes"][frame]["dependencies"]
+        .as_array()
+        .expect("deps")
+        .clone();
+    deps.extend([node_id(&account), node_id(&address)]);
+    deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    package["semantic_graph"]["nodes"][frame]["dependencies"] = json!(deps);
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    package
+}
+
+fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedPackageV2ReadResult {
+    let mut evidence = evidence_for(package);
+    evidence.insert_domain_package_document(sha256_hex(&canonical(document)), canonical(document));
+    let mut limits = CheckedPackageReadLimits::bounded();
+    limits.work = work;
+    CheckedPackageV2::read(&canonical(package), limits, &evidence)
+}
+
+/// The object field and the record's own field resolve against separate
+/// selected owners. Replacing only the record name reaches the frame step.
+///
+/// Trace: FR-040-AC-14
+#[trace("TC-056", "FR-040-AC-14")]
+#[test]
+fn tc_056_selected_record_frame_fields_resolve_their_own_names() {
+    let package = record_package();
+    let document = records_document();
+    let admitted = match read_record_package(
+        &package,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Admitted(admitted) => admitted,
+        other => panic!("selected record frame must admit: {other:?}"),
+    };
+    let account = node_id(&model_key(ACCOUNT_NODE));
+    let fields = admitted
+        .model_object_fields(&serde_json::from_value(account).expect("node id"))
+        .expect("selected Account fields");
+    assert!(matches!(
+        fields.field("address").and_then(|field| field.member_type()),
+        Some(CheckedMemberType::Record(target)) if target.digest.as_ref() == record_key()
+    ));
+    let mut ghost = package.clone();
+    let frame = position(&ghost, "state", "frame");
+    let entries = ghost["semantic_graph"]["nodes"][frame]["body"]["modifies"]
+        .as_array_mut()
+        .expect("modifies");
+    let index = entries
+        .iter()
+        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .expect("record entry");
+    entries[index]["name"] = json!("ghost");
+    mint_ungrouped_structural_keys(&mut ghost);
+    settle(&mut ghost);
+    match read_record_package(&ghost, &document, CheckedPackageReadLimits::bounded().work) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|p| p.as_str())
+            ),
+            (
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(format!("/semantic_graph/nodes/{frame}/body/modifies/{index}").as_str())
+            )
+        ),
+        other => panic!("unknown record field must refuse: {other:?}"),
+    }
+    let mut operation_name = package.clone();
+    operation_name["semantic_graph"]["nodes"][frame]["body"]["modifies"][index]["name"] =
+        json!("scaled");
+    mint_ungrouped_structural_keys(&mut operation_name);
+    settle(&mut operation_name);
+    match read_record_package(
+        &operation_name,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(format!("/semantic_graph/nodes/{frame}/body/modifies/{index}").as_str())
+            )
+        ),
+        other => panic!("an operation name cannot resolve as a record field: {other:?}"),
+    }
+}
+
+/// An inherited collision remains ambiguous when the declaring frame owner
+/// is a selected record; an unrelated object field cannot resolve it.
+///
+/// Trace: FR-040-AC-14, FR-040-AC-15
+#[trace("TC-056", "FR-040-AC-14", "FR-040-AC-15")]
+#[test]
+fn tc_056_selected_record_frame_field_keeps_inherited_ambiguity() {
+    let left = "ix://acme/orders/RecordLeft";
+    let right = "ix://acme/orders/RecordRight";
+    let both = "ix://acme/orders/RecordBoth";
+    let mut document = records_document();
+    for (node, supertypes, fields) in [
+        (left, vec![], vec![domain_field(left, "shared")]),
+        (right, vec![], vec![domain_field(right, "shared")]),
+        (both, vec![left, right], vec![]),
+    ] {
+        let mut record = domain_type(node, &supertypes, fields, json!([]));
+        record["kind"]["name"] = json!("record");
+        document["types"]
+            .as_array_mut()
+            .expect("types")
+            .push(record);
+    }
+    let mut package = record_package_for(&document);
+    let key = record_key_for(both);
+    let mut owner = plain(
+        &key,
+        "model",
+        "record_value_type",
+        &key,
+        &[],
+        "type",
+        json!({"term": "aggregate", "members": []}),
+    );
+    owner["owner"] = json!({"kind": "model", "identity": ORDERS, "node": both});
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(owner);
+    let frame = position(&package, "state", "frame");
+    let entries = package["semantic_graph"]["nodes"][frame]["body"]["modifies"]
+        .as_array_mut()
+        .expect("modifies");
+    entries.push(field(&key, "shared"));
+    entries.sort_by(|a, b| {
+        a["declaration"]["digest"]
+            .as_str()
+            .cmp(&b["declaration"]["digest"].as_str())
+    });
+    let at = entries
+        .iter()
+        .position(|entry| entry["declaration"]["digest"] == key)
+        .expect("ambiguous record entry");
+    let deps = package["semantic_graph"]["nodes"][frame]["dependencies"]
+        .as_array_mut()
+        .expect("dependencies");
+    deps.push(node_id(&key));
+    deps.sort_by(|a, b| a["digest"].as_str().cmp(&b["digest"].as_str()));
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    match read_record_package(
+        &package,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::AmbiguousDeclaration,
+                Some(Cause::AmbiguousName),
+                Some(format!("/semantic_graph/nodes/{frame}/body/modifies/{at}").as_str())
+            )
+        ),
+        other => panic!("record inherited ambiguity must refuse: {other:?}"),
+    }
+}
+
+/// The whole reader admits at its exact work budget and returns typed
+/// incomplete at the next lower budget. Its last charge is a later state
+/// clause target; the selected-row charges are asserted beside the tables.
+///
+/// Trace: FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-16")]
+#[test]
+fn tc_056_selected_record_fields_obey_exact_work_limit() {
+    let package = record_package();
+    let document = records_document();
+    let read = |work| read_record_package(&package, &document, work);
+    let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
+    assert!(matches!(
+        read(high),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match read(middle) {
+            CheckedPackageV2ReadResult::Admitted(_) => high = middle,
+            CheckedPackageV2ReadResult::Incomplete(_) => low = middle + 1,
+            other => panic!("expected admission or incomplete: {other:?}"),
+        }
+    }
+    assert!(matches!(read(low), CheckedPackageV2ReadResult::Admitted(_)));
+    match read(low - 1) {
+        CheckedPackageV2ReadResult::Incomplete(record) => {
+            assert_eq!(
+                record.limit_kind,
+                quire_contract_model::CheckedPackageLimit::Work
+            );
+            assert_eq!(
+                record.path.as_ref().map(|path| path.as_str()),
+                Some("/semantic_graph/nodes/35/body/arguments/2/target")
+            );
+        }
+        other => panic!("one unit below exact must be incomplete: {other:?}"),
+    }
+}
+
+/// A record name defect is a frame meaning defect, before frame ordering;
+/// a broken selected owner is decided before any frame entry.
+///
+/// Trace: FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-16")]
+#[test]
+fn tc_056_record_field_defects_keep_reader_precedence() {
+    let document = records_document();
+    let mut package = record_package();
+    let frame = position(&package, "state", "frame");
+    let entries = package["semantic_graph"]["nodes"][frame]["body"]["modifies"]
+        .as_array_mut()
+        .expect("modifies");
+    let record = entries
+        .iter()
+        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .expect("record entry");
+    entries[record]["name"] = json!("ghost");
+    entries.reverse();
+    let reversed = entries.len() - 1 - record;
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    match read_record_package(
+        &package,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(format!("/semantic_graph/nodes/{frame}/body/modifies/{reversed}").as_str())
+            )
+        ),
+        other => panic!("record meaning defect must win: {other:?}"),
+    }
+    let record_node = nodes(&package)
+        .iter()
+        .position(|node| node["node_id"]["digest"] == record_key())
+        .expect("selected record node");
+    package["semantic_graph"]["nodes"][record_node]["owner"]["identity"] = json!(OTHER_PACKAGE);
+    // Keep the old key deliberately: the owner/key join must be checked before
+    // the later frame name defect.
+    refresh_identity(&mut package);
+    match read_record_package(
+        &package,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MissingDeclaration);
+            assert_eq!(refusal.cause, Some(Cause::MissingSelection));
+            assert_eq!(
+                refusal.path.as_ref().map(|path| path.as_str()),
+                Some(format!("/semantic_graph/nodes/{record_node}/node_id").as_str())
+            );
+        }
+        other => panic!("owner join must precede frame: {other:?}"),
+    }
+    let mut stale = record_package();
+    let stale_frame = position(&stale, "state", "frame");
+    let stale_entry = stale["semantic_graph"]["nodes"][stale_frame]["body"]["modifies"]
+        .as_array()
+        .expect("modifies")
+        .iter()
+        .position(|entry| entry["declaration"]["digest"] == record_key())
+        .expect("record entry");
+    stale["semantic_graph"]["nodes"][stale_frame]["body"]["modifies"][stale_entry]["name"] =
+        json!("ghost");
+    refresh_identity(&mut stale);
+    match read_record_package(&stale, &document, CheckedPackageReadLimits::bounded().work) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::InvalidPackage,
+                Some(Cause::StaleNodeKey),
+                Some(format!("/semantic_graph/nodes/{stale_frame}/node_id").as_str())
+            )
+        ),
+        other => panic!("a stale frame key must precede record field resolution: {other:?}"),
+    }
+}
+
+/// A name defect in each of two frames is reported from the lower-key frame,
+/// even when the other frame occurs first in the graph array.
+///
+/// Trace: FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-16")]
+#[test]
+fn tc_056_record_name_defects_follow_frame_node_key_order() {
+    let document = records_document();
+    let mut package = record_package();
+    let frame = position(&package, "state", "frame");
+    let mut other_frame = package["semantic_graph"]["nodes"][frame].clone();
+    let entry = |frame: &Value| {
+        frame["body"]["modifies"]
+            .as_array()
+            .expect("modifies")
+            .iter()
+            .position(|entry| entry["declaration"]["digest"] == record_key())
+            .expect("record field entry")
+    };
+    let first_entry = entry(&other_frame);
+    package["semantic_graph"]["nodes"][frame]["body"]["modifies"][first_entry]["name"] =
+        json!("ghost_first");
+    other_frame["body"]["modifies"][first_entry]["name"] = json!("ghost_second");
+    other_frame["node_id"] = node_id(&"e".repeat(64));
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(other_frame);
+    mint_ungrouped_structural_keys(&mut package);
+    settle(&mut package);
+    let frames: Vec<(usize, &Value)> = nodes(&package)
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node["node_tag"] == "state" && node["semantic_form"] == "frame")
+        .collect();
+    assert_eq!(frames.len(), 2);
+    let (earlier, _) = frames
+        .into_iter()
+        .min_by_key(|(_, node)| node["node_id"]["digest"].as_str().expect("frame key"))
+        .expect("the lower-key frame");
+    match read_record_package(
+        &package,
+        &document,
+        CheckedPackageReadLimits::bounded().work,
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                Code::MissingDeclaration,
+                Some(Cause::MissingName),
+                Some(
+                    format!("/semantic_graph/nodes/{earlier}/body/modifies/{first_entry}").as_str()
+                )
+            )
+        ),
+        other => panic!("the lower-key frame's record name must refuse: {other:?}"),
+    }
 }
 
 /// A node key: the SHA-256 of the canonical bytes of its structural preimage.

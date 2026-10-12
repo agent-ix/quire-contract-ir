@@ -46,6 +46,7 @@ fn tc_048_qspec_model_declaration_keys_use_production_derivation() {
             preimage["semantic_form"].as_str(),
         ) {
             (Some("model"), Some("object_type")) => DeclarationForm::ObjectType,
+            (Some("model"), Some("record_value_type")) => DeclarationForm::RecordValueType,
             (Some("model"), Some("systems_interface")) => DeclarationForm::SystemsInterface,
             (Some("relation"), Some("relationship")) => DeclarationForm::Relationship,
             other => panic!("{name}: unknown declaration form {other:?}"),
@@ -135,6 +136,42 @@ fn tc_048_a_declaration_key_over_the_byte_limit_refuses_at_its_selection_row() {
             );
         }
         other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// A record owner adds one selected-row indexing charge, and the next lower
+/// limit refuses at that row before a frame could read the owner.
+///
+/// Trace: FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-16")]
+#[test]
+fn tc_056_record_owner_index_uses_selected_row_work_budget() {
+    let mut record = object_type("ix://acme/orders/Address", &[], vec![]);
+    record["kind"]["name"] = json!("record");
+    let mut selected = document(vec![object_type(WIDGET, &[], vec![]), record]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let model = read(&selected).expect("selected object and record");
+    let row = || member_pointer(&["lock", "model_selections"]).index(0);
+    let index = |limit| {
+        let mut meter = WorkMeter::new(limit);
+        ModelOwners::new(std::slice::from_ref(&model), |_| meter.charge(1, row))
+    };
+    assert!(index(2).is_ok(), "the two owner keys use exactly two units");
+    match index(1) {
+        Err(ValidationFailure::Incomplete(record)) => {
+            assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                record.path.as_ref().map(|path| path.as_str()),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("one less owner-index unit must be incomplete: {other:?}"),
     }
 }
 

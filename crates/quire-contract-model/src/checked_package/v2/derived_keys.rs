@@ -183,13 +183,17 @@ pub(super) fn valid_derived_shape(
     }
     // FR-094's fixed model-owned shape applies only without a source
     // declaration. Declared nodes retain the ordinary structural preimage.
-    !(node.declaration.is_none()
+    let model_owned = matches!(
+        kind,
+        CheckedNodeKind::Model(super::ModelForm::ObjectType | super::ModelForm::SystemsInterface)
+            | CheckedNodeKind::Relation(super::RelationForm::Relationship)
+    ) || (kind == CheckedNodeKind::Model(super::ModelForm::RecordValueType)
         && matches!(
-            kind,
-            CheckedNodeKind::Model(
-                super::ModelForm::ObjectType | super::ModelForm::SystemsInterface
-            ) | CheckedNodeKind::Relation(super::RelationForm::Relationship)
-        )
+            node.owner.as_ref(),
+            Some(super::CheckedNodeOwner::Model { .. })
+        ));
+    !(node.declaration.is_none()
+        && model_owned
         && (node.semantic_type != node.node_id
             || node.recursion_group.is_some()
             || aggregate_members(&node.body).is_none_or(|members| !members.is_empty())))
@@ -549,6 +553,9 @@ mod tests {
             ),
             MemberType::Reference(target) => {
                 wire(&key, "composite_type", "reference", &key, over(target))
+            }
+            MemberType::Record(_) => {
+                panic!("a record is a selected declaration, not a derived node")
             }
             MemberType::Option(inner) => {
                 let inner = inner.node_key(BYTES).expect("inner key");

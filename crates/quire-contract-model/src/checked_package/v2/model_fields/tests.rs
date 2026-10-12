@@ -78,6 +78,151 @@ fn table_for<'m>(model: &'m DomainModel, short: &str) -> &'m FieldTable {
         .expect("a table for the type")
 }
 
+fn record_document(types: Vec<Value>) -> Value {
+    let mut document = document(types);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    document
+}
+
+fn record_type(short: &str, supertypes: &[&str], fields: Vec<Value>) -> Value {
+    let mut record = object_type(&format!("{ORDERS}{short}"), supertypes, fields);
+    record["kind"]["name"] = json!("record");
+    record
+}
+
+/// Selected records use the effective field table, with redefinitions and
+/// ambiguous exposed names decided the same way as object fields.
+///
+/// Trace: FR-040-AC-15
+#[trace("TC-056", "FR-040-AC-15")]
+#[test]
+fn tc_056_record_fields_keep_value_types_and_effective_names() {
+    let address = format!("{ORDERS}Address");
+    let sub = format!("{ORDERS}SubAddress");
+    let profile = format!("{ORDERS}Profile");
+    let mut home = field(&profile, "home", &address);
+    home["presence"] = json!("optional");
+    let mut routes = field(&profile, "routes", &address);
+    routes["multiplicity"] = multiplicity(0, Some(3));
+    routes["multiplicity"]["ordered"] = json!(true);
+    routes["multiplicity"]["unique"] = json!(false);
+    let mut parent = field(&profile, "parent", &profile);
+    parent["presence"] = json!("optional");
+    let mut renamed = field(&sub, "street", "ix://quire/native/Integer");
+    renamed["redefines"] = json!(format!("{address}/street"));
+    let document = record_document(vec![
+        record_type(
+            "Address",
+            &[],
+            vec![field(&address, "street", "ix://quire/native/Integer")],
+        ),
+        record_type("SubAddress", &[&address], vec![renamed]),
+        record_type("Profile", &[], vec![home, routes, parent]),
+        record_type("SubProfile", &[&profile], vec![]),
+    ]);
+    let (_, model) = built(&document);
+    let record_key = declaration_key(
+        &model.identity,
+        DeclarationForm::RecordValueType,
+        &address,
+        BYTES,
+    )
+    .expect("record key");
+    let profile_key = declaration_key(
+        &model.identity,
+        DeclarationForm::RecordValueType,
+        &profile,
+        BYTES,
+    )
+    .expect("profile key");
+    assert_eq!(
+        exposed_identities(table_for(&model, "SubAddress")),
+        [format!("{sub}/street")]
+    );
+    assert!(matches!(
+        table_for(&model, "Profile").select("home"),
+        Selected::One(_)
+    ));
+    let inherited = match table_for(&model, "SubProfile").select("home") {
+        Selected::One(field) => field,
+        _ => panic!("the record subtype inherits home"),
+    };
+    assert_eq!(
+        model.field_type(inherited),
+        Some(MemberType::Option(Box::new(MemberType::Record(
+            record_key.clone().into(),
+        ))))
+    );
+    assert_eq!(
+        model.field_type(&model.record_types[&*profile].fields[0]),
+        Some(MemberType::Option(Box::new(MemberType::Record(
+            record_key.clone().into()
+        ))))
+    );
+    assert_eq!(
+        model.field_type(&model.record_types[&*profile].fields[1]),
+        Some(MemberType::Collection {
+            kind: super::super::model_members::CollectionKind::Sequence,
+            element: Box::new(MemberType::Record(record_key.into())),
+            bounds: Some((0, 3)),
+        })
+    );
+    assert_eq!(
+        model.field_type(&model.record_types[&*profile].fields[2]),
+        Some(MemberType::Option(Box::new(MemberType::Record(
+            profile_key.into()
+        ))))
+    );
+}
+
+/// Two record supertypes exposing the same field name stay ambiguous, and
+/// building their tables uses the selected row's exact work budget.
+///
+/// Trace: FR-040-AC-15, FR-040-AC-16
+#[trace("TC-056", "FR-040-AC-15", "FR-040-AC-16")]
+#[test]
+fn tc_056_record_field_ambiguity_and_table_limit() {
+    let left = format!("{ORDERS}LeftRecord");
+    let right = format!("{ORDERS}RightRecord");
+    let document = record_document(vec![
+        record_type(
+            "LeftRecord",
+            &[],
+            vec![field(&left, "same", "ix://quire/native/Integer")],
+        ),
+        record_type(
+            "RightRecord",
+            &[],
+            vec![field(&right, "same", "ix://quire/native/Integer")],
+        ),
+        record_type("BothRecords", &[&left, &right], vec![]),
+    ]);
+    let (exact, model) = built(&document);
+    assert!(matches!(
+        table_for(&model, "BothRecords").select("same"),
+        Selected::Ambiguous
+    ));
+    let mut at_limit = [unbuilt(&document)];
+    assert!(build_field_tables(&mut at_limit, &mut WorkMeter::new(exact)).is_ok());
+    let mut below = [unbuilt(&document)];
+    match build_field_tables(&mut below, &mut WorkMeter::new(exact - 1)) {
+        Err(ValidationFailure::Incomplete(record)) => {
+            assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                record.path.as_ref().map(|path| path.as_str()),
+                Some("/lock/model_selections/0")
+            );
+        }
+        other => panic!("expected selected row work limit: {other:?}"),
+    }
+}
+
 /// The table of each type, read for every field name, says what the
 /// pre-change `resolve` answered (FR-038 items 4 to 6).
 ///

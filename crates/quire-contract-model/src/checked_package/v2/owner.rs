@@ -24,6 +24,8 @@ fn requirement(
     declaration: Option<&CheckedDeclaration>,
     nominal: bool,
     body: &Value,
+    self_typed: bool,
+    owner: Option<&CheckedNodeOwner>,
 ) -> OwnerRequirement {
     if nominal || body.get("term").and_then(Value::as_str) == Some("application") {
         return OwnerRequirement::None;
@@ -32,6 +34,13 @@ fn requirement(
         return OwnerRequirement::Source;
     }
     match (node_tag, semantic_form) {
+        ("model", "record_value_type") => {
+            if self_typed || matches!(owner, Some(CheckedNodeOwner::Model { .. })) {
+                OwnerRequirement::Model
+            } else {
+                OwnerRequirement::None
+            }
+        }
         ("model", "object_type" | "systems_interface")
         | ("relation", "relationship")
         | ("function", _) => OwnerRequirement::Model,
@@ -79,6 +88,8 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 node.declaration.as_ref(),
                 node.nominal_identity_preimage.is_some(),
                 &node.body,
+                node.semantic_type == node.node_id,
+                node.owner.as_ref(),
             ),
             node.owner.as_ref(),
             node_pointer(position),
@@ -101,6 +112,8 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 projection.declaration.as_ref(),
                 projection.nominal_identity_preimage.is_some(),
                 &projection.body,
+                projection.semantic_type == projection.node_id,
+                projection.owner.as_ref(),
             ),
             projection.owner.as_ref(),
             at.clone(),
@@ -149,6 +162,9 @@ fn model_kind_matches(
             .object_types
             .get(declared)
             .is_some_and(|declared| !declared.interface),
+        CheckedNodeKind::Model(super::ModelForm::RecordValueType) => {
+            model.record_types.contains_key(declared)
+        }
         CheckedNodeKind::Model(super::ModelForm::SystemsInterface) => model
             .object_types
             .get(declared)
@@ -157,10 +173,13 @@ fn model_kind_matches(
             model.relationships.contains_key(declared) || model.relation_nodes.contains(declared)
         }
         CheckedNodeKind::Function(_) => match clause_kind(&node.body) {
-            Some("invariant") => model
-                .object_types
-                .get(declared)
-                .is_some_and(|object| !object.interface),
+            Some("invariant") => {
+                model
+                    .object_types
+                    .get(declared)
+                    .is_some_and(|object| !object.interface)
+                    || model.record_types.contains_key(declared)
+            }
             Some("precondition" | "body") => operations.contains(declared),
             _ => false,
         },
