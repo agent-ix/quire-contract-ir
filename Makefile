@@ -10,6 +10,7 @@ CARGO ?= cargo
 # --locked only when no local patch is active: a patch rewrites the resolution.
 LOCKED ?= $(if $(wildcard .cargo/config.toml),,--locked)
 QUIRE ?= quire
+QUIRE_SPEC_LANGUAGE_BIN ?= $(QUIRE_SPEC_LANGUAGE_DIR)/target/debug/quire-spec
 
 .PHONY: help
 help:
@@ -24,6 +25,7 @@ help:
 	@echo "  make test             - Run cargo test"
 	@echo "  make conformance-qspec - QSpec's positive fixtures admit, adverse mutations refuse as recorded, selection identity derives (needs QUIRE_SPECIFICATION_DIR; not in ci)"
 	@echo "  make conformance-qsl-ir703 - Fresh ConfigVersion V2 producer/IR accessor check (needs QUIRE_SPEC_LANGUAGE_DIR and its current binaries)"
+	@echo "  make conformance-qsl-ir769 - Fresh QSL scalar result context through admitted IR (needs QUIRE_SPEC_LANGUAGE_DIR and its current binary)"
 	@echo "  make build            - Release build"
 	@echo "  make clean            - cargo clean"
 	@echo "  make deny             - Run all cargo-deny policy checks"
@@ -101,6 +103,16 @@ conformance-qsl-ir703:
 	[ "$$status" -eq 0 ] || exit "$$status"; \
 	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
 	[ "$$passed" -eq 1 ] || { echo 'required TC-445 QSL producer test did not run exactly once' >&2; exit 1; }
+
+.PHONY: conformance-qsl-ir769
+conformance-qsl-ir769:
+	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo 'QUIRE_SPEC_LANGUAGE_DIR is required' >&2; exit 1; }
+	@test -x "$(QUIRE_SPEC_LANGUAGE_BIN)" || { echo 'build the current QSL quire-spec binary first' >&2; exit 1; }
+	@output=$$(QUIRE_SPEC_LANGUAGE_BIN="$(QUIRE_SPEC_LANGUAGE_BIN)" $(CARGO) test $(LOCKED) --test conformance_qsl_ir769 -- --nocapture 2>&1); \
+	status=$$?; printf '%s\n' "$$output"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	passed=$$(printf '%s\n' "$$output" | grep -c '^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured;' || true); \
+	[ "$$passed" -eq 1 ] || { echo 'required TC-447 QSL producer test did not run exactly once' >&2; exit 1; }
 
 .PHONY: build
 build:

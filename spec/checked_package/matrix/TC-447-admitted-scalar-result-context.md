@@ -10,8 +10,16 @@ relationships:
 
 ## Description
 
-PLANNED/UNRUN (IR-769). Verify FR-049-AC-1 through FR-049-AC-6 against the
-public reader-admitted QSL-to-IR path and focused adversarial consumer shapes.
+IR-769 implements the admitted IR result-context query. Four focused TC-447
+IR cases pass for the authored direct and selected bounds, missing or invalid
+context, shared expression occurrences and unchanged forward closure. A named
+QSL compiler check passes for the authored `a + 1` package and IR two-root
+result with independently expected operand `[0, 9]` and result `[0, 10]`.
+That check selects the direct narrow from emitted graph structure. The
+checked `RequirementItem::conversion_context()` pairing by request item,
+owned by QSL-712, remains UNRUN here; full gates and independent review also
+remain pending. The complete procedure below still verifies FR-049-AC-1
+through FR-049-AC-6 across those boundaries.
 
 ## Test Procedure
 

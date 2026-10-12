@@ -20,7 +20,10 @@ relationships:
 
 ## Description
 
-PLANNED/UNRUN (IR-769). For one QSL driver requirement over an exact scalar
+The IR-769 admitted-package query and TC-447 IR cases are implemented. The
+QSL-712 checked per-item application/conversion pairing remains pending in
+the QSL producer lane, so end-to-end item acceptance is not yet established.
+For one QSL driver requirement over an exact scalar
 expression occurrence, Contract IR SHALL lower the expression and its direct
 conversion context together before it exposes typed result context. QSL
 FR-062 and FR-075 own the checked requirement and its per-occurrence
