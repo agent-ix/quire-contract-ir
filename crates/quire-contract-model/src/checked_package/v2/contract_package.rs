@@ -53,7 +53,7 @@ pub struct ContractProvenanceV1 {
     pub lowering_profile: LoweringProfileRef,
 }
 
-/// One key-ordered collection of exact admitted semantic nodes.
+/// Exact admitted semantic nodes in canonical recursion-aware order.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContractSemanticGraphV1 {
@@ -119,7 +119,7 @@ pub struct ContractRefusalSourcesV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
 #[serde(deny_unknown_fields)]
 pub struct ContractSourceMapV1 {
-    /// One entry per represented node, in node-key order.
+    /// One entry per represented node, in semantic-graph order.
     pub nodes: Vec<ContractNodeSourcesV1>,
     /// One entry per request, in request order.
     pub requested_items: Vec<ContractRequestSourcesV1>,
@@ -323,7 +323,7 @@ pub struct ContractPackageWireV1 {
     pub contract_version: Box<str>,
     /// Exact source provenance and explicit lowering profile.
     pub package: ContractProvenanceV1,
-    /// One key-ordered semantic node collection.
+    /// One canonically ordered semantic node collection.
     pub semantic_graph: ContractSemanticGraphV1,
     /// Total source correspondence.
     pub source_map: ContractSourceMapV1,
@@ -621,6 +621,35 @@ fn canonical<T: Encode>(value: &T, ceiling: u64) -> Result<Vec<u8>, u64> {
     })
 }
 
+/// Sorts group blocks by their least represented key and preserves the
+/// admitted order of members inside each block. Ungrouped nodes are one-node
+/// blocks, so a graph without recursion keeps its ordinary key order.
+fn canonical_node_order<'a>(
+    nodes: impl Iterator<Item = &'a CheckedSemanticNodeV2>,
+) -> Vec<&'a CheckedSemanticNodeV2> {
+    let mut nodes = nodes.collect::<Vec<_>>();
+    let mut least = BTreeMap::<&str, &CheckedNodeId>::new();
+    for node in &nodes {
+        if let Some(group) = node.recursion_group.as_deref() {
+            least
+                .entry(group)
+                .and_modify(|key| {
+                    if node.node_id < **key {
+                        *key = &node.node_id;
+                    }
+                })
+                .or_insert(&node.node_id);
+        }
+    }
+    nodes.sort_by_key(|node| {
+        node.recursion_group
+            .as_deref()
+            .and_then(|group| least.get(group).copied())
+            .unwrap_or(&node.node_id)
+    });
+    nodes
+}
+
 impl ContractPackageWireV1 {
     pub(super) fn from_lowering(
         source: &CheckedPackageV2,
@@ -631,18 +660,29 @@ impl ContractPackageWireV1 {
         source_maps: &NodeSourceMaps<'_>,
         ceiling: u64,
     ) -> Result<(ContractPackageV1, Box<[u8]>), u64> {
-        let mut nodes = BTreeMap::new();
+        let mut nodes = BTreeSet::new();
         for represented in lowered {
-            nodes.insert(represented.node.node_id.clone(), represented.node.clone());
+            nodes.insert(&represented.node.node_id);
         }
         for represented in dependencies {
-            nodes.insert(represented.node.node_id.clone(), represented.node.clone());
+            nodes.insert(&represented.node.node_id);
         }
+        // FR-322 keys a recursion-group member by its ordinal in the admitted
+        // graph. Sorting those members by key would make their keys stale in
+        // the emitted graph. Group blocks sort by their least key, while each
+        // block retains the source graph's member order.
+        let nodes = canonical_node_order(
+            source
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| nodes.contains(&node.node_id)),
+        );
         let node_sources = nodes
-            .keys()
+            .iter()
             .map(|node_id| ContractNodeSourcesV1 {
-                node_id: node_id.clone(),
-                occurrences: source_maps.of(node_id),
+                node_id: node_id.node_id.clone(),
+                occurrences: source_maps.of(&node_id.node_id),
             })
             .collect();
         let accounting: Vec<ContractFeatureRecordV1> = records.iter().map(Into::into).collect();
@@ -671,7 +711,7 @@ impl ContractPackageWireV1 {
         };
         let semantic_graph = ContractSemanticGraphV1 {
             graph_version: source.graph().graph_version.clone(),
-            nodes: nodes.into_values().collect(),
+            nodes: nodes.into_iter().cloned().collect(),
         };
         let source_map = ContractSourceMapV1 {
             nodes: node_sources,
@@ -1428,7 +1468,8 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let mut previous: Option<&CheckedNodeId> = None;
+        let canonical = canonical_node_order(nodes.iter());
+        let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut work = 0_u64;
         for (index, node) in nodes.iter().enumerate() {
@@ -1436,13 +1477,15 @@ impl ContractPackageWireV1 {
                 .key("semantic_graph")
                 .key("nodes")
                 .index(index);
-            if !valid_node_id(&node.node_id) || previous.is_some_and(|key| key >= &node.node_id) {
+            if !valid_node_id(&node.node_id)
+                || !seen.insert(&node.node_id)
+                || canonical[index].node_id != node.node_id
+            {
                 return Err(malformed(
                     at.key("node_id"),
                     CheckedPackageRefusalCause::InvalidValue,
                 ));
             }
-            previous = Some(&node.node_id);
             if !valid_node_id(&node.semantic_type)
                 || node.dependencies.iter().any(|id| !valid_node_id(id))
             {

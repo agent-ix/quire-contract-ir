@@ -38,7 +38,7 @@ The package has exactly the FR-330 properties `contract_version`, `package`,
 the originating checked-package identity and lock and the explicit closed
 `LoweringProfileRef` `{authority, identity}` separately from the lock's source
 profile selections. `semantic_graph` is one
-key-ordered tagged-node collection containing all represented type,
+canonically ordered tagged-node collection containing all represented type,
 expression, model, relation, clause and analysis meaning. Node tags, typed
 keys, source occurrences and compatible reference targets follow QSpec
 FR-322. There are no independent type, expression, clause or protocol graphs.
@@ -61,7 +61,12 @@ authority.
 ## Behavior
 
 One call SHALL assemble the graph from its `lowered` records and the admitted
-local nodes those reach: each node once in ascending FR-322 typed-key order.
+local nodes those reach: each node once. An explicit recursion group's represented
+members SHALL retain their admitted graph order, because FR-322 includes each
+member's graph-order ordinal in its key preimage. A group forms one block keyed
+by its least represented FR-322 typed key. The lowerer SHALL order group blocks
+and ungrouped nodes by that key. Thus a graph without recursion remains in
+ascending typed-key order.
 A refused request contributes no node of its own unless a lowered item reaches
 that node as exact represented meaning. Every local semantic-node reference SHALL resolve to a compatible node in this graph by its key, never by display
 name or array position. A `dependency_reference` SHALL retain its selected
@@ -114,7 +119,7 @@ identity unchanged.
 | FR-035-AC-2 | A source, type, anchor, identity, bound, dependency, or contract-version mutation that changes or invalidates meaning refuses before a backend artifact; a stale selected dependency does not resolve through an identically keyed local node. | Test |
 | FR-035-AC-3 | Mixed supported and refused requests retain one disposition each and independent sibling results, except the package byte ceiling fails every record under FR-038-AC-95. | Test |
 | FR-035-AC-4 | Every local reference resolves by typed key to a compatible local node with exact source correspondence; a dependency reference resolves only through its selected admitted dependency; explicit same-group recursion admits and an undeclared cycle refuses. | Test |
-| FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one key-ordered `semantic_graph` node collection; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission. | Test |
+| FR-035-AC-5 | One call emits exactly one FR-330 `quire.contract-package/v1` value with the six required properties and one canonically ordered `semantic_graph` node collection, retaining recursion-group member order; repeated equivalent construction orders have identical canonical semantic identity. The digest is computed from exactly `contract_version`, `package`, `semantic_graph` and `feature_accounting`: changing an included member changes it, changing only valid `source_map` locations preserves it, and invalid or incomplete `source_map` correspondence refuses admission. | Test |
 | FR-035-AC-6 | For an admitted lowered root, the typed view returns that exact root and each local node reached through `semantic_type`, declared `dependencies` or validated body references once in ascending typed-key order; independently walking those three edge sources yields the same key set, including a shared or cyclic reference, and every returned node retains its exact source correspondence. | Test |
 | FR-035-AC-7 | A selected dependency reference in the view retains its selected dependency identity and target key and cannot be satisfied by an identically keyed local node or an absent, stale or wrong selected package; every lowered-root view exposes both bound and claim typed-key subsets, possibly empty, exactly matching Contract IR's existing lowering classification in typed-key order. | Test |
 | FR-035-AC-8 | Querying a non-`lowered` requested key returns its exact typed disposition, while an unrequested or absent key returns typed absence even if its node occurs only as another root's reached meaning; neither returns a fabricated closure, and querying the view changes none of the six FR-330 wire properties or identity. | Test |
