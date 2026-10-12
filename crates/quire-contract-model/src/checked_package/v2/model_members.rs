@@ -10,8 +10,8 @@
 //!    RFC 8785 digest recomputed, its own identity compared with the row's
 //!    (selections bind by identity; no version is read), and its
 //!    declarations read ([`read_semantic_ir`]).
-//! 2. **Owner recovery** ([`ModelOwners::recover`]). Every object type and
-//!    relationship declaration of each admitted document has its
+//! 2. **Owner recovery** ([`ModelOwners::recover`]). Every object type, record
+//!    value type and relationship declaration of each admitted document has its
 //!    `ModelDeclarationNode` key recomputed; a declaring node's owner is the
 //!    declaration whose key, tag and form all equal the node's, and the node's
 //!    fixed members (`semantic_type` is itself, no `declaration`, no
@@ -26,13 +26,13 @@
 //!    (the most-derived-redefiner rule).
 //! 4. **Member type** ([`DomainModel::slot_type`]). The element-type,
 //!    multiplicity and presence tables give a [`MemberType`], whose node key
-//!    ([`MemberType::node_key`]) is the anonymous `quire.structural-node/v1`
-//!    key QSL FR-092 and FR-094 give that type, so an application's
+//!    ([`MemberType::node_key`]) is the structural key QSL FR-092 and FR-094
+//!    give that type (an owned declaration key for a record), so an application's
 //!    `result_type` or argument type is compared by key.
 //!
 //! Scope. [`read_semantic_ir`] reads the declarations these steps consult:
-//! object types, systems interfaces, integer value types and relationship
-//! declarations, with their fields, operations, supertypes and member
+//! object types, record value types, systems interfaces, integer value types
+//! and relationship declarations, with their fields, operations, supertypes and member
 //! redefinitions. A type of any other FR-208 meaning is recorded as declared,
 //! so a `typeRef` naming it resolves to a declaration with no element type,
 //! but its own body is not read. Field and operation `redefines` references
@@ -70,13 +70,14 @@ const NATIVE_NAMES: &[&str] = &[
 mod meaning {
     pub(super) const OBJECT_TYPE: &str = "quire.meaning.model.object-type/v1";
     pub(super) const VALUE_TYPE: &str = "quire.meaning.model.value-type/v1";
+    pub(super) const RECORD_VALUE_TYPE: &str = "quire.meaning.model.record-value-type/v1";
     pub(super) const SYSTEMS_INTERFACE: &str = "quire.meaning.systems.interface/v1";
     pub(super) const SYSTEMS_CONNECTION: &str = "quire.meaning.systems.connection/v1";
     /// Every meaning id FR-208 declares.
     pub(super) const ALL: &[&str] = &[
         OBJECT_TYPE,
         VALUE_TYPE,
-        "quire.meaning.model.record-value-type/v1",
+        RECORD_VALUE_TYPE,
         "quire.meaning.model.variant-type/v1",
         "quire.meaning.model.event-type/v1",
         "quire.meaning.model.state-machine/v1",
@@ -188,9 +189,9 @@ pub(super) struct OperationDecl {
     pub(super) redefines: Option<Box<str>>,
 }
 
-/// One object type (or systems interface) declaration.
+/// One object, record value type or systems interface declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ObjectTypeDecl {
+pub(super) struct FieldBearingTypeDecl {
     /// Whether it carries `interfaceFeatures` (a systems interface).
     pub(super) interface: bool,
     pub(super) supertypes: Vec<Box<str>>,
@@ -280,7 +281,9 @@ pub(super) struct DomainModel {
     /// model's declarations is hashed.
     pub(super) bytes: u64,
     /// Object types and systems interfaces, by IR node identity.
-    pub(super) object_types: BTreeMap<Box<str>, ObjectTypeDecl>,
+    pub(super) object_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
+    /// Record value types, with their own and inherited fields.
+    pub(super) record_types: BTreeMap<Box<str>, FieldBearingTypeDecl>,
     /// Value types, by IR node identity; `None` when not bound as `Int[lo, hi]`.
     pub(super) value_types: BTreeMap<Box<str>, Option<IntegerBounds>>,
     /// Relationship declarations, by IR node identity.
@@ -298,6 +301,7 @@ pub(super) struct DomainModel {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DeclarationForm {
     ObjectType,
+    RecordValueType,
     SystemsInterface,
     Relationship,
 }
@@ -305,7 +309,7 @@ pub(super) enum DeclarationForm {
 impl DeclarationForm {
     pub(super) const fn tag(self) -> &'static str {
         match self {
-            Self::ObjectType | Self::SystemsInterface => "model",
+            Self::ObjectType | Self::RecordValueType | Self::SystemsInterface => "model",
             Self::Relationship => "relation",
         }
     }
@@ -313,6 +317,7 @@ impl DeclarationForm {
     pub(super) const fn form(self) -> &'static str {
         match self {
             Self::ObjectType => "object_type",
+            Self::RecordValueType => "record_value_type",
             Self::SystemsInterface => "systems_interface",
             Self::Relationship => "relationship",
         }
@@ -529,6 +534,8 @@ pub(super) enum MemberType {
     IntRange(IntegerBounds),
     /// `Reference<O>`, by the digest of `O`'s model declaration node.
     Reference(Box<str>),
+    /// A value record, by its owner-bearing declaration node key.
+    Record(Box<str>),
     /// `Option<X>`.
     Option(Box<MemberType>),
     /// `K<E>`, or `K<E>[l, u]` when bounded.
@@ -580,6 +587,7 @@ impl MemberType {
                 StructuralBody::Over(target),
                 bytes,
             ),
+            Self::Record(target) => Ok(target.to_string()),
             Self::Option(inner) => {
                 let inner = inner.node_key(bytes)?;
                 anonymous(
@@ -807,6 +815,12 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    /// A field-bearing declaration, whether it is an object or a value record.
+    pub(super) fn field_owner(&self, node: &str) -> Option<&FieldBearingTypeDecl> {
+        self.object_types
+            .get(node)
+            .or_else(|| self.record_types.get(node))
+    }
     /// The proper ancestors of `node` along its declared supertypes; one
     /// work unit per supertype edge followed.
     fn ancestors(
@@ -818,14 +832,13 @@ impl DomainModel {
         probe::walked();
         let mut reached = BTreeSet::new();
         let mut pending: Vec<&str> = self
-            .object_types
-            .get(node)
+            .field_owner(node)
             .map(|declared| declared.supertypes.iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
         while let Some(supertype) = pending.pop() {
             budget.charge(1)?;
             if reached.insert(supertype) {
-                if let Some(declared) = self.object_types.get(supertype) {
+                if let Some(declared) = self.field_owner(supertype) {
                     pending.extend(declared.supertypes.iter().map(AsRef::as_ref));
                 }
             }
@@ -858,7 +871,7 @@ impl DomainModel {
     }
 
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
-    /// effective members of the object type `node`. A field is selected from
+    /// effective members of the object or record type `node`. A field is selected from
     /// the field table built at admission, one work unit per exposed or hidden
     /// entry of that table; an operation walks the ancestors, and every
     /// ancestor edge, member and redefinition pair visited is one work unit.
@@ -869,9 +882,16 @@ impl DomainModel {
         name: &str,
         budget: &mut Budget<'_>,
     ) -> Result<Resolved<'_>, ModelFailure> {
-        let Some((owner_node, declared)) = self.object_types.get_key_value(node) else {
+        let Some((owner_node, declared)) = self
+            .object_types
+            .get_key_value(node)
+            .or_else(|| self.record_types.get_key_value(node))
+        else {
             return Err(ModelRefusal::ineligible().into());
         };
+        if kind == MemberKind::Operation && self.record_types.contains_key(node) {
+            return Err(ModelRefusal::ineligible().into());
+        }
         if kind == MemberKind::Field {
             let Some(table) = self.fields.of(node) else {
                 return Err(ModelRefusal::ineligible().into());
@@ -887,7 +907,7 @@ impl DomainModel {
         let owners = std::iter::once((owner_node.as_ref(), declared)).chain(
             ancestors
                 .iter()
-                .filter_map(|ancestor| Some((*ancestor, self.object_types.get(*ancestor)?))),
+                .filter_map(|ancestor| Some((*ancestor, self.field_owner(ancestor)?))),
         );
         let mut members: BTreeMap<&str, Resolved<'_>> = BTreeMap::new();
         let mut hidden: BTreeSet<&str> = BTreeSet::new();
@@ -969,6 +989,16 @@ impl DomainModel {
         if let Some(bounds) = self.value_types.get(type_ref) {
             return bounds.map(MemberType::IntRange);
         }
+        if self.record_types.contains_key(type_ref) {
+            return declaration_key(
+                &self.identity,
+                DeclarationForm::RecordValueType,
+                type_ref,
+                self.bytes,
+            )
+            .ok()
+            .map(|key| MemberType::Record(key.into()));
+        }
         let object = self.object_types.get(type_ref)?;
         if object.interface {
             return None;
@@ -1039,7 +1069,7 @@ pub(super) struct ModelOwners<'m> {
 }
 
 impl<'m> ModelOwners<'m> {
-    /// Recomputes the key of every object type and relationship declaration
+    /// Recomputes the key of every object, record and relationship declaration
     /// of each admitted document; `charge` is called once per key.
     pub(super) fn new(
         models: &'m [DomainModel],
@@ -1060,7 +1090,11 @@ impl<'m> ModelOwners<'m> {
                 .keys()
                 .chain(&package.relation_nodes)
                 .map(|node| (node, DeclarationForm::Relationship));
-            for (node, form) in objects.chain(relationships) {
+            let records = package
+                .record_types
+                .keys()
+                .map(|node| (node, DeclarationForm::RecordValueType));
+            for (node, form) in objects.chain(records).chain(relationships) {
                 charge(index)?;
                 // A key the encoder refuses (a preimage past the byte limit)
                 // refuses the read as `invalid_semantic_graph` at the
@@ -1189,7 +1223,7 @@ impl<'m> ModelOwners<'m> {
 impl Owner<'_> {
     /// The object type (or systems interface) this owner declares, `None`
     /// for a relationship.
-    pub(super) fn object_type(&self) -> Option<&ObjectTypeDecl> {
+    pub(super) fn object_type(&self) -> Option<&FieldBearingTypeDecl> {
         self.package.object_types.get(self.node)
     }
 }
@@ -1866,6 +1900,8 @@ type ClassifiedType<'v> = Result<(&'v Value, &'v str), ModelRefusal>;
 struct Scope<'v> {
     /// Object types and systems interfaces.
     objects: BTreeSet<&'v str>,
+    /// Record value types, which carry value fields without object identity.
+    records: BTreeSet<&'v str>,
     /// Type nodes whose own declaration is refused; a reference to one is
     /// not reported again, its own refusal stands for it (FR-154).
     refused: BTreeSet<&'v str>,
@@ -1974,6 +2010,7 @@ pub(super) fn read_semantic_ir(
         identity: identity.into(),
         bytes: budget.bytes,
         object_types: BTreeMap::new(),
+        record_types: BTreeMap::new(),
         value_types: BTreeMap::new(),
         relationships: BTreeMap::new(),
         relation_nodes: BTreeSet::new(),
@@ -1982,6 +2019,7 @@ pub(super) fn read_semantic_ir(
     };
     let mut scope = Scope {
         objects: BTreeSet::new(),
+        records: BTreeSet::new(),
         refused: BTreeSet::new(),
         members: BTreeSet::new(),
         relationships: BTreeSet::new(),
@@ -1995,8 +2033,12 @@ pub(super) fn read_semantic_ir(
             }
         };
         match meaning {
-            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE => {
-                scope.objects.insert(node);
+            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE | meaning::RECORD_VALUE_TYPE => {
+                if meaning == meaning::RECORD_VALUE_TYPE {
+                    scope.records.insert(node);
+                } else {
+                    scope.objects.insert(node);
+                }
                 // Members and relationships are collected from every object
                 // type before any is read: a reference to one resolves the
                 // same whichever node declares it first.
@@ -2029,6 +2071,7 @@ pub(super) fn read_semantic_ir(
         }
     }
     let mut objects = Vec::new();
+    let mut records = Vec::new();
     let mut relationships = BTreeMap::new();
     for (node, classified) in classified {
         let (declared, meaning) = match classified {
@@ -2040,12 +2083,13 @@ pub(super) fn read_semantic_ir(
         };
         budget.charge(node_size(declared))?;
         match meaning {
-            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE => {
+            meaning::OBJECT_TYPE | meaning::SYSTEMS_INTERFACE | meaning::RECORD_VALUE_TYPE => {
                 let mut defects = Defects::new(declared);
                 let (object, declared_relationships) = semantic_ir_object_type(
                     declared,
                     node,
                     meaning == meaning::SYSTEMS_INTERFACE,
+                    meaning == meaning::RECORD_VALUE_TYPE,
                     &References {
                         model: &model,
                         scope: &scope,
@@ -2061,7 +2105,11 @@ pub(super) fn read_semantic_ir(
                     )?
                     .into());
                 }
-                objects.push((node, object));
+                if meaning == meaning::RECORD_VALUE_TYPE {
+                    records.push((node, object));
+                } else {
+                    objects.push((node, object));
+                }
                 for (identity, relationship) in declared_relationships {
                     // Unreachable for an admitted object: semantic_ir_object_type
                     // records every known/local duplicate at the later actual
@@ -2090,6 +2138,11 @@ pub(super) fn read_semantic_ir(
             .into_iter()
             .map(|(node, object)| (Box::from(node), object)),
     );
+    model.record_types.extend(
+        records
+            .into_iter()
+            .map(|(node, record)| (Box::from(node), record)),
+    );
     model.relationships = relationships;
     Ok(model)
 }
@@ -2115,6 +2168,8 @@ impl References<'_> {
     /// relationship.
     fn declared_elsewhere(&self, node: &str) -> bool {
         self.model.value_types.contains_key(node)
+            || self.model.record_types.contains_key(node)
+            || self.scope.records.contains(node)
             || self.model.other_types.contains(node)
             || self.scope.relationships.contains(node)
     }
@@ -2129,6 +2184,7 @@ impl References<'_> {
             Some(name) if NATIVE_NAMES.contains(&name) => {}
             Some(_) => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
             None if self.scope.objects.contains(type_ref)
+                || self.scope.records.contains(type_ref)
                 || self.model.value_types.contains_key(type_ref)
                 || self.model.other_types.contains(type_ref) => {}
             None if self.scope.refused.contains(type_ref) => {}
@@ -2140,11 +2196,25 @@ impl References<'_> {
     }
 
     /// A supertype names an object type of the document.
-    fn check_supertype(&self, supertype: &str, path: &[Segment], defects: &mut Defects) {
-        if self.scope.objects.contains(supertype) || self.scope.refused.contains(supertype) {
+    fn check_supertype(
+        &self,
+        supertype: &str,
+        record: bool,
+        path: &[Segment],
+        defects: &mut Defects,
+    ) {
+        let eligible = if record {
+            &self.scope.records
+        } else {
+            &self.scope.objects
+        };
+        if eligible.contains(supertype) || self.scope.refused.contains(supertype) {
             return;
         }
-        if self.declared_elsewhere(supertype) {
+        if self.declared_elsewhere(supertype)
+            || self.scope.objects.contains(supertype)
+            || self.scope.records.contains(supertype)
+        {
             defects.push(Row::Meaning, path, ModelRefusal::malformed());
         } else {
             defects.push(Row::Reference, path, ModelRefusal::missing_name());
@@ -2452,10 +2522,11 @@ fn semantic_ir_object_type<'v>(
     value: &'v Value,
     node: &str,
     interface: bool,
+    record: bool,
     references: &References<'_>,
     known_relationships: &BTreeMap<Box<str>, RelationshipDecl>,
     defects: &mut Defects<'v>,
-) -> (ObjectTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
+) -> (FieldBearingTypeDecl, Vec<(Box<str>, RelationshipDecl)>) {
     let mut fields = Vec::new();
     for (index, field) in items(value, "fields", defects).iter().enumerate() {
         defects.context(field);
@@ -2550,14 +2621,14 @@ fn semantic_ir_object_type<'v>(
         let path = [Segment::Name("supertypes"), Segment::Index(index)];
         match supertype.as_str() {
             Some(supertype) => {
-                references.check_supertype(supertype, &path, defects);
+                references.check_supertype(supertype, record, &path, defects);
                 supertypes.push(Box::from(supertype));
             }
             None => defects.push(Row::Meaning, &path, ModelRefusal::malformed()),
         }
     }
     (
-        ObjectTypeDecl {
+        FieldBearingTypeDecl {
             interface,
             supertypes,
             fields,

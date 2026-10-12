@@ -43,7 +43,7 @@ anchor operations and clause parameter lists that resolve, name nothing,
 name the other member kind, are ambiguous, are only inherited, are keyed
 under an unselected domain package, or bind the wrong parameters.
 
-PLANNED/UNRUN (IR-770; FR-040-AC-14 through FR-040-AC-16): through the public
+IMPLEMENTED (IR-770; FR-040-AC-14 through FR-040-AC-16): through the public
 V2 reader, select an authentic record owner with a bounded text field and an
 object with a field typed by that record. Read a frame naming both the object
 field and the record's own field and assert that each resolves against its
@@ -77,5 +77,7 @@ in two steps reports the earlier step's defect.
 FR-040-AC-1 through FR-040-AC-13 are implemented in
 `tests/it/checked_package_v2_frame_entries.rs` and the entry eligibility
 tests in `crates/quire-contract-model/src/checked_package/v2/frame.rs`.
-FR-040-AC-14 through FR-040-AC-16 are PLANNED/UNRUN (IR-770), with no tagged
-implementation tests yet.
+FR-040-AC-14 through FR-040-AC-16 are implemented by the tagged public-reader
+record frame and expression cases in `tests/it/checked_package_v2_frame_entries.rs`
+and `tests/it/checked_package_v2_model_fields.rs`, and the selected-row and
+effective-type unit cases in `model_members/tests.rs` and `model_fields/tests.rs`.

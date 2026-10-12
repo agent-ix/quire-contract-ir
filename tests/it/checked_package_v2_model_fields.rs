@@ -113,6 +113,7 @@ enum Ty {
     Range(i128, i128),
     /// `Reference<O>`, by the key of `O`'s model declaration node.
     Reference(String),
+    Record(String),
     Option(Box<Ty>),
     Collection(Kind, Box<Ty>, Option<(u64, u64)>),
 }
@@ -142,6 +143,7 @@ fn ty_of(member: &CheckedMemberType) -> Ty {
         CheckedMemberType::Integer => Ty::Integer,
         CheckedMemberType::IntRange { lower, upper } => Ty::Range(*lower, *upper),
         CheckedMemberType::Reference(target) => Ty::Reference(target.digest.to_string()),
+        CheckedMemberType::Record(target) => Ty::Record(target.digest.to_string()),
         CheckedMemberType::Option(element) => Ty::Option(Box::new(ty_of(element))),
         CheckedMemberType::Collection {
             kind,
@@ -214,6 +216,7 @@ fn type_nodes(ty: &Ty, nodes: &mut BTreeMap<String, Value>) -> String {
             let node = wire_node(&key, "composite_type", "reference", &key, &[target], body);
             add(key, node)
         }
+        Ty::Record(target) => target.clone(),
         Ty::Option(element) => {
             let element = type_nodes(element, nodes);
             let body = json!({"term": "aggregate", "members": [reference(&element)]});
@@ -415,7 +418,10 @@ fn package(
             "model"
         };
         let mut node = wire_node(&key, tag, form, &key, &[], empty());
-        if matches!(*form, OBJECT | INTERFACE | "relationship") {
+        if matches!(
+            *form,
+            OBJECT | INTERFACE | "relationship" | "record_value_type"
+        ) {
             node["owner"] = json!({
                 "kind": "model", "identity": IDENTITY, "node": orders(short),
             });
@@ -425,7 +431,11 @@ fn package(
     let mut read_nodes = Vec::new();
     for read in reads {
         let ty = type_nodes(&read.ty, &mut nodes);
-        let owner = declaration_key(read.owner, OBJECT);
+        let form = declared
+            .iter()
+            .find_map(|(short, form)| (*short == read.owner).then_some(*form))
+            .expect("the read owner has a declaration");
+        let owner = declaration_key(read.owner, form);
         let body = json!({
             "term": "application",
             "operator": "query",
@@ -1166,6 +1176,58 @@ const INELIGIBLE: (
     Some(CheckedPackageRefusalCause::OperatorIneligible),
 );
 
+/// An unknown field on a selected model record retains record.project's
+/// expression refusal, separate from frame name resolution.
+///
+/// Trace: FR-040-AC-14
+#[trace("TC-056", "FR-040-AC-14")]
+#[test]
+fn tc_056_record_projection_unknown_field_remains_ineligible() {
+    let thousand = orders("Thousand");
+    let mut document = document(vec![
+        thousand_type(),
+        typed_object("Address", "record", &[], &[field("number", &thousand)]),
+    ]);
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "record"},
+            "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+        }));
+    let declared = [("Address", "record_value_type")];
+    let (package, evidence, positions) = package(
+        &document,
+        &declared,
+        &[Read {
+            owner: "Address",
+            field: "ghost",
+            ty: Ty::Range(0, 1000),
+        }],
+    );
+    match read_with(&package, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Refused(refusal) => assert_eq!(
+            (
+                refusal.code,
+                refusal.cause,
+                refusal.path.as_ref().map(|path| path.as_str())
+            ),
+            (
+                CheckedPackageRefusalCode::IllTyped,
+                Some(CheckedPackageRefusalCause::OperatorIneligible),
+                Some(
+                    format!(
+                        "/semantic_graph/nodes/{}/body/operation/member/name",
+                        positions[0]
+                    )
+                    .as_str()
+                )
+            )
+        ),
+        other => panic!("an unknown record projection must be ineligible: {other:?}"),
+    }
+}
+
 /// A chain with an inherited field, a field redefined by a subtype with a
 /// narrower range, a most-derived redefiner two owners deep and an own field:
 /// each exposed name comes back once, with the most-derived redefiner's type
@@ -1395,6 +1457,7 @@ fn perturbed(ty: &Ty, other: &str) -> Ty {
         Ty::Range(lower, upper) if *lower < i128::MAX => Ty::Range(*lower, upper + 1),
         Ty::Range(lower, upper) => Ty::Range(lower - 1, *upper),
         Ty::Reference(_) => Ty::Reference(other.to_owned()),
+        Ty::Record(_) => Ty::Record(other.to_owned()),
         Ty::Option(element) => Ty::Option(Box::new(perturbed(element, other))),
         Ty::Collection(kind, element, Some((lower, upper))) => {
             let bounds = if upper > lower {
@@ -1671,6 +1734,7 @@ fn tc_227_the_public_shape_is_closed_and_takes_one_node_id() {
             CheckedMemberType::Integer => 1,
             CheckedMemberType::IntRange { .. } => 2,
             CheckedMemberType::Reference(_) => 3,
+            CheckedMemberType::Record(_) => 6,
             CheckedMemberType::Option(_) => 4,
             CheckedMemberType::Collection { .. } => 5,
         }
