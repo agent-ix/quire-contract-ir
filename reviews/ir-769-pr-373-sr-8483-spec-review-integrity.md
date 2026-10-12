@@ -20,3 +20,9 @@ The changed TC-447 status conflicts with the existing FR-049 Description status.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | FR-049 status still says PLANNED/UNRUN after TC-447 marks the IR query implemented | spec/checked_package/functional/FR-049-admitted-scalar-result-context.md:23 |
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |

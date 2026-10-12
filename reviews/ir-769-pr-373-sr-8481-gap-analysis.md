@@ -26,3 +26,11 @@ All six FR-049 criteria are tagged in the computed matrix, and four focused test
 ## Coverage
 
 Plan completion: not assessed. Computed matrix: FR-049-AC-1 through AC-6 are tagged. The optional semantic review was not selected; this scoped PR check still compared the changed tests to the six criteria. QSL-712 per-item pairing remains downstream.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
+| FND-002 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
+| FND-003 | fixed | ed951691c2415447b1e0f3688d65ad566b103b1e |
