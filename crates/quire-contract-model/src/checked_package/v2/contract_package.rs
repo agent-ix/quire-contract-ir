@@ -1,5 +1,12 @@
 //! FR-035 and QSpec FR-330: the single target-neutral ContractPackage wire.
 
+mod result_context;
+
+pub use result_context::{
+    ContractLoweredResultV1, ContractOccurrenceKeyV1, ContractResultBoundV1,
+    ContractResultContextV1, ContractResultViewV1,
+};
+
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::encode::{elements, encoded, member as encode_member};
 use super::lower::{

@@ -26,6 +26,13 @@ name = "conformance_qspec"
 path = "tests/conformance_qspec/main.rs"
 test = false
 
+# FR-049/TC-447: fresh QSL source is compiled by the owning checkout's
+# executable in a named producer lane, outside ordinary IR make test.
+[[test]]
+name = "conformance_qsl_ir769"
+path = "tests/conformance_qsl_ir769/main.rs"
+test = false
+
 # FR-038-AC-214: 177 MB fixture and three isolated reader processes.
 # Explicitly invoked for the memory gate, excluded from ordinary `make test`.
 [[test]]

@@ -19,11 +19,12 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
-    ContractDependencyInput, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
-    LoweringProfileRef,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedOccurrenceRole,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CompleteLoweringProfileV2, ContractDependencies, ContractDependencyInput,
+    ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageWireV1,
+    ContractResultContextV1, ContractResultViewV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
 
@@ -264,8 +265,8 @@ fn calling(dependency: &Dependency, callee_node: &str) -> Value {
     )
 }
 
-/// Trace: FR-035-AC-7
-#[trace("TC-047", "FR-035-AC-7")]
+/// Trace: FR-035-AC-7, FR-049-AC-5
+#[trace("TC-047", "FR-035-AC-7", "TC-447", "FR-049-AC-5")]
 #[test]
 fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     let dependency = build_dependency(|_| {});
@@ -286,6 +287,7 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     );
     rename_node(&mut package, &family_key("8080"), &dependency.function_key);
     let call = call_position(&package);
+    package["semantic_graph"]["nodes"][call]["occurrences"][0]["role"] = json!("expression");
     rekey_application_node(&mut package, call);
     rebuild_source_map(&mut package);
     refresh_identity(&mut package);
@@ -346,7 +348,24 @@ fn reached_view_retains_selected_dependency_pair_at_package_boundary() {
     };
     assert_eq!(
         read_back.reached_closure(&root).expect("view"),
-        ContractRootViewV1::Lowered(view)
+        ContractRootViewV1::Lowered(view.clone())
+    );
+    let application = ContractOccurrenceKeyV1 {
+        node_id: root.clone(),
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    let ContractResultViewV1::Lowered(contextual_view) = read_back
+        .result_context(&root, &application, None, BoundedDomainForm::IntegerRange)
+        .expect("admitted result context")
+    else {
+        panic!("selected external call remains lowered");
+    };
+    assert_eq!(contextual_view.context, ContractResultContextV1::Unnarrowed);
+    assert_eq!(contextual_view.application, application);
+    assert_eq!(
+        contextual_view.reached.selected_references,
+        view.selected_references
     );
     assert!(matches!(
         ContractPackageWireV1::read(
